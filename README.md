@@ -11,15 +11,15 @@
 
 <br>
 
-[![v1.x.x](https://img.shields.io/badge/v1.x.x-End_of_Life-ef4444?style=flat-square)](https://github.com/DirazMuhammad/novabyte-os)
-[![v2.x.x](https://img.shields.io/badge/v2.x.x-Maintenance-f59e0b?style=flat-square)](https://github.com/DirazMuhammad/novabyte-os)
-[![v3.x.x](https://img.shields.io/badge/v3.x.x-Current-22c55e?style=flat-square)](https://github.com/DirazMuhammad/novabyte-os)
+[![v1.x.x](https://img.shields.io/badge/v1.x.x-End_of_Life-ef4444?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
+[![v2.x.x](https://img.shields.io/badge/v2.x.x-Maintenance-f59e0b?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
+[![v3.x.x](https://img.shields.io/badge/v3.x.x-Current-22c55e?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
 [![Node](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![License](https://img.shields.io/badge/License-Private-6b7280?style=flat-square)](https://github.com/DirazMuhammad/novabyte-os)
+[![License](https://img.shields.io/badge/License-Private-6b7280?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
 
 <br>
 
-[**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Editions**](#️-editions) · [**Security**](#-security) · [**Versions**](#-versions)
+[**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Security**](#-security) · [**Versions**](#-versions)
 
 </div>
 
@@ -31,7 +31,7 @@
 > **v1, v2, and v3 source code is fully closed source and has been removed from this repository.**
 > The compiled v3 executable is available via GitHub Releases.
 
-**→ [Download NovaByte OS v3 (Latest Release)](https://github.com/DirazMuhammad/novabyte-os/releases/latest)**
+**→ [Download NovaByte OS v3 (Latest Release)](https://github.com/NovaByteTeam/novabyte-os/releases/latest)**
 
 Download the `.zip`, extract it, and run the exe. No installation required.
 
@@ -53,7 +53,7 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 - THE REASON WE EVEN INCLUDED APPS IS BECAUSE WE PROMISE NBOSP IS FUNCTIONAL OUT OF THE BOX, AND PROVING IT'S A DESKTOP OS, IT CAN BROWSE, PLAY MUSIC, BROWSE FILES, INSTALL .NOVAAPP APPS, ETC.
 - AND ALSO THE APPS LISTED ARE BUILT SPECIFICALLY FOR THE NOVABYTE OPEN SOURCE PROJECT. FREE TO USE, CUSTOMISE, OR CHANGE ANY BIT THE WAY YOU LIKE.
 
-> **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/DirazMuhammad/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
+> **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
 
 ### 🔄 NBOSP App Updates
 
@@ -139,7 +139,7 @@ If you want to bundle NovaByte Services into your own app or OS:
 > [!CAUTION]
 > **NovaByte OS v1, v2, and v3 source code is fully closed source.**
 > **It has been completely removed from this repository.**
-> The source is not available. The compiled v3 executable is available via [GitHub Releases](https://github.com/DirazMuhammad/novabyte-os/releases/latest).
+> The source is not available. The compiled v3 executable is available via [GitHub Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
 
 You are **not permitted** to:
 
@@ -166,7 +166,7 @@ If you want a freely buildable base, use `NBOSP/` instead.
 > | OS-level vulnerabilities | ❌ Devices are exposed and unpatched |
 > | Nova Core Services | ✅ Partial service-level patches continue |
 >
-> **→ Upgrade to NovaByte OS 3.x.x:** download from [Releases](https://github.com/DirazMuhammad/novabyte-os/releases/latest)
+> **→ Upgrade to NovaByte OS 3.x.x:** download from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest)
 
 ---
 
@@ -180,29 +180,14 @@ If you want a freely buildable base, use `NBOSP/` instead.
 
 ---
 
-## 🗂️ Editions
 
-NovaByte OS supports **Editions** — named feature sets or configurations that group specific apps and capabilities together under a single identity.
-
-### Removal Rule
-
-> [!CAUTION]
-> **Do not remove an Edition unless you are also removing every app associated with it.**
->
-> | Action | Required |
-> |--------|----------|
-> | Keeping an Edition | No changes required |
-> | Removing an Edition | ❌ You **must** also remove **every app** tied to that Edition |
-> | Renaming an Edition | Treat as Remove + Re-add — audit all associated apps |
-
----
 
 ## 🚀 Getting Started
 
 ### Running NBOSP
 
 ```bash
-git clone https://github.com/DirazMuhammad/novabyte-os.git
+git clone https://github.com/NovaByteTeam/novabyte-os.git
 cd novabyte-os/NBOSP
 npm install
 npm start
@@ -212,7 +197,7 @@ The window opens automatically — no manual browser navigation needed.
 
 ### Running v3
 
-Download the compiled exe from [Releases](https://github.com/DirazMuhammad/novabyte-os/releases/latest), extract the zip, and run it. No Node.js or cloning required.
+Download the compiled exe from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest), extract the zip, and run it. No Node.js or cloning required.
 
 ---
 
@@ -238,39 +223,42 @@ novabyte-os/
 
 ## 🔄 Update System
 
-NovaByte OS uses a fully **GitHub-based update pipeline** — no server needed to receive or distribute updates.
+### v3 Update Instructions
 
-### OS Updates
+v3 is closed source. Update instructions for v3 have been removed from this document.
 
+### Setting Up Your Own Update System (NBOSP)
+
+NBOSP has no built-in update pipeline — if you build on top of it, you're responsible for shipping updates to your users. The simplest approach is a GitHub-based pipeline:
+
+**1. Tag your releases**
+```bash
+git tag v1.0.0
+git push --tags
 ```
-1. Edit your files and commit
-2. Tag the release: git tag v2026.05.3 && git push --tags
-3. Go to Releases → New Release, select your tag, write the changelog, and publish
+
+**2. Publish a GitHub Release**
+
+Go to your repo → Releases → Draft a new release → select your tag → attach your build → publish.
+
+**3. Check for updates at runtime**
+
+Poll the GitHub Releases API from your app on startup:
+```js
+const res = await fetch('https://api.github.com/repos/YOUR_USERNAME/YOUR_REPO/releases/latest');
+const data = await res.json();
+// Compare data.tag_name against your current version
 ```
 
-### Nova Core Services Updates
+If a newer tag exists, prompt the user to download the new release. That's the whole system — no server required.
+
+### Nova Core Services Updates (v2 / v3 — internal)
 
 ```
 1. Edit Core Services files only
 2. Tag: git tag cs-v2.1.0 && git push --tags
 3. Create a GitHub Release with your cs- tag and publish
 ```
-
-### Built-in App Updates (v3 only)
-
-v3 includes a **System Updates** app that lets you push updates to individual built-in apps without requiring users to re-download anything.
-
-#### Protected Apps — OS Updates Only
-
-| App | ID | Reason |
-|-----|----|--------|
-| Vault | `vault` | File manager + desktop handler |
-| NovaSentinel | `novasentinel` | Security system — cannot be patched at runtime |
-| Settings | `nook` | Manages all `OS.settings` |
-| Policy Manager | `gpedit` | Controls GPO restrictions |
-| NovaReg | `novareg` | Directly edits the OS registry |
-| Boot Config Editor | `bcdedit` | Changes boot order |
-| System Updates | `nova-updates` | Never patch the updater itself |
 
 ---
 
@@ -305,59 +293,11 @@ Nova Core Services is NovaByte's **independent security update pipeline** — se
 | 🚀 Performance Services | `sw.js` | Caching, offline support |
 | ⚙️ System Shell | `user-power-menu.js` | Power menu with GPO enforcement |
 
-### What Core Services Cannot Fix
 
-- Deep OS-level bugs in `index.html` or the core window manager
-- Vulnerabilities in the UV/bare-mux proxy layer
-- Auth system problems in `server.js` or `auth-routes.js`
-- Anything outside the permitted file scope in `cs-manifest.json`
 
----
 
-## 🍴 Fork & Identity Policy
 
-> [!CAUTION]
-> When a version reaches End of Life, the official identity of that release is **permanently frozen**.
 
-### ❌ Not Allowed
-
-- Releasing modified EOL versions that keep the original NovaByte OS UI/UX
-- Presenting a fork as a "continuation of NovaByte OS" without clear rebranding
-- Using NovaByte OS branding, versioning, or identity while fundamentally altering system behavior
-
-### ✅ Allowed (True Derivative Systems)
-
-- Project is clearly **rebranded** as a separate operating system
-- UI/UX is **redesigned or significantly different**
-- Internal architecture changes are **documented and independently maintained**
-- Project does **not** suggest official support or continuity from NovaByte OS
-
-### Core Principle
-
-> If it resembles NovaByte OS but is no longer maintained by the official NovaByte project, **it must not be called NovaByte OS.**
->
-> **Derivation is allowed. Identity continuation is not.**
-
----
-
-## 🏷️ Protected System Identifiers
-
-> [!CAUTION]
->
-> ### `NovaByte Security Patch Level` and `NovaByte Version`
->
-> These two identifiers are **permanently locked** and must never be renamed, removed, or altered in any build, fork, or derivative.
->
-> | Identifier | Status | Rule |
-> |------------|--------|------|
-> | `NovaByte Security Patch Level` | 🔒 Locked | Never rename, never remove |
-> | `NovaByte Version` | 🔒 Locked | Never rename, never remove |
->
-> Apps built on NovaByte OS read these identifiers directly by name. If either string is changed — even slightly — **those apps will silently fail, crash on launch, or never open at all.**
->
-> **There are no exceptions.**
-
----
 
 ## 🔐 Security
 
@@ -386,7 +326,7 @@ NovaByte OS v3 received a **sweeping security overhaul** in May 2026.
 > **v2 users:** everything in that table — you don't have any of it. Your CSP is `unsafe-inline`. Your pdf.js CDN is trusted unconditionally. Upgrade link is at the top of this file.
 
 > [!CAUTION]
-> **v1 users:** there's no CSP, no nonces, no SRI, no Helmet, no CSRF protection on half the routes. Running v1 in 2026 is a bold lifestyle choice. The upgrade path is [right here](https://github.com/DirazMuhammad/novabyte-os/releases/latest).
+> **v1 users:** there's no CSP, no nonces, no SRI, no Helmet, no CSRF protection on half the routes. Running v1 in 2026 is a bold lifestyle choice. The upgrade path is [right here](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
 
 ---
 
