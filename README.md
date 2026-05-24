@@ -19,9 +19,52 @@
 
 <br>
 
-[**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Security**](#-security) · [**Versions**](#-versions)
+[**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Security**](#-security) · [**Versions**](#-versions)
 
 </div>
+
+---
+
+## 🔏 Close-Source Announcement — 23/05/2026
+
+> [!IMPORTANT]
+> **After a long time of waiting and planning, we finally closed the source of NovaByte OS on 23 May 2026.**
+
+We've wanted to do this for a while, and we finally made it happen. Here's what that means technically and what you should know before poking around the release files:
+
+### How We Did It
+
+We closed the source using a combination of three layers of protection:
+
+- **JavaScript obfuscation** — all JS logic has been heavily obfuscated before packaging
+- **NW.js (Node-Webkit)** — the app is packaged as a native desktop executable via NW.js, keeping the runtime internals away from plain browser inspection
+- **V8 bytecode compilation** — source files have been compiled to V8 bytecode, meaning what ships is pre-compiled engine output, not readable JavaScript
+
+On top of that, **the full git commit history has been wiped.** There is no history to browse, diff, or trace.
+
+### app.bin
+
+All core OS logic lives in **`app.bin`**. This file is compiled machine-level bytecode — it is completely unreadable as source code and is not practically reversible. **Do not attempt to reverse engineer or deobfuscate `app.bin`.** It is not possible to recover meaningful source from it, and attempting to do so is a violation of our terms.
+
+### index.html
+
+**`index.html` is a shell. That's it.** It's an entry point with no meaningful logic inside it. Don't get excited about it — inspecting or redistributing it serves no purpose, and doing so with intent to bypass the close-source protections is against our policy.
+
+### HTML File Encoding
+
+We've also run our HTML files through a **base64 + gzip pipeline** — they're compressed and base64-encoded, which makes them mostly unreadable to non-technical users and adds a small extra step for anyone trying to read them. It doesn't provide real protection on its own, but we recommend doing the same on your own project for that extra friction layer. See the BuildScript below for how we did it.
+
+---
+
+## 📦 NBOSP BuildScript — Close Source Your Own Project
+
+If you want to close source your own NBOSP-based project the same way we did, we've uploaded our **build script** to this repo's Releases under the tag:
+
+> **`BuildScript`**
+
+**→ [Download the BuildScript from Releases](https://github.com/NovaByteTeam/novabyte-os/releases/tag/BuildScript)**
+
+It handles the full pipeline: JS obfuscation, V8 bytecode compilation, NW.js packaging, and the base64+gzip HTML encoding step. Use it as a starting point for your own close-source build.
 
 ---
 
@@ -139,7 +182,10 @@ If you want to bundle NovaByte Services into your own app or OS:
 > [!CAUTION]
 > **NovaByte OS v1, v2, and v3 source code is fully closed source.**
 > **It has been completely removed from this repository.**
+> **Git commit history has been wiped. There is no history to inspect.**
 > The source is not available. The compiled v3 executable is available via [GitHub Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
+
+The close-source build uses JavaScript obfuscation, V8 bytecode compilation, and NW.js packaging. All OS logic is compiled into **`app.bin`** — do not attempt to reverse engineer or deobfuscate it. **`index.html`** is a shell entry point only. See the [Close-Source Announcement](#-close-source-announcement--23052026) section for full details.
 
 You are **not permitted** to:
 
