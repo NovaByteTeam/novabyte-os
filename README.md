@@ -393,4 +393,8 @@ NovaByte OS v3 received a **sweeping security overhaul** in May 2026.
 
 *NovaByte OS is a passion project. Built with care.*
 
+<<<<<<< HEAD
 *v3 users: you're in good hands. Everyone else: you know where to find us.*
+=======
+*v3 users: you're in good hands. Everyone else: you know where to find us.*
+>>>>>>> 260fd550cc3635237c3b14b466f972e6b346af9c
