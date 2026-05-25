@@ -80,7 +80,9 @@ function openWindow() {
     win = window;
     // Prevent window from closing
     win.on('close', function () {
-      this.hide();
+      server.kill();
+      this.close(true); // true = bypass close event, actually close
+      nw.App.quit();
     });
   });
 }
