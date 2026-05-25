@@ -90,11 +90,11 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 - Core Apps: **NBOSP Files, NBOSP Notes, NBOSP Terminal, NBOSP Browser, NBOSP Calendar, NBOSP Email, NBOSP Gallery, NBOSP Downloads, NBOSP Contacts, NBOSP Search, NBOSP Music, NBOSP Clock, NBOSP Settings, NBOSP Calculator and NBOSP App Manager**
 - Basic security (rate limiting, CSRF protection, security headers) is built in
 - No edition system, no update pipeline, and no telemetry
-- NOTE: "NBOSP" IN EACH APP IS A STOCK VERSION THAT COMES PREINSTALLED WITH NBOSP, WHICH ARE PURE NOVABYTE APPS THAT COME PREINSTALLED, WHICH WE REPLACED WITH OUR OWN FEATURE-HEAVY ONES IN V3. THE OS IS FULLY CUSTOMISABLE, CLEAN, AND LIGHTWEIGHT. FUN FACT: WE TOOK NBOSP AND BUILT UPON IT WITH AN UPDATE SYSTEM AND LOTS MORE FEATURES. CHECK OUT V3.
-- AND YES WE DO MAINTAIN TWO VERSIONS: NBOSP APPS, AND OUR OWN FULL FEATURED APPS.
-- ALSO, WE DECIDED TO ABANDON LOTS OF NBOSP APPS. WE ARE NOT ADDING NEW FEATURES TO THESE APPS OR INTERFACE CHANGES; WE CONTINUE TO DELIVER COMPATIBILITY, BUG AND SECURITY FIXES.
-- THE REASON WE EVEN INCLUDED APPS IS BECAUSE WE PROMISE NBOSP IS FUNCTIONAL OUT OF THE BOX, AND PROVING IT'S A DESKTOP OS, IT CAN BROWSE, PLAY MUSIC, BROWSE FILES, INSTALL .NOVAAPP APPS, ETC.
-- AND ALSO THE APPS LISTED ARE BUILT SPECIFICALLY FOR THE NOVABYTE OPEN SOURCE PROJECT. FREE TO USE, CUSTOMISE, OR CHANGE ANY BIT THE WAY YOU LIKE.
+- The "NBOSP" apps are stock versions that come preinstalled — pure NovaByte apps that we replaced with our own feature-heavy versions in v3. The OS is fully customisable, clean, and lightweight. We took NBOSP and built on top of it with an update system and many more features.
+- We maintain two separate app lines: NBOSP apps and our own full-featured apps.
+- The NBOSP apps are in maintenance mode — we are not adding new features or making interface changes, but we continue to deliver compatibility, bug, and security fixes.
+- Apps are included because NBOSP is meant to be functional out of the box. As a desktop OS, it can browse, play music, manage files, install `.novaapp` packages, and more.
+- All listed apps are built specifically for the NovaByte Open Source Project and are free to use, customise, or modify however you like.
 
 > **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
 
@@ -342,9 +342,6 @@ Nova Core Services is NovaByte's **independent security update pipeline** — se
 
 
 
-
-
-
 ## 🔐 Security
 
 - All versions use **HTTPS** with self-signed certificates locally
@@ -393,8 +390,4 @@ NovaByte OS v3 received a **sweeping security overhaul** in May 2026.
 
 *NovaByte OS is a passion project. Built with care.*
 
-<<<<<<< HEAD
 *v3 users: you're in good hands. Everyone else: you know where to find us.*
-=======
-*v3 users: you're in good hands. Everyone else: you know where to find us.*
->>>>>>> 260fd550cc3635237c3b14b466f972e6b346af9c
