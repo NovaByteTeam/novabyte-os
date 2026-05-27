@@ -7509,7 +7509,7 @@ self.onmessage = async (e) => {
             //  SECTION 5 — LEGAL & LICENCES
             // ══════════════════════════════════════════════════════════════════════
             const { wrap: lgWrap, rows: lgRows } = mkSection('Legal \u0026 Licences', '\u2696\uFE0F');
-            lgRows.appendChild(mkRow('Licence', 'MIT'));
+            lgRows.appendChild(mkRow('Licence', 'Apache 2.0'));
             lgRows.appendChild(mkRow('Copyright', '\u00A9 2024\u20132026 NovaByte'));
             lgRows.appendChild(mkRow('Privacy Policy', 'Privacy-first. Zero telemetry.', true));
             body.appendChild(lgWrap);

@@ -381,10 +381,10 @@ NovaByte OS v3 received a **sweeping security overhaul** in May 2026.
 
 | Directory | License Type | Terms & Permissions |
 | :--- | :--- | :--- |
-| 📁 `NBOSP/` | **MIT License** | Free to copy, modify, fork, sell, and redistribute. No attribution required. |
+| 📁 `NBOSP/` | **Apache 2.0 License** | Free to copy, modify, fork, sell, and redistribute. No attribution required. |
 | 📁 `v1/`, `v2/`, `v3/` | **All Rights Reserved** | Closed source. Source not included in this repo. Compiled exe available via Releases. |
 
-*See `NBOSP/LICENSE` for the complete legal text governing the open-source base.*
+*See `NBOSP/LICENSE` for the complete Apache 2.0 legal text governing the open-source base.*
 
 ---
 
