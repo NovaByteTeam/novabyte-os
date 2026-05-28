@@ -30,34 +30,14 @@ server.on('error', () => {
 });
 
 // On Windows, nw.exe is a GUI subsystem binary with no real console attached.
-// Strategy 1: Try \\.\CONOUT$ — works without ffi-napi when the process somehow has a console handle.
-// Strategy 2: AttachConsole(ATTACH_PARENT_PROCESS) via ffi-napi — reconnects to the PowerShell/cmd console.
-// Strategy 3: AllocConsole() via ffi-napi — allocates a new console window as last resort.
+// Try \\.\CONOUT$ to write to the parent console if available.
 // Fallback: logs always land in server.log regardless.
 let _conout = null;
 if (process.platform === 'win32' && process.env.NW_SHOW_CONSOLE === 'true') {
-  // Strategy 1: direct CONOUT$ (no native deps needed)
   try {
     _conout = fs.createWriteStream('\\\\.\\CONOUT$', { flags: 'a' });
     _conout.on('error', () => { _conout = null; });
   } catch (_) { _conout = null; }
-
-  // Strategy 2 & 3: ffi-napi kernel32
-  if (!_conout) {
-    try {
-      const ffi = require('ffi-napi');
-      const kernel32 = ffi.Library('kernel32', {
-        AttachConsole: ['bool', ['uint']],
-        AllocConsole: ['bool', []]
-      });
-      const attached = kernel32.AttachConsole(0xFFFFFFFF); // ATTACH_PARENT_PROCESS
-      if (!attached) kernel32.AllocConsole();              // fallback: new window
-    } catch (_) {
-      /* ffi-napi not installed — add it with: npm install ffi-napi
-         Until then, follow logs via: Get-Content server.log -Wait  (PowerShell)
-                                   or: tail -f server.log            (Git Bash) */
-    }
-  }
 }
 
 // Tee helper: write a chunk to the log file AND the terminal (if one is attached)
