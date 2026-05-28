@@ -84,6 +84,8 @@ Download the `.zip`, extract it, and run the exe. No installation required.
 
 The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base of NovaByte**.
 
+> **Who is NBOSP for?** Developers and people who want to run NovaByte daily — those who just want pure stock software. No bloat, no fluff, no extras. Just a minimal, super fast, and clean OS that gets out of your way.
+
 - Do whatever you want with it — copy it, fork it, sell it, modify it, redistribute it
 - No rules, no attribution required, no license restrictions
 - This is pure NovaByte.
