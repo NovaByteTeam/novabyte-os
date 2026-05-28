@@ -49,8 +49,8 @@
   "nwbuild": {
     "mode": "build",
     "glob": false,
-    "srcDir": "C:/Users/diraz/Downloads/novabyte-os/NBOSP",
-    "outDir": "C:/Users/diraz/Downloads/novabyte-os/build",
+    "srcDir": ".",
+    "outDir": "./build",
     "app": {
       "name": "NovaByte",
       "icon": "assets/icon.ico"
