@@ -87,7 +87,7 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 > **Who is NBOSP for?** Developers and people who want to run NovaByte daily — those who just want pure stock software. No bloat, no fluff, no extras. Just a minimal, super fast, and clean OS that gets out of your way.
 
 - Do whatever you want with it — copy it, fork it, sell it, modify it, redistribute it
-- No rules, no attribution required, no license restrictions
+- No rules, no license restrictions — but attribution is required, so preserve copyright notices and the license text
 - This is pure NovaByte.
 - Core Apps: **NBOSP Files, NBOSP Notes, NBOSP Terminal, NBOSP Browser, NBOSP Calendar, NBOSP Email, NBOSP Gallery, NBOSP Downloads, NBOSP Contacts, NBOSP Search, NBOSP Music, NBOSP Clock, NBOSP Settings, NBOSP Calculator and NBOSP App Manager**
 - Basic security (rate limiting, CSRF protection, security headers) is built in
