@@ -94,7 +94,8 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 - No edition system, no update pipeline, and no telemetry
 - The "NBOSP" apps are stock versions that come preinstalled — pure NovaByte apps that we replaced with our own feature-heavy versions in v3. The OS is fully customisable, clean, and lightweight. We took NBOSP and built on top of it with an update system and many more features.
 - We maintain two separate app lines: NBOSP apps and our own full-featured apps.
-- The NBOSP apps are in maintenance mode — we are not adding new features or making interface changes, but we continue to deliver compatibility, bug, and security fixes.
+- The NBOSP apps are feature-frozen — we are not adding new features or making interface changes to them, but compatibility, bug, and security fixes continue as always.
+- NBOSP itself (the OS) is **not abandoned** — and don't worry if it looks feature complete. We'll keep holding on and adding anything new we can. It won't always be exciting or frequent, but we're not done. We actually ship fixes and changes to NBOSP faster than v3 — the codebase is small and easy to maintain, so things move quickly when they need to.
 - Apps are included because NBOSP is meant to be functional out of the box. As a desktop OS, it can browse, play music, manage files, install `.novaapp` packages, and more.
 - All listed apps are built specifically for the NovaByte Open Source Project and are free to use, customise, or modify however you like.
 
@@ -132,7 +133,7 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 - ✅ All UV proxy errors completely eliminated
 - ✅ Everything "just works" out of the box
 
-#### New Features in NBOSP Browser (Last feature update for the stock app)
+#### New Features in NBOSP Browser (Minor updates may still follow)
 
 - **Bookmarks** — Save and organize your favorite websites
 - **History** — View and quickly access previously visited pages
