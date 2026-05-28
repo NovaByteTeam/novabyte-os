@@ -152,11 +152,6 @@
      */
     function lockScreen() {
         console.log('[UserPowerMenu] Locking screen...');
-        
-        // Save current session before locking
-        if (window.SessionManager) {
-            window.SessionManager.forceSave();
-        }
 
         // Show lock screen
         const lockScreen = document.getElementById('lock-screen');
@@ -180,56 +175,11 @@
      * Log off current user
      * Clears session, closes all apps, returns to login/start
      */
-    async function logOff() {
+    function logOff() {
         console.log('[UserPowerMenu] Logging off...');
         
         if (!confirm('Log off? This will close all your apps and windows.')) {
             return;
-        }
-
-        // Save session before logout (for potential restore)
-        if (window.SessionManager) {
-            window.SessionManager.forceSave();
-        }
-
-        // Call server-side logout API to destroy session
-        // This invalidates the session token on the server and clears the session cookie
-        try {
-            const response = await fetch('/api/auth/logout', {
-                method: 'POST',
-                credentials: 'include',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (response.ok) {
-                console.log('[UserPowerMenu] Server session destroyed successfully');
-            } else {
-                console.warn('[UserPowerMenu] Logout API returned status:', response.status);
-            }
-        } catch (error) {
-            console.error('[UserPowerMenu] Logout API call failed:', error);
-            // Continue with local logout even if server call fails
-        }
-
-        // Clear local session data
-        if (window.SessionManager) {
-            window.SessionManager.clearSession();
-        }
-
-        // Clear user-specific data from localStorage
-        localStorage.removeItem('novabyte_session');
-        localStorage.removeItem('novabyte_session_meta');
-        localStorage.removeItem('novabyte_auth_token');
-        localStorage.removeItem('novabyte_oauth_tokens');
-
-        // Clear any API client tokens if present
-        if (window.NovaByteApi?.instance) {
-            window.NovaByteApi.instance.clearToken();
-        }
-        if (window.AuthApi?.instance) {
-            window.AuthApi.instance.clearToken();
         }
 
         // Close all windows
@@ -238,11 +188,6 @@
             for (const winId of windows) {
                 WM.closeWindow(winId);
             }
-        }
-
-        // Emit logout event for other components
-        if (window.NovaByteApi?.instance) {
-            window.NovaByteApi.instance.emit('auth:loggedOut', null);
         }
 
         // Reload to show login/start screen
@@ -258,14 +203,10 @@
     function restartSystem() {
         console.log('[UserPowerMenu] Restarting...');
         
-        if (!confirm('Restart NovaByte? All apps will be restored after restart.')) {
+        if (!confirm('Restart NovaByte? All apps will be closed.')) {
             return;
         }
 
-        // Save session
-        if (window.SessionManager) {
-            window.SessionManager.forceSave();
-        }
 
         // Show restart message
         const overlay = document.createElement('div');
@@ -298,10 +239,6 @@
 
         if (!confirmed) return;
 
-        // Save session for next launch
-        if (window.SessionManager) {
-            window.SessionManager.forceSave();
-        }
 
         // Show shutdown message
         const overlay = document.createElement('div');

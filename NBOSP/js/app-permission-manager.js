@@ -128,6 +128,7 @@ const AppPermissionManager = (() => {
         const valid = await _verify(grant);
         if (!valid) { rejected++; continue; }
         const key = `${grant.appId}:${grant.permission}`;
+        // Remove the signature before storing in memory (it was only for verification)
         const { _sig, ...cleanGrant } = grant;
         permissionGrants.set(key, cleanGrant);
       }

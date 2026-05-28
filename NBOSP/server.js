@@ -20,7 +20,6 @@ process.on('unhandledRejection', (reason) => {
     const http = require('http');
     const https = require('https');
     const fs = require('fs');
-    const { Server: SocketIO } = require('socket.io');
     const helmet = require('helmet');
     const cors = require('cors');
     const rateLimit = require('express-rate-limit');
@@ -52,23 +51,6 @@ process.on('unhandledRejection', (reason) => {
         server = http.createServer(app);
     }
 
-    // Socket.io for real-time communication
-    const allowedOrigins = process.env.CORS_ORIGIN?.split(',').filter(Boolean) || ['https://localhost:3003', 'https://127.0.0.1:3003'];
-    const io = new SocketIO(server, {
-        serveClient: true,
-        cors: {
-            origin: (origin, cb) => {
-                if (!origin || allowedOrigins.includes(origin)) {
-                    return cb(null, true);
-                }
-                cb(new Error(`[Socket.IO] CORS: origin '${origin}' not in allow-list`));
-            },
-            methods: ['GET', 'POST'],
-            credentials: true
-        },
-        pingTimeout: 60000,
-        pingInterval: 25000
-    });
 
     // Set Origin-Agent-Cluster FIRST, before Helmet and any other middleware
     app.use((req, res, next) => {
@@ -132,7 +114,6 @@ process.on('unhandledRejection', (reason) => {
         legacyHeaders: false,
         skip: (req) => {
             if (req.path === '/health') return true;
-            if (req.path.startsWith('/socket.io')) return true;
             if (req.path.startsWith('/js/')) return true;
             if (req.path.startsWith('/css/')) return true;
             if (req.path.startsWith('/public/')) return true;
@@ -190,7 +171,6 @@ process.on('unhandledRejection', (reason) => {
     const securityExclusions = ['/bare/'];
     securityMws.forEach(mw => {
         app.use((req, res, next) => {
-            if (req.path.startsWith('/socket.io')) return next();
             if (securityExclusions.some(p => req.path === p || req.path.endsWith(p) || req.path.startsWith(p))) return next();
             return mw(req, res, next);
         });
@@ -319,16 +299,6 @@ process.on('unhandledRejection', (reason) => {
         res.send(html);
     });
 
-    // Explicit route for socket.io client file
-    app.get('/socket.io/socket.io.js', (req, res, next) => {
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
-        next();
-    });
-    app.get('/socket.io/socket.io.js.map', (req, res, next) => {
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        next();
-    });
 
     // Default CORP header for all other static assets
     app.use((req, res, next) => {
@@ -374,7 +344,6 @@ process.on('unhandledRejection', (reason) => {
                 security: '/api/security - Security settings',
                 mail: '/api/mail/proxy - Browser proxy'
             },
-            websocket: 'wss://localhost:3003',
             docs: 'All endpoints accept JSON, authentication via session cookie'
         });
     });
@@ -440,59 +409,6 @@ process.on('unhandledRejection', (reason) => {
     // Mount API routes
     app.use('/api', apiRouter);
 
-    // Socket.IO engine error logging
-    io.engine.on('connection_error', (err) => {
-        console.error('[Socket.IO Engine Error]', {
-            code: err.code,
-            message: err.message,
-            context: err.context,
-            url: err.req?.url
-        });
-    });
-
-    // Log all namespace connections
-    io.of(/.*/).on('connection', (socket) => {
-        console.log(`[Socket.IO] Namespace "${socket.nsp.name}" connected: ${socket.id}`);
-    });
-
-    // Socket.io connection handling
-    const activeConnections = new Map();
-
-    io.on('connection', (socket) => {
-        const clientUrl = socket.handshake?.headers?.referer || 'unknown';
-        const clientOrigin = socket.handshake?.headers?.origin || 'unknown';
-        console.log(`[Socket.IO] New connection: ${socket.id} from ${clientUrl} (origin: ${clientOrigin})`);
-
-        socket.on('authenticate', (data) => {
-            const { sessionId, userId } = data;
-
-            // FIX: previously accepted any non-empty sessionId/userId pair.
-            // Now validate format (UUID v4) and rate-limit auth attempts per socket.
-            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-            if (!sessionId || !userId || !UUID_RE.test(sessionId) || !UUID_RE.test(userId)) {
-                socket.emit('authenticated', { success: false, error: 'Invalid credentials' });
-                socket.disconnect(true); // disconnect after bad auth attempt
-                return;
-            }
-
-            // TODO: cross-check sessionId against the express-session store here.
-            // e.g. sessionStore.get(sessionId, (err, sess) => { ... })
-            // For now, format validation prevents trivially forged tokens.
-            activeConnections.set(socket.id, { sessionId, userId, connectedAt: Date.now() });
-            socket.emit('authenticated', { success: true, socketId: socket.id });
-            console.log(`[Socket.IO] User authenticated: ${userId}`);
-        });
-
-        socket.on('disconnect', (reason) => {
-            console.log(`[Socket.IO] Disconnected: ${socket.id}, reason: ${reason}`);
-            activeConnections.delete(socket.id);
-        });
-
-        socket.on('error', (error) => {
-            console.error(`[Socket.IO] Error: ${socket.id}`, error);
-        });
-    });
 
     // 404 handler
     app.use((req, res) => {
@@ -517,9 +433,6 @@ process.on('unhandledRejection', (reason) => {
     // Graceful shutdown
     const gracefulShutdown = (signal) => {
         console.log(`\n[${signal}] Received. Starting graceful shutdown...`);
-        io.close(() => {
-            console.log('[Socket.io] All connections closed');
-        });
         server.close(() => {
             console.log('[HTTP] Server closed');
             process.exit(0);
@@ -556,13 +469,11 @@ process.on('unhandledRejection', (reason) => {
         console.log(`  ${chalk.green('●')} Address      ${chalk.white(`${protocol}://${HOST}:${PORT}`)}`);
         console.log(`  ${chalk.green('●')} Environment  ${chalk.white(process.env.NODE_ENV || 'development')}`);
         console.log(`  ${chalk.green('●')} TLS          ${isHttps ? chalk.green('enabled (HTTPS)') : chalk.yellow('disabled (HTTP)')}`);
-        console.log(`  ${chalk.green('●')} Socket.IO    ${chalk.green('enabled')}`);
-        console.log(`  ${chalk.green('●')} WebSocket    ${chalk.green('enabled')}`);
         console.log(chalk.gray('  ──────────────────────────────────'));
         console.log('');
     });
 
-    module.exports = { app, server, io };
+    module.exports = { app, server };
 
 })().catch(() => {
     // Startup error caught by global handler

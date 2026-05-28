@@ -29,9 +29,6 @@ let config = {
         '/api/health',
         '/api/info',
 
-        // Socket.IO WebSocket and polling (handles its own security)
-        '/socket.io',
-
         // Browser proxy service
         '/api/security/strip-tracking',
 

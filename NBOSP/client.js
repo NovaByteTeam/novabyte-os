@@ -35,7 +35,7 @@ server.on('error', () => {
 // Strategy 3: AllocConsole() via ffi-napi — allocates a new console window as last resort.
 // Fallback: logs always land in server.log regardless.
 let _conout = null;
-if (process.platform === 'win32') {
+if (process.platform === 'win32' && process.env.NW_SHOW_CONSOLE === 'true') {
   // Strategy 1: direct CONOUT$ (no native deps needed)
   try {
     _conout = fs.createWriteStream('\\\\.\\CONOUT$', { flags: 'a' });

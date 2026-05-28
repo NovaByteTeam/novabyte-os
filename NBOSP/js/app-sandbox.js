@@ -9,7 +9,6 @@
 
 const AppSandbox = (() => {
   const activeSandboxes = new Map();
-  const API_BRIDGE_NAME = 'NovaByteAPI';
   const eventSubscriptions = new Map(); // sandboxId -> Map(eventName -> handler)
 
   /**
@@ -113,8 +112,6 @@ const AppSandbox = (() => {
     // When content inside the iframe (e.g., YouTube video) requests fullscreen,
     // expand the window to fill the available space for an immersive viewing experience.
     if (state && state.element) {
-      const origWidth = state.width;
-      const origHeight = state.height;
       const origMaximized = state.maximized;
 
       // Listen for fullscreen requests from iframe content

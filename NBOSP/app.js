@@ -137,11 +137,8 @@
     // Dynamic onclick= inside JS template literals are tracked as a separate item.
     document.addEventListener('DOMContentLoaded', function () {
       document.addEventListener('click', function (e) {
-        var t = e.target.closest('[data-action],[data-recnav],[data-switchtab],[data-fn]');
+        var t = e.target.closest('[data-fn]');
         if (!t) return;
-        if (t.dataset.action && typeof recoveryAction === 'function') recoveryAction(t.dataset.action);
-        if (t.dataset.recnav && typeof recNav === 'function') recNav(t.dataset.recnav);
-        if (t.dataset.switchtab && typeof switchTab === 'function') switchTab(t.dataset.switchtab);
         if (t.dataset.fn) {
           var fn = window[t.dataset.fn];
           if (typeof fn === 'function') fn();
@@ -160,7 +157,6 @@
           try { console[m] = noop; } catch (e) { }
         });
         // Keep console.error for genuine unhandled errors but strip message content
-        var _origError = console.error.bind(console);
         console.error = function () {
           // Only emit in dev; in prod swallow to avoid leaking stack traces
         };
@@ -279,7 +275,6 @@
                       cdownBar.style.width = ((countdown / 15) * 100) + '%';
                       if (countdown <= 0) {
                         clearInterval(timer);
-                        if (typeof recoveryAction === 'function') recoveryAction('continue');
                       }
                     }, 1000);
                     ['click', 'keydown'].forEach(function (ev) {
@@ -350,18 +345,7 @@
       }, 2000);
     })();
 
-    // ── Recovery UI v2 ────────────────────────────────────────────────────
-    window.switchTab = function (tab) {
-      document.querySelectorAll('.recovery-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.recovery-tab-panel').forEach(p => p.classList.remove('active'));
-      const btn = document.querySelector(`[data-tab="${tab}"]`);
-      const panel = document.getElementById(`tab-${tab}`);
-      if (btn) btn.classList.add('active');
-      if (panel) panel.classList.add('active');
-      // Hide console completely
-      const cw = document.getElementById('rec-console-wrap');
-      if (cw) { cw.classList.remove('active'); cw.style.display = 'none'; }
-    };
+    // ── Recovery UI v2 removed ────────────────────────────────────────────
 
     function recLog(msg, cls = '') {
       const ts = new Date().toLocaleTimeString('en-GB', { hour12: false });
@@ -469,14 +453,8 @@
         ls: () => { const keys = Object.keys(localStorage); if (!keys.length) { recLog('(empty)', 'warn'); return; } keys.forEach(k => recLog('  ' + k + ' — ' + localStorage.getItem(k).length + ' chars', 'ok')); },
         env: () => { recLog('── Environment ──', 'info'); recLog('UA: ' + navigator.userAgent.slice(0, 80), 'ok'); recLog('Lang: ' + navigator.language, 'ok'); recLog('Cores: ' + (navigator.hardwareConcurrency || '?'), 'ok'); recLog('Online: ' + navigator.onLine, navigator.onLine ? 'ok' : 'warn'); recLog('Screen: ' + screen.width + 'x' + screen.height, 'ok'); recLog('Time: ' + new Date().toISOString(), 'ok'); },
         'clear-boot': () => { localStorage.removeItem('nova_boot_attempts'); recLog('Boot counter cleared', 'ok'); },
-        'clear-cache': () => recoveryAction('clear-cache'),
         meminfo: () => { if (performance.memory) { const mb = n => (n / 1024 / 1024).toFixed(1) + ' MB'; recLog('Heap Used: ' + mb(performance.memory.usedJSHeapSize), 'ok'); recLog('Heap Total: ' + mb(performance.memory.totalJSHeapSize), 'ok'); recLog('Heap Limit: ' + mb(performance.memory.jsHeapSizeLimit), 'ok'); } else recLog('performance.memory not available', 'warn'); },
-        back: () => recGoBack(),
-        safe: () => recoveryAction('safemode'),
-        continue: () => recoveryAction('continue'),
         clear: () => { const el = document.getElementById('rec-diag-lines'); if (el) el.innerHTML = ''; },
-        factory: () => { recLog('Type "confirm factory" to proceed', 'warn'); window._pendingFactory = true; },
-        'confirm factory': () => { if (window._pendingFactory) { window._pendingFactory = false; recoveryAction('factory'); } else recLog('No factory reset pending', 'warn'); },
       };
 
       if (c === 'opfs' || c.startsWith('opfs ')) {
@@ -524,7 +502,7 @@
       if (c.startsWith('get ')) { const key = cmd.slice(4).trim(), v = localStorage.getItem(key); if (!v) recLog('Key not found: ' + key, 'warn'); else { try { recLog('[' + key + ']\n' + JSON.stringify(JSON.parse(v), null, 2), 'ok'); } catch { recLog('[' + key + '] ' + v, 'ok'); } } return; }
       if (c.startsWith('set ')) { const p = cmd.slice(4).split(' '), k = p.shift(), v = p.join(' '); try { localStorage.setItem(k, v); recLog('Set ' + k + ' = ' + v.slice(0, 60), 'ok'); } catch (e) { recLog('Error: ' + e.message, 'err'); } return; }
       if (c.startsWith('del ')) { const k = cmd.slice(4).trim(); localStorage.removeItem(k); recLog('Deleted: ' + k, 'ok'); return; }
-      if (c.startsWith('nav ')) { const p = cmd.slice(4).trim(); recNav(p); recLog('Navigated to: ' + p, 'ok'); return; }
+      if (c.startsWith('nav ')) { recLog('Navigation removed', 'warn'); return; }
       if (cmds[c]) cmds[c]();
       else recLog('Unknown: "' + cmd + '" — type "help"', 'warn');
     }
@@ -2036,7 +2014,6 @@ self.onmessage = async (e) => {
         getMimeIcon(mimeType, name) {
           if (!mimeType) return 'file';
           if (mimeType === 'inode/directory') return 'folder';
-          if (name && name.endsWith('.drv')) return 'database';
           if (mimeType.startsWith('image/')) return 'image';
           if (mimeType.startsWith('audio/')) return 'music';
           if (mimeType.startsWith('video/')) return 'file';
@@ -5664,7 +5641,6 @@ self.onmessage = async (e) => {
             page.style.cssText = 'position:absolute;inset:0;display:flex;background:var(--bg-base);color:var(--text-primary);font-size:13px;z-index:1;';
 
             // ── helpers ──────────────────────────────────────────────────
-            const S_KEY = 'nbosp_browser_prefs_v1';
             function getBPref(key, def) { return getSetting(key, def); }
             function setBPref(key, val) { saveSetting(key, val); }
 
@@ -5996,7 +5972,6 @@ self.onmessage = async (e) => {
           });
 
           // Incognito partition — use separate session per incognito tab
-          const _origGetOrCreate = getOrCreateWebview;
           backBtn.addEventListener('click', () => { tabWebviews.get(activeTabId)?.back(); });
           fwdBtn.addEventListener('click', () => { tabWebviews.get(activeTabId)?.forward(); });
           refreshBtn.addEventListener('click', () => {
@@ -6734,54 +6709,6 @@ self.onmessage = async (e) => {
             recoveryRow.appendChild(recoveryBtn);
             recoveryGroup.appendChild(recoveryRow);
             mainContent.appendChild(recoveryGroup);
-          }
-
-          function renderBrowser() {
-            mainContent.appendChild(createEl('h2', { textContent: 'Browser Settings', style: { marginBottom: '20px' } }));
-
-            const proxyGroup = createEl('div', { className: 'nook-group' });
-            proxyGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Proxy Configuration' }));
-
-            const proxyRow = createEl('div', { className: 'nook-row' });
-            proxyRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Proxy URL' }));
-            const proxyInput = createEl('input', {
-              className: 'input',
-              style: { width: '300px' },
-              value: OS.settings.get('proxyUrl') || '',
-              placeholder: 'https://your-worker.workers.dev/?url='
-            });
-            proxyInput.addEventListener('change', () => OS.settings.set('proxyUrl', proxyInput.value));
-            proxyRow.appendChild(proxyInput);
-            proxyGroup.appendChild(proxyRow);
-
-            const info = createEl('div', { style: { fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' } });
-            info.textContent = 'Configure a CORS proxy for Browser to load external websites. See Help > Proxy Setup in Browser.';
-            proxyGroup.appendChild(info);
-
-            mainContent.appendChild(proxyGroup);
-
-            // Search engine
-            const searchGroup = createEl('div', { className: 'nook-group' });
-            searchGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Search Engine' }));
-
-            const engines = ['duckduckgo', 'google', 'bing', 'brave', 'startpage', 'ecosia'];
-            engines.forEach((e, i) => {
-              const row = createEl('div', { className: 'nook-row' });
-              const engineDisplayNames = { duckduckgo: 'DuckDuckGo', google: 'Google', bing: 'Bing', brave: 'Brave', startpage: 'Startpage', ecosia: 'Ecosia' };
-              row.appendChild(createEl('span', { className: 'nook-row-label', textContent: engineDisplayNames[e] || (e.charAt(0).toUpperCase() + e.slice(1)) }));
-              const btn = createEl('button', {
-                className: 'btn btn-sm' + (OS.settings.get('searchEngine') === e ? ' btn-primary' : ''),
-                textContent: OS.settings.get('searchEngine') === e ? 'Active' : 'Select'
-              });
-              btn.addEventListener('click', () => {
-                OS.settings.set('searchEngine', e);
-                renderContent();
-              });
-              row.appendChild(btn);
-              searchGroup.appendChild(row);
-            });
-
-            mainContent.appendChild(searchGroup);
           }
 
           async function renderStorage() {
@@ -7592,10 +7519,6 @@ self.onmessage = async (e) => {
             const s = String(input).replace(/\s+/g, '');
             let i = 0;
 
-            function peek() {
-              return s[i];
-            }
-
             function consume(ch) {
               if (s[i] === ch) {
                 i += 1;
@@ -8079,6 +8002,8 @@ self.onmessage = async (e) => {
             // ── Right panel ──────────────────────────────────────────────
             const right = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
 
+            // Initialize selected web app state
+            let selectedWebId = null;
 
             function launchWebApp(wa) {
               const tempId = 'webapp_' + wa.id;
@@ -8531,13 +8456,6 @@ self.onmessage = async (e) => {
             tiSet = tiMs = ((parseInt(tiH.value) || 0) * 3600 + (parseInt(tiM.value) || 0) * 60 + (parseInt(tiS.value) || 0)) * 1000;
             renderTiDisplay();
           }
-          function setTiDuration(ms) {
-            tiSet = tiMs = ms; tiRun = false; tiDone = false;
-            tiH.value = Math.floor(ms / 3600000) || '';
-            tiM.value = String(Math.floor((ms % 3600000) / 60000));
-            tiS.value = String(Math.floor((ms % 60000) / 1000));
-            renderTiDisplay(); renderTiBtns();
-          }
           function renderTiDisplay() {
             const ms = tiRun ? Math.max(0, tiEnd - Date.now()) : tiMs;
             const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
@@ -8584,8 +8502,6 @@ self.onmessage = async (e) => {
           const swStartBtn = createEl('button', { textContent: 'Start', className: 'nbc-pill-btn primary' });
           const swLapBtn = createEl('button', { textContent: 'Lap', className: 'nbc-pill-btn', style: 'min-width:82px;' });
           swBtnRow.append(swLapBtn, swStartBtn);
-
-          const swLapList = createEl('div', { style: 'flex:1;overflow-y:auto;width:100%;' });
 
           // Column headers
           const swLapHdr = createEl('div', { style: 'display:flex;justify-content:space-between;padding:6px 16px;border-bottom:1px solid var(--border-subtle);' });
@@ -9452,12 +9368,6 @@ self.onmessage = async (e) => {
       function openFileWithDefaultApp(fileNode) {
         if (!fileNode) return;
 
-        // Handle driver files (.drv)
-        if (fileNode.name.endsWith('.drv')) {
-          showDriverInstallWizard(fileNode);
-          return;
-        }
-
         const mime = fileNode.mimeType || '';
         let appId = 'quill'; // default
 
@@ -9467,170 +9377,6 @@ self.onmessage = async (e) => {
         else if (mime === 'application/pdf' || fileNode.name.endsWith('.pdf')) appId = 'lumina';
 
         WM.createWindow(appId, { fileId: fileNode.id });
-      }
-
-      async function showDriverInstallWizard(fileNode) {
-        if (!fileNode || !fileNode.name.endsWith('.drv')) return;
-
-        // Read the .drv file content directly from filesystem
-        let drvData;
-        try {
-          // Get file from filesystem
-          const file = FS.files.get(fileNode.id);
-          if (!file) {
-            Notify.show({ title: 'Error', body: 'File not found in filesystem', type: 'error', appName: 'Driver Installer' });
-            return;
-          }
-
-          let drvContent = file.content;
-          if (!drvContent) {
-            Notify.show({ title: 'Error', body: 'Failed to read driver file content', type: 'error', appName: 'Driver Installer' });
-            return;
-          }
-
-          // Parse the .drv file
-          try {
-            // If it's already an object (parsed JSON), use it directly
-            if (typeof drvContent === 'object') {
-              drvData = drvContent;
-            } else {
-              // Otherwise parse it as JSON string
-              drvData = JSON.parse(drvContent);
-            }
-          } catch (e) {
-            Notify.show({ title: 'Error', body: 'Invalid driver file: not valid JSON', type: 'error', appName: 'Driver Installer' });
-            console.error('[Driver Install] JSON parse error:', e, 'Content length:', drvContent?.length);
-            return;
-          }
-        } catch (e) {
-          Notify.show({ title: 'Error', body: 'Failed to load driver: ' + e.message, type: 'error', appName: 'Driver Installer' });
-          return;
-        }
-
-        const manifest = drvData.manifest || {};
-        const isInstalling = { value: false };
-
-        // Create wizard modal
-        const overlay = document.createElement('div');
-        overlay.style.cssText = 'position: fixed; inset: 0; z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); backdrop-filter: blur(5px);';
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-
-        const modal = document.createElement('div');
-        modal.style.cssText = 'background: #0e121c; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; box-shadow: 0 32px 80px rgba(0,0,0,0.6); width: min(500px, 90vw); max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color: #e6edf3;';
-
-        const header = document.createElement('div');
-        header.style.cssText = 'display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.02); flex-shrink: 0;';
-        header.innerHTML = `<span style="font-size: 24px;">⚙️</span><span style="font-size: 14px; font-weight: 600;">Driver Installation Wizard</span>`;
-
-        const body = document.createElement('div');
-        body.style.cssText = 'flex: 1; overflow-y: auto; padding: 20px;';
-        body.innerHTML = `
-    <div style="display: flex; align-items: flex-start; gap: 16px; margin-bottom: 20px;">
-      <div style="font-size: 48px; flex-shrink: 0;">🔌</div>
-      <div style="flex: 1;">
-        <div style="font-size: 16px; font-weight: 600; color: #e6edf3; margin-bottom: 4px;">${escapeHtml(manifest.name || 'Unknown Driver')}</div>
-        <div style="font-size: 12px; color: #8b949e; margin-bottom: 8px;">v${manifest.version || '1.0.0'}</div>
-        <div style="font-size: 13px; color: #8b949e; line-height: 1.5;">${escapeHtml(manifest.description || 'No description provided')}</div>
-      </div>
-    </div>
-    
-    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #484f58; margin-bottom: 8px;">Author</div>
-      <div style="font-size: 13px; color: #e6edf3;">${escapeHtml(manifest.author || 'Unknown')}</div>
-    </div>
-
-    ${manifest.permissions && manifest.permissions.length ? `
-    <div style="margin-bottom: 16px;">
-      <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #484f58; margin-bottom: 8px;">Required Permissions</div>
-      <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-        ${manifest.permissions.map(p => `<span style="background: rgba(88,166,255,0.12); color: #58a6ff; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">${escapeHtml(p)}</span>`).join('')}
-      </div>
-    </div>
-    ` : ''}
-
-    <div style="background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.2); border-radius: 8px; padding: 12px; font-size: 12px; color: #f85149; line-height: 1.5;">
-      ⚠️ <strong>Warning:</strong> Installing drivers grants system-level access. Only install drivers from trusted sources.
-    </div>
-  `;
-
-        const footer = document.createElement('div');
-        footer.style.cssText = 'display: flex; gap: 8px; padding: 16px 18px; border-top: 1px solid rgba(255,255,255,0.07); background: rgba(0,0,0,0.3); flex-shrink: 0;';
-        footer.innerHTML = `
-    <button id="driver-cancel-btn" style="flex: 1; padding: 8px 16px; background: rgba(255,255,255,0.06); color: #8b949e; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.15s;">Cancel</button>
-    <button id="driver-install-btn" style="flex: 1; padding: 8px 16px; background: #1f6feb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.15s;">Install Driver</button>
-  `;
-
-        modal.appendChild(header);
-        modal.appendChild(body);
-        modal.appendChild(footer);
-        overlay.appendChild(modal);
-        document.body.appendChild(overlay);
-
-        const cancelBtn = document.getElementById('driver-cancel-btn');
-        const installBtn = document.getElementById('driver-install-btn');
-
-        cancelBtn.addEventListener('click', () => overlay.remove());
-        cancelBtn.addEventListener('mouseenter', () => cancelBtn.style.background = 'rgba(255,255,255,0.12)');
-        cancelBtn.addEventListener('mouseleave', () => cancelBtn.style.background = 'rgba(255,255,255,0.06)');
-
-        installBtn.addEventListener('click', async () => {
-          if (isInstalling.value) return;
-          isInstalling.value = true;
-
-          installBtn.disabled = true;
-          const originalText = installBtn.textContent;
-          installBtn.textContent = '⏳ Installing...';
-          installBtn.style.opacity = '0.6';
-
-          try {
-            // Post to /api/drivers/install
-            // Send the driver object (or stringify if it's a string)
-            let drvPayload;
-            if (typeof drvData === 'string') {
-              // If it's a string, parse it first to verify it's valid
-              drvPayload = JSON.parse(drvData);
-            } else {
-              // Already an object, send as-is
-              drvPayload = drvData;
-            }
-
-            const response = await fetch('/api/drivers/install', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ drv: drvPayload })
-            });
-
-            const result = await response.json();
-
-            if (result.ok) {
-              Notify.show({
-                title: 'Driver Installed',
-                body: `${result.name} v${result.version} installed successfully`,
-                type: 'success',
-                appName: 'Driver Installer',
-                duration: 5000
-              });
-              overlay.remove();
-            } else {
-              throw new Error(result.error || 'Unknown error');
-            }
-          } catch (e) {
-            Notify.show({
-              title: 'Installation Failed',
-              body: e.message,
-              type: 'error',
-              appName: 'Driver Installer'
-            });
-            console.error('[Driver Install] Error:', { error: e.message, drvData });
-            installBtn.disabled = false;
-            installBtn.textContent = originalText;
-            installBtn.style.opacity = '1';
-            isInstalling.value = false;
-          }
-        });
-
-        installBtn.addEventListener('mouseenter', () => installBtn.style.background = '#388bfd');
-        installBtn.addEventListener('mouseleave', () => installBtn.style.background = '#1f6feb');
       }
 
       function renderDesktopIcons() {
@@ -9717,31 +9463,10 @@ self.onmessage = async (e) => {
                   try {
                     // Read file content
                     let content;
-                    if (file.name.endsWith('.drv')) {
-                      // For .drv files, read as UTF-8 text and parse as JSON
-                      const buffer = reader.result;
-                      const view = new Uint8Array(buffer);
-                      const textContent = new TextDecoder('utf-8').decode(view);
-                      try {
-                        // Parse and re-stringify to ensure clean JSON
-                        const jsonObj = JSON.parse(textContent);
-                        content = jsonObj; // Store as object, not string!
-                      } catch (e) {
-                        Notify.show({
-                          title: '⚠️ Invalid Driver File',
-                          body: `"${file.name}" is not a valid driver package`,
-                          type: 'error',
-                          appName: 'System'
-                        });
-                        console.error('[Desktop Drop] Invalid .drv file:', e);
-                        return;
-                      }
-                    } else {
-                      // For text files, use TextDecoder for proper UTF-8 handling
-                      const buffer = reader.result;
-                      const view = new Uint8Array(buffer);
-                      content = new TextDecoder('utf-8').decode(view);
-                    }
+                    // For text files, use TextDecoder for proper UTF-8 handling
+                    const buffer = reader.result;
+                    const view = new Uint8Array(buffer);
+                    content = new TextDecoder('utf-8').decode(view);
 
                     // Security check - Phase 1: Extension Check
                     const extCheck = checkFileExtension(file.name);
@@ -9760,8 +9485,7 @@ self.onmessage = async (e) => {
                     }
 
                     // Security check - Phase 2: Content Pattern Scanning
-                    // Skip threat scanning for .drv files (they're JSON objects or binary)
-                    if (!file.name.endsWith('.drv') && typeof content === 'string') {
+                    if (typeof content === 'string') {
                       const scanResult = scanFileForThreats(content, file.name);
                       if (scanResult.isMalicious) {
                         const threatList = scanResult.patterns.join(', ');
@@ -9782,8 +9506,7 @@ self.onmessage = async (e) => {
 
                     // Detect proper MIME type for known file extensions
                     let mimeType = file.type;
-                    if (file.name.endsWith('.drv')) mimeType = 'application/x-driver';
-                    else if (!mimeType) mimeType = 'application/octet-stream';
+                    if (!mimeType) mimeType = 'application/octet-stream';
 
                     const desktopId = FS.specialFolders.desktop;
                     if (!desktopId) {
@@ -9808,7 +9531,7 @@ self.onmessage = async (e) => {
                   Notify.show({ title: 'Error', body: `Failed to read ${file.name}`, type: 'error', appName: 'System' });
                 };
 
-                // Read as ArrayBuffer to preserve binary data for .drv files
+                // Read file as ArrayBuffer
                 reader.readAsArrayBuffer(file);
               }
 
@@ -11747,7 +11470,6 @@ This cannot be undone.`)) return;
       function _doShowRecoveryScreen(priorAttempts) {
         const screen = document.getElementById('recovery-screen');
         screen.classList.add('active');
-        if (typeof injectUpdateRollbackCard !== 'undefined') injectUpdateRollbackCard();
 
         // Check if this was a manual recovery boot (intentional, not failed)
         const isManualRecovery = localStorage.getItem('nova_manual_recovery') === '1' || localStorage.getItem('nova_show_recovery') === '1';
@@ -13503,10 +13225,6 @@ This cannot be undone.`)) return;
             text.append(pri, sec);
             row.append(ico, text);
             return row;
-          }
-
-          function highlight(str, q) {
-            return str; // plain text — avoids innerHTML injection
           }
 
           function doSearch(q) {
