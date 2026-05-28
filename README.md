@@ -156,6 +156,9 @@ Running `npm start` in the NBOSP folder now automatically opens the OS window. N
 > [!CAUTION]
 > **NovaByte Services are not free to bundle. They require explicit permission and a license from us.**
 
+> [!IMPORTANT]
+> **NovaByte Services are not available to individuals or the general public. Licenses are only issued to developers who are actively building and capable of releasing a full consumer operating system.**
+
 NovaByte Services includes:
 
 - **Nova Core Services** — the independent security update pipeline
@@ -165,18 +168,28 @@ NovaByte Services includes:
 - **NovaByte Edition System** — edition management and feature sets
 - **Any other service, API, or system component developed by NovaByte** that is not part of NBOSP
 
+### Who Can Apply
+
+Licenses are **only** considered for developers or teams who:
+
+- Are building a **full consumer-facing operating system**
+- Are capable of **releasing and maintaining** that OS to real end users
+- Can demonstrate the scope and seriousness of their project
+
+**Personal projects, experiments, hobby builds, and individual use cases do not qualify — no exceptions.**
+
 ### How to Get a License
 
-If you want to bundle NovaByte Services into your own app or OS:
+If you meet the above criteria and want to bundle NovaByte Services into your OS:
 
-1. **Contact us** — reach out and describe what you want to use and what for
-2. **We review your request** — we decide whether to grant permission
+1. **Contact us** — reach out and describe your OS, your team, and what services you want to use
+2. **We review your request** — we assess whether your project qualifies
 3. **If approved**, we issue a license with specific terms for your use case
 4. **You must comply** with all conditions set in your license
 
 **No permission = no bundling. There are no exceptions.**
 
-> We built these services from the ground up. If you want them in your product, ask us. We're not unreasonable — but permission is required before you ship anything with our services in it.
+> We built these services from the ground up for a serious OS product. If you're building something at that level and want them in your product, reach out. NovaByte Services are not available to individuals or anyone outside of that scope — permission is required, and not everyone will get it.
 
 ---
 
@@ -355,26 +368,6 @@ If you discover a security vulnerability, please **open a private issue** or con
 
 ---
 
-## 🔒 May 2026 Security Bulletin — v3 Only
-
-NovaByte OS v3 received a **sweeping security overhaul** in May 2026.
-
-| Fix | What it means |
-|-----|--------------|
-| `unsafe-inline` removed from CSP — replaced with per-request nonces | Inline script execution is now actually locked down |
-| SHA-384 SRI on both pdf.js CDN files | A compromised CDN gets hard-blocked |
-| Referrer-Policy + Permissions-Policy added to Helmet | Headers that were aspirational are now real |
-| Security bulletin API origin validation | The API that verifies security was itself unvalidated. Fixed. |
-| postMessage `'*'` → `event.origin` in bulletin API | No longer broadcasting responses to any origin |
-| CVE-NB-2026-001 through CVE-NB-2026-009 fully resolved | Nine CVEs. All closed. |
-
-> [!WARNING]
-> **v2 users:** everything in that table — you don't have any of it. Your CSP is `unsafe-inline`. Your pdf.js CDN is trusted unconditionally. Upgrade link is at the top of this file.
-
-> [!CAUTION]
-> **v1 users:** there's no CSP, no nonces, no SRI, no Helmet, no CSRF protection on half the routes. Running v1 in 2026 is a bold lifestyle choice. The upgrade path is [right here](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
-
----
 
 ## 📄 License
 
