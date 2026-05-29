@@ -3192,7 +3192,8 @@ self.onmessage = async (e) => {
 
       // ── Global URL opener — routes all links to com.nbosp.browser ──────
       OS.openUrl = function (url) {
-        if (!url || url.startsWith('javascript:')) return;
+        if (!url) return;
+        if (/^(javascript|data|vbscript):/i.test(url.trim())) return;
         WM.createWindow('browser', { url });
       };
 
@@ -3201,7 +3202,8 @@ self.onmessage = async (e) => {
         const a = e.target.closest('a[href]');
         if (!a) return;
         const href = a.getAttribute('href');
-        if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+        if (!href || href.startsWith('#')) return;
+        if (/^(javascript|data|vbscript):/i.test(href.trim())) return;
         if (href.match(/^https?:\/\//i)) {
           e.preventDefault();
           e.stopPropagation();
@@ -4526,8 +4528,19 @@ self.onmessage = async (e) => {
           const BK_KEY = 'nbosp_browser_bookmarks';
           const HX_KEY = 'nbosp_browser_history';
           const ST_KEY = 'nbosp_browser_settings';
-          function loadSettings() { try { return JSON.parse(localStorage.getItem(ST_KEY) || '{}'); } catch { return {}; } }
-          function saveSetting(key, val) { const s = loadSettings(); s[key] = val; localStorage.setItem(ST_KEY, JSON.stringify(s)); }
+          let _settingsCache = null;
+          function loadSettings() {
+            if (_settingsCache) return _settingsCache;
+            try { _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}'); }
+            catch { _settingsCache = {}; }
+            return _settingsCache;
+          }
+          function saveSetting(key, val) {
+            const s = loadSettings();
+            s[key] = val;
+            _settingsCache = s;
+            localStorage.setItem(ST_KEY, JSON.stringify(s));
+          }
           function getSetting(key, def) { const v = loadSettings()[key]; return v !== undefined ? v : def; }
 
           // Search engines — Google is default out of the box
@@ -4545,8 +4558,28 @@ self.onmessage = async (e) => {
             return base + encodeURIComponent(q);
           }
 
-          function loadBookmarks() { try { return JSON.parse(localStorage.getItem(BK_KEY) || '[]'); } catch { return []; } }
-          function saveBookmarks(arr) { localStorage.setItem(BK_KEY, JSON.stringify(arr.slice(0, 500))); }
+          let _bookmarksCache = null;
+          function loadBookmarks() {
+            if (_bookmarksCache) return _bookmarksCache;
+            try { _bookmarksCache = JSON.parse(localStorage.getItem(BK_KEY) || '[]'); }
+            catch { _bookmarksCache = []; }
+            return _bookmarksCache;
+          }
+          function saveBookmarks(arr) {
+            _bookmarksCache = arr.slice(0, 500);
+            localStorage.setItem(BK_KEY, JSON.stringify(_bookmarksCache));
+          }
+          let _historyCache = null;
+          function loadHistory() {
+            if (_historyCache) return _historyCache;
+            try { _historyCache = JSON.parse(localStorage.getItem(HX_KEY) || '[]'); }
+            catch { _historyCache = []; }
+            return _historyCache;
+          }
+          function saveHistory(arr) {
+            _historyCache = arr.slice(0, 1000);
+            localStorage.setItem(HX_KEY, JSON.stringify(_historyCache));
+          }
           function isBookmarked(url) { return loadBookmarks().some(b => b.url === url); }
           function toggleBookmark(url, title, favicon) {
             let arr = loadBookmarks();
@@ -4562,15 +4595,14 @@ self.onmessage = async (e) => {
             const tab = tabs.find(t => t.id === activeTabId);
             if (tab?.incognito || tab?.isPopup) return; // no history in incognito or popup windows
             try {
-              let arr = JSON.parse(localStorage.getItem(HX_KEY) || '[]');
-              arr = arr.filter(h => h.url !== url); // deduplicate
+              let arr = loadHistory().filter(h => h.url !== url); // deduplicate
               arr.unshift({ url, title: title || url, favicon: favicon || '', ts: Date.now() });
-              localStorage.setItem(HX_KEY, JSON.stringify(arr.slice(0, 1000)));
+              saveHistory(arr);
               // Live-refresh history panel if it's open
               if (_panelType === 'history' && panel.style.display !== 'none') showPanel('history');
             } catch { }
           }
-          function loadHistory() { try { return JSON.parse(localStorage.getItem(HX_KEY) || '[]'); } catch { return []; } }
+          // loadHistory defined above (write-through cache version)
 
           function renderTabs() {
             tabsBar.innerHTML = '';
@@ -4692,7 +4724,8 @@ self.onmessage = async (e) => {
             }
           }
 
-          const tabZoom = new Map();  // per-tab zoom level
+          const tabZoom = new Map();    // per-tab zoom level
+          const tabCleanups = new Map(); // tabId → [cleanup fns]
           function adjustZoom(delta) {
             let z = tabZoom.get(activeTabId) || 1.0;
             if (delta === 0) { z = 1.0; }
@@ -4730,6 +4763,9 @@ self.onmessage = async (e) => {
               switchToTab(tabs[idx > 0 ? idx - 1 : 1].id);
             }
             tabs = tabs.filter(t => t.id !== tabId);
+            // Run per-tab cleanups (cancels poll timers, etc.) before removing the webview
+            (tabCleanups.get(tabId) || []).forEach(fn => { try { fn(); } catch (_) {} });
+            tabCleanups.delete(tabId);
             if (tabs.length === 0) { createNewTab(); return; }
             renderTabs();
             const closedWv = tabWebviews?.get(tabId); if (closedWv) { closedWv.remove(); tabWebviews.delete(tabId); }
@@ -4763,8 +4799,12 @@ self.onmessage = async (e) => {
                 tile.addEventListener('mouseenter', () => tile.style.background = 'var(--bg-hover)');
                 tile.addEventListener('mouseleave', () => tile.style.background = 'var(--bg-elevated)');
                 const ico = createEl('div', { style: 'width:32px;height:32px;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-hover);' });
-                if (bk.favicon) ico.innerHTML = '<img src="' + bk.favicon + '" style="width:24px;height:24px;">';
-                else ico.innerHTML = svgIcon('globe', 20);
+                if (bk.favicon && /^https?:\/\//i.test(bk.favicon)) {
+                  const _fimg = document.createElement('img');
+                  _fimg.src = bk.favicon; _fimg.style.cssText = 'width:24px;height:24px;border-radius:3px;';
+                  _fimg.onerror = () => { ico.innerHTML = ''; ico.innerHTML = svgIcon('globe', 20); };
+                  ico.appendChild(_fimg);
+                } else { ico.innerHTML = svgIcon('globe', 20); }
                 const lbl = createEl('div', { style: 'font-size:11px;color:var(--text-secondary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;' });
                 try { lbl.textContent = new URL(bk.url).hostname.replace('www.', ''); } catch { lbl.textContent = bk.title; }
                 tile.append(ico, lbl);
@@ -4853,8 +4893,14 @@ self.onmessage = async (e) => {
               urlIcon.innerHTML = svgIcon('lock', 14);
               urlIcon.style.color = 'var(--text-success)';
             } else if (url && url.startsWith('http://')) {
-              urlIcon.innerHTML = svgIcon('unlock', 14);
-              urlIcon.style.color = 'var(--text-warning)';
+              // Only show warning icon if the security warnings setting is enabled
+              if (getSetting('show_security_warnings', true)) {
+                urlIcon.innerHTML = svgIcon('unlock', 14);
+                urlIcon.style.color = 'var(--text-warning)';
+              } else {
+                urlIcon.innerHTML = svgIcon('globe', 14);
+                urlIcon.style.color = '';
+              }
             } else {
               urlIcon.innerHTML = svgIcon('search', 14);
               urlIcon.style.color = '';
@@ -5100,9 +5146,20 @@ self.onmessage = async (e) => {
                 row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-hover)');
                 row.addEventListener('mouseleave', () => row.style.background = '');
                 const ico = createEl('span', { style: 'flex-shrink:0;color:var(--text-muted);' });
-                ico.innerHTML = item.favicon ? '<img src="' + item.favicon + '" style="width:14px;height:14px;border-radius:2px;">' : svgIcon('globe', 14);
+                if (item.favicon && /^https?:\/\//i.test(item.favicon)) {
+                  const _fimg2 = document.createElement('img');
+                  _fimg2.src = item.favicon; _fimg2.style.cssText = 'width:14px;height:14px;border-radius:2px;';
+                  _fimg2.onerror = () => { ico.innerHTML = ''; ico.innerHTML = svgIcon('globe', 14); };
+                  ico.appendChild(_fimg2);
+                } else { ico.innerHTML = svgIcon('globe', 14); }
                 const info = createEl('div', { style: 'flex:1;min-width:0;' });
-                info.innerHTML = '<div style="font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (item.title || item.url) + '</div><div style="font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + item.url + '</div>';
+                const _iTitle = document.createElement('div');
+                _iTitle.style.cssText = 'font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                _iTitle.textContent = item.title || item.url;
+                const _iUrl = document.createElement('div');
+                _iUrl.style.cssText = 'font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+                _iUrl.textContent = item.url;
+                info.append(_iTitle, _iUrl);
                 const del = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 4px;opacity:0;transition:opacity 0.1s;', title: 'Remove' });
                 del.innerHTML = svgIcon('x', 12);
                 row.addEventListener('mouseenter', () => del.style.opacity = '1');
@@ -5110,7 +5167,7 @@ self.onmessage = async (e) => {
                 del.addEventListener('click', (e) => {
                   e.stopPropagation();
                   if (type === 'bookmarks') { let arr = loadBookmarks(); arr = arr.filter(b => b.url !== item.url); saveBookmarks(arr); }
-                  else { let arr = loadHistory(); arr = arr.filter(h => h.ts !== item.ts); localStorage.setItem(HX_KEY, JSON.stringify(arr)); }
+                  else { saveHistory(loadHistory().filter(h => h.ts !== item.ts)); }
                   showPanel(type);
                 });
                 row.appendChild(ico); row.appendChild(info); row.appendChild(del);
@@ -5247,6 +5304,118 @@ self.onmessage = async (e) => {
               console.log('[NB Browser] contentload fired');
               try { wv.executeScript({ code: 'location.href' }, r => { if (chrome.runtime?.lastError || !r?.[0]) return; syncUrlForTab(r[0], tabId, 'contentload+executeScript'); }); } catch (_) { }
             });
+
+            // ── Network / certificate error handling ─────────────────────
+            // NW.js fires 'loaderror' for cert errors, DNS failures,
+            // ERR_CONNECTION_REFUSED etc.  Without this the webview stays
+            // completely blank and the user has no idea what went wrong.
+            wv.addEventListener('loaderror', e => {
+              if (!e.isTopLevel) return; // ignore sub-resource errors
+              console.warn('[NB Browser] loaderror:', e.errorCode, e.errorDescription, e.validatedURL);
+              const failedUrl = e.validatedURL || currentUrl || '';
+              const code      = e.errorCode || 0;        // negative Chromium net error
+              const desc      = e.errorDescription || '';
+
+              // Classify the error for a friendlier message
+              let title, message, hint, showBypass = false;
+              if (desc.includes('CERT') || desc.includes('SSL') || desc.includes('HTTPS') ||
+                  code === -202 || code === -200 || code === -207) {
+                title = '⚠ Certificate Error';
+                message = 'The connection to this site is not trusted. The certificate may be self-signed, expired, or issued by an unknown authority.';
+                hint  = 'If this is a local development server, click "Proceed anyway" below.';
+                showBypass = true;
+              } else if (desc.includes('CONNECTION_REFUSED') || code === -102) {
+                title = '⚡ Connection Refused';
+                message = 'No server is listening at this address. Check that the server is running and the port is correct.';
+                hint  = failedUrl.includes('localhost') || failedUrl.includes('127.0.0.1')
+                  ? 'Tip: make sure your local server is started (e.g. npm start).'
+                  : '';
+              } else if (desc.includes('NAME_NOT_RESOLVED') || code === -105) {
+                title = '🌐 DNS Error';
+                message = 'The hostname could not be resolved. Check the URL or your internet connection.';
+                hint  = '';
+              } else if (desc.includes('TIMED_OUT') || code === -7) {
+                title = '⏱ Connection Timed Out';
+                message = 'The server took too long to respond.';
+                hint  = 'Try again or check your network.';
+              } else {
+                title = '✕ Page Failed to Load';
+                message = 'Something went wrong loading this page.';
+                hint  = desc ? 'Error: ' + desc : '';
+              }
+
+              const safeUrl  = failedUrl.replace(/'/g, "\\'").replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              const bypassBtn = showBypass
+                ? `<button onclick="window.__nbBypass()" style="background:#e05d44;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:8px;">Proceed anyway (unsafe)</button>`
+                : '';
+
+              const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${title}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .card{max-width:520px;width:100%;background:#161b22;border:1px solid #30363d;
+        border-radius:12px;padding:32px 36px;text-align:center}
+  h1{font-size:20px;font-weight:700;margin-bottom:12px;color:#f0f6fc}
+  p{font-size:13px;color:#8b949e;line-height:1.6;margin-bottom:8px}
+  .url{font-size:11px;color:#58a6ff;word-break:break-all;margin-bottom:20px;
+       background:#0d1117;padding:6px 10px;border-radius:6px;border:1px solid #21262d}
+  .hint{font-size:12px;color:#e3b341;margin-bottom:20px}
+  .actions{display:flex;justify-content:center;flex-wrap:wrap;gap:8px}
+  button{background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;
+         cursor:pointer;font-size:13px}
+  button:hover{opacity:.85}
+</style></head><body>
+<div class="card">
+  <h1>${title}</h1>
+  <p>${message}</p>
+  <div class="url">${safeUrl}</div>
+  ${hint ? `<div class="hint">${hint}</div>` : ''}
+  <div class="actions">
+    ${bypassBtn}
+    <button onclick="window.__nbRetry()">↺ Retry</button>
+  </div>
+</div>
+<script>
+  window.__nbRetry  = () => { window.location.href = '${safeUrl}'; };
+  window.__nbBypass = () => { window.location.href = '${safeUrl}'; };
+</script>
+</body></html>`;
+
+              try {
+                // Write the error page directly into the webview via srcdoc
+                // (avoids creating a blob URL that we'd need to revoke)
+                wv.executeScript({
+                  code: `document.open();document.write(${JSON.stringify(errorHtml)});document.close();`
+                }, () => { });
+              } catch (_) { }
+            });
+
+            // loadabort fires for navigation that was blocked before it started
+            // (e.g. subresource integrity failures, safebrowsing, etc.)
+            wv.addEventListener('loadabort', e => {
+              if (!e.isTopLevel) return;
+              console.warn('[NB Browser] loadabort:', e.reason, e.url);
+              // Only show UI for non-trivial aborts (not blank / newtab navigations)
+              if (!e.url || e.url === 'about:blank' || e.url === 'about:newtab') return;
+              // 'ERR_ABORTED' (-3) fires on legitimate JS-driven navigations — ignore
+              if (e.reason === 'ERR_ABORTED') return;
+              const safeUrl = (e.url || '').replace(/'/g, "\\'");
+              try {
+                wv.executeScript({ code: `
+                  document.open();
+                  document.write('<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
+                    + '<div style="text-align:center;max-width:400px">'
+                    + '<div style="font-size:32px;margin-bottom:12px">🚫</div>'
+                    + '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Navigation Blocked</div>'
+                    + '<div style="font-size:12px;color:#8b949e;margin-bottom:16px">' + ${JSON.stringify(e.reason || 'Unknown reason')} + '</div>'
+                    + '<button onclick="history.back()" style="background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer">← Go Back</button>'
+                    + '</div></body></html>');
+                  document.close();
+                ` }, () => { });
+              } catch (_) { }
+            });
             // NW.js does not fire will-navigate / did-navigate / did-navigate-in-page / did-finish-load.
             // Top-level navigations are caught by loadcommit above.
             // In-page (SPA / pushState) navigations are caught by the 500 ms executeScript poll below.
@@ -5269,6 +5438,10 @@ self.onmessage = async (e) => {
 
             state.cleanups = state.cleanups || [];
             state.cleanups.push(() => clearInterval(_urlPollTimer));
+            // Also track per-tab so closeTab() can cancel it immediately
+            const _tc = tabCleanups.get(tabId) || [];
+            _tc.push(() => clearInterval(_urlPollTimer));
+            tabCleanups.set(tabId, _tc);
             // page-title-updated and page-favicon-updated are Electron-only — handled in loadstop above.
 
             // ── Fullscreen support for web content (YouTube, etc.) ────────
@@ -5324,7 +5497,7 @@ self.onmessage = async (e) => {
             // If the user presses Escape or the browser exits fullscreen on its
             // own (e.g. the user hits Esc), restore the webview sizing so the
             // OS UI doesn't stay covered.
-            document.addEventListener('fullscreenchange', () => {
+            const _onFsChange = () => {
               if (!document.fullscreenElement) {
                 wv.style.position = 'absolute';
                 wv.style.inset = 'auto';
@@ -5333,7 +5506,10 @@ self.onmessage = async (e) => {
                 wv.style.height = '100%';
                 document.body.style.overflow = '';
               }
-            }, { once: false });
+            };
+            document.addEventListener('fullscreenchange', _onFsChange);
+            state.cleanups = state.cleanups || [];
+            state.cleanups.push(() => document.removeEventListener('fullscreenchange', _onFsChange));
 
             // History is now saved from the loadstop handler above via executeScript.
 
@@ -5341,7 +5517,12 @@ self.onmessage = async (e) => {
             // Chrome Apps webview fires permissionrequest with permission==='download'
             // (will-download is Electron-only). We intercept here and save via Node.js.
             wv.addEventListener('permissionrequest', e => {
-              if (e.permission === 'fullscreen' || e.permission === 'media') {
+              if (e.permission === 'fullscreen') {
+                e.request.allow();
+                return;
+              }
+              // 'pointerLock' is required by browser games and 3D viewers
+              if (e.permission === 'pointerLock') {
                 e.request.allow();
                 return;
               }
@@ -5349,9 +5530,18 @@ self.onmessage = async (e) => {
                 e.request.deny(); // prevent default browser save-dialog; we handle it ourselves
                 (async () => {
                   const _url = e.request.url;
+                  // Only allow http(s) downloads — block file:, data:, etc.
+                  if (!_url || !/^https?:\/\//i.test(_url)) return;
                   try {
-                    // Derive filename from URL
-                    let baseName = decodeURIComponent(_url.split('?')[0].split('/').pop()) || ('download_' + Date.now());
+                    // Derive filename from URL and sanitise against path traversal
+                    let baseName = (() => {
+                      try { return decodeURIComponent(new URL(_url).pathname.split('/').pop()); }
+                      catch { return ''; }
+                    })() || ('download_' + Date.now());
+                    // Strip dangerous filename characters (path separators, shell chars)
+                    baseName = baseName.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
+                    // Cap filename length to prevent FS issues
+                    if (baseName.length > 128) baseName = baseName.slice(0, 128);
                     if (!baseName.includes('.')) baseName += '.bin';
 
                     // Deduplicate filename within VFS Downloads folder
@@ -5376,7 +5566,12 @@ self.onmessage = async (e) => {
                     // Fetch bytes via browser fetch (inherits webview session/cookies for auth)
                     const resp = await fetch(_url);
                     if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    // Refuse downloads over 512 MB to prevent memory exhaustion
+                    const _cl = resp.headers.get('content-length');
+                    const MAX_DL = 512 * 1024 * 1024;
+                    if (_cl && parseInt(_cl, 10) > MAX_DL) throw new Error('File too large (> 512 MB)');
                     const buf = await resp.arrayBuffer();
+                    if (buf.byteLength > MAX_DL) throw new Error('File too large (> 512 MB)');
                     const bytes = new Uint8Array(buf);
 
                     // Detect MIME type from Content-Type header or fall back to octet-stream
@@ -5537,7 +5732,9 @@ self.onmessage = async (e) => {
             const ifr = document.createElement('iframe');
             ifr.setAttribute('allowfullscreen', 'true');
             ifr.setAttribute('allow', 'fullscreen; autoplay; clipboard-read; clipboard-write');
-            ifr.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation');
+            // NOTE: allow-same-origin is intentionally ABSENT — combining it with allow-scripts
+            // enables a known sandbox escape (framed doc can call frameElement.removeAttribute('sandbox')).
+            ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation');
             ifr.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointer-events:none;z-index:0;top:0;left:0;background:#fff;';
 
             // Detect X-Frame-Options / CSP frame-ancestors block:
@@ -5706,8 +5903,18 @@ self.onmessage = async (e) => {
             wv.addEventListener('permissionrequest', e => {
               if (e.permission === 'geolocation') {
                 getSetting('enable_geolocation', true) ? e.request.allow() : e.request.deny();
-              } else if (e.permission === 'media' || e.permission === 'pointerLock') {
-                e.request.allow();
+              } else if (e.permission === 'media') {
+                // Show a non-blocking OS permission prompt — never grant camera/mic silently
+                const _origin = (() => { try { return new URL(currentUrl).hostname; } catch { return currentUrl || 'this site'; } })();
+                showModal(
+                  'Permission Request',
+                  _origin + ' wants to access your camera and/or microphone.',
+                  [{ label: 'Allow', primary: true, value: true }, { label: 'Deny', value: false }]
+                ).then(result => { result ? e.request.allow() : e.request.deny(); });
+              } else if (e.permission === 'pointerLock') {
+                e.request.allow(); // pointer lock is low-risk UX feature
+              } else {
+                e.request.deny(); // deny all other unrecognised permissions by default
               }
             });
 
@@ -5893,14 +6100,19 @@ self.onmessage = async (e) => {
               // ════════════════════════════════════════════════════════════
             } else if (activeCategory === 'privacy') {
               panelTitle('Privacy & Security', 'Control cookies, passwords, location and browsing data.');
-              panelInner.appendChild(mkRow('Show security warnings', 'Alert when visiting potentially unsafe sites', mkToggle('show_security_warnings', true)));
+              panelInner.appendChild(mkRow('Show security warnings', 'Show a warning indicator for non-HTTPS pages in the address bar', mkToggle('show_security_warnings', true, (v) => {
+                // Re-evaluate current page icon when toggled
+                updateUrlIcon(currentUrl);
+              })));
 
               panelInner.appendChild(mkSubHdr('Cookies'));
-              panelInner.appendChild(mkRow('Accept cookies', 'Allow sites to save cookies on this device', mkToggle('accept_cookies', true)));
+              panelInner.appendChild(mkRow('Accept cookies', 'Allow sites to save cookies. Disabling clears existing cookies and blocks new ones via webRequest', mkToggle('accept_cookies', true, (v) => {
+                if (!v) clearWebviewData({ cookies: true, persistentCookies: true, sessionCookies: true }, 'Cookies blocked', 'Existing cookies cleared. New cookies will be blocked.');
+              })));
               panelInner.appendChild(mkRow('Clear cookies', '', mkClearBtn('Clear Cookies', () => clearWebviewData({ cookies: true, persistentCookies: true, sessionCookies: true }, 'Cookies cleared', 'All cookies have been deleted.'))));
 
               panelInner.appendChild(mkSubHdr('Form Data'));
-              panelInner.appendChild(mkRow('Save form data', 'Remember data entered in web forms', mkToggle('save_formdata', true)));
+              panelInner.appendChild(mkRow('Save form data', 'Remember data entered in web forms (managed by the webview session; disable and clear form data to remove)', mkToggle('save_formdata', true)));
               panelInner.appendChild(mkRow('Clear form data', '', mkClearBtn('Clear Form Data', () => clearWebviewData({ localStorage: true, indexedDB: true, webSQL: true }, 'Form data cleared', 'Saved form data has been deleted.'))));
 
               panelInner.appendChild(mkSubHdr('Location'));
@@ -5908,15 +6120,15 @@ self.onmessage = async (e) => {
               panelInner.appendChild(mkRow('Clear location access', '', mkClearBtn('Clear Location', () => Notify.show({ title: 'Location access cleared', body: 'All site location permissions have been revoked.', type: 'info', appName: 'Browser' }))));
 
               panelInner.appendChild(mkSubHdr('Passwords'));
-              panelInner.appendChild(mkRow('Remember passwords', 'Offer to save passwords for sites', mkToggle('remember_passwords', true)));
+              panelInner.appendChild(mkRow('Remember passwords', 'Offer to save passwords (managed by the webview session; use Clear Passwords to remove saved credentials)', mkToggle('remember_passwords', true)));
               panelInner.appendChild(mkRow('Clear saved passwords', '', mkClearBtn('Clear Passwords', () => Notify.show({ title: 'Passwords cleared', body: 'Saved passwords have been deleted.', type: 'info', appName: 'Browser' }))));
 
               panelInner.appendChild(mkSubHdr('Browsing Data'));
               const dataRow = createEl('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;padding:12px 0;' });
               dataRow.append(
                 mkClearBtn('Clear Cache', () => clearWebviewData({ cache: true, appcache: true }, 'Cache cleared', 'Cached data has been deleted.')),
-                mkClearBtn('Clear History', () => { localStorage.removeItem(HX_KEY); Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'info', appName: 'Browser' }); }),
-                mkClearBtn('Clear Bookmarks', () => { localStorage.removeItem(BK_KEY); Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'info', appName: 'Browser' }); })
+                mkClearBtn('Clear History', () => { localStorage.removeItem(HX_KEY); _historyCache = null; Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'info', appName: 'Browser' }); }),
+                mkClearBtn('Clear Bookmarks', () => { localStorage.removeItem(BK_KEY); _bookmarksCache = null; Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'info', appName: 'Browser' }); })
               );
               panelInner.appendChild(dataRow);
 
@@ -5958,10 +6170,17 @@ self.onmessage = async (e) => {
               resetBtn.addEventListener('mouseenter', () => resetBtn.style.background = 'rgba(248,81,73,0.1)');
               resetBtn.addEventListener('mouseleave', () => resetBtn.style.background = 'transparent');
               resetBtn.addEventListener('click', () => {
-                if (!confirm('Reset all browser settings to their defaults?')) return;
-                localStorage.removeItem(ST_KEY);
-                renderSettingsPage('general');
-                Notify.show({ title: 'Settings reset', body: 'All browser settings restored to defaults.', type: 'success', appName: 'Browser' });
+                showModal(
+                  'Reset Browser Settings',
+                  'This will restore all browser settings to their factory defaults. Your bookmarks and history will not be affected.',
+                  [{ label: 'Reset', danger: true, value: true }, { label: 'Cancel', value: false }]
+                ).then(confirmed => {
+                  if (!confirmed) return;
+                  localStorage.removeItem(ST_KEY);
+                  _settingsCache = null; // invalidate settings cache
+                  renderSettingsPage('general');
+                  Notify.show({ title: 'Settings reset', body: 'All browser settings restored to defaults.', type: 'success', appName: 'Browser' });
+                });
               });
               panelInner.appendChild(resetBtn);
             }
@@ -5974,6 +6193,9 @@ self.onmessage = async (e) => {
           function navigate(rawUrl) {
             if (!rawUrl) return;
             let url = rawUrl.trim();
+            // Block dangerous schemes — must check before any branching
+            const _lowerUrl = url.toLowerCase().replace(/^[\s\u0000-\u001f]+/, '');
+            if (/^(javascript|data|vbscript|about):/i.test(_lowerUrl)) return;
 
             // ── browser://settings ────────────────────────────────────────
             if (url === 'browser://settings') {
@@ -6030,7 +6252,9 @@ self.onmessage = async (e) => {
                 } catch (_) {
                   const contentStr = targetNode.content instanceof Uint8Array ? new TextDecoder().decode(targetNode.content) : String(targetNode.content);
                   const blob = new Blob([contentStr], { type: 'text/html' });
-                  wv.src = URL.createObjectURL(blob);
+                  const _blobUrl = URL.createObjectURL(blob);
+                  wv.src = _blobUrl;
+                  wv.addEventListener('loadstop', () => URL.revokeObjectURL(_blobUrl), { once: true });
                 }
                 return;
               }
@@ -6074,7 +6298,7 @@ self.onmessage = async (e) => {
 
           // F12 → main window DevTools (NW.js requires programmatic open)
           // Ctrl+Shift+J → DevTools INSIDE the active webview (for debugging)
-          document.addEventListener('keydown', e => {
+          const _onBrowserKeydown = e => {
             if (e.key === 'F12') {
               e.preventDefault();
               try { nw.Window.get().showDevTools(); } catch (_) { }
@@ -6086,14 +6310,37 @@ self.onmessage = async (e) => {
                 try { wv.showDevTools(true); } catch (_) { }
               }
             }
-          });
+          };
+          document.addEventListener('keydown', _onBrowserKeydown);
+          state.cleanups = state.cleanups || [];
+          state.cleanups.push(() => document.removeEventListener('keydown', _onBrowserKeydown));
 
           // Incognito partition — use separate session per incognito tab
-          backBtn.addEventListener('click', () => { tabWebviews.get(activeTabId)?.back(); });
-          fwdBtn.addEventListener('click', () => { tabWebviews.get(activeTabId)?.forward(); });
+          backBtn.addEventListener('click', () => {
+            if (getTabMode(activeTabId) === 'iframe') {
+              const ifr = tabIframes.get(activeTabId);
+              try { if (ifr) ifr.contentWindow.history.back(); } catch (_) {}
+            } else { tabWebviews.get(activeTabId)?.back(); }
+          });
+          fwdBtn.addEventListener('click', () => {
+            if (getTabMode(activeTabId) === 'iframe') {
+              const ifr = tabIframes.get(activeTabId);
+              try { if (ifr) ifr.contentWindow.history.forward(); } catch (_) {}
+            } else { tabWebviews.get(activeTabId)?.forward(); }
+          });
           refreshBtn.addEventListener('click', () => {
-            const wv = tabWebviews.get(activeTabId);
-            if (wv) wv.reload(); else if (currentUrl) navigate(currentUrl);
+            const _mode = getTabMode(activeTabId);
+            if (_mode === 'iframe') {
+              const ifr = tabIframes.get(activeTabId);
+              if (ifr) {
+                // Try contentWindow reload (works for same-origin); fall back to re-setting src
+                try { ifr.contentWindow.location.reload(); }
+                catch (_) { const _s = ifr.src; ifr.src = ''; ifr.src = _s; }
+              }
+            } else {
+              const wv = tabWebviews.get(activeTabId);
+              if (wv) wv.reload(); else if (currentUrl) navigate(currentUrl);
+            }
           });
 
           // Open HTML file from vault — write to temp disk file so webview can load it natively
@@ -6143,6 +6390,7 @@ self.onmessage = async (e) => {
                 const blob = new Blob([htmlContent], { type: 'text/html' });
                 const blobUrl = URL.createObjectURL(blob);
                 wv.src = blobUrl;
+                wv.addEventListener('loadstop', () => URL.revokeObjectURL(blobUrl), { once: true });
                 currentUrl = blobUrl;
               }
               return;
