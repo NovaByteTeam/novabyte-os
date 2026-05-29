@@ -42,6 +42,6 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
-    "nw": "^0.112.0-sdk"
+    "nw": "^0.111.3-sdk"
   }
 }

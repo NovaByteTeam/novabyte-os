@@ -647,7 +647,7 @@
         recLog('');
         recLog('[ Import Backup ]', 'info');
         const inp = document.createElement('input');
-        inp.type = 'file'; inp.accept = '.json';
+        inp.type = 'file'; inp.accept = '.json'; inp.id = 'backup-import-input'; inp.name = 'backup-import';
         inp.onchange = e => {
           const file = e.target.files[0];
           if (!file) return;
@@ -1238,31 +1238,22 @@
           // ── APP ICONS ──────────────────────────────────────────────────────────
           'folder-open': 'safe',
           'pen-tool': 'pen',
-          'novashell': 'console',
           'globe': 'globe',
           'music': 'music',
           'image': 'picture',
           'calendar': 'calendar',
           'mail': 'mail',
-          'store': 'shop',
           'monitor': 'monitor',
-          'sticky-note': 'color-palette',
-          'table': 'database',
           'settings': 'gear',
-          'book-open': 'pdf',
           'alarm-clock': 'alarm-clock',
           'bell': 'bell',
           'shield': 'shield',
           'sliders': 'adjust',
-          'clipboard-list': 'journal',
           'users': 'people',
-          'shield-check': 'key',
-          'wifi': 'wifi',
+          'wifi': 'wi-fi',
           'clock': 'calendar',
           'database': 'server',
           'terminal': 'command-line',
-          'hdd': 'hdd',
-          'alert-triangle': 'error',
 
           // ── FALLBACK / COMPATIBILITY ──────────────────────────────────────────
           'trash': 'trash',
@@ -1271,29 +1262,18 @@
           'file': 'document',
           'file-text': 'document',
           'document': 'document',
-          'idea': 'idea',
 
           // ── MEDIA / PLAYBACK ──────────────────────────────────────────────────
           'play': 'play-button',
           'pause': 'pause-button',
-          'skip-forward': 'skip-forward',
-          'skip-back': 'skip-back',
-          'shuffle': 'shuffle',
-          'repeat': 'repeat',
-          'volume-2': 'high-volume',
+          'volume-2': 'sound',
 
           // ── MAIL / ARCHIVE ──────────────────────────────────────────────────
-          'send': 'sent',
-          'paperclip': 'attached',
           'archive': 'archive',
 
           // ── GENERAL ICONS ──────────────────────────────────────────────────
-          'activity': 'activity-feed',
-          'grid': 'layers',            // Grid view (use layers icon)
           'search': 'magnifying-glass',
-          'home': 'home',
           'download': 'download',
-          'upload': 'upload',
           'save': 'save',
           'copy': 'copy',
           'star': 'star',
@@ -1301,7 +1281,7 @@
           'refresh': 'refresh',
           'maximize': 'fullscreen',
           'info': 'info',
-          'eye': 'visible',
+          'eye': 'eye',
           'zap': 'lightning',
           'tag': 'tag',
           'edit-3': 'edit',
@@ -1364,9 +1344,9 @@
         };
 
         const i8name = iconMap[name] || name;
-        // Clamp: always fetch at 96px (sharp, free tier), display at requested size
-        // Include onerror fallback for CORS/network issues
-        return `<img src="https://img.icons8.com/3d-fluency/96/${i8name}" width="${size}" height="${size}" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">`;
+        // Use local asset — no external dependency
+        const localPath = `/assets/icons8-${i8name}-94.png`;
+        return `<img src="${localPath}" width="${size}" height="${size}" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">`;
       }
 
       /* ═══════════════════════════════════════════════════════════════
@@ -1694,7 +1674,7 @@ self.onmessage = async (e) => {
       }
 
       const OS = {
-        version: '3.0.1',
+        version: '3.0.2',
         securityPatch: '2026-05-01',  // NovaByte security patch date — globally readable
         username: 'user',
         workers: {},
@@ -1772,6 +1752,11 @@ self.onmessage = async (e) => {
             proxyUrl: '',
             username: 'user',
             pinnedApps: ['shell', 'vault', 'browser']
+          },
+          applySafeModeDefaults() {
+            // Safe Mode should behave like a clean default session without persisting changes.
+            // Leave the original stored settings untouched, but make all reads resolve to defaults.
+            this._cache = {};
           }
         },
 
@@ -2120,6 +2105,17 @@ self.onmessage = async (e) => {
           };
           OS.windows.set(id, state);
 
+          // Clamp spawn position so window never starts outside the OS viewport
+          const spawnClamped = WM.clampWindowRect(state, state.x, state.y, state.width, state.height);
+          state.x = spawnClamped.x;
+          state.y = spawnClamped.y;
+          state.width = spawnClamped.w;
+          state.height = spawnClamped.h;
+          win.style.left = state.x + 'px';
+          win.style.top = state.y + 'px';
+          win.style.width = state.width + 'px';
+          win.style.height = state.height + 'px';
+
           // Remove opening class precisely when animation ends
           win.addEventListener('animationend', () => win.classList.remove('opening'), { once: true });
 
@@ -2304,6 +2300,73 @@ self.onmessage = async (e) => {
           WM.updateTaskbar();
         },
 
+
+        getWorkArea() {
+          const vw = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
+          const vh = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
+          const tb = document.getElementById('taskbar');
+          const area = { left: 0, top: 0, right: vw, bottom: vh };
+          if (!tb) {
+            return { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' };
+          }
+
+          const isHidden = tb.classList.contains('taskbar-autohide') && !tb.classList.contains('taskbar-ah-shown');
+          if (isHidden) {
+            return { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' };
+          }
+
+          const rect = tb.getBoundingClientRect();
+          const style = window.getComputedStyle(tb);
+          let position = 'bottom';
+          if (style.left === '0px' && style.right === 'auto') position = 'left';
+          else if (style.right === '0px' && style.left === 'auto') position = 'right';
+          else if (style.top === '0px' && style.bottom === 'auto') position = 'top';
+
+          const gap = 8;
+          if (position === 'bottom') area.bottom = Math.max(area.top + 220, Math.floor(rect.top) - gap);
+          else if (position === 'top') area.top = Math.min(area.bottom - 220, Math.ceil(rect.bottom) + gap);
+          else if (position === 'left') area.left = Math.min(area.right - 320, Math.ceil(rect.right) + gap);
+          else if (position === 'right') area.right = Math.max(area.left + 320, Math.floor(rect.left) - gap);
+
+          return {
+            ...area,
+            width: Math.max(0, area.right - area.left),
+            height: Math.max(0, area.bottom - area.top),
+            taskbarHidden: false,
+            taskbarPosition: position
+          };
+        },
+
+        clampWindowRect(state, x, y, w, h) {
+          const area = WM.getWorkArea();
+          const minW = state.minWidth || 300;
+          const minH = state.minHeight || 200;
+          // Use full viewport for size clamping (not just work area) so windows
+          // can be dragged partially under the taskbar
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          const maxW = Math.max(minW, vw);
+          const maxH = Math.max(minH, vh);
+          const width = Math.min(Math.max(w, minW), maxW);
+          const height = Math.min(Math.max(h, minH), maxH);
+          // Horizontal: keep at least 80px of the window visible on each side
+          const grabMarginH = 80;
+          const minX = area.left - width + grabMarginH;
+          const maxX = area.right - grabMarginH;
+          // Vertical: top edge must stay within the screen top + work area top
+          // (so titlebar is reachable), and bottom is clamped to the taskbar top
+          // so the titlebar can never be dragged fully behind the taskbar.
+          const grabH = 32; // minimum titlebar height that must remain visible
+          const minY = area.top;                     // can't go above work area top
+          const maxY = area.bottom - grabH;          // titlebar must stay above taskbar
+          return {
+            x: Math.min(Math.max(x, minX), maxX),
+            y: Math.min(Math.max(y, minY), maxY),
+            w: width,
+            h: height
+          };
+        },
+
         toggleMaximize(id) {
           const state = OS.windows.get(id);
           if (!state) return;
@@ -2328,13 +2391,15 @@ self.onmessage = async (e) => {
             state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
             state.maximized = true;
             state.element.classList.add('maximized');
-            state.element.style.left = '0';
-            state.element.style.top = '0';
-            state.element.style.width = '100vw';
-            const tb = document.getElementById('taskbar');
-            const isAutoHide = tb && tb.classList.contains('taskbar-autohide');
-            const isHidden = isAutoHide && !tb.classList.contains('taskbar-ah-shown');
-            state.element.style.height = isHidden ? '100vh' : 'calc(100vh - var(--taskbar-height))';
+            const area = WM.getWorkArea();
+            state.element.style.left = area.left + 'px';
+            state.element.style.top = area.top + 'px';
+            state.element.style.width = area.width + 'px';
+            state.element.style.height = area.height + 'px';
+            state.x = area.left;
+            state.y = area.top;
+            state.width = area.width;
+            state.height = area.height;
           }
         },
 
@@ -2377,7 +2442,6 @@ self.onmessage = async (e) => {
           const onPointerDown = (e) => {
             if (e.target.closest('.window-controls')) return;
             if (state.maximized) {
-              // Unmaximize and position under mouse
               state.maximized = false;
               state.element.classList.remove('maximized');
               if (state.preMaxState) {
@@ -2385,9 +2449,15 @@ self.onmessage = async (e) => {
                 state.height = state.preMaxState.h;
                 state.element.style.width = state.width + 'px';
                 state.element.style.height = state.height + 'px';
-                // Position titlebar under mouse
-                state.x = e.clientX - (state.width / 2);
-                state.y = Math.max(0, e.clientY - 10);
+                const restored = WM.clampWindowRect(
+                  state,
+                  e.clientX - (state.width / 2),
+                  e.clientY - 10,
+                  state.width,
+                  state.height
+                );
+                state.x = restored.x;
+                state.y = restored.y;
                 state.element.style.left = state.x + 'px';
                 state.element.style.top = state.y + 'px';
               }
@@ -2406,18 +2476,19 @@ self.onmessage = async (e) => {
             if (!dragging) return;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
-            state.x = origX + dx;
-            state.y = Math.max(0, origY + dy);
+            const next = WM.clampWindowRect(state, origX + dx, origY + dy, state.width, state.height);
+            state.x = next.x;
+            state.y = next.y;
             state.element.style.transform = `translate(${state.x - origX}px, ${state.y - origY}px)`;
 
-            // Snap preview
+            const area = WM.getWorkArea();
             const snapZone = 20;
             if (e.clientX < snapZone) {
-              WM.showSnapPreview(0, 0, window.innerWidth / 2, window.innerHeight - 48);
+              WM.showSnapPreview(area.left, area.top, Math.floor(area.width / 2), area.height);
             } else if (e.clientX > window.innerWidth - snapZone) {
-              WM.showSnapPreview(window.innerWidth / 2, 0, window.innerWidth / 2, window.innerHeight - 48);
+              WM.showSnapPreview(area.left + Math.floor(area.width / 2), area.top, Math.floor(area.width / 2), area.height);
             } else if (e.clientY < snapZone) {
-              WM.showSnapPreview(0, 0, window.innerWidth, window.innerHeight - 48);
+              WM.showSnapPreview(area.left, area.top, area.width, area.height);
             } else {
               WM.hideSnapPreview();
             }
@@ -2427,15 +2498,11 @@ self.onmessage = async (e) => {
             if (!dragging) return;
             dragging = false;
             state.element.classList.remove('is-dragging');
-            // Commit final position with transition still suppressed so there is no
-            // animated jump from the transform offset to the new left/top values.
             state.element.style.transition = 'none';
             state.element.style.left = state.x + 'px';
             state.element.style.top = state.y + 'px';
             state.element.style.transform = 'none';
             document.body.style.cursor = '';
-            // Defer clearing transform + restoring transition until the committed
-            // position has been painted — two rAFs guarantees a full frame boundary.
             requestAnimationFrame(() => {
               state.element.style.transform = '';
               state.element.style.willChange = '';
@@ -2498,12 +2565,15 @@ self.onmessage = async (e) => {
             if (dir.includes('s')) newH = Math.max(state.minHeight, origH + dy);
             if (dir.includes('n')) { newH = Math.max(state.minHeight, origH - dy); newY = origY + origH - newH; }
 
-            state.width = newW; state.height = newH;
-            state.x = newX; state.y = newY;
-            state.element.style.width = newW + 'px';
-            state.element.style.height = newH + 'px';
-            state.element.style.left = newX + 'px';
-            state.element.style.top = newY + 'px';
+            const next = WM.clampWindowRect(state, newX, newY, newW, newH);
+            state.width = next.w;
+            state.height = next.h;
+            state.x = next.x;
+            state.y = next.y;
+            state.element.style.width = next.w + 'px';
+            state.element.style.height = next.h + 'px';
+            state.element.style.left = next.x + 'px';
+            state.element.style.top = next.y + 'px';
           });
 
           const onPointerUp = () => {
@@ -2526,18 +2596,24 @@ self.onmessage = async (e) => {
         },
 
         snapWindow(state, side) {
-          const tbH = 48;
+          const area = WM.getWorkArea();
+          state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
           if (side === 'left') {
-            state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
-            state.x = 0; state.y = 0;
-            state.width = window.innerWidth / 2;
-            state.height = window.innerHeight - tbH;
+            state.x = area.left;
+            state.y = area.top;
+            state.width = Math.floor(area.width / 2);
+            state.height = area.height;
           } else if (side === 'right') {
-            state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
-            state.x = window.innerWidth / 2; state.y = 0;
-            state.width = window.innerWidth / 2;
-            state.height = window.innerHeight - tbH;
+            state.x = area.left + Math.floor(area.width / 2);
+            state.y = area.top;
+            state.width = Math.ceil(area.width / 2);
+            state.height = area.height;
           }
+          const next = WM.clampWindowRect(state, state.x, state.y, state.width, state.height);
+          state.x = next.x;
+          state.y = next.y;
+          state.width = next.w;
+          state.height = next.h;
           state.element.style.left = state.x + 'px';
           state.element.style.top = state.y + 'px';
           state.element.style.width = state.width + 'px';
@@ -2729,7 +2805,46 @@ self.onmessage = async (e) => {
          ═══════════════════════════════════════════════════════════════ */
 
       const Notify = {
+        _storageKey: 'novaOS_notifications',
+        _loaded: false,
+
+        loadPersisted() {
+          if (Notify._loaded) return;
+          Notify._loaded = true;
+          try {
+            const saved = JSON.parse(localStorage.getItem(Notify._storageKey) || '[]');
+            if (Array.isArray(saved)) {
+              OS.notifications = saved.slice(0, 100);
+              OS.notifUnread = OS.notifications.filter(n => !n.read).length;
+            }
+          } catch (e) {
+            OS.notifications = [];
+            OS.notifUnread = 0;
+          }
+        },
+
+        persist() {
+          try { localStorage.setItem(Notify._storageKey, JSON.stringify(OS.notifications.slice(0, 100))); } catch (e) { }
+        },
+
+        markAllRead() {
+          let changed = false;
+          OS.notifications = OS.notifications.map(n => {
+            if (n && !n.read) {
+              changed = true;
+              return { ...n, read: true };
+            }
+            return n;
+          });
+          OS.notifUnread = 0;
+          if (changed) Notify.persist();
+          Notify.updateBadge();
+          updateNotificationBadge();
+          Notify.renderPanel();
+        },
+
         show(opts) {
+          Notify.loadPersisted();
           const { title, body, type, appName, category, icon, action, actionLabel } = opts;
           const notif = {
             id: generateId(),
@@ -2744,19 +2859,6 @@ self.onmessage = async (e) => {
             action: action || null,
             actionLabel: actionLabel || null
           };
-          // FIX 15 — load any persisted notifications on first call
-          if (!Notify._loaded) {
-            Notify._loaded = true;
-            try {
-              const _saved = JSON.parse(localStorage.getItem('novaOS_notifications') || '[]');
-              if (_saved.length) {
-                OS.notifications = _saved;
-                OS.notifUnread = _saved.filter(n => !n.read).length;
-                Notify.updateBadge();
-                Notify.renderPanel();
-              }
-            } catch (e) { }
-          }
           OS.notifications.unshift(notif);
           if (OS.notifications.length > 100) OS.notifications.pop();
           OS.notifUnread++;
@@ -2764,7 +2866,7 @@ self.onmessage = async (e) => {
           updateNotificationBadge();
           Notify.renderPanel();
           // FIX 15 — persist to localStorage
-          try { localStorage.setItem('novaOS_notifications', JSON.stringify(OS.notifications.slice(0, 100))); } catch (e) { }
+          Notify.persist();
 
           if (!OS.dnd) Notify.showToast(notif);
         },
@@ -2844,6 +2946,7 @@ self.onmessage = async (e) => {
         },
 
         renderPanel() {
+          Notify.loadPersisted();
           const list = document.getElementById('notif-list');
           list.innerHTML = '';
           if (OS.notifications.length === 0) {
@@ -2868,11 +2971,19 @@ self.onmessage = async (e) => {
         },
 
         togglePanel() {
+          Notify.loadPersisted();
           const panel = document.getElementById('notification-panel');
+          const opening = !panel.classList.contains('active');
           panel.classList.toggle('active');
-          if (panel.classList.contains('active')) {
-            OS.notifUnread = 0;
+          if (opening) {
+            if (OS.notifications.length) {
+              OS.notifications = OS.notifications.map(n => n && !n.read ? { ...n, read: true } : n);
+              OS.notifUnread = 0;
+              Notify.persist();
+            }
             Notify.updateBadge();
+            updateNotificationBadge();
+            Notify.renderPanel();
           }
         }
       };
@@ -2964,6 +3075,8 @@ self.onmessage = async (e) => {
           if (inputType) {
             const inputWrap = createEl('div', { className: 'modal-body', style: { paddingTop: '0' } });
             _modalInput = createEl('input', {
+              id: 'modal-input-field',
+              name: 'modal-input',
               className: 'input',
               type: inputType,
               style: { width: '100%', marginTop: '4px' },
@@ -3016,7 +3129,7 @@ self.onmessage = async (e) => {
           const dialog = createEl('div', { className: 'modal-dialog' });
           dialog.appendChild(createEl('div', { className: 'modal-title', textContent: title }));
 
-          const input = createEl('input', { className: 'input', value: defaultValue || '', 'aria-label': title });
+          const input = createEl('input', { className: 'input', id: 'modal-input-field', name: 'modal-input', value: defaultValue || '', 'aria-label': title });
           const bodyDiv = createEl('div', { className: 'modal-body' });
           bodyDiv.appendChild(input);
           dialog.appendChild(bodyDiv);
@@ -3131,13 +3244,13 @@ self.onmessage = async (e) => {
           upBtn.innerHTML = svgIcon('chevron-up', 16);
 
           const pathBarWrap = createEl('div', { className: 'browser-url-bar-wrap' });
-          const pathBar = createEl('input', { className: 'browser-url-bar', 'aria-label': 'Current path', spellcheck: 'false', placeholder: '/' });
+          const pathBar = createEl('input', { className: 'browser-url-bar', id: 'file-browser-path-input', name: 'file-browser-path', 'aria-label': 'Current path', spellcheck: 'false', placeholder: '/' });
           const pathIcon = createEl('span', { className: 'browser-url-icon' });
           pathIcon.innerHTML = svgIcon('folder', 14);
           pathBarWrap.appendChild(pathBar);
           pathBarWrap.appendChild(pathIcon);
 
-          const searchInput = createEl('input', { className: 'browser-url-bar', style: 'max-width:140px;', placeholder: 'Search…', 'aria-label': 'Search files' });
+          const searchInput = createEl('input', { className: 'browser-url-bar', id: 'file-browser-search-input', name: 'file-browser-search', style: 'max-width:140px;', placeholder: 'Search…', 'aria-label': 'Search files' });
 
           toolbar.append(backBtn, upBtn, pathBarWrap, searchInput);
           root.appendChild(toolbar);
@@ -3244,7 +3357,7 @@ self.onmessage = async (e) => {
             if (OS.settings.get('filesViewOnly')) { Notify.show({ title: 'Blocked', body: 'Renaming disabled by policy.', type: 'warning', appName: 'Files' }); return; }
             isRenaming = true;
             const old = fileNode.name;
-            const input = createEl('input', { value: old, style: 'width:100%;background:var(--bg-base);border:1px solid var(--accent);border-radius:4px;padding:1px 4px;font-size:11px;color:var(--text-primary);outline:none;' });
+            const input = createEl('input', { id: 'file-rename-input', name: 'file-rename', value: old, style: 'width:100%;background:var(--bg-base);border:1px solid var(--accent);border-radius:4px;padding:1px 4px;font-size:11px;color:var(--text-primary);outline:none;' });
             nameEl.innerHTML = '';
             nameEl.appendChild(input);
             input.focus(); input.select();
@@ -3400,7 +3513,7 @@ self.onmessage = async (e) => {
                 { label: 'New Folder', icon: 'folder', shortcut: 'Ctrl+Shift+N', action: async () => { const n = await showPrompt('New Folder', 'New Folder'); if (n) { await FS.createFolder(nav.cwd, n); renderFiles(); renderDesktopIcons(); } } },
                 { separator: true },
                 {
-                  label: 'Paste', icon: 'copy', shortcut: 'Ctrl+V', action: async () => {
+                  label: 'Paste', icon: 'documents', shortcut: 'Ctrl+V', action: async () => {
                     if (OS.settings.get('disableClipboardPaste')) { Notify.show({ title: 'Blocked', body: 'Paste disabled.', type: 'warning', appName: 'Files' }); return; }
                     const clip = OS.clipboard; if (!clip?.fileId) return;
                     const src = FS.files.get(clip.fileId); if (!src) return;
@@ -3522,6 +3635,8 @@ self.onmessage = async (e) => {
 
           const textarea = createEl('textarea', {
             className: 'quill-textarea',
+            id: 'quill-text-editor',
+            name: 'quill-editor',
             spellcheck: 'false',
             'aria-label': 'Text editor',
             role: 'textbox',
@@ -3543,7 +3658,7 @@ self.onmessage = async (e) => {
             ContextMenu.show(e.clientX, e.clientY, [
               { label: 'Cut', icon: 'scissors', shortcut: 'Ctrl+X', action: () => document.execCommand('cut') },
               { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+C', action: () => document.execCommand('copy') },
-              { label: 'Paste', icon: 'clipboard', shortcut: 'Ctrl+V', action: () => document.execCommand('paste') },
+              { label: 'Paste', icon: 'documents', shortcut: 'Ctrl+V', action: () => document.execCommand('paste') },
               { separator: true },
               { label: 'Select All', icon: 'maximize', shortcut: 'Ctrl+A', action: () => document.execCommand('selectAll') },
               { separator: true },
@@ -3679,7 +3794,7 @@ self.onmessage = async (e) => {
               const sel = window.getSelection().toString();
               ContextMenu.show(e.clientX, e.clientY, [
                 ...(sel ? [{ label: 'Copy', icon: 'copy', action: () => { navigator.clipboard.writeText(sel); Notify.show({ title: 'Copied', body: 'Text copied', type: 'info', appName: 'Terminal' }); } }, { separator: true }] : []),
-                { label: 'Paste', icon: 'clipboard', action: () => { navigator.clipboard.readText().then(text => { if (tabs[activeTabIdx]?.input) tabs[activeTabIdx].input.value += text; }); } },
+                { label: 'Paste', icon: 'documents', action: () => { navigator.clipboard.readText().then(text => { if (tabs[activeTabIdx]?.input) tabs[activeTabIdx].input.value += text; }); } },
                 { label: 'Clear', icon: 'trash-2', action: () => { if (tabs[activeTabIdx]?.output) tabs[activeTabIdx].output.innerHTML = ''; } },
                 { separator: true },
                 { label: 'Select All', icon: 'maximize', action: () => document.execCommand('selectAll') }]);
@@ -3740,7 +3855,7 @@ self.onmessage = async (e) => {
             const output = createEl('div', { className: 'shell-output', role: 'log', 'aria-label': 'Terminal output' });
             const inputLine = createEl('div', { className: 'shell-input-line' });
             const promptEl = createEl('span', { className: 'shell-prompt' });
-            const inputEl = createEl('input', { className: 'shell-input', 'aria-label': 'Command input', autocomplete: 'off', spellcheck: 'false' });
+            const inputEl = createEl('input', { className: 'shell-input', id: 'shell-command-input', name: 'shell-command', 'aria-label': 'Command input', autocomplete: 'off', spellcheck: 'false' });
 
             inputLine.appendChild(promptEl);
             inputLine.appendChild(inputEl);
@@ -4722,6 +4837,8 @@ self.onmessage = async (e) => {
 
           const urlBarWrap = createEl('div', { className: 'browser-url-bar-wrap' });
           const urlBar = createEl('input', {
+            id: 'browser-url-bar',
+            name: 'url',
             className: 'browser-url-bar',
             placeholder: 'Search or enter URL…',
             'aria-label': 'Address bar'
@@ -4803,7 +4920,7 @@ self.onmessage = async (e) => {
 
           // ── Find bar ─────────────────────────────────────────────────
           const findBar = createEl('div', { style: 'display:none;align-items:center;gap:6px;padding:4px 10px;background:var(--bg-elevated);border-bottom:1px solid var(--border-subtle);flex-shrink:0;' });
-          const findInput = createEl('input', { placeholder: 'Find in page…', style: 'flex:1;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:12px;color:var(--text-primary);outline:none;' });
+          const findInput = createEl('input', { id: 'page-find-input', name: 'page-find', placeholder: 'Find in page…', style: 'flex:1;background:var(--bg-base);border:1px solid var(--border-subtle);border-radius:4px;padding:3px 8px;font-size:12px;color:var(--text-primary);outline:none;' });
           const findCount = createEl('span', { style: 'font-size:11px;color:var(--text-muted);min-width:50px;' });
           const findPrev = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 6px;', title: 'Previous' });
           findPrev.innerHTML = svgIcon('chevron-up', 14);
@@ -5674,7 +5791,7 @@ self.onmessage = async (e) => {
 
             function mkSelect(key, def, options) {
               const val = getBPref(key, def);
-              const sel = createEl('select', { style: 'background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px;color:var(--text-primary);font-size:12px;cursor:pointer;outline:none;max-width:160px;' });
+              const sel = createEl('select', { id: 'browser-pref-select-' + key, name: 'browser-pref-' + key, style: 'background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;padding:5px 8px;color:var(--text-primary);font-size:12px;cursor:pointer;outline:none;max-width:160px;' });
               options.forEach(([v, label]) => {
                 const opt = createEl('option', { value: v, textContent: label });
                 if (v === val) opt.selected = true;
@@ -5698,7 +5815,7 @@ self.onmessage = async (e) => {
               left.appendChild(createEl('div', { textContent: label, style: 'font-size:13px;color:var(--text-primary);' }));
               const valLabel = createEl('span', { textContent: getBPref(key, def) + (suffix || ''), style: 'font-size:11px;color:var(--accent);' });
               left.appendChild(valLabel);
-              const slider = createEl('input', { type: 'range', min: String(min), max: String(max), value: String(getBPref(key, def)), style: 'width:140px;accent-color:var(--accent);cursor:pointer;' });
+              const slider = createEl('input', { type: 'range', min: String(min), max: String(max), value: String(getBPref(key, def)), id: 'browser-pref-slider-' + key, name: 'browser-pref-' + key, style: 'width:140px;accent-color:var(--accent);cursor:pointer;' });
               slider.addEventListener('input', () => { valLabel.textContent = slider.value + (suffix || ''); setBPref(key, Number(slider.value)); });
               row.append(left, slider);
               return row;
@@ -5746,7 +5863,7 @@ self.onmessage = async (e) => {
               panelTitle('General', 'Basic browser behaviour and preferences.');
               const hpSel = mkSelect('homepage', 'most_visited', [['most_visited', 'Most Visited'], ['blank', 'Blank Page'], ['custom', 'Custom URL']]);
               const hpCustomWrap = createEl('div', { style: 'margin-top:6px;display:' + (getBPref('homepage', 'most_visited') === 'custom' ? 'block' : 'none') + ';' });
-              const hpInp = createEl('input', { type: 'url', placeholder: 'https://example.com', value: getBPref('homepageUrl', ''), style: 'width:100%;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box;' });
+              const hpInp = createEl('input', { type: 'url', id: 'browser-homepage-input', name: 'browser-homepage', placeholder: 'https://example.com', value: getBPref('homepageUrl', ''), style: 'width:100%;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box;' });
               hpInp.addEventListener('change', () => setBPref('homepageUrl', hpInp.value));
               hpCustomWrap.appendChild(hpInp);
               hpSel.addEventListener('change', () => { hpCustomWrap.style.display = hpSel.value === 'custom' ? 'block' : 'none'; });
@@ -5762,7 +5879,7 @@ self.onmessage = async (e) => {
               Object.entries(SEARCH_ENGINES).forEach(([key, info]) => {
                 const row = createEl('label', { style: 'display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;border:1px solid ' + (key === eng ? 'var(--accent)' : 'var(--border-subtle)') + ';background:' + (key === eng ? 'rgba(88,166,255,0.08)' : 'var(--bg-elevated)') + ';transition:all 0.15s;' });
                 const radio = createEl('input');
-                radio.type = 'radio'; radio.name = 'se'; radio.value = key; radio.checked = key === eng;
+                radio.type = 'radio'; radio.id = 'search-engine-' + key; radio.name = 'se'; radio.value = key; radio.checked = key === eng;
                 radio.style.accentColor = 'var(--accent)';
                 const lbl = createEl('span', { textContent: info.label, style: 'flex:1;font-size:13px;' });
                 const hint = createEl('span', { textContent: info.url.replace('https://', '').split('/')[0], style: 'font-size:11px;color:var(--text-muted);' });
@@ -6324,12 +6441,12 @@ self.onmessage = async (e) => {
               wrap.appendChild(el); return wrap;
             }
 
-            const titleInp = createEl('input', { className: 'input', placeholder: 'Event title', value: existing?.title || '', style: 'width:100%;' });
+            const titleInp = createEl('input', { className: 'input', placeholder: 'Event title', value: existing?.title || '', id: 'event-title-input', name: 'event-title', style: 'width:100%;' });
             modal.appendChild(field('Title', titleInp));
 
-            const dateInp = createEl('input', { type: 'date', className: 'input', value: date ? date.toISOString().split('T')[0] : '', style: 'width:100%;' });
-            const timeStartInp = createEl('input', { type: 'time', className: 'input', value: existing?.timeStart || '', style: 'flex:1;' });
-            const timeEndInp = createEl('input', { type: 'time', className: 'input', value: existing?.timeEnd || '', style: 'flex:1;' });
+            const dateInp = createEl('input', { type: 'date', className: 'input', value: date ? date.toISOString().split('T')[0] : '', id: 'event-date-input', name: 'event-date', style: 'width:100%;' });
+            const timeStartInp = createEl('input', { type: 'time', className: 'input', value: existing?.timeStart || '', id: 'event-time-start-input', name: 'event-time-start', style: 'flex:1;' });
+            const timeEndInp = createEl('input', { type: 'time', className: 'input', value: existing?.timeEnd || '', id: 'event-time-end-input', name: 'event-time-end', style: 'flex:1;' });
             modal.appendChild(field('Date', dateInp));
             const timeRow = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;' });
             function timeField(label, el) {
@@ -6340,7 +6457,7 @@ self.onmessage = async (e) => {
             timeRow.append(timeField('Start', timeStartInp), timeField('End', timeEndInp));
             modal.appendChild(timeRow);
 
-            const descInp = createEl('textarea', { className: 'input', placeholder: 'Description (optional)', style: 'width:100%;resize:vertical;min-height:56px;' });
+            const descInp = createEl('textarea', { className: 'input', id: 'event-description-input', name: 'event-description', placeholder: 'Description (optional)', style: 'width:100%;resize:vertical;min-height:56px;' });
             descInp.value = existing?.desc || '';
             modal.appendChild(field('Description', descInp));
 
@@ -6431,9 +6548,9 @@ self.onmessage = async (e) => {
             { id: 'appearance', name: 'Appearance', icon: 'image' },
             { id: 'accessibility', name: 'Accessibility', icon: 'eye' },
             { id: 'desktop', name: 'Desktop', icon: 'layers' },
-            { id: 'system', name: 'System', icon: 'sliders' },
+            { id: 'system', name: 'System', icon: 'processor' },
             { id: 'storage', name: 'Storage', icon: 'database' },
-            { id: 'privacy', name: 'Privacy', icon: 'shield' },
+            { id: 'privacy', name: 'Privacy', icon: 'lock' },
             { id: 'about', name: 'About', icon: 'info' }
           ];
 
@@ -6604,7 +6721,7 @@ self.onmessage = async (e) => {
 
             const userRow = createEl('div', { className: 'nook-row' });
             userRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Username' }));
-            const userInput = createEl('input', { className: 'input', style: { width: '150px' }, value: OS.username });
+            const userInput = createEl('input', { className: 'input', id: 'system-username-input', name: 'system-username', style: { width: '150px' }, value: OS.username });
             userInput.addEventListener('change', () => {
               OS.username = userInput.value || 'user';
               OS.settings.set('username', OS.username);
@@ -6975,6 +7092,8 @@ self.onmessage = async (e) => {
             wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
 
             const wallpaperInput = createEl('input', {
+              id: 'wallpaper-upload',
+              name: 'wallpaper-upload',
               type: 'file',
               accept: 'image/*',
               style: { width: '200px' }
@@ -7174,7 +7293,7 @@ self.onmessage = async (e) => {
 
             const importBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Import Data' });
             importBtn.addEventListener('click', async () => {
-              const input = createEl('input', { type: 'file', accept: '.json' });
+              const input = createEl('input', { type: 'file', accept: '.json', id: 'settings-import-input', name: 'settings-import' });
               input.addEventListener('change', async () => {
                 const file = input.files[0];
                 if (file) {
@@ -7203,7 +7322,7 @@ self.onmessage = async (e) => {
             mainContent.appendChild(createEl('h2', { textContent: 'Keyboard Shortcuts', style: { marginBottom: '20px' } }));
 
             const searchInput = createEl('div', { className: 'nook-shortcuts-search' });
-            const search = createEl('input', { placeholder: 'Search shortcuts...' });
+            const search = createEl('input', { id: 'shortcuts-search-input', name: 'shortcuts-search', placeholder: 'Search shortcuts...' });
             searchInput.appendChild(search);
             mainContent.appendChild(searchInput);
 
@@ -7490,6 +7609,8 @@ self.onmessage = async (e) => {
           content.style.cssText = 'display:flex;flex-direction:column;height:100%;padding:14px;background:var(--bg-base);gap:10px;';
 
           const display = createEl('input', {
+            id: 'calculator-display',
+            name: 'calculator-display',
             type: 'text',
             value: '',
             readonly: 'readonly',
@@ -7808,7 +7929,7 @@ self.onmessage = async (e) => {
 
             // Toolbar: search + install
             const toolbar = createEl('div', { style: 'padding:10px;display:flex;gap:6px;border-bottom:1px solid var(--border-subtle);' });
-            const searchEl = createEl('input', { type: 'text', placeholder: 'Search…', style: 'flex:1;padding:5px 9px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;' });
+            const searchEl = createEl('input', { type: 'text', id: 'app-installer-search-input', name: 'app-installer-search', placeholder: 'Search…', style: 'flex:1;padding:5px 9px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;' });
             const installBtn = createEl('button', { style: 'padding:5px 10px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;' });
             installBtn.innerHTML = `${svgIcon('plus', 12)} Install`;
             toolbar.appendChild(searchEl); toolbar.appendChild(installBtn);
@@ -7821,7 +7942,7 @@ self.onmessage = async (e) => {
             const detail = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
 
             // Hidden file input
-            const fileInput = createEl('input', { type: 'file', accept: '.novaapp', style: 'display:none;' });
+            const fileInput = createEl('input', { type: 'file', accept: '.novaapp', id: 'app-install-input', name: 'app-install', style: 'display:none;' });
             fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); fileInput.value = ''; });
             root.appendChild(fileInput);
             installBtn.addEventListener('click', () => fileInput.click());
@@ -7990,7 +8111,7 @@ self.onmessage = async (e) => {
             const sidebar = createEl('div', { style: 'width:240px;min-width:180px;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;' });
 
             const toolbar = createEl('div', { style: 'padding:9px;display:flex;gap:6px;border-bottom:1px solid var(--border-subtle);' });
-            const searchEl = createEl('input', { type: 'text', placeholder: 'Search…', style: 'flex:1;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;min-width:0;' });
+            const searchEl = createEl('input', { type: 'text', id: 'notes-tasks-search-input', name: 'notes-tasks-search', placeholder: 'Search…', style: 'flex:1;padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:12px;outline:none;min-width:0;' });
             const addBtn = createEl('button', { style: 'padding:5px 10px;background:var(--accent);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0;' });
             addBtn.innerHTML = svgIcon('plus', 12) + ' Add';
             toolbar.append(searchEl, addBtn);
@@ -8067,21 +8188,21 @@ self.onmessage = async (e) => {
                 const wrap = createEl('div', { style: 'flex:1;overflow-y:auto;padding:28px;display:flex;align-items:flex-start;justify-content:center;' });
                 const card = createEl('div', { style: 'width:100%;max-width:420px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:14px;overflow:hidden;' });
                 const hdr = createEl('div', { style: 'padding:16px 18px;border-bottom:1px solid var(--border-subtle);background:var(--bg-sunken);' });
-                hdr.innerHTML = `<div style="font-size:14px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px;">${svgIcon('plus-circle', 15)} Add Web App</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Pin any website as an app.</div>`;
+                hdr.innerHTML = `<div style="font-size:14px;font-weight:700;color:var(--text-primary);display:flex;align-items:center;gap:8px;">${svgIcon('plus', 15)} Add Web App</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Pin any website as an app.</div>`;
                 card.appendChild(hdr);
 
                 const cbody = createEl('div', { style: 'padding:16px 18px;display:flex;flex-direction:column;gap:12px;' });
-                function mkField(label, type, ph) {
+                function mkField(label, type, ph, fieldId, fieldName) {
                   const w = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
                   w.innerHTML = `<label style="font-size:11px;font-weight:600;color:var(--text-muted);">${label}</label>`;
-                  const inp = createEl('input', { type, placeholder: ph, style: 'padding:8px 10px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:13px;outline:none;width:100%;transition:border-color 0.15s;' });
+                  const inp = createEl('input', { type, id: fieldId, name: fieldName, placeholder: ph, style: 'padding:8px 10px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);font-size:13px;outline:none;width:100%;transition:border-color 0.15s;' });
                   inp.addEventListener('focus', () => inp.style.borderColor = 'var(--accent)');
                   inp.addEventListener('blur', () => inp.style.borderColor = 'var(--border-default)');
                   w.appendChild(inp); return { w, inp };
                 }
-                const { w: wUrl, inp: urlInp } = mkField('URL *', 'url', 'https://example.com');
-                const { w: wName, inp: nameInp } = mkField('Name *', 'text', 'My App');
-                const { w: wIcon, inp: iconInp } = mkField('Icon (emoji)', 'text', '🌐');
+                const { w: wUrl, inp: urlInp } = mkField('URL *', 'url', 'https://example.com', 'web-app-url-input', 'web-app-url');
+                const { w: wName, inp: nameInp } = mkField('Name *', 'text', 'My App', 'web-app-name-input', 'web-app-name');
+                const { w: wIcon, inp: iconInp } = mkField('Icon (emoji)', 'text', '🌐', 'web-app-icon-input', 'web-app-icon');
                 iconInp.value = '🌐';
 
                 const errEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });
@@ -8309,7 +8430,7 @@ self.onmessage = async (e) => {
 
           function makeToggle(checked, onChange) {
             const wrap = createEl('label', { className: 'nbc-toggle' });
-            const inp = createEl('input'); inp.type = 'checkbox'; inp.checked = checked; inp.style.cssText = 'position:absolute;opacity:0;width:0;height:0;';
+            const inp = createEl('input'); inp.type = 'checkbox'; inp.id = 'clock-toggle-checkbox'; inp.name = 'clock-toggle'; inp.checked = checked; inp.style.cssText = 'position:absolute;opacity:0;width:0;height:0;';
             const track = createEl('div', { className: 'nbc-track', style: `background:${checked ? 'var(--accent)' : 'var(--border-default)'};` });
             const thumb = createEl('div', { className: 'nbc-thumb', style: `left:${checked ? '23' : '3'}px;` });
             inp.addEventListener('change', () => {
@@ -8381,10 +8502,10 @@ self.onmessage = async (e) => {
             const xBtn = createEl('button', { className: 'btn btn-icon btn-sm' }); xBtn.innerHTML = svgIcon('x', 14); xBtn.addEventListener('click', () => ov.remove());
             hdr.appendChild(xBtn); box.appendChild(hdr);
             // Time input
-            const timeInp = createEl('input', { type: 'time', className: 'input', style: 'width:100%;font-size:30px;font-weight:200;height:54px;text-align:center;margin-bottom:14px;letter-spacing:2px;font-variant-numeric:tabular-nums;' });
+            const timeInp = createEl('input', { type: 'time', className: 'input', id: 'alarm-time-input', name: 'alarm-time', style: 'width:100%;font-size:30px;font-weight:200;height:54px;text-align:center;margin-bottom:14px;letter-spacing:2px;font-variant-numeric:tabular-nums;' });
             timeInp.value = al.time; box.appendChild(timeInp);
             // Label
-            const labelInp = createEl('input', { type: 'text', className: 'input', placeholder: 'Label (optional)', style: 'width:100%;margin-bottom:14px;' });
+            const labelInp = createEl('input', { type: 'text', className: 'input', id: 'alarm-label-input', name: 'alarm-label', placeholder: 'Label (optional)', style: 'width:100%;margin-bottom:14px;' });
             labelInp.value = al.label; box.appendChild(labelInp);
             // Repeat days
             box.appendChild(createEl('div', { textContent: 'Repeat', style: 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;' }));
@@ -9998,6 +10119,7 @@ This cannot be undone.`)) return;
         // If prior failed boots >= threshold AND this isn't already a safe-mode/recovery session → show recovery
         if (priorAttempts.length >= BOOT_THRESHOLD && !isSafeMode) {
           showRecoveryScreen(priorAttempts);
+          completeBoot(); // cancel the watchdog timer so it doesn't reload over the recovery screen
           return; // do not proceed with normal boot
         }
 
@@ -10017,6 +10139,9 @@ This cannot be undone.`)) return;
 
           await OS.workers.fs.call('init');
           await OS.settings.load();
+          if (isSafeMode && typeof OS.settings.applySafeModeDefaults === 'function') {
+            OS.settings.applySafeModeDefaults();
+          }
           await FS.init();
           await OPFS.init(); // Initialize OPFS for binary storage
           await AppDirs.bootstrap(); // Bootstrap per-app /data/data/ directories
@@ -10211,6 +10336,7 @@ This cannot be undone.`)) return;
           await new Promise(r => setTimeout(r, 400));
           bootScreen.style.display = 'none';
           markBootSuccess(); // lock screen means boot succeeded
+          WM.updateTaskbar();
           lockScreen();
           return;
         }
@@ -10291,262 +10417,96 @@ This cannot be undone.`)) return;
 
       function renderLaunchpad() {
         const grid = document.getElementById('launchpad-grid');
-        grid.innerHTML = '';
-
         const apps = APP_REGISTRY;
+        const webApps = (typeof WebAppManager !== 'undefined' && WebAppManager.getAllApps) ? WebAppManager.getAllApps() : [];
+        const signature = [
+          ...apps.map(app => `${app.id}:${app.name}:${app.icon}`),
+          ...webApps.map(webApp => `web:${webApp.id}:${webApp.name}:${webApp.icon}:${webApp.url}`)
+        ].join('||');
 
-        apps.forEach(app => {
+        const needsRebuild = grid.dataset.renderedSignature !== signature || grid.children.length === 0;
 
-          const item = createEl('button', {
-            className: 'launchpad-item',
-            'aria-label': app.name,
-            draggable: 'true'
-          });
-          const icon = createEl('div', { className: 'launchpad-icon' });
-          icon.innerHTML = svgIcon(app.icon, 28);
-          const name = createEl('div', { className: 'launchpad-name', textContent: app.name });
-          item.appendChild(icon);
-          item.appendChild(name);
+        if (needsRebuild) {
+          grid.innerHTML = '';
+          grid.dataset.renderedSignature = signature;
 
-          item.addEventListener('click', () => {
-            toggleLaunchpad();
-            WM.createWindow(app.id);
-          });
-
-          // Right-click: Pin/Unpin + Uninstall (user apps only)
-          item.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const pinnedApps = OS.settings.get('pinnedApps') || [];
-            const isPinned = pinnedApps.includes(app.id);
-            const storedApps = (() => { try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; } })();
-            const isUserApp = storedApps.some(a => a.id === app.id);
-            const items = [
-              { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); WM.createWindow(app.id); } },
-              { separator: true },
-              {
-                label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
-                icon: 'pin',
-                action: () => {
-                  const pins = OS.settings.get('pinnedApps') || [];
-                  const next = isPinned ? pins.filter(id => id !== app.id) : [...pins, app.id];
-                  OS.settings.set('pinnedApps', next);
-                  WM.updateTaskbar();
-                  Notify.show({ title: isPinned ? 'Unpinned' : 'Pinned', body: `${app.name} ${isPinned ? 'removed from' : 'added to'} taskbar`, type: 'success', appName: 'Launchpad' });
-                }
-              }];
-            if (isUserApp) {
-              items.push({ separator: true });
-              items.push({
-                label: 'Uninstall',
-                icon: 'trash',
-                danger: true,
-                action: () => {
-                  toggleLaunchpad();
-                  if (!confirm(`Uninstall "${app.name}"?
-
-This cannot be undone.`)) return;
-                  try {
-                    const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-                    localStorage.setItem('nova_installed_apps', JSON.stringify(stored.filter(a => a.id !== app.id)));
-                    delete OS.apps[app.id];
-                    const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
-                    if (ri > -1) APP_REGISTRY.splice(ri, 1);
-                    renderDesktopIcons();
-                    WM.updateTaskbar();
-                    Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Launchpad' });
-                  } catch (err) {
-                    Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Launchpad' });
-                  }
-                }
-              });
-            }
-            ContextMenu.show(e.clientX, e.clientY, items);
-          });
-
-          // Drag and drop support for creating desktop shortcuts and taskbar pinning
-          item.addEventListener('dragstart', (e) => {
-            e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('application/json', JSON.stringify({
-              type: 'app-shortcut',
-              appId: app.id,
-              appName: app.name,
-              appIcon: app.icon
-            }));
-            e.dataTransfer.setData('text/plain', app.name);
-            // Build a crisp drag ghost
-            const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
-            dragImg.textContent = app.name;
-            document.body.appendChild(dragImg);
-            e.dataTransfer.setDragImage(dragImg, dragImg.offsetWidth / 2, dragImg.offsetHeight / 2);
-            requestAnimationFrame(() => document.body.removeChild(dragImg));
-            // Hide launchpad after a frame so the drag ghost renders first,
-            // then the drop targets (desktop / taskbar) become reachable.
-            requestAnimationFrame(() => {
-              const lp = document.getElementById('launchpad');
-              if (lp) { lp.style.pointerEvents = 'none'; lp.style.opacity = '0.15'; }
-            });
-          });
-
-          item.addEventListener('dragend', () => {
-            // Always restore launchpad visibility, then close it
-            const lp = document.getElementById('launchpad');
-            if (lp) { lp.style.pointerEvents = ''; lp.style.opacity = ''; }
-            // Close launchpad after a short delay so drop handlers fire first
-            setTimeout(() => {
-              if (document.getElementById('launchpad')?.classList.contains('active')) toggleLaunchpad();
-            }, 80);
-          });
-
-          grid.appendChild(item);
-        });
-
-        // Add Web Apps from WebAppManager
-        if (typeof WebAppManager !== 'undefined') {
-          const webApps = WebAppManager.getAllApps();
-          webApps.forEach(webApp => {
+          const appendAppItem = (app) => {
             const item = createEl('button', {
               className: 'launchpad-item',
-              'aria-label': `${webApp.name} (Web App)`,
-              title: webApp.url,
-              draggable: true
+              'aria-label': app.name,
+              draggable: 'true'
             });
-            const icon = createEl('div', {
-              className: 'launchpad-icon',
-              textContent: webApp.icon,
-              style: 'font-size: 28px; line-height: 1;'
-            });
-            const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
-
-            // Show web app indicator
-            const indicator = createEl('div', {
-              style: 'position: absolute; bottom: 4px; right: 4px; width: 8px; height: 8px; background: #58a6ff; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);',
-              title: 'Web App'
-            });
-
+            const icon = createEl('div', { className: 'launchpad-icon' });
+            icon.innerHTML = svgIcon(app.icon, 28);
+            const name = createEl('div', { className: 'launchpad-name', textContent: app.name });
             item.appendChild(icon);
             item.appendChild(name);
-            item.appendChild(indicator);
 
             item.addEventListener('click', () => {
               toggleLaunchpad();
-              try {
-                const appData = WebAppManager.getApp(webApp.id);
-                if (!appData) throw new Error('Web app not found');
-
-                // Update launch count
-                WebAppManager.launchApp(webApp.id);
-
-                // Create a temporary app entry for the window manager
-                const tempAppId = 'webapp_' + webApp.id;
-                if (!OS.apps[tempAppId]) {
-                  OS.apps[tempAppId] = {
-                    name: appData.name,
-                    icon: appData.icon,
-                    defaultSize: [800, 600],
-                    minSize: [400, 300]
-                  };
-                }
-                const windowElement = WM.createWindow(tempAppId);
-
-                // Create iframe container
-                const iframeContainer = document.createElement('div');
-                iframeContainer.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; position: relative;`;
-
-                // Loading indicator
-                const loader = document.createElement('div');
-                loader.style.cssText = `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.7); z-index: 1000;`;
-                loader.innerHTML = `<div style="font-size:24px;margin-bottom:12px;">⏳</div><div>Loading...</div>`;
-
-                const hideLoader = () => { loader.style.display = 'none'; };
-
-                // Create webview — NW.js native, bypasses X-Frame-Options/CSP
-                const iframe = document.createElement('webview');
-                iframe.style.cssText = `flex: 1; border: none; background: white; overflow: hidden;`;
-                iframe.addEventListener('did-finish-load', hideLoader);
-                iframe.addEventListener('did-stop-loading', hideLoader);
-                iframe.addEventListener('did-fail-load', () => { hideLoader(); loader.style.display = 'flex'; loader.innerHTML = `<div style="font-size:20px;margin-bottom:12px;">❌</div><div>Failed to load</div>`; });
-                // Fallback — always hide after 5s regardless
-                setTimeout(hideLoader, 5000);
-                iframe.src = appData.url;
-
-                // URL bar
-                const urlBar = document.createElement('div');
-                urlBar.style.cssText = `background: rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.1); padding: 8px 16px; font-size: 11px; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace;`;
-                try {
-                  const urlObj = new URL(appData.url);
-                  urlBar.textContent = `🔒 ${urlObj.host}`;
-                } catch {
-                  urlBar.textContent = `External Web App`;
-                }
-
-                iframeContainer.appendChild(urlBar);
-                iframeContainer.appendChild(loader);
-                iframeContainer.appendChild(iframe);
-
-                // Get content area and set it
-                if (windowElement && windowElement.content) {
-                  windowElement.content.appendChild(iframeContainer);
-                }
-              } catch (error) {
-                Notify.show({
-                  title: 'Error',
-                  body: `Failed to launch app: ${error.message}`,
-                  type: 'error',
-                  appName: 'System'
-                });
-              }
+              WM.createWindow(app.id);
             });
 
-            // Right-click context menu for web apps
             item.addEventListener('contextmenu', (e) => {
               e.preventDefault();
               e.stopPropagation();
-              const waPins = OS.settings.get('pinnedApps') || [];
-              const waId = 'webapp_' + webApp.id;
-              const waIsPinned = waPins.includes(waId);
-              ContextMenu.show(e.clientX, e.clientY, [
-                { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); item.click(); } },
+              const pinnedApps = OS.settings.get('pinnedApps') || [];
+              const isPinned = pinnedApps.includes(app.id);
+              const storedApps = (() => { try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; } })();
+              const isUserApp = storedApps.some(a => a.id === app.id);
+              const items = [
+                { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); WM.createWindow(app.id); } },
                 { separator: true },
                 {
-                  label: waIsPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
-                  icon: waIsPinned ? 'pin-off' : 'pin',
+                  label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+                  icon: 'pin',
                   action: () => {
-                    const p = OS.settings.get('pinnedApps') || [];
-                    const next = waIsPinned ? p.filter(id => id !== waId) : [...p, waId];
+                    const pins = OS.settings.get('pinnedApps') || [];
+                    const next = isPinned ? pins.filter(id => id !== app.id) : [...pins, app.id];
                     OS.settings.set('pinnedApps', next);
-                    if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
-                    Notify.show({ title: waIsPinned ? 'Unpinned' : 'Pinned', body: `${webApp.name} ${waIsPinned ? 'unpinned from' : 'pinned to'} taskbar`, type: 'success', appName: 'Launchpad' });
+                    WM.updateTaskbar();
+                    Notify.show({ title: isPinned ? 'Unpinned' : 'Pinned', body: `${app.name} ${isPinned ? 'removed from' : 'added to'} taskbar`, type: 'success', appName: 'Launchpad' });
                   }
-                },
-                { separator: true },
-                {
-                  label: 'Remove Web App',
+                }
+              ];
+              if (isUserApp) {
+                items.push({ separator: true });
+                items.push({
+                  label: 'Uninstall',
                   icon: 'trash',
                   danger: true,
                   action: () => {
-                    WebAppManager.removeApp(webApp.id);
-                    renderLaunchpad();
-                    Notify.show({ title: 'Removed', body: `"${webApp.name}" has been removed`, type: 'success', appName: 'Launchpad' });
+                    toggleLaunchpad();
+                    if (!confirm(`Uninstall "${app.name}"?\n\nThis cannot be undone.`)) return;
+                    try {
+                      const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+                      localStorage.setItem('nova_installed_apps', JSON.stringify(stored.filter(a => a.id !== app.id)));
+                      delete OS.apps[app.id];
+                      const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
+                      if (ri > -1) APP_REGISTRY.splice(ri, 1);
+                      renderDesktopIcons();
+                      WM.updateTaskbar();
+                      Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Launchpad' });
+                    } catch (err) {
+                      Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Launchpad' });
+                    }
                   }
-                }
-              ]);
+                });
+              }
+              ContextMenu.show(e.clientX, e.clientY, items);
             });
 
-            // Drag-to-taskbar support for web apps (was missing — that's the bug)
-            item.draggable = true;
             item.addEventListener('dragstart', (e) => {
-              const webAppId = 'webapp_' + webApp.id;
               e.dataTransfer.effectAllowed = 'copy';
               e.dataTransfer.setData('application/json', JSON.stringify({
                 type: 'app-shortcut',
-                appId: webAppId,
-                appName: webApp.name,
-                appIcon: webApp.icon
+                appId: app.id,
+                appName: app.name,
+                appIcon: app.icon
               }));
-              e.dataTransfer.setData('text/plain', webApp.name);
-              const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:10px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
-              dragImg.textContent = webApp.name;
+              e.dataTransfer.setData('text/plain', app.name);
+              const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
+              dragImg.textContent = app.name;
               document.body.appendChild(dragImg);
               e.dataTransfer.setDragImage(dragImg, dragImg.offsetWidth / 2, dragImg.offsetHeight / 2);
               requestAnimationFrame(() => document.body.removeChild(dragImg));
@@ -10555,6 +10515,7 @@ This cannot be undone.`)) return;
                 if (lp) { lp.style.pointerEvents = 'none'; lp.style.opacity = '0.15'; }
               });
             });
+
             item.addEventListener('dragend', () => {
               const lp = document.getElementById('launchpad');
               if (lp) { lp.style.pointerEvents = ''; lp.style.opacity = ''; }
@@ -10564,51 +10525,211 @@ This cannot be undone.`)) return;
             });
 
             grid.appendChild(item);
+          };
+
+          apps.forEach(appendAppItem);
+
+          if (typeof WebAppManager !== 'undefined') {
+            webApps.forEach(webApp => {
+              const item = createEl('button', {
+                className: 'launchpad-item',
+                'aria-label': `${webApp.name} (Web App)`,
+                title: webApp.url,
+                draggable: true
+              });
+              const icon = createEl('div', {
+                className: 'launchpad-icon',
+                textContent: webApp.icon,
+                style: 'font-size: 28px; line-height: 1;'
+              });
+              const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
+              const indicator = createEl('div', {
+                style: 'position: absolute; bottom: 4px; right: 4px; width: 8px; height: 8px; background: #58a6ff; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);',
+                title: 'Web App'
+              });
+
+              item.appendChild(icon);
+              item.appendChild(name);
+              item.appendChild(indicator);
+
+              item.addEventListener('click', () => {
+                toggleLaunchpad();
+                try {
+                  const appData = WebAppManager.getApp(webApp.id);
+                  if (!appData) throw new Error('Web app not found');
+
+                  WebAppManager.launchApp(webApp.id);
+
+                  const tempAppId = 'webapp_' + webApp.id;
+                  if (!OS.apps[tempAppId]) {
+                    OS.apps[tempAppId] = {
+                      name: appData.name,
+                      icon: appData.icon,
+                      defaultSize: [800, 600],
+                      minSize: [400, 300]
+                    };
+                  }
+                  const windowElement = WM.createWindow(tempAppId);
+
+                  const iframeContainer = document.createElement('div');
+                  iframeContainer.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; position: relative;`;
+
+                  const loader = document.createElement('div');
+                  loader.style.cssText = `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.7); z-index: 1000;`;
+                  loader.innerHTML = `<div style="font-size:24px;margin-bottom:12px;">⏳</div><div>Loading...</div>`;
+
+                  const hideLoader = () => { loader.style.display = 'none'; };
+                  const iframe = document.createElement('webview');
+                  iframe.style.cssText = `flex: 1; border: none; background: white; overflow: hidden;`;
+                  iframe.addEventListener('did-finish-load', hideLoader);
+                  iframe.addEventListener('did-stop-loading', hideLoader);
+                  iframe.addEventListener('did-fail-load', () => { hideLoader(); loader.style.display = 'flex'; loader.innerHTML = `<div style="font-size:20px;margin-bottom:12px;">❌</div><div>Failed to load</div>`; });
+                  setTimeout(hideLoader, 5000);
+                  iframe.src = appData.url;
+
+                  const urlBar = document.createElement('div');
+                  urlBar.style.cssText = `background: rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.1); padding: 8px 16px; font-size: 11px; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace;`;
+                  try {
+                    const urlObj = new URL(appData.url);
+                    urlBar.textContent = `🔒 ${urlObj.host}`;
+                  } catch {
+                    urlBar.textContent = `External Web App`;
+                  }
+
+                  iframeContainer.appendChild(urlBar);
+                  iframeContainer.appendChild(loader);
+                  iframeContainer.appendChild(iframe);
+
+                  if (windowElement && windowElement.content) {
+                    windowElement.content.appendChild(iframeContainer);
+                  }
+                } catch (error) {
+                  Notify.show({
+                    title: 'Error',
+                    body: `Failed to launch app: ${error.message}`,
+                    type: 'error',
+                    appName: 'System'
+                  });
+                }
+              });
+
+              item.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const waPins = OS.settings.get('pinnedApps') || [];
+                const waId = 'webapp_' + webApp.id;
+                const waIsPinned = waPins.includes(waId);
+                ContextMenu.show(e.clientX, e.clientY, [
+                  { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); item.click(); } },
+                  { separator: true },
+                  {
+                    label: waIsPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+                    icon: waIsPinned ? 'pin-off' : 'pin',
+                    action: () => {
+                      const p = OS.settings.get('pinnedApps') || [];
+                      const next = waIsPinned ? p.filter(id => id !== waId) : [...p, waId];
+                      OS.settings.set('pinnedApps', next);
+                      if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+                      Notify.show({ title: waIsPinned ? 'Unpinned' : 'Pinned', body: `${webApp.name} ${waIsPinned ? 'unpinned from' : 'pinned to'} taskbar`, type: 'success', appName: 'Launchpad' });
+                    }
+                  },
+                  { separator: true },
+                  {
+                    label: 'Remove Web App',
+                    icon: 'trash',
+                    danger: true,
+                    action: () => {
+                      WebAppManager.removeApp(webApp.id);
+                      renderLaunchpad();
+                      Notify.show({ title: 'Removed', body: `"${webApp.name}" has been removed`, type: 'success', appName: 'Launchpad' });
+                    }
+                  }
+                ]);
+              });
+
+              item.draggable = true;
+              item.addEventListener('dragstart', (e) => {
+                const webAppId = 'webapp_' + webApp.id;
+                e.dataTransfer.effectAllowed = 'copy';
+                e.dataTransfer.setData('application/json', JSON.stringify({
+                  type: 'app-shortcut',
+                  appId: webAppId,
+                  appName: webApp.name,
+                  appIcon: webApp.icon
+                }));
+                e.dataTransfer.setData('text/plain', webApp.name);
+                const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:10px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
+                dragImg.textContent = webApp.name;
+                document.body.appendChild(dragImg);
+                e.dataTransfer.setDragImage(dragImg, dragImg.offsetWidth / 2, dragImg.offsetHeight / 2);
+                requestAnimationFrame(() => document.body.removeChild(dragImg));
+                requestAnimationFrame(() => {
+                  const lp = document.getElementById('launchpad');
+                  if (lp) { lp.style.pointerEvents = 'none'; lp.style.opacity = '0.15'; }
+                });
+              });
+              item.addEventListener('dragend', () => {
+                const lp = document.getElementById('launchpad');
+                if (lp) { lp.style.pointerEvents = ''; lp.style.opacity = ''; }
+                setTimeout(() => {
+                  if (document.getElementById('launchpad')?.classList.contains('active')) toggleLaunchpad();
+                }, 80);
+              });
+
+              grid.appendChild(item);
+            });
+          }
+        } else {
+          Array.from(grid.children).forEach(item => {
+            item.classList.remove('animate');
+            item.style.opacity = '0';
+            item.style.transform = 'scale(0)';
+            item.style.removeProperty('--delay');
+            item.style.willChange = '';
+            item.style.display = '';
           });
         }
 
-        // Apply honeycomb animation with radial delay
-        // Use requestAnimationFrame to ensure layout is computed
-        requestAnimationFrame(() => {
-          // FIX 3a — respect both OS setting and browser media query for reduce motion
-          const prefersReducedMotion = OS.settings.get('reduceMotion') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const animateLaunchpadItems = () => {
+          requestAnimationFrame(() => {
+            const prefersReducedMotion = OS.settings.get('reduceMotion') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const items = Array.from(grid.querySelectorAll('.launchpad-item')).filter(item => item.style.display !== 'none');
 
-          if (prefersReducedMotion) {
-            Array.from(grid.children).forEach(item => {
-              item.style.opacity = '1';
-              item.style.transform = 'scale(1)';
+            if (prefersReducedMotion) {
+              items.forEach(item => {
+                item.style.opacity = '1';
+                item.style.transform = 'scale(1)';
+                item.classList.add('animate');
+              });
+              return;
+            }
+
+            const gridWidth = grid.offsetWidth;
+            const gridHeight = grid.offsetHeight;
+            const centerX = gridWidth / 2;
+            const centerY = gridHeight / 2;
+            const maxDistance = Math.sqrt(Math.pow(gridWidth / 2, 2) + Math.pow(gridHeight / 2, 2)) || 1;
+
+            const itemData = items.map(item => ({
+              item,
+              cx: item.offsetLeft + item.offsetWidth / 2,
+              cy: item.offsetTop + item.offsetHeight / 2
+            }));
+
+            itemData.forEach(({ item, cx, cy }) => {
+              const distance = Math.sqrt(Math.pow(cx - centerX, 2) + Math.pow(cy - centerY, 2));
+              const delay = Math.round((distance / maxDistance) * 300);
+              item.style.setProperty('--delay', `${delay}ms`);
+              item.style.willChange = 'transform, opacity';
+              item.classList.add('animate');
+              setTimeout(() => {
+                item.style.willChange = '';
+              }, 500 + delay);
             });
-            return;
-          }
-
-          const gridWidth = grid.offsetWidth;
-          const gridHeight = grid.offsetHeight;
-          const centerX = gridWidth / 2;
-          const centerY = gridHeight / 2;
-          const maxDistance = Math.sqrt(Math.pow(gridWidth / 2, 2) + Math.pow(gridHeight / 2, 2)) || 1;
-
-          // FIX 3b — batch all DOM reads first to avoid per-item forced reflow
-          const _items = Array.from(grid.children);
-          const _itemData = _items.map(item => ({
-            item,
-            cx: item.offsetLeft + item.offsetWidth / 2,
-            cy: item.offsetTop + item.offsetHeight / 2
-          }));
-
-          // Now apply all writes in a separate pass — no more layout thrashing
-          _itemData.forEach(({ item, cx, cy }) => {
-            const distance = Math.sqrt(Math.pow(cx - centerX, 2) + Math.pow(cy - centerY, 2));
-            const delay = Math.round((distance / maxDistance) * 300);
-            item.style.setProperty('--delay', `${delay}ms`);
-            // Apply will-change dynamically only during animation to respect GPU budget
-            item.style.willChange = 'transform, opacity';
-            item.classList.add('animate');
-            // Remove will-change after animation completes (500ms + delay)
-            setTimeout(() => {
-              item.style.willChange = '';
-            }, 500 + delay);
           });
-        });
+        };
+
+        animateLaunchpadItems();
       }
 
       // Launchpad search
@@ -10662,37 +10783,12 @@ This cannot be undone.`)) return;
       document.getElementById('notif-mark-all').addEventListener('click', () => {
         OS.notifications = [];
         OS.notifUnread = 0;
+        Notify.persist();
         Notify.updateBadge();
+        updateNotificationBadge();
         Notify.renderPanel();
       });
 
-      // FIX 14 — Log Off / Lock / Restart / Shutdown user-menu action handler
-      // user-power-menu.js handles these externally; this is an inline fallback
-      document.getElementById('user-menu').addEventListener('click', (e) => {
-        const item = e.target.closest('[data-action]');
-        if (!item) return;
-        const action = item.dataset.action;
-        document.getElementById('user-menu').classList.remove('active');
-        switch (action) {
-          case 'logout':
-            if (confirm('Log off? Unsaved work will be lost.')) {
-              sessionStorage.clear();
-              location.reload();
-            }
-            break;
-          case 'lock':
-            if (typeof lockScreen === 'function') lockScreen();
-            break;
-          case 'restart':
-            if (confirm('Restart NovaByte?')) location.reload();
-            break;
-          case 'shutdown':
-            if (confirm('Shut down? All unsaved data will be lost.')) {
-              document.body.innerHTML = '<div style="background:#000;color:#fff;height:100vh;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:18px;">It is now safe to close this window.</div>';
-            }
-            break;
-        }
-      });
 
       // FIX 13 — WiFi tray button had no click handler at all
       const trayWifi = document.getElementById('tray-wifi');
@@ -10772,6 +10868,38 @@ This cannot be undone.`)) return;
           badge.classList.add('hidden');
         }
       }
+
+      Notify.loadPersisted();
+      Notify.renderPanel();
+      Notify.updateBadge();
+      updateNotificationBadge();
+
+      window.addEventListener('resize', throttleRAF(() => {
+        for (const state of OS.windows.values()) {
+          if (state.maximized) {
+            const area = WM.getWorkArea();
+            state.x = area.left;
+            state.y = area.top;
+            state.width = area.width;
+            state.height = area.height;
+            state.element.style.left = area.left + 'px';
+            state.element.style.top = area.top + 'px';
+            state.element.style.width = area.width + 'px';
+            state.element.style.height = area.height + 'px';
+          } else {
+            const next = WM.clampWindowRect(state, state.x, state.y, state.width, state.height);
+            state.x = next.x;
+            state.y = next.y;
+            state.width = next.w;
+            state.height = next.h;
+            state.element.style.left = next.x + 'px';
+            state.element.style.top = next.y + 'px';
+            state.element.style.width = next.w + 'px';
+            state.element.style.height = next.h + 'px';
+          }
+        }
+        WM.hideSnapPreview();
+      }));
 
       // Battery status
       async function updateBattery() {
@@ -11147,11 +11275,7 @@ This cannot be undone.`)) return;
                 });
 
                 if (credential) {
-                  OS.isLocked = false;
-                  document.getElementById('lock-screen').classList.remove('active');
-                  document.removeEventListener('keydown', handleLockScreenKeydown);
-                  enteredPin = '';
-                  renderDesktopIcons();
+                  unlockFromLockScreen();
                   Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
                 }
               } catch (e) {
@@ -11171,6 +11295,20 @@ This cannot be undone.`)) return;
       }
 
       let enteredPin = '';
+
+      function unlockFromLockScreen() {
+        OS.isLocked = false;
+        const lockScreenEl = document.getElementById('lock-screen');
+        if (lockScreenEl) lockScreenEl.classList.remove('active');
+        document.removeEventListener('keydown', handleLockScreenKeydown);
+        enteredPin = '';
+        // Paint the taskbar first so pinned apps appear immediately after unlock.
+        WM.updateTaskbar();
+        requestAnimationFrame(() => {
+          renderDesktopIcons();
+          WM.updateTaskbar();
+        });
+      }
 
       function enterPinDigit(d) {
         if (enteredPin.length < 4) {
@@ -11203,12 +11341,8 @@ This cannot be undone.`)) return;
         const hash = await OS.workers.crypto.call('pbkdf2', enteredPin, getPinSalt());
 
         if (hash === OS.lockPin) {
-          OS.isLocked = false;
           OS.wrongPinCount = 0;
-          document.getElementById('lock-screen').classList.remove('active');
-          document.removeEventListener('keydown', handleLockScreenKeydown);
-          enteredPin = '';
-          renderDesktopIcons();
+          unlockFromLockScreen();
         } else {
           OS.wrongPinCount++;
           enteredPin = '';
@@ -11407,6 +11541,10 @@ This cannot be undone.`)) return;
       });
 
       function showRecoveryScreen(priorAttempts) {
+        // Hide the boot screen so the recovery UI is not covered
+        const bootScreen = document.getElementById('boot-screen');
+        if (bootScreen) bootScreen.style.display = 'none';
+
         // ── Recovery Boot Animation ──────────────────────────────────────
         const anim = document.createElement('div');
         anim.id = 'recovery-boot-anim';
@@ -11566,8 +11704,103 @@ This cannot be undone.`)) return;
           cdownBar.style.width = '0%';
         }
 
-        // Initialize the UI clock, sysinfo, and console
-        if (typeof initRecoveryUI === 'function') initRecoveryUI();
+function wireRecoveryControls() {
+  if (!screen || screen.dataset.recoveryWired === '1') return;
+  screen.dataset.recoveryWired = '1';
+
+  const actionMap = {
+    'continue': 'continue',
+    'boot': 'boot',
+    'boot normal': 'boot-normal',
+    'normal boot': 'boot-normal',
+    'safe mode': 'safemode',
+    'boot safe': 'boot-safe',
+    'boot to safe mode': 'boot-safe',
+    'minimal mode': 'boot-minimal',
+    'boot minimal': 'boot-minimal',
+    'boot recovery': 'boot-recovery',
+    'boot to recovery': 'boot-recovery',
+    'reset settings': 'reset-settings',
+    'clear cache': 'clear-cache',
+    'clear data': 'wipe-user-data',
+    'factory reset': 'factory',
+    'console': 'console',
+    'terminal': 'console',
+    'file manager': 'file-manager',
+    'settings editor': 'settings-editor',
+    'storage analyzer': 'storage-analyzer',
+    'event log': 'event-log',
+    'back': 'back'
+  };
+
+  function switchRecoveryTab(tabName) {
+    const tab = String(tabName || '').trim().toLowerCase();
+    if (!tab) return false;
+    const tabButtons = screen.querySelectorAll('.recovery-tab');
+    const panels = screen.querySelectorAll('.recovery-tab-panel');
+
+    tabButtons.forEach((btn) => {
+      const btnTab = (btn.dataset.tab || btn.dataset.switchtab || '').trim().toLowerCase();
+      btn.classList.toggle('active', btnTab === tab);
+      btn.setAttribute('aria-selected', btnTab === tab ? 'true' : 'false');
+    });
+
+    panels.forEach((panel) => {
+      const panelId = (panel.id || '').replace(/^tab-/, '').trim().toLowerCase();
+      panel.classList.toggle('active', panelId === tab);
+    });
+
+    return true;
+  }
+
+  screen.addEventListener('click', function (e) {
+    const t = e.target.closest('button, [role="button"], [data-fn], [data-action], [data-recovery-action], .recovery-tab, .recovery-option, .rec-btn, .rec-breadcrumb-item');
+    if (!t || !screen.contains(t)) return;
+
+    const dataAction = (t.dataset.recoveryAction || t.dataset.action || t.dataset.fn || '').trim();
+    const label = (t.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const action = dataAction || actionMap[label] || actionMap[label.replace(/\s*\(.*?\)\s*$/g, '')];
+
+    const tabName = (t.dataset.tab || t.dataset.switchtab || '').trim().toLowerCase();
+    if (t.classList.contains('recovery-tab') && tabName) {
+      e.preventDefault();
+      e.stopPropagation();
+      switchRecoveryTab(tabName);
+      return;
+    }
+
+    if (t.dataset.page && typeof recNav === 'function') {
+      e.preventDefault();
+      e.stopPropagation();
+      recNav(t.dataset.page);
+      return;
+    }
+
+    if (dataAction && typeof window[dataAction] === 'function') {
+      e.preventDefault();
+      e.stopPropagation();
+      window[dataAction](t.dataset.arg || t.dataset.value || t.dataset.page);
+      return;
+    }
+
+    if (action === 'back' && typeof recGoBack === 'function') {
+      e.preventDefault();
+      e.stopPropagation();
+      recGoBack();
+      return;
+    }
+
+    if (action) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof recoveryAction === 'function') recoveryAction(action);
+    }
+  }, true);
+}
+
+// Initialize the UI clock, sysinfo, and console
+if (typeof initRecoveryUI === 'function') initRecoveryUI();
+wireRecoveryControls();
 
         // For manual recovery, cancel countdown immediately (no auto-reboot)
         if (isManualRecovery) {
@@ -12133,7 +12366,7 @@ This cannot be undone.`)) return;
             const { w: syncW, inp: syncInp } = fldRow('Check every (mins, 0 = manual)', 'number', '15', String(existing?.syncInterval ?? 15));
             const sigW = createEl('div', { style: 'display:flex;flex-direction:column;gap:3px;' });
             sigW.appendChild(createEl('div', { className: 'em-lbl', textContent: 'Signature' }));
-            const sigTa = createEl('textarea', { className: 'em-input', placeholder: 'Sent from NBOSP Email', style: 'min-height:56px;resize:vertical;', value: existing?.signature || '' });
+            const sigTa = createEl('textarea', { className: 'em-input', id: 'email-signature-input', name: 'email-signature', placeholder: 'Sent from NBOSP Email', style: 'min-height:56px;resize:vertical;', value: existing?.signature || '' });
             sigW.appendChild(sigTa);
 
             const errEl = createEl('div', { style: 'color:#e55;font-size:12px;min-height:14px;' });
@@ -12521,7 +12754,7 @@ This cannot be undone.`)) return;
 
             const acct = fromAcct || getActiveAcct();
             const sig = acct?.signature ? '\n\n--\n' + acct.signature : '';
-            const bodyTa = createEl('textarea', { className: 'em-cbody', placeholder: 'Write your message…', value: (prefill.body || '') + sig });
+            const bodyTa = createEl('textarea', { className: 'em-cbody', id: 'email-body-input', name: 'email-body', placeholder: 'Write your message…', value: (prefill.body || '') + sig });
 
             // Attachments
             const fileInp = createEl('input', { type: 'file', multiple: true, style: 'display:none;' });
@@ -13066,7 +13299,7 @@ This cannot be undone.`)) return;
               const phoneInp = field('Phone', 'phone', 'tel');
               const wrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
               wrap.appendChild(createEl('label', { textContent: 'Notes', style: 'font-size:11px;color:var(--text-muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;' }));
-              const notesInp = createEl('textarea', { style: 'background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--text-primary);outline:none;width:100%;min-height:80px;resize:vertical;', 'data-key': 'notes' });
+              const notesInp = createEl('textarea', { id: 'contact-notes-input', name: 'contact-notes', style: 'background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--text-primary);outline:none;width:100%;min-height:80px;resize:vertical;', 'data-key': 'notes' });
               notesInp.value = selected.notes || '';
               notesInp.addEventListener('focus', () => notesInp.style.borderColor = 'var(--accent)');
               notesInp.addEventListener('blur', () => notesInp.style.borderColor = 'var(--border-default)');

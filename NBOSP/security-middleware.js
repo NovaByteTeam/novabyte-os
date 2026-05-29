@@ -107,7 +107,13 @@ function ipBlocking(req, res, next) {
  */
 function ipThrottleMiddleware(req, res, next) {
     // Exclude static assets and Process Inspector polling from strict throttling
-    if (req.path.startsWith('/js/') || req.path.startsWith('/css/') || req.path.startsWith('/public/') || /^\/(api\/)?(sysinfo|processes)/.test(req.path)) {
+    if (
+        req.path.startsWith('/assets/') ||
+        req.path.startsWith('/js/') ||
+        req.path.startsWith('/css/') ||
+        req.path.startsWith('/public/') ||
+        /^\/(api\/)?(sysinfo|processes)/.test(req.path)
+    ) {
         return next();
     }
     // Email API is already session-protected; don't throttle folder switching

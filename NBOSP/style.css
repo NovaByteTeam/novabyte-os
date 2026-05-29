@@ -231,7 +231,7 @@
       user-select: none;
       -webkit-user-select: none;
       touch-action: none;
-      cursor: url('https://cursor.in/assets/cursor.svg'), auto;
+      cursor: auto;
     }
 
     a,
@@ -241,7 +241,7 @@
     input[type="submit"],
     select,
     textarea {
-      cursor: url('https://cursor.in/assets/cursor.svg'), auto;
+      cursor: pointer;
     }
 
     input[type="text"],
@@ -249,7 +249,7 @@
     input[type="password"],
     input[type="search"],
     [contenteditable] {
-      cursor: url('https://cursor.in/assets/cursor.svg'), auto;
+      cursor: text;
     }
 
     :focus-visible {
@@ -655,6 +655,12 @@
 
     #recovery-screen.active {
       display: flex;
+      pointer-events: auto;
+    }
+
+    #recovery-screen,
+    #recovery-screen * {
+      pointer-events: auto;
     }
 
     /* Top bar */
@@ -2843,7 +2849,8 @@
       }
     }
 
-    .launchpad-item:hover {
+    /* Hover only applies to animated items to prevent transform override during animation */
+    .launchpad-item.animate:hover {
       background: rgba(255, 255, 255, 0.10);
       box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.30),
@@ -3001,33 +3008,73 @@
     #notification-panel {
       position: fixed;
       top: 0;
-      right: -380px;
+      right: 0;
       bottom: 0;
-      width: 380px;
+      width: min(380px, 100vw);
       z-index: 9100;
-      background: var(--bg-elevated);
-      border-left: 1px solid var(--border-default);
-      box-shadow: var(--shadow-lg);
+      /* Transparent — ::before handles the glass tint so backdrop-filter pierces to desktop */
+      background: transparent;
+      border-left: none;
+      box-shadow: -24px 0 56px rgba(0, 0, 0, 0.45), -8px 0 24px rgba(0, 0, 0, 0.25),
+        0 0 0 0.5px rgba(255, 255, 255, 0.10);
       transition: transform 320ms var(--ease-macos),
         box-shadow 320ms var(--ease-macos);
-      transform: translateX(0);
+      transform: translateX(100%);
       display: flex;
       flex-direction: column;
-      backdrop-filter: blur(24px) saturate(180%);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      pointer-events: none;
+      /* NO isolation:isolate — that creates another backdrop root */
+    }
+
+    /* Layer 0 — glass layer: backdrop-filter + SVG displacement */
+    #notification-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      backdrop-filter: blur(12px) saturate(220%) brightness(108%);
+      -webkit-backdrop-filter: blur(12px) saturate(220%) brightness(108%);
+      filter: url(#glass-distortion-soft);
+      background: rgba(255, 255, 255, 0.10);
+      pointer-events: none;
+    }
+
+    /* Layer 1 — border shine: gradient edge catching light */
+    #notification-panel::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      padding-left: 1px; /* left border only (right is screen edge) */
+      background: linear-gradient(270deg,
+          rgba(255, 255, 255, 0.00) 0%,
+          rgba(255, 255, 255, 0.65) 0.5%,
+          rgba(255, 255, 255, 0.20) 2%,
+          rgba(255, 255, 255, 0.04) 30%,
+          rgba(255, 255, 255, 0.04) 100%);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: destination-out;
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: 9999;
     }
 
     #notification-panel.active {
-      transform: translateX(-380px);
-      box-shadow: -8px 0 30px rgba(0, 0, 0, 0.3);
+      transform: translateX(0);
+      box-shadow: -24px 0 56px rgba(0, 0, 0, 0.45), -8px 0 24px rgba(0, 0, 0, 0.25),
+        0 0 0 0.5px rgba(255, 255, 255, 0.10);
+      pointer-events: auto;
     }
 
     .notif-header {
-      padding: 16px;
+      padding: 20px 18px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.04);
+      /* Subtle top shine like window titlebar */
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
     }
 
     .notif-header h3 {
@@ -3048,10 +3095,13 @@
       border-radius: var(--r-sm);
       margin-bottom: 4px;
       transition: background var(--t-fast);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .notif-item:hover {
-      background: rgba(255, 255, 255, 0.04);
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(255, 255, 255, 0.14);
     }
 
     .notif-item-content {

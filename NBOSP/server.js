@@ -69,10 +69,10 @@ process.on('unhandledRejection', (reason) => {
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
-                scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
-                scriptSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-tyfqxgVVARi92sm+Jt8CKSEsLJ5OJvLOMUJBWYUZQqQ='", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://localhost:3003', 'https://127.0.0.1:3003'],
+                scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com'],
+                scriptSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-tyfqxgVVARi92sm+Jt8CKSEsLJ5OJvLOMUJBWYUZQqQ='", 'https://cdnjs.cloudflare.com', 'https://localhost:3003', 'https://127.0.0.1:3003'],
                 styleSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
-                styleSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-l+vYTkM0NIoFMnSuySdnDB0Nm02ze/dUO/0mogvvrc0='", "'sha256-wFmUsbbscFRcayh50Sc8dlXr8DXzmGqSApRXzf8ipoI='", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
+                styleSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-l+vYTkM0NIoFMnSuySdnDB0Nm02ze/dUO/0mogvvrc0='", "'sha256-wFmUsbbscFRcayh50Sc8dlXr8DXzmGqSApRXzf8ipoI='", "'sha256-/34yUCLdu0nbxmbw9Ww0bjFbLIoubrE8EME72GSJJ2U='", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 scriptSrcAttr: ["'unsafe-inline'"],
                 styleSrcAttr: ["'unsafe-inline'"],
                 workerSrc: ["'self'", 'blob:', 'https://localhost:*', 'https://127.0.0.1:*'],
@@ -117,6 +117,7 @@ process.on('unhandledRejection', (reason) => {
             if (req.path.startsWith('/js/')) return true;
             if (req.path.startsWith('/css/')) return true;
             if (req.path.startsWith('/public/')) return true;
+            if (req.path.startsWith('/assets/')) return true;
             // FIX: /api/mail/ and /api/email/ are no longer skipped — they have their own limiter
             if (req.path === '/favicon.ico') return true;
             return false;
