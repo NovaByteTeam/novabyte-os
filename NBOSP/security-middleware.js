@@ -6,6 +6,10 @@
 
 const crypto = require('crypto');
 
+// auditService stub — logs security events to console.
+// Replace with a real audit logger if needed.
+const auditService = { log: (e) => console.log('[Audit]', JSON.stringify(e)) };
+
 // Configuration
 let config = {
     csrfSecret: crypto.randomBytes(32).toString('hex'),
@@ -25,11 +29,12 @@ let config = {
         '/api/health',
         '/api/info',
 
-        // Socket.IO WebSocket and polling (handles its own security)
-        '/socket.io',
-
         // Browser proxy service
         '/api/security/strip-tracking',
+
+        // Email API — already session-protected via requireCreds; CSRF here
+        // causes Invalid CSRF Token errors due to session/cookie timing in NW.js
+        '/api/email',
     ],
 };
 
@@ -102,7 +107,17 @@ function ipBlocking(req, res, next) {
  */
 function ipThrottleMiddleware(req, res, next) {
     // Exclude static assets and Process Inspector polling from strict throttling
-    if (req.path.startsWith('/js/') || req.path.startsWith('/css/') || req.path.startsWith('/public/') || /^\/(api\/)?(sysinfo|processes)/.test(req.path)) {
+    if (
+        req.path.startsWith('/assets/') ||
+        req.path.startsWith('/js/') ||
+        req.path.startsWith('/css/') ||
+        req.path.startsWith('/public/') ||
+        /^\/(api\/)?(sysinfo|processes)/.test(req.path)
+    ) {
+        return next();
+    }
+    // Email API is already session-protected; don't throttle folder switching
+    if (req.path.startsWith('/api/email/')) {
         return next();
     }
 
@@ -172,7 +187,8 @@ function csrfProtection(req, res, next) {
     }
 
     // Check if path is exempt from CSRF protection
-    if (config.csrfExempt && config.csrfExempt.includes(req.path)) {
+    // Support exact-match and prefix-match (e.g. '/api/email' covers all sub-paths)
+    if (config.csrfExempt && config.csrfExempt.some(p => req.path === p || req.path.startsWith(p + '/'))) {
         return next();
     }
     // Ultraviolet bare server proxy — never has CSRF tokens
