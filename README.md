@@ -48,11 +48,15 @@ All core OS logic lives in **`app.bin`**. This file is compiled machine-level by
 
 ### index.html
 
-**`index.html` is a shell. That's it.** It's an entry point with no meaningful logic inside it. Don't get excited about it — inspecting or redistributing it serves no purpose, and doing so with intent to bypass the close-source protections is against our policy.
+**`index.html` is now 256 AES-GCM-SIV encrypted.** Half of the key is bundled into `server.js` and the other half lives in `app.bin`, so `index.html` now gets real protection instead of just being a plain shell.
 
-### HTML File Encoding
+### style.css
 
-We've also run our HTML files through a **base64 + gzip pipeline** — they're compressed and base64-encoded, which makes them mostly unreadable to non-technical users and adds a small extra step for anyone trying to read them. It doesn't provide real protection on its own, but we recommend doing the same on your own project for that extra friction layer. See the BuildScript below for how we did it.
+**`style.css` is also now 256 AES-GCM-SIV encrypted.** Just like `index.html`, the key is split between `server.js` and `app.bin`, giving the stylesheet the same protection layer.
+
+### HTML / CSS Encryption
+
+We’ve replaced the old base64 + gzip approach for these files with **256 AES-GCM-SIV encryption**. The encryption key is split in two: one half is bundled into `server.js`, and the other half is embedded in `app.bin`. That means `index.html` and `style.css` are now getting real protection. See the BuildScript below for how we did it.
 
 ---
 
@@ -201,7 +205,7 @@ If you meet the above criteria and want to bundle NovaByte Services into your OS
 > **Git commit history has been wiped. There is no history to inspect.**
 > The source is not available. The compiled v3 executable is available via [GitHub Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
 
-The close-source build uses JavaScript obfuscation, V8 bytecode compilation, and NW.js packaging. All OS logic is compiled into **`app.bin`** — do not attempt to reverse engineer or deobfuscate it. **`index.html`** is a shell entry point only. See the [Close-Source Announcement](#-close-source-announcement--23052026) section for full details.
+The close-source build uses JavaScript obfuscation, V8 bytecode compilation, NW.js packaging, and AES-GCM-SIV encryption for `index.html` and `style.css`. The encryption key is split between `server.js` and `app.bin`. All OS logic is compiled into **`app.bin`** — do not attempt to reverse engineer or deobfuscate it. **`index.html`** and **`style.css`** are protected assets, not plain source files. See the [Close-Source Announcement](#-close-source-announcement--23052026) section for full details.
 
 You are **not permitted** to:
 
@@ -384,6 +388,4 @@ If you discover a security vulnerability, please **open a private issue** or con
 
 ---
 
-*NovaByte OS is a passion project. Built with care.*
-
-*v3 users: you're in good hands. Everyone else: you know where to find us.*
+*NovaByte OS is a  project. Built with care.*
