@@ -84,16 +84,16 @@
    </div>
    <!-- Tab bar -->
    <div class="recovery-tabs">
-    <button class="recovery-tab active" data-switchtab="troubleshoot" data-tab="troubleshoot">
+    <button class="recovery-tab active" data-switchtab="troubleshoot" data-tab="troubleshoot" id="recovery-tab-1000" name="recovery-tab-1000">
      ▶ Troubleshoot
     </button>
-    <button class="recovery-tab" data-switchtab="advanced" data-tab="advanced">
+    <button class="recovery-tab" data-switchtab="advanced" data-tab="advanced" id="recovery-tab-1001" name="recovery-tab-1001">
      ⚙ Advanced
     </button>
-    <button class="recovery-tab" data-switchtab="data" data-tab="data">
+    <button class="recovery-tab" data-switchtab="data" data-tab="data" id="recovery-tab-1002" name="recovery-tab-1002">
      💾 Data
     </button>
-    <button class="recovery-tab danger-tab" data-switchtab="danger" data-tab="danger">
+    <button class="recovery-tab danger-tab" data-switchtab="danger" data-tab="danger" id="recovery-tab-1003" name="recovery-tab-1003">
      ⚠ Danger Zone
     </button>
    </div>
@@ -107,7 +107,7 @@
        Quick Actions
       </div>
       <div class="recovery-options">
-       <button class="recovery-option primary" data-action="continue">
+       <button class="recovery-option primary" data-action="continue" id="recovery-option-1004" name="recovery-option-1004">
         <div class="recovery-option-icon">
          ▶
         </div>
@@ -123,7 +123,7 @@
          ›
         </div>
        </button>
-       <button class="recovery-option" data-action="safemode">
+       <button class="recovery-option" data-action="safemode" id="recovery-option-1005" name="recovery-option-1005">
         <div class="recovery-option-icon">
          🛡
         </div>
@@ -147,7 +147,7 @@
        Tools
       </div>
       <div class="recovery-options">
-       <button class="recovery-option" data-recnav="tools">
+       <button class="recovery-option" data-recnav="tools" id="recovery-option-1006" name="recovery-option-1006">
         <div class="recovery-option-icon">
          💻
         </div>
@@ -163,7 +163,7 @@
          ›
         </div>
        </button>
-       <button class="recovery-option" data-action="clear-cache">
+       <button class="recovery-option" data-action="clear-cache" id="recovery-option-1007" name="recovery-option-1007">
         <div class="recovery-option-icon">
          🧹
         </div>
@@ -187,7 +187,7 @@
        Backup &amp; Restore
       </div>
       <div class="recovery-options">
-       <button class="recovery-option" data-action="export">
+       <button class="recovery-option" data-action="export" id="recovery-option-1008" name="recovery-option-1008">
         <div class="recovery-option-icon">
          💾
         </div>
@@ -203,7 +203,7 @@
          ›
         </div>
        </button>
-       <button class="recovery-option" data-action="import">
+       <button class="recovery-option" data-action="import" id="recovery-option-1009" name="recovery-option-1009">
         <div class="recovery-option-icon">
          📂
         </div>
@@ -224,7 +224,7 @@
        Storage Explorer
       </div>
       <div class="recovery-options">
-       <button class="recovery-option" data-recnav="file-manager">
+       <button class="recovery-option" data-recnav="file-manager" id="recovery-option-1010" name="recovery-option-1010">
         <div class="recovery-option-icon">
          📁
         </div>
@@ -240,7 +240,7 @@
          ›
         </div>
        </button>
-       <button class="recovery-option" data-recnav="settings-editor">
+       <button class="recovery-option" data-recnav="settings-editor" id="recovery-option-1011" name="recovery-option-1011">
         <div class="recovery-option-icon">
          ⚙️
         </div>
@@ -256,7 +256,7 @@
          ›
         </div>
        </button>
-       <button class="recovery-option" data-recnav="storage-analyzer">
+       <button class="recovery-option" data-recnav="storage-analyzer" id="recovery-option-1012" name="recovery-option-1012">
         <div class="recovery-option-icon">
          📊
         </div>
@@ -272,7 +272,7 @@
          ›
         </div>
        </button>
-       <button class="recovery-option" data-recnav="event-log">
+       <button class="recovery-option" data-recnav="event-log" id="recovery-option-1013" name="recovery-option-1013">
         <div class="recovery-option-icon">
          📜
         </div>
@@ -296,7 +296,7 @@
        ⚠ Irreversible Actions
       </div>
       <div class="recovery-options">
-       <button class="recovery-option" data-action="reset-settings">
+       <button class="recovery-option" data-action="reset-settings" id="recovery-option-1014" name="recovery-option-1014">
         <div class="recovery-option-icon">
          ⚙️
         </div>
@@ -312,7 +312,7 @@
          ›
         </div>
        </button>
-       <button class="recovery-option danger" data-action="factory">
+       <button class="recovery-option danger" data-action="factory" id="recovery-option-1015" name="recovery-option-1015">
         <div class="recovery-option-icon">
          🗑
         </div>
@@ -384,7 +384,7 @@
        <div class="recovery-log-title">
         ▸ System Log
        </div>
-       <button class="recovery-log-clear" onclick="document.getElementById('rec-diag-lines').innerHTML=''">
+       <button class="recovery-log-clear" onclick="document.getElementById('rec-diag-lines').innerHTML=''" id="recovery-log-clear-1016" name="recovery-log-clear-1016">
         Clear
        </button>
       </div>
@@ -430,7 +430,7 @@
         Settings Editor
        </span>
       </div>
-      <button class="rec-btn primary" data-fn="_settingsSave" style="margin-left:auto">
+      <button class="rec-btn primary" data-fn="_settingsSave" style="margin-left:auto" id="rec-btn-1017" name="rec-btn-1017">
        Save
       </button>
      </div>
@@ -589,7 +589,7 @@
   <!-- Taskbar -->
   <div aria-label="Taskbar" id="taskbar" role="toolbar">
    <div class="taskbar-start">
-    <button aria-label="Open Launchpad" class="taskbar-start-btn" id="start-btn">
+    <button aria-label="Open Launchpad" class="taskbar-start-btn" id="start-btn" name="start-btn">
      <svg height="24" viewbox="0 0 120 120" width="24" xmlns="http://www.w3.org/2000/svg">
       <defs>
        <lineargradient id="tb-g" x1="0%" x2="100%" y1="0%" y2="100%">
@@ -612,13 +612,13 @@
    <div aria-label="Running applications" class="taskbar-apps" id="taskbar-apps" role="group">
    </div>
    <div aria-label="System tray" class="taskbar-tray" role="group">
-    <button aria-label="Volume" class="tray-btn" id="tray-volume">
+    <button aria-label="Volume" class="tray-btn" id="tray-volume" name="tray-volume">
      <img src="/assets/icons8-sound-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">
     </button>
-    <button aria-label="Network status" class="tray-btn" id="tray-wifi">
+    <button aria-label="Network status" class="tray-btn" id="tray-wifi" name="tray-wifi">
      <img src="/assets/icons8-wi-fi-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">
     </button>
-    <button aria-label="Battery status" class="tray-btn" id="tray-battery">
+    <button aria-label="Battery status" class="tray-btn" id="tray-battery" name="tray-battery">
      <svg fill="none" height="16" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24" width="16">
       <rect height="12" rx="2" width="18" x="1" y="6">
       </rect>
@@ -626,7 +626,7 @@
       </line>
      </svg>
     </button>
-    <button aria-label="Notifications" class="tray-btn" id="tray-bell">
+    <button aria-label="Notifications" class="tray-btn" id="tray-bell" name="tray-bell">
      <img src="/assets/icons8-bell-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">
      <span class="tray-badge hidden" id="notif-badge">
       0
@@ -657,10 +657,10 @@
     <h3>
      Notifications
     </h3>
-    <button aria-label="Close notifications" class="btn btn-sm notif-close" id="notif-close">
+    <button aria-label="Close notifications" class="btn btn-sm notif-close" id="notif-close" name="notif-close">
      ×
     </button>
-    <button aria-label="Clear all notifications" class="btn btn-sm" id="notif-mark-all">
+    <button aria-label="Clear all notifications" class="btn btn-sm" id="notif-mark-all" name="notif-mark-all">
      Clear All
     </button>
    </div>
