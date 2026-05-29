@@ -44,7 +44,7 @@ On top of that, **the full git commit history has been wiped.** There is no hist
 
 ### app.bin
 
-All core OS logic lives in **`app.bin`**. This file is compiled machine-level bytecode — it is completely unreadable as source code and is not practically reversible. **Do not attempt to reverse engineer or deobfuscate `app.bin`.** It is not possible to recover meaningful source from it, and attempting to do so is a violation of our terms.
+All core OS logic lives in `app.bin`. This file is compiled bytecode — it is completely unreadable as source code and is not practically reversible. Do not attempt to reverse engineer or deobfuscate `app.bin`. It is not possible to recover meaningful sources from it, while nothing in the world is ever unattackable, but it's like near impossible since it's a thing that only Chromium understands, and every Chromium update changes, which makes attacks way too hard, and attempting to recover it is a violation of our terms.
 
 ### index.html
 
