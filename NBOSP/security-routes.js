@@ -9,16 +9,8 @@ const router = express.Router();
 // Import services
 const securityMiddleware = require('./security-middleware');
 
-// No-op audit service stub (v3 audit logging service was stripped)
-const auditService = {
-    query: (filters) => [],
-    getStatistics: () => ({}),
-    log: (entry) => { /* no-op */ },
-    getFailedLoginAttempts: (ipAddress) => [],
-    getSuspiciousActivities: (filters) => [],
-    updateSuspiciousActivity: (id, status, notes) => null,
-    exportLogs: (format, filters) => ''
-};
+// Import validation schemas
+const { validateRequest } = require('./security-middleware');
 
 // In-memory session storage (would be database in production)
 const sessions = new Map();

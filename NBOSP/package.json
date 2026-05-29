@@ -18,7 +18,7 @@
       "128": "assets/icon.png"
     },
     "dev_tools": true,
-    "chromium-args": "--no-first-run --renderer-process-limit=1 --disable-features=Vulkan,CanvasOopRasterization --disable-zero-copy --js-flags=--max-old-space-size=4096 --expose-gc --ignore-certificate-errors-spki-list=PENDING"
+    "chromium-args": "--no-first-run --renderer-process-limit=1 --disable-features=Vulkan,CanvasOopRasterization --disable-zero-copy --js-flags=--max-old-space-size=4096 --expose-gc"
   },
   "node-remote": "https://localhost:*",
   "keywords": [

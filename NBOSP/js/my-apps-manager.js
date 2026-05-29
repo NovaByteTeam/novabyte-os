@@ -1,6 +1,6 @@
 
 /**
- * NovaByte - My Apps Manager
+ * NovaByte OS - My Apps Manager
  * ────────────────────────────────────────────────────────────
  * User interface for managing installed applications.
  * Similar to web-app-manager.js but for packaged apps.

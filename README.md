@@ -261,6 +261,11 @@ npm start
 
 The window opens automatically — no manual browser navigation needed.
 
+**On first launch, two things happen automatically:**
+
+- A `.env` file is generated with a secure random `SESSION_SECRET` and sensible defaults. Fill in any API keys you need afterwards — the server starts without them.
+- A local HTTPS certificate and CA are generated. A native OS prompt will appear asking you to trust the CA — click **Yes** (Windows) or enter your password (macOS/Linux). This only happens once. After that, the app opens over HTTPS with no browser warnings, permanently.
+
 ### Running v3
 
 Download the compiled exe from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest), extract the zip, and run it. No Node.js or cloning required.

@@ -18,3 +18,5 @@
 /NBOSP/cache/
 /NBOSP/dist/
 .github
+**/ca.crt
+**/ca.trusted

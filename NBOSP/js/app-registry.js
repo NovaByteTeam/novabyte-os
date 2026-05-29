@@ -1,5 +1,5 @@
 /**
- * NovaByte - App Registry
+ * NovaByte OS - App Registry
  * ────────────────────────────────────────────────────────────
  * Manages installed applications, registration with OS.apps,
  * and app lifecycle (install, uninstall, update).

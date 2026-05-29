@@ -15,17 +15,17 @@
  *   POST /api/email/disconnect    — clear session credentials
  */
 
-const express = require('express');
-const router = express.Router();
-const https = require('https');
-const http = require('http');
+const express  = require('express');
+const router   = express.Router();
+const https    = require('https');
+const http     = require('http');
 
 // ── Optional dependencies (install via npm) ───────────────────────────────────
-// npm install imapflow pop3 postal-mime
-let ImapFlow, POP3Client, PostalMime;
-try { ({ ImapFlow } = require('imapflow')); } catch (e) { ImapFlow = null; }
-try { POP3Client = require('node-pop3'); } catch (e) { POP3Client = null; }
-try { PostalMime = require('postal-mime'); } catch (e) { PostalMime = null; }
+// npm install imapflow poplib mailparser
+let ImapFlow, POP3Client, simpleParser;
+try { ({ ImapFlow }    = require('imapflow'));           } catch (e) { ImapFlow    = null; }
+try { POP3Client       = require('poplib');              } catch (e) { POP3Client  = null; }
+try { ({ simpleParser } = require('mailparser'));        } catch (e) { simpleParser = null; }
 
 function missingDep(name) {
   return new Error(`Missing dependency: run "npm install ${name}"`);
@@ -38,12 +38,12 @@ function missingDep(name) {
 async function imapConnect(creds) {
   if (!ImapFlow) throw missingDep('imapflow');
   const client = new ImapFlow({
-    host: creds.host,
-    port: parseInt(creds.port) || (creds.ssl ? 993 : 143),
+    host:   creds.host,
+    port:   parseInt(creds.port) || (creds.ssl ? 993 : 143),
     secure: Boolean(creds.ssl),
-    auth: { user: creds.user, pass: creds.pass },
+    auth:   { user: creds.user, pass: creds.pass },
     logger: false,
-    tls: { rejectUnauthorized: false }
+    tls:    { rejectUnauthorized: false }
   });
   await client.connect();
   return client;
@@ -54,13 +54,13 @@ async function imapFolders(creds) {
   try {
     const list = await client.list();
     return list.map(m => ({
-      path: decodeEntities(m.path),
-      name: decodeEntities(m.name || m.path.split(m.delimiter || '/').pop()),
+      path:      decodeEntities(m.path),
+      name:      decodeEntities(m.name || m.path.split(m.delimiter || '/').pop()),
       delimiter: m.delimiter,
-      flags: [...(m.flags || [])]
+      flags:     [...(m.flags || [])]
     }));
   } finally {
-    await client.logout().catch(() => { });
+    await client.logout().catch(() => {});
   }
 }
 
@@ -70,19 +70,19 @@ function decodeEntities(str) {
   if (!str || !str.includes('&')) return str;
   return str
     .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
+    .replace(/&#(\d+);/g,             (_, d) => String.fromCharCode(parseInt(d, 10)))
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
 }
 
 // Common folder name aliases per provider (Gmail, Outlook, Yahoo, etc.)
 const FOLDER_ALIASES = {
-  inbox: ['inbox'],
-  sent: ['sent', 'sent mail', 'sent messages', 'sent items', '[gmail]/sent mail'],
+  inbox:  ['inbox'],
+  sent:   ['sent', 'sent mail', 'sent messages', 'sent items', '[gmail]/sent mail'],
   drafts: ['drafts', 'draft', '[gmail]/drafts'],
-  trash: ['trash', 'deleted', 'deleted items', 'bin', '[gmail]/trash'],
-  spam: ['spam', 'junk', 'junk e-mail', 'junk mail', 'bulk mail', '[gmail]/spam'],
-  archive: ['archive', 'all mail', '[gmail]/all mail'],
+  trash:  ['trash', 'deleted', 'deleted items', 'bin', '[gmail]/trash'],
+  spam:   ['spam', 'junk', 'junk e-mail', 'junk mail', 'bulk mail', '[gmail]/spam'],
+  archive:['archive', 'all mail', '[gmail]/all mail'],
 };
 
 async function resolveFolder(client, folder) {
@@ -106,12 +106,12 @@ async function resolveFolder(client, folder) {
 async function imapMessages(creds, folder, page, limit) {
   const client = await imapConnect(creds);
   try {
-    const box = await resolveFolder(client, folder);
+    const box   = await resolveFolder(client, folder);
     const total = box.exists;
     if (total === 0) return { messages: [], total: 0, page, pages: 0 };
 
     // Sequence range — newest first
-    const end = Math.max(1, total - (page - 1) * limit);
+    const end   = Math.max(1, total - (page - 1) * limit);
     const start = Math.max(1, end - limit + 1);
 
     const messages = [];
@@ -120,25 +120,25 @@ async function imapMessages(creds, folder, page, limit) {
     })) {
       const env = msg.envelope || {};
       messages.push({
-        uid: msg.uid,
-        seq: msg.seq,
-        seen: msg.flags?.has('\\Seen') || false,
+        uid:     msg.uid,
+        seq:     msg.seq,
+        seen:    msg.flags?.has('\\Seen') || false,
         subject: env.subject || '(no subject)',
-        from: env.from?.[0]
+        from:    env.from?.[0]
           ? [env.from[0].name, `<${env.from[0].address}>`].filter(Boolean).join(' ').trim()
           : '',
-        to: (env.to || []).map(a => a.address).join(', '),
+        to:   (env.to   || []).map(a => a.address).join(', '),
         date: env.date ? new Date(env.date).toISOString() : null
       });
     }
     return { messages: messages.reverse(), total, page, pages: Math.ceil(total / limit) };
   } finally {
-    await client.logout().catch(() => { });
+    await client.logout().catch(() => {});
   }
 }
 
 async function imapMessage(creds, folder, uid) {
-  if (!PostalMime) throw missingDep('postal-mime');
+  if (!simpleParser) throw missingDep('mailparser');
   const client = await imapConnect(creds);
   try {
     await resolveFolder(client, folder);
@@ -147,89 +147,80 @@ async function imapMessage(creds, folder, uid) {
       raw = msg.source;
     }
     if (!raw) throw new Error('Message not found');
-    const parser = new PostalMime();
-    const parsed = await parser.parse(raw);
+    const parsed = await simpleParser(raw);
     return msgShape(parsed);
   } finally {
-    await client.logout().catch(() => { });
+    await client.logout().catch(() => {});
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POP3  (pop3)
+// POP3  (poplib)
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function pop3Messages(creds, limit) {
-  if (!POP3Client) throw missingDep('node-pop3');
-  if (!PostalMime) throw missingDep('postal-mime');
-
-  const port = parseInt(creds.port) || (creds.ssl ? 995 : 110);
-  const client = new POP3Client({
-    host: creds.host,
-    port,
-    tls: Boolean(creds.ssl),
-    user: creds.user,
-    password: creds.pass
-  });
-
-  try {
-    const [countStr] = await client.STAT();
-    const total = parseInt(countStr, 10) || 0;
+function pop3Messages(creds, limit) {
+  if (!POP3Client) throw missingDep('poplib');
+  return new Promise((resolve, reject) => {
+    const port   = parseInt(creds.port) || (creds.ssl ? 995 : 110);
+    const client = new POP3Client(port, creds.host, {
+      tlserrs: false, enabletls: Boolean(creds.ssl), debug: false
+    });
     const messages = [];
+    let total = 0, fetching = 0;
 
-    if (total === 0) {
-      return { messages: [], total: 0, page: 1, pages: 1 };
-    }
-
-    const fetching = Math.min(total, limit);
-    const parser = new PostalMime();
-
-    // Fetch newest messages first
-    for (let i = total; i > total - fetching; i--) {
-      try {
-        const raw = await client.RETR(i);
-        const parsed = await parser.parse(raw);
-        messages.push({
-          uid: i,
-          seq: i,
-          seen: false,
-          subject: parsed.subject || '(no subject)',
-          from: parsed.from?.text || '',
-          to: parsed.to?.text || '',
-          date: parsed.date?.toISOString() || null
-        });
-      } catch (_) {
-        // skip malformed messages
+    client.on('error',   reject);
+    client.on('connect', () => client.login(creds.user, creds.pass));
+    client.on('login',   (ok) => {
+      if (!ok) return reject(new Error('POP3 login failed'));
+      client.list();
+    });
+    client.on('list', (ok, count) => {
+      if (!ok) return reject(new Error('POP3 LIST failed'));
+      total = count;
+      if (total === 0) { client.quit(); return resolve({ messages: [], total: 0, page: 1, pages: 1 }); }
+      fetching = Math.min(total, limit);
+      for (let i = total; i > total - fetching; i--) client.top(i, 0);
+    });
+    client.on('top', async (ok, num, data) => {
+      if (ok && data && simpleParser) {
+        try {
+          const p = await simpleParser(data.join('\n'));
+          messages.push({
+            uid: num, seq: num, seen: false,
+            subject: p.subject || '(no subject)',
+            from:    p.from?.text || '',
+            to:      p.to?.text  || '',
+            date:    p.date?.toISOString() || null
+          });
+        } catch (_) { /* skip malformed */ }
       }
-    }
-
-    return { messages, total, page: 1, pages: 1 };
-  } finally {
-    await client.QUIT().catch(() => { });
-  }
+      if (messages.length >= fetching) {
+        client.quit();
+        resolve({ messages, total, page: 1, pages: 1 });
+      }
+    });
+    client.on('quit', () => {});
+  });
 }
 
-async function pop3Message(creds, uid) {
-  if (!POP3Client) throw missingDep('node-pop3');
-  if (!PostalMime) throw missingDep('postal-mime');
-
-  const port = parseInt(creds.port) || (creds.ssl ? 995 : 110);
-  const client = new POP3Client({
-    host: creds.host,
-    port,
-    tls: Boolean(creds.ssl),
-    user: creds.user,
-    password: creds.pass
+function pop3Message(creds, uid) {
+  if (!POP3Client)   throw missingDep('poplib');
+  if (!simpleParser) throw missingDep('mailparser');
+  return new Promise((resolve, reject) => {
+    const port   = parseInt(creds.port) || (creds.ssl ? 995 : 110);
+    const client = new POP3Client(port, creds.host, {
+      tlserrs: false, enabletls: Boolean(creds.ssl), debug: false
+    });
+    client.on('error',   reject);
+    client.on('connect', () => client.login(creds.user, creds.pass));
+    client.on('login',   (ok) => { if (!ok) return reject(new Error('POP3 login failed')); client.retr(parseInt(uid)); });
+    client.on('retr',    async (ok, _num, data) => {
+      if (!ok || !data) return reject(new Error('Failed to retrieve message'));
+      try { resolve(msgShape(await simpleParser(data.join('\n')))); } catch (e) { reject(e); }
+      client.quit();
+    });
+    client.on('quit', () => {});
   });
-
-  try {
-    const raw = await client.RETR(parseInt(uid));
-    const parser = new PostalMime();
-    const parsed = await parser.parse(raw);
-    return msgShape(parsed);
-  } finally {
-    await client.QUIT().catch(() => { });
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,16 +241,16 @@ function ewsReq(creds, soapBody) {
     let urlStr = creds.host.startsWith('http') ? creds.host : `https://${creds.host}`;
     if (!urlStr.endsWith('/EWS/Exchange.asmx')) urlStr += '/EWS/Exchange.asmx';
 
-    const u = new URL(urlStr);
+    const u   = new URL(urlStr);
     const lib = u.protocol === 'https:' ? https : http;
     const opts = {
       hostname: u.hostname,
-      port: u.port || (u.protocol === 'https:' ? 443 : 80),
-      path: u.pathname,
-      method: 'POST',
+      port:     u.port || (u.protocol === 'https:' ? 443 : 80),
+      path:     u.pathname,
+      method:   'POST',
       headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        'Authorization': `Basic ${auth}`,
+        'Content-Type':   'text/xml; charset=utf-8',
+        'Authorization':  `Basic ${auth}`,
         'Content-Length': Buffer.byteLength(envelope)
       },
       rejectUnauthorized: false
@@ -268,7 +259,7 @@ function ewsReq(creds, soapBody) {
     const req = lib.request(opts, res => {
       let body = '';
       res.on('data', c => body += c);
-      res.on('end', () => resolve(body));
+      res.on('end',  () => resolve(body));
     });
     req.on('error', reject);
     req.write(envelope);
@@ -295,14 +286,14 @@ async function ewsFolders(creds) {
   </m:ParentFolderIds>
 </m:FindFolder>`;
 
-  const xml = await ewsReq(creds, soap);
+  const xml  = await ewsReq(creds, soap);
   const base = [
-    { path: 'inbox', name: 'Inbox' },
-    { path: 'sentitems', name: 'Sent Items' },
-    { path: 'drafts', name: 'Drafts' },
+    { path: 'inbox',        name: 'Inbox' },
+    { path: 'sentitems',    name: 'Sent Items' },
+    { path: 'drafts',       name: 'Drafts' },
     { path: 'deleteditems', name: 'Deleted Items' }
   ];
-  const blocks = xml.match(/<t:Folder>[\s\S]*?<\/t:Folder>/g) || [];
+  const blocks  = xml.match(/<t:Folder>[\s\S]*?<\/t:Folder>/g) || [];
   const baseNames = new Set(base.map(f => f.name));
   const extra = blocks.map(b => {
     const name = xval(b, 'DisplayName');
@@ -336,15 +327,15 @@ async function ewsMessages(creds, folder, page, limit) {
   </m:ParentFolderIds>
 </m:FindItem>`;
 
-  const xml = await ewsReq(creds, soap);
+  const xml    = await ewsReq(creds, soap);
   const blocks = xml.match(/<t:Message>[\s\S]*?<\/t:Message>/g) || [];
   const messages = blocks.map(b => ({
-    uid: b.match(/Id="([^"]+)"/)?.[1] || '',
-    seq: 0,
-    seen: xval(b, 'IsRead') === 'true',
+    uid:     b.match(/Id="([^"]+)"/)?.[1] || '',
+    seq:     0,
+    seen:    xval(b, 'IsRead') === 'true',
     subject: xval(b, 'Subject') || '(no subject)',
-    from: xval(b, 'Name') || xval(b, 'EmailAddress'),
-    date: xval(b, 'DateTimeReceived') ? new Date(xval(b, 'DateTimeReceived')).toISOString() : null
+    from:    xval(b, 'Name') || xval(b, 'EmailAddress'),
+    date:    xval(b, 'DateTimeReceived') ? new Date(xval(b, 'DateTimeReceived')).toISOString() : null
   }));
 
   const total = parseInt(xml.match(/TotalItemsInView="(\d+)"/)?.[1] || messages.length);
@@ -361,18 +352,17 @@ async function ewsMessage(creds, uid) {
   <m:ItemIds><t:ItemId Id="${uid}"/></m:ItemIds>
 </m:GetItem>`;
 
-  const xml = await ewsReq(creds, soap);
+  const xml  = await ewsReq(creds, soap);
   const mime = xval(xml, 'MimeContent');
-  if (mime && PostalMime) {
-    const parser = new PostalMime();
-    return msgShape(await parser.parse(Buffer.from(mime, 'base64')));
+  if (mime && simpleParser) {
+    return msgShape(await simpleParser(Buffer.from(mime, 'base64')));
   }
   // fallback — text only from XML
   return {
-    subject: xval(xml, 'Subject') || '(no subject)',
-    from: xval(xml, 'EmailAddress') || xval(xml, 'Name'),
-    to: '', cc: '', date: null,
-    text: xval(xml, 'Body') || '', html: null, attachments: []
+    subject:     xval(xml, 'Subject') || '(no subject)',
+    from:        xval(xml, 'EmailAddress') || xval(xml, 'Name'),
+    to:          '', cc: '', date: null,
+    text:        xval(xml, 'Body') || '', html: null, attachments: []
   };
 }
 
@@ -381,26 +371,18 @@ async function ewsMessage(creds, uid) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function msgShape(parsed) {
-  // Handle both mailparser and PostalMime formats
-  const getAddress = (addr) => {
-    if (!addr) return '';
-    if (typeof addr === 'string') return addr;
-    if (Array.isArray(addr)) return addr.map(a => a.address || a).join(', ');
-    return addr.address || addr.text || '';
-  };
-
   return {
-    subject: parsed.subject || '(no subject)',
-    from: getAddress(parsed.from),
-    to: getAddress(parsed.to),
-    cc: getAddress(parsed.cc),
-    date: parsed.date instanceof Date ? parsed.date.toISOString() : (parsed.date || null),
-    text: parsed.text || '',
-    html: parsed.html || null,
+    subject:     parsed.subject || '(no subject)',
+    from:        parsed.from?.text  || '',
+    to:          parsed.to?.text    || '',
+    cc:          parsed.cc?.text    || '',
+    date:        parsed.date?.toISOString() || null,
+    text:        parsed.text  || '',
+    html:        parsed.html  || null,
     attachments: (parsed.attachments || []).map(a => ({
-      filename: a.filename,
-      contentType: a.contentType || a.mimeType,
-      size: a.size || 0
+      filename:    a.filename,
+      contentType: a.contentType,
+      size:        a.size
     }))
   };
 }
@@ -450,8 +432,8 @@ router.post('/connect', async (req, res) => {
   const creds = { type, host, port, ssl: ssl === true || ssl === 'true' || ssl === 1, user, pass };
   try {
     let folders;
-    if (type === 'imap') folders = await imapFolders(creds);
-    else if (type === 'pop3') folders = [{ path: 'INBOX', name: 'Inbox' }];
+    if      (type === 'imap')     folders = await imapFolders(creds);
+    else if (type === 'pop3')     folders = [{ path: 'INBOX', name: 'Inbox' }];
     else if (type === 'exchange') folders = await ewsFolders(creds);
     else return res.status(400).json({ error: 'type must be imap, pop3, or exchange' });
 
@@ -470,9 +452,9 @@ router.get('/folders', requireCreds, async (req, res) => {
   const { emailCreds: c } = req.session;
   try {
     let folders;
-    if (c.type === 'imap') folders = await imapFolders(c);
-    else if (c.type === 'pop3') folders = [{ path: 'INBOX', name: 'Inbox' }];
-    else folders = await ewsFolders(c);
+    if      (c.type === 'imap')     folders = await imapFolders(c);
+    else if (c.type === 'pop3')     folders = [{ path: 'INBOX', name: 'Inbox' }];
+    else                            folders = await ewsFolders(c);
     res.json({ folders });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -485,13 +467,13 @@ router.get('/folders', requireCreds, async (req, res) => {
 router.get('/messages', requireCreds, async (req, res) => {
   const { emailCreds: c } = req.session;
   const folder = req.query.folder || 'INBOX';
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(50, Math.max(5, parseInt(req.query.limit) || 20));
+  const page   = Math.max(1, parseInt(req.query.page)  || 1);
+  const limit  = Math.min(50, Math.max(5, parseInt(req.query.limit) || 20));
   try {
     let result;
-    if (c.type === 'imap') result = await imapMessages(c, folder, page, limit);
-    else if (c.type === 'pop3') result = await pop3Messages(c, limit);
-    else result = await ewsMessages(c, folder, page, limit);
+    if      (c.type === 'imap')     result = await imapMessages(c, folder, page, limit);
+    else if (c.type === 'pop3')     result = await pop3Messages(c, limit);
+    else                            result = await ewsMessages(c, folder, page, limit);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -507,9 +489,9 @@ router.get('/message', requireCreds, async (req, res) => {
   if (!uid) return res.status(400).json({ error: 'uid is required' });
   try {
     let msg;
-    if (c.type === 'imap') msg = await imapMessage(c, folder, uid);
-    else if (c.type === 'pop3') msg = await pop3Message(c, uid);
-    else msg = await ewsMessage(c, uid);
+    if      (c.type === 'imap')     msg = await imapMessage(c, folder, uid);
+    else if (c.type === 'pop3')     msg = await pop3Message(c, uid);
+    else                            msg = await ewsMessage(c, uid);
     res.json(msg);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -530,38 +512,6 @@ let nodemailer;
 try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 
 /**
- * POST /api/email/batch
- * Body: { op: 'delete'|'read'|'move', uids: [], folder: string, dest?: string }
- */
-router.post('/batch', requireCreds, async (req, res) => {
-  const c = req.session.emailCreds;
-  const { op, uids = [], folder = 'INBOX', dest } = req.body;
-  if (!uids.length) return res.json({ ok: true });
-  try {
-    if (c.type === 'imap') {
-      if (!ImapFlow) throw missingDep('imapflow');
-      const client = await imapConnect(c);
-      try {
-        await resolveFolder(client, folder);
-        if (op === 'delete') {
-          await client.messageDelete(uids, { uid: true });
-        } else if (op === 'read') {
-          await client.messageFlagsAdd(uids, ['\\Seen'], { uid: true });
-        } else if (op === 'move' && dest) {
-          await client.messageMove(uids, dest, { uid: true });
-        }
-      } finally {
-        await client.logout().catch(() => { });
-      }
-    }
-    // POP3 / Exchange don't support server-side batch ops — silently succeed
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
  * POST /api/email/send
  */
 router.post('/send', requireCreds, async (req, res) => {
@@ -574,8 +524,8 @@ router.post('/send', requireCreds, async (req, res) => {
   // Port 465 = direct SSL; port 587 (and others) = STARTTLS.
   // Using secure:true on a STARTTLS port causes "wrong version number" SSL error.
   const useDirectSsl = smtpPort === 465;
-  const user = req.body.user || sess.user;
-  const pass = req.body.pass || sess.pass;
+  const user     = req.body.user || sess.user;
+  const pass     = req.body.pass || sess.pass;
   if (!smtpHost) return res.status(400).json({ error: 'No SMTP host configured for this account' });
   try {
     const transporter = nodemailer.createTransport({
@@ -611,14 +561,12 @@ router.get('/search', requireCreds, async (req, res) => {
     const messages = [];
     if (uids.length) {
       for await (const msg of client.fetch(uids.slice(-40).reverse(), { envelope: true, flags: true }, { uid: true })) {
-        messages.push({
-          uid: msg.uid, subject: msg.envelope.subject || '(no subject)',
-          from: msg.envelope.from?.[0]?.address || '', date: msg.envelope.date, seen: msg.flags.has('\\Seen')
-        });
+        messages.push({ uid: msg.uid, subject: msg.envelope.subject || '(no subject)',
+          from: msg.envelope.from?.[0]?.address || '', date: msg.envelope.date, seen: msg.flags.has('\\Seen') });
       }
     }
     res.json({ messages });
-  } finally { await client.logout().catch(() => { }); }
+  } finally { await client.logout().catch(() => {}); }
 });
 
 /**
@@ -633,7 +581,7 @@ router.post('/delete', requireCreds, async (req, res) => {
       if (!ImapFlow) throw missingDep('imapflow');
       const client = await imapConnect(c);
       try { await resolveFolder(client, folder); await client.messageDelete(uids, { uid: true }); }
-      finally { await client.logout().catch(() => { }); }
+      finally { await client.logout().catch(() => {}); }
     }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -654,7 +602,7 @@ router.post('/move', requireCreds, async (req, res) => {
     await client.messageMove(uids, destination, { uid: true });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
-  finally { await client.logout().catch(() => { }); }
+  finally { await client.logout().catch(() => {}); }
 });
 
 
@@ -726,8 +674,8 @@ router.get('/preview/:token', (req, res) => {
   // the iframe still loads even if the server-side Map was flushed.
   const entry = previewCache.get(req.params.token)
     || (req.session?.emailPreviews?.[req.params.token]
-      ? { html: req.session.emailPreviews[req.params.token] }
-      : null);
+        ? { html: req.session.emailPreviews[req.params.token] }
+        : null);
 
   if (!entry) return res.status(404).send('Preview expired or not found. Please reopen the email.');
 
