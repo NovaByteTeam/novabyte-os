@@ -189,7 +189,44 @@ NovaByte Services includes:
 - **Sentinel Security System** — the full security runtime, privacy engine, and threat detection
 - **System Updates app** — the built-in app update pipeline
 - **NovaByte Edition System** — edition management and feature sets
+- **NovaByte Proprietary Apps** — closed-source, fully-featured apps built by NovaByte (see below)
 - **Any other service, API, or system component developed by NovaByte** that is not part of NBOSP
+
+### 📱 NovaByte Proprietary Apps
+
+NovaByte Services includes a suite of **closed-source, proprietary NovaByte apps**. These are not open source and are not part of NBOSP.
+
+> [!IMPORTANT]
+> **Any NovaByte Services license requires bundling Horizon Browser and NovaMail alongside your own browser and email apps. These are not replacements — both your apps and ours must ship together. Additional NovaByte apps are optional.**
+
+#### Required Alongside Your Own Apps
+
+These two apps **must be bundled** in any NovaByte Services-licensed OS, shipping **alongside** the licensee's own browser and email client:
+
+| App | Description |
+|-----|-------------|
+| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser — Horizon is set as the **system default browser**. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, server-side favicon proxying, per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
+| 📧 **NovaMail** | NovaByte's proprietary email client. Must ship alongside your own email app. Includes full multi-layer privacy protection — tracker pixel blocking, CSS tracker stripping, link unwrapping, tracking parameter removal, and full script sandboxing. |
+
+#### Optional Apps (choose any)
+
+Beyond the two required apps, you may choose to include any of the following:
+
+| App | Description |
+|-----|-------------|
+| 📁 **Nova Files** | Full-featured file manager with advanced sorting, bulk operations, and deep OS integration |
+| 📝 **Nova Notes** | Rich-text notes app with organisation, search, and sync support via NovaBridge |
+| 🗓 **Nova Calendar** | Calendar app with event management and NovaBridge sync for external calendar providers |
+| 🖼 **Nova Gallery** | Media viewer and organiser for images and video with metadata support |
+| 🎵 **Nova Music** | Local and streaming-capable music player with library management |
+| 📥 **Nova Downloads** | Download manager with queue control, progress tracking, and file organisation |
+| 👥 **Nova Contacts** | Contact manager with NovaBridge sync support |
+| 🔍 **Nova Search** | System-wide search across files, apps, settings, and content |
+| 🖩 **Nova Calculator** | Feature-rich calculator with history and unit conversion |
+| 🕐 **Nova Clock** | Clock, alarm, timer, and stopwatch with system-level integration |
+| ⚙️ **Nova Settings** | Full system settings panel with edition-aware feature management and GPO support |
+
+You may not modify or redistribute NovaByte proprietary apps outside the terms of your NovaByte Services license.
 
 ### Who Can Apply
 
