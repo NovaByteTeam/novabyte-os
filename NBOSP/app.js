@@ -1751,7 +1751,10 @@ self.onmessage = async (e) => {
             searchEngine: 'duckduckgo',
             proxyUrl: '',
             username: 'user',
-            pinnedApps: ['shell', 'vault', 'browser']
+            pinnedApps: ['shell', 'vault', 'browser'],
+            proxyFavicons: true,   // Route tab favicons through local server (privacy)
+            proxyEmailImages: true, // Route email images through local server (privacy)
+            blockTrackers: true,   // Block known tracker domains via Disconnect.me list
           },
           applySafeModeDefaults() {
             // Safe Mode should behave like a clean default session without persisting changes.
@@ -4527,6 +4530,30 @@ self.onmessage = async (e) => {
           // ── Bookmarks, History & Settings storage ─────────────────────────
           const BK_KEY = 'nbosp_browser_bookmarks';
           const HX_KEY = 'nbosp_browser_history';
+
+          // Normalise any stored favicon URL to go through the local proxy.
+          // Old bookmarks/history may have the Google URL baked in — rewrite on the fly.
+          function normFavicon(favicon) {
+            if (!favicon) return '';
+            // Already a proxy URL — use as-is
+            if (favicon.startsWith('/api/favicon') || favicon.startsWith('/api/email-image')) return favicon;
+            // Old Google favicon URL — extract the domain and re-proxy
+            try {
+              const u = new URL(favicon);
+              if (u.hostname === 'www.google.com' && u.pathname === '/s2/favicons') {
+                const domain = u.searchParams.get('domain');
+                if (domain) return '/api/favicon?domain=' + encodeURIComponent(domain);
+              }
+            } catch (_) { }
+            // Any other external URL — proxy it via favicon endpoint using the URL's hostname
+            if (/^https?:\/\//i.test(favicon)) {
+              try {
+                const domain = new URL(favicon).hostname;
+                return '/api/favicon?domain=' + encodeURIComponent(domain);
+              } catch (_) { }
+            }
+            return favicon;
+          }
           const ST_KEY = 'nbosp_browser_settings';
           let _settingsCache = null;
           function loadSettings() {
@@ -4614,7 +4641,7 @@ self.onmessage = async (e) => {
               });
               const faviconSpan = createEl('span', { className: 'tab-icon' });
               if (tab.favicon) {
-                const img = createEl('img', { src: tab.favicon, style: { width: '14px', height: '14px', borderRadius: '2px' } });
+                const img = createEl('img', { src: normFavicon(tab.favicon), style: { width: '14px', height: '14px', borderRadius: '2px' } });
                 faviconSpan.appendChild(img);
               } else {
                 faviconSpan.innerHTML = svgIcon('globe', 14);
@@ -4799,12 +4826,17 @@ self.onmessage = async (e) => {
                 tile.addEventListener('mouseenter', () => tile.style.background = 'var(--bg-hover)');
                 tile.addEventListener('mouseleave', () => tile.style.background = 'var(--bg-elevated)');
                 const ico = createEl('div', { style: 'width:32px;height:32px;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-hover);' });
-                if (bk.favicon && /^https?:\/\//i.test(bk.favicon)) {
+                {
                   const _fimg = document.createElement('img');
-                  _fimg.src = bk.favicon; _fimg.style.cssText = 'width:24px;height:24px;border-radius:3px;';
+                  if (bk.favicon && /^https?:\/\//i.test(bk.favicon)) {
+                    _fimg.src = normFavicon(bk.favicon);
+                  } else {
+                    try { _fimg.src = '/api/favicon?domain=' + encodeURIComponent(new URL(bk.url).hostname); } catch { _fimg.src = ''; }
+                  }
+                  _fimg.style.cssText = 'width:24px;height:24px;border-radius:3px;';
                   _fimg.onerror = () => { ico.innerHTML = ''; ico.innerHTML = svgIcon('globe', 20); };
-                  ico.appendChild(_fimg);
-                } else { ico.innerHTML = svgIcon('globe', 20); }
+                  if (_fimg.src) ico.appendChild(_fimg); else ico.innerHTML = svgIcon('globe', 20);
+                }
                 const lbl = createEl('div', { style: 'font-size:11px;color:var(--text-secondary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;' });
                 try { lbl.textContent = new URL(bk.url).hostname.replace('www.', ''); } catch { lbl.textContent = bk.title; }
                 tile.append(ico, lbl);
@@ -5146,12 +5178,17 @@ self.onmessage = async (e) => {
                 row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-hover)');
                 row.addEventListener('mouseleave', () => row.style.background = '');
                 const ico = createEl('span', { style: 'flex-shrink:0;color:var(--text-muted);' });
-                if (item.favicon && /^https?:\/\//i.test(item.favicon)) {
+                {
                   const _fimg2 = document.createElement('img');
-                  _fimg2.src = item.favicon; _fimg2.style.cssText = 'width:14px;height:14px;border-radius:2px;';
+                  if (item.favicon && /^https?:\/\//i.test(item.favicon)) {
+                    _fimg2.src = normFavicon(item.favicon);
+                  } else {
+                    try { _fimg2.src = '/api/favicon?domain=' + encodeURIComponent(new URL(item.url).hostname); } catch { _fimg2.src = ''; }
+                  }
+                  _fimg2.style.cssText = 'width:14px;height:14px;border-radius:2px;';
                   _fimg2.onerror = () => { ico.innerHTML = ''; ico.innerHTML = svgIcon('globe', 14); };
-                  ico.appendChild(_fimg2);
-                } else { ico.innerHTML = svgIcon('globe', 14); }
+                  if (_fimg2.src) ico.appendChild(_fimg2); else ico.innerHTML = svgIcon('globe', 14);
+                }
                 const info = createEl('div', { style: 'flex:1;min-width:0;' });
                 const _iTitle = document.createElement('div');
                 _iTitle.style.cssText = 'font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
@@ -5226,6 +5263,30 @@ self.onmessage = async (e) => {
           const tabIframes = new Map();   // tabId → <iframe> element
           const tabViewMode = new Map();  // tabId → 'webview' | 'iframe'
 
+          // Tracker blocklist — fetched from the local server (require() is unavailable
+          // in the main window; it has no Node integration — only the server process does).
+          // TRACKER_DOMAINS starts empty and is populated async; any webview whose
+          // contentload fires before the fetch completes will still get blocking once
+          // the Set is populated because the listener closure captures the reference.
+          let TRACKER_DOMAINS = new Set();
+          fetch('/trackers.js')
+            .then(r => {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.text();
+            })
+            .then(src => {
+              // trackers.js exports: const TRACKER_DOMAINS = new Set([...domains...]);
+              // Extract the domain strings from the Set literal — fast regex, no eval.
+              const matches = src.match(/"([^"]+)"/g);
+              if (matches) {
+                TRACKER_DOMAINS = new Set(matches.map(s => s.slice(1, -1)));
+                console.log('[Tracker blocker] Loaded', TRACKER_DOMAINS.size, 'domains via fetch');
+              } else {
+                console.warn('[Tracker blocker] Fetched trackers.js but found no domain strings');
+              }
+            })
+            .catch(e => console.warn('[Tracker blocker] Could not fetch /trackers.js —', e.message));
+
           function getTabMode(tabId) { return tabViewMode.get(tabId) || 'webview'; }
 
           // Stable browser session ID stored in settings. Wiped on "Wipe All Data" /
@@ -5292,7 +5353,9 @@ self.onmessage = async (e) => {
                   }
                   try {
                     const hostname = new URL(url || tab.url).hostname;
-                    tab.favicon = '/api/favicon?domain=' + hostname;
+                    tab.favicon = OS.settings.get('proxyFavicons') !== false
+                      ? '/api/favicon?domain=' + hostname
+                      : 'https://www.google.com/s2/favicons?domain=' + hostname + '&sz=32';
                   } catch (_) { }
                   if (url && !url.startsWith('novabyte:') && !url.startsWith('file://')) {
                     addHistory(url, title || url, tab.favicon);
@@ -5918,14 +5981,55 @@ self.onmessage = async (e) => {
               }
             });
 
-            // ── Block images/media via webRequest ──────────────────────
-            try {
-              wv.request.onBeforeRequest.addListener(
-                () => ({ cancel: !getSetting('load_images', true) }),
-                { urls: ['<all_urls>'], types: ['image', 'media'] },
-                ['blocking']
-              );
-            } catch (_) { }
+            // ── webRequest listeners ────────────────────────────────────
+            // wv.request is only available after the webview is inserted into
+            // the DOM and its process is live. Attaching here (before appendChild)
+            // silently fails because wv.request is undefined at construction time.
+            // We defer via a one-time function called from contentload/loadcommit —
+            // both fire only after the webview process is ready.
+            let _requestListenersAttached = false;
+            function _attachRequestListeners() {
+              if (_requestListenersAttached) return;
+              _requestListenersAttached = true;
+
+              // ── Block images/media ──────────────────────────────────
+              try {
+                wv.request.onBeforeRequest.addListener(
+                  () => ({ cancel: !getSetting('load_images', true) }),
+                  { urls: ['<all_urls>'], types: ['image', 'media'] },
+                  ['blocking']
+                );
+              } catch (e) {
+                console.error('[Tracker blocker] Image listener FAIL:', e.message);
+              }
+
+              // ── Block trackers via Disconnect.me list ───────────────
+              try {
+                wv.request.onBeforeRequest.addListener(
+                  (details) => {
+                    if (!OS.settings.get('blockTrackers')) return { cancel: false };
+                    try {
+                      const host = new URL(details.url).hostname.toLowerCase().replace(/^www\./, '');
+                      const parts = host.split('.');
+                      for (let i = 0; i < parts.length - 1; i++) {
+                        if (TRACKER_DOMAINS.has(parts.slice(i).join('.'))) return { cancel: true };
+                      }
+                    } catch (_) { }
+                    return { cancel: false };
+                  },
+                  { urls: ['<all_urls>'] },
+                  ['blocking']
+                );
+                console.log('[Tracker blocker] Listeners registered, domains:', TRACKER_DOMAINS.size);
+              } catch (e) {
+                console.error('[Tracker blocker] Tracker listener FAIL:', e.message);
+              }
+            }
+
+            // contentload fires once the webview process is ready (wv.request exists)
+            wv.addEventListener('contentload', _attachRequestListeners);
+            // loadcommit is a reliable fallback — fires on first navigation
+            wv.addEventListener('loadcommit', _attachRequestListeners);
 
             // ── Per-page CSS: inverted colours + min font size + text zoom ──
             wv.addEventListener('loadstop', () => {
@@ -7518,6 +7622,58 @@ self.onmessage = async (e) => {
           function renderPrivacy() {
             mainContent.appendChild(createEl('h2', { textContent: 'Privacy & Security', style: { marginBottom: '20px' } }));
 
+            // ── Proxy Privacy ─────────────────────────────────────────────────
+            const proxySection = createEl('div', { className: 'nook-privacy-section' });
+            proxySection.appendChild(createEl('h3', { textContent: 'Proxy Privacy' }));
+            proxySection.appendChild(createEl('p', {
+              textContent: 'Route requests through the local server so external services never see your IP address.',
+              style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }
+            }));
+
+            function makeToggleRow(label, description, settingKey) {
+              const row = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border-subtle)' });
+              const info = createEl('div');
+              info.appendChild(createEl('div', { textContent: label, style: 'font-weight:500;color:var(--text-primary);margin-bottom:3px' }));
+              info.appendChild(createEl('div', { textContent: description, style: 'font-size:12px;color:var(--text-secondary)' }));
+              const currentVal = OS.settings.get(settingKey) !== false; // default true
+              const toggle = createEl('label', { style: 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer' });
+              const input = createEl('input', { type: 'checkbox' });
+              input.style.cssText = 'opacity:0;width:0;height:0;position:absolute';
+              input.checked = currentVal;
+              const slider = createEl('span', { style: `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${currentVal ? 'var(--accent)' : 'var(--bg-elevated)'};border:1px solid var(--border-subtle)` });
+              const knob = createEl('span', { style: `position:absolute;top:2px;left:${currentVal ? '20px' : '2px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3)` });
+              slider.appendChild(knob);
+              toggle.appendChild(input);
+              toggle.appendChild(slider);
+              input.addEventListener('change', () => {
+                OS.settings.set(settingKey, input.checked);
+                slider.style.background = input.checked ? 'var(--accent)' : 'var(--bg-elevated)';
+                knob.style.left = input.checked ? '20px' : '2px';
+              });
+              row.appendChild(info);
+              row.appendChild(toggle);
+              return row;
+            }
+
+            proxySection.appendChild(makeToggleRow(
+              'Proxy favicons',
+              'Fetch website icons through the local server instead of directly — hides your IP from icon providers.',
+              'proxyFavicons'
+            ));
+            proxySection.appendChild(makeToggleRow(
+              'Proxy email images',
+              'Load images in emails through the local server to prevent senders from tracking your IP and open time.',
+              'proxyEmailImages'
+            ));
+            proxySection.appendChild(makeToggleRow(
+              'Block trackers',
+              'Block requests to known tracking, analytics, fingerprinting, and advertising domains. Uses the Disconnect.me tracker list.',
+              'blockTrackers'
+            ));
+
+            mainContent.appendChild(proxySection);
+            // ── End Proxy Privacy ─────────────────────────────────────────────
+
             // Data export/import
             const exportSection = createEl('div', { className: 'nook-privacy-section' });
             exportSection.appendChild(createEl('h3', { textContent: 'Data Management' }));
@@ -8109,7 +8265,7 @@ self.onmessage = async (e) => {
                   const html = decodeURIComponent(escape(atob(entryB64)));
                   const blob = new Blob([html], { type: 'text/html' });
                   const url = URL.createObjectURL(blob);
-                  const iframe = createEl('iframe', { src: url, style: 'width:100%;height:100%;border:none;display:block;', sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals' });
+                  const iframe = createEl('iframe', { src: url, style: 'width:100%;height:100%;border:none;display:block;', sandbox: 'allow-scripts allow-forms allow-popups allow-modals' });
                   contentEl.style.padding = '0';
                   contentEl.appendChild(iframe);
                   iframe.addEventListener('load', () => URL.revokeObjectURL(url));
@@ -10633,7 +10789,7 @@ This cannot be undone.`)) return;
                   const iframe = createEl('iframe', {
                     src: url,
                     style: 'width:100%;height:100%;border:none;display:block;',
-                    sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals'
+                    sandbox: 'allow-scripts allow-forms allow-popups allow-modals'
                   });
                   contentEl.style.padding = '0';
                   contentEl.appendChild(iframe);
@@ -12884,16 +13040,46 @@ wireRecoveryControls();
             // Body
             const bodyEl = createEl('div', { className: 'em-reader-body' });
             if (full.html) {
-              // Strip meta-refresh redirects and render via srcdoc (NW.js honours srcdoc, no blob/file needed)
-              const cleanHtml = '<!DOCTYPE html>' + full.html
+              // Rewrite all remote image URLs to go through the local proxy so the
+              // user's IP is never sent to tracking servers or CDNs.
+              // Done client-side to avoid a server round-trip and CSRF complications.
+              function proxyEmailSrc(src) {
+                if (/^https?:\/\//i.test(src) && OS.settings.get('proxyEmailImages') !== false)
+                  return '/api/email-image?url=' + encodeURIComponent(src);
+                return src;
+              }
+              const proxiedHtml = full.html
+                // <img src="http...">
+                .replace(/(<img\b[^>]*?\bsrc\s*=\s*)(['"])(https?:\/\/[^'">\s]+)\2/gi,
+                  (_, pre, q, src) => `${pre}${q}${proxyEmailSrc(src)}${q}`)
+                // srcset="http... 1x, http... 2x"
+                .replace(/(<img\b[^>]*?\bsrcset\s*=\s*)(['"])(.*?)\2/gi,
+                  (_, pre, q, srcset) => `${pre}${q}${srcset.replace(/https?:\/\/[^\s,'"]+/gi, u => proxyEmailSrc(u.trim()))}${q}`)
+                // background-image: url(http...)
+                .replace(/background(?:-image)?\s*:\s*url\(\s*(['"]?)(https?:\/\/[^)'"]+)\1\s*\)/gi,
+                  (_, q, src) => `background-image: url(${q}${proxyEmailSrc(src)}${q})`)
+                // <td background="http...">
+                .replace(/(\bbackground\s*=\s*)(['"])(https?:\/\/[^'">\s]+)\2/gi,
+                  (_, pre, q, src) => `${pre}${q}${proxyEmailSrc(src)}${q}`)
+                // strip meta-refresh and base tags
                 .replace(/<meta[^>]*http-equiv\s*=\s*["']refresh["'][^>]*>/gi, '')
                 .replace(/<base[^>]*>/gi, '');
+
+              // CSP: lock img-src to self when proxy is on, allow all when off
+              const imgSrc = OS.settings.get('proxyEmailImages') !== false
+                ? "'self' data: blob:"
+                : "* data: blob:";
+              const safeHtml = '<!DOCTYPE html>'
+                + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src ${imgSrc}; font-src 'self'; script-src 'none'; object-src 'none';">`
+                + proxiedHtml;
+
               const iframe = createEl('iframe', {
-                sandbox: 'allow-same-origin allow-popups allow-popups-to-escape-sandbox',
+                sandbox: 'allow-popups allow-popups-to-escape-sandbox',
                 title: 'Email body', referrerpolicy: 'no-referrer'
               });
               iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block;';
-              iframe.srcdoc = cleanHtml;
+              iframe.srcdoc = safeHtml;
+
               bodyEl.appendChild(iframe);
               readerEl.appendChild(bodyEl);
             } else {

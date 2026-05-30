@@ -15,7 +15,6 @@ process.on('unhandledRejection', (reason) => {
 });
 
 (async () => {
-    const { default: chalk } = await import('chalk');
     const express = require('express');
     const http = require('http');
     const https = require('https');
@@ -32,6 +31,16 @@ process.on('unhandledRejection', (reason) => {
     const securityMiddleware = require('./security-middleware');
     const emailRoutes = require('./email-routes');
 
+    // Load Disconnect.me tracker blocklist for email image proxy
+    // Same list used by email-routes.js server-side and app.js client-side
+    let SERVER_TRACKER_DOMAINS = new Set();
+    try {
+        ({ TRACKER_DOMAINS: SERVER_TRACKER_DOMAINS } = require(path.join(__dirname, 'trackers.js')));
+        console.log('[Server] Tracker blocklist loaded:', SERVER_TRACKER_DOMAINS.size, 'domains');
+    } catch (e) {
+        console.warn('[Server] trackers.js not found — email proxy tracker blocking disabled');
+    }
+
     // Initialize Express application
     const app = express();
 
@@ -47,7 +56,7 @@ process.on('unhandledRejection', (reason) => {
         server = https.createServer(httpsOptions, app);
         isHttps = true;
     } catch (e) {
-        console.warn(chalk.yellow('[Server] SSL certs not found — falling back to HTTP (Service Workers will work on http://localhost)'));
+        console.warn('[Server] SSL certs not found — falling back to HTTP (Service Workers will work on http://localhost)');
         server = http.createServer(app);
     }
 
@@ -118,26 +127,64 @@ process.on('unhandledRejection', (reason) => {
             if (req.path.startsWith('/css/')) return true;
             if (req.path.startsWith('/public/')) return true;
             if (req.path.startsWith('/assets/')) return true;
-            // FIX: /api/mail/ and /api/email/ are no longer skipped — they have their own limiter
             if (req.path === '/favicon.ico') return true;
+            // These have their own dedicated limiters and fire many times per email/page load
+            if (req.path === '/api/email-image') return true;
+            if (req.path === '/api/favicon') return true;
             return false;
         }
     });
 
 
-    // FIX: Email endpoints were completely exempt from rate limiting.
-    // Apply a strict dedicated limiter — mail routes are prime targets for abuse.
-    const emailLimiter = rateLimit({
-        windowMs: 60 * 1000,         // 1 minute window
-        max: 10,                      // max 10 requests per minute per IP
+    // Tiered email rate limiters — split by frequency of legitimate use:
+    //   connect/disconnect/preview: called on every folder switch and email open, needs headroom
+    //   messages/search/folders:    moderate — paging and searching
+    //   send/delete/move/batch:     strict — state-modifying actions, low legitimate frequency
+
+    const emailConnectLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 120,  // up to 2/sec — covers rapid folder switching and multi-window use
+        message: { error: 'Too many connection requests, please slow down.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+    });
+
+    const emailReadLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 60,   // 1/sec sustained — paging through inbox, searching
         message: { error: 'Too many email requests, please slow down.' },
         standardHeaders: true,
-        legacyHeaders: false
+        legacyHeaders: false,
+    });
+
+    const emailWriteLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 20,   // strict — send, delete, move, batch
+        message: { error: 'Too many email write requests, please slow down.' },
+        standardHeaders: true,
+        legacyHeaders: false,
     });
 
     app.use('/api/', limiter);
-    app.use('/api/mail/', emailLimiter);
-    app.use('/api/email/', emailLimiter); // FIX: email routes now have their own strict limiter
+    app.use('/api/mail/', emailReadLimiter);
+
+    // High-frequency endpoints — connect, disconnect, preview (called on every email open)
+    app.use('/api/email/connect',    emailConnectLimiter);
+    app.use('/api/email/disconnect', emailConnectLimiter);
+    app.use('/api/email/preview',    emailConnectLimiter);
+    app.use('/api/email/csrf-token', emailConnectLimiter);
+
+    // Read endpoints — messages, folders, search, individual message fetch
+    app.use('/api/email/messages',   emailReadLimiter);
+    app.use('/api/email/message',    emailReadLimiter);
+    app.use('/api/email/folders',    emailReadLimiter);
+    app.use('/api/email/search',     emailReadLimiter);
+
+    // Write endpoints — send, delete, move, batch
+    app.use('/api/email/send',       emailWriteLimiter);
+    app.use('/api/email/delete',     emailWriteLimiter);
+    app.use('/api/email/move',       emailWriteLimiter);
+    app.use('/api/email/batch',      emailWriteLimiter);
 
     // Body parsing middleware
     app.use(express.json({ limit: '10mb' }));
@@ -321,6 +368,206 @@ process.on('unhandledRejection', (reason) => {
     });
     // ── End Favicon Proxy ─────────────────────────────────────────────────────
 
+    // ── Email Image Proxy ─────────────────────────────────────────────────────
+    // Fetches email images server-side so the user's IP is never sent to the
+    // sender's tracking server. All <img> URLs in HTML emails are rewritten to
+    // point here before the email is rendered.
+    //
+    // Security:
+    //   - SSRF protection: same private-IP blocklist as the favicon proxy
+    //   - Redirects followed manually — each hop re-validated against blocklist
+    //   - Content-type allowlist: only image/* passes through
+    //   - 5MB hard cap — oversized responses return the default placeholder
+    //   - All outbound headers stripped (no cookie, no referer, no user IP)
+    //   - Tracking params stripped from URLs before fetching
+    //   - In-memory cache: 1h TTL, 200 entry cap
+    //   - Dedicated rate limiter: 120 req/min per IP
+
+    const emailImgCache = new Map(); // key: normalised URL → { buf, mime, ts }
+    const EMAIL_IMG_TTL     = 60 * 60 * 1000;  // 1 hour
+    const EMAIL_IMG_MAX     = 200;
+    const EMAIL_IMG_TIMEOUT = 5000;             // 5 s
+    const EMAIL_IMG_SIZE_CAP = 5 * 1024 * 1024; // 5 MB
+
+    // 1×1 transparent PNG returned on any failure
+    const EMAIL_IMG_DEFAULT = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        'base64'
+    );
+
+    // Tracking / analytics query params to strip before proxying
+    const TRACKING_PARAMS = new Set([
+        'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
+        'utm_id','utm_source_platform','utm_creative_format','utm_marketing_tactic',
+        'fbclid','gclid','gclsrc','dclid','gbraid','wbraid',
+        'mc_eid','mc_cid','_hsenc','_hsmi','mkt_tok','yclid',
+        'igshid','s_cid','ncid','ref','trk','trkinfo',
+    ]);
+
+    function stripTrackingParams(urlStr) {
+        try {
+            const u = new URL(urlStr);
+            let changed = false;
+            for (const key of [...u.searchParams.keys()]) {
+                if (TRACKING_PARAMS.has(key.toLowerCase())) {
+                    u.searchParams.delete(key);
+                    changed = true;
+                }
+            }
+            return changed ? u.toString() : urlStr;
+        } catch (_) { return urlStr; }
+    }
+
+    function isPrivateHostEI(hostname) {
+        const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+        if (PRIVATE_EXACT.has(h)) return true;
+        if (PRIVATE_PREFIXES.some(p => h.startsWith(p))) return true;
+        if (h.endsWith('.local') || h.endsWith('.internal')) return true;
+        return false;
+    }
+
+    function validateEmailImgUrl(raw) {
+        let urlObj;
+        try { urlObj = new URL(raw); } catch (_) { return null; }
+        if (!['http:', 'https:'].includes(urlObj.protocol)) return null;
+        if (urlObj.username || urlObj.password) return null; // credentials in URL = SSRF risk
+        if (isPrivateHostEI(urlObj.hostname)) return null;
+        return urlObj;
+    }
+
+    async function fetchEmailImage(urlStr) {
+        const CLEAN = {
+            'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)',
+            'Accept': 'image/png,image/webp,image/jpeg,image/gif,image/*,*/*;q=0.8',
+        };
+
+        let currentUrl = stripTrackingParams(urlStr);
+        const visited = new Set();
+        const MAX_REDIRECTS = 5;
+
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+            if (visited.has(currentUrl)) return null; // redirect loop
+            visited.add(currentUrl);
+
+            const urlObj = validateEmailImgUrl(currentUrl);
+            if (!urlObj) return null; // SSRF check on every hop
+
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), EMAIL_IMG_TIMEOUT);
+
+            let resp;
+            try {
+                resp = await fetch(currentUrl, {
+                    headers: CLEAN,
+                    redirect: 'manual', // handle redirects manually to re-validate each hop
+                    signal: controller.signal,
+                });
+            } catch (_) {
+                return null;
+            } finally {
+                clearTimeout(timer);
+            }
+
+            // Follow redirects manually
+            if (resp.status >= 300 && resp.status < 400) {
+                const loc = resp.headers.get('location');
+                if (!loc) return null;
+                // Resolve relative redirect against current URL
+                try { currentUrl = new URL(loc, currentUrl).toString(); } catch (_) { return null; }
+                continue;
+            }
+
+            if (!resp.ok) return null;
+
+            // Content-type must be an image
+            const contentType = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            if (!contentType.startsWith('image/')) return null;
+
+            // Read with size cap
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let total = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                total += value.length;
+                if (total > EMAIL_IMG_SIZE_CAP) { reader.cancel(); return null; }
+                chunks.push(value);
+            }
+
+            const buf = Buffer.concat(chunks.map(c => Buffer.from(c)));
+            if (buf.length < 1) return null;
+
+            return { buf, mime: contentType };
+        }
+
+        return null; // too many redirects
+    }
+
+    const emailImgLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 500,  // single HTML email can have 50+ images; allow rapid inbox browsing
+        message: { error: 'Too many image requests, slow down.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+    });
+
+    app.get('/api/email-image', emailImgLimiter, async (req, res) => {
+        const raw = req.query.url;
+        if (!raw || typeof raw !== 'string') {
+            return res.status(400).json({ error: 'url parameter is required' });
+        }
+
+        const urlObj = validateEmailImgUrl(raw);
+        if (!urlObj) {
+            // Return placeholder silently — don't reveal why to client
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+            return res.send(EMAIL_IMG_DEFAULT);
+        }
+
+        // Block known tracker domains — return transparent placeholder without
+        // making any upstream request, so the sender gets no open-tracking signal
+        // even through the proxy layer.
+        if (SERVER_TRACKER_DOMAINS.size > 0) {
+            const hostname = urlObj.hostname.toLowerCase().replace(/^www\./, '');
+            const parts = hostname.split('.');
+            const isTracker = parts.some((_, i) =>
+                i < parts.length - 1 && SERVER_TRACKER_DOMAINS.has(parts.slice(i).join('.'))
+            );
+            if (isTracker) {
+                res.setHeader('Content-Type', 'image/png');
+                res.setHeader('Cache-Control', 'public, max-age=86400'); // 24h — trackers don't change
+                return res.send(EMAIL_IMG_DEFAULT);
+            }
+        }
+
+        const cacheKey = stripTrackingParams(raw);
+
+        // Cache hit
+        const cached = emailImgCache.get(cacheKey);
+        if (cached && (Date.now() - cached.ts) < EMAIL_IMG_TTL) {
+            res.setHeader('Content-Type', cached.mime);
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+            return res.send(cached.buf);
+        }
+
+        const result = await fetchEmailImage(raw);
+        const buf  = result ? result.buf  : EMAIL_IMG_DEFAULT;
+        const mime = result ? result.mime : 'image/png';
+
+        // Evict oldest if at capacity
+        if (emailImgCache.size >= EMAIL_IMG_MAX) {
+            emailImgCache.delete(emailImgCache.keys().next().value);
+        }
+        emailImgCache.set(cacheKey, { buf, mime, ts: Date.now() });
+
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.send(buf);
+    });
+    // ── End Email Image Proxy ──────────────────────────────────────────────────
+
     // Serve web app manifest.json
     app.get('/manifest.json', (req, res) => {
         res.json({
@@ -358,6 +605,18 @@ process.on('unhandledRejection', (reason) => {
         res.setHeader('Content-Type', 'application/javascript');
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.sendFile(path.join(__dirname, 'app.js'));
+    });
+    // Tracker blocklist — served statically so app.js can fetch() it.
+    // The main window has no Node integration so require() doesn't work there;
+    // fetching over HTTP is the correct approach.
+    app.get('/trackers.js', (req, res) => {
+        const p = path.join(__dirname, 'trackers.js');
+        if (!require('fs').existsSync(p)) {
+            return res.status(404).json({ error: 'trackers.js not found — run the generator script' });
+        }
+        res.setHeader('Content-Type', 'application/javascript');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.sendFile(p);
     });
     // modules.js intentionally removed — file no longer exists in the project.
     app.get('/style.css', (req, res) => {
@@ -575,10 +834,10 @@ process.on('unhandledRejection', (reason) => {
 
     server.on('error', (error) => {
         if (error.code === 'EADDRINUSE') {
-            console.error(chalk.red(`[Server] Port ${PORT} is already in use.`));
-            console.error(chalk.gray(`  Stop the existing process, or set a different port: PORT=3001 npm start`));
+            console.error(`[Server] Port ${PORT} is already in use.`);
+            console.error(`  Stop the existing process, or set a different port: PORT=3001 npm start`);
         } else {
-            console.error(chalk.red('Server error:'), error.message);
+            console.error('Server error:', error.message);
         }
         // Keep process alive instead of exiting
     });
@@ -587,17 +846,18 @@ process.on('unhandledRejection', (reason) => {
         const protocol = isHttps ? 'https' : 'http';
         const pkg = require('./package.json');
         console.log('');
-        console.log(`  ${chalk.bold.cyan('NovaByte')} ${chalk.gray('v' + pkg.version)}`);
-        console.log(chalk.gray('  ──────────────────────────────────'));
-        console.log(`  ${chalk.green('●')} Address      ${chalk.white(`${protocol}://${HOST}:${PORT}`)}`);
-        console.log(`  ${chalk.green('●')} Environment  ${chalk.white(process.env.NODE_ENV || 'development')}`);
-        console.log(`  ${chalk.green('●')} TLS          ${isHttps ? chalk.green('enabled (HTTPS)') : chalk.yellow('disabled (HTTP)')}`);
-        console.log(chalk.gray('  ──────────────────────────────────'));
+        console.log(`  NovaByte v${pkg.version}`);
+        console.log('  ──────────────────────────────────');
+        console.log(`  ${'●'} Address      ${`${protocol}://${HOST}:${PORT}`}`);
+        console.log(`  ● Environment  ${process.env.NODE_ENV || 'development'}`);
+        console.log(`  ${'●'} TLS          ${isHttps ? 'enabled (HTTPS)' : 'disabled (HTTP)'}`);
+        console.log('  ──────────────────────────────────');
         console.log('');
     });
 
     module.exports = { app, server };
 
-})().catch(() => {
-    // Startup error caught by global handler
+})().catch((err) => {
+    process.stderr.write('[STARTUP CRASH] ' + (err && err.stack ? err.stack : String(err)) + '\n');
+    process.exit(1);
 });

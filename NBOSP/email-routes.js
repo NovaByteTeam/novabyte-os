@@ -19,6 +19,23 @@ const express = require('express');
 const router = express.Router();
 const https = require('https');
 const http = require('http');
+const path = require('path');
+const crypto = require('crypto');
+
+// In-memory preview cache: token → { html, ts }
+// Entries expire after 5 minutes (cleaned on each POST /preview).
+const previewCache = new Map();
+
+// ── Tracker domain blocklist (Disconnect.me) ──────────────────────────────────
+// Loaded once at server startup via require() — works here because email-routes
+// runs in the Node/Express server process, not the browser window.
+let EMAIL_TRACKER_DOMAINS = new Set();
+try {
+  ({ TRACKER_DOMAINS: EMAIL_TRACKER_DOMAINS } = require(path.join(__dirname, 'trackers.js')));
+  console.log('[Email] Tracker blocklist loaded:', EMAIL_TRACKER_DOMAINS.size, 'domains');
+} catch (e) {
+  console.warn('[Email] trackers.js not found — email link tracker blocking disabled:', e.message);
+}
 
 // ── Optional dependencies (install via npm) ───────────────────────────────────
 // npm install imapflow pop3 postal-mime
@@ -664,8 +681,246 @@ router.post('/move', requireCreds, async (req, res) => {
 // so a server route with its own response headers is the only reliable fix.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const crypto = require('crypto');
-const previewCache = new Map();
+// ── Email image URL rewriter ──────────────────────────────────────────────────
+// Rewrites all remote image URLs in email HTML to go through the server-side
+// proxy (/api/email-image), so the user's IP is never sent to tracking servers.
+// Also strips known tracking query parameters before proxying.
+
+const EMAIL_TRACKING_PARAMS = new Set([
+  'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
+  'utm_id','utm_source_platform','fbclid','gclid','gclsrc','dclid',
+  'gbraid','wbraid','mc_eid','mc_cid','_hsenc','_hsmi','mkt_tok',
+  'yclid','igshid','s_cid','ncid','trk','trkinfo',
+]);
+
+function stripEmailTrackingParams(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    for (const key of [...u.searchParams.keys()]) {
+      if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) u.searchParams.delete(key);
+    }
+    return u.toString();
+  } catch (_) { return urlStr; }
+}
+
+function isRemoteUrl(src) {
+  return /^https?:\/\//i.test(src);
+}
+
+function proxyEmailImageUrl(src) {
+  try {
+    const clean = stripEmailTrackingParams(src);
+    return '/api/email-image?url=' + encodeURIComponent(clean);
+  } catch (_) { return src; }
+}
+
+function rewriteEmailImages(html) {
+  if (!html || typeof html !== 'string') return html;
+
+  // 0. Strip tracker URLs from <style> blocks — Samsung and others embed
+  //    tracking pixels as CSS background-image on hidden divs, bypassing
+  //    <img> tag rewriting entirely. Replace the whole url(...) with none.
+  html = html.replace(
+    /(<style[\s\S]*?>)([\s\S]*?)(<\/style>)/gi,
+    (_, open, css, close) => {
+      const cleaned = css.replace(
+        /url\(\s*(['"]?)(https?:\/\/[^)'"]+)\1\s*\)/gi,
+        (match, q, src) => {
+          // Check if this src is a known tracker domain
+          try {
+            const hostname = new URL(src).hostname.toLowerCase().replace(/^www\./, '');
+            const parts = hostname.split('.');
+            for (let i = 0; i < parts.length - 1; i++) {
+              if (EMAIL_TRACKER_DOMAINS.has(parts.slice(i).join('.'))) return 'url(none)';
+            }
+          } catch (_) {}
+          // Not a known tracker — proxy it like a regular image
+          return `url(${q}${proxyEmailImageUrl(src)}${q})`;
+        }
+      );
+      return `${open}${cleaned}${close}`;
+    }
+  );
+  html = html.replace(
+    /(<img\b[^>]*?\bsrc\s*=\s*)(['"])(https?:\/\/[^'">\s]+)\2/gi,
+    (_, pre, q, src) => `${pre}${q}${proxyEmailImageUrl(src)}${q}`
+  );
+
+  // 2. Rewrite srcset="http... 1x, http... 2x"
+  html = html.replace(
+    /(<img\b[^>]*?\bsrcset\s*=\s*)(['"])(.*?)\2/gi,
+    (_, pre, q, srcset) => {
+      const rewritten = srcset.replace(/https?:\/\/[^\s,'"]+/gi, u => proxyEmailImageUrl(u.trim()));
+      return `${pre}${q}${rewritten}${q}`;
+    }
+  );
+
+  // 3. Rewrite inline style background-image: url(http...)
+  html = html.replace(
+    /background(?:-image)?\s*:\s*url\(\s*(['"]?)(https?:\/\/[^)'"]+)\1\s*\)/gi,
+    (_, q, src) => `background-image: url(${q}${proxyEmailImageUrl(src)}${q})`
+  );
+
+  // 4. Rewrite <td background="http..."> (old HTML email pattern)
+  html = html.replace(
+    /(\bbackground\s*=\s*)(['"])(https?:\/\/[^'">\s]+)\2/gi,
+    (_, pre, q, src) => `${pre}${q}${proxyEmailImageUrl(src)}${q}`
+  );
+
+  return html;
+}
+// ── Email link rewriter ───────────────────────────────────────────────────────
+// Rewrites all <a href> links in email HTML to:
+//   1. Strip known tracking query parameters (utm_*, fbclid, etc.)
+//   2. Unwrap single-redirect tracking URLs (mailchimp, salesforce, etc.)
+//      by extracting the real destination from the redirect parameter.
+// This runs server-side so no tracking clicks are made even if the user
+// hovers over or copies a link before clicking.
+
+// Known tracking redirect domains and their "real URL" parameter name.
+// When href matches one of these, we extract the destination and use it directly.
+const TRACKING_REDIRECTS = new Map([
+  // Mailchimp
+  ['list-manage.com',         'u'],
+  ['mailchi.mp',              null], // no clean param — strip tracking params only
+  // Salesforce / ExactTarget
+  ['click.salesforce.com',    'targetURL'],
+  ['links.salesforce.com',    'url'],
+  ['click.exacttarget.com',   'targetURL'],
+  // HubSpot
+  ['hs-email.com',            null],
+  ['hubspotemail.net',        null],
+  ['hs-emails.com',           null],
+  // SendGrid / Twilio
+  ['sendgrid.net',            'url'],
+  ['click.sendgrid.net',      'url'],
+  // Constant Contact
+  ['r.constantcontact.com',   'url'],
+  ['click.constantcontact.com','url'],
+  // Campaign Monitor
+  ['cmail1.com',              null],
+  ['cmail2.com',              null],
+  ['createsend.com',          null],
+  // Klaviyo
+  ['trk.klaviyo.com',         'url'],
+  ['klaviyo.com',             null],
+  // Marketo
+  ['click.marketo.com',       'url'],
+  ['go.marketo.com',          'url'],
+  // ActiveCampaign
+  ['activehosted.com',        null],
+  // Pardot (Salesforce)
+  ['go.pardot.com',           null],
+  ['pardot.com',              null],
+  // Brevo / Sendinblue
+  ['clicks.sendinblue.com',   'url'],
+  ['brevo.com',               null],
+  // Mailjet
+  ['links.mailjet.com',       'url'],
+  // AWeber
+  ['click.aweber.com',        'url'],
+  // GetResponse
+  ['clicks.getresponse.com',  'url'],
+  // Drip
+  ['email.getdrip.com',       null],
+  // Intercom
+  ['links.intercom.io',       'url'],
+  // Customer.io
+  ['track.customer.io',       null],
+  // Iterable
+  ['links.iterable.com',      'url'],
+  // Samsung (Epsilon/Everest platform)
+  // Links use ?id=...&e=<base64-encoded-params> — no clean extractable URL param,
+  // so we strip tracking params only. Real destination is encoded in &e= which
+  // we can't safely decode without knowing the key, so leave the redirect intact
+  // but at least strip any utm_* etc. that survive the unwrap.
+  ['email.samsung.com',       null],
+  ['t6.uk.email.samsung.com', null],
+  ['t6.m1.email.samsung.com', null],
+  ['uk.email.samsung.com',    null],
+  ['m1.email.samsung.com',    null],
+  // Generic click trackers
+  ['click.email.',            null],
+  ['track.email.',            null],
+  ['links.email.',            null],
+  ['email.email.',            null],
+]);
+
+function isTrackingRedirect(hostname) {
+  hostname = hostname.toLowerCase().replace(/^www\./, '');
+  for (const [domain] of TRACKING_REDIRECTS) {
+    if (hostname === domain || hostname.endsWith('.' + domain)) return domain;
+  }
+  return null;
+}
+
+function rewriteEmailLink(href) {
+  try {
+    const u = new URL(href);
+    const hostname = u.hostname.toLowerCase().replace(/^www\./, '');
+
+    // Block links to known tracker domains entirely — replace with # so the
+    // link is visually present but clicks go nowhere and no request is made.
+    if (EMAIL_TRACKER_DOMAINS.size > 0) {
+      const parts = hostname.split('.');
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (EMAIL_TRACKER_DOMAINS.has(parts.slice(i).join('.'))) return '#';
+      }
+    }
+
+    // Check if this is a known tracking redirect domain
+    const matchedDomain = isTrackingRedirect(hostname);
+    if (matchedDomain) {
+      const paramName = TRACKING_REDIRECTS.get(matchedDomain);
+      if (paramName) {
+        // Try to extract the real destination URL from the redirect parameter
+        const realUrl = u.searchParams.get(paramName);
+        if (realUrl) {
+          try {
+            // Validate it's a real URL, then strip tracking params from it too
+            const decoded = decodeURIComponent(realUrl);
+            const realU = new URL(decoded);
+            for (const key of [...realU.searchParams.keys()]) {
+              if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) realU.searchParams.delete(key);
+            }
+            return realU.toString();
+          } catch (_) { /* fall through to param strip */ }
+        }
+      }
+      // No extractable destination — just strip tracking params from the redirect URL itself
+      for (const key of [...u.searchParams.keys()]) {
+        if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) u.searchParams.delete(key);
+      }
+      return u.toString();
+    }
+
+    // Not a redirect domain — just strip tracking params
+    let stripped = false;
+    for (const key of [...u.searchParams.keys()]) {
+      if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) {
+        u.searchParams.delete(key);
+        stripped = true;
+      }
+    }
+    return stripped ? u.toString() : href;
+  } catch (_) { return href; }
+}
+
+function rewriteEmailLinks(html) {
+  if (!html || typeof html !== 'string') return html;
+
+  // Rewrite <a href="https://..."> and <a href='https://...'>
+  return html.replace(
+    /(<a\b[^>]*?\bhref\s*=\s*)(['"])(https?:\/\/[^'">\s]+)\2/gi,
+    (_, pre, q, href) => {
+      const clean = rewriteEmailLink(href);
+      return `${pre}${q}${clean}${q}`;
+    }
+  );
+}
+// ── End email link rewriter ───────────────────────────────────────────────────
+
+
 
 function cleanPreviewCache() {
   const cutoff = Date.now() - 5 * 60 * 1000; // 5 min TTL
@@ -677,7 +932,7 @@ function cleanPreviewCache() {
 function servePreviewHtml(res, html) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Content-Security-Policy',
-    "default-src 'none'; style-src 'unsafe-inline'; img-src * data: blob:; font-src *; script-src 'none'; object-src 'none'");
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; script-src 'none'; object-src 'none'");
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -706,7 +961,11 @@ router.post('/preview', (req, res) => {
   if (typeof html !== 'string') return res.status(400).json({ error: 'html required' });
   cleanPreviewCache();
   const token = crypto.randomBytes(24).toString('hex');
-  previewCache.set(token, { html, ts: Date.now() });
+  // Rewrite all remote image URLs and tracking links through the server-side
+  // proxy/stripper before caching, so neither images nor link clicks leak to
+  // tracking servers.
+  const safeHtml = rewriteEmailLinks(rewriteEmailImages(html));
+  previewCache.set(token, { html: safeHtml, ts: Date.now() });
 
   // Also store in the session so the token survives a server-side cache flush
   // (e.g. if the process restarts between the POST and the iframe GET).
@@ -715,7 +974,7 @@ router.post('/preview', (req, res) => {
     // Keep at most 10 recent previews in the session to avoid bloat.
     const keys = Object.keys(req.session.emailPreviews);
     if (keys.length >= 10) delete req.session.emailPreviews[keys[0]];
-    req.session.emailPreviews[token] = html;
+    req.session.emailPreviews[token] = safeHtml;
   }
 
   res.json({ token });

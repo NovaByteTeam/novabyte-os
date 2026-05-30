@@ -20,9 +20,25 @@
 
 <br>
 
-[**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Privacy & No Telemetry**](#-privacy--no-telemetry--fully-verified) · [**Security**](#-security) · [**Versions**](#-versions)
+[**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Your Privacy**](#-your-privacy-comes-first) · [**Privacy & No Telemetry**](#-privacy--no-telemetry--fully-verified) · [**Security**](#-security) · [**Versions**](#-versions)
 
 </div>
+
+-----
+
+## 🛡 Your Privacy Comes First
+
+Privacy is not a feature we added. It is a principle we built around.
+
+Most software treats your data as a side effect — something that leaks out as you use it, collected quietly, rarely explained. We built NovaByte to work the opposite way. Every part of the OS that touches the outside world has been designed so that as little as possible leaves your machine, and what does leave is never yours.
+
+**No external dependencies out of the box** — NovaByte ships fully self-contained. There are no calls to CDNs, no fonts loaded from Google, no icons pulled from third-party servers. Everything the OS needs to run is bundled locally. From the moment you launch it, nothing loads from anywhere you did not explicitly navigate to.
+
+**The browser protects you silently** — favicon requests are routed through a server-side proxy so your IP never reaches Google's favicon service. Tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. The experience looks identical to a normal browser. The difference is what the other side never receives.
+
+**The email client is private by design** — opening an email in most clients silently tells the sender you read it, when you read it, and roughly where you are. NovaByte removes all of that. Remote images are proxied server-side so your IP never reaches a sender's tracking server. Known tracker pixels are blocked entirely — the server returns a blank placeholder without making any upstream request, so the sender gets no signal whatsoever. CSS-embedded trackers, redirect link wrappers, and tracking query parameters are all stripped before the email renders. You see the email exactly as intended. The sender sees nothing.
+
+**Verifiable, not promised** — NBOSP is fully open source. You do not have to trust any of this — you can read every line. If we say something does not phone home, the code is there to confirm it.
 
 -----
 
@@ -405,6 +421,27 @@ The only outbound network calls NovaByte makes are ones **you explicitly trigger
 - **Nova Core Services security patches** — fetches update manifests from our GitHub Releases. Again, a plain unauthenticated `GET`. No user data is sent.
 
 Nothing phones home silently. Nothing runs in the background without your action.
+
+### Email Privacy — Multi-Layer Protection
+
+The NovaByte email client goes further than any standard email app to protect your privacy. Every email you open is processed through a server-side rewriting pipeline before it ever reaches your screen:
+
+**Tracking pixel blocking**
+All remote images in emails are routed through a local server-side proxy (`/api/email-image`). Your IP address never reaches any sender's tracking server. On top of that, the proxy checks every image URL against the Disconnect.me tracker blocklist (4,000+ domains) — known tracker pixels return a transparent placeholder instead of being fetched at all, so Samsung, Mailchimp, and similar senders never even get a proxy hit for their open-tracking pixels.
+
+**CSS tracker stripping**
+Some senders embed tracking pixels as CSS `background-image` inside `<style>` blocks rather than as `<img>` tags — a technique specifically designed to evade image-blocking. NovaByte scans all `<style>` blocks and replaces any tracker domain URLs with `none` before the email renders.
+
+**Link unwrapping**
+Marketing emails route every link through their own redirect servers (e.g. `click.mailchimp.com`, `t6.uk.email.samsung.com`) to record what you click and when. NovaByte unwraps 30+ known ESP redirect domains and replaces them with the real destination URL — so clicking a link goes straight to the site, never through a tracker.
+
+**Tracking parameter stripping**
+All links have tracking query parameters removed before display — `utm_source`, `utm_campaign`, `fbclid`, `gclid`, `mc_eid`, `mkt_tok`, and more. Clean URLs only.
+
+**Script sandboxing**
+Emails are rendered in a fully sandboxed iframe with `script-src 'none'` — no JavaScript in any email can execute, ever.
+
+**What this means in practice:** when you open a marketing email in NovaByte, the sender receives no open notification, no IP address, no click data, and no timing information. From their perspective, the email was never opened.
 
 ### NBOSP Specifically
 

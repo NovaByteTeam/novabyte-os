@@ -120,6 +120,11 @@ function ipThrottleMiddleware(req, res, next) {
     if (req.path.startsWith('/api/email/')) {
         return next();
     }
+    // Email image proxy — localhost-only, fires once per inline image per email;
+    // a single HTML email can have 20+ images, easily blowing past 30/min
+    if (req.path.startsWith('/api/email-image')) {
+        return next();
+    }
 
     const clientIP = getClientIP(req);
     const now = Date.now();
