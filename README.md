@@ -205,7 +205,7 @@ These two apps **must be bundled** in any NovaByte Services-licensed OS, shippin
 
 | App | Description |
 |-----|-------------|
-| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser — Horizon is set as the **system default browser**. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, server-side favicon proxying, per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
+| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, server-side favicon proxying, per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
 | 📧 **NovaMail** | NovaByte's proprietary email client. Must ship alongside your own email app. Includes full multi-layer privacy protection — tracker pixel blocking, CSS tracker stripping, link unwrapping, tracking parameter removal, and full script sandboxing. |
 
 #### Optional Apps (choose any)
