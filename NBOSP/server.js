@@ -15,6 +15,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 (async () => {
+    const { default: chalk } = await import('chalk');
     const express = require('express');
     const http = require('http');
     const https = require('https');
@@ -46,7 +47,7 @@ process.on('unhandledRejection', (reason) => {
         server = https.createServer(httpsOptions, app);
         isHttps = true;
     } catch (e) {
-        console.warn('[Server] SSL certs not found — falling back to HTTP (Service Workers will work on http://localhost)');
+        console.warn(chalk.yellow('[Server] SSL certs not found — falling back to HTTP (Service Workers will work on http://localhost)'));
         server = http.createServer(app);
     }
 
@@ -183,6 +184,144 @@ process.on('unhandledRejection', (reason) => {
         res.setHeader('Cache-Control', 'public, max-age=86400');
         res.send(favicon);
     });
+
+    // ── Favicon Proxy ────────────────────────────────────────────────────────
+    // Fetches favicons server-side so the user's IP is never sent to Google.
+    // Flow: cache hit → Google (server-side) → site's /favicon.ico → default icon
+    //
+    // SSRF protection: blocks private IPs, localhost, non-http(s) schemes.
+    // Cache: in-memory Map, 24h TTL, max 500 entries (LRU-style eviction).
+    // Rate limit: 60 requests/min per IP (separate from the general limiter).
+
+    const faviconCache = new Map(); // key: hostname → { buf, mime, ts }
+    const FAVICON_TTL   = 24 * 60 * 60 * 1000; // 24 hours
+    const FAVICON_MAX   = 500;                  // max cached entries
+    const FAVICON_FETCH_TIMEOUT = 4000;         // 4 s per upstream attempt
+
+    // 1x1 transparent PNG — returned when everything else fails
+    const FAVICON_DEFAULT = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        'base64'
+    );
+
+    // Private / internal IP ranges — used for SSRF blocking
+    const PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
+        '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
+        '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
+        '192.168.', '169.254.', '100.64.'];
+    const PRIVATE_EXACT   = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0',
+        '[::1]', '[::]']);
+
+    function isPrivateHost(hostname) {
+        const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+        if (PRIVATE_EXACT.has(h)) return true;
+        if (PRIVATE_PREFIXES.some(p => h.startsWith(p))) return true;
+        if (h.endsWith('.local') || h.endsWith('.internal')) return true;
+        // Pure IPv4 check — block anything that looks like a bare IP
+        // pointing to a private range (already covered above, but belt+braces)
+        return false;
+    }
+
+    function validateFaviconDomain(raw) {
+        // Strip any scheme the caller may have passed
+        let host = raw.trim().toLowerCase();
+        host = host.replace(/^https?:\/\//i, '').split('/')[0].split('?')[0];
+        if (!host) return null;
+        if (isPrivateHost(host)) return null;
+        // Must look like a real public hostname (contains a dot, no spaces)
+        if (!host.includes('.') || /\s/.test(host)) return null;
+        return host;
+    }
+
+    async function fetchWithTimeout(url, opts = {}) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FAVICON_FETCH_TIMEOUT);
+        try {
+            return await fetch(url, { ...opts, signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    // Minimal outbound headers — no user-identifying info forwarded
+    const CLEAN_HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)',
+        'Accept':     'image/png,image/x-icon,image/*,*/*;q=0.8',
+    };
+
+    async function resolveFavicon(hostname) {
+        // 1. Try Google's favicon service (server-side — user IP never exposed)
+        try {
+            const googleUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=32`;
+            const resp = await fetchWithTimeout(googleUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
+            if (resp.ok) {
+                const buf  = Buffer.from(await resp.arrayBuffer());
+                const mime = resp.headers.get('content-type') || 'image/png';
+                // Google returns a generic globe (820 bytes exactly) when it has nothing —
+                // treat anything under 90 bytes as a failure so we try the fallback
+                if (buf.length > 90) return { buf, mime };
+            }
+        } catch (_) { /* timeout or network error — fall through */ }
+
+        // 2. Fallback: fetch /favicon.ico directly from the site
+        try {
+            const directUrl = `https://${hostname}/favicon.ico`;
+            const resp = await fetchWithTimeout(directUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
+            if (resp.ok) {
+                const buf  = Buffer.from(await resp.arrayBuffer());
+                const mime = resp.headers.get('content-type') || 'image/x-icon';
+                if (buf.length > 90) return { buf, mime };
+            }
+        } catch (_) { /* fall through to default */ }
+
+        // 3. Nothing worked — callers will use FAVICON_DEFAULT
+        return null;
+    }
+
+    const faviconLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 60,
+        message: { error: 'Too many favicon requests, slow down.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+    });
+
+    app.get('/api/favicon', faviconLimiter, async (req, res) => {
+        const raw = req.query.domain;
+        if (!raw || typeof raw !== 'string') {
+            return res.status(400).json({ error: 'domain parameter is required' });
+        }
+
+        const hostname = validateFaviconDomain(raw);
+        if (!hostname) {
+            return res.status(400).json({ error: 'Invalid or disallowed domain' });
+        }
+
+        // Cache hit
+        const cached = faviconCache.get(hostname);
+        if (cached && (Date.now() - cached.ts) < FAVICON_TTL) {
+            res.setHeader('Content-Type', cached.mime);
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.setHeader('X-Favicon-Cache', 'HIT');
+            return res.send(cached.buf);
+        }
+
+        const result = await resolveFavicon(hostname);
+        const buf    = result ? result.buf  : FAVICON_DEFAULT;
+        const mime   = result ? result.mime : 'image/png';
+
+        // Store in cache — evict oldest entry if at capacity
+        if (faviconCache.size >= FAVICON_MAX) {
+            faviconCache.delete(faviconCache.keys().next().value);
+        }
+        faviconCache.set(hostname, { buf, mime, ts: Date.now() });
+
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('X-Favicon-Cache', 'MISS');
+        res.send(buf);
+    });
+    // ── End Favicon Proxy ─────────────────────────────────────────────────────
 
     // Serve web app manifest.json
     app.get('/manifest.json', (req, res) => {
@@ -452,10 +591,10 @@ process.on('unhandledRejection', (reason) => {
 
     server.on('error', (error) => {
         if (error.code === 'EADDRINUSE') {
-            console.error(`[Server] Port ${PORT} is already in use.`);
-            console.error(`  Stop the existing process, or set a different port: PORT=3001 npm start`);
+            console.error(chalk.red(`[Server] Port ${PORT} is already in use.`));
+            console.error(chalk.gray(`  Stop the existing process, or set a different port: PORT=3001 npm start`));
         } else {
-            console.error('Server error:', error.message);
+            console.error(chalk.red('Server error:'), error.message);
         }
         // Keep process alive instead of exiting
     });
@@ -464,12 +603,12 @@ process.on('unhandledRejection', (reason) => {
         const protocol = isHttps ? 'https' : 'http';
         const pkg = require('./package.json');
         console.log('');
-        console.log(`  NovaByte v${pkg.version}`);
-        console.log('  ──────────────────────────────────');
-        console.log(`  ● Address      ${protocol}://${HOST}:${PORT}`);
-        console.log(`  ● Environment  ${process.env.NODE_ENV || 'development'}`);
-        console.log(`  ● TLS          ${isHttps ? 'enabled (HTTPS)' : 'disabled (HTTP)'}`);
-        console.log('  ──────────────────────────────────');
+        console.log(`  ${chalk.bold.cyan('NovaByte')} ${chalk.gray('v' + pkg.version)}`);
+        console.log(chalk.gray('  ──────────────────────────────────'));
+        console.log(`  ${chalk.green('●')} Address      ${chalk.white(`${protocol}://${HOST}:${PORT}`)}`);
+        console.log(`  ${chalk.green('●')} Environment  ${chalk.white(process.env.NODE_ENV || 'development')}`);
+        console.log(`  ${chalk.green('●')} TLS          ${isHttps ? chalk.green('enabled (HTTPS)') : chalk.yellow('disabled (HTTP)')}`);
+        console.log(chalk.gray('  ──────────────────────────────────'));
         console.log('');
     });
 

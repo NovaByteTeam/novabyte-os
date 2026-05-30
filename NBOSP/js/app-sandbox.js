@@ -27,14 +27,13 @@ const AppSandbox = (() => {
     // explicit security boundary in NW.js that prevents frame privilege escalation.
     iframe.setAttribute('nwdisable', '');
 
-    // FIX: call securifyFrame so FrameSecurity enforces its own invariants
-    if (typeof window.FrameSecurity !== 'undefined') {
-      window.FrameSecurity.securifyFrame(iframe, 'normal');
-    }
-
     // Security: strict sandboxing
+    // NOTE: allow-same-origin is intentionally ABSENT.
+    // allow-same-origin + allow-scripts is a known sandbox escape in NW.js —
+    // the framed document can call frameElement.removeAttribute('sandbox')
+    // gaining full Node.js access. Storage access for blob: URLs is handled
+    // via the nova:storage:* API bridge instead.
     const sandboxAttrs = [
-      'allow-same-origin',
       'allow-scripts',
       'allow-forms',
       'allow-modals',
@@ -44,12 +43,6 @@ const AppSandbox = (() => {
 
     // Apply app-specific sandbox restrictions
     if (app.sandbox) {
-      // Only remove allow-same-origin if explicitly disabled AND not using blob URLs
-      // Blob URLs need allow-same-origin for localStorage access
-      if (app.sandbox.allowSameOrigin === false && app.type !== 'webapp' && !app.entry) {
-        const idx = sandboxAttrs.indexOf('allow-same-origin');
-        if (idx > -1) sandboxAttrs.splice(idx, 1);
-      }
       if (app.sandbox.allowScripts === false) {
         const idx = sandboxAttrs.indexOf('allow-scripts');
         if (idx > -1) sandboxAttrs.splice(idx, 1);
@@ -65,6 +58,14 @@ const AppSandbox = (() => {
     }
 
     iframe.sandbox = sandboxAttrs.join(' ');
+
+    // FIX: securifyFrame() must run AFTER iframe.sandbox is assigned.
+    // Previously it ran before, so its sandbox enforcement was silently
+    // overwritten by the iframe.sandbox = ... line above.
+    // Now FrameSecurity has the final word on sandbox attributes.
+    if (typeof window.FrameSecurity !== 'undefined') {
+      window.FrameSecurity.securifyFrame(iframe, 'normal');
+    }
 
     // Security: Content Security Policy
     const csp = [
@@ -972,6 +973,23 @@ const AppSandbox = (() => {
         if (!url) {
           return respondError(iframe, type, requestId, 'INVALID_ARGS', 'url is required');
         }
+        // FIX: allowlist HTTP methods — reject anything outside safe set
+        const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+        const safeMethod = (method || 'GET').toUpperCase();
+        if (!ALLOWED_METHODS.includes(safeMethod)) {
+          return respondError(iframe, type, requestId, 'INVALID_ARGS', `Method not allowed: ${safeMethod}`);
+        }
+        // FIX: validate protocol — block file://, javascript:, data:, etc.
+        if (!url.startsWith('/')) {
+          try {
+            const _proto = new URL(url).protocol;
+            if (!['http:', 'https:'].includes(_proto)) {
+              return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Only http and https URLs are allowed');
+            }
+          } catch (_) {
+            return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid URL');
+          }
+        }
         // Determine permission level
         // FIX: parse the URL properly; startsWith is trivially bypassed
         // (e.g. http://localhost.evil.com passes the old check).
@@ -992,7 +1010,7 @@ const AppSandbox = (() => {
         }
         try {
           const res = await fetch(url, {
-            method: method || 'GET',
+            method: safeMethod,
             headers: headers || {},
             body: body || null
           });
@@ -1011,7 +1029,13 @@ const AppSandbox = (() => {
 
       // ── Storage: Get ──────────────────────────────────────────────────
       if (type === 'nova:storage:get') {
-        const key = `nova_storage_${app.id}_${payload.key}`;
+        const rawKey = String(payload.key || '');
+        // FIX: sanitize storage key — prevent key injection across app boundaries
+        // e.g. "../../other_app_id_secret" must not escape this app's namespace
+        if (!rawKey || /[^\w\-. ]/.test(rawKey)) {
+          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
+        }
+        const key = `nova_storage_${app.id}_${rawKey}`;
         try {
           const value = localStorage.getItem(key);
           return respond(iframe, type, requestId, { success: true, value: value !== null ? value : null });
@@ -1022,7 +1046,11 @@ const AppSandbox = (() => {
 
       // ── Storage: Set ──────────────────────────────────────────────────
       if (type === 'nova:storage:set') {
-        const key = `nova_storage_${app.id}_${payload.key}`;
+        const rawKey = String(payload.key || '');
+        if (!rawKey || /[^\w\-. ]/.test(rawKey)) {
+          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
+        }
+        const key = `nova_storage_${app.id}_${rawKey}`;
         try {
           localStorage.setItem(key, payload.value);
           return respond(iframe, type, requestId, { success: true });
@@ -1033,7 +1061,11 @@ const AppSandbox = (() => {
 
       // ── Storage: Delete ───────────────────────────────────────────────
       if (type === 'nova:storage:delete') {
-        const key = `nova_storage_${app.id}_${payload.key}`;
+        const rawKey = String(payload.key || '');
+        if (!rawKey || /[^\w\-. ]/.test(rawKey)) {
+          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
+        }
+        const key = `nova_storage_${app.id}_${rawKey}`;
         try {
           localStorage.removeItem(key);
           return respond(iframe, type, requestId, { success: true });

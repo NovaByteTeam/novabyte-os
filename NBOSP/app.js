@@ -5292,7 +5292,7 @@ self.onmessage = async (e) => {
                   }
                   try {
                     const hostname = new URL(url || tab.url).hostname;
-                    tab.favicon = 'https://www.google.com/s2/favicons?domain=' + hostname + '&sz=32';
+                    tab.favicon = '/api/favicon?domain=' + hostname;
                   } catch (_) { }
                   if (url && !url.startsWith('novabyte:') && !url.startsWith('file://')) {
                     addHistory(url, title || url, tab.favicon);
