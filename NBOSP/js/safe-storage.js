@@ -1,5 +1,5 @@
 /**
- * NovaByte OS - Safe Storage Wrapper
+ * NovaByte - Safe Storage Wrapper
  * ────────────────────────────────────────────────────────────
  * Provides safe access to localStorage with fallback to in-memory
  * storage for sandboxed contexts where localStorage may be restricted.

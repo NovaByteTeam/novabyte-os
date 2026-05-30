@@ -15,7 +15,6 @@ process.on('unhandledRejection', (reason) => {
 });
 
 (async () => {
-    const { default: chalk } = await import('chalk');
     const express = require('express');
     const http = require('http');
     const https = require('https');
@@ -47,7 +46,7 @@ process.on('unhandledRejection', (reason) => {
         server = https.createServer(httpsOptions, app);
         isHttps = true;
     } catch (e) {
-        console.warn(chalk.yellow('[Server] SSL certs not found — falling back to HTTP (Service Workers will work on http://localhost)'));
+        console.warn('[Server] SSL certs not found — falling back to HTTP (Service Workers will work on http://localhost)');
         server = http.createServer(app);
     }
 
@@ -453,10 +452,10 @@ process.on('unhandledRejection', (reason) => {
 
     server.on('error', (error) => {
         if (error.code === 'EADDRINUSE') {
-            console.error(chalk.red(`[Server] Port ${PORT} is already in use.`));
-            console.error(chalk.gray(`  Stop the existing process, or set a different port: PORT=3001 npm start`));
+            console.error(`[Server] Port ${PORT} is already in use.`);
+            console.error(`  Stop the existing process, or set a different port: PORT=3001 npm start`);
         } else {
-            console.error(chalk.red('Server error:'), error.message);
+            console.error('Server error:', error.message);
         }
         // Keep process alive instead of exiting
     });
@@ -465,12 +464,12 @@ process.on('unhandledRejection', (reason) => {
         const protocol = isHttps ? 'https' : 'http';
         const pkg = require('./package.json');
         console.log('');
-        console.log(`  ${chalk.bold.cyan('NovaByte')} ${chalk.gray('v' + pkg.version)}`);
-        console.log(chalk.gray('  ──────────────────────────────────'));
-        console.log(`  ${chalk.green('●')} Address      ${chalk.white(`${protocol}://${HOST}:${PORT}`)}`);
-        console.log(`  ${chalk.green('●')} Environment  ${chalk.white(process.env.NODE_ENV || 'development')}`);
-        console.log(`  ${chalk.green('●')} TLS          ${isHttps ? chalk.green('enabled (HTTPS)') : chalk.yellow('disabled (HTTP)')}`);
-        console.log(chalk.gray('  ──────────────────────────────────'));
+        console.log(`  NovaByte v${pkg.version}`);
+        console.log('  ──────────────────────────────────');
+        console.log(`  ● Address      ${protocol}://${HOST}:${PORT}`);
+        console.log(`  ● Environment  ${process.env.NODE_ENV || 'development'}`);
+        console.log(`  ● TLS          ${isHttps ? 'enabled (HTTPS)' : 'disabled (HTTP)'}`);
+        console.log('  ──────────────────────────────────');
         console.log('');
     });
 

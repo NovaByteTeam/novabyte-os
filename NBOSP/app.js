@@ -7493,9 +7493,10 @@ self.onmessage = async (e) => {
             cursorOptions.forEach(opt => {
               const row = createEl('div', { className: 'nook-row' });
               row.appendChild(createEl('span', { textContent: opt.label }));
+              const currentCursorSize = OS.settings.get('cursorSize') || 'normal';
               const btn = createEl('button', {
-                className: 'btn btn-sm' + (OS.settings.get('cursorSize') === opt.value ? ' btn-primary' : ''),
-                textContent: OS.settings.get('cursorSize') === opt.value ? 'Active' : 'Select'
+                className: 'btn btn-sm' + (currentCursorSize === opt.value ? ' btn-primary' : ''),
+                textContent: currentCursorSize === opt.value ? 'Active' : 'Select'
               });
               btn.addEventListener('click', () => {
                 OS.settings.set('cursorSize', opt.value);

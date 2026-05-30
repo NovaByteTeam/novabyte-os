@@ -1,5 +1,5 @@
 /**
- * NovaByte OS - App Sandbox
+ * NovaByte - App Sandbox
  * ────────────────────────────────────────────────────────────
  * Creates secure execution environments for apps using
  * sandboxed iframes with strict CSP policies.
@@ -9,7 +9,6 @@
 
 const AppSandbox = (() => {
   const activeSandboxes = new Map();
-  const API_BRIDGE_NAME = 'NovaByteAPI';
   const eventSubscriptions = new Map(); // sandboxId -> Map(eventName -> handler)
 
   /**
@@ -21,6 +20,17 @@ const AppSandbox = (() => {
    */
   function createSandbox(app, container, state) {
     const iframe = document.createElement('iframe');
+
+    // NW.js Frame Security: Mark as normal frame (no Node.js access)
+    // This ensures the iframe cannot access Node.js APIs even if it somehow
+    // matches the node-remote pattern. The 'nwdisable' attribute is the
+    // explicit security boundary in NW.js that prevents frame privilege escalation.
+    iframe.setAttribute('nwdisable', '');
+
+    // FIX: call securifyFrame so FrameSecurity enforces its own invariants
+    if (typeof window.FrameSecurity !== 'undefined') {
+      window.FrameSecurity.securifyFrame(iframe, 'normal');
+    }
 
     // Security: strict sandboxing
     const sandboxAttrs = [
@@ -59,7 +69,7 @@ const AppSandbox = (() => {
     // Security: Content Security Policy
     const csp = [
       "default-src 'self' blob: data:",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
+      "script-src 'self' blob:", // FIX: removed 'unsafe-inline' and 'unsafe-eval' — they negate XSS protection
       "style-src 'self' 'unsafe-inline' blob:",
       "img-src 'self' blob: data: https:",
       "font-src 'self' blob: data:",
@@ -70,7 +80,7 @@ const AppSandbox = (() => {
       "form-action 'self'"
     ].join('; ');
 
-    iframe.csp = csp;
+    iframe.setAttribute('csp', csp); // FIX: property assignment was silently ignored; setAttribute actually applies it
 
     // Styling
     iframe.style.cssText = `
@@ -83,7 +93,7 @@ const AppSandbox = (() => {
     `;
 
     // Security: prevent framing
-    iframe.allow = "fullscreen; camera; microphone";
+    iframe.allow = "fullscreen"; // FIX: removed camera/microphone — these must be gated by device:camera/microphone permissions
 
     // Store reference
     const sandboxId = `sandbox_${app.id}_${Date.now()}`;
@@ -98,6 +108,28 @@ const AppSandbox = (() => {
       windowId: state?.id
     });
 
+    // ── Fullscreen Support for Web Content ──
+    // When content inside the iframe (e.g., YouTube video) requests fullscreen,
+    // expand the window to fill the available space for an immersive viewing experience.
+    if (state && state.element) {
+      const origMaximized = state.maximized;
+
+      // Listen for fullscreen requests from iframe content
+      iframe.addEventListener('fullscreenchange', () => {
+        if (document.fullscreenElement === iframe) {
+          // Entering fullscreen — maximize and expand window
+          if (typeof WM !== 'undefined' && WM.toggleMaximize && !state.maximized) {
+            WM.toggleMaximize(state.id);
+          }
+        } else {
+          // Exiting fullscreen — restore window to original state if it was not maximized
+          if (typeof WM !== 'undefined' && WM.toggleMaximize && !origMaximized && state.maximized) {
+            WM.toggleMaximize(state.id);
+          }
+        }
+      }, false);
+    }
+
     eventSubscriptions.set(sandboxId, new Map());
 
     // Setup API bridge
@@ -105,6 +137,28 @@ const AppSandbox = (() => {
 
     // Setup error handling
     setupErrorHandling(iframe, app);
+
+    // NW.js Frame Security Validation: Verify frame type is enforced
+    // Use the FrameSecurity module to validate that this iframe is correctly
+    // marked as a "normal frame" with nwdisable and cannot escalate to Node.js access.
+    if (typeof window.FrameSecurity !== 'undefined') {
+      // FIX: abort sandbox creation on any frame security failure
+      const validation = window.FrameSecurity.validateFrameSecurity(iframe);
+      if (!validation.valid) {
+        console.error(`[AppSandbox] BLOCKED: Frame security validation failed for ${app.name}:`, validation.issues);
+        if (container) container.innerHTML = '';
+        throw new Error(`[AppSandbox] Frame security violation for ${app.name}: ${validation.issues.join(', ')}`);
+      }
+      if (validation.frameType !== 'normal') {
+        console.error(`[AppSandbox] BLOCKED: ${app.name} sandbox type is "${validation.frameType}", expected "normal"`);
+        if (container) container.innerHTML = '';
+        throw new Error(`[AppSandbox] Frame type violation for ${app.name}: expected normal, got ${validation.frameType}`);
+      }
+    } else {
+      // FIX: hard-fail if FrameSecurity module is missing -- never silently skip
+      console.error('[AppSandbox] BLOCKED: FrameSecurity module not loaded');
+      throw new Error('[AppSandbox] FrameSecurity module is required but not loaded');
+    }
 
     console.log(`[AppSandbox] Created sandbox for ${app.name} (${sandboxId})`);
 
@@ -120,12 +174,15 @@ const AppSandbox = (() => {
    */
   function respond(iframe, type, requestId, result, error = null) {
     try {
+      // FIX: use specific target origin instead of '*'.
+      // Blob URLs with allow-same-origin share the parent page's origin.
+      const targetOrigin = window.location.origin;
       iframe.contentWindow.postMessage({
         type: `${type}:response`,
         requestId,
         result,
         error
-      }, '*');
+      }, targetOrigin);
     } catch (e) {
       console.error(`[AppSandbox] Failed to respond to ${type}:`, e);
     }
@@ -713,6 +770,10 @@ const AppSandbox = (() => {
 
       // ── Settings: Get ─────────────────────────────────────────────────
       if (type === 'nova:settings:get') {
+        // FIX: any app could read any system setting key (credentials, etc.)
+        if (!AppPermissionManager.isGranted('system:info', app.id)) {
+          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'system:info permission required');
+        }
         const value = OS?.settings?.get(payload.key);
         return respond(iframe, type, requestId, { success: true, value });
       }
@@ -816,6 +877,10 @@ const AppSandbox = (() => {
 
       // ── Clipboard: Read ───────────────────────────────────────────────
       if (type === 'nova:clipboard:read') {
+        // FIX: reading clipboard was entirely ungated; now requires fs:read
+        if (!AppPermissionManager.isGranted('fs:read', app.id)) {
+          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required for clipboard access');
+        }
         return respond(iframe, type, requestId, {
           success: true,
           data: OS.clipboard || null
@@ -838,6 +903,10 @@ const AppSandbox = (() => {
 
       // ── App: Launch ───────────────────────────────────────────────────
       if (type === 'nova:app:launch') {
+        // FIX: require system:apps permission — previously any app could launch any other app
+        if (!AppPermissionManager.isGranted('system:apps', app.id)) {
+          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'system:apps permission required');
+        }
         const { appId, options } = payload;
         if (!appId) {
           return respondError(iframe, type, requestId, 'INVALID_ARGS', 'appId is required');
@@ -904,9 +973,19 @@ const AppSandbox = (() => {
           return respondError(iframe, type, requestId, 'INVALID_ARGS', 'url is required');
         }
         // Determine permission level
-        const isInternal = url.startsWith('https://api.novabyte.internal') ||
-                           url.startsWith('http://localhost') ||
-                           url.startsWith('/');
+        // FIX: parse the URL properly; startsWith is trivially bypassed
+        // (e.g. http://localhost.evil.com passes the old check).
+        let isInternal = false;
+        if (url.startsWith('/')) {
+          isInternal = true; // relative path — same origin
+        } else {
+          try {
+            const _u = new URL(url);
+            const h  = _u.hostname;
+            isInternal = h === 'localhost' || h === '127.0.0.1' || h === '::1'
+              || h === 'api.novabyte.internal';
+          } catch (_) { /* malformed URL — deny */ }
+        }
         const netPerm = isInternal ? 'net:internal' : 'net:external';
         if (!AppPermissionManager.isGranted(netPerm, app.id)) {
           return respondError(iframe, type, requestId, 'PERMISSION_DENIED', `${netPerm} permission required`);
@@ -1149,6 +1228,20 @@ const AppSandbox = (() => {
    * @param {object} app - App object
    * @param {object} state - Window state
    */
+  /**
+   * Escape a string for safe HTML interpolation.
+   * FIX: app.name / app.author / app.icon etc. were interpolated raw,
+   * allowing a malicious package to inject <script> tags.
+   */
+  function escapeHtml(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+  }
+
   function createDefaultAppShell(iframe, app, state) {
     const html = `
       <!DOCTYPE html>
@@ -1156,7 +1249,7 @@ const AppSandbox = (() => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${app.name}</title>
+        <title>${escapeHtml(app.name)}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body {
@@ -1192,13 +1285,13 @@ const AppSandbox = (() => {
       </head>
       <body>
         <div class="app-container">
-          <div class="app-icon">${app.icon || '📱'}</div>
-          <h1>${app.name}</h1>
-          <p>${app.description || 'A NovaByte OS Application'}</p>
+          <div class="app-icon">${escapeHtml(app.icon || '📱')}</div>
+          <h1>${escapeHtml(app.name)}</h1>
+          <p>${escapeHtml(app.description || 'A NovaByte Application')}</p>
           <div class="status">
-            <strong>Version:</strong> ${app.version}<br>
-            <strong>Author:</strong> ${app.author}<br>
-            <strong>Type:</strong> ${app.type}<br>
+            <strong>Version:</strong> ${escapeHtml(app.version)}<br>
+            <strong>Author:</strong> ${escapeHtml(app.author)}<br>
+            <strong>Type:</strong> ${escapeHtml(app.type)}<br>
             <strong>Status:</strong> Running in Sandbox
           </div>
           <div class="api-status" id="apiStatus">
@@ -1254,10 +1347,14 @@ const AppSandbox = (() => {
 
           // Request API access
           setTimeout(() => {
-            window.parent.postMessage({
+            window.parent.// FIX: use parent origin instead of '*'
+            var _pOrigin = (function(){
+              try{return window.parent.location.origin;}catch(e){return window.location.origin;}
+            })();
+            postMessage({
               type: 'nova:ready',
-              appId: '${app.id}'
-            }, '*');
+              appId: '${escapeHtml(app.id)}'
+            }, _pOrigin);
           }, 100);
         </script>
       </body>
@@ -1280,7 +1377,7 @@ const AppSandbox = (() => {
       <html>
       <head>
         <meta charset="UTF-8">
-        <title>Error - ${app.name}</title>
+        <title>Error - ${escapeHtml(app.name)}</title>
         <style>
           body { font-family: sans-serif; padding: 40px; text-align: center; }
           .error { color: #e74c3c; font-size: 48px; margin-bottom: 20px; }
@@ -1291,9 +1388,9 @@ const AppSandbox = (() => {
       <body>
         <div class="error">⚠</div>
         <h1>Failed to Load Application</h1>
-        <p><strong>${app.name}</strong></p>
-        <p>${message}</p>
-        <p><small>App ID: ${app.id}</small></p>
+        <p><strong>${escapeHtml(app.name)}</strong></p>
+        <p>${escapeHtml(message)}</p>
+        <p><small>App ID: ${escapeHtml(app.id)}</small></p>
       </body>
       </html>
     `;

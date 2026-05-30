@@ -3,8 +3,7 @@
  *
  * These are lightweight utilities for developers building an update/patch system on NBOSP.
  * Wire recordPatch() into your update pipeline to track the current patch level.
- * The enforcement layer (WM.createWindow patching, blocking dialogs) has been intentionally
- * removed from NBOSP — implement it in your own layer if needed.
+ * 
  */
 
 (function () {
