@@ -296,32 +296,207 @@ process.on('unhandledRejection', (reason) => {
         'Accept':     'image/png,image/x-icon,image/*,*/*;q=0.8',
     };
 
+    // Normalise content-type to something browsers will actually render as an image.
+    // Some servers return 'text/html' or 'application/octet-stream' for .ico/.png files;
+    // sniff the magic bytes instead of trusting the header.
+    function normaliseFaviconMime(buf, headerMime) {
+        // Magic-byte sniff — covers the most common favicon formats
+        if (buf.length >= 4) {
+            // PNG: \x89PNG
+            if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+            // GIF: GIF8
+            if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return 'image/gif';
+            // JPEG: \xff\xd8\xff
+            if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+            // WebP: RIFF????WEBP
+            if (buf.length >= 12 &&
+                buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+                buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+            // ICO: \x00\x00\x01\x00
+            if (buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] === 0x00) return 'image/x-icon';
+            // SVG: starts with '<svg' or '<?xml' followed eventually by '<svg'
+            const head = buf.slice(0, 256).toString('utf8');
+            if (/<svg[\s>]/i.test(head) || (head.startsWith('<?xml') && /<svg[\s>]/i.test(head))) return 'image/svg+xml';
+        }
+        // Fall back to whatever the server said, as long as it looks like an image
+        if (headerMime && headerMime.startsWith('image/')) return headerMime;
+        // Last resort — caller decides whether to trust it
+        return null;
+    }
+
+    // Fetch an image URL and return { buf, mime } if it looks like a valid icon, else null.
+    // Applies SSRF guard + magic-byte MIME normalisation.
+    // Early-exits on text/html Content-Type before buffering — avoids downloading a full
+    // SPA catch-all page (soft 404) that returns 200 OK with HTML instead of an image.
+    async function fetchIconUrl(url) {
+        try {
+            const parsed = new URL(url);
+            if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+            if (isPrivateHost(parsed.hostname)) return null;
+            const resp = await fetchWithTimeout(url, { headers: CLEAN_HEADERS, redirect: 'follow' });
+            if (!resp.ok) return null;
+            // Reject text/* responses immediately — no image will be hiding in them
+            const ct = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            if (ct.startsWith('text/') || ct === 'application/json' || ct === 'application/javascript') {
+                resp.body?.cancel?.();
+                return null;
+            }
+            const buf     = Buffer.from(await resp.arrayBuffer());
+            const rawMime = resp.headers.get('content-type') || '';
+            const mime    = normaliseFaviconMime(buf, rawMime);
+            if (mime && buf.length > 90) return { buf, mime };
+        } catch (_) { /* network error or SSRF block */ }
+        return null;
+    }
+
+    // Parse HTML <head> for icon declarations in priority order.
+    // Returns an array of candidate absolute URL strings, best-first:
+    //   1. <link rel="icon"> / <link rel="shortcut icon">  — standard favicon
+    //   2. <link rel="apple-touch-icon">                   — hi-res PNG, works everywhere
+    //   3. <meta name="msapplication-TileImage">           — Windows tile, last resort
+    //   4. <link rel="manifest"> → icons[0].src            — PWA manifest icons array
+    // The manifest entry requires an additional async fetch so callers handle it separately.
+    function extractIconCandidates(html, baseUrl) {
+        const candidates = [];
+        const abs = href => { try { return new URL(href, baseUrl).toString(); } catch (_) { return null; } };
+
+        // --- <link> tags ---
+        const linkRe = /<link\b[^>]+>/gi;
+        let m;
+        while ((m = linkRe.exec(html)) !== null) {
+            const tag = m[0];
+            const relM = tag.match(/rel\s*=\s*["']([^"']+)["']/i);
+            if (!relM) continue;
+            const rel = relM[1].toLowerCase().trim();
+            const hrefM = tag.match(/href\s*=\s*["']([^"']+)["']/i);
+            if (!hrefM) continue;
+            const url = abs(hrefM[1]);
+            if (!url) continue;
+
+            if (rel === 'icon' || rel === 'shortcut icon') {
+                candidates.unshift({ priority: 1, url }); // highest — prepend
+            } else if (rel === 'apple-touch-icon' || rel === 'apple-touch-icon-precomposed') {
+                candidates.push({ priority: 2, url });
+            }
+            // <link rel="manifest"> is stored separately for async handling
+        }
+
+        // --- <meta name="msapplication-TileImage"> ---
+        const tileRe = /<meta\b[^>]+>/gi;
+        while ((m = tileRe.exec(html)) !== null) {
+            const tag = m[0];
+            if (!/name\s*=\s*["']msapplication-TileImage["']/i.test(tag)) continue;
+            const contentM = tag.match(/content\s*=\s*["']([^"']+)["']/i);
+            if (!contentM) continue;
+            const url = abs(contentM[1]);
+            if (url) candidates.push({ priority: 3, url });
+        }
+
+        // Sort by priority (lower = better), stable
+        candidates.sort((a, b) => a.priority - b.priority);
+        return candidates.map(c => c.url);
+    }
+
+    // Extract the <link rel="manifest"> href from HTML, or null.
+    function extractManifestUrl(html, baseUrl) {
+        const m = html.match(/<link\b[^>]*\brel\s*=\s*["']manifest["'][^>]*>/i)
+                || html.match(/<link\b[^>]*\bhref\s*=\s*["'][^"']+["'][^>]*\brel\s*=\s*["']manifest["'][^>]*>/i);
+        if (!m) return null;
+        const hrefM = m[0].match(/href\s*=\s*["']([^"']+)["']/i);
+        if (!hrefM) return null;
+        try { return new URL(hrefM[1], baseUrl).toString(); } catch (_) { return null; }
+    }
+
     async function resolveFavicon(hostname) {
         // 1. Try Google's favicon service (server-side — user IP never exposed)
         try {
             const googleUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=32`;
             const resp = await fetchWithTimeout(googleUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
             if (resp.ok) {
-                const buf  = Buffer.from(await resp.arrayBuffer());
-                const mime = resp.headers.get('content-type') || 'image/png';
-                // Google returns a generic globe (820 bytes exactly) when it has nothing —
-                // treat anything under 90 bytes as a failure so we try the fallback
-                if (buf.length > 90) return { buf, mime };
+                const buf     = Buffer.from(await resp.arrayBuffer());
+                const rawMime = resp.headers.get('content-type') || 'image/png';
+                // Google returns a generic grey globe (~820 bytes) when it has nothing —
+                // treat anything under 90 bytes as a failure so we try the fallbacks.
+                if (buf.length > 90) {
+                    const mime = normaliseFaviconMime(buf, rawMime) || rawMime;
+                    return { buf, mime };
+                }
             }
         } catch (_) { /* timeout or network error — fall through */ }
 
-        // 2. Fallback: fetch /favicon.ico directly from the site
-        try {
-            const directUrl = `https://${hostname}/favicon.ico`;
-            const resp = await fetchWithTimeout(directUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
-            if (resp.ok) {
-                const buf  = Buffer.from(await resp.arrayBuffer());
-                const mime = resp.headers.get('content-type') || 'image/x-icon';
-                if (buf.length > 90) return { buf, mime };
-            }
-        } catch (_) { /* fall through to default */ }
+        // 2. Parse the site's HTML for icon declarations (tries HTTPS then HTTP).
+        //    Covers: <link rel="icon">, apple-touch-icon, msapplication-TileImage,
+        //    and <link rel="manifest"> → icons array.
+        //    We fetch only the first 8 KB — enough for the <head>.
+        let html = null;
+        let homeBaseUrl = null;
+        for (const scheme of ['https', 'http']) {
+            try {
+                const homeUrl = `${scheme}://${hostname}/`;
+                const homeResp = await fetchWithTimeout(homeUrl, {
+                    headers: { ...CLEAN_HEADERS, 'Range': 'bytes=0-8191' },
+                    redirect: 'follow',
+                });
+                if (homeResp.ok || homeResp.status === 206) {
+                    html = await homeResp.text();
+                    homeBaseUrl = homeUrl;
+                    break; // got HTML — stop trying schemes
+                }
+            } catch (_) { /* try next scheme */ }
+        }
 
-        // 3. Nothing worked — callers will use FAVICON_DEFAULT
+        if (html && homeBaseUrl) {
+            // 2a. Standard <link> / <meta> icon candidates
+            const candidates = extractIconCandidates(html, homeBaseUrl);
+            for (const iconUrl of candidates) {
+                const result = await fetchIconUrl(iconUrl);
+                if (result) return result;
+            }
+
+            // 2b. Web App Manifest → icons array
+            //     Many modern sites (React, Vue, PWA) store their icon only here.
+            const manifestUrl = extractManifestUrl(html, homeBaseUrl);
+            if (manifestUrl) {
+                try {
+                    const mParsed = new URL(manifestUrl);
+                    if (['http:', 'https:'].includes(mParsed.protocol) && !isPrivateHost(mParsed.hostname)) {
+                        const mResp = await fetchWithTimeout(manifestUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
+                        if (mResp.ok) {
+                            const manifest = await mResp.json().catch(() => null);
+                            // icons[] entries sorted by size desc — pick the largest for best quality
+                            const icons = Array.isArray(manifest?.icons) ? manifest.icons : [];
+                            icons.sort((a, b) => {
+                                const sz = s => parseInt((s?.sizes || '0x0').split('x')[0]) || 0;
+                                return sz(b) - sz(a);
+                            });
+                            for (const icon of icons) {
+                                if (!icon?.src) continue;
+                                const iconUrl = (() => { try { return new URL(icon.src, manifestUrl).toString(); } catch (_) { return null; } })();
+                                if (!iconUrl) continue;
+                                const result = await fetchIconUrl(iconUrl);
+                                if (result) return result;
+                            }
+                        }
+                    }
+                } catch (_) { /* manifest fetch/parse failed — fall through */ }
+            }
+        }
+
+        // 3. Direct fallback: fetch /favicon.ico (HTTPS then HTTP)
+        for (const scheme of ['https', 'http']) {
+            try {
+                const directUrl = `${scheme}://${hostname}/favicon.ico`;
+                const resp = await fetchWithTimeout(directUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
+                if (resp.ok) {
+                    const buf     = Buffer.from(await resp.arrayBuffer());
+                    const rawMime = resp.headers.get('content-type') || 'image/x-icon';
+                    const mime    = normaliseFaviconMime(buf, rawMime) || rawMime;
+                    if (buf.length > 90) return { buf, mime };
+                }
+            } catch (_) { /* try next scheme */ }
+        }
+
+        // 4. Nothing worked — callers will use FAVICON_DEFAULT
         return null;
     }
 
@@ -332,6 +507,11 @@ process.on('unhandledRejection', (reason) => {
         standardHeaders: true,
         legacyHeaders: false,
     });
+
+    // In-flight deduplication: if two requests for the same hostname arrive before
+    // the first resolves, they both await the same Promise instead of firing two
+    // parallel upstream fetches (cache stampede / thundering herd).
+    const faviconInFlight = new Map(); // hostname → Promise<{buf,mime}|null>
 
     app.get('/api/favicon', faviconLimiter, async (req, res) => {
         const raw = req.query.domain;
@@ -352,7 +532,14 @@ process.on('unhandledRejection', (reason) => {
             return res.send(cached.buf);
         }
 
-        const result = await resolveFavicon(hostname);
+        // Coalesce concurrent requests for the same hostname onto one upstream fetch
+        let promise = faviconInFlight.get(hostname);
+        if (!promise) {
+            promise = resolveFavicon(hostname).finally(() => faviconInFlight.delete(hostname));
+            faviconInFlight.set(hostname, promise);
+        }
+
+        const result = await promise;
         const buf    = result ? result.buf  : FAVICON_DEFAULT;
         const mime   = result ? result.mime : 'image/png';
 
