@@ -1158,19 +1158,6 @@ const AppSandbox = (() => {
         });
       }
 
-      // ── Security: Check (passthrough) ─────────────────────────────────
-      if (type === 'nova:security:check') {
-        if (typeof NovaSecurityAPI !== 'undefined') {
-          const compliant = NovaSecurityAPI.meetsRequirement(payload.minPatchDate);
-          return respond(iframe, type, requestId, {
-            compliant,
-            current: NovaSecurityAPI.getCurrentPatchString(),
-            required: payload.minPatchDate
-          });
-        }
-        return respondError(iframe, type, requestId, 'UNAVAILABLE', 'Security API not available');
-      }
-
       // ── Dialog: Open ──────────────────────────────────────────────────
       if (type === 'nova:dialog:open') {
         if (!AppPermissionManager.isGranted('fs:read', app.id)) {

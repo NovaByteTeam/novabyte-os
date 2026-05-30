@@ -1770,7 +1770,7 @@ self.onmessage = async (e) => {
           error() { }
         }
       };
-      window.OS = OS; // Expose OS globally for external scripts (nova-security-api.js etc.)
+      window.OS = OS; // Expose OS globally for external scripts
 
       /* ═══════════════════════════════════════════════════════════════
          SECTION: FILESYSTEM API
