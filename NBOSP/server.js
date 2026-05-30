@@ -1064,21 +1064,13 @@ process.on('unhandledRejection', (reason) => {
         next();
     });
 
-    // Health check
+    // Health check — status only, no timestamp or uptime (information disclosure)
     app.get('/health', (req, res) => {
-        res.status(200).json({
-            status: 'healthy',
-            timestamp: new Date().toISOString(),
-            service: 'NovaByte'
-        });
+        res.status(200).json({ status: 'ok' });
     });
 
     app.get('/api/health', (req, res) => {
-        res.status(200).json({
-            status: 'healthy',
-            timestamp: new Date().toISOString(),
-            service: 'NovaByte'
-        });
+        res.status(200).json({ status: 'ok' });
     });
 
     // /api/info intentionally removed — endpoint enumeration is a recon vector.
