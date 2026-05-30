@@ -515,6 +515,27 @@ process.on('unhandledRejection', (reason) => {
     // parallel upstream fetches (cache stampede / thundering herd).
     const faviconInFlight = new Map(); // hostname → Promise<{buf,mime}|null>
 
+    // Fetch favicon via relay — Google sees relay IP, not user's.
+    // Falls back to resolveFavicon() (direct) if relay is unreachable.
+    async function resolveFaviconViaRelay(hostname) {
+        try {
+            const url = `${RELAY_URL}/favicon?domain=${encodeURIComponent(hostname)}&size=32`;
+            const r   = await fetch(url, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
+                signal: AbortSignal.timeout(6000),
+            });
+            if (!r.ok) throw new Error(`Relay ${r.status}`);
+            const contentType = (r.headers.get('content-type') || 'image/png').split(';')[0].trim();
+            if (!contentType.startsWith('image/')) throw new Error('Non-image response');
+            const buf = Buffer.from(await r.arrayBuffer());
+            if (buf.length < 10) throw new Error('Empty response');
+            return { buf, mime: contentType };
+        } catch {
+            // Relay unreachable or returned bad data — fall back to direct
+            return resolveFavicon(hostname);
+        }
+    }
+
     app.get('/api/favicon', faviconLimiter, async (req, res) => {
         const raw = req.query.domain;
         if (!raw || typeof raw !== 'string') {
@@ -537,7 +558,7 @@ process.on('unhandledRejection', (reason) => {
         // Coalesce concurrent requests for the same hostname onto one upstream fetch
         let promise = faviconInFlight.get(hostname);
         if (!promise) {
-            promise = resolveFavicon(hostname).finally(() => faviconInFlight.delete(hostname));
+            promise = resolveFaviconViaRelay(hostname).finally(() => faviconInFlight.delete(hostname));
             faviconInFlight.set(hostname, promise);
         }
 
@@ -558,19 +579,28 @@ process.on('unhandledRejection', (reason) => {
     // ── End Favicon Proxy ─────────────────────────────────────────────────────
 
     // ── Search Suggest Proxy ──────────────────────────────────────────────────
-    // Fetches search-engine autocomplete suggestions server-side so the user's
-    // IP is never sent to Google, DuckDuckGo, Bing, etc.
+    // Forwards suggestion requests to the NovaByte suggest relay.
+    // The relay runs on a remote machine — upstream engines see the relay's IP,
+    // not the user's. Relay is open source: github.com/NovaByteOfficial/suggest-relay
     //
-    // Security: same SSRF guard pattern as favicon/email-image proxies.
-    // Cache: in-memory Map, 60s TTL (suggestions go stale fast), 2000 entry cap.
+    // Falls back to fetching upstream engines directly if the relay is unreachable
+    // (e.g. offline use) so suggestions still work without a relay connection.
+    // Note: fallback fetches come from the user's machine — IP masking only applies
+    // when the relay is reachable. Like Brave without a VPN — get a VPN if full
+    // IP privacy matters to you.
+    //
+    // Cache: in-memory Map, 60s TTL, 2000 entry cap.
     // Rate limit: 120 req/min per IP — one request per keystroke at normal typing speed.
+
+    const RELAY_URL = 'https://suggest-relay.onrender.com'; // official hosted instance
 
     const suggestCache = new Map(); // key: `${engine}:${q}` → { data, ts }
     const SUGGEST_TTL     = 60 * 1000; // 60 seconds
     const SUGGEST_MAX     = 2000;
-    const SUGGEST_TIMEOUT = 3000;      // 3s — users won't wait longer than this
+    const SUGGEST_TIMEOUT = 5000;      // slightly higher than relay's 4s timeout
 
-    const SUGGEST_ENGINES = {
+    // Direct engine URLs — used as fallback only if relay is unreachable
+    const SUGGEST_ENGINES_DIRECT = {
         google:     q => `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(q)}`,
         duckduckgo: q => `https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}&type=list`,
         bing:       q => `https://api.bing.com/qsonhs.aspx?q=${encodeURIComponent(q)}`,
@@ -593,6 +623,29 @@ process.on('unhandledRejection', (reason) => {
         } catch { return []; }
     }
 
+    async function fetchFromRelay(engine, q, signal) {
+        const url = `${RELAY_URL}/suggest?engine=${encodeURIComponent(engine)}&q=${encodeURIComponent(q)}`;
+        const r   = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
+            signal,
+        });
+        if (!r.ok) throw new Error(`Relay ${r.status}`);
+        return await r.json();
+    }
+
+    async function fetchDirect(engine, q, signal) {
+        if (!SUGGEST_ENGINES_DIRECT[engine]) throw new Error('Unknown engine');
+        const r = await fetch(SUGGEST_ENGINES_DIRECT[engine](q), {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)',
+                'Accept':     'application/json, */*;q=0.8',
+            },
+            signal,
+        });
+        if (!r.ok) throw new Error(`Direct ${r.status}`);
+        return await r.json();
+    }
+
     const suggestLimiter = rateLimit({
         windowMs: 60 * 1000,
         max: 120,
@@ -605,9 +658,9 @@ process.on('unhandledRejection', (reason) => {
         const q      = (req.query.q      || '').trim();
         const engine = (req.query.engine || 'google').toLowerCase();
 
-        if (!q)                        return res.status(400).json({ error: 'q parameter is required' });
-        if (q.length > 200)            return res.status(400).json({ error: 'Query too long' });
-        if (!SUGGEST_ENGINES[engine])  return res.status(400).json({ error: 'Unknown engine' });
+        if (!q)                                  return res.status(400).json({ error: 'q parameter is required' });
+        if (q.length > 200)                      return res.status(400).json({ error: 'Query too long' });
+        if (!SUGGEST_ENGINES_DIRECT[engine])     return res.status(400).json({ error: 'Unknown engine' });
 
         const cacheKey = `${engine}:${q}`;
         const cached   = suggestCache.get(cacheKey);
@@ -616,38 +669,39 @@ process.on('unhandledRejection', (reason) => {
             return res.json({ suggestions: cached.data });
         }
 
-        const upstreamUrl = SUGGEST_ENGINES[engine](q);
-        const controller  = new AbortController();
-        const timer       = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT);
+        const controller = new AbortController();
+        const timer      = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT);
+
+        let json;
+        let viaRelay = true;
 
         try {
-            const upstream = await fetch(upstreamUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)',
-                    'Accept':     'application/json, */*;q=0.8',
-                },
-                signal: controller.signal,
-            });
-            clearTimeout(timer);
-
-            if (!upstream.ok) return res.status(502).json({ suggestions: [] });
-
-            const json        = await upstream.json();
-            const suggestions = parseSuggestions(engine, json);
-
-            // Evict oldest entry if at capacity
-            if (suggestCache.size >= SUGGEST_MAX) {
-                suggestCache.delete(suggestCache.keys().next().value);
+            // Try relay first — masks user IP from upstream engines
+            json = await fetchFromRelay(engine, q, controller.signal);
+        } catch {
+            // Relay unreachable (offline, cold start, down) — fall back to direct
+            viaRelay = false;
+            try {
+                json = await fetchDirect(engine, q, controller.signal);
+            } catch {
+                clearTimeout(timer);
+                return res.status(502).json({ suggestions: [] });
             }
-            suggestCache.set(cacheKey, { data: suggestions, ts: Date.now() });
-
-            res.setHeader('Cache-Control', 'private, max-age=60');
-            res.json({ suggestions });
-        } catch (err) {
-            clearTimeout(timer);
-            // Abort (timeout) or network error — return empty rather than 500
-            res.status(502).json({ suggestions: [] });
         }
+
+        clearTimeout(timer);
+
+        const suggestions = parseSuggestions(engine, json);
+
+        // Evict oldest entry if at capacity
+        if (suggestCache.size >= SUGGEST_MAX) {
+            suggestCache.delete(suggestCache.keys().next().value);
+        }
+        suggestCache.set(cacheKey, { data: suggestions, ts: Date.now() });
+
+        res.setHeader('Cache-Control', 'private, max-age=60');
+        res.setHeader('X-Suggest-Via', viaRelay ? 'relay' : 'direct'); // dev visibility — remove if desired
+        res.json({ suggestions });
     });
     // ── End Search Suggest Proxy ──────────────────────────────────────────────
 
@@ -835,7 +889,27 @@ process.on('unhandledRejection', (reason) => {
             return res.send(cached.buf);
         }
 
-        const result = await fetchEmailImage(raw);
+        // Use relay for the final outbound fetch — sender's tracking server
+        // sees relay IP, not user's. SSRF validation and tracker blocking
+        // already done above; relay just makes the safe outbound request.
+        let result = null;
+        try {
+            const relayUrl = `${RELAY_URL}/email-image?url=${encodeURIComponent(stripTrackingParams(raw))}`;
+            const r = await fetch(relayUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
+                signal: AbortSignal.timeout(7000),
+            });
+            if (r.ok) {
+                const ct = (r.headers.get('content-type') || '').split(';')[0].trim();
+                if (ct.startsWith('image/')) {
+                    const buf = Buffer.from(await r.arrayBuffer());
+                    if (buf.length > 0) result = { buf, mime: ct };
+                }
+            }
+        } catch { /* relay unreachable — fall back to direct */ }
+
+        // Fallback: fetch directly if relay failed or was unreachable
+        if (!result) result = await fetchEmailImage(raw);
         const buf  = result ? result.buf  : EMAIL_IMG_DEFAULT;
         const mime = result ? result.mime : 'image/png';
 

@@ -14,7 +14,7 @@
 [![v1.x.x](https://img.shields.io/badge/v1.x.x-End_of_Life-ef4444?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
 [![v2.x.x](https://img.shields.io/badge/v2.x.x-Maintenance-f59e0b?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
 [![v3.x.x](https://img.shields.io/badge/v3.x.x-Current-22c55e?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
-[![Node](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/Node.js-24+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-Private-6b7280?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
 [![No Telemetry](https://img.shields.io/badge/Telemetry-None-22c55e?style=flat-square&logo=shieldsdotio&logoColor=white)](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)
 
@@ -34,7 +34,7 @@ Most software treats your data as a side effect — something that leaks out as 
 
 **No external dependencies out of the box** — NovaByte ships fully self-contained. There are no calls to CDNs, no fonts loaded from Google, no icons pulled from third-party servers. Everything the OS needs to run is bundled locally. From the moment you launch it, nothing loads from anywhere you did not explicitly navigate to.
 
-**The browser protects you silently** — favicon requests are routed through a server-side proxy so your IP never reaches Google's favicon service. Search suggestions are fetched through a server-side proxy that strips browser fingerprinting headers and caches results, so suggestion APIs never receive Chromium-specific signals or your cookie jar. Like Brave without a VPN, your IP address is still visible to suggestion endpoints on a local install — if IP masking matters to you, run a VPN. Tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. The experience looks identical to a normal browser. The difference is what the other side never receives.
+**The browser protects you silently** — favicon requests, search suggestions, and email images are all routed through a remote relay server (open source, auditable at github.com/NovaByteOfficial/suggest-relay) so Google, search engines, and email sender tracking servers see the relay's IP, never yours. On top of that, Chromium-specific fingerprinting headers are stripped, results are cached server-side, and tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. If the relay is unreachable, requests fall back to direct — suggestions still work, just without IP masking. For full IP privacy on actual browsing, use a VPN. The experience looks identical to a normal browser. The difference is what the other side never receives.
 
 **The email client is private by design** — opening an email in most clients silently tells the sender you read it, when you read it, and roughly where you are. NovaByte removes all of that. Remote images are proxied server-side so your IP never reaches a sender's tracking server. Known tracker pixels are blocked entirely — the server returns a blank placeholder without making any upstream request, so the sender gets no signal whatsoever. CSS-embedded trackers, redirect link wrappers, and tracking query parameters are all stripped before the email renders. You see the email exactly as intended. The sender sees nothing.
 
@@ -158,7 +158,7 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 
 #### New Features in NBOSP Browser (Minor updates may still follow)
 
-- **Search Suggestions Proxy** — as you type in the address bar, autocomplete suggestions are fetched through a server-side proxy (`/api/suggest`) rather than directly from the browser. This strips Chromium-specific fingerprinting headers and caches results server-side for 60 seconds. Note: like Brave without a VPN, your IP is still visible to suggestion engines on a local install — run a VPN if IP masking matters to you. Supports all six built-in engines and automatically uses whichever is selected in browser settings.
+- **Privacy Relay** — search suggestions, favicons, and email images are all routed through a remote open source relay (`https://suggest-relay.onrender.com`) so Google, search engines, and email tracking servers see the relay's IP, never yours. Fingerprinting headers are stripped on all relay requests. Falls back to direct if the relay is unreachable. Relay code is auditable at github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual browsing, use a VPN.
 - **Bookmarks** — Save and organize your favorite websites
 - **History** — View and quickly access previously visited pages
 - **Find in Page** — Search for text within a page using Ctrl+F
@@ -206,7 +206,7 @@ These two apps **must be bundled** in any NovaByte Services-licensed OS, shippin
 
 | App | Description |
 |-----|-------------|
-| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, server-side favicon proxying, a server-side search suggestion proxy that strips browser fingerprinting headers (note: does not mask your IP on a local install — use a VPN for that), per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
+| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, remote relay routing for search suggestions, favicons, and email images (upstream services see the relay's IP, not the user's), per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
 | 📧 **NovaMail** | NovaByte's proprietary email client. Must ship alongside your own email app. Includes full multi-layer privacy protection — tracker pixel blocking, CSS tracker stripping, link unwrapping, tracking parameter removal, and full script sandboxing. |
 
 #### Optional Apps (choose any)
@@ -451,7 +451,7 @@ You do not have to take our word for it — **the code is right there.**
 
 The only outbound network calls NovaByte makes are ones **you explicitly trigger**:
 
-- **NBOSP Browser** — fetches websites you navigate to. Obviously. Address bar search suggestions are routed through `/api/suggest` rather than the browser directly, stripping fingerprinting headers — but on a local install your IP is still visible to suggestion engines. Use a VPN if IP masking matters to you.
+- **NBOSP Browser** — fetches websites you navigate to. Obviously. Search suggestions, favicons, and email images are routed through a remote relay server (`https://suggest-relay.onrender.com`) so upstream services see the relay's IP, not yours. If the relay is unreachable, requests fall back to direct. The relay is open source and auditable at github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual page browsing, use a VPN.
 - **System Updates (v3 only)** — polls the GitHub Releases API to check if a newer version exists. This is a plain `GET` to `api.github.com/repos/NovaByteTeam/novabyte-os/releases/latest` — public, unauthenticated, no payload sent, no user data attached.
 - **NovaBridge / OAuth (v2/v3)** — connects to services you explicitly authenticate with (e.g. email, calendar). These are your sessions, not ours.
 - **Nova Core Services security patches** — fetches update manifests from our GitHub Releases. Again, a plain unauthenticated `GET`. No user data is sent.
