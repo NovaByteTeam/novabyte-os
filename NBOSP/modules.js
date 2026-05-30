@@ -1,1 +1,0 @@
-// Removed pdf.js — no PDF viewer app currently implemented
