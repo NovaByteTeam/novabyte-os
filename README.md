@@ -214,17 +214,15 @@ Beyond the two required apps, you may choose to include any of the following:
 
 | App | Description |
 |-----|-------------|
-| 📁 **Nova Files** | Full-featured file manager with advanced sorting, bulk operations, and deep OS integration |
-| 📝 **Nova Notes** | Rich-text notes app with organisation, search, and sync support via NovaBridge |
-| 🗓 **Nova Calendar** | Calendar app with event management and NovaBridge sync for external calendar providers |
-| 🖼 **Nova Gallery** | Media viewer and organiser for images and video with metadata support |
-| 🎵 **Nova Music** | Local and streaming-capable music player with library management |
-| 📥 **Nova Downloads** | Download manager with queue control, progress tracking, and file organisation |
-| 👥 **Nova Contacts** | Contact manager with NovaBridge sync support |
-| 🔍 **Nova Search** | System-wide search across files, apps, settings, and content |
-| 🖩 **Nova Calculator** | Feature-rich calculator with history and unit conversion |
-| 🕐 **Nova Clock** | Clock, alarm, timer, and stopwatch with system-level integration |
-| ⚙️ **Nova Settings** | Full system settings panel with edition-aware feature management and GPO support |
+| 🎵 **Resonance** | Music and audio player |
+| 🖼 **Prism** | Image viewer and media gallery |
+| 🛒 **Marketplace** | App store and package manager |
+| 🎨 **PixelDrop** | Image editing and design tool |
+| 📄 **Lumina** | Document viewer and PDF reader |
+| 🛡 **NovaSentinel** | Security dashboard and threat monitoring |
+| 🔐 **Encryption Vault** | File and disk encryption manager |
+| 🖩 **Calc+** | Advanced calculator |
+| 🕐 **NovaClock** | Clock, alarms, timers, and world time |
 
 You may not modify or redistribute NovaByte proprietary apps outside the terms of your NovaByte Services license.
 
