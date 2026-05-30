@@ -16,21 +16,22 @@
 [![v3.x.x](https://img.shields.io/badge/v3.x.x-Current-22c55e?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
 [![Node](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-Private-6b7280?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
+[![No Telemetry](https://img.shields.io/badge/Telemetry-None-22c55e?style=flat-square&logo=shieldsdotio&logoColor=white)](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)
 
 <br>
 
-[**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Security**](#-security) · [**Versions**](#-versions)
+[**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Privacy & No Telemetry**](#-privacy--no-telemetry--fully-verified) · [**Security**](#-security) · [**Versions**](#-versions)
 
 </div>
 
----
+-----
 
 ## 🔏 Close-Source Announcement — 23/05/2026
 
 > [!IMPORTANT]
 > **After a long time of waiting and planning, we finally closed the source of NovaByte OS on 23 May 2026.**
 
-We've wanted to do this for a while, and we finally made it happen. Here's what that means technically and what you should know before poking around the release files:
+We’ve wanted to do this for a while, and we finally made it happen. Here’s what that means technically and what you should know before poking around the release files:
 
 ### How We Did It
 
@@ -44,7 +45,7 @@ On top of that, **the full git commit history has been wiped.** There is no hist
 
 ### app.bin
 
-All core OS logic lives in `app.bin`. This file is compiled bytecode — it is completely unreadable as source code and is not practically reversible. Do not attempt to reverse engineer or deobfuscate `app.bin`. It is not possible to recover meaningful sources from it, while nothing in the world is ever unattackable, but it's like near impossible since it's a thing that only Chromium understands, and every Chromium update changes, which makes attacks way too hard, and attempting to recover it is a violation of our terms.
+All core OS logic lives in `app.bin`. This file is compiled bytecode — it is completely unreadable as source code and is not practically reversible. Do not attempt to reverse engineer or deobfuscate `app.bin`. It is not possible to recover meaningful sources from it, while nothing in the world is ever unattackable, but it’s like near impossible since it’s a thing that only Chromium understands, and every Chromium update changes, which makes attacks way too hard, and attempting to recover it is a violation of our terms.
 
 ### index.html
 
@@ -58,11 +59,11 @@ All core OS logic lives in `app.bin`. This file is compiled bytecode — it is c
 
 We’ve replaced the old base64 + gzip approach for these files with **256 AES-GCM-SIV encryption**. The encryption key is split in two: one half is bundled into `server.js`, and the other half is embedded in `app.bin`. That means `index.html` and `style.css` are now getting real protection. See the BuildScript below for how we did it.
 
----
+-----
 
 ## 📦 NBOSP BuildScript — Close Source Your Own Project
 
-If you want to close source your own NBOSP-based project the same way we did, we've uploaded our **build script** to this repo's Releases under the tag:
+If you want to close source your own NBOSP-based project the same way we did, we’ve uploaded our **build script** to this repo’s Releases under the tag:
 
 > **`BuildScript`**
 
@@ -70,7 +71,7 @@ If you want to close source your own NBOSP-based project the same way we did, we
 
 It handles the full pipeline: JS obfuscation, V8 bytecode compilation, NW.js packaging, and the base64+gzip HTML encoding step. Use it as a starting point for your own close-source build.
 
----
+-----
 
 ## ⬇️ Download
 
@@ -82,7 +83,7 @@ It handles the full pipeline: JS obfuscation, V8 bytecode compilation, NW.js pac
 
 Download the `.zip`, extract it, and run the exe. No installation required.
 
----
+-----
 
 ## 🆓 NBOSP — NovaByte Open Source Project
 
@@ -96,10 +97,10 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 - Core Apps: **NBOSP Files, NBOSP Notes, NBOSP Terminal, NBOSP Browser, NBOSP Calendar, NBOSP Email, NBOSP Gallery, NBOSP Downloads, NBOSP Contacts, NBOSP Search, NBOSP Music, NBOSP Clock, NBOSP Settings, NBOSP Calculator and NBOSP App Manager**
 - Basic security (rate limiting, CSRF protection, security headers) is built in
 - No edition system, no update pipeline, and no telemetry
-- The "NBOSP" apps are stock versions that come preinstalled — pure NovaByte apps that we replaced with our own feature-heavy versions in v3. The OS is fully customisable, clean, and lightweight. We took NBOSP and built on top of it with an update system and many more features.
+- The “NBOSP” apps are stock versions that come preinstalled — pure NovaByte apps that we replaced with our own feature-heavy versions in v3. The OS is fully customisable, clean, and lightweight. We took NBOSP and built on top of it with an update system and many more features.
 - We maintain two separate app lines: NBOSP apps and our own full-featured apps.
 - The NBOSP apps are feature-frozen — we are not adding new features or making interface changes to them, but compatibility, bug, and security fixes continue as always.
-- NBOSP itself (the OS) is **not abandoned** — and don't worry if it looks feature complete. We'll keep holding on and adding anything new we can. It won't always be exciting or frequent, but we're not done. We actually ship fixes and changes to NBOSP faster than v3 — the codebase is small and easy to maintain, so things move quickly when they need to.
+- NBOSP itself (the OS) is **not abandoned** — and don’t worry if it looks feature complete. We’ll keep holding on and adding anything new we can. It won’t always be exciting or frequent, but we’re not done. We actually ship fixes and changes to NBOSP faster than v3 — the codebase is small and easy to maintain, so things move quickly when they need to.
 - Apps are included because NBOSP is meant to be functional out of the box. As a desktop OS, it can browse, play music, manage files, install `.novaapp` packages, and more.
 - All listed apps are built specifically for the NovaByte Open Source Project and are free to use, customise, or modify however you like.
 
@@ -111,11 +112,11 @@ NBOSP does **not** use the built-in System Updates app. Updates to NBOSP apps de
 
 If NovaByte fixes or improves something in the NBOSP source, that fix lives in the upstream repo. Your fork does not receive it automatically. Your forker or maintainer has to pull the change, repackage it, and release their own updated build.
 
-| Update type | How you get it |
-|-------------|---------------|
-| NBOSP app fix from upstream NovaByte | Forker/maintainer repackages → you re-clone their release |
-| NBOSP app fix from your own fork maintainer | Forker/maintainer releases → you re-clone |
-| v3 built-in app fix | System Updates app → click Update → done |
+|Update type                                |How you get it                                           |
+|-------------------------------------------|---------------------------------------------------------|
+|NBOSP app fix from upstream NovaByte       |Forker/maintainer repackages → you re-clone their release|
+|NBOSP app fix from your own fork maintainer|Forker/maintainer releases → you re-clone                |
+|v3 built-in app fix                        |System Updates app → click Update → done                 |
 
 ### 🌐 NBOSP Browser — Now Powered by NW.js & WebView
 
@@ -124,18 +125,20 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 #### What Changed
 
 **Old approach (iframe + Ultraviolet proxy):**
+
 - The browser was completely broken — unable to properly browse most websites
 - UV proxy returning 400 and Bad Request errors
 - Cookie support broken, tab switching issues
 - Email app limited by iframe isolation
 
 **New approach (NW.js + WebView):**
+
 - ✅ Native browser rendering with full site compatibility
 - ✅ Cookie support now fully functional
 - ✅ Tab switching works reliably
 - ✅ Email app now uses webview — all iframe limitations removed
 - ✅ All UV proxy errors completely eliminated
-- ✅ Everything "just works" out of the box
+- ✅ Everything “just works” out of the box
 
 #### New Features in NBOSP Browser (Minor updates may still follow)
 
@@ -153,7 +156,7 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 
 Running `npm start` in the NBOSP folder now automatically opens the OS window. No manual browser navigation needed.
 
----
+-----
 
 ## 🔑 NovaByte Services — Licensing
 
@@ -187,15 +190,15 @@ Licenses are **only** considered for developers or teams who:
 If you meet the above criteria and want to bundle NovaByte Services into your OS:
 
 1. **Contact us** — reach out and describe your OS, your team, and what services you want to use
-2. **We review your request** — we assess whether your project qualifies
-3. **If approved**, we issue a license with specific terms for your use case
-4. **You must comply** with all conditions set in your license
+1. **We review your request** — we assess whether your project qualifies
+1. **If approved**, we issue a license with specific terms for your use case
+1. **You must comply** with all conditions set in your license
 
 **No permission = no bundling. There are no exceptions.**
 
-> We built these services from the ground up for a serious OS product. If you're building something at that level and want them in your product, reach out. NovaByte Services are not available to individuals or anyone outside of that scope — permission is required, and not everyone will get it.
+> We built these services from the ground up for a serious OS product. If you’re building something at that level and want them in your product, reach out. NovaByte Services are not available to individuals or anyone outside of that scope — permission is required, and not everyone will get it.
 
----
+-----
 
 ## 🔒 Repository Notice — v1, v2, and v3
 
@@ -218,35 +221,33 @@ without explicit permission from the NovaByte team.
 
 If you want a freely buildable base, use `NBOSP/` instead.
 
----
+-----
 
 ## ⚠️ Deprecation Notice: NovaByte OS 1.x.x
 
 > [!WARNING]
 > **NovaByte OS 1.x.x has reached End of Life and is no longer supported.**
->
-> | | Status |
-> |---|---|
-> | OS security patches | ❌ No further patches |
-> | New features | ❌ No backports |
-> | OS-level vulnerabilities | ❌ Devices are exposed and unpatched |
-> | Nova Core Services | ✅ Partial service-level patches continue |
->
+> 
+> |                        |Status                                  |
+> |------------------------|----------------------------------------|
+> |OS security patches     |❌ No further patches                    |
+> |New features            |❌ No backports                          |
+> |OS-level vulnerabilities|❌ Devices are exposed and unpatched     |
+> |Nova Core Services      |✅ Partial service-level patches continue|
+> 
 > **→ Upgrade to NovaByte OS 3.x.x:** download from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest)
 
----
+-----
 
 ## 📋 Versions
 
-| Version | Status | Last OS Patch | Core Services | Notes |
-|---------|:------:|:-------------:|:-------------:|-------|
-| **v1.8.21** | 🔴 End of Life | 2026-04-01 | ✅ Active | Final 1.x release, deprecated |
-| **v2.x.x** | 🟡 Maintenance | Active | ✅ Active | Stable, receiving security patches |
-| **v3.x.x** | 🟢 Current | Active | ✅ Active | Latest version, recommended — includes built-in **System Updates** app |
+|Version    |Status       |Last OS Patch|Core Services|Notes                                                                 |
+|-----------|:-----------:|:-----------:|:-----------:|----------------------------------------------------------------------|
+|**v1.8.21**|🔴 End of Life|2026-04-01   |✅ Active     |Final 1.x release, deprecated                                         |
+|**v2.x.x** |🟡 Maintenance|Active       |✅ Active     |Stable, receiving security patches                                    |
+|**v3.x.x** |🟢 Current    |Active       |✅ Active     |Latest version, recommended — includes built-in **System Updates** app|
 
----
-
-
+-----
 
 ## 🚀 Getting Started
 
@@ -270,7 +271,7 @@ The window opens automatically — no manual browser navigation needed.
 
 Download the compiled exe from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest), extract the zip, and run it. No Node.js or cloning required.
 
----
+-----
 
 ## 🗂 Repository Structure
 
@@ -290,7 +291,7 @@ novabyte-os/
 
 > v1/, v2/, and v3/ are closed source and not included in this repository.
 
----
+-----
 
 ## 🔄 Update System
 
@@ -300,9 +301,10 @@ v3 is closed source. Update instructions for v3 have been removed from this docu
 
 ### Setting Up Your Own Update System (NBOSP)
 
-NBOSP has no built-in update pipeline — if you build on top of it, you're responsible for shipping updates to your users. The simplest approach is a GitHub-based pipeline:
+NBOSP has no built-in update pipeline — if you build on top of it, you’re responsible for shipping updates to your users. The simplest approach is a GitHub-based pipeline:
 
 **1. Tag your releases**
+
 ```bash
 git tag v1.0.0
 git push --tags
@@ -315,13 +317,14 @@ Go to your repo → Releases → Draft a new release → select your tag → att
 **3. Check for updates at runtime**
 
 Poll the GitHub Releases API from your app on startup:
+
 ```js
 const res = await fetch('https://api.github.com/repos/YOUR_USERNAME/YOUR_REPO/releases/latest');
 const data = await res.json();
 // Compare data.tag_name against your current version
 ```
 
-If a newer tag exists, prompt the user to download the new release. That's the whole system — no server required.
+If a newer tag exists, prompt the user to download the new release. That’s the whole system — no server required.
 
 ### Nova Core Services Updates (v2 / v3 — internal)
 
@@ -331,41 +334,101 @@ If a newer tag exists, prompt the user to download the new release. That's the w
 3. Create a GitHub Release with your cs- tag and publish
 ```
 
----
+-----
 
 ## 🛡 Nova Core Services
 
-Nova Core Services is NovaByte's **independent security update pipeline** — separate from the main OS update system. Even when a version stops receiving OS-level patches, Nova Core Services continues pushing security fixes.
+Nova Core Services is NovaByte’s **independent security update pipeline** — separate from the main OS update system. Even when a version stops receiving OS-level patches, Nova Core Services continues pushing security fixes.
 
 > [!CAUTION]
 > **Want Nova Core Services in your own app or OS? You need a license from us. See [NovaByte Services — Licensing](#-novabyte-services--licensing).**
 
 ### v3.x.x — v2.x.x (Current / Maintenance)
 
-| Component | Files | Description |
-|-----------|-------|-------------|
-| 🔐 Security Runtime | `nova-security-api.js`, `app-sandbox.js` | Patch enforcement, iframe sandboxing, CSP, privilege brokering |
-| 🛡 Privacy Engine | `app-permission-manager.js` | Permission types, consent UI, grant/revoke enforcement |
-| 📦 Package Integrity | `app-package.js` | `.novaapp` creation, signing, verification, installation |
-| ⚡ App Runtime | `app-registry.js`, `web-app-manager.js`, `my-apps-manager.js` | App lifecycle, registry, web app management |
-| 💾 Session Manager | `session-manager.js`, `app-session-handlers.js` | Auto-save, crash recovery, per-app state persistence |
-| 🌐 NovaBridge | `api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js` | REST/WebSocket transport, OAuth flows, real-time sync |
-| 🚀 Performance Services | `sw.js` | Caching, offline support, push notifications |
-| 🔌 Driver Services | `driver-manager-ui.js` | Hardware driver installation and management |
-| ⚙️ System Shell | `user-power-menu.js` | Lock, log off, restart, shutdown with GPO enforcement |
+|Component             |Files                                                                             |Description                                                   |
+|----------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------|
+|🔐 Security Runtime    |`nova-security-api.js`, `app-sandbox.js`                                          |Patch enforcement, iframe sandboxing, CSP, privilege brokering|
+|🛡 Privacy Engine      |`app-permission-manager.js`                                                       |Permission types, consent UI, grant/revoke enforcement        |
+|📦 Package Integrity   |`app-package.js`                                                                  |`.novaapp` creation, signing, verification, installation      |
+|⚡ App Runtime         |`app-registry.js`, `web-app-manager.js`, `my-apps-manager.js`                     |App lifecycle, registry, web app management                   |
+|💾 Session Manager     |`session-manager.js`, `app-session-handlers.js`                                   |Auto-save, crash recovery, per-app state persistence          |
+|🌐 NovaBridge          |`api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js`|REST/WebSocket transport, OAuth flows, real-time sync         |
+|🚀 Performance Services|`sw.js`                                                                           |Caching, offline support, push notifications                  |
+|🔌 Driver Services     |`driver-manager-ui.js`                                                            |Hardware driver installation and management                   |
+|⚙️ System Shell        |`user-power-menu.js`                                                              |Lock, log off, restart, shutdown with GPO enforcement         |
 
 ### v1.x.x (End of Life — limited coverage)
 
-| Component | Files | Description |
-|-----------|-------|-------------|
-| ⚡ App Runtime | `web-app-manager.js` | Web app management |
-| 💾 Session Manager | `session-manager.js`, `app-session-handlers.js` | Auto-save, crash recovery |
-| 🌐 NovaBridge | `api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js` | Transport, OAuth, sync |
-| 🚀 Performance Services | `sw.js` | Caching, offline support |
-| ⚙️ System Shell | `user-power-menu.js` | Power menu with GPO enforcement |
+|Component             |Files                                                                             |Description                    |
+|----------------------|----------------------------------------------------------------------------------|-------------------------------|
+|⚡ App Runtime         |`web-app-manager.js`                                                              |Web app management             |
+|💾 Session Manager     |`session-manager.js`, `app-session-handlers.js`                                   |Auto-save, crash recovery      |
+|🌐 NovaBridge          |`api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js`|Transport, OAuth, sync         |
+|🚀 Performance Services|`sw.js`                                                                           |Caching, offline support       |
+|⚙️ System Shell        |`user-power-menu.js`                                                              |Power menu with GPO enforcement|
 
+## 🔍 Privacy & No Telemetry — Fully Verified
 
+> [!NOTE]
+> **NovaByte OS does not track you. Zero telemetry. Zero analytics. Zero data collection. This is fully verifiable.**
 
+### The Short Answer
+
+NovaByte collects **nothing** from you. No usage data, no crash reports phoned home, no analytics pings, no identifiers, no behavioral tracking — nothing. This is not a policy promise buried in fine print. It is a technical reality you can verify yourself.
+
+### How to Verify It Yourself
+
+NBOSP is **fully open source** and publicly available at:
+
+**→ [github.com/NovaByteTeam/novabyte-os — NBOSP folder](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)**
+
+You can read every line of code. Here is exactly what to look for — and what you will not find:
+
+|What trackers look like                                                               |Status in NBOSP|
+|--------------------------------------------------------------------------------------|---------------|
+|Calls to analytics endpoints (e.g. `api.segment.io`, `collect.mixpanel.com`, `gtm.js`)|❌ Not present  |
+|`navigator.sendBeacon()` calls sending usage data                                     |❌ Not present  |
+|Any `fetch()` or `XMLHttpRequest` to a remote telemetry server                        |❌ Not present  |
+|Fingerprinting (canvas, audio, font enumeration)                                      |❌ Not present  |
+|Third-party tracking scripts loaded at runtime                                        |❌ Not present  |
+|Any remote logging of user actions, sessions, or errors                               |❌ Not present  |
+
+You do not have to take our word for it — **the code is right there.**
+
+### What Network Calls Does NovaByte Actually Make?
+
+The only outbound network calls NovaByte makes are ones **you explicitly trigger**:
+
+- **NBOSP Browser** — fetches websites you navigate to. Obviously.
+- **System Updates (v3 only)** — polls the GitHub Releases API to check if a newer version exists. This is a plain `GET` to `api.github.com/repos/NovaByteTeam/novabyte-os/releases/latest` — public, unauthenticated, no payload sent, no user data attached.
+- **NovaBridge / OAuth (v2/v3)** — connects to services you explicitly authenticate with (e.g. email, calendar). These are your sessions, not ours.
+- **Nova Core Services security patches** — fetches update manifests from our GitHub Releases. Again, a plain unauthenticated `GET`. No user data is sent.
+
+Nothing phones home silently. Nothing runs in the background without your action.
+
+### NBOSP Specifically
+
+NBOSP, the open-source base of NovaByte, explicitly has **no telemetry** — this is called out in the codebase and architecture by design. Because it is fully open source, this is not a claim — it is a fact anyone can audit:
+
+```
+git clone https://github.com/NovaByteTeam/novabyte-os.git
+cd novabyte-os/NBOSP
+grep -r "telemetry\|analytics\|sendBeacon\|segment\|mixpanel\|gtag\|_gaq\|dataLayer" .
+```
+
+That grep returns **nothing.** Empty. Because it is not there.
+
+### What About v3 (Closed Source)?
+
+v3 is closed source, so you cannot audit its binary directly — that is the nature of close-source software. However:
+
+- The network architecture is identical to NBOSP (no telemetry endpoints exist in the infrastructure)
+- v3 does not connect to any NovaByte-owned analytics or data collection server — there is no such server
+- The only outbound calls v3 makes are the same ones listed above: update checks (public GitHub API, no payload) and user-initiated service connections
+
+If you require full auditability with zero trust assumptions, **NBOSP is your answer** — it is open, forkable, and zero-telemetry by design.
+
+-----
 
 ## 🔐 Security
 
@@ -375,8 +438,7 @@ Nova Core Services is NovaByte's **independent security update pipeline** — se
 
 If you discover a security vulnerability, please **open a private issue** or contact the maintainer directly rather than filing a public bug report.
 
----
-
+-----
 
 ## 📄 License
 
@@ -384,13 +446,13 @@ If you discover a security vulnerability, please **open a private issue** or con
 
 ### 📜 Repository License Breakdown
 
-| Directory | License Type | Terms & Permissions |
-| :--- | :--- | :--- |
-| 📁 `NBOSP/` | **Apache 2.0 License** | Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text. |
-| 📁 `v1/`, `v2/`, `v3/` | **All Rights Reserved** | Closed source. Source not included in this repo. Compiled exe available via Releases. |
+|Directory            |License Type           |Terms & Permissions                                                                                                        |
+|:--------------------|:----------------------|:--------------------------------------------------------------------------------------------------------------------------|
+|📁 `NBOSP/`           |**Apache 2.0 License** |Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text.|
+|📁 `v1/`, `v2/`, `v3/`|**All Rights Reserved**|Closed source. Source not included in this repo. Compiled exe available via Releases.                                      |
 
 *See `NBOSP/LICENSE` for the complete Apache 2.0 legal text governing the open-source base.*
 
----
+-----
 
 *NovaByte OS is a  project. Built with care.*
