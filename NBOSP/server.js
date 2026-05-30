@@ -302,7 +302,6 @@ process.on('unhandledRejection', (reason) => {
         if (cached && (Date.now() - cached.ts) < FAVICON_TTL) {
             res.setHeader('Content-Type', cached.mime);
             res.setHeader('Cache-Control', 'public, max-age=86400');
-            res.setHeader('X-Favicon-Cache', 'HIT');
             return res.send(cached.buf);
         }
 
@@ -318,7 +317,6 @@ process.on('unhandledRejection', (reason) => {
 
         res.setHeader('Content-Type', mime);
         res.setHeader('Cache-Control', 'public, max-age=86400');
-        res.setHeader('X-Favicon-Cache', 'MISS');
         res.send(buf);
     });
     // ── End Favicon Proxy ─────────────────────────────────────────────────────
@@ -361,11 +359,7 @@ process.on('unhandledRejection', (reason) => {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.sendFile(path.join(__dirname, 'app.js'));
     });
-    app.get('/modules.js', (req, res) => {
-        res.setHeader('Content-Type', 'application/javascript');
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-        res.sendFile(path.join(__dirname, 'modules.js'));
-    });
+    // modules.js intentionally removed — file no longer exists in the project.
     app.get('/style.css', (req, res) => {
         res.setHeader('Content-Type', 'text/css');
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -459,7 +453,6 @@ process.on('unhandledRejection', (reason) => {
         res.status(200).json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
-            uptime: process.uptime(),
             service: 'NovaByte'
         });
     });
@@ -468,24 +461,11 @@ process.on('unhandledRejection', (reason) => {
         res.status(200).json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
-            uptime: process.uptime(),
             service: 'NovaByte'
         });
     });
 
-    // API info
-    app.get('/api/info', (req, res) => {
-        res.json({
-            name: 'NovaByte NBOSP API',
-            version: '1.0.0',
-            baseUrl: '/api',
-            endpoints: {
-                security: '/api/security - Security settings',
-                mail: '/api/mail/proxy - Browser proxy'
-            },
-            docs: 'All endpoints accept JSON, authentication via session cookie'
-        });
-    });
+    // /api/info intentionally removed — endpoint enumeration is a recon vector.
 
     // Browser tracking parameter stripper
     app.get('/api/security/strip-tracking', (req, res) => {
@@ -510,8 +490,12 @@ process.on('unhandledRejection', (reason) => {
         // Block internal/private hosts
         const h = urlObj.hostname.toLowerCase();
         const BLOCKED = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
-        const BLOCKED_PREFIXES = ['10.', '192.168.', '172.'];
-        if (BLOCKED.includes(h) || BLOCKED_PREFIXES.some(p => h.startsWith(p)) || h.endsWith('.local')) {
+        const BLOCKED_PREFIXES = ['10.', '192.168.',
+            '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.',
+            '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.',
+            '172.28.', '172.29.', '172.30.', '172.31.',
+            '169.254.', '100.64.'];
+        if (BLOCKED.includes(h) || BLOCKED_PREFIXES.some(p => h.startsWith(p)) || h.endsWith('.local') || h.endsWith('.internal')) {
             return res.status(400).json({ error: 'Internal URLs are not permitted' });
         }
 
