@@ -216,11 +216,11 @@ Beyond the two required apps, you may choose to include any of the following:
 |-----|-------------|
 | 🎵 **Resonance** | Music and audio player |
 | 🖼 **Prism** | Image viewer and media gallery |
-| 🛒 **Marketplace** | App store and package manager |
-| 🎨 **PixelDrop** | Image editing and design tool |
+| 🛒 **Marketplace** | App store |
+| 🎨 **PixelDrop** | Notes App |
 | 📄 **Lumina** | Document viewer and PDF reader |
 | 🛡 **NovaSentinel** | Security dashboard and threat monitoring |
-| 🔐 **Encryption Vault** | File and disk encryption manager |
+| 🔐 **Encryption Vault** | Key generation app with military-grade types |
 | 🖩 **Calc+** | Advanced calculator |
 | 🕐 **NovaClock** | Clock, alarms, timers, and world time |
 
