@@ -6396,9 +6396,143 @@ self.onmessage = async (e) => {
 
           const stripHttps = url => url ? url.replace(/^https:\/\//, '') : '';
 
-          urlBar.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(urlBar.value); });
+          // ── Omnibox dropdown ────────────────────────────────────────────────
+          // Appended to `container` (not urlBarWrap) so it escapes the
+          // translateZ(0) stacking context on .browser-toolbar that would
+          // otherwise clip the dropdown inside the toolbar's paint layer.
+          // Position is set via getBoundingClientRect on every open.
+          const omniDrop = createEl('div', { className: 'omnibox-dropdown' });
+          omniDrop.setAttribute('role', 'listbox');
+          container.appendChild(omniDrop);
+
+          function omniReposition() {
+            const r = urlBar.getBoundingClientRect();
+            const cr = container.getBoundingClientRect();
+            omniDrop.style.top   = (r.bottom - cr.top + 6) + 'px';
+            omniDrop.style.left  = (r.left   - cr.left)    + 'px';
+            omniDrop.style.width = r.width + 'px';
+          }
+
+          let omniItems = [], omniIdx = -1, omniTimer = null, omniXhr = null;
+
+          function omniClose() {
+            omniDrop.style.display = 'none';
+            omniDrop.innerHTML = '';
+            omniItems = []; omniIdx = -1;
+          }
+
+          function omniHighlight(idx) {
+            omniDrop.querySelectorAll('.omni-row').forEach((r, i) => r.classList.toggle('active', i === idx));
+            omniIdx = idx;
+          }
+
+          function omniRender(items) {
+            omniDrop.innerHTML = '';
+            omniItems = items;
+            omniIdx = -1;
+            if (!items.length) { omniDrop.style.display = 'none'; return; }
+            omniReposition();
+            items.forEach((item, i) => {
+              const row = createEl('div', { className: 'omni-row', role: 'option' });
+              const ic  = createEl('span', { className: 'omni-icon' });
+              ic.innerHTML = item.type === 'history'  ? svgIcon('clock',    13)
+                           : item.type === 'bookmark' ? svgIcon('bookmark', 13)
+                           :                            svgIcon('search',   13);
+              const tx = createEl('span', { className: 'omni-text' });
+              tx.textContent = item.label;
+              if (item.sub) {
+                const sb = createEl('span', { className: 'omni-sub' });
+                sb.textContent = item.sub;
+                row.append(ic, tx, sb);
+              } else {
+                row.append(ic, tx);
+              }
+              row.addEventListener('mousedown', e => { e.preventDefault(); omniClose(); navigate(item.url || item.label); });
+              row.addEventListener('mousemove', () => omniHighlight(i));
+              omniDrop.appendChild(row);
+            });
+            omniDrop.style.display = 'block';
+          }
+
+          async function fetchSuggestions(q, signal) {
+            const eng = getSetting('searchEngine', 'google');
+            try {
+              const r = await fetch(
+                `/api/suggest?engine=${encodeURIComponent(eng)}&q=${encodeURIComponent(q)}`,
+                { signal }
+              );
+              if (!r.ok) return [];
+              const j = await r.json();
+              return j.suggestions || [];
+            } catch { return []; }
+          }
+
+          async function omniQuery(raw) {
+            const q = raw.trim();
+            if (!q) { omniClose(); return; }
+
+            // Local sources — instant
+            const lq = q.toLowerCase();
+            const bkItems = loadBookmarks()
+              .filter(b => b.url.toLowerCase().includes(lq) || (b.title || '').toLowerCase().includes(lq))
+              .slice(0, 3)
+              .map(b => ({ type: 'bookmark', label: b.title || b.url, sub: b.url, url: b.url }));
+            const hxItems = loadHistory()
+              .filter(h => h.url.toLowerCase().includes(lq) || (h.title || '').toLowerCase().includes(lq))
+              .slice(0, 4)
+              .map(h => ({ type: 'history', label: h.title || h.url, sub: h.url, url: h.url }));
+
+            omniRender([...bkItems, ...hxItems]);
+
+            // Skip remote fetch for single-char queries — results are noise
+            if (q.length < 2) return;
+
+            // Abort any in-flight request before starting a new one
+            if (omniXhr) omniXhr.abort();
+            const controller = new AbortController();
+            omniXhr = controller;
+
+            const suggestions = await fetchSuggestions(q, controller.signal);
+            if (controller.signal.aborted) return;
+
+            const sugItems = suggestions
+              .filter(s => !bkItems.some(b => b.label === s) && !hxItems.some(h => h.label === s))
+              .map(s => ({ type: 'suggest', label: s, url: null }));
+
+            omniRender([...bkItems, ...hxItems, ...sugItems]);
+          }
+
+          // ── URL bar events ──────────────────────────────────────────────────
+          urlBar.addEventListener('keydown', e => {
+            if (omniDrop.style.display === 'block') {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                omniHighlight(Math.min(omniIdx + 1, omniItems.length - 1));
+                if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                omniHighlight(Math.max(omniIdx - 1, 0));
+                if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
+                return;
+              }
+              if (e.key === 'Escape') { omniClose(); return; }
+            }
+            if (e.key === 'Enter') {
+              const val = omniIdx >= 0 ? (omniItems[omniIdx].url || omniItems[omniIdx].label) : urlBar.value;
+              omniClose();
+              navigate(val);
+            }
+          });
+
+          urlBar.addEventListener('input', () => {
+            clearTimeout(omniTimer);
+            omniTimer = setTimeout(() => omniQuery(urlBar.value), 120);
+          });
+
           urlBar.addEventListener('focus', () => { urlBar.value = currentUrl || ''; });
-          urlBar.addEventListener('blur', () => { urlBar.value = stripHttps(currentUrl || urlBar.value); });
+          urlBar.addEventListener('blur',  () => { setTimeout(omniClose, 150); urlBar.value = stripHttps(currentUrl || urlBar.value); });
 
           // F12 → main window DevTools (NW.js requires programmatic open)
           // Ctrl+Shift+J → DevTools INSIDE the active webview (for debugging)

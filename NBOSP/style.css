@@ -4753,6 +4753,7 @@
       height: 100%;
       background: var(--bg-base);
       transform: translateZ(0);
+      position: relative;
     }
 
     /* ── Tabs Bar ── */
@@ -5009,6 +5010,58 @@
     .browser-url-secure.http {
       background: rgba(210, 153, 34, 0.13);
       color: var(--text-warning);
+    }
+
+    /* ── Omnibox dropdown ── */
+    .omnibox-dropdown {
+      display: none;
+      position: absolute;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-default);
+      border-radius: 10px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+      z-index: 99999;
+      backdrop-filter: blur(16px);
+    }
+
+    .omni-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 12.5px;
+      color: var(--text-primary);
+      transition: background 80ms;
+    }
+
+    .omni-row.active,
+    .omni-row:hover {
+      background: rgba(88, 166, 255, 0.10);
+    }
+
+    .omni-icon {
+      flex-shrink: 0;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+    }
+
+    .omni-text {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .omni-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 180px;
     }
 
     /* ── Viewport ── */

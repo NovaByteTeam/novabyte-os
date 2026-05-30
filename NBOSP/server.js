@@ -131,6 +131,8 @@ process.on('unhandledRejection', (reason) => {
             // These have their own dedicated limiters and fire many times per email/page load
             if (req.path === '/api/email-image') return true;
             if (req.path === '/api/favicon') return true;
+            // Suggest fires on every keystroke; has its own suggestLimiter (120/min)
+            if (req.path === '/api/suggest') return true;
             return false;
         }
     });
@@ -554,6 +556,100 @@ process.on('unhandledRejection', (reason) => {
         res.send(buf);
     });
     // ── End Favicon Proxy ─────────────────────────────────────────────────────
+
+    // ── Search Suggest Proxy ──────────────────────────────────────────────────
+    // Fetches search-engine autocomplete suggestions server-side so the user's
+    // IP is never sent to Google, DuckDuckGo, Bing, etc.
+    //
+    // Security: same SSRF guard pattern as favicon/email-image proxies.
+    // Cache: in-memory Map, 60s TTL (suggestions go stale fast), 2000 entry cap.
+    // Rate limit: 120 req/min per IP — one request per keystroke at normal typing speed.
+
+    const suggestCache = new Map(); // key: `${engine}:${q}` → { data, ts }
+    const SUGGEST_TTL     = 60 * 1000; // 60 seconds
+    const SUGGEST_MAX     = 2000;
+    const SUGGEST_TIMEOUT = 3000;      // 3s — users won't wait longer than this
+
+    const SUGGEST_ENGINES = {
+        google:     q => `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(q)}`,
+        duckduckgo: q => `https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}&type=list`,
+        bing:       q => `https://api.bing.com/qsonhs.aspx?q=${encodeURIComponent(q)}`,
+        brave:      q => `https://search.brave.com/api/suggest?q=${encodeURIComponent(q)}`,
+        ecosia:     q => `https://ac.ecosia.org/autocomplete?q=${encodeURIComponent(q)}&type=list`,
+        yahoo:      q => `https://search.yahoo.com/sugg/gossip/gossip-us-ura/?appid=vs&output=json&command=${encodeURIComponent(q)}`,
+    };
+
+    // Normalise every engine's response format to a plain string[].
+    function parseSuggestions(engine, json) {
+        try {
+            if (engine === 'bing') {
+                return (json?.AS?.Results?.[0]?.Suggests || []).map(s => s.Txt).filter(Boolean).slice(0, 8);
+            }
+            if (engine === 'yahoo') {
+                return (json?.gossip?.results || []).map(s => s.key).filter(Boolean).slice(0, 8);
+            }
+            // google / duckduckgo / brave / ecosia → ["query", ["s1","s2",...]]
+            return (Array.isArray(json?.[1]) ? json[1] : []).filter(Boolean).slice(0, 8);
+        } catch { return []; }
+    }
+
+    const suggestLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 120,
+        message: { error: 'Too many suggest requests, slow down.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+    });
+
+    app.get('/api/suggest', suggestLimiter, async (req, res) => {
+        const q      = (req.query.q      || '').trim();
+        const engine = (req.query.engine || 'google').toLowerCase();
+
+        if (!q)                        return res.status(400).json({ error: 'q parameter is required' });
+        if (q.length > 200)            return res.status(400).json({ error: 'Query too long' });
+        if (!SUGGEST_ENGINES[engine])  return res.status(400).json({ error: 'Unknown engine' });
+
+        const cacheKey = `${engine}:${q}`;
+        const cached   = suggestCache.get(cacheKey);
+        if (cached && (Date.now() - cached.ts) < SUGGEST_TTL) {
+            res.setHeader('Cache-Control', 'private, max-age=60');
+            return res.json({ suggestions: cached.data });
+        }
+
+        const upstreamUrl = SUGGEST_ENGINES[engine](q);
+        const controller  = new AbortController();
+        const timer       = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT);
+
+        try {
+            const upstream = await fetch(upstreamUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)',
+                    'Accept':     'application/json, */*;q=0.8',
+                },
+                signal: controller.signal,
+            });
+            clearTimeout(timer);
+
+            if (!upstream.ok) return res.status(502).json({ suggestions: [] });
+
+            const json        = await upstream.json();
+            const suggestions = parseSuggestions(engine, json);
+
+            // Evict oldest entry if at capacity
+            if (suggestCache.size >= SUGGEST_MAX) {
+                suggestCache.delete(suggestCache.keys().next().value);
+            }
+            suggestCache.set(cacheKey, { data: suggestions, ts: Date.now() });
+
+            res.setHeader('Cache-Control', 'private, max-age=60');
+            res.json({ suggestions });
+        } catch (err) {
+            clearTimeout(timer);
+            // Abort (timeout) or network error — return empty rather than 500
+            res.status(502).json({ suggestions: [] });
+        }
+    });
+    // ── End Search Suggest Proxy ──────────────────────────────────────────────
 
     // ── Email Image Proxy ─────────────────────────────────────────────────────
     // Fetches email images server-side so the user's IP is never sent to the

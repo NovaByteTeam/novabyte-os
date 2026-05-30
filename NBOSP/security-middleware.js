@@ -125,6 +125,15 @@ function ipThrottleMiddleware(req, res, next) {
     if (req.path.startsWith('/api/email-image')) {
         return next();
     }
+    // Search suggest proxy — fires on every keystroke (debounced to ~120ms);
+    // has its own dedicated suggestLimiter (120/min) in server.js
+    if (req.path.startsWith('/api/suggest')) {
+        return next();
+    }
+    // Favicon proxy — has its own dedicated faviconLimiter in server.js
+    if (req.path.startsWith('/api/favicon')) {
+        return next();
+    }
 
     const clientIP = getClientIP(req);
     const now = Date.now();
@@ -356,8 +365,7 @@ function sanitizeString(str) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#x27;')
-        .replace(/\//g, '&#x2F;');
+        .replace(/'/g, '&#x27;');
 }
 
 /**
