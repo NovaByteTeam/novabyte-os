@@ -34,7 +34,7 @@ Most software treats your data as a side effect — something that leaks out as 
 
 **No external dependencies out of the box** — NovaByte ships fully self-contained. There are no calls to CDNs, no fonts loaded from Google, no icons pulled from third-party servers. Everything the OS needs to run is bundled locally. From the moment you launch it, nothing loads from anywhere you did not explicitly navigate to.
 
-**The browser protects you silently** — favicon requests are routed through a server-side proxy so your IP never reaches Google's favicon service. Search suggestions are fetched through a server-side proxy so every partial query you type stays between you and the server — Google, DuckDuckGo, Bing, and others never see your IP or your keystrokes. Tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. The experience looks identical to a normal browser. The difference is what the other side never receives.
+**The browser protects you silently** — favicon requests are routed through a server-side proxy so your IP never reaches Google's favicon service. Search suggestions are fetched through a server-side proxy that strips browser fingerprinting headers and caches results, so suggestion APIs never receive Chromium-specific signals or your cookie jar. Like Brave without a VPN, your IP address is still visible to suggestion endpoints on a local install — if IP masking matters to you, run a VPN. Tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. The experience looks identical to a normal browser. The difference is what the other side never receives.
 
 **The email client is private by design** — opening an email in most clients silently tells the sender you read it, when you read it, and roughly where you are. NovaByte removes all of that. Remote images are proxied server-side so your IP never reaches a sender's tracking server. Known tracker pixels are blocked entirely — the server returns a blank placeholder without making any upstream request, so the sender gets no signal whatsoever. CSS-embedded trackers, redirect link wrappers, and tracking query parameters are all stripped before the email renders. You see the email exactly as intended. The sender sees nothing.
 
@@ -158,7 +158,7 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 
 #### New Features in NBOSP Browser (Minor updates may still follow)
 
-- **Private Search Suggestions** — as you type in the address bar, autocomplete suggestions are fetched through a server-side proxy (`/api/suggest`). Your IP and partial queries never reach Google, DuckDuckGo, Bing, or any other engine directly. Results are cached server-side for 60 seconds. Supports all six built-in engines and automatically uses whichever is selected in browser settings.
+- **Search Suggestions Proxy** — as you type in the address bar, autocomplete suggestions are fetched through a server-side proxy (`/api/suggest`) rather than directly from the browser. This strips Chromium-specific fingerprinting headers and caches results server-side for 60 seconds. Note: like Brave without a VPN, your IP is still visible to suggestion engines on a local install — run a VPN if IP masking matters to you. Supports all six built-in engines and automatically uses whichever is selected in browser settings.
 - **Bookmarks** — Save and organize your favorite websites
 - **History** — View and quickly access previously visited pages
 - **Find in Page** — Search for text within a page using Ctrl+F
@@ -206,7 +206,7 @@ These two apps **must be bundled** in any NovaByte Services-licensed OS, shippin
 
 | App | Description |
 |-----|-------------|
-| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, server-side favicon proxying, private server-side search suggestions (your IP never reaches any suggestion API), per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
+| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, server-side favicon proxying, a server-side search suggestion proxy that strips browser fingerprinting headers (note: does not mask your IP on a local install — use a VPN for that), per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
 | 📧 **NovaMail** | NovaByte's proprietary email client. Must ship alongside your own email app. Includes full multi-layer privacy protection — tracker pixel blocking, CSS tracker stripping, link unwrapping, tracking parameter removal, and full script sandboxing. |
 
 #### Optional Apps (choose any)
@@ -451,7 +451,7 @@ You do not have to take our word for it — **the code is right there.**
 
 The only outbound network calls NovaByte makes are ones **you explicitly trigger**:
 
-- **NBOSP Browser** — fetches websites you navigate to. Obviously. Address bar search suggestions are fetched server-side through `/api/suggest` — your IP and partial queries never reach any search engine directly.
+- **NBOSP Browser** — fetches websites you navigate to. Obviously. Address bar search suggestions are routed through `/api/suggest` rather than the browser directly, stripping fingerprinting headers — but on a local install your IP is still visible to suggestion engines. Use a VPN if IP masking matters to you.
 - **System Updates (v3 only)** — polls the GitHub Releases API to check if a newer version exists. This is a plain `GET` to `api.github.com/repos/NovaByteTeam/novabyte-os/releases/latest` — public, unauthenticated, no payload sent, no user data attached.
 - **NovaBridge / OAuth (v2/v3)** — connects to services you explicitly authenticate with (e.g. email, calendar). These are your sessions, not ours.
 - **Nova Core Services security patches** — fetches update manifests from our GitHub Releases. Again, a plain unauthenticated `GET`. No user data is sent.
