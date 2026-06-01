@@ -141,7 +141,7 @@ process.on('unhandledRejection', (reason) => {
     // Tiered email rate limiters — split by frequency of legitimate use:
     //   connect/disconnect/preview: called on every folder switch and email open, needs headroom
     //   messages/search/folders:    moderate — paging and searching
-    //   send/delete/move/batch:     strict — state-modifying actions, low legitimate frequency
+    //   send/batch:                 strict — state-modifying actions, low legitimate frequency
 
     const emailConnectLimiter = rateLimit({
         windowMs: 60 * 1000,
@@ -182,11 +182,10 @@ process.on('unhandledRejection', (reason) => {
     app.use('/api/email/folders',    emailReadLimiter);
     app.use('/api/email/search',     emailReadLimiter);
 
-    // Write endpoints — send, delete, move, batch
+    // Write endpoints — send, batch
     app.use('/api/email/send',       emailWriteLimiter);
-    app.use('/api/email/delete',     emailWriteLimiter);
-    app.use('/api/email/move',       emailWriteLimiter);
     app.use('/api/email/batch',      emailWriteLimiter);
+    // /delete and /move removed — use POST /batch with op:'delete'/'move' instead.
 
     // Body parsing middleware
     app.use(express.json({ limit: '10mb' }));

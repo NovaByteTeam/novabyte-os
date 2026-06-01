@@ -2352,10 +2352,13 @@ self.onmessage = async (e) => {
           const maxH = Math.max(minH, vh);
           const width = Math.min(Math.max(w, minW), maxW);
           const height = Math.min(Math.max(h, minH), maxH);
-          // Horizontal: keep at least 80px of the window visible on each side
+          // Horizontal: keep at least 80px of the window visible on each side.
+          // Use window.innerWidth (not area.right) as the hard right boundary so a
+          // window can never be placed beyond the actual viewport edge — which would
+          // widen the document and cause the page to scroll horizontally.
           const grabMarginH = 80;
           const minX = area.left - width + grabMarginH;
-          const maxX = area.right - grabMarginH;
+          const maxX = Math.min(area.right, window.innerWidth) - grabMarginH;
           // Vertical: top edge must stay within the screen top + work area top
           // (so titlebar is reachable), and bottom is clamped to the taskbar top
           // so the titlebar can never be dragged fully behind the taskbar.
@@ -2447,14 +2450,25 @@ self.onmessage = async (e) => {
             if (state.maximized) {
               state.maximized = false;
               state.element.classList.remove('maximized');
+              // Close the notification panel so it can't sit over the titlebar
+              // and feed an off-screen clientX into the restored position calc.
+              const _np = document.getElementById('notification-panel');
+              if (_np && _np.classList.contains('active')) {
+                _np.classList.remove('active');
+              }
               if (state.preMaxState) {
                 state.width = state.preMaxState.w;
                 state.height = state.preMaxState.h;
                 state.element.style.width = state.width + 'px';
                 state.element.style.height = state.height + 'px';
+                // Clamp the click X to the safe visible area so the restored window
+                // is never placed off-screen (e.g. when the notification panel was
+                // open and the user clicked through it at a far-right clientX).
+                const _safeMaxX = window.innerWidth - 80;
+                const _safeClientX = Math.min(e.clientX, _safeMaxX);
                 const restored = WM.clampWindowRect(
                   state,
-                  e.clientX - (state.width / 2),
+                  _safeClientX - (state.width / 2),
                   e.clientY - 10,
                   state.width,
                   state.height
@@ -3197,6 +3211,8 @@ self.onmessage = async (e) => {
       OS.openUrl = function (url) {
         if (!url) return;
         if (/^(javascript|data|vbscript):/i.test(url.trim())) return;
+        // Block localhost / private / loopback addresses at the OS level too
+        if (typeof isLocalAddress === 'function' && isLocalAddress(url)) return;
         WM.createWindow('browser', { url });
       };
 
@@ -6294,12 +6310,42 @@ self.onmessage = async (e) => {
             viewport.appendChild(page);
           }
 
+          // Returns true for localhost / loopback / RFC-1918 / link-local addresses.
+          // Used to block users from navigating to internal network resources.
+          function isLocalAddress(rawUrl) {
+            let hostname;
+            try {
+              // Normalise: prepend scheme if missing so URL() can parse it
+              const normalized = /^https?:\/\//i.test(rawUrl) ? rawUrl : 'https://' + rawUrl;
+              hostname = new URL(normalized).hostname.toLowerCase().replace(/\.$/, '');
+            } catch { return false; }
+            // Exact names
+            if (hostname === 'localhost') return true;
+            // IPv6 loopback
+            if (hostname === '[::1]' || hostname === '::1') return true;
+            // Strip IPv6 brackets for regex checks below
+            const h = hostname.replace(/^\[|\]$/g, '');
+            // IPv4 loopback (127.x.x.x), link-local (169.254.x.x),
+            // RFC-1918 private ranges (10.x, 172.16-31.x, 192.168.x)
+            return /^127\./.test(h) ||
+                   /^169\.254\./.test(h) ||
+                   /^10\./.test(h) ||
+                   /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+                   /^192\.168\./.test(h);
+          }
+
           function navigate(rawUrl) {
             if (!rawUrl) return;
             let url = rawUrl.trim();
             // Block dangerous schemes — must check before any branching
             const _lowerUrl = url.toLowerCase().replace(/^[\s\u0000-\u001f]+/, '');
             if (/^(javascript|data|vbscript|about):/i.test(_lowerUrl)) return;
+
+            // Block navigation to localhost / private / loopback addresses
+            if (isLocalAddress(url)) {
+              Notify.show({ title: 'Browser', body: 'Navigation to local or private network addresses is not allowed.', type: 'error', appName: 'Browser' });
+              return;
+            }
 
             // ── browser://settings ────────────────────────────────────────
             if (url === 'browser://settings') {
@@ -12918,9 +12964,12 @@ wireRecoveryControls();
 
             if (existing) {
               const delBtn = createEl('button', { className: 'em-btn danger', textContent: 'Remove', style: 'flex-shrink:0;' });
-              delBtn.addEventListener('click', () => {
+              delBtn.addEventListener('click', async () => {
                 accounts = accounts.filter(a => a.id !== existing.id);
                 saveAccts();
+                // Clear session credentials for the removed account so the server
+                // doesn't retain them in req.session.emailCreds after removal.
+                api('POST', '/disconnect').catch(() => { });
                 if (!accounts.length) { setupScreen.style.display = 'none'; mainEl.style.display = ''; showEmpty(); buildSetup(null); }
                 else { activeAcctId = accounts[0].id; showMain(); }
               });
@@ -13174,46 +13223,18 @@ wireRecoveryControls();
             // Body
             const bodyEl = createEl('div', { className: 'em-reader-body' });
             if (full.html) {
-              // Rewrite all remote image URLs to go through the local proxy so the
-              // user's IP is never sent to tracking servers or CDNs.
-              // Done client-side to avoid a server round-trip and CSRF complications.
-              function proxyEmailSrc(src) {
-                if (/^https?:\/\//i.test(src) && OS.settings.get('proxyEmailImages') !== false)
-                  return '/api/email-image?url=' + encodeURIComponent(src);
-                return src;
-              }
-              const proxiedHtml = full.html
-                // <img src="http...">
-                .replace(/(<img\b[^>]*?\bsrc\s*=\s*)(['"])(https?:\/\/[^'">\s]+)\2/gi,
-                  (_, pre, q, src) => `${pre}${q}${proxyEmailSrc(src)}${q}`)
-                // srcset="http... 1x, http... 2x"
-                .replace(/(<img\b[^>]*?\bsrcset\s*=\s*)(['"])(.*?)\2/gi,
-                  (_, pre, q, srcset) => `${pre}${q}${srcset.replace(/https?:\/\/[^\s,'"]+/gi, u => proxyEmailSrc(u.trim()))}${q}`)
-                // background-image: url(http...)
-                .replace(/background(?:-image)?\s*:\s*url\(\s*(['"]?)(https?:\/\/[^)'"]+)\1\s*\)/gi,
-                  (_, q, src) => `background-image: url(${q}${proxyEmailSrc(src)}${q})`)
-                // <td background="http...">
-                .replace(/(\bbackground\s*=\s*)(['"])(https?:\/\/[^'">\s]+)\2/gi,
-                  (_, pre, q, src) => `${pre}${q}${proxyEmailSrc(src)}${q}`)
-                // strip meta-refresh and base tags
-                .replace(/<meta[^>]*http-equiv\s*=\s*["']refresh["'][^>]*>/gi, '')
-                .replace(/<base[^>]*>/gi, '');
-
-              // CSP: lock img-src to self when proxy is on, allow all when off
-              const imgSrc = OS.settings.get('proxyEmailImages') !== false
-                ? "'self' data: blob:"
-                : "* data: blob:";
-              const safeHtml = '<!DOCTYPE html>'
-                + `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src ${imgSrc}; font-src 'self'; script-src 'none'; object-src 'none';">`
-                + proxiedHtml;
-
+              // The server sanitises full.html in GET /message before returning it
+              // (rewriteEmailImages + rewriteEmailLinks + sanitizeEmailHtml).
+              // Set srcdoc directly — no token round-trip, no NW.js iframe-src issues.
               const iframe = createEl('iframe', {
                 sandbox: 'allow-popups allow-popups-to-escape-sandbox',
                 title: 'Email body', referrerpolicy: 'no-referrer'
               });
               iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block;';
-              iframe.srcdoc = safeHtml;
-
+              const html = full.html;
+              const hasDoc = /^<!doctype/i.test(html.trimStart()) || /^<html[\s>]/i.test(html.trimStart());
+              iframe.srcdoc = hasDoc ? html
+                : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + html + '</body></html>';
               bodyEl.appendChild(iframe);
               readerEl.appendChild(bodyEl);
             } else {
@@ -13426,9 +13447,16 @@ wireRecoveryControls();
             showEmpty();
           }
 
-          // Fetch a fresh CSRF token before doing anything so that POST /preview,
-          // Read CSRF token directly from the server-injected meta tag — no fetch needed.
+          // Read CSRF token from the server-injected meta tag. If the meta tag is
+          // absent (e.g. loaded as a standalone file without the server's HTML pass),
+          // fall back to GET /api/email/csrf-token so POST requests still work.
           window.__csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+          if (!window.__csrfToken) {
+            fetch('/api/email/csrf-token', { credentials: 'include' })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.csrfToken) window.__csrfToken = d.csrfToken; })
+              .catch(() => { });
+          }
 
           accounts = loadAccts();
           if (!accounts.length) {
