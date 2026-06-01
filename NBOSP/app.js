@@ -5463,10 +5463,10 @@ self.onmessage = async (e) => {
 </body></html>`;
 
               try {
-                // Write the error page directly into the webview via srcdoc
-                // (avoids creating a blob URL that we'd need to revoke)
+                // Write the error page directly into the webview via innerHTML
+                // (safer than document.write and avoids creating blob URLs)
                 wv.executeScript({
-                  code: `document.open();document.write(${JSON.stringify(errorHtml)});document.close();`
+                  code: `document.documentElement.innerHTML = ${JSON.stringify(errorHtml)};`
                 }, () => { });
               } catch (_) { }
             });
@@ -5483,15 +5483,14 @@ self.onmessage = async (e) => {
               const safeUrl = (e.url || '').replace(/'/g, "\\'");
               try {
                 wv.executeScript({ code: `
-                  document.open();
-                  document.write('<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
+                  const html = '<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
                     + '<div style="text-align:center;max-width:400px">'
                     + '<div style="font-size:32px;margin-bottom:12px">🚫</div>'
                     + '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Navigation Blocked</div>'
                     + '<div style="font-size:12px;color:#8b949e;margin-bottom:16px">' + ${JSON.stringify(e.reason || 'Unknown reason')} + '</div>'
                     + '<button onclick="history.back()" style="background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer">← Go Back</button>'
-                    + '</div></body></html>');
-                  document.close();
+                    + '</div></body></html>';
+                  document.documentElement.innerHTML = html;
                 ` }, () => { });
               } catch (_) { }
             });
@@ -13232,9 +13231,10 @@ wireRecoveryControls();
               });
               iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block;';
               const html = full.html;
+              const sanitized = DOMPurify.sanitize(html, {ALLOWED_TAGS: ['p', 'div', 'span', 'b', 'i', 'u', 'strong', 'em', 'a', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'br', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'blockquote', 'pre', 'code'], ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target']});
               const hasDoc = /^<!doctype/i.test(html.trimStart()) || /^<html[\s>]/i.test(html.trimStart());
-              iframe.srcdoc = hasDoc ? html
-                : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + html + '</body></html>';
+              iframe.srcdoc = hasDoc ? sanitized
+                : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + sanitized + '</body></html>';
               bodyEl.appendChild(iframe);
               readerEl.appendChild(bodyEl);
             } else {

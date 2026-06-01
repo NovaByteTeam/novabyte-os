@@ -14,6 +14,14 @@ const MyAppsManager = (() => {
   let onAppLaunched = null;
 
   /**
+   * Escape HTML entities to prevent XSS
+   */
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /**
    * Initialize the manager
    */
   function initialize() {
@@ -280,7 +288,7 @@ const MyAppsManager = (() => {
 
         statusDiv.innerHTML = `
           <p style="color: #3fb950;">
-            ✓ Successfully installed ${result.app.name}
+            ✓ Successfully installed ${escapeHtml(result.app.name)}
           </p>
         `;
 
@@ -290,7 +298,7 @@ const MyAppsManager = (() => {
       } catch (error) {
         statusDiv.innerHTML = `
           <p style="color: #f85149;">
-            ✗ Installation failed: ${error.message}
+            ✗ Installation failed: ${escapeHtml(error.message)}
           </p>
         `;
       }
@@ -354,13 +362,13 @@ const MyAppsManager = (() => {
                     font-size: 20px;
                   ">${app.icon || '📱'}</div>
                   <div>
-                    <h3 style="color: #e6edf3; font-size: 14px; margin: 0;">${app.name}</h3>
-                    <p style="color: #8b949e; font-size: 12px; margin: 0;">v${app.version}</p>
+                    <h3 style="color: #e6edf3; font-size: 14px; margin: 0;">${escapeHtml(app.name)}</h3>
+                    <p style="color: #8b949e; font-size: 12px; margin: 0;">v${escapeHtml(app.version)}</p>
                   </div>
                 </div>
                 
                 <p style="color: #8b949e; font-size: 12px; margin-bottom: 15px;">
-                  ${app.description || 'No description'}
+                  ${escapeHtml(app.description || 'No description')}
                 </p>
                 
                 <div style="display: flex; gap: 8px;">
@@ -483,12 +491,12 @@ const MyAppsManager = (() => {
           ">${app.icon || '📱'}</div>
           
           <div>
-            <h1 style="color: #e6edf3; font-size: 24px; margin: 0 0 8px 0;">${app.name}</h1>
-            <p style="color: #8b949e; font-size: 14px; margin: 0 0 16px 0;">${app.description || 'No description'}</p>
+            <h1 style="color: #e6edf3; font-size: 24px; margin: 0 0 8px 0;">${escapeHtml(app.name)}</h1>
+            <p style="color: #8b949e; font-size: 14px; margin: 0 0 16px 0;">${escapeHtml(app.description || 'No description')}</p>
             
             <div style="display: flex; gap: 15px; font-size: 13px;">
-              <span style="color: #8b949e;">Version: <span style="color: #e6edf3;">${app.version}</span></span>
-              <span style="color: #8b949e;">Author: <span style="color: #e6edf3;">${app.author}</span></span>
+              <span style="color: #8b949e;">Version: <span style="color: #e6edf3;">${escapeHtml(app.version)}</span></span>
+              <span style="color: #8b949e;">Author: <span style="color: #e6edf3;">${escapeHtml(app.author)}</span></span>
               <span style="color: #8b949e;">Launches: <span style="color: #e6edf3;">${app.launchCount || 0}</span></span>
             </div>
           </div>
@@ -527,7 +535,7 @@ const MyAppsManager = (() => {
                   padding: 4px 8px;
                   border-radius: 4px;
                   font-size: 12px;
-                ">${p.permission}</span>
+                ">${escapeHtml(p.permission)}</span>
               `).join('')}
             </div>
           ` : '<p style="color: #8b949e;">No permissions requested</p>'}
@@ -536,8 +544,8 @@ const MyAppsManager = (() => {
         <div style="background: var(--bg-sunken); border-radius: 8px; padding: 15px;">
           <h3 style="color: #e6edf3; font-size: 16px; margin-bottom: 10px;">Details</h3>
           <div style="font-size: 13px; color: #8b949e;">
-            <p><strong>Type:</strong> <span style="color: #e6edf3;">${app.type}</span></p>
-            <p><strong>Entry:</strong> <span style="color: #e6edf3;">${app.entry}</span></p>
+            <p><strong>Type:</strong> <span style="color: #e6edf3;">${escapeHtml(app.type)}</span></p>
+            <p><strong>Entry:</strong> <span style="color: #e6edf3;">${escapeHtml(app.entry)}</span></p>
             <p><strong>Installed:</strong> <span style="color: #e6edf3;">${new Date(app.installedDate).toLocaleDateString()}</span></p>
             ${app.lastLaunched ? `<p><strong>Last Launched:</strong> <span style="color: #e6edf3;">${new Date(app.lastLaunched).toLocaleDateString()}</span></p>` : ''}
             <p><strong>Verified:</strong> <span style="color: ${app.verified ? '#3fb950' : '#d29922'}">${app.verified ? 'Yes' : 'No'}</span></p>

@@ -60,7 +60,7 @@ async function imapConnect(creds) {
     secure: Boolean(creds.ssl),
     auth: { user: creds.user, pass: creds.pass },
     logger: false,
-    tls: { rejectUnauthorized: false }
+    tls: { rejectUnauthorized: true }
   });
   await client.connect();
   return client;
@@ -279,7 +279,7 @@ function ewsReq(creds, soapBody) {
         'Authorization': `Basic ${auth}`,
         'Content-Length': Buffer.byteLength(envelope)
       },
-      rejectUnauthorized: false
+      rejectUnauthorized: true
     };
 
     const req = lib.request(opts, res => {
@@ -639,7 +639,7 @@ router.post('/send', requireCreds, async (req, res) => {
       host: smtpHost, port: smtpPort,
       secure: useDirectSsl,
       requireTLS: !useDirectSsl,
-      auth: { user, pass }, tls: { rejectUnauthorized: false }
+      auth: { user, pass }, tls: { rejectUnauthorized: true }
     });
     const { to, cc, bcc, subject, text, body, html } = req.body;
     if (!to) return res.status(400).json({ error: 'No recipients defined' });

@@ -537,7 +537,10 @@ const AppSandbox = (() => {
       handleAPICall(type, payload, requestId, app, iframe, sandbox);
     };
 
-    window.addEventListener('message', messageHandler);
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      messageHandler(event);
+    });
 
     // Store cleanup
     const sandbox = activeSandboxes.get(sandboxId);
@@ -1358,6 +1361,7 @@ const AppSandbox = (() => {
 
           // Test API bridge
           window.addEventListener('message', (event) => {
+            if (event.origin !== window.location.origin) return;
             if (event.data.type && event.data.type.startsWith('nova:')) {
               document.getElementById('apiStatus').textContent =
                 'API Bridge: Connected ✓';
