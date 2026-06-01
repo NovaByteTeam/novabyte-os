@@ -8088,7 +8088,7 @@ self.onmessage = async (e) => {
             swRows.appendChild(novaVersionRow);
 
             swRows.appendChild(mkRow('Build Channel', 'Stable'));
-            swRows.appendChild(mkRow('Release Date', '2026-05-01'));
+            swRows.appendChild(mkRow('Release Date', '2026-06-01'));
 
             // Security update row
             const secRow = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
@@ -8097,7 +8097,7 @@ self.onmessage = async (e) => {
             secRow.appendChild(secRowLeft);
             const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
             const secBadge = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;' });
-            secBadge.textContent = '\uD83D\uDD12 2026-05-01';
+            secBadge.textContent = '\uD83D\uDD12 2026-06-01';
             secRowRight.appendChild(secBadge);
             secRow.appendChild(secRowRight);
             swRows.appendChild(secRow);
@@ -8151,7 +8151,7 @@ self.onmessage = async (e) => {
               try { _tz2 = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch (e) { }
               var lines = [
                 'NovaByte v' + OS.version,
-                'Security Update: 2026-05-01',
+                'Security Update: 2026-06-01',
                 'Browser: ' + detectBrowser(),
                 'Platform: ' + navigator.platform,
                 'Screen: ' + screen.width + '\u00D7' + screen.height,
@@ -13231,7 +13231,7 @@ wireRecoveryControls();
               });
               iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block;';
               const html = full.html;
-              const sanitized = DOMPurify.sanitize(html, {ALLOWED_TAGS: ['p', 'div', 'span', 'b', 'i', 'u', 'strong', 'em', 'a', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'br', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'blockquote', 'pre', 'code'], ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target']});
+              const sanitized = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html, {ALLOWED_TAGS: ['p', 'div', 'span', 'b', 'i', 'u', 'strong', 'em', 'a', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'br', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'blockquote', 'pre', 'code'], ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target']}) : html;
               const hasDoc = /^<!doctype/i.test(html.trimStart()) || /^<html[\s>]/i.test(html.trimStart());
               iframe.srcdoc = hasDoc ? sanitized
                 : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + sanitized + '</body></html>';
