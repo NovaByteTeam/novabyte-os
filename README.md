@@ -251,7 +251,7 @@ Beyond the two required apps, you may choose to include any of the following:
 | 🎵 **Resonance** | Music and audio player |
 | 🖼 **Prism** | Image viewer and media gallery |
 | 🛒 **Marketplace** | App store |
-| 🎨 **PixelDrop** | TextEdit App |
+| 🎨 **PixelDrop** | Notes App |
 | 📄 **Lumina** | Document viewer and PDF reader |
 | 🛡 **NovaSentinel** | Security dashboard and threat monitoring |
 | 🔐 **Encryption Vault** | Key generation app with military-grade types |
