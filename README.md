@@ -122,6 +122,13 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 
 > **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
 
+> [!NOTE]
+> **Versioning:** NBOSP and v3 share the same version numbering format. The only difference is the product name prefix:
+> - NBOSP releases are named **NovaByte 3.0.2** (no "OS")
+> - v3 releases are named **NovaByte OS 3.0.2**
+>
+> The version numbers themselves are identical and stay in sync.
+
 ### 🔄 NBOSP App Updates
 
 NBOSP does **not** use the built-in System Updates app. Updates to NBOSP apps depend entirely on your **forker or maintainer**.
@@ -292,6 +299,9 @@ If you want a freely buildable base, use `NBOSP/` instead.
 -----
 
 ## 📋 Versions
+
+> [!NOTE]
+> **Versioning naming:** NBOSP and v3 use the same version number format. NBOSP releases are named **NovaByte 3.x.x** and v3 releases are named **NovaByte OS 3.x.x** — the numbers are identical, only the product name prefix differs (e.g. `NovaByte 3.0.2` = `NovaByte OS 3.0.2`).
 
 |Version    |Status       |Last OS Patch|Core Services|Notes                                                                 |
 |-----------|:-----------:|:-----------:|:-----------:|----------------------------------------------------------------------|
