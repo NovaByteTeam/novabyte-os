@@ -3623,9 +3623,9 @@ self.onmessage = async (e) => {
         }
       });
 
-      /* ── APP 2: Notes (NBOSP — minimal) ── */
+      /* ── APP 2: TextEdit (NBOSP — minimal) ── */
       registerApp({
-        id: 'quill', name: 'Notes', icon: 'pen-tool',
+        id: 'quill', name: 'TextEdit', icon: 'pen-tool',
         description: 'Text Editor',
         defaultSize: [680, 500], minSize: [360, 260],
         init(content, state, options) {
@@ -3686,7 +3686,7 @@ self.onmessage = async (e) => {
               {
                 label: 'Word Count', icon: 'info', action: () => {
                   const words = textarea.value.trim().split(/\s+/).filter(Boolean).length;
-                  Notify.show({ title: 'Word Count', body: `${words} words`, type: 'info', appName: 'Notes' });
+                  Notify.show({ title: 'Word Count', body: `${words} words`, type: 'info', appName: 'TextEdit' });
                 }
               }]);
           });
@@ -3711,7 +3711,7 @@ self.onmessage = async (e) => {
             statusBar.textContent = `Ln ${line}, Col ${col}  ·  ${words} words`;
           }
 
-          // Save notes to com.nbosp.quill/files/ (Android-style private app storage)
+          // Save TextEdit files to com.nbosp.quill/files/ (Android-style private app storage)
           function getQuillFilesDir() {
             return AppDirs.getVFSDir('com.nbosp.quill', 'files') || FS.specialFolders.documents;
           }
@@ -3720,14 +3720,14 @@ self.onmessage = async (e) => {
             if (file.id) {
               await FS.writeFile(file.id, textarea.value);
               file.modified = false; file.content = textarea.value;
-              Notify.show({ title: 'Saved', body: file.name, type: 'success', appName: 'Notes' });
+              Notify.show({ title: 'Saved', body: file.name, type: 'success', appName: 'TextEdit' });
             } else {
               const name = await showPrompt('Save As', file.name);
               if (name) {
                 const node = await FS.createFile(getQuillFilesDir(), name, textarea.value, 'text/plain');
                 file.id = node.id; file.name = name; file.modified = false; file.content = textarea.value;
                 renderDesktopIcons();
-                Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'Notes' });
+                Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'TextEdit' });
               }
             }
           }
@@ -3739,7 +3739,7 @@ self.onmessage = async (e) => {
             const node = await FS.createFile(getQuillFilesDir(), name, textarea.value, 'text/plain');
             file.id = node.id; file.name = name; file.modified = false; file.content = textarea.value;
             renderDesktopIcons();
-            Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'Notes' });
+            Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'TextEdit' });
           });
 
           textarea.addEventListener('input', () => { file.modified = true; updateGutter(); updateStatus(); }, { passive: true });
@@ -3783,9 +3783,9 @@ self.onmessage = async (e) => {
             const fileData = await file.text();
             FS.files.set(fileId, { id: fileId, name: file.name, type: 'text/plain', size: file.size, content: fileData, mimeType: file.type });
             WM.createWindow('quill', { fileId });
-            Notify.show({ title: 'File Opened', body: file.name, type: 'success', appName: 'Notes' });
+            Notify.show({ title: 'File Opened', body: file.name, type: 'success', appName: 'TextEdit' });
           } catch {
-            Notify.show({ title: 'Error', body: 'Failed to open file.', type: 'error', appName: 'Notes' });
+            Notify.show({ title: 'Error', body: 'Failed to open file.', type: 'error', appName: 'TextEdit' });
           }
         }
       });
@@ -9866,7 +9866,7 @@ self.onmessage = async (e) => {
 
           const APP_META = {
             'com.nbosp.vault': { name: 'Files', version: '1.0.0', description: 'File Manager' },
-            'com.nbosp.quill': { name: 'Notes', version: '1.0.0', description: 'Text Editor & Notes' },
+            'com.nbosp.quill': { name: 'TextEdit', version: '1.0.0', description: 'Text Editor' },
             'com.nbosp.shell': { name: 'Terminal', version: '1.0.0', description: 'System Terminal' },
             'com.nbosp.browser': { name: 'Browser', version: '1.0.0', description: 'Web Browser' },
             'com.nbosp.calendar': { name: 'Calendar', version: '1.0.0', description: 'Calendar & Events' },

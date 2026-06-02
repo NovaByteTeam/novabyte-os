@@ -107,18 +107,44 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 
 > **Who is NBOSP for?** Developers and people who want to run NovaByte daily — those who just want pure stock software. No bloat, no fluff, no extras. Just a minimal, super fast, and clean OS that gets out of your way.
 
+> [!WARNING]
+> **NBOSP is a foundation, not a finished product. Read this before you download.**
+>
+> A large codebase does not mean feature-rich. NBOSP has thousands of lines of code — most of that is OS infrastructure, security, routing, server logic, and plumbing. **The apps and user-facing features are intentionally bare bones.** Each app does the basics and stops there. No advanced functionality, no rich settings, no polish you would expect from a commercial OS. If you open Files you can browse files. If you open Music you can play a track. That is roughly the level across the board.
+>
+> **This is by design.** NBOSP is the raw skeleton — the base you fork and build on top of. It is not competing with v3 or any consumer OS on features. If you want a fully featured NovaByte OS, download v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
+
 - Do whatever you want with it — copy it, fork it, sell it, modify it, redistribute it
 - No rules, no license restrictions — but attribution is required, so preserve copyright notices and the license text
 - This is pure NovaByte.
-- Core Apps: **NBOSP Files, NBOSP Notes, NBOSP Terminal, NBOSP Browser, NBOSP Calendar, NBOSP Email, NBOSP Gallery, NBOSP Downloads, NBOSP Contacts, NBOSP Search, NBOSP Music, NBOSP Clock, NBOSP Settings, NBOSP Calculator and NBOSP App Manager**
 - Basic security (rate limiting, CSRF protection, security headers) is built in
 - No edition system, no update pipeline, and no telemetry
-- The “NBOSP” apps are stock versions that come preinstalled — pure NovaByte apps that we replaced with our own feature-heavy versions in v3. The OS is fully customisable, clean, and lightweight. We took NBOSP and built on top of it with an update system and many more features.
+- The NBOSP apps are stock versions — pure NovaByte apps that we replaced with our own feature-heavy versions in v3. We took NBOSP and built on top of it with an update system and many more features.
 - We maintain two separate app lines: NBOSP apps and our own full-featured apps.
 - The NBOSP apps are feature-frozen — we are not adding new features or making interface changes to them, but compatibility, bug, and security fixes continue as always.
-- NBOSP itself (the OS) is **not abandoned** — and don’t worry if it looks feature complete. We’ll keep holding on and adding anything new we can. It won’t always be exciting or frequent, but we’re not done. We actually ship fixes and changes to NBOSP faster than v3 — the codebase is small and easy to maintain, so things move quickly when they need to.
-- Apps are included because NBOSP is meant to be functional out of the box. As a desktop OS, it can browse, play music, manage files, install `.novaapp` packages, and more.
-- All listed apps are built specifically for the NovaByte Open Source Project and are free to use, customise, or modify however you like.
+- NBOSP itself (the OS) is **not abandoned** — we will keep shipping fixes and anything new we can. It won't always be exciting or frequent, but we're not done. We actually ship fixes faster than v3 — the codebase is small and easy to maintain.
+- All listed apps are built specifically for NBOSP and are free to use, customise, or modify however you like.
+
+### 📱 What the NBOSP Apps Actually Do
+
+These are the **actual features pulled directly from the source code** — not guesses based on the app name. The codebase is large but most of that is OS infrastructure (VFS, security, routing, workers). The apps themselves are minimal.
+
+|App|What it actually does|
+|:--|:--------------------|
+|📁 **NBOSP Files**|Icon grid and list view. Sort by name, size, type, or modified date. Back/up navigation with a path bar. Search within the current folder. New file/folder, copy, cut, paste, rename (F2), move to trash, restore, permanent delete. Multi-select (Ctrl+A). Drag-and-drop file import. Keyboard shortcuts. **No tabs, no split panes, no cloud sync, no bulk rename.**|
+|📝 **NBOSP TextEdit**|Plain text editor. Line numbers, status bar showing line/column/word count, Tab indentation, auto-close brackets, Save/Save As to the VFS. Ctrl+S to save. Word count via context menu. **Single file at a time only — no file list, no tabs, no rich formatting, no markdown preview.**|
+|💻 **NBOSP Terminal**|A real shell emulator with a working command set: `ls`, `cd`, `cat`, `grep`, `cp`, `mv`, `rm`, `mkdir`, `find`, `diff`, `wc`, `sort`, `head`, `tail`, `echo`, `env`, `export`, `alias`, `history`, `ps`, `neofetch`, and more. Pipe chains, `&&`/`||`/`;` chaining, output redirect (`>`), tab autocomplete, command history, custom aliases, shell variables, multiple tabs (Ctrl+Shift+T). **All commands run against the VFS — not a real system shell.**|
+|🌐 **NBOSP Browser**|NW.js WebView with real site rendering. Tabs, bookmarks, history, incognito mode, find-in-page (Ctrl+F), zoom controls, mobile/desktop user-agent toggle, popup blocker, per-tab WebView/iframe mode toggle. Privacy relay routes suggestions and favicons through a remote relay. See the [browser section](#-nbosp-browser--now-powered-by-nwjs--webview) for full details. **No extensions, no sync, no password manager.**|
+|📅 **NBOSP Calendar**|Month, week, day, and agenda views. Mini calendar sidebar. Upcoming events list. Create/edit/delete events with title, date, start/end time, description, and colour. Navigate prev/next/today. **No recurring events, no reminders/notifications, no calendar sync (Google, Outlook, etc.).**|
+|📧 **NBOSP Email**|Multi-account IMAP/POP3/Exchange. Sidebar with Inbox, Sent, Drafts, Trash, Spam, Archive, Starred. Search, compose, reply, forward, batch-select, pagination. Full privacy pipeline: tracker pixel blocking, CSS tracker stripping, link unwrapping, tracking parameter removal, script sandboxing. **No filters/rules, no tags, no offline cache.**|
+|🖼 **NBOSP Gallery**|Scans the VFS for image files and shows them in a grid. Lightbox viewer with prev/next navigation, filename caption, and keyboard support (arrow keys, Escape). **No editing, no albums, no metadata, no sorting — just a viewer.**|
+|⬇️ **NBOSP Downloads**|Displays files saved from the browser: name, size, date, and status badge (done/downloading/failed). Remove individual items or clear all completed. Live-updates via a global `Downloads.add()` API. **No download queue controls, no pause/resume, no browser integration for in-progress downloads.**|
+|👤 **NBOSP Contacts**|Add/edit/delete contacts with name, email, phone, and notes fields. Alphabetically sorted list. Search by name, email, or phone. Avatar initials. **No groups, no import/export (vCard, CSV), no photo support.**|
+|🔍 **NBOSP Search**|System-wide search across files (by filename), contacts (name/email/phone), and the downloads list. Clicking a result opens the relevant app. Up to 8 results per section. **Filename matching only — no full-text/content search inside files.**|
+|🕐 **NBOSP Clock**|Four tabs: analog+digital clock with date display; alarms with custom time, label, and day-of-week repeat (toggle on/off per alarm); countdown timer with H/M/S input, start/pause/reset; and stopwatch. **No world clock, no multiple time zones.**|
+|⚙️ **NBOSP Settings**|Appearance (7 themes: Nova Dark, Nova Light, Nord, Dracula, Catppuccin, Tokyo Night, Gruvbox; accent colour picker; 12/24h clock toggle), System (change username), Storage, Privacy, Desktop, Accessibility, About. **Settings are thin — each section has a handful of toggles, not deep configuration panels.**|
+|🖩 **NBOSP Calculator**|Standard arithmetic with live expression preview. Supports `+`, `-`, `*`, `/`, `%`, parentheses, and decimal input. Backspace, clear, keyboard support. **No scientific mode, no history, no unit conversion.**|
+|📦 **NBOSP App Manager**|Install `.novaapp` packages from disk. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. **No app store/catalogue, no update management, no package signing verification in the UI.**|
 
 > **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
 
@@ -225,7 +251,7 @@ Beyond the two required apps, you may choose to include any of the following:
 | 🎵 **Resonance** | Music and audio player |
 | 🖼 **Prism** | Image viewer and media gallery |
 | 🛒 **Marketplace** | App store |
-| 🎨 **PixelDrop** | Notes App |
+| 🎨 **PixelDrop** | TextEdit App |
 | 📄 **Lumina** | Document viewer and PDF reader |
 | 🛡 **NovaSentinel** | Security dashboard and threat monitoring |
 | 🔐 **Encryption Vault** | Key generation app with military-grade types |
