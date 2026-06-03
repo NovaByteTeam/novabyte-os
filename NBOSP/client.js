@@ -25,10 +25,11 @@ const CERT_CRT        = path.join(__dirname, 'cert.crt');
 const CA_TRUSTED_FLAG = path.join(__dirname, 'ca.trusted');
 const CERT_MAX_AGE_MS = 10 * 365.25 * 24 * 60 * 60 * 1000;
 
-function certsAreFresh() {
+async function certsAreFresh() {
   try {
-    if (![CA_KEY, CA_CRT, CERT_KEY, CERT_CRT].every(f => fs.existsSync(f))) return false;
-    return (Date.now() - fs.statSync(CERT_CRT).mtimeMs) < CERT_MAX_AGE_MS;
+    await Promise.all([CA_KEY, CA_CRT, CERT_KEY, CERT_CRT].map(f => fs.promises.access(f)));
+    const stat = await fs.promises.stat(CERT_CRT);
+    return (Date.now() - stat.mtimeMs) < CERT_MAX_AGE_MS;
   } catch (_) { return false; }
 }
 
@@ -213,9 +214,9 @@ async function generateCerts(sandboxDir) {
 // Only creates the essential keys server.js needs to start — user fills in
 // the rest (OAuth, API keys, etc.) manually.
 
-function ensureEnv() {
+async function ensureEnv() {
   const envPath = path.join(__dirname, '.env');
-  if (fs.existsSync(envPath)) return;
+  try { await fs.promises.access(envPath); return; } catch (_) {}
 
   console.log('[NovaByte] No .env found — generating defaults...');
 
@@ -243,18 +244,19 @@ RATE_LIMIT_MAX_REQUESTS=100
 CORS_ORIGIN=https://localhost:3003,https://127.0.0.1:3003
 `;
 
-  fs.writeFileSync(envPath, env, { encoding: 'utf8', mode: 0o600 });
+  await fs.promises.writeFile(envPath, env, { encoding: 'utf8', mode: 0o600 });
   console.log('[NovaByte] .env created with secure random secrets.');
 }
 
 // ── Main cert bootstrap ───────────────────────────────────────────────────────
 async function ensureCerts() {
-  const fresh   = certsAreFresh();
-  const trusted = fs.existsSync(CA_TRUSTED_FLAG);
+  const fresh   = await certsAreFresh();
+  let trusted   = false;
+  try { await fs.promises.access(CA_TRUSTED_FLAG); trusted = true; } catch (_) {}
 
   if (fresh && trusted) {
     console.log('[NovaByte] Certs OK, CA already trusted — HTTPS ready.');
-    stripSpkiFromPackageJson();
+    await stripSpkiFromPackageJson();
     return true;
   }
 
@@ -264,23 +266,23 @@ async function ensureCerts() {
     const sandboxId  = 'nb_cert_' + crypto.randomBytes(6).toString('hex');
     const sandboxDir = path.join(os.tmpdir(), sandboxId);
     try {
-      fs.mkdirSync(sandboxDir, { recursive: true });
+      await fs.promises.mkdir(sandboxDir, { recursive: true });
       const { caCertPem, caKeyPem, serverCertPem, serverKeyPem } = await generateCerts(sandboxDir);
 
-      fs.writeFileSync(CA_CRT,   caCertPem,    { encoding: 'utf8', mode: 0o644 });
-      fs.writeFileSync(CA_KEY,   caKeyPem,     { encoding: 'utf8', mode: 0o600 });
-      fs.writeFileSync(CERT_CRT, serverCertPem, { encoding: 'utf8', mode: 0o644 });
-      fs.writeFileSync(CERT_KEY, serverKeyPem,  { encoding: 'utf8', mode: 0o600 });
+      await fs.promises.writeFile(CA_CRT,   caCertPem,     { encoding: 'utf8', mode: 0o644 });
+      await fs.promises.writeFile(CA_KEY,   caKeyPem,      { encoding: 'utf8', mode: 0o600 });
+      await fs.promises.writeFile(CERT_CRT, serverCertPem, { encoding: 'utf8', mode: 0o644 });
+      await fs.promises.writeFile(CERT_KEY, serverKeyPem,  { encoding: 'utf8', mode: 0o600 });
 
       // Invalidate old trust flag — new CA means we must re-install
-      if (fs.existsSync(CA_TRUSTED_FLAG)) fs.unlinkSync(CA_TRUSTED_FLAG);
+      try { await fs.promises.unlink(CA_TRUSTED_FLAG); } catch (_) {}
 
       console.log('[NovaByte] Certificates generated.');
     } catch (err) {
       console.error('[NovaByte] Certificate generation failed:', err.message);
       return false;
     } finally {
-      try { fs.rmSync(sandboxDir, { recursive: true, force: true }); } catch (_) {}
+      try { await fs.promises.rm(sandboxDir, { recursive: true, force: true }); } catch (_) {}
     }
   }
 
@@ -288,9 +290,9 @@ async function ensureCerts() {
   console.log('[NovaByte] Installing CA into OS trust store...');
   const ok = installCaTrust(CA_CRT);
   if (ok) {
-    fs.writeFileSync(CA_TRUSTED_FLAG, new Date().toISOString(), 'utf8');
+    await fs.promises.writeFile(CA_TRUSTED_FLAG, new Date().toISOString(), 'utf8');
     console.log('[NovaByte] CA trusted. HTTPS will work natively from now on.');
-    stripSpkiFromPackageJson();
+    await stripSpkiFromPackageJson();
     return true;
   } else {
     console.warn('[NovaByte] CA trust install failed — falling back to HTTP.');
@@ -298,10 +300,10 @@ async function ensureCerts() {
   }
 }
 
-function stripSpkiFromPackageJson() {
+async function stripSpkiFromPackageJson() {
   try {
     const pkgPath = path.join(__dirname, 'package.json');
-    const parsed  = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const parsed  = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
     if (!parsed.window) return;
     let args = parsed.window['chromium-args'] || '';
     const cleaned = args
@@ -311,7 +313,7 @@ function stripSpkiFromPackageJson() {
       .trim();
     if (cleaned !== args) {
       parsed.window['chromium-args'] = cleaned;
-      fs.writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      await fs.promises.writeFile(pkgPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
       console.log('[NovaByte] Cleaned stale SPKI flags from package.json.');
     }
   } catch (e) {
@@ -323,7 +325,7 @@ function stripSpkiFromPackageJson() {
 const port = process.env.PORT || 3003;
 
 (async () => {
-  ensureEnv();
+  await ensureEnv();
   const certOk = await ensureCerts();
   // Always use https — server.js loads cert.key/cert.crt and starts HTTPS if they exist.
   // If cert generation failed we still try https (server falls back to http internally).
