@@ -48,11 +48,9 @@ process.on('unhandledRejection', (reason) => {
     let server;
     let isHttps = false;
     try {
-        const keyData = fs.readFileSync('cert.key');
-        const certData = fs.readFileSync('cert.crt');
         const httpsOptions = {
-            key: keyData,
-            cert: certData,
+            key: fs.readFileSync('cert.key'),
+            cert: fs.readFileSync('cert.crt'),
             ALPNProtocols: ['http/1.1'],
         };
         server = https.createServer(httpsOptions, app);
@@ -80,8 +78,8 @@ process.on('unhandledRejection', (reason) => {
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
-                scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com'],
-                scriptSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-tyfqxgVVARi92sm+Jt8CKSEsLJ5OJvLOMUJBWYUZQqQ='", 'https://cdn.jsdelivr.net', 'https://cdnjs.cloudflare.com', 'https://localhost:3003', 'https://127.0.0.1:3003'],
+                scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
+                scriptSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-tyfqxgVVARi92sm+Jt8CKSEsLJ5OJvLOMUJBWYUZQqQ='", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://localhost:3003', 'https://127.0.0.1:3003'],
                 styleSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 styleSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-l+vYTkM0NIoFMnSuySdnDB0Nm02ze/dUO/0mogvvrc0='", "'sha256-wFmUsbbscFRcayh50Sc8dlXr8DXzmGqSApRXzf8ipoI='", "'sha256-/34yUCLdu0nbxmbw9Ww0bjFbLIoubrE8EME72GSJJ2U='", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 scriptSrcAttr: ["'unsafe-inline'"],
@@ -940,17 +938,14 @@ process.on('unhandledRejection', (reason) => {
     });
 
     // Serve version.json
-    app.get('/version.json', (req, res) => {
+    app.get('/version.json', async (req, res) => {
         const versionPath = path.join(__dirname, 'version.json');
-        res.sendFile(versionPath, (err) => {
-            if (err && err.code === 'ENOENT') {
-                return res.status(404).json({ error: 'version.json not found' });
-            }
-            if (err) {
-                console.error('Error serving version.json:', err.message);
-                return res.status(500).json({ error: 'Internal server error' });
-            }
-        });
+        try {
+            await fs.promises.access(versionPath);
+            return res.sendFile(versionPath);
+        } catch {
+            res.status(404).json({ error: 'version.json not found' });
+        }
     });
 
     // Serve assets (SVG icons, images, etc)
@@ -969,22 +964,24 @@ process.on('unhandledRejection', (reason) => {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.sendFile(path.join(__dirname, 'app.js'));
     });
+    app.get('/ui-init.js', (req, res) => {
+        res.setHeader('Content-Type', 'application/javascript');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.sendFile(path.join(__dirname, 'ui-init.js'));
+    });
     // Tracker blocklist — served statically so app.js can fetch() it.
     // The main window has no Node integration so require() doesn't work there;
     // fetching over HTTP is the correct approach.
-    app.get('/trackers.js', (req, res) => {
+    app.get('/trackers.js', async (req, res) => {
         const p = path.join(__dirname, 'trackers.js');
+        try {
+            await fs.promises.access(p);
+        } catch {
+            return res.status(404).json({ error: 'trackers.js not found — run the generator script' });
+        }
         res.setHeader('Content-Type', 'application/javascript');
         res.setHeader('Cache-Control', 'public, max-age=86400');
-        res.sendFile(p, (err) => {
-            if (err && err.code === 'ENOENT') {
-                return res.status(404).json({ error: 'trackers.js not found — run the generator script' });
-            }
-            if (err) {
-                console.error('Error serving trackers.js:', err.message);
-                return res.status(500).json({ error: 'Internal server error' });
-            }
-        });
+        res.sendFile(p);
     });
     // modules.js intentionally removed — file no longer exists in the project.
     app.get('/style.css', (req, res) => {
@@ -995,9 +992,9 @@ process.on('unhandledRejection', (reason) => {
 
     // Cache index.html in memory — avoid re-reading from disk on every request
     let _indexHtmlRaw = null;
-    function getIndexHtml() {
+    async function getIndexHtml() {
         if (!_indexHtmlRaw) {
-            _indexHtmlRaw = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+            _indexHtmlRaw = await fs.promises.readFile(path.join(__dirname, 'index.html'), 'utf8');
         }
         return _indexHtmlRaw;
     }
@@ -1021,25 +1018,29 @@ process.on('unhandledRejection', (reason) => {
     }, 60_000).unref(); // .unref() so this timer wont keep the process alive on shutdown
 
     // Serve index.html at root
-    app.get('/', (req, res) => {
+    app.get('/', async (req, res) => {
         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.setHeader('Pragma', 'no-cache');
         res.setHeader('Expires', '0');
 
         const nonce = res.locals.nonce;
-        let html = getIndexHtml();
+        let html = await getIndexHtml();
 
         // Inline tags — add nonce so CSP allows them
         html = html.replace(/<script>/g, `<script nonce="${nonce}">`);
         html = html.replace(/<script type="module">/g, `<script type="module" nonce="${nonce}">`);
         html = html.replace(/<style>/g, `<style nonce="${nonce}">`);
 
-        // External split files — add nonce to <script src="app.js"> and
-        // <link rel="stylesheet" href="style.css"> injected by the HTML splitter.
+        // External split files — add nonce to <script src="app.js">,
+        // <script src="ui-init.js">, and <link rel="stylesheet" href="style.css">
         // 'self' in scriptSrcElem/styleSrcElem already permits same-origin files,
         // but an explicit nonce future-proofs against stricter CSP configs.
         html = html.replace(
             /(<script\b)([^>]*\bsrc="[^"]*app\.js"[^>]*)(>)/gi,
+            `$1$2 nonce="${nonce}"$3`
+        );
+        html = html.replace(
+            /(<script\b)([^>]*\bsrc="[^"]*ui-init\.js"[^>]*)(>)/gi,
             `$1$2 nonce="${nonce}"$3`
         );
         html = html.replace(

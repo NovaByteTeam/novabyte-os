@@ -25,10 +25,11 @@ const CERT_CRT        = path.join(__dirname, 'cert.crt');
 const CA_TRUSTED_FLAG = path.join(__dirname, 'ca.trusted');
 const CERT_MAX_AGE_MS = 10 * 365.25 * 24 * 60 * 60 * 1000;
 
-function certsAreFresh() {
+async function certsAreFresh() {
   try {
-    if (![CA_KEY, CA_CRT, CERT_KEY, CERT_CRT].every(f => fs.existsSync(f))) return false;
-    return (Date.now() - fs.statSync(CERT_CRT).mtimeMs) < CERT_MAX_AGE_MS;
+    await Promise.all([CA_KEY, CA_CRT, CERT_KEY, CERT_CRT].map(f => fs.promises.access(f)));
+    const stat = await fs.promises.stat(CERT_CRT);
+    return (Date.now() - stat.mtimeMs) < CERT_MAX_AGE_MS;
   } catch (_) { return false; }
 }
 
@@ -215,12 +216,7 @@ async function generateCerts(sandboxDir) {
 
 async function ensureEnv() {
   const envPath = path.join(__dirname, '.env');
-  try {
-    await fs.promises.access(envPath, fs.constants.F_OK);
-    return; // File exists
-  } catch {
-    // File doesn't exist, create it
-  }
+  try { await fs.promises.access(envPath); return; } catch (_) {}
 
   console.log('[NovaByte] No .env found — generating defaults...');
 
@@ -254,8 +250,9 @@ CORS_ORIGIN=https://localhost:3003,https://127.0.0.1:3003
 
 // ── Main cert bootstrap ───────────────────────────────────────────────────────
 async function ensureCerts() {
-  const fresh   = certsAreFresh();
-  const trusted = fs.existsSync(CA_TRUSTED_FLAG);
+  const fresh   = await certsAreFresh();
+  let trusted   = false;
+  try { await fs.promises.access(CA_TRUSTED_FLAG); trusted = true; } catch (_) {}
 
   if (fresh && trusted) {
     console.log('[NovaByte] Certs OK, CA already trusted — HTTPS ready.');
@@ -272,8 +269,8 @@ async function ensureCerts() {
       await fs.promises.mkdir(sandboxDir, { recursive: true });
       const { caCertPem, caKeyPem, serverCertPem, serverKeyPem } = await generateCerts(sandboxDir);
 
-      await fs.promises.writeFile(CA_CRT,   caCertPem,    { encoding: 'utf8', mode: 0o644 });
-      await fs.promises.writeFile(CA_KEY,   caKeyPem,     { encoding: 'utf8', mode: 0o600 });
+      await fs.promises.writeFile(CA_CRT,   caCertPem,     { encoding: 'utf8', mode: 0o644 });
+      await fs.promises.writeFile(CA_KEY,   caKeyPem,      { encoding: 'utf8', mode: 0o600 });
       await fs.promises.writeFile(CERT_CRT, serverCertPem, { encoding: 'utf8', mode: 0o644 });
       await fs.promises.writeFile(CERT_KEY, serverKeyPem,  { encoding: 'utf8', mode: 0o600 });
 
@@ -285,7 +282,7 @@ async function ensureCerts() {
       console.error('[NovaByte] Certificate generation failed:', err.message);
       return false;
     } finally {
-      try { fs.rmSync(sandboxDir, { recursive: true, force: true }); } catch (_) {}
+      try { await fs.promises.rm(sandboxDir, { recursive: true, force: true }); } catch (_) {}
     }
   }
 
@@ -306,8 +303,7 @@ async function ensureCerts() {
 async function stripSpkiFromPackageJson() {
   try {
     const pkgPath = path.join(__dirname, 'package.json');
-    const data = await fs.promises.readFile(pkgPath, 'utf8');
-    const parsed = JSON.parse(data);
+    const parsed  = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
     if (!parsed.window) return;
     let args = parsed.window['chromium-args'] || '';
     const cleaned = args
