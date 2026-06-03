@@ -2018,10 +2018,12 @@ self.onmessage = async (e) => {
       const WM = window.WM = {
         container: null,
         snapPreview: null,
+        snapCompass: null,
 
         init() {
           WM.container = document.getElementById('windows');
           WM.snapPreview = document.getElementById('snap-preview');
+          WM.snapCompass = document.getElementById('snap-compass');
         },
 
         createWindow(appId, options) {
@@ -2104,6 +2106,7 @@ self.onmessage = async (e) => {
             minWidth: cfg.minWidth, minHeight: cfg.minHeight,
             maximized: false, minimized: false,
             preMaxState: null,
+            snapSide: null, preSnapState: null,
             cleanups: []
           };
           OS.windows.set(id, state);
@@ -2444,6 +2447,8 @@ self.onmessage = async (e) => {
         setupDrag(state) {
           const titlebar = state.titlebar;
           let dragging = false, startX, startY, origX, origY;
+          let snapZoneCandidate = null, snapZoneCandidateCount = 0;
+          const SNAP_DWELL = 2;
 
           const onPointerDown = (e) => {
             if (e.target.closest('.window-controls')) return;
@@ -2479,6 +2484,23 @@ self.onmessage = async (e) => {
                 state.element.style.top = state.y + 'px';
               }
             }
+            // Un-snap: restore pre-snap size when user drags a snapped window
+            if (state.snapSide) {
+              state.snapSide = null;
+              if (state.preSnapState) {
+                state.width = state.preSnapState.w;
+                state.height = state.preSnapState.h;
+                state.element.style.width = state.width + 'px';
+                state.element.style.height = state.height + 'px';
+                const _safeSnapX = Math.min(e.clientX, window.innerWidth - 80);
+                const _snapR = WM.clampWindowRect(state, _safeSnapX - state.width / 2, e.clientY - 10, state.width, state.height);
+                state.x = _snapR.x;
+                state.y = _snapR.y;
+                state.element.style.left = state.x + 'px';
+                state.element.style.top = state.y + 'px';
+                state.preSnapState = null;
+              }
+            }
             dragging = true;
             startX = e.clientX; startY = e.clientY;
             origX = state.x; origY = state.y;
@@ -2498,14 +2520,29 @@ self.onmessage = async (e) => {
             state.y = next.y;
             state.element.style.transform = `translate(${state.x - origX}px, ${state.y - origY}px)`;
 
-            const area = WM.getWorkArea();
-            const snapZone = 20;
-            if (e.clientX < snapZone) {
-              WM.showSnapPreview(area.left, area.top, Math.floor(area.width / 2), area.height);
-            } else if (e.clientX > window.innerWidth - snapZone) {
-              WM.showSnapPreview(area.left + Math.floor(area.width / 2), area.top, Math.floor(area.width / 2), area.height);
-            } else if (e.clientY < snapZone) {
-              WM.showSnapPreview(area.left, area.top, area.width, area.height);
+            // Zone detection with Alt-key suppression
+            const rawZone = e.altKey ? null : WM.getSnapZone(e.clientX, e.clientY);
+
+            // Dwell: require zone to be stable for SNAP_DWELL consecutive frames
+            if (rawZone === snapZoneCandidate) {
+              snapZoneCandidateCount = Math.min(snapZoneCandidateCount + 1, 10);
+            } else {
+              snapZoneCandidate = rawZone;
+              snapZoneCandidateCount = 1;
+            }
+            const activeZone = (snapZoneCandidateCount >= SNAP_DWELL) ? snapZoneCandidate : null;
+
+            // Compass: show when within 160px of any edge
+            const W = window.innerWidth, H = window.innerHeight;
+            const nearEdge = !e.altKey && (e.clientX < 160 || e.clientX > W - 160 || e.clientY < 160 || e.clientY > H - 160);
+            if (nearEdge) {
+              WM.showSnapCompass(activeZone);
+            } else {
+              WM.hideSnapCompass();
+            }
+
+            if (activeZone) {
+              WM.showSnapPreview(activeZone);
             } else {
               WM.hideSnapPreview();
             }
@@ -2528,15 +2565,18 @@ self.onmessage = async (e) => {
               });
             });
 
-            const snapZone = 20;
-            if (e.clientX < snapZone) {
-              WM.snapWindow(state, 'left');
-            } else if (e.clientX > window.innerWidth - snapZone) {
-              WM.snapWindow(state, 'right');
-            } else if (e.clientY < snapZone) {
-              WM.toggleMaximize(state.id);
+            const activeZone = (snapZoneCandidateCount >= SNAP_DWELL) ? snapZoneCandidate : null;
+            if (activeZone) {
+              if (activeZone === 'top') {
+                WM.toggleMaximize(state.id);
+              } else {
+                WM.snapWindow(state, activeZone);
+              }
             }
+            snapZoneCandidate = null;
+            snapZoneCandidateCount = 0;
             WM.hideSnapPreview();
+            WM.hideSnapCompass();
           };
 
           titlebar.addEventListener('pointerdown', onPointerDown);
@@ -2612,41 +2652,98 @@ self.onmessage = async (e) => {
           );
         },
 
-        snapWindow(state, side) {
-          const area = WM.getWorkArea();
-          state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
-          if (side === 'left') {
-            state.x = area.left;
-            state.y = area.top;
-            state.width = Math.floor(area.width / 2);
-            state.height = area.height;
-          } else if (side === 'right') {
-            state.x = area.left + Math.floor(area.width / 2);
-            state.y = area.top;
-            state.width = Math.ceil(area.width / 2);
-            state.height = area.height;
+        // ── Returns the snap zone name for a pointer position, or null ──
+        getSnapZone(x, y) {
+          const W = window.innerWidth;
+          const H = window.innerHeight;
+          const CORNER = 80;
+          const EDGE = 40;
+          // Corners take priority over edges
+          if (x < CORNER && y < CORNER)     return 'top-left';
+          if (x > W - CORNER && y < CORNER) return 'top-right';
+          if (x < CORNER && y > H - CORNER) return 'bottom-left';
+          if (x > W - CORNER && y > H - CORNER) return 'bottom-right';
+          // Edges
+          if (x < EDGE)         return 'left';
+          if (x > W - EDGE)     return 'right';
+          if (y < EDGE)         return 'top';
+          if (y > H - EDGE)     return 'bottom';
+          return null;
+        },
+
+        // ── Returns {x,y,w,h} for a zone relative to the work area ──
+        getSnapRect(zone) {
+          const a = WM.getWorkArea();
+          const hw = Math.floor(a.width / 2);
+          const hh = Math.floor(a.height / 2);
+          const map = {
+            'left':         { x: a.left,      y: a.top,      w: hw,           h: a.height      },
+            'right':        { x: a.left + hw,  y: a.top,      w: a.width - hw, h: a.height      },
+            'top':          { x: a.left,      y: a.top,      w: a.width,      h: a.height      },
+            'bottom':       { x: a.left,      y: a.top + hh, w: a.width,      h: a.height - hh },
+            'top-left':     { x: a.left,      y: a.top,      w: hw,           h: hh            },
+            'top-right':    { x: a.left + hw,  y: a.top,      w: a.width - hw, h: hh            },
+            'bottom-left':  { x: a.left,      y: a.top + hh, w: hw,           h: a.height - hh },
+            'bottom-right': { x: a.left + hw,  y: a.top + hh, w: a.width - hw, h: a.height - hh },
+          };
+          return map[zone] || null;
+        },
+
+        snapWindow(state, zone) {
+          const r = WM.getSnapRect(zone);
+          if (!r) return;
+          // Save pre-snap state only on first snap (not when re-snapping to another zone)
+          if (!state.snapSide) {
+            state.preSnapState = { x: state.x, y: state.y, w: state.width, h: state.height };
           }
-          const next = WM.clampWindowRect(state, state.x, state.y, state.width, state.height);
-          state.x = next.x;
-          state.y = next.y;
-          state.width = next.w;
-          state.height = next.h;
-          state.element.style.left = state.x + 'px';
-          state.element.style.top = state.y + 'px';
-          state.element.style.width = state.width + 'px';
+          state.snapSide = zone;
+          state.preMaxState = state.preSnapState; // keep maximize compat
+          const next = WM.clampWindowRect(state, r.x, r.y, r.w, r.h);
+          state.x = next.x; state.y = next.y; state.width = next.w; state.height = next.h;
+          state.element.style.left   = state.x + 'px';
+          state.element.style.top    = state.y + 'px';
+          state.element.style.width  = state.width + 'px';
           state.element.style.height = state.height + 'px';
         },
 
-        showSnapPreview(x, y, w, h) {
-          WM.snapPreview.style.left = x + 'px';
-          WM.snapPreview.style.top = y + 'px';
-          WM.snapPreview.style.width = w + 'px';
-          WM.snapPreview.style.height = h + 'px';
-          WM.snapPreview.classList.add('visible');
+        showSnapPreview(zone) {
+          const r = WM.getSnapRect(zone);
+          if (!r) return;
+          const el = WM.snapPreview;
+          if (!el.classList.contains('visible')) {
+            // First appearance: position instantly, then fade in (no position teleport)
+            el.style.transition = 'none';
+            el.style.left   = r.x + 'px';
+            el.style.top    = r.y + 'px';
+            el.style.width  = r.w + 'px';
+            el.style.height = r.h + 'px';
+            el.offsetHeight; // force reflow
+            el.style.transition = '';
+            el.classList.add('visible');
+          } else {
+            // Already visible: CSS transition animates position/size to new zone
+            el.style.left   = r.x + 'px';
+            el.style.top    = r.y + 'px';
+            el.style.width  = r.w + 'px';
+            el.style.height = r.h + 'px';
+          }
         },
 
         hideSnapPreview() {
           WM.snapPreview.classList.remove('visible');
+        },
+
+        showSnapCompass(activeZone) {
+          const compass = WM.snapCompass;
+          if (!compass) return;
+          compass.classList.add('visible');
+          compass.querySelectorAll('.sc-zone').forEach(el => {
+            el.classList.toggle('active', el.dataset.zone === activeZone);
+          });
+        },
+
+        hideSnapCompass() {
+          if (WM.snapCompass) WM.snapCompass.classList.remove('visible');
         },
 
         updateTaskbar() {
