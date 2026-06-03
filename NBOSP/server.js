@@ -48,9 +48,11 @@ process.on('unhandledRejection', (reason) => {
     let server;
     let isHttps = false;
     try {
+        const keyData = fs.readFileSync('cert.key');
+        const certData = fs.readFileSync('cert.crt');
         const httpsOptions = {
-            key: fs.readFileSync('cert.key'),
-            cert: fs.readFileSync('cert.crt'),
+            key: keyData,
+            cert: certData,
             ALPNProtocols: ['http/1.1'],
         };
         server = https.createServer(httpsOptions, app);
@@ -79,7 +81,7 @@ process.on('unhandledRejection', (reason) => {
             directives: {
                 defaultSrc: ["'self'"],
                 scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com'],
-                scriptSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-tyfqxgVVARi92sm+Jt8CKSEsLJ5OJvLOMUJBWYUZQqQ='", 'https://cdnjs.cloudflare.com', 'https://localhost:3003', 'https://127.0.0.1:3003'],
+                scriptSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-tyfqxgVVARi92sm+Jt8CKSEsLJ5OJvLOMUJBWYUZQqQ='", 'https://cdn.jsdelivr.net', 'https://cdnjs.cloudflare.com', 'https://localhost:3003', 'https://127.0.0.1:3003'],
                 styleSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 styleSrcElem: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "'sha256-l+vYTkM0NIoFMnSuySdnDB0Nm02ze/dUO/0mogvvrc0='", "'sha256-wFmUsbbscFRcayh50Sc8dlXr8DXzmGqSApRXzf8ipoI='", "'sha256-/34yUCLdu0nbxmbw9Ww0bjFbLIoubrE8EME72GSJJ2U='", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 scriptSrcAttr: ["'unsafe-inline'"],
@@ -940,10 +942,15 @@ process.on('unhandledRejection', (reason) => {
     // Serve version.json
     app.get('/version.json', (req, res) => {
         const versionPath = path.join(__dirname, 'version.json');
-        if (fs.existsSync(versionPath)) {
-            return res.sendFile(versionPath);
-        }
-        res.status(404).json({ error: 'version.json not found' });
+        res.sendFile(versionPath, (err) => {
+            if (err && err.code === 'ENOENT') {
+                return res.status(404).json({ error: 'version.json not found' });
+            }
+            if (err) {
+                console.error('Error serving version.json:', err.message);
+                return res.status(500).json({ error: 'Internal server error' });
+            }
+        });
     });
 
     // Serve assets (SVG icons, images, etc)
@@ -967,12 +974,17 @@ process.on('unhandledRejection', (reason) => {
     // fetching over HTTP is the correct approach.
     app.get('/trackers.js', (req, res) => {
         const p = path.join(__dirname, 'trackers.js');
-        if (!require('fs').existsSync(p)) {
-            return res.status(404).json({ error: 'trackers.js not found — run the generator script' });
-        }
         res.setHeader('Content-Type', 'application/javascript');
         res.setHeader('Cache-Control', 'public, max-age=86400');
-        res.sendFile(p);
+        res.sendFile(p, (err) => {
+            if (err && err.code === 'ENOENT') {
+                return res.status(404).json({ error: 'trackers.js not found — run the generator script' });
+            }
+            if (err) {
+                console.error('Error serving trackers.js:', err.message);
+                return res.status(500).json({ error: 'Internal server error' });
+            }
+        });
     });
     // modules.js intentionally removed — file no longer exists in the project.
     app.get('/style.css', (req, res) => {

@@ -136,6 +136,7 @@
     // Replaced 36 static onclick= attributes with data-* attributes routed here.
     // Dynamic onclick= inside JS template literals are tracked as a separate item.
     document.addEventListener('DOMContentLoaded', function () {
+      // Event delegation for data-fn attributes
       document.addEventListener('click', function (e) {
         var t = e.target.closest('[data-fn]');
         if (!t) return;
@@ -143,6 +144,23 @@
           var fn = window[t.dataset.fn];
           if (typeof fn === 'function') fn();
         }
+      });
+
+      // Security: Set up recovery log clear button (moved from inline onclick)
+      var recoveryLogClearBtn = document.getElementById('recovery-log-clear-1016');
+      if (recoveryLogClearBtn) {
+        recoveryLogClearBtn.addEventListener('click', function() {
+          var logLines = document.getElementById('rec-diag-lines');
+          if (logLines) logLines.innerHTML = '';
+        });
+      }
+
+      // Security: Set up tray icon error handlers (moved from inline onerror)
+      var trayIcons = document.querySelectorAll('.tray-icon');
+      trayIcons.forEach(function(img) {
+        img.addEventListener('error', function() {
+          this.style.visibility = 'hidden';
+        });
       });
     });
 
@@ -1674,8 +1692,8 @@ self.onmessage = async (e) => {
       }
 
       const OS = {
-        version: '3.0.2',
-        securityPatch: '2026-05-01',  // NovaByte security patch date — globally readable
+        version: '3.0.1',
+        securityPatch: '2026-06-03',  // NovaByte security patch date — globally readable
         username: 'user',
         workers: {},
         windows: new Map(),
@@ -1751,15 +1769,7 @@ self.onmessage = async (e) => {
             searchEngine: 'duckduckgo',
             proxyUrl: '',
             username: 'user',
-            pinnedApps: ['shell', 'vault', 'browser'],
-            proxyFavicons: true,   // Route tab favicons through local server (privacy)
-            proxyEmailImages: true, // Route email images through local server (privacy)
-            blockTrackers: true,   // Block known tracker domains via Disconnect.me list
-          },
-          applySafeModeDefaults() {
-            // Safe Mode should behave like a clean default session without persisting changes.
-            // Leave the original stored settings untouched, but make all reads resolve to defaults.
-            this._cache = {};
+            pinnedApps: ['shell', 'vault', 'browser']
           }
         },
 
@@ -1770,7 +1780,7 @@ self.onmessage = async (e) => {
           error() { }
         }
       };
-      window.OS = OS; // Expose OS globally for external scripts
+      window.OS = OS; // Expose OS globally for external scripts (nova-security-api.js etc.)
 
       /* ═══════════════════════════════════════════════════════════════
          SECTION: FILESYSTEM API
@@ -2108,17 +2118,6 @@ self.onmessage = async (e) => {
           };
           OS.windows.set(id, state);
 
-          // Clamp spawn position so window never starts outside the OS viewport
-          const spawnClamped = WM.clampWindowRect(state, state.x, state.y, state.width, state.height);
-          state.x = spawnClamped.x;
-          state.y = spawnClamped.y;
-          state.width = spawnClamped.w;
-          state.height = spawnClamped.h;
-          win.style.left = state.x + 'px';
-          win.style.top = state.y + 'px';
-          win.style.width = state.width + 'px';
-          win.style.height = state.height + 'px';
-
           // Remove opening class precisely when animation ends
           win.addEventListener('animationend', () => win.classList.remove('opening'), { once: true });
 
@@ -2303,76 +2302,6 @@ self.onmessage = async (e) => {
           WM.updateTaskbar();
         },
 
-
-        getWorkArea() {
-          const vw = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
-          const vh = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
-          const tb = document.getElementById('taskbar');
-          const area = { left: 0, top: 0, right: vw, bottom: vh };
-          if (!tb) {
-            return { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' };
-          }
-
-          const isHidden = tb.classList.contains('taskbar-autohide') && !tb.classList.contains('taskbar-ah-shown');
-          if (isHidden) {
-            return { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' };
-          }
-
-          const rect = tb.getBoundingClientRect();
-          const style = window.getComputedStyle(tb);
-          let position = 'bottom';
-          if (style.left === '0px' && style.right === 'auto') position = 'left';
-          else if (style.right === '0px' && style.left === 'auto') position = 'right';
-          else if (style.top === '0px' && style.bottom === 'auto') position = 'top';
-
-          const gap = 8;
-          if (position === 'bottom') area.bottom = Math.max(area.top + 220, Math.floor(rect.top) - gap);
-          else if (position === 'top') area.top = Math.min(area.bottom - 220, Math.ceil(rect.bottom) + gap);
-          else if (position === 'left') area.left = Math.min(area.right - 320, Math.ceil(rect.right) + gap);
-          else if (position === 'right') area.right = Math.max(area.left + 320, Math.floor(rect.left) - gap);
-
-          return {
-            ...area,
-            width: Math.max(0, area.right - area.left),
-            height: Math.max(0, area.bottom - area.top),
-            taskbarHidden: false,
-            taskbarPosition: position
-          };
-        },
-
-        clampWindowRect(state, x, y, w, h) {
-          const area = WM.getWorkArea();
-          const minW = state.minWidth || 300;
-          const minH = state.minHeight || 200;
-          // Use full viewport for size clamping (not just work area) so windows
-          // can be dragged partially under the taskbar
-          const vw = window.innerWidth;
-          const vh = window.innerHeight;
-          const maxW = Math.max(minW, vw);
-          const maxH = Math.max(minH, vh);
-          const width = Math.min(Math.max(w, minW), maxW);
-          const height = Math.min(Math.max(h, minH), maxH);
-          // Horizontal: keep at least 80px of the window visible on each side.
-          // Use window.innerWidth (not area.right) as the hard right boundary so a
-          // window can never be placed beyond the actual viewport edge — which would
-          // widen the document and cause the page to scroll horizontally.
-          const grabMarginH = 80;
-          const minX = area.left - width + grabMarginH;
-          const maxX = Math.min(area.right, window.innerWidth) - grabMarginH;
-          // Vertical: top edge must stay within the screen top + work area top
-          // (so titlebar is reachable), and bottom is clamped to the taskbar top
-          // so the titlebar can never be dragged fully behind the taskbar.
-          const grabH = 32; // minimum titlebar height that must remain visible
-          const minY = area.top;                     // can't go above work area top
-          const maxY = area.bottom - grabH;          // titlebar must stay above taskbar
-          return {
-            x: Math.min(Math.max(x, minX), maxX),
-            y: Math.min(Math.max(y, minY), maxY),
-            w: width,
-            h: height
-          };
-        },
-
         toggleMaximize(id) {
           const state = OS.windows.get(id);
           if (!state) return;
@@ -2397,15 +2326,13 @@ self.onmessage = async (e) => {
             state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
             state.maximized = true;
             state.element.classList.add('maximized');
-            const area = WM.getWorkArea();
-            state.element.style.left = area.left + 'px';
-            state.element.style.top = area.top + 'px';
-            state.element.style.width = area.width + 'px';
-            state.element.style.height = area.height + 'px';
-            state.x = area.left;
-            state.y = area.top;
-            state.width = area.width;
-            state.height = area.height;
+            state.element.style.left = '0';
+            state.element.style.top = '0';
+            state.element.style.width = '100vw';
+            const tb = document.getElementById('taskbar');
+            const isAutoHide = tb && tb.classList.contains('taskbar-autohide');
+            const isHidden = isAutoHide && !tb.classList.contains('taskbar-ah-shown');
+            state.element.style.height = isHidden ? '100vh' : 'calc(100vh - var(--taskbar-height))';
           }
         },
 
@@ -2448,33 +2375,17 @@ self.onmessage = async (e) => {
           const onPointerDown = (e) => {
             if (e.target.closest('.window-controls')) return;
             if (state.maximized) {
+              // Unmaximize and position under mouse
               state.maximized = false;
               state.element.classList.remove('maximized');
-              // Close the notification panel so it can't sit over the titlebar
-              // and feed an off-screen clientX into the restored position calc.
-              const _np = document.getElementById('notification-panel');
-              if (_np && _np.classList.contains('active')) {
-                _np.classList.remove('active');
-              }
               if (state.preMaxState) {
                 state.width = state.preMaxState.w;
                 state.height = state.preMaxState.h;
                 state.element.style.width = state.width + 'px';
                 state.element.style.height = state.height + 'px';
-                // Clamp the click X to the safe visible area so the restored window
-                // is never placed off-screen (e.g. when the notification panel was
-                // open and the user clicked through it at a far-right clientX).
-                const _safeMaxX = window.innerWidth - 80;
-                const _safeClientX = Math.min(e.clientX, _safeMaxX);
-                const restored = WM.clampWindowRect(
-                  state,
-                  _safeClientX - (state.width / 2),
-                  e.clientY - 10,
-                  state.width,
-                  state.height
-                );
-                state.x = restored.x;
-                state.y = restored.y;
+                // Position titlebar under mouse
+                state.x = e.clientX - (state.width / 2);
+                state.y = Math.max(0, e.clientY - 10);
                 state.element.style.left = state.x + 'px';
                 state.element.style.top = state.y + 'px';
               }
@@ -2493,19 +2404,18 @@ self.onmessage = async (e) => {
             if (!dragging) return;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
-            const next = WM.clampWindowRect(state, origX + dx, origY + dy, state.width, state.height);
-            state.x = next.x;
-            state.y = next.y;
+            state.x = origX + dx;
+            state.y = Math.max(0, origY + dy);
             state.element.style.transform = `translate(${state.x - origX}px, ${state.y - origY}px)`;
 
-            const area = WM.getWorkArea();
+            // Snap preview
             const snapZone = 20;
             if (e.clientX < snapZone) {
-              WM.showSnapPreview(area.left, area.top, Math.floor(area.width / 2), area.height);
+              WM.showSnapPreview(0, 0, window.innerWidth / 2, window.innerHeight - 48);
             } else if (e.clientX > window.innerWidth - snapZone) {
-              WM.showSnapPreview(area.left + Math.floor(area.width / 2), area.top, Math.floor(area.width / 2), area.height);
+              WM.showSnapPreview(window.innerWidth / 2, 0, window.innerWidth / 2, window.innerHeight - 48);
             } else if (e.clientY < snapZone) {
-              WM.showSnapPreview(area.left, area.top, area.width, area.height);
+              WM.showSnapPreview(0, 0, window.innerWidth, window.innerHeight - 48);
             } else {
               WM.hideSnapPreview();
             }
@@ -2515,11 +2425,15 @@ self.onmessage = async (e) => {
             if (!dragging) return;
             dragging = false;
             state.element.classList.remove('is-dragging');
+            // Commit final position with transition still suppressed so there is no
+            // animated jump from the transform offset to the new left/top values.
             state.element.style.transition = 'none';
             state.element.style.left = state.x + 'px';
             state.element.style.top = state.y + 'px';
             state.element.style.transform = 'none';
             document.body.style.cursor = '';
+            // Defer clearing transform + restoring transition until the committed
+            // position has been painted — two rAFs guarantees a full frame boundary.
             requestAnimationFrame(() => {
               state.element.style.transform = '';
               state.element.style.willChange = '';
@@ -2582,15 +2496,12 @@ self.onmessage = async (e) => {
             if (dir.includes('s')) newH = Math.max(state.minHeight, origH + dy);
             if (dir.includes('n')) { newH = Math.max(state.minHeight, origH - dy); newY = origY + origH - newH; }
 
-            const next = WM.clampWindowRect(state, newX, newY, newW, newH);
-            state.width = next.w;
-            state.height = next.h;
-            state.x = next.x;
-            state.y = next.y;
-            state.element.style.width = next.w + 'px';
-            state.element.style.height = next.h + 'px';
-            state.element.style.left = next.x + 'px';
-            state.element.style.top = next.y + 'px';
+            state.width = newW; state.height = newH;
+            state.x = newX; state.y = newY;
+            state.element.style.width = newW + 'px';
+            state.element.style.height = newH + 'px';
+            state.element.style.left = newX + 'px';
+            state.element.style.top = newY + 'px';
           });
 
           const onPointerUp = () => {
@@ -2613,24 +2524,18 @@ self.onmessage = async (e) => {
         },
 
         snapWindow(state, side) {
-          const area = WM.getWorkArea();
-          state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
+          const tbH = 48;
           if (side === 'left') {
-            state.x = area.left;
-            state.y = area.top;
-            state.width = Math.floor(area.width / 2);
-            state.height = area.height;
+            state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
+            state.x = 0; state.y = 0;
+            state.width = window.innerWidth / 2;
+            state.height = window.innerHeight - tbH;
           } else if (side === 'right') {
-            state.x = area.left + Math.floor(area.width / 2);
-            state.y = area.top;
-            state.width = Math.ceil(area.width / 2);
-            state.height = area.height;
+            state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
+            state.x = window.innerWidth / 2; state.y = 0;
+            state.width = window.innerWidth / 2;
+            state.height = window.innerHeight - tbH;
           }
-          const next = WM.clampWindowRect(state, state.x, state.y, state.width, state.height);
-          state.x = next.x;
-          state.y = next.y;
-          state.width = next.w;
-          state.height = next.h;
           state.element.style.left = state.x + 'px';
           state.element.style.top = state.y + 'px';
           state.element.style.width = state.width + 'px';
@@ -2822,46 +2727,7 @@ self.onmessage = async (e) => {
          ═══════════════════════════════════════════════════════════════ */
 
       const Notify = {
-        _storageKey: 'novaOS_notifications',
-        _loaded: false,
-
-        loadPersisted() {
-          if (Notify._loaded) return;
-          Notify._loaded = true;
-          try {
-            const saved = JSON.parse(localStorage.getItem(Notify._storageKey) || '[]');
-            if (Array.isArray(saved)) {
-              OS.notifications = saved.slice(0, 100);
-              OS.notifUnread = OS.notifications.filter(n => !n.read).length;
-            }
-          } catch (e) {
-            OS.notifications = [];
-            OS.notifUnread = 0;
-          }
-        },
-
-        persist() {
-          try { localStorage.setItem(Notify._storageKey, JSON.stringify(OS.notifications.slice(0, 100))); } catch (e) { }
-        },
-
-        markAllRead() {
-          let changed = false;
-          OS.notifications = OS.notifications.map(n => {
-            if (n && !n.read) {
-              changed = true;
-              return { ...n, read: true };
-            }
-            return n;
-          });
-          OS.notifUnread = 0;
-          if (changed) Notify.persist();
-          Notify.updateBadge();
-          updateNotificationBadge();
-          Notify.renderPanel();
-        },
-
         show(opts) {
-          Notify.loadPersisted();
           const { title, body, type, appName, category, icon, action, actionLabel } = opts;
           const notif = {
             id: generateId(),
@@ -2876,6 +2742,19 @@ self.onmessage = async (e) => {
             action: action || null,
             actionLabel: actionLabel || null
           };
+          // FIX 15 — load any persisted notifications on first call
+          if (!Notify._loaded) {
+            Notify._loaded = true;
+            try {
+              const _saved = JSON.parse(localStorage.getItem('novaOS_notifications') || '[]');
+              if (_saved.length) {
+                OS.notifications = _saved;
+                OS.notifUnread = _saved.filter(n => !n.read).length;
+                Notify.updateBadge();
+                Notify.renderPanel();
+              }
+            } catch (e) { }
+          }
           OS.notifications.unshift(notif);
           if (OS.notifications.length > 100) OS.notifications.pop();
           OS.notifUnread++;
@@ -2883,7 +2762,7 @@ self.onmessage = async (e) => {
           updateNotificationBadge();
           Notify.renderPanel();
           // FIX 15 — persist to localStorage
-          Notify.persist();
+          try { localStorage.setItem('novaOS_notifications', JSON.stringify(OS.notifications.slice(0, 100))); } catch (e) { }
 
           if (!OS.dnd) Notify.showToast(notif);
         },
@@ -2963,7 +2842,6 @@ self.onmessage = async (e) => {
         },
 
         renderPanel() {
-          Notify.loadPersisted();
           const list = document.getElementById('notif-list');
           list.innerHTML = '';
           if (OS.notifications.length === 0) {
@@ -2988,19 +2866,11 @@ self.onmessage = async (e) => {
         },
 
         togglePanel() {
-          Notify.loadPersisted();
           const panel = document.getElementById('notification-panel');
-          const opening = !panel.classList.contains('active');
           panel.classList.toggle('active');
-          if (opening) {
-            if (OS.notifications.length) {
-              OS.notifications = OS.notifications.map(n => n && !n.read ? { ...n, read: true } : n);
-              OS.notifUnread = 0;
-              Notify.persist();
-            }
+          if (panel.classList.contains('active')) {
+            OS.notifUnread = 0;
             Notify.updateBadge();
-            updateNotificationBadge();
-            Notify.renderPanel();
           }
         }
       };
@@ -3092,8 +2962,6 @@ self.onmessage = async (e) => {
           if (inputType) {
             const inputWrap = createEl('div', { className: 'modal-body', style: { paddingTop: '0' } });
             _modalInput = createEl('input', {
-              id: 'modal-input-field',
-              name: 'modal-input',
               className: 'input',
               type: inputType,
               style: { width: '100%', marginTop: '4px' },
@@ -3209,10 +3077,7 @@ self.onmessage = async (e) => {
 
       // ── Global URL opener — routes all links to com.nbosp.browser ──────
       OS.openUrl = function (url) {
-        if (!url) return;
-        if (/^(javascript|data|vbscript):/i.test(url.trim())) return;
-        // Block localhost / private / loopback addresses at the OS level too
-        if (typeof isLocalAddress === 'function' && isLocalAddress(url)) return;
+        if (!url || url.startsWith('javascript:')) return;
         WM.createWindow('browser', { url });
       };
 
@@ -3221,8 +3086,7 @@ self.onmessage = async (e) => {
         const a = e.target.closest('a[href]');
         if (!a) return;
         const href = a.getAttribute('href');
-        if (!href || href.startsWith('#')) return;
-        if (/^(javascript|data|vbscript):/i.test(href.trim())) return;
+        if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
         if (href.match(/^https?:\/\//i)) {
           e.preventDefault();
           e.stopPropagation();
@@ -3623,9 +3487,9 @@ self.onmessage = async (e) => {
         }
       });
 
-      /* ── APP 2: TextEdit (NBOSP — minimal) ── */
+      /* ── APP 2: Notes (NBOSP — minimal) ── */
       registerApp({
-        id: 'quill', name: 'TextEdit', icon: 'pen-tool',
+        id: 'quill', name: 'Notes', icon: 'pen-tool',
         description: 'Text Editor',
         defaultSize: [680, 500], minSize: [360, 260],
         init(content, state, options) {
@@ -3686,7 +3550,7 @@ self.onmessage = async (e) => {
               {
                 label: 'Word Count', icon: 'info', action: () => {
                   const words = textarea.value.trim().split(/\s+/).filter(Boolean).length;
-                  Notify.show({ title: 'Word Count', body: `${words} words`, type: 'info', appName: 'TextEdit' });
+                  Notify.show({ title: 'Word Count', body: `${words} words`, type: 'info', appName: 'Notes' });
                 }
               }]);
           });
@@ -3711,7 +3575,7 @@ self.onmessage = async (e) => {
             statusBar.textContent = `Ln ${line}, Col ${col}  ·  ${words} words`;
           }
 
-          // Save TextEdit files to com.nbosp.quill/files/ (Android-style private app storage)
+          // Save notes to com.nbosp.quill/files/ (Android-style private app storage)
           function getQuillFilesDir() {
             return AppDirs.getVFSDir('com.nbosp.quill', 'files') || FS.specialFolders.documents;
           }
@@ -3720,14 +3584,14 @@ self.onmessage = async (e) => {
             if (file.id) {
               await FS.writeFile(file.id, textarea.value);
               file.modified = false; file.content = textarea.value;
-              Notify.show({ title: 'Saved', body: file.name, type: 'success', appName: 'TextEdit' });
+              Notify.show({ title: 'Saved', body: file.name, type: 'success', appName: 'Notes' });
             } else {
               const name = await showPrompt('Save As', file.name);
               if (name) {
                 const node = await FS.createFile(getQuillFilesDir(), name, textarea.value, 'text/plain');
                 file.id = node.id; file.name = name; file.modified = false; file.content = textarea.value;
                 renderDesktopIcons();
-                Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'TextEdit' });
+                Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'Notes' });
               }
             }
           }
@@ -3739,7 +3603,7 @@ self.onmessage = async (e) => {
             const node = await FS.createFile(getQuillFilesDir(), name, textarea.value, 'text/plain');
             file.id = node.id; file.name = name; file.modified = false; file.content = textarea.value;
             renderDesktopIcons();
-            Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'TextEdit' });
+            Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'Notes' });
           });
 
           textarea.addEventListener('input', () => { file.modified = true; updateGutter(); updateStatus(); }, { passive: true });
@@ -3783,9 +3647,9 @@ self.onmessage = async (e) => {
             const fileData = await file.text();
             FS.files.set(fileId, { id: fileId, name: file.name, type: 'text/plain', size: file.size, content: fileData, mimeType: file.type });
             WM.createWindow('quill', { fileId });
-            Notify.show({ title: 'File Opened', body: file.name, type: 'success', appName: 'TextEdit' });
+            Notify.show({ title: 'File Opened', body: file.name, type: 'success', appName: 'Notes' });
           } catch {
-            Notify.show({ title: 'Error', body: 'Failed to open file.', type: 'error', appName: 'TextEdit' });
+            Notify.show({ title: 'Error', body: 'Failed to open file.', type: 'error', appName: 'Notes' });
           }
         }
       });
@@ -4546,44 +4410,9 @@ self.onmessage = async (e) => {
           // ── Bookmarks, History & Settings storage ─────────────────────────
           const BK_KEY = 'nbosp_browser_bookmarks';
           const HX_KEY = 'nbosp_browser_history';
-
-          // Normalise any stored favicon URL to go through the local proxy.
-          // Old bookmarks/history may have the Google URL baked in — rewrite on the fly.
-          function normFavicon(favicon) {
-            if (!favicon) return '';
-            // Already a proxy URL — use as-is
-            if (favicon.startsWith('/api/favicon') || favicon.startsWith('/api/email-image')) return favicon;
-            // Old Google favicon URL — extract the domain and re-proxy
-            try {
-              const u = new URL(favicon);
-              if (u.hostname === 'www.google.com' && u.pathname === '/s2/favicons') {
-                const domain = u.searchParams.get('domain');
-                if (domain) return '/api/favicon?domain=' + encodeURIComponent(domain);
-              }
-            } catch (_) { }
-            // Any other external URL — proxy it via favicon endpoint using the URL's hostname
-            if (/^https?:\/\//i.test(favicon)) {
-              try {
-                const domain = new URL(favicon).hostname;
-                return '/api/favicon?domain=' + encodeURIComponent(domain);
-              } catch (_) { }
-            }
-            return favicon;
-          }
           const ST_KEY = 'nbosp_browser_settings';
-          let _settingsCache = null;
-          function loadSettings() {
-            if (_settingsCache) return _settingsCache;
-            try { _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}'); }
-            catch { _settingsCache = {}; }
-            return _settingsCache;
-          }
-          function saveSetting(key, val) {
-            const s = loadSettings();
-            s[key] = val;
-            _settingsCache = s;
-            localStorage.setItem(ST_KEY, JSON.stringify(s));
-          }
+          function loadSettings() { try { return JSON.parse(localStorage.getItem(ST_KEY) || '{}'); } catch { return {}; } }
+          function saveSetting(key, val) { const s = loadSettings(); s[key] = val; localStorage.setItem(ST_KEY, JSON.stringify(s)); }
           function getSetting(key, def) { const v = loadSettings()[key]; return v !== undefined ? v : def; }
 
           // Search engines — Google is default out of the box
@@ -4601,28 +4430,8 @@ self.onmessage = async (e) => {
             return base + encodeURIComponent(q);
           }
 
-          let _bookmarksCache = null;
-          function loadBookmarks() {
-            if (_bookmarksCache) return _bookmarksCache;
-            try { _bookmarksCache = JSON.parse(localStorage.getItem(BK_KEY) || '[]'); }
-            catch { _bookmarksCache = []; }
-            return _bookmarksCache;
-          }
-          function saveBookmarks(arr) {
-            _bookmarksCache = arr.slice(0, 500);
-            localStorage.setItem(BK_KEY, JSON.stringify(_bookmarksCache));
-          }
-          let _historyCache = null;
-          function loadHistory() {
-            if (_historyCache) return _historyCache;
-            try { _historyCache = JSON.parse(localStorage.getItem(HX_KEY) || '[]'); }
-            catch { _historyCache = []; }
-            return _historyCache;
-          }
-          function saveHistory(arr) {
-            _historyCache = arr.slice(0, 1000);
-            localStorage.setItem(HX_KEY, JSON.stringify(_historyCache));
-          }
+          function loadBookmarks() { try { return JSON.parse(localStorage.getItem(BK_KEY) || '[]'); } catch { return []; } }
+          function saveBookmarks(arr) { localStorage.setItem(BK_KEY, JSON.stringify(arr.slice(0, 500))); }
           function isBookmarked(url) { return loadBookmarks().some(b => b.url === url); }
           function toggleBookmark(url, title, favicon) {
             let arr = loadBookmarks();
@@ -4638,14 +4447,15 @@ self.onmessage = async (e) => {
             const tab = tabs.find(t => t.id === activeTabId);
             if (tab?.incognito || tab?.isPopup) return; // no history in incognito or popup windows
             try {
-              let arr = loadHistory().filter(h => h.url !== url); // deduplicate
+              let arr = JSON.parse(localStorage.getItem(HX_KEY) || '[]');
+              arr = arr.filter(h => h.url !== url); // deduplicate
               arr.unshift({ url, title: title || url, favicon: favicon || '', ts: Date.now() });
-              saveHistory(arr);
+              localStorage.setItem(HX_KEY, JSON.stringify(arr.slice(0, 1000)));
               // Live-refresh history panel if it's open
               if (_panelType === 'history' && panel.style.display !== 'none') showPanel('history');
             } catch { }
           }
-          // loadHistory defined above (write-through cache version)
+          function loadHistory() { try { return JSON.parse(localStorage.getItem(HX_KEY) || '[]'); } catch { return []; } }
 
           function renderTabs() {
             tabsBar.innerHTML = '';
@@ -4657,7 +4467,7 @@ self.onmessage = async (e) => {
               });
               const faviconSpan = createEl('span', { className: 'tab-icon' });
               if (tab.favicon) {
-                const img = createEl('img', { src: normFavicon(tab.favicon), style: { width: '14px', height: '14px', borderRadius: '2px' } });
+                const img = createEl('img', { src: tab.favicon, style: { width: '14px', height: '14px', borderRadius: '2px' } });
                 faviconSpan.appendChild(img);
               } else {
                 faviconSpan.innerHTML = svgIcon('globe', 14);
@@ -4767,8 +4577,7 @@ self.onmessage = async (e) => {
             }
           }
 
-          const tabZoom = new Map();    // per-tab zoom level
-          const tabCleanups = new Map(); // tabId → [cleanup fns]
+          const tabZoom = new Map();  // per-tab zoom level
           function adjustZoom(delta) {
             let z = tabZoom.get(activeTabId) || 1.0;
             if (delta === 0) { z = 1.0; }
@@ -4806,9 +4615,6 @@ self.onmessage = async (e) => {
               switchToTab(tabs[idx > 0 ? idx - 1 : 1].id);
             }
             tabs = tabs.filter(t => t.id !== tabId);
-            // Run per-tab cleanups (cancels poll timers, etc.) before removing the webview
-            (tabCleanups.get(tabId) || []).forEach(fn => { try { fn(); } catch (_) {} });
-            tabCleanups.delete(tabId);
             if (tabs.length === 0) { createNewTab(); return; }
             renderTabs();
             const closedWv = tabWebviews?.get(tabId); if (closedWv) { closedWv.remove(); tabWebviews.delete(tabId); }
@@ -4842,17 +4648,8 @@ self.onmessage = async (e) => {
                 tile.addEventListener('mouseenter', () => tile.style.background = 'var(--bg-hover)');
                 tile.addEventListener('mouseleave', () => tile.style.background = 'var(--bg-elevated)');
                 const ico = createEl('div', { style: 'width:32px;height:32px;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-hover);' });
-                {
-                  const _fimg = document.createElement('img');
-                  if (bk.favicon && /^https?:\/\//i.test(bk.favicon)) {
-                    _fimg.src = normFavicon(bk.favicon);
-                  } else {
-                    try { _fimg.src = '/api/favicon?domain=' + encodeURIComponent(new URL(bk.url).hostname); } catch { _fimg.src = ''; }
-                  }
-                  _fimg.style.cssText = 'width:24px;height:24px;border-radius:3px;';
-                  _fimg.onerror = () => { ico.innerHTML = ''; ico.innerHTML = svgIcon('globe', 20); };
-                  if (_fimg.src) ico.appendChild(_fimg); else ico.innerHTML = svgIcon('globe', 20);
-                }
+                if (bk.favicon) ico.innerHTML = '<img src="' + bk.favicon + '" style="width:24px;height:24px;">';
+                else ico.innerHTML = svgIcon('globe', 20);
                 const lbl = createEl('div', { style: 'font-size:11px;color:var(--text-secondary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;' });
                 try { lbl.textContent = new URL(bk.url).hostname.replace('www.', ''); } catch { lbl.textContent = bk.title; }
                 tile.append(ico, lbl);
@@ -4941,14 +4738,8 @@ self.onmessage = async (e) => {
               urlIcon.innerHTML = svgIcon('lock', 14);
               urlIcon.style.color = 'var(--text-success)';
             } else if (url && url.startsWith('http://')) {
-              // Only show warning icon if the security warnings setting is enabled
-              if (getSetting('show_security_warnings', true)) {
-                urlIcon.innerHTML = svgIcon('unlock', 14);
-                urlIcon.style.color = 'var(--text-warning)';
-              } else {
-                urlIcon.innerHTML = svgIcon('globe', 14);
-                urlIcon.style.color = '';
-              }
+              urlIcon.innerHTML = svgIcon('unlock', 14);
+              urlIcon.style.color = 'var(--text-warning)';
             } else {
               urlIcon.innerHTML = svgIcon('search', 14);
               urlIcon.style.color = '';
@@ -5194,25 +4985,9 @@ self.onmessage = async (e) => {
                 row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-hover)');
                 row.addEventListener('mouseleave', () => row.style.background = '');
                 const ico = createEl('span', { style: 'flex-shrink:0;color:var(--text-muted);' });
-                {
-                  const _fimg2 = document.createElement('img');
-                  if (item.favicon && /^https?:\/\//i.test(item.favicon)) {
-                    _fimg2.src = normFavicon(item.favicon);
-                  } else {
-                    try { _fimg2.src = '/api/favicon?domain=' + encodeURIComponent(new URL(item.url).hostname); } catch { _fimg2.src = ''; }
-                  }
-                  _fimg2.style.cssText = 'width:14px;height:14px;border-radius:2px;';
-                  _fimg2.onerror = () => { ico.innerHTML = ''; ico.innerHTML = svgIcon('globe', 14); };
-                  if (_fimg2.src) ico.appendChild(_fimg2); else ico.innerHTML = svgIcon('globe', 14);
-                }
+                ico.innerHTML = item.favicon ? '<img src="' + item.favicon + '" style="width:14px;height:14px;border-radius:2px;">' : svgIcon('globe', 14);
                 const info = createEl('div', { style: 'flex:1;min-width:0;' });
-                const _iTitle = document.createElement('div');
-                _iTitle.style.cssText = 'font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-                _iTitle.textContent = item.title || item.url;
-                const _iUrl = document.createElement('div');
-                _iUrl.style.cssText = 'font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-                _iUrl.textContent = item.url;
-                info.append(_iTitle, _iUrl);
+                info.innerHTML = '<div style="font-size:12px;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (item.title || item.url) + '</div><div style="font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + item.url + '</div>';
                 const del = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 4px;opacity:0;transition:opacity 0.1s;', title: 'Remove' });
                 del.innerHTML = svgIcon('x', 12);
                 row.addEventListener('mouseenter', () => del.style.opacity = '1');
@@ -5220,7 +4995,7 @@ self.onmessage = async (e) => {
                 del.addEventListener('click', (e) => {
                   e.stopPropagation();
                   if (type === 'bookmarks') { let arr = loadBookmarks(); arr = arr.filter(b => b.url !== item.url); saveBookmarks(arr); }
-                  else { saveHistory(loadHistory().filter(h => h.ts !== item.ts)); }
+                  else { let arr = loadHistory(); arr = arr.filter(h => h.ts !== item.ts); localStorage.setItem(HX_KEY, JSON.stringify(arr)); }
                   showPanel(type);
                 });
                 row.appendChild(ico); row.appendChild(info); row.appendChild(del);
@@ -5278,30 +5053,6 @@ self.onmessage = async (e) => {
           const tabWebviews = new Map();
           const tabIframes = new Map();   // tabId → <iframe> element
           const tabViewMode = new Map();  // tabId → 'webview' | 'iframe'
-
-          // Tracker blocklist — fetched from the local server (require() is unavailable
-          // in the main window; it has no Node integration — only the server process does).
-          // TRACKER_DOMAINS starts empty and is populated async; any webview whose
-          // contentload fires before the fetch completes will still get blocking once
-          // the Set is populated because the listener closure captures the reference.
-          let TRACKER_DOMAINS = new Set();
-          fetch('/trackers.js')
-            .then(r => {
-              if (!r.ok) throw new Error('HTTP ' + r.status);
-              return r.text();
-            })
-            .then(src => {
-              // trackers.js exports: const TRACKER_DOMAINS = new Set([...domains...]);
-              // Extract the domain strings from the Set literal — fast regex, no eval.
-              const matches = src.match(/"([^"]+)"/g);
-              if (matches) {
-                TRACKER_DOMAINS = new Set(matches.map(s => s.slice(1, -1)));
-                console.log('[Tracker blocker] Loaded', TRACKER_DOMAINS.size, 'domains via fetch');
-              } else {
-                console.warn('[Tracker blocker] Fetched trackers.js but found no domain strings');
-              }
-            })
-            .catch(e => console.warn('[Tracker blocker] Could not fetch /trackers.js —', e.message));
 
           function getTabMode(tabId) { return tabViewMode.get(tabId) || 'webview'; }
 
@@ -5369,9 +5120,7 @@ self.onmessage = async (e) => {
                   }
                   try {
                     const hostname = new URL(url || tab.url).hostname;
-                    tab.favicon = OS.settings.get('proxyFavicons') !== false
-                      ? '/api/favicon?domain=' + hostname
-                      : 'https://www.google.com/s2/favicons?domain=' + hostname + '&sz=32';
+                    tab.favicon = 'https://www.google.com/s2/favicons?domain=' + hostname + '&sz=32';
                   } catch (_) { }
                   if (url && !url.startsWith('novabyte:') && !url.startsWith('file://')) {
                     addHistory(url, title || url, tab.favicon);
@@ -5382,117 +5131,6 @@ self.onmessage = async (e) => {
             wv.addEventListener('contentload', () => {
               console.log('[NB Browser] contentload fired');
               try { wv.executeScript({ code: 'location.href' }, r => { if (chrome.runtime?.lastError || !r?.[0]) return; syncUrlForTab(r[0], tabId, 'contentload+executeScript'); }); } catch (_) { }
-            });
-
-            // ── Network / certificate error handling ─────────────────────
-            // NW.js fires 'loaderror' for cert errors, DNS failures,
-            // ERR_CONNECTION_REFUSED etc.  Without this the webview stays
-            // completely blank and the user has no idea what went wrong.
-            wv.addEventListener('loaderror', e => {
-              if (!e.isTopLevel) return; // ignore sub-resource errors
-              console.warn('[NB Browser] loaderror:', e.errorCode, e.errorDescription, e.validatedURL);
-              const failedUrl = e.validatedURL || currentUrl || '';
-              const code      = e.errorCode || 0;        // negative Chromium net error
-              const desc      = e.errorDescription || '';
-
-              // Classify the error for a friendlier message
-              let title, message, hint, showBypass = false;
-              if (desc.includes('CERT') || desc.includes('SSL') || desc.includes('HTTPS') ||
-                  code === -202 || code === -200 || code === -207) {
-                title = '⚠ Certificate Error';
-                message = 'The connection to this site is not trusted. The certificate may be self-signed, expired, or issued by an unknown authority.';
-                hint  = 'If this is a local development server, click "Proceed anyway" below.';
-                showBypass = true;
-              } else if (desc.includes('CONNECTION_REFUSED') || code === -102) {
-                title = '⚡ Connection Refused';
-                message = 'No server is listening at this address. Check that the server is running and the port is correct.';
-                hint  = failedUrl.includes('localhost') || failedUrl.includes('127.0.0.1')
-                  ? 'Tip: make sure your local server is started (e.g. npm start).'
-                  : '';
-              } else if (desc.includes('NAME_NOT_RESOLVED') || code === -105) {
-                title = '🌐 DNS Error';
-                message = 'The hostname could not be resolved. Check the URL or your internet connection.';
-                hint  = '';
-              } else if (desc.includes('TIMED_OUT') || code === -7) {
-                title = '⏱ Connection Timed Out';
-                message = 'The server took too long to respond.';
-                hint  = 'Try again or check your network.';
-              } else {
-                title = '✕ Page Failed to Load';
-                message = 'Something went wrong loading this page.';
-                hint  = desc ? 'Error: ' + desc : '';
-              }
-
-              const safeUrl  = failedUrl.replace(/'/g, "\\'").replace(/</g, '&lt;').replace(/>/g, '&gt;');
-              const bypassBtn = showBypass
-                ? `<button onclick="window.__nbBypass()" style="background:#e05d44;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:8px;">Proceed anyway (unsafe)</button>`
-                : '';
-
-              const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>${title}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;
-       display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
-  .card{max-width:520px;width:100%;background:#161b22;border:1px solid #30363d;
-        border-radius:12px;padding:32px 36px;text-align:center}
-  h1{font-size:20px;font-weight:700;margin-bottom:12px;color:#f0f6fc}
-  p{font-size:13px;color:#8b949e;line-height:1.6;margin-bottom:8px}
-  .url{font-size:11px;color:#58a6ff;word-break:break-all;margin-bottom:20px;
-       background:#0d1117;padding:6px 10px;border-radius:6px;border:1px solid #21262d}
-  .hint{font-size:12px;color:#e3b341;margin-bottom:20px}
-  .actions{display:flex;justify-content:center;flex-wrap:wrap;gap:8px}
-  button{background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;
-         cursor:pointer;font-size:13px}
-  button:hover{opacity:.85}
-</style></head><body>
-<div class="card">
-  <h1>${title}</h1>
-  <p>${message}</p>
-  <div class="url">${safeUrl}</div>
-  ${hint ? `<div class="hint">${hint}</div>` : ''}
-  <div class="actions">
-    ${bypassBtn}
-    <button onclick="window.__nbRetry()">↺ Retry</button>
-  </div>
-</div>
-<script>
-  window.__nbRetry  = () => { window.location.href = '${safeUrl}'; };
-  window.__nbBypass = () => { window.location.href = '${safeUrl}'; };
-</script>
-</body></html>`;
-
-              try {
-                // Write the error page directly into the webview via innerHTML
-                // (safer than document.write and avoids creating blob URLs)
-                wv.executeScript({
-                  code: `document.documentElement.innerHTML = ${JSON.stringify(errorHtml)};`
-                }, () => { });
-              } catch (_) { }
-            });
-
-            // loadabort fires for navigation that was blocked before it started
-            // (e.g. subresource integrity failures, safebrowsing, etc.)
-            wv.addEventListener('loadabort', e => {
-              if (!e.isTopLevel) return;
-              console.warn('[NB Browser] loadabort:', e.reason, e.url);
-              // Only show UI for non-trivial aborts (not blank / newtab navigations)
-              if (!e.url || e.url === 'about:blank' || e.url === 'about:newtab') return;
-              // 'ERR_ABORTED' (-3) fires on legitimate JS-driven navigations — ignore
-              if (e.reason === 'ERR_ABORTED') return;
-              const safeUrl = (e.url || '').replace(/'/g, "\\'");
-              try {
-                wv.executeScript({ code: `
-                  const html = '<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
-                    + '<div style="text-align:center;max-width:400px">'
-                    + '<div style="font-size:32px;margin-bottom:12px">🚫</div>'
-                    + '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Navigation Blocked</div>'
-                    + '<div style="font-size:12px;color:#8b949e;margin-bottom:16px">' + ${JSON.stringify(e.reason || 'Unknown reason')} + '</div>'
-                    + '<button onclick="history.back()" style="background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer">← Go Back</button>'
-                    + '</div></body></html>';
-                  document.documentElement.innerHTML = html;
-                ` }, () => { });
-              } catch (_) { }
             });
             // NW.js does not fire will-navigate / did-navigate / did-navigate-in-page / did-finish-load.
             // Top-level navigations are caught by loadcommit above.
@@ -5516,10 +5154,6 @@ self.onmessage = async (e) => {
 
             state.cleanups = state.cleanups || [];
             state.cleanups.push(() => clearInterval(_urlPollTimer));
-            // Also track per-tab so closeTab() can cancel it immediately
-            const _tc = tabCleanups.get(tabId) || [];
-            _tc.push(() => clearInterval(_urlPollTimer));
-            tabCleanups.set(tabId, _tc);
             // page-title-updated and page-favicon-updated are Electron-only — handled in loadstop above.
 
             // ── Fullscreen support for web content (YouTube, etc.) ────────
@@ -5575,7 +5209,7 @@ self.onmessage = async (e) => {
             // If the user presses Escape or the browser exits fullscreen on its
             // own (e.g. the user hits Esc), restore the webview sizing so the
             // OS UI doesn't stay covered.
-            const _onFsChange = () => {
+            document.addEventListener('fullscreenchange', () => {
               if (!document.fullscreenElement) {
                 wv.style.position = 'absolute';
                 wv.style.inset = 'auto';
@@ -5584,10 +5218,7 @@ self.onmessage = async (e) => {
                 wv.style.height = '100%';
                 document.body.style.overflow = '';
               }
-            };
-            document.addEventListener('fullscreenchange', _onFsChange);
-            state.cleanups = state.cleanups || [];
-            state.cleanups.push(() => document.removeEventListener('fullscreenchange', _onFsChange));
+            }, { once: false });
 
             // History is now saved from the loadstop handler above via executeScript.
 
@@ -5595,12 +5226,7 @@ self.onmessage = async (e) => {
             // Chrome Apps webview fires permissionrequest with permission==='download'
             // (will-download is Electron-only). We intercept here and save via Node.js.
             wv.addEventListener('permissionrequest', e => {
-              if (e.permission === 'fullscreen') {
-                e.request.allow();
-                return;
-              }
-              // 'pointerLock' is required by browser games and 3D viewers
-              if (e.permission === 'pointerLock') {
+              if (e.permission === 'fullscreen' || e.permission === 'media') {
                 e.request.allow();
                 return;
               }
@@ -5608,18 +5234,9 @@ self.onmessage = async (e) => {
                 e.request.deny(); // prevent default browser save-dialog; we handle it ourselves
                 (async () => {
                   const _url = e.request.url;
-                  // Only allow http(s) downloads — block file:, data:, etc.
-                  if (!_url || !/^https?:\/\//i.test(_url)) return;
                   try {
-                    // Derive filename from URL and sanitise against path traversal
-                    let baseName = (() => {
-                      try { return decodeURIComponent(new URL(_url).pathname.split('/').pop()); }
-                      catch { return ''; }
-                    })() || ('download_' + Date.now());
-                    // Strip dangerous filename characters (path separators, shell chars)
-                    baseName = baseName.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
-                    // Cap filename length to prevent FS issues
-                    if (baseName.length > 128) baseName = baseName.slice(0, 128);
+                    // Derive filename from URL
+                    let baseName = decodeURIComponent(_url.split('?')[0].split('/').pop()) || ('download_' + Date.now());
                     if (!baseName.includes('.')) baseName += '.bin';
 
                     // Deduplicate filename within VFS Downloads folder
@@ -5644,12 +5261,7 @@ self.onmessage = async (e) => {
                     // Fetch bytes via browser fetch (inherits webview session/cookies for auth)
                     const resp = await fetch(_url);
                     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    // Refuse downloads over 512 MB to prevent memory exhaustion
-                    const _cl = resp.headers.get('content-length');
-                    const MAX_DL = 512 * 1024 * 1024;
-                    if (_cl && parseInt(_cl, 10) > MAX_DL) throw new Error('File too large (> 512 MB)');
                     const buf = await resp.arrayBuffer();
-                    if (buf.byteLength > MAX_DL) throw new Error('File too large (> 512 MB)');
                     const bytes = new Uint8Array(buf);
 
                     // Detect MIME type from Content-Type header or fall back to octet-stream
@@ -5810,9 +5422,7 @@ self.onmessage = async (e) => {
             const ifr = document.createElement('iframe');
             ifr.setAttribute('allowfullscreen', 'true');
             ifr.setAttribute('allow', 'fullscreen; autoplay; clipboard-read; clipboard-write');
-            // NOTE: allow-same-origin is intentionally ABSENT — combining it with allow-scripts
-            // enables a known sandbox escape (framed doc can call frameElement.removeAttribute('sandbox')).
-            ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation');
+            ifr.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation');
             ifr.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointer-events:none;z-index:0;top:0;left:0;background:#fff;';
 
             // Detect X-Frame-Options / CSP frame-ancestors block:
@@ -5981,70 +5591,19 @@ self.onmessage = async (e) => {
             wv.addEventListener('permissionrequest', e => {
               if (e.permission === 'geolocation') {
                 getSetting('enable_geolocation', true) ? e.request.allow() : e.request.deny();
-              } else if (e.permission === 'media') {
-                // Show a non-blocking OS permission prompt — never grant camera/mic silently
-                const _origin = (() => { try { return new URL(currentUrl).hostname; } catch { return currentUrl || 'this site'; } })();
-                showModal(
-                  'Permission Request',
-                  _origin + ' wants to access your camera and/or microphone.',
-                  [{ label: 'Allow', primary: true, value: true }, { label: 'Deny', value: false }]
-                ).then(result => { result ? e.request.allow() : e.request.deny(); });
-              } else if (e.permission === 'pointerLock') {
-                e.request.allow(); // pointer lock is low-risk UX feature
-              } else {
-                e.request.deny(); // deny all other unrecognised permissions by default
+              } else if (e.permission === 'media' || e.permission === 'pointerLock') {
+                e.request.allow();
               }
             });
 
-            // ── webRequest listeners ────────────────────────────────────
-            // wv.request is only available after the webview is inserted into
-            // the DOM and its process is live. Attaching here (before appendChild)
-            // silently fails because wv.request is undefined at construction time.
-            // We defer via a one-time function called from contentload/loadcommit —
-            // both fire only after the webview process is ready.
-            let _requestListenersAttached = false;
-            function _attachRequestListeners() {
-              if (_requestListenersAttached) return;
-              _requestListenersAttached = true;
-
-              // ── Block images/media ──────────────────────────────────
-              try {
-                wv.request.onBeforeRequest.addListener(
-                  () => ({ cancel: !getSetting('load_images', true) }),
-                  { urls: ['<all_urls>'], types: ['image', 'media'] },
-                  ['blocking']
-                );
-              } catch (e) {
-                console.error('[Tracker blocker] Image listener FAIL:', e.message);
-              }
-
-              // ── Block trackers via Disconnect.me list ───────────────
-              try {
-                wv.request.onBeforeRequest.addListener(
-                  (details) => {
-                    if (!OS.settings.get('blockTrackers')) return { cancel: false };
-                    try {
-                      const host = new URL(details.url).hostname.toLowerCase().replace(/^www\./, '');
-                      const parts = host.split('.');
-                      for (let i = 0; i < parts.length - 1; i++) {
-                        if (TRACKER_DOMAINS.has(parts.slice(i).join('.'))) return { cancel: true };
-                      }
-                    } catch (_) { }
-                    return { cancel: false };
-                  },
-                  { urls: ['<all_urls>'] },
-                  ['blocking']
-                );
-                console.log('[Tracker blocker] Listeners registered, domains:', TRACKER_DOMAINS.size);
-              } catch (e) {
-                console.error('[Tracker blocker] Tracker listener FAIL:', e.message);
-              }
-            }
-
-            // contentload fires once the webview process is ready (wv.request exists)
-            wv.addEventListener('contentload', _attachRequestListeners);
-            // loadcommit is a reliable fallback — fires on first navigation
-            wv.addEventListener('loadcommit', _attachRequestListeners);
+            // ── Block images/media via webRequest ──────────────────────
+            try {
+              wv.request.onBeforeRequest.addListener(
+                () => ({ cancel: !getSetting('load_images', true) }),
+                { urls: ['<all_urls>'], types: ['image', 'media'] },
+                ['blocking']
+              );
+            } catch (_) { }
 
             // ── Per-page CSS: inverted colours + min font size + text zoom ──
             wv.addEventListener('loadstop', () => {
@@ -6219,19 +5778,14 @@ self.onmessage = async (e) => {
               // ════════════════════════════════════════════════════════════
             } else if (activeCategory === 'privacy') {
               panelTitle('Privacy & Security', 'Control cookies, passwords, location and browsing data.');
-              panelInner.appendChild(mkRow('Show security warnings', 'Show a warning indicator for non-HTTPS pages in the address bar', mkToggle('show_security_warnings', true, (v) => {
-                // Re-evaluate current page icon when toggled
-                updateUrlIcon(currentUrl);
-              })));
+              panelInner.appendChild(mkRow('Show security warnings', 'Alert when visiting potentially unsafe sites', mkToggle('show_security_warnings', true)));
 
               panelInner.appendChild(mkSubHdr('Cookies'));
-              panelInner.appendChild(mkRow('Accept cookies', 'Allow sites to save cookies. Disabling clears existing cookies and blocks new ones via webRequest', mkToggle('accept_cookies', true, (v) => {
-                if (!v) clearWebviewData({ cookies: true, persistentCookies: true, sessionCookies: true }, 'Cookies blocked', 'Existing cookies cleared. New cookies will be blocked.');
-              })));
+              panelInner.appendChild(mkRow('Accept cookies', 'Allow sites to save cookies on this device', mkToggle('accept_cookies', true)));
               panelInner.appendChild(mkRow('Clear cookies', '', mkClearBtn('Clear Cookies', () => clearWebviewData({ cookies: true, persistentCookies: true, sessionCookies: true }, 'Cookies cleared', 'All cookies have been deleted.'))));
 
               panelInner.appendChild(mkSubHdr('Form Data'));
-              panelInner.appendChild(mkRow('Save form data', 'Remember data entered in web forms (managed by the webview session; disable and clear form data to remove)', mkToggle('save_formdata', true)));
+              panelInner.appendChild(mkRow('Save form data', 'Remember data entered in web forms', mkToggle('save_formdata', true)));
               panelInner.appendChild(mkRow('Clear form data', '', mkClearBtn('Clear Form Data', () => clearWebviewData({ localStorage: true, indexedDB: true, webSQL: true }, 'Form data cleared', 'Saved form data has been deleted.'))));
 
               panelInner.appendChild(mkSubHdr('Location'));
@@ -6239,15 +5793,15 @@ self.onmessage = async (e) => {
               panelInner.appendChild(mkRow('Clear location access', '', mkClearBtn('Clear Location', () => Notify.show({ title: 'Location access cleared', body: 'All site location permissions have been revoked.', type: 'info', appName: 'Browser' }))));
 
               panelInner.appendChild(mkSubHdr('Passwords'));
-              panelInner.appendChild(mkRow('Remember passwords', 'Offer to save passwords (managed by the webview session; use Clear Passwords to remove saved credentials)', mkToggle('remember_passwords', true)));
+              panelInner.appendChild(mkRow('Remember passwords', 'Offer to save passwords for sites', mkToggle('remember_passwords', true)));
               panelInner.appendChild(mkRow('Clear saved passwords', '', mkClearBtn('Clear Passwords', () => Notify.show({ title: 'Passwords cleared', body: 'Saved passwords have been deleted.', type: 'info', appName: 'Browser' }))));
 
               panelInner.appendChild(mkSubHdr('Browsing Data'));
               const dataRow = createEl('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;padding:12px 0;' });
               dataRow.append(
                 mkClearBtn('Clear Cache', () => clearWebviewData({ cache: true, appcache: true }, 'Cache cleared', 'Cached data has been deleted.')),
-                mkClearBtn('Clear History', () => { localStorage.removeItem(HX_KEY); _historyCache = null; Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'info', appName: 'Browser' }); }),
-                mkClearBtn('Clear Bookmarks', () => { localStorage.removeItem(BK_KEY); _bookmarksCache = null; Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'info', appName: 'Browser' }); })
+                mkClearBtn('Clear History', () => { localStorage.removeItem(HX_KEY); Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'info', appName: 'Browser' }); }),
+                mkClearBtn('Clear Bookmarks', () => { localStorage.removeItem(BK_KEY); Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'info', appName: 'Browser' }); })
               );
               panelInner.appendChild(dataRow);
 
@@ -6289,17 +5843,10 @@ self.onmessage = async (e) => {
               resetBtn.addEventListener('mouseenter', () => resetBtn.style.background = 'rgba(248,81,73,0.1)');
               resetBtn.addEventListener('mouseleave', () => resetBtn.style.background = 'transparent');
               resetBtn.addEventListener('click', () => {
-                showModal(
-                  'Reset Browser Settings',
-                  'This will restore all browser settings to their factory defaults. Your bookmarks and history will not be affected.',
-                  [{ label: 'Reset', danger: true, value: true }, { label: 'Cancel', value: false }]
-                ).then(confirmed => {
-                  if (!confirmed) return;
-                  localStorage.removeItem(ST_KEY);
-                  _settingsCache = null; // invalidate settings cache
-                  renderSettingsPage('general');
-                  Notify.show({ title: 'Settings reset', body: 'All browser settings restored to defaults.', type: 'success', appName: 'Browser' });
-                });
+                if (!confirm('Reset all browser settings to their defaults?')) return;
+                localStorage.removeItem(ST_KEY);
+                renderSettingsPage('general');
+                Notify.show({ title: 'Settings reset', body: 'All browser settings restored to defaults.', type: 'success', appName: 'Browser' });
               });
               panelInner.appendChild(resetBtn);
             }
@@ -6309,42 +5856,9 @@ self.onmessage = async (e) => {
             viewport.appendChild(page);
           }
 
-          // Returns true for localhost / loopback / RFC-1918 / link-local addresses.
-          // Used to block users from navigating to internal network resources.
-          function isLocalAddress(rawUrl) {
-            let hostname;
-            try {
-              // Normalise: prepend scheme if missing so URL() can parse it
-              const normalized = /^https?:\/\//i.test(rawUrl) ? rawUrl : 'https://' + rawUrl;
-              hostname = new URL(normalized).hostname.toLowerCase().replace(/\.$/, '');
-            } catch { return false; }
-            // Exact names
-            if (hostname === 'localhost') return true;
-            // IPv6 loopback
-            if (hostname === '[::1]' || hostname === '::1') return true;
-            // Strip IPv6 brackets for regex checks below
-            const h = hostname.replace(/^\[|\]$/g, '');
-            // IPv4 loopback (127.x.x.x), link-local (169.254.x.x),
-            // RFC-1918 private ranges (10.x, 172.16-31.x, 192.168.x)
-            return /^127\./.test(h) ||
-                   /^169\.254\./.test(h) ||
-                   /^10\./.test(h) ||
-                   /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-                   /^192\.168\./.test(h);
-          }
-
           function navigate(rawUrl) {
             if (!rawUrl) return;
             let url = rawUrl.trim();
-            // Block dangerous schemes — must check before any branching
-            const _lowerUrl = url.toLowerCase().replace(/^[\s\u0000-\u001f]+/, '');
-            if (/^(javascript|data|vbscript|about):/i.test(_lowerUrl)) return;
-
-            // Block navigation to localhost / private / loopback addresses
-            if (isLocalAddress(url)) {
-              Notify.show({ title: 'Browser', body: 'Navigation to local or private network addresses is not allowed.', type: 'error', appName: 'Browser' });
-              return;
-            }
 
             // ── browser://settings ────────────────────────────────────────
             if (url === 'browser://settings') {
@@ -6401,9 +5915,7 @@ self.onmessage = async (e) => {
                 } catch (_) {
                   const contentStr = targetNode.content instanceof Uint8Array ? new TextDecoder().decode(targetNode.content) : String(targetNode.content);
                   const blob = new Blob([contentStr], { type: 'text/html' });
-                  const _blobUrl = URL.createObjectURL(blob);
-                  wv.src = _blobUrl;
-                  wv.addEventListener('loadstop', () => URL.revokeObjectURL(_blobUrl), { once: true });
+                  wv.src = URL.createObjectURL(blob);
                 }
                 return;
               }
@@ -6441,147 +5953,13 @@ self.onmessage = async (e) => {
 
           const stripHttps = url => url ? url.replace(/^https:\/\//, '') : '';
 
-          // ── Omnibox dropdown ────────────────────────────────────────────────
-          // Appended to `container` (not urlBarWrap) so it escapes the
-          // translateZ(0) stacking context on .browser-toolbar that would
-          // otherwise clip the dropdown inside the toolbar's paint layer.
-          // Position is set via getBoundingClientRect on every open.
-          const omniDrop = createEl('div', { className: 'omnibox-dropdown' });
-          omniDrop.setAttribute('role', 'listbox');
-          container.appendChild(omniDrop);
-
-          function omniReposition() {
-            const r = urlBar.getBoundingClientRect();
-            const cr = container.getBoundingClientRect();
-            omniDrop.style.top   = (r.bottom - cr.top + 6) + 'px';
-            omniDrop.style.left  = (r.left   - cr.left)    + 'px';
-            omniDrop.style.width = r.width + 'px';
-          }
-
-          let omniItems = [], omniIdx = -1, omniTimer = null, omniXhr = null;
-
-          function omniClose() {
-            omniDrop.style.display = 'none';
-            omniDrop.innerHTML = '';
-            omniItems = []; omniIdx = -1;
-          }
-
-          function omniHighlight(idx) {
-            omniDrop.querySelectorAll('.omni-row').forEach((r, i) => r.classList.toggle('active', i === idx));
-            omniIdx = idx;
-          }
-
-          function omniRender(items) {
-            omniDrop.innerHTML = '';
-            omniItems = items;
-            omniIdx = -1;
-            if (!items.length) { omniDrop.style.display = 'none'; return; }
-            omniReposition();
-            items.forEach((item, i) => {
-              const row = createEl('div', { className: 'omni-row', role: 'option' });
-              const ic  = createEl('span', { className: 'omni-icon' });
-              ic.innerHTML = item.type === 'history'  ? svgIcon('clock',    13)
-                           : item.type === 'bookmark' ? svgIcon('bookmark', 13)
-                           :                            svgIcon('search',   13);
-              const tx = createEl('span', { className: 'omni-text' });
-              tx.textContent = item.label;
-              if (item.sub) {
-                const sb = createEl('span', { className: 'omni-sub' });
-                sb.textContent = item.sub;
-                row.append(ic, tx, sb);
-              } else {
-                row.append(ic, tx);
-              }
-              row.addEventListener('mousedown', e => { e.preventDefault(); omniClose(); navigate(item.url || item.label); });
-              row.addEventListener('mousemove', () => omniHighlight(i));
-              omniDrop.appendChild(row);
-            });
-            omniDrop.style.display = 'block';
-          }
-
-          async function fetchSuggestions(q, signal) {
-            const eng = getSetting('searchEngine', 'google');
-            try {
-              const r = await fetch(
-                `/api/suggest?engine=${encodeURIComponent(eng)}&q=${encodeURIComponent(q)}`,
-                { signal }
-              );
-              if (!r.ok) return [];
-              const j = await r.json();
-              return j.suggestions || [];
-            } catch { return []; }
-          }
-
-          async function omniQuery(raw) {
-            const q = raw.trim();
-            if (!q) { omniClose(); return; }
-
-            // Local sources — instant
-            const lq = q.toLowerCase();
-            const bkItems = loadBookmarks()
-              .filter(b => b.url.toLowerCase().includes(lq) || (b.title || '').toLowerCase().includes(lq))
-              .slice(0, 3)
-              .map(b => ({ type: 'bookmark', label: b.title || b.url, sub: b.url, url: b.url }));
-            const hxItems = loadHistory()
-              .filter(h => h.url.toLowerCase().includes(lq) || (h.title || '').toLowerCase().includes(lq))
-              .slice(0, 4)
-              .map(h => ({ type: 'history', label: h.title || h.url, sub: h.url, url: h.url }));
-
-            omniRender([...bkItems, ...hxItems]);
-
-            // Skip remote fetch for single-char queries — results are noise
-            if (q.length < 2) return;
-
-            // Abort any in-flight request before starting a new one
-            if (omniXhr) omniXhr.abort();
-            const controller = new AbortController();
-            omniXhr = controller;
-
-            const suggestions = await fetchSuggestions(q, controller.signal);
-            if (controller.signal.aborted) return;
-
-            const sugItems = suggestions
-              .filter(s => !bkItems.some(b => b.label === s) && !hxItems.some(h => h.label === s))
-              .map(s => ({ type: 'suggest', label: s, url: null }));
-
-            omniRender([...bkItems, ...hxItems, ...sugItems]);
-          }
-
-          // ── URL bar events ──────────────────────────────────────────────────
-          urlBar.addEventListener('keydown', e => {
-            if (omniDrop.style.display === 'block') {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                omniHighlight(Math.min(omniIdx + 1, omniItems.length - 1));
-                if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
-                return;
-              }
-              if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                omniHighlight(Math.max(omniIdx - 1, 0));
-                if (omniIdx >= 0) urlBar.value = omniItems[omniIdx].url || omniItems[omniIdx].label;
-                return;
-              }
-              if (e.key === 'Escape') { omniClose(); return; }
-            }
-            if (e.key === 'Enter') {
-              const val = omniIdx >= 0 ? (omniItems[omniIdx].url || omniItems[omniIdx].label) : urlBar.value;
-              omniClose();
-              navigate(val);
-            }
-          });
-
-          urlBar.addEventListener('input', () => {
-            clearTimeout(omniTimer);
-            omniTimer = setTimeout(() => omniQuery(urlBar.value), 120);
-          });
-
+          urlBar.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(urlBar.value); });
           urlBar.addEventListener('focus', () => { urlBar.value = currentUrl || ''; });
-          urlBar.addEventListener('blur',  () => { setTimeout(omniClose, 150); urlBar.value = stripHttps(currentUrl || urlBar.value); });
+          urlBar.addEventListener('blur', () => { urlBar.value = stripHttps(currentUrl || urlBar.value); });
 
           // F12 → main window DevTools (NW.js requires programmatic open)
           // Ctrl+Shift+J → DevTools INSIDE the active webview (for debugging)
-          const _onBrowserKeydown = e => {
+          document.addEventListener('keydown', e => {
             if (e.key === 'F12') {
               e.preventDefault();
               try { nw.Window.get().showDevTools(); } catch (_) { }
@@ -6593,37 +5971,14 @@ self.onmessage = async (e) => {
                 try { wv.showDevTools(true); } catch (_) { }
               }
             }
-          };
-          document.addEventListener('keydown', _onBrowserKeydown);
-          state.cleanups = state.cleanups || [];
-          state.cleanups.push(() => document.removeEventListener('keydown', _onBrowserKeydown));
+          });
 
           // Incognito partition — use separate session per incognito tab
-          backBtn.addEventListener('click', () => {
-            if (getTabMode(activeTabId) === 'iframe') {
-              const ifr = tabIframes.get(activeTabId);
-              try { if (ifr) ifr.contentWindow.history.back(); } catch (_) {}
-            } else { tabWebviews.get(activeTabId)?.back(); }
-          });
-          fwdBtn.addEventListener('click', () => {
-            if (getTabMode(activeTabId) === 'iframe') {
-              const ifr = tabIframes.get(activeTabId);
-              try { if (ifr) ifr.contentWindow.history.forward(); } catch (_) {}
-            } else { tabWebviews.get(activeTabId)?.forward(); }
-          });
+          backBtn.addEventListener('click', () => { tabWebviews.get(activeTabId)?.back(); });
+          fwdBtn.addEventListener('click', () => { tabWebviews.get(activeTabId)?.forward(); });
           refreshBtn.addEventListener('click', () => {
-            const _mode = getTabMode(activeTabId);
-            if (_mode === 'iframe') {
-              const ifr = tabIframes.get(activeTabId);
-              if (ifr) {
-                // Try contentWindow reload (works for same-origin); fall back to re-setting src
-                try { ifr.contentWindow.location.reload(); }
-                catch (_) { const _s = ifr.src; ifr.src = ''; ifr.src = _s; }
-              }
-            } else {
-              const wv = tabWebviews.get(activeTabId);
-              if (wv) wv.reload(); else if (currentUrl) navigate(currentUrl);
-            }
+            const wv = tabWebviews.get(activeTabId);
+            if (wv) wv.reload(); else if (currentUrl) navigate(currentUrl);
           });
 
           // Open HTML file from vault — write to temp disk file so webview can load it natively
@@ -6673,7 +6028,6 @@ self.onmessage = async (e) => {
                 const blob = new Blob([htmlContent], { type: 'text/html' });
                 const blobUrl = URL.createObjectURL(blob);
                 wv.src = blobUrl;
-                wv.addEventListener('loadstop', () => URL.revokeObjectURL(blobUrl), { once: true });
                 currentUrl = blobUrl;
               }
               return;
@@ -7623,8 +6977,6 @@ self.onmessage = async (e) => {
             wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
 
             const wallpaperInput = createEl('input', {
-              id: 'wallpaper-upload',
-              name: 'wallpaper-upload',
               type: 'file',
               accept: 'image/*',
               style: { width: '200px' }
@@ -7776,10 +7128,9 @@ self.onmessage = async (e) => {
             cursorOptions.forEach(opt => {
               const row = createEl('div', { className: 'nook-row' });
               row.appendChild(createEl('span', { textContent: opt.label }));
-              const currentCursorSize = OS.settings.get('cursorSize') || 'normal';
               const btn = createEl('button', {
-                className: 'btn btn-sm' + (currentCursorSize === opt.value ? ' btn-primary' : ''),
-                textContent: currentCursorSize === opt.value ? 'Active' : 'Select'
+                className: 'btn btn-sm' + (OS.settings.get('cursorSize') === opt.value ? ' btn-primary' : ''),
+                textContent: OS.settings.get('cursorSize') === opt.value ? 'Active' : 'Select'
               });
               btn.addEventListener('click', () => {
                 OS.settings.set('cursorSize', opt.value);
@@ -7800,58 +7151,6 @@ self.onmessage = async (e) => {
 
           function renderPrivacy() {
             mainContent.appendChild(createEl('h2', { textContent: 'Privacy & Security', style: { marginBottom: '20px' } }));
-
-            // ── Proxy Privacy ─────────────────────────────────────────────────
-            const proxySection = createEl('div', { className: 'nook-privacy-section' });
-            proxySection.appendChild(createEl('h3', { textContent: 'Proxy Privacy' }));
-            proxySection.appendChild(createEl('p', {
-              textContent: 'Route requests through the local server so external services never see your IP address.',
-              style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }
-            }));
-
-            function makeToggleRow(label, description, settingKey) {
-              const row = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border-subtle)' });
-              const info = createEl('div');
-              info.appendChild(createEl('div', { textContent: label, style: 'font-weight:500;color:var(--text-primary);margin-bottom:3px' }));
-              info.appendChild(createEl('div', { textContent: description, style: 'font-size:12px;color:var(--text-secondary)' }));
-              const currentVal = OS.settings.get(settingKey) !== false; // default true
-              const toggle = createEl('label', { style: 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer' });
-              const input = createEl('input', { type: 'checkbox' });
-              input.style.cssText = 'opacity:0;width:0;height:0;position:absolute';
-              input.checked = currentVal;
-              const slider = createEl('span', { style: `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${currentVal ? 'var(--accent)' : 'var(--bg-elevated)'};border:1px solid var(--border-subtle)` });
-              const knob = createEl('span', { style: `position:absolute;top:2px;left:${currentVal ? '20px' : '2px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3)` });
-              slider.appendChild(knob);
-              toggle.appendChild(input);
-              toggle.appendChild(slider);
-              input.addEventListener('change', () => {
-                OS.settings.set(settingKey, input.checked);
-                slider.style.background = input.checked ? 'var(--accent)' : 'var(--bg-elevated)';
-                knob.style.left = input.checked ? '20px' : '2px';
-              });
-              row.appendChild(info);
-              row.appendChild(toggle);
-              return row;
-            }
-
-            proxySection.appendChild(makeToggleRow(
-              'Proxy favicons',
-              'Fetch website icons through the local server instead of directly — hides your IP from icon providers.',
-              'proxyFavicons'
-            ));
-            proxySection.appendChild(makeToggleRow(
-              'Proxy email images',
-              'Load images in emails through the local server to prevent senders from tracking your IP and open time.',
-              'proxyEmailImages'
-            ));
-            proxySection.appendChild(makeToggleRow(
-              'Block trackers',
-              'Block requests to known tracking, analytics, fingerprinting, and advertising domains. Uses the Disconnect.me tracker list.',
-              'blockTrackers'
-            ));
-
-            mainContent.appendChild(proxySection);
-            // ── End Proxy Privacy ─────────────────────────────────────────────
 
             // Data export/import
             const exportSection = createEl('div', { className: 'nook-privacy-section' });
@@ -8088,7 +7387,7 @@ self.onmessage = async (e) => {
             swRows.appendChild(novaVersionRow);
 
             swRows.appendChild(mkRow('Build Channel', 'Stable'));
-            swRows.appendChild(mkRow('Release Date', '2026-06-01'));
+            swRows.appendChild(mkRow('Release Date', '2026-06-03'));
 
             // Security update row
             const secRow = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
@@ -8097,7 +7396,7 @@ self.onmessage = async (e) => {
             secRow.appendChild(secRowLeft);
             const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
             const secBadge = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;' });
-            secBadge.textContent = '\uD83D\uDD12 2026-06-01';
+            secBadge.textContent = '\uD83D\uDD12 2026-06-03';
             secRowRight.appendChild(secBadge);
             secRow.appendChild(secRowRight);
             swRows.appendChild(secRow);
@@ -8151,7 +7450,7 @@ self.onmessage = async (e) => {
               try { _tz2 = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch (e) { }
               var lines = [
                 'NovaByte v' + OS.version,
-                'Security Update: 2026-06-01',
+                'Security Update: 2026-06-03',
                 'Browser: ' + detectBrowser(),
                 'Platform: ' + navigator.platform,
                 'Screen: ' + screen.width + '\u00D7' + screen.height,
@@ -8193,8 +7492,6 @@ self.onmessage = async (e) => {
           content.style.cssText = 'display:flex;flex-direction:column;height:100%;padding:14px;background:var(--bg-base);gap:10px;';
 
           const display = createEl('input', {
-            id: 'calculator-display',
-            name: 'calculator-display',
             type: 'text',
             value: '',
             readonly: 'readonly',
@@ -8444,7 +7741,7 @@ self.onmessage = async (e) => {
                   const html = decodeURIComponent(escape(atob(entryB64)));
                   const blob = new Blob([html], { type: 'text/html' });
                   const url = URL.createObjectURL(blob);
-                  const iframe = createEl('iframe', { src: url, style: 'width:100%;height:100%;border:none;display:block;', sandbox: 'allow-scripts allow-forms allow-popups allow-modals' });
+                  const iframe = createEl('iframe', { src: url, style: 'width:100%;height:100%;border:none;display:block;', sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals' });
                   contentEl.style.padding = '0';
                   contentEl.appendChild(iframe);
                   iframe.addEventListener('load', () => URL.revokeObjectURL(url));
@@ -9866,7 +9163,7 @@ self.onmessage = async (e) => {
 
           const APP_META = {
             'com.nbosp.vault': { name: 'Files', version: '1.0.0', description: 'File Manager' },
-            'com.nbosp.quill': { name: 'TextEdit', version: '1.0.0', description: 'Text Editor' },
+            'com.nbosp.quill': { name: 'Notes', version: '1.0.0', description: 'Text Editor & Notes' },
             'com.nbosp.shell': { name: 'Terminal', version: '1.0.0', description: 'System Terminal' },
             'com.nbosp.browser': { name: 'Browser', version: '1.0.0', description: 'Web Browser' },
             'com.nbosp.calendar': { name: 'Calendar', version: '1.0.0', description: 'Calendar & Events' },
@@ -10703,7 +10000,6 @@ This cannot be undone.`)) return;
         // If prior failed boots >= threshold AND this isn't already a safe-mode/recovery session → show recovery
         if (priorAttempts.length >= BOOT_THRESHOLD && !isSafeMode) {
           showRecoveryScreen(priorAttempts);
-          completeBoot(); // cancel the watchdog timer so it doesn't reload over the recovery screen
           return; // do not proceed with normal boot
         }
 
@@ -10723,9 +10019,6 @@ This cannot be undone.`)) return;
 
           await OS.workers.fs.call('init');
           await OS.settings.load();
-          if (isSafeMode && typeof OS.settings.applySafeModeDefaults === 'function') {
-            OS.settings.applySafeModeDefaults();
-          }
           await FS.init();
           await OPFS.init(); // Initialize OPFS for binary storage
           await AppDirs.bootstrap(); // Bootstrap per-app /data/data/ directories
@@ -10920,7 +10213,6 @@ This cannot be undone.`)) return;
           await new Promise(r => setTimeout(r, 400));
           bootScreen.style.display = 'none';
           markBootSuccess(); // lock screen means boot succeeded
-          WM.updateTaskbar();
           lockScreen();
           return;
         }
@@ -10968,7 +10260,7 @@ This cannot be undone.`)) return;
                   const iframe = createEl('iframe', {
                     src: url,
                     style: 'width:100%;height:100%;border:none;display:block;',
-                    sandbox: 'allow-scripts allow-forms allow-popups allow-modals'
+                    sandbox: 'allow-same-origin allow-scripts allow-forms allow-popups allow-modals'
                   });
                   contentEl.style.padding = '0';
                   contentEl.appendChild(iframe);
@@ -10987,7 +10279,8 @@ This cannot be undone.`)) return;
          ═══════════════════════════════════════════════════════════════ */
 
       // Launchpad
-      document.getElementById('start-btn').addEventListener('click', toggleLaunchpad);
+      var startBtn = document.getElementById('start-btn');
+      if (startBtn) startBtn.addEventListener('click', toggleLaunchpad);
 
       function toggleLaunchpad() {
         const launchpad = document.getElementById('launchpad');
@@ -11001,96 +10294,262 @@ This cannot be undone.`)) return;
 
       function renderLaunchpad() {
         const grid = document.getElementById('launchpad-grid');
+        grid.innerHTML = '';
+
         const apps = APP_REGISTRY;
-        const webApps = (typeof WebAppManager !== 'undefined' && WebAppManager.getAllApps) ? WebAppManager.getAllApps() : [];
-        const signature = [
-          ...apps.map(app => `${app.id}:${app.name}:${app.icon}`),
-          ...webApps.map(webApp => `web:${webApp.id}:${webApp.name}:${webApp.icon}:${webApp.url}`)
-        ].join('||');
 
-        const needsRebuild = grid.dataset.renderedSignature !== signature || grid.children.length === 0;
+        apps.forEach(app => {
 
-        if (needsRebuild) {
-          grid.innerHTML = '';
-          grid.dataset.renderedSignature = signature;
+          const item = createEl('button', {
+            className: 'launchpad-item',
+            'aria-label': app.name,
+            draggable: 'true'
+          });
+          const icon = createEl('div', { className: 'launchpad-icon' });
+          icon.innerHTML = svgIcon(app.icon, 28);
+          const name = createEl('div', { className: 'launchpad-name', textContent: app.name });
+          item.appendChild(icon);
+          item.appendChild(name);
 
-          const appendAppItem = (app) => {
+          item.addEventListener('click', () => {
+            toggleLaunchpad();
+            WM.createWindow(app.id);
+          });
+
+          // Right-click: Pin/Unpin + Uninstall (user apps only)
+          item.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const pinnedApps = OS.settings.get('pinnedApps') || [];
+            const isPinned = pinnedApps.includes(app.id);
+            const storedApps = (() => { try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; } })();
+            const isUserApp = storedApps.some(a => a.id === app.id);
+            const items = [
+              { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); WM.createWindow(app.id); } },
+              { separator: true },
+              {
+                label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+                icon: 'pin',
+                action: () => {
+                  const pins = OS.settings.get('pinnedApps') || [];
+                  const next = isPinned ? pins.filter(id => id !== app.id) : [...pins, app.id];
+                  OS.settings.set('pinnedApps', next);
+                  WM.updateTaskbar();
+                  Notify.show({ title: isPinned ? 'Unpinned' : 'Pinned', body: `${app.name} ${isPinned ? 'removed from' : 'added to'} taskbar`, type: 'success', appName: 'Launchpad' });
+                }
+              }];
+            if (isUserApp) {
+              items.push({ separator: true });
+              items.push({
+                label: 'Uninstall',
+                icon: 'trash',
+                danger: true,
+                action: () => {
+                  toggleLaunchpad();
+                  if (!confirm(`Uninstall "${app.name}"?
+
+This cannot be undone.`)) return;
+                  try {
+                    const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+                    localStorage.setItem('nova_installed_apps', JSON.stringify(stored.filter(a => a.id !== app.id)));
+                    delete OS.apps[app.id];
+                    const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
+                    if (ri > -1) APP_REGISTRY.splice(ri, 1);
+                    renderDesktopIcons();
+                    WM.updateTaskbar();
+                    Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Launchpad' });
+                  } catch (err) {
+                    Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Launchpad' });
+                  }
+                }
+              });
+            }
+            ContextMenu.show(e.clientX, e.clientY, items);
+          });
+
+          // Drag and drop support for creating desktop shortcuts and taskbar pinning
+          item.addEventListener('dragstart', (e) => {
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('application/json', JSON.stringify({
+              type: 'app-shortcut',
+              appId: app.id,
+              appName: app.name,
+              appIcon: app.icon
+            }));
+            e.dataTransfer.setData('text/plain', app.name);
+            // Build a crisp drag ghost
+            const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
+            dragImg.textContent = app.name;
+            document.body.appendChild(dragImg);
+            e.dataTransfer.setDragImage(dragImg, dragImg.offsetWidth / 2, dragImg.offsetHeight / 2);
+            requestAnimationFrame(() => document.body.removeChild(dragImg));
+            // Hide launchpad after a frame so the drag ghost renders first,
+            // then the drop targets (desktop / taskbar) become reachable.
+            requestAnimationFrame(() => {
+              const lp = document.getElementById('launchpad');
+              if (lp) { lp.style.pointerEvents = 'none'; lp.style.opacity = '0.15'; }
+            });
+          });
+
+          item.addEventListener('dragend', () => {
+            // Always restore launchpad visibility, then close it
+            const lp = document.getElementById('launchpad');
+            if (lp) { lp.style.pointerEvents = ''; lp.style.opacity = ''; }
+            // Close launchpad after a short delay so drop handlers fire first
+            setTimeout(() => {
+              if (document.getElementById('launchpad')?.classList.contains('active')) toggleLaunchpad();
+            }, 80);
+          });
+
+          grid.appendChild(item);
+        });
+
+        // Add Web Apps from WebAppManager
+        if (typeof WebAppManager !== 'undefined') {
+          const webApps = WebAppManager.getAllApps();
+          webApps.forEach(webApp => {
             const item = createEl('button', {
               className: 'launchpad-item',
-              'aria-label': app.name,
-              draggable: 'true'
+              'aria-label': `${webApp.name} (Web App)`,
+              title: webApp.url,
+              draggable: true
             });
-            const icon = createEl('div', { className: 'launchpad-icon' });
-            icon.innerHTML = svgIcon(app.icon, 28);
-            const name = createEl('div', { className: 'launchpad-name', textContent: app.name });
+            const icon = createEl('div', {
+              className: 'launchpad-icon',
+              textContent: webApp.icon,
+              style: 'font-size: 28px; line-height: 1;'
+            });
+            const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
+
+            // Show web app indicator
+            const indicator = createEl('div', {
+              style: 'position: absolute; bottom: 4px; right: 4px; width: 8px; height: 8px; background: #58a6ff; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);',
+              title: 'Web App'
+            });
+
             item.appendChild(icon);
             item.appendChild(name);
+            item.appendChild(indicator);
 
             item.addEventListener('click', () => {
               toggleLaunchpad();
-              WM.createWindow(app.id);
+              try {
+                const appData = WebAppManager.getApp(webApp.id);
+                if (!appData) throw new Error('Web app not found');
+
+                // Update launch count
+                WebAppManager.launchApp(webApp.id);
+
+                // Create a temporary app entry for the window manager
+                const tempAppId = 'webapp_' + webApp.id;
+                if (!OS.apps[tempAppId]) {
+                  OS.apps[tempAppId] = {
+                    name: appData.name,
+                    icon: appData.icon,
+                    defaultSize: [800, 600],
+                    minSize: [400, 300]
+                  };
+                }
+                const windowElement = WM.createWindow(tempAppId);
+
+                // Create iframe container
+                const iframeContainer = document.createElement('div');
+                iframeContainer.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; position: relative;`;
+
+                // Loading indicator
+                const loader = document.createElement('div');
+                loader.style.cssText = `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.7); z-index: 1000;`;
+                loader.innerHTML = `<div style="font-size:24px;margin-bottom:12px;">⏳</div><div>Loading...</div>`;
+
+                const hideLoader = () => { loader.style.display = 'none'; };
+
+                // Create webview — NW.js native, bypasses X-Frame-Options/CSP
+                const iframe = document.createElement('webview');
+                iframe.style.cssText = `flex: 1; border: none; background: white; overflow: hidden;`;
+                iframe.addEventListener('did-finish-load', hideLoader);
+                iframe.addEventListener('did-stop-loading', hideLoader);
+                iframe.addEventListener('did-fail-load', () => { hideLoader(); loader.style.display = 'flex'; loader.innerHTML = `<div style="font-size:20px;margin-bottom:12px;">❌</div><div>Failed to load</div>`; });
+                // Fallback — always hide after 5s regardless
+                setTimeout(hideLoader, 5000);
+                iframe.src = appData.url;
+
+                // URL bar
+                const urlBar = document.createElement('div');
+                urlBar.style.cssText = `background: rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.1); padding: 8px 16px; font-size: 11px; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace;`;
+                try {
+                  const urlObj = new URL(appData.url);
+                  urlBar.textContent = `🔒 ${urlObj.host}`;
+                } catch {
+                  urlBar.textContent = `External Web App`;
+                }
+
+                iframeContainer.appendChild(urlBar);
+                iframeContainer.appendChild(loader);
+                iframeContainer.appendChild(iframe);
+
+                // Get content area and set it
+                if (windowElement && windowElement.content) {
+                  windowElement.content.appendChild(iframeContainer);
+                }
+              } catch (error) {
+                Notify.show({
+                  title: 'Error',
+                  body: `Failed to launch app: ${error.message}`,
+                  type: 'error',
+                  appName: 'System'
+                });
+              }
             });
 
+            // Right-click context menu for web apps
             item.addEventListener('contextmenu', (e) => {
               e.preventDefault();
               e.stopPropagation();
-              const pinnedApps = OS.settings.get('pinnedApps') || [];
-              const isPinned = pinnedApps.includes(app.id);
-              const storedApps = (() => { try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; } })();
-              const isUserApp = storedApps.some(a => a.id === app.id);
-              const items = [
-                { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); WM.createWindow(app.id); } },
+              const waPins = OS.settings.get('pinnedApps') || [];
+              const waId = 'webapp_' + webApp.id;
+              const waIsPinned = waPins.includes(waId);
+              ContextMenu.show(e.clientX, e.clientY, [
+                { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); item.click(); } },
                 { separator: true },
                 {
-                  label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
-                  icon: 'pin',
+                  label: waIsPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+                  icon: waIsPinned ? 'pin-off' : 'pin',
                   action: () => {
-                    const pins = OS.settings.get('pinnedApps') || [];
-                    const next = isPinned ? pins.filter(id => id !== app.id) : [...pins, app.id];
+                    const p = OS.settings.get('pinnedApps') || [];
+                    const next = waIsPinned ? p.filter(id => id !== waId) : [...p, waId];
                     OS.settings.set('pinnedApps', next);
-                    WM.updateTaskbar();
-                    Notify.show({ title: isPinned ? 'Unpinned' : 'Pinned', body: `${app.name} ${isPinned ? 'removed from' : 'added to'} taskbar`, type: 'success', appName: 'Launchpad' });
+                    if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+                    Notify.show({ title: waIsPinned ? 'Unpinned' : 'Pinned', body: `${webApp.name} ${waIsPinned ? 'unpinned from' : 'pinned to'} taskbar`, type: 'success', appName: 'Launchpad' });
                   }
-                }
-              ];
-              if (isUserApp) {
-                items.push({ separator: true });
-                items.push({
-                  label: 'Uninstall',
+                },
+                { separator: true },
+                {
+                  label: 'Remove Web App',
                   icon: 'trash',
                   danger: true,
                   action: () => {
-                    toggleLaunchpad();
-                    if (!confirm(`Uninstall "${app.name}"?\n\nThis cannot be undone.`)) return;
-                    try {
-                      const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-                      localStorage.setItem('nova_installed_apps', JSON.stringify(stored.filter(a => a.id !== app.id)));
-                      delete OS.apps[app.id];
-                      const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
-                      if (ri > -1) APP_REGISTRY.splice(ri, 1);
-                      renderDesktopIcons();
-                      WM.updateTaskbar();
-                      Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Launchpad' });
-                    } catch (err) {
-                      Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Launchpad' });
-                    }
+                    WebAppManager.removeApp(webApp.id);
+                    renderLaunchpad();
+                    Notify.show({ title: 'Removed', body: `"${webApp.name}" has been removed`, type: 'success', appName: 'Launchpad' });
                   }
-                });
-              }
-              ContextMenu.show(e.clientX, e.clientY, items);
+                }
+              ]);
             });
 
+            // Drag-to-taskbar support for web apps (was missing — that's the bug)
+            item.draggable = true;
             item.addEventListener('dragstart', (e) => {
+              const webAppId = 'webapp_' + webApp.id;
               e.dataTransfer.effectAllowed = 'copy';
               e.dataTransfer.setData('application/json', JSON.stringify({
                 type: 'app-shortcut',
-                appId: app.id,
-                appName: app.name,
-                appIcon: app.icon
+                appId: webAppId,
+                appName: webApp.name,
+                appIcon: webApp.icon
               }));
-              e.dataTransfer.setData('text/plain', app.name);
-              const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:8px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
-              dragImg.textContent = app.name;
+              e.dataTransfer.setData('text/plain', webApp.name);
+              const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:10px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
+              dragImg.textContent = webApp.name;
               document.body.appendChild(dragImg);
               e.dataTransfer.setDragImage(dragImg, dragImg.offsetWidth / 2, dragImg.offsetHeight / 2);
               requestAnimationFrame(() => document.body.removeChild(dragImg));
@@ -11099,7 +10558,6 @@ This cannot be undone.`)) return;
                 if (lp) { lp.style.pointerEvents = 'none'; lp.style.opacity = '0.15'; }
               });
             });
-
             item.addEventListener('dragend', () => {
               const lp = document.getElementById('launchpad');
               if (lp) { lp.style.pointerEvents = ''; lp.style.opacity = ''; }
@@ -11109,270 +10567,146 @@ This cannot be undone.`)) return;
             });
 
             grid.appendChild(item);
-          };
-
-          apps.forEach(appendAppItem);
-
-          if (typeof WebAppManager !== 'undefined') {
-            webApps.forEach(webApp => {
-              const item = createEl('button', {
-                className: 'launchpad-item',
-                'aria-label': `${webApp.name} (Web App)`,
-                title: webApp.url,
-                draggable: true
-              });
-              const icon = createEl('div', {
-                className: 'launchpad-icon',
-                textContent: webApp.icon,
-                style: 'font-size: 28px; line-height: 1;'
-              });
-              const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
-              const indicator = createEl('div', {
-                style: 'position: absolute; bottom: 4px; right: 4px; width: 8px; height: 8px; background: #58a6ff; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3);',
-                title: 'Web App'
-              });
-
-              item.appendChild(icon);
-              item.appendChild(name);
-              item.appendChild(indicator);
-
-              item.addEventListener('click', () => {
-                toggleLaunchpad();
-                try {
-                  const appData = WebAppManager.getApp(webApp.id);
-                  if (!appData) throw new Error('Web app not found');
-
-                  WebAppManager.launchApp(webApp.id);
-
-                  const tempAppId = 'webapp_' + webApp.id;
-                  if (!OS.apps[tempAppId]) {
-                    OS.apps[tempAppId] = {
-                      name: appData.name,
-                      icon: appData.icon,
-                      defaultSize: [800, 600],
-                      minSize: [400, 300]
-                    };
-                  }
-                  const windowElement = WM.createWindow(tempAppId);
-
-                  const iframeContainer = document.createElement('div');
-                  iframeContainer.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; position: relative;`;
-
-                  const loader = document.createElement('div');
-                  loader.style.cssText = `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,255,255,0.7); z-index: 1000;`;
-                  loader.innerHTML = `<div style="font-size:24px;margin-bottom:12px;">⏳</div><div>Loading...</div>`;
-
-                  const hideLoader = () => { loader.style.display = 'none'; };
-                  const iframe = document.createElement('webview');
-                  iframe.style.cssText = `flex: 1; border: none; background: white; overflow: hidden;`;
-                  iframe.addEventListener('did-finish-load', hideLoader);
-                  iframe.addEventListener('did-stop-loading', hideLoader);
-                  iframe.addEventListener('did-fail-load', () => { hideLoader(); loader.style.display = 'flex'; loader.innerHTML = `<div style="font-size:20px;margin-bottom:12px;">❌</div><div>Failed to load</div>`; });
-                  setTimeout(hideLoader, 5000);
-                  iframe.src = appData.url;
-
-                  const urlBar = document.createElement('div');
-                  urlBar.style.cssText = `background: rgba(255,255,255,0.08); border-bottom: 1px solid rgba(255,255,255,0.1); padding: 8px 16px; font-size: 11px; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace;`;
-                  try {
-                    const urlObj = new URL(appData.url);
-                    urlBar.textContent = `🔒 ${urlObj.host}`;
-                  } catch {
-                    urlBar.textContent = `External Web App`;
-                  }
-
-                  iframeContainer.appendChild(urlBar);
-                  iframeContainer.appendChild(loader);
-                  iframeContainer.appendChild(iframe);
-
-                  if (windowElement && windowElement.content) {
-                    windowElement.content.appendChild(iframeContainer);
-                  }
-                } catch (error) {
-                  Notify.show({
-                    title: 'Error',
-                    body: `Failed to launch app: ${error.message}`,
-                    type: 'error',
-                    appName: 'System'
-                  });
-                }
-              });
-
-              item.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const waPins = OS.settings.get('pinnedApps') || [];
-                const waId = 'webapp_' + webApp.id;
-                const waIsPinned = waPins.includes(waId);
-                ContextMenu.show(e.clientX, e.clientY, [
-                  { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); item.click(); } },
-                  { separator: true },
-                  {
-                    label: waIsPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
-                    icon: waIsPinned ? 'pin-off' : 'pin',
-                    action: () => {
-                      const p = OS.settings.get('pinnedApps') || [];
-                      const next = waIsPinned ? p.filter(id => id !== waId) : [...p, waId];
-                      OS.settings.set('pinnedApps', next);
-                      if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
-                      Notify.show({ title: waIsPinned ? 'Unpinned' : 'Pinned', body: `${webApp.name} ${waIsPinned ? 'unpinned from' : 'pinned to'} taskbar`, type: 'success', appName: 'Launchpad' });
-                    }
-                  },
-                  { separator: true },
-                  {
-                    label: 'Remove Web App',
-                    icon: 'trash',
-                    danger: true,
-                    action: () => {
-                      WebAppManager.removeApp(webApp.id);
-                      renderLaunchpad();
-                      Notify.show({ title: 'Removed', body: `"${webApp.name}" has been removed`, type: 'success', appName: 'Launchpad' });
-                    }
-                  }
-                ]);
-              });
-
-              item.draggable = true;
-              item.addEventListener('dragstart', (e) => {
-                const webAppId = 'webapp_' + webApp.id;
-                e.dataTransfer.effectAllowed = 'copy';
-                e.dataTransfer.setData('application/json', JSON.stringify({
-                  type: 'app-shortcut',
-                  appId: webAppId,
-                  appName: webApp.name,
-                  appIcon: webApp.icon
-                }));
-                e.dataTransfer.setData('text/plain', webApp.name);
-                const dragImg = createEl('div', { style: 'padding:8px 16px;background:var(--accent);color:#fff;border-radius:10px;font-size:12px;font-family:var(--font-ui);position:fixed;top:-200px;left:-200px;' });
-                dragImg.textContent = webApp.name;
-                document.body.appendChild(dragImg);
-                e.dataTransfer.setDragImage(dragImg, dragImg.offsetWidth / 2, dragImg.offsetHeight / 2);
-                requestAnimationFrame(() => document.body.removeChild(dragImg));
-                requestAnimationFrame(() => {
-                  const lp = document.getElementById('launchpad');
-                  if (lp) { lp.style.pointerEvents = 'none'; lp.style.opacity = '0.15'; }
-                });
-              });
-              item.addEventListener('dragend', () => {
-                const lp = document.getElementById('launchpad');
-                if (lp) { lp.style.pointerEvents = ''; lp.style.opacity = ''; }
-                setTimeout(() => {
-                  if (document.getElementById('launchpad')?.classList.contains('active')) toggleLaunchpad();
-                }, 80);
-              });
-
-              grid.appendChild(item);
-            });
-          }
-        } else {
-          Array.from(grid.children).forEach(item => {
-            item.classList.remove('animate');
-            item.style.opacity = '0';
-            item.style.transform = 'scale(0)';
-            item.style.removeProperty('--delay');
-            item.style.willChange = '';
-            item.style.display = '';
           });
         }
 
-        const animateLaunchpadItems = () => {
-          requestAnimationFrame(() => {
-            const prefersReducedMotion = OS.settings.get('reduceMotion') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            const items = Array.from(grid.querySelectorAll('.launchpad-item')).filter(item => item.style.display !== 'none');
+        // Apply honeycomb animation with radial delay
+        // Use requestAnimationFrame to ensure layout is computed
+        requestAnimationFrame(() => {
+          // FIX 3a — respect both OS setting and browser media query for reduce motion
+          const prefersReducedMotion = OS.settings.get('reduceMotion') || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-            if (prefersReducedMotion) {
-              items.forEach(item => {
-                item.style.opacity = '1';
-                item.style.transform = 'scale(1)';
-                item.classList.add('animate');
-              });
-              return;
-            }
-
-            const gridWidth = grid.offsetWidth;
-            const gridHeight = grid.offsetHeight;
-            const centerX = gridWidth / 2;
-            const centerY = gridHeight / 2;
-            const maxDistance = Math.sqrt(Math.pow(gridWidth / 2, 2) + Math.pow(gridHeight / 2, 2)) || 1;
-
-            const itemData = items.map(item => ({
-              item,
-              cx: item.offsetLeft + item.offsetWidth / 2,
-              cy: item.offsetTop + item.offsetHeight / 2
-            }));
-
-            itemData.forEach(({ item, cx, cy }) => {
-              const distance = Math.sqrt(Math.pow(cx - centerX, 2) + Math.pow(cy - centerY, 2));
-              const delay = Math.round((distance / maxDistance) * 300);
-              item.style.setProperty('--delay', `${delay}ms`);
-              item.style.willChange = 'transform, opacity';
-              item.classList.add('animate');
-              setTimeout(() => {
-                item.style.willChange = '';
-              }, 500 + delay);
+          if (prefersReducedMotion) {
+            Array.from(grid.children).forEach(item => {
+              item.style.opacity = '1';
+              item.style.transform = 'scale(1)';
             });
-          });
-        };
+            return;
+          }
 
-        animateLaunchpadItems();
+          const gridWidth = grid.offsetWidth;
+          const gridHeight = grid.offsetHeight;
+          const centerX = gridWidth / 2;
+          const centerY = gridHeight / 2;
+          const maxDistance = Math.sqrt(Math.pow(gridWidth / 2, 2) + Math.pow(gridHeight / 2, 2)) || 1;
+
+          // FIX 3b — batch all DOM reads first to avoid per-item forced reflow
+          const _items = Array.from(grid.children);
+          const _itemData = _items.map(item => ({
+            item,
+            cx: item.offsetLeft + item.offsetWidth / 2,
+            cy: item.offsetTop + item.offsetHeight / 2
+          }));
+
+          // Now apply all writes in a separate pass — no more layout thrashing
+          _itemData.forEach(({ item, cx, cy }) => {
+            const distance = Math.sqrt(Math.pow(cx - centerX, 2) + Math.pow(cy - centerY, 2));
+            const delay = Math.round((distance / maxDistance) * 300);
+            item.style.setProperty('--delay', `${delay}ms`);
+            // Apply will-change dynamically only during animation to respect GPU budget
+            item.style.willChange = 'transform, opacity';
+            item.classList.add('animate');
+            // Remove will-change after animation completes (500ms + delay)
+            setTimeout(() => {
+              item.style.willChange = '';
+            }, 500 + delay);
+          });
+        });
       }
 
       // Launchpad search
-      document.getElementById('launchpad-search').addEventListener('input', debounce(function (e) {
-        const q = (e.target || this).value.toLowerCase().trim();
-        const items = document.querySelectorAll('.launchpad-item');
-        items.forEach(item => {
-          const name = item.querySelector('.launchpad-name').textContent.toLowerCase();
-          // Also search through aria-label for better matching
-          const label = item.getAttribute('aria-label') || '';
-          const match = name.includes(q) || label.toLowerCase().includes(q);
-          item.style.display = match ? '' : 'none';
-        });
-        // Show/hide no results message
-        const visibleItems = document.querySelectorAll('.launchpad-item[style=""]');
-        const allItems = document.querySelectorAll('.launchpad-item');
-        let noResultsMsg = document.getElementById('launchpad-no-results');
-        if (q && visibleItems.length === 0 && allItems.length > 0) {
-          if (!noResultsMsg) {
-            noResultsMsg = createEl('div', {
-              id: 'launchpad-no-results',
-              className: 'launchpad-no-results',
-              textContent: 'No apps found',
-              style: 'grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;'
-            });
-            document.getElementById('launchpad-grid').appendChild(noResultsMsg);
+      var launchpadSearch = document.getElementById('launchpad-search');
+      if (launchpadSearch) {
+        launchpadSearch.addEventListener('input', debounce(function (e) {
+          const q = (e.target || this).value.toLowerCase().trim();
+          const items = document.querySelectorAll('.launchpad-item');
+          items.forEach(item => {
+            const name = item.querySelector('.launchpad-name').textContent.toLowerCase();
+            // Also search through aria-label for better matching
+            const label = item.getAttribute('aria-label') || '';
+            const match = name.includes(q) || label.toLowerCase().includes(q);
+            item.style.display = match ? '' : 'none';
+          });
+          // Show/hide no results message
+          const visibleItems = document.querySelectorAll('.launchpad-item[style=""]');
+          const allItems = document.querySelectorAll('.launchpad-item');
+          let noResultsMsg = document.getElementById('launchpad-no-results');
+          if (q && visibleItems.length === 0 && allItems.length > 0) {
+            if (!noResultsMsg) {
+              noResultsMsg = createEl('div', {
+                id: 'launchpad-no-results',
+                className: 'launchpad-no-results',
+                textContent: 'No apps found',
+                style: 'grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;'
+              });
+              document.getElementById('launchpad-grid').appendChild(noResultsMsg);
+            }
+            noResultsMsg.style.display = '';
+          } else if (noResultsMsg) {
+            noResultsMsg.style.display = 'none';
           }
-          noResultsMsg.style.display = '';
-        } else if (noResultsMsg) {
-          noResultsMsg.style.display = 'none';
-        }
-      }, 150));
+        }, 150));
+      }
 
       // Close launchpad on click outside
-      document.getElementById('launchpad').addEventListener('click', (e) => {
+      var launchpadEl = document.getElementById('launchpad');
+      if (launchpadEl) launchpadEl.addEventListener('click', (e) => {
         if (e.target.id === 'launchpad') toggleLaunchpad();
       });
 
       // Close notification panel on click outside
-      document.getElementById('notification-panel').addEventListener('click', (e) => {
+      var notifPanelEl = document.getElementById('notification-panel');
+      if (notifPanelEl) notifPanelEl.addEventListener('click', (e) => {
         if (e.target.id === 'notification-panel') {
           document.getElementById('notification-panel').classList.remove('active');
         }
       });
 
       // Notification panel
-      document.getElementById('tray-bell').addEventListener('click', Notify.togglePanel);
-      document.getElementById('notif-close').addEventListener('click', () => {
+      var trayBellEl = document.getElementById('tray-bell');
+      if (trayBellEl) trayBellEl.addEventListener('click', Notify.togglePanel);
+      var notifCloseBtn = document.getElementById('notif-close');
+      if (notifCloseBtn) notifCloseBtn.addEventListener('click', () => {
         document.getElementById('notification-panel').classList.remove('active');
       });
-      document.getElementById('notif-mark-all').addEventListener('click', () => {
+      var notifMarkAllBtn = document.getElementById('notif-mark-all');
+      if (notifMarkAllBtn) notifMarkAllBtn.addEventListener('click', () => {
         OS.notifications = [];
         OS.notifUnread = 0;
-        Notify.persist();
         Notify.updateBadge();
-        updateNotificationBadge();
         Notify.renderPanel();
       });
 
+      // FIX 14 — Log Off / Lock / Restart / Shutdown user-menu action handler
+      // user-power-menu.js handles these externally; this is an inline fallback
+      var userMenuEl = document.getElementById('user-menu');
+      if (userMenuEl) {
+        userMenuEl.addEventListener('click', (e) => {
+          const item = e.target.closest('[data-action]');
+          if (!item) return;
+          const action = item.dataset.action;
+          document.getElementById('user-menu').classList.remove('active');
+          switch (action) {
+            case 'logout':
+              if (confirm('Log off? Unsaved work will be lost.')) {
+              sessionStorage.clear();
+              location.reload();
+            }
+            break;
+          case 'lock':
+            if (typeof lockScreen === 'function') lockScreen();
+            break;
+          case 'restart':
+            if (confirm('Restart NovaByte?')) location.reload();
+            break;
+          case 'shutdown':
+            if (confirm('Shut down? All unsaved data will be lost.')) {
+              document.body.innerHTML = '<div style="background:#000;color:#fff;height:100vh;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:18px;">It is now safe to close this window.</div>';
+            }
+            break;
+        }
+        });
+      }
 
       // FIX 13 — WiFi tray button had no click handler at all
       const trayWifi = document.getElementById('tray-wifi');
@@ -11452,38 +10786,6 @@ This cannot be undone.`)) return;
           badge.classList.add('hidden');
         }
       }
-
-      Notify.loadPersisted();
-      Notify.renderPanel();
-      Notify.updateBadge();
-      updateNotificationBadge();
-
-      window.addEventListener('resize', throttleRAF(() => {
-        for (const state of OS.windows.values()) {
-          if (state.maximized) {
-            const area = WM.getWorkArea();
-            state.x = area.left;
-            state.y = area.top;
-            state.width = area.width;
-            state.height = area.height;
-            state.element.style.left = area.left + 'px';
-            state.element.style.top = area.top + 'px';
-            state.element.style.width = area.width + 'px';
-            state.element.style.height = area.height + 'px';
-          } else {
-            const next = WM.clampWindowRect(state, state.x, state.y, state.width, state.height);
-            state.x = next.x;
-            state.y = next.y;
-            state.width = next.w;
-            state.height = next.h;
-            state.element.style.left = next.x + 'px';
-            state.element.style.top = next.y + 'px';
-            state.element.style.width = next.w + 'px';
-            state.element.style.height = next.h + 'px';
-          }
-        }
-        WM.hideSnapPreview();
-      }));
 
       // Battery status
       async function updateBattery() {
@@ -11859,7 +11161,11 @@ This cannot be undone.`)) return;
                 });
 
                 if (credential) {
-                  unlockFromLockScreen();
+                  OS.isLocked = false;
+                  document.getElementById('lock-screen').classList.remove('active');
+                  document.removeEventListener('keydown', handleLockScreenKeydown);
+                  enteredPin = '';
+                  renderDesktopIcons();
                   Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
                 }
               } catch (e) {
@@ -11879,20 +11185,6 @@ This cannot be undone.`)) return;
       }
 
       let enteredPin = '';
-
-      function unlockFromLockScreen() {
-        OS.isLocked = false;
-        const lockScreenEl = document.getElementById('lock-screen');
-        if (lockScreenEl) lockScreenEl.classList.remove('active');
-        document.removeEventListener('keydown', handleLockScreenKeydown);
-        enteredPin = '';
-        // Paint the taskbar first so pinned apps appear immediately after unlock.
-        WM.updateTaskbar();
-        requestAnimationFrame(() => {
-          renderDesktopIcons();
-          WM.updateTaskbar();
-        });
-      }
 
       function enterPinDigit(d) {
         if (enteredPin.length < 4) {
@@ -11925,8 +11217,12 @@ This cannot be undone.`)) return;
         const hash = await OS.workers.crypto.call('pbkdf2', enteredPin, getPinSalt());
 
         if (hash === OS.lockPin) {
+          OS.isLocked = false;
           OS.wrongPinCount = 0;
-          unlockFromLockScreen();
+          document.getElementById('lock-screen').classList.remove('active');
+          document.removeEventListener('keydown', handleLockScreenKeydown);
+          enteredPin = '';
+          renderDesktopIcons();
         } else {
           OS.wrongPinCount++;
           enteredPin = '';
@@ -12125,10 +11421,6 @@ This cannot be undone.`)) return;
       });
 
       function showRecoveryScreen(priorAttempts) {
-        // Hide the boot screen so the recovery UI is not covered
-        const bootScreen = document.getElementById('boot-screen');
-        if (bootScreen) bootScreen.style.display = 'none';
-
         // ── Recovery Boot Animation ──────────────────────────────────────
         const anim = document.createElement('div');
         anim.id = 'recovery-boot-anim';
@@ -12288,103 +11580,8 @@ This cannot be undone.`)) return;
           cdownBar.style.width = '0%';
         }
 
-function wireRecoveryControls() {
-  if (!screen || screen.dataset.recoveryWired === '1') return;
-  screen.dataset.recoveryWired = '1';
-
-  const actionMap = {
-    'continue': 'continue',
-    'boot': 'boot',
-    'boot normal': 'boot-normal',
-    'normal boot': 'boot-normal',
-    'safe mode': 'safemode',
-    'boot safe': 'boot-safe',
-    'boot to safe mode': 'boot-safe',
-    'minimal mode': 'boot-minimal',
-    'boot minimal': 'boot-minimal',
-    'boot recovery': 'boot-recovery',
-    'boot to recovery': 'boot-recovery',
-    'reset settings': 'reset-settings',
-    'clear cache': 'clear-cache',
-    'clear data': 'wipe-user-data',
-    'factory reset': 'factory',
-    'console': 'console',
-    'terminal': 'console',
-    'file manager': 'file-manager',
-    'settings editor': 'settings-editor',
-    'storage analyzer': 'storage-analyzer',
-    'event log': 'event-log',
-    'back': 'back'
-  };
-
-  function switchRecoveryTab(tabName) {
-    const tab = String(tabName || '').trim().toLowerCase();
-    if (!tab) return false;
-    const tabButtons = screen.querySelectorAll('.recovery-tab');
-    const panels = screen.querySelectorAll('.recovery-tab-panel');
-
-    tabButtons.forEach((btn) => {
-      const btnTab = (btn.dataset.tab || btn.dataset.switchtab || '').trim().toLowerCase();
-      btn.classList.toggle('active', btnTab === tab);
-      btn.setAttribute('aria-selected', btnTab === tab ? 'true' : 'false');
-    });
-
-    panels.forEach((panel) => {
-      const panelId = (panel.id || '').replace(/^tab-/, '').trim().toLowerCase();
-      panel.classList.toggle('active', panelId === tab);
-    });
-
-    return true;
-  }
-
-  screen.addEventListener('click', function (e) {
-    const t = e.target.closest('button, [role="button"], [data-fn], [data-action], [data-recovery-action], .recovery-tab, .recovery-option, .rec-btn, .rec-breadcrumb-item');
-    if (!t || !screen.contains(t)) return;
-
-    const dataAction = (t.dataset.recoveryAction || t.dataset.action || t.dataset.fn || '').trim();
-    const label = (t.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const action = dataAction || actionMap[label] || actionMap[label.replace(/\s*\(.*?\)\s*$/g, '')];
-
-    const tabName = (t.dataset.tab || t.dataset.switchtab || '').trim().toLowerCase();
-    if (t.classList.contains('recovery-tab') && tabName) {
-      e.preventDefault();
-      e.stopPropagation();
-      switchRecoveryTab(tabName);
-      return;
-    }
-
-    if (t.dataset.page && typeof recNav === 'function') {
-      e.preventDefault();
-      e.stopPropagation();
-      recNav(t.dataset.page);
-      return;
-    }
-
-    if (dataAction && typeof window[dataAction] === 'function') {
-      e.preventDefault();
-      e.stopPropagation();
-      window[dataAction](t.dataset.arg || t.dataset.value || t.dataset.page);
-      return;
-    }
-
-    if (action === 'back' && typeof recGoBack === 'function') {
-      e.preventDefault();
-      e.stopPropagation();
-      recGoBack();
-      return;
-    }
-
-    if (action) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof recoveryAction === 'function') recoveryAction(action);
-    }
-  }, true);
-}
-
-// Initialize the UI clock, sysinfo, and console
-if (typeof initRecoveryUI === 'function') initRecoveryUI();
-wireRecoveryControls();
+        // Initialize the UI clock, sysinfo, and console
+        if (typeof initRecoveryUI === 'function') initRecoveryUI();
 
         // For manual recovery, cancel countdown immediately (no auto-reboot)
         if (isManualRecovery) {
@@ -12963,12 +12160,9 @@ wireRecoveryControls();
 
             if (existing) {
               const delBtn = createEl('button', { className: 'em-btn danger', textContent: 'Remove', style: 'flex-shrink:0;' });
-              delBtn.addEventListener('click', async () => {
+              delBtn.addEventListener('click', () => {
                 accounts = accounts.filter(a => a.id !== existing.id);
                 saveAccts();
-                // Clear session credentials for the removed account so the server
-                // doesn't retain them in req.session.emailCreds after removal.
-                api('POST', '/disconnect').catch(() => { });
                 if (!accounts.length) { setupScreen.style.display = 'none'; mainEl.style.display = ''; showEmpty(); buildSetup(null); }
                 else { activeAcctId = accounts[0].id; showMain(); }
               });
@@ -13222,19 +12416,16 @@ wireRecoveryControls();
             // Body
             const bodyEl = createEl('div', { className: 'em-reader-body' });
             if (full.html) {
-              // The server sanitises full.html in GET /message before returning it
-              // (rewriteEmailImages + rewriteEmailLinks + sanitizeEmailHtml).
-              // Set srcdoc directly — no token round-trip, no NW.js iframe-src issues.
+              // Strip meta-refresh redirects and render via srcdoc (NW.js honours srcdoc, no blob/file needed)
+              const cleanHtml = '<!DOCTYPE html>' + full.html
+                .replace(/<meta[^>]*http-equiv\s*=\s*["']refresh["'][^>]*>/gi, '')
+                .replace(/<base[^>]*>/gi, '');
               const iframe = createEl('iframe', {
-                sandbox: 'allow-popups allow-popups-to-escape-sandbox',
+                sandbox: 'allow-same-origin allow-popups allow-popups-to-escape-sandbox',
                 title: 'Email body', referrerpolicy: 'no-referrer'
               });
               iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block;';
-              const html = full.html;
-              const sanitized = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html, {ALLOWED_TAGS: ['p', 'div', 'span', 'b', 'i', 'u', 'strong', 'em', 'a', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'br', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'blockquote', 'pre', 'code'], ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target']}) : html;
-              const hasDoc = /^<!doctype/i.test(html.trimStart()) || /^<html[\s>]/i.test(html.trimStart());
-              iframe.srcdoc = hasDoc ? sanitized
-                : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + sanitized + '</body></html>';
+              iframe.srcdoc = cleanHtml;
               bodyEl.appendChild(iframe);
               readerEl.appendChild(bodyEl);
             } else {
@@ -13447,16 +12638,9 @@ wireRecoveryControls();
             showEmpty();
           }
 
-          // Read CSRF token from the server-injected meta tag. If the meta tag is
-          // absent (e.g. loaded as a standalone file without the server's HTML pass),
-          // fall back to GET /api/email/csrf-token so POST requests still work.
+          // Fetch a fresh CSRF token before doing anything so that POST /preview,
+          // Read CSRF token directly from the server-injected meta tag — no fetch needed.
           window.__csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-          if (!window.__csrfToken) {
-            fetch('/api/email/csrf-token', { credentials: 'include' })
-              .then(r => r.ok ? r.json() : null)
-              .then(d => { if (d?.csrfToken) window.__csrfToken = d.csrfToken; })
-              .catch(() => { });
-          }
 
           accounts = loadAccts();
           if (!accounts.length) {

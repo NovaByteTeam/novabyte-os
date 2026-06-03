@@ -249,6 +249,15 @@ const AppPermissionManager = (() => {
 
       const riskColors = { low:'#3fb950', medium:'#d29922', high:'#f0883e', critical:'#f85149' };
       const riskColor  = riskColors[options.riskLevel] || riskColors.low;
+      
+      // Sanitize user-provided strings
+      const escapeHtml = (str) => {
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+        return String(str).replace(/[&<>"']/g, c => map[c]);
+      };
+      const safeAppName = escapeHtml(options.appName);
+      const safePermission = escapeHtml(options.permission);
+      const safeReason = escapeHtml(options.reason || 'This app wants to access this permission.');
 
       overlay.innerHTML = `
         <div style="background:#0e121c;border:1px solid rgba(255,255,255,0.1);
@@ -262,14 +271,14 @@ const AppPermissionManager = (() => {
             </div>
             <div>
               <h3 style="color:#e6edf3;font-size:16px;margin:0;">Permission Request</h3>
-              <p style="color:#8b949e;font-size:12px;margin:0;">${options.appName}</p>
+              <p style="color:#8b949e;font-size:12px;margin:0;">${safeAppName}</p>
             </div>
           </div>
           <div style="margin-bottom:16px;">
             <p style="color:#e6edf3;font-size:14px;margin-bottom:8px;">
-              <strong>${options.permission}</strong></p>
+              <strong>${safePermission}</strong></p>
             <p style="color:#8b949e;font-size:13px;margin:0;">
-              ${options.reason || 'This app wants to access this permission.'}</p>
+              ${safeReason}</p>
           </div>
           <div style="background:rgba(255,255,255,0.05);border-radius:8px;
             padding:12px;margin-bottom:16px;">

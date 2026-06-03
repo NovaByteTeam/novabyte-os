@@ -384,7 +384,7 @@
        <div class="recovery-log-title">
         ▸ System Log
        </div>
-       <button class="recovery-log-clear" onclick="document.getElementById('rec-diag-lines').innerHTML=''" id="recovery-log-clear-1016" name="recovery-log-clear-1016">
+       <button class="recovery-log-clear" id="recovery-log-clear-1016" name="recovery-log-clear-1016">
         Clear
        </button>
       </div>
@@ -613,10 +613,10 @@
    </div>
    <div aria-label="System tray" class="taskbar-tray" role="group">
     <button aria-label="Volume" class="tray-btn" id="tray-volume" name="tray-volume">
-     <img src="/assets/icons8-sound-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">
+     <img src="/assets/icons8-sound-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" class="tray-icon">
     </button>
     <button aria-label="Network status" class="tray-btn" id="tray-wifi" name="tray-wifi">
-     <img src="/assets/icons8-wi-fi-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">
+     <img src="/assets/icons8-wi-fi-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" class="tray-icon">
     </button>
     <button aria-label="Battery status" class="tray-btn" id="tray-battery" name="tray-battery">
      <svg fill="none" height="16" stroke="currentColor" stroke-width="2" viewbox="0 0 24 24" width="16">
@@ -627,7 +627,7 @@
      </svg>
     </button>
     <button aria-label="Notifications" class="tray-btn" id="tray-bell" name="tray-bell">
-     <img src="/assets/icons8-bell-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">
+     <img src="/assets/icons8-bell-94.png" width="16" height="16" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" class="tray-icon">
      <span class="tray-badge hidden" id="notif-badge">
       0
      </span>
@@ -724,7 +724,7 @@
    </filter>
   </svg>
   <!-- Security: DOMPurify for HTML sanitization -->
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js">
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js" integrity="sha384-3HPB1XT51W3gGRxAmZ+qbZwRpRlFQL632y8x+adAqCr4Wp3TaWwCLSTAJJKbyWEK" crossorigin="anonymous">
   </script>
   <script src="app.js">
   </script>
