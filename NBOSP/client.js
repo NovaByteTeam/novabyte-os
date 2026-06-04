@@ -1,6 +1,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const dotenv = require('dotenv');
 
 process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --max-old-space-size=4096';
 
@@ -209,45 +210,128 @@ async function generateCerts(sandboxDir) {
 }
 
 
-// ── .env bootstrap ────────────────────────────────────────────────────────────
-// Generates a .env file with secure random secrets if one doesn't exist.
-// Only creates the essential keys server.js needs to start — user fills in
-// the rest (OAuth, API keys, etc.) manually.
+// ── .env Management ──────────────────────────────────────────────────────────
+// Load .env using dotenv's parser, validate schema, generate missing secrets,
+// and write atomically (cross-platform safe).
+
+async function parseEnvFile(filePath) {
+  try {
+    const content = await fs.promises.readFile(filePath, 'utf8');
+    // Use dotenv's parser for robust handling of quoted values, comments, etc.
+    const parsed = dotenv.parse(content);
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function atomicWriteEnv(filePath, env) {
+  // Write to temp file in same directory
+  const tempPath = filePath + '.tmp';
+  const content = Object.entries(env)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n') + '\n';
+
+  await fs.promises.writeFile(tempPath, content, { encoding: 'utf8', mode: 0o600 });
+
+  // Rename temp to final path (fs.rename overwrites on most platforms)
+  // If this fails on Windows with EEXIST, we unlink and retry
+  try {
+    await fs.promises.rename(tempPath, filePath);
+  } catch (err) {
+    if (err.code === 'EEXIST' || err.code === 'EACCES') {
+      // File exists or access denied; unlink then retry
+      await fs.promises.unlink(filePath);
+      await fs.promises.rename(tempPath, filePath);
+    } else {
+      throw err;
+    }
+  }
+}
 
 async function ensureEnv() {
   const envPath = path.join(__dirname, '.env');
-  try { await fs.promises.access(envPath); return; } catch (_) {}
+  const examplePath = path.join(__dirname, '.env.example');
 
-  console.log('[NovaByte] No .env found — generating defaults...');
+  // 1. Load .env, or create from .env.example if missing
+  let env = await parseEnvFile(envPath);
+  if (!env || Object.keys(env).length === 0) {
+    console.log('[NovaByte] No .env found — bootstrapping from .env.example...');
+    const example = await parseEnvFile(examplePath);
+    if (!example || Object.keys(example).length === 0) {
+      throw new Error('[NovaByte] FATAL: .env and .env.example missing or empty.');
+    }
+    env = { ...example };
+  }
 
-  const sessionSecret = crypto.randomBytes(64).toString('hex');
-  const credEncryptKey = crypto.randomBytes(32).toString('hex');
+  // 2. Check for missing required secrets
+  const secretsRequired = { SESSION_SECRET: 64, NBOSP_CRED_KEY: 32 };
+  const missing = {};
+  
+  for (const [key, byteLength] of Object.entries(secretsRequired)) {
+    const val = (env[key] || '').trim();
+    if (!val) {
+      console.log(`[NovaByte] Generating missing ${key}...`);
+      missing[key] = crypto.randomBytes(byteLength).toString('hex');
+    }
+  }
 
-  const env = `# NovaByte Environment Configuration
-# Auto-generated on first launch.
+  // 3. Generate secrets if needed, write atomically
+  if (Object.keys(missing).length > 0) {
+    Object.assign(env, missing);
+    await atomicWriteEnv(envPath, env);
+    console.log('[NovaByte] .env updated with generated secrets (atomic, platform-safe).');
+  }
 
-# Server
-PORT=3003
-HOST=127.0.0.1
-NODE_ENV=development
+  // 4. Schema validation: type and format checks
+  const parsePort = (v) => {
+    const n = Number(v);
+    return !Number.isInteger(n) || n < 1 || n > 65535 ? null : n;
+  };
+  const parsePositiveInt = (v) => {
+    const n = Number(v);
+    return !Number.isInteger(n) || n < 1 ? null : n;
+  };
+  const validateCorsOrigin = (v) => {
+    if (!v) return null;
+    const urls = v.split(',').map(u => u.trim()).filter(u => u);
+    for (const url of urls) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'https:') return null;
+      } catch (_) {
+        return null;
+      }
+    }
+    return urls.length > 0 ? urls : null;
+  };
 
-# HTTPS — trust the local CA in Node.js
-NODE_EXTRA_CA_CERTS=ca.crt
+  const schema = {
+    PORT: (v) => parsePort(v) ? null : `must be integer 1-65535, got "${v}"`,
+    RATE_LIMIT_WINDOW_MS: (v) => parsePositiveInt(v) ? null : `must be positive integer, got "${v}"`,
+    RATE_LIMIT_MAX_REQUESTS: (v) => parsePositiveInt(v) ? null : `must be positive integer, got "${v}"`,
+    CORS_ORIGIN: (v) => validateCorsOrigin(v) ? null : `must be comma-separated https:// URLs, got "${v}"`,
+    SESSION_SECRET: (v) => v && v.length >= 128 ? null : `must be 128+ character hex string, got "${v}"`,
+    NBOSP_CRED_KEY: (v) => v && v.length >= 64 ? null : `must be 64+ character hex string, got "${v}"`,
+  };
 
-# Security (auto-generated — do not share)
-SESSION_SECRET=${sessionSecret}
-NBOSP_CRED_KEY=${credEncryptKey}
+  const errors = [];
+  for (const [key, validate] of Object.entries(schema)) {
+    const error = validate(env[key] || '');
+    if (error) {
+      errors.push(`${key}: ${error}`);
+    }
+  }
 
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
+  if (errors.length > 0) {
+    const msg = `[NovaByte] .env validation failed:\n  ${errors.join('\n  ')}\n\nFix .env and restart.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
 
-# CORS
-CORS_ORIGIN=https://localhost:3003,https://127.0.0.1:3003
-`;
-
-  await fs.promises.writeFile(envPath, env, { encoding: 'utf8', mode: 0o600 });
-  console.log('[NovaByte] .env created with secure random secrets.');
+  // Load validated values into process.env so they are available to this process and child processes
+  Object.assign(process.env, env);
+  console.log('[NovaByte] .env loaded, validated, and applied to process.env.');
 }
 
 // ── Main cert bootstrap ───────────────────────────────────────────────────────
@@ -324,19 +408,30 @@ async function stripSpkiFromPackageJson() {
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
-const port = process.env.PORT || 3003;
+// Note: ensureEnv() must run first to populate process.env from .env
+let port = 3003;
 
 (async () => {
   await ensureEnv();
-  const certOk = await ensureCerts();
+  // After ensureEnv(), process.env is populated with validated .env values
+  port = parseInt(process.env.PORT || 3003, 10);
+  
+  await ensureCerts();
   // Always use https — server.js loads cert.key/cert.crt and starts HTTPS if they exist.
   // If cert generation failed we still try https (server falls back to http internally).
   const appUrl = `https://localhost:${port}`;
 
   const logStream = fs.createWriteStream(path.join(__dirname, 'server.log'), { flags: 'a' });
-  const server = spawn('node', ['--max-old-space-size=4096', '--expose-gc', path.join(__dirname, 'server.js')], {
+  
+  // Find Node.js executable for spawning server.js
+  // In packaged NW.js apps, process.execPath is the NW.js binary, not Node
+  // Set NODE_BIN_PATH at build time to the actual Node binary path
+  let nodeBin = process.env.NODE_BIN_PATH || 'node';
+  
+  const server = spawn(nodeBin, ['--max-old-space-size=4096', '--expose-gc', path.join(__dirname, 'server.js')], {
     cwd: __dirname,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: process.env
   });
 
   server.on('exit', () => {});

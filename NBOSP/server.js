@@ -4,6 +4,60 @@
 
 require('dotenv').config();
 
+// ── Environment validation ────────────────────────────────────────────────────
+// Validate required env vars: presence, type, and format.
+// Fail fast in production — do not attempt auto-repair.
+
+function validateEnvironment() {
+  const errors = [];
+
+  // Required secrets (must be non-empty hex strings)
+  const secrets = ['NBOSP_CRED_KEY', 'SESSION_SECRET'];
+  for (const key of secrets) {
+    const val = process.env[key]?.trim();
+    if (!val) {
+      errors.push(`${key} is missing or empty`);
+    } else if (!/^[0-9a-f]{32,}$/i.test(val)) {
+      errors.push(`${key} must be a hex string (64+ chars), got "${val.slice(0, 20)}..."`);
+    }
+  }
+
+  // Numeric config
+  const numericVars = {
+    PORT: [1, 65535],
+    RATE_LIMIT_WINDOW_MS: [1, Infinity],
+    RATE_LIMIT_MAX_REQUESTS: [1, Infinity],
+  };
+
+  for (const [key, [min, max]] of Object.entries(numericVars)) {
+    const val = process.env[key];
+    if (val === undefined) {
+      errors.push(`${key} is missing`);
+      continue;
+    }
+    const num = parseInt(val, 10);
+    if (isNaN(num) || num < min || num > max) {
+      errors.push(`${key}="${val}" must be a number between ${min} and ${max}`);
+    }
+  }
+
+  // Format validation
+  if (process.env.CORS_ORIGIN && !process.env.CORS_ORIGIN.includes('https://')) {
+    errors.push(`CORS_ORIGIN must include https:// URLs, got "${process.env.CORS_ORIGIN}"`);
+  }
+
+  if (errors.length > 0) {
+    const msg = `[Server] .env validation failed:\n\n${errors.map(e => `  ❌ ${e}`).join('\n')}\n\nFix .env and restart the app.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+
+  console.log('[Server] .env validation passed.');
+}
+
+// Validate environment before starting
+validateEnvironment();
+
 // Global error handlers to prevent crashes
 process.on('uncaughtException', (error) => {
     // Log to stderr so client.js tee() writes it to server.log
