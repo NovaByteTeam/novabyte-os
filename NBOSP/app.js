@@ -8944,6 +8944,343 @@ self.onmessage = async (e) => {
         }
       });
 
+      /* ── Background services: Clock + Email ───────────────────────────────── */
+      (function () {
+        const bgRoot = window.__NBOSP_BG = window.__NBOSP_BG || {};
+
+        function bgBeep(freq, dur) {
+          try {
+            const actx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = actx.createOscillator(), gn = actx.createGain();
+            osc.type = 'sine'; osc.frequency.value = freq || 880;
+            gn.gain.setValueAtTime(0.25, actx.currentTime);
+            gn.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + (dur || 1.0));
+            osc.connect(gn); gn.connect(actx.destination);
+            osc.start(); osc.stop(actx.currentTime + (dur || 1.0));
+            setTimeout(() => { try { actx.close(); } catch (e) {} }, Math.max(1200, ((dur || 1.0) * 1000) + 250));
+          } catch { }
+        }
+
+        function safeJSONParse(raw, fallback) {
+          try { return JSON.parse(raw); } catch { return fallback; }
+        }
+
+        /* ---------------------------- Clock service ---------------------------- */
+        if (!bgRoot.clock) {
+          const STATE_KEY = 'nbosp_clock_state_v2';
+          const ALARMS_KEY = 'nbosp_clock_v1';
+
+          const defaults = () => ({
+            timer: { running: false, done: false, presetMs: 0, remainingMs: 0, endAt: 0 },
+            stopwatch: { running: false, elapsedMs: 0, startedAt: 0, laps: [] },
+            lastAlarmMinute: ''
+          });
+
+          let state = safeJSONParse(localStorage.getItem(STATE_KEY), null) || defaults();
+
+          function normaliseState() {
+            state.timer = state.timer || {};
+            state.stopwatch = state.stopwatch || {};
+            state.timer.running = !!state.timer.running;
+            state.timer.done = !!state.timer.done;
+            state.timer.presetMs = Math.max(0, Number(state.timer.presetMs) || 0);
+            state.timer.remainingMs = Math.max(0, Number(state.timer.remainingMs) || 0);
+            state.timer.endAt = Math.max(0, Number(state.timer.endAt) || 0);
+
+            state.stopwatch.running = !!state.stopwatch.running;
+            state.stopwatch.elapsedMs = Math.max(0, Number(state.stopwatch.elapsedMs) || 0);
+            state.stopwatch.startedAt = Math.max(0, Number(state.stopwatch.startedAt) || 0);
+            state.stopwatch.laps = Array.isArray(state.stopwatch.laps)
+              ? state.stopwatch.laps.filter(n => Number.isFinite(n) && n >= 0).map(n => Math.floor(n))
+              : [];
+            state.lastAlarmMinute = typeof state.lastAlarmMinute === 'string' ? state.lastAlarmMinute : '';
+          }
+
+          function persist() {
+            normaliseState();
+            lsSave(STATE_KEY, state);
+          }
+
+          function loadAlarms() {
+            const raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
+            const alarms = Array.isArray(raw?.alarms) ? raw.alarms : [];
+            return alarms
+              .map(al => ({
+                id: al?.id ?? Date.now().toString(36),
+                time: typeof al?.time === 'string' ? al.time : '07:00',
+                label: typeof al?.label === 'string' ? al.label : '',
+                days: Array.isArray(al?.days) ? al.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [],
+                enabled: al?.enabled !== false
+              }))
+              .filter(al => /^\d{2}:\d{2}$/.test(al.time));
+          }
+
+          function saveAlarms(alarms) {
+            const raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
+            raw.alarms = alarms;
+            lsSave(ALARMS_KEY, raw);
+          }
+
+          function nowMs() { return Date.now(); }
+
+          function timerMs() {
+            normaliseState();
+            if (state.timer.running && state.timer.endAt) {
+              const rem = Math.max(0, state.timer.endAt - nowMs());
+              if (rem <= 0) {
+                state.timer.running = false;
+                state.timer.done = true;
+                state.timer.remainingMs = 0;
+                state.timer.endAt = 0;
+                persist();
+                bgBeep(880, 0.7); setTimeout(() => bgBeep(1047, 0.7), 350); setTimeout(() => bgBeep(1319, 1.0), 700);
+                return 0;
+              }
+              return rem;
+            }
+            return state.timer.remainingMs || 0;
+          }
+
+          function stopwatchMs() {
+            normaliseState();
+            return state.stopwatch.running
+              ? state.stopwatch.elapsedMs + Math.max(0, nowMs() - state.stopwatch.startedAt)
+              : state.stopwatch.elapsedMs;
+          }
+
+          bgRoot.clock = {
+            state,
+            persist,
+            loadAlarms,
+            saveAlarms,
+            timerMs,
+            stopwatchMs,
+            startTimer(ms) {
+              const amount = Math.max(0, Math.floor(Number(ms) || 0));
+              state.timer.presetMs = amount;
+              state.timer.remainingMs = amount;
+              state.timer.endAt = nowMs() + amount;
+              state.timer.running = amount > 0;
+              state.timer.done = false;
+              persist();
+            },
+            pauseTimer() {
+              state.timer.remainingMs = timerMs();
+              state.timer.running = false;
+              state.timer.done = false;
+              state.timer.endAt = 0;
+              persist();
+            },
+            resetTimer() {
+              state.timer.running = false;
+              state.timer.done = false;
+              state.timer.remainingMs = state.timer.presetMs || 0;
+              state.timer.endAt = 0;
+              persist();
+            },
+            restartTimer() {
+              const amount = state.timer.presetMs || state.timer.remainingMs || 0;
+              state.timer.remainingMs = amount;
+              state.timer.endAt = nowMs() + amount;
+              state.timer.running = amount > 0;
+              state.timer.done = false;
+              persist();
+            },
+            setTimerPreset(ms) {
+              const amount = Math.max(0, Math.floor(Number(ms) || 0));
+              state.timer.presetMs = amount;
+              if (!state.timer.running) state.timer.remainingMs = amount;
+              persist();
+            },
+            startStopwatch() {
+              if (!state.stopwatch.running) {
+                state.stopwatch.startedAt = nowMs();
+                state.stopwatch.running = true;
+                persist();
+              }
+            },
+            pauseStopwatch() {
+              if (state.stopwatch.running) {
+                state.stopwatch.elapsedMs = stopwatchMs();
+                state.stopwatch.running = false;
+                state.stopwatch.startedAt = 0;
+                persist();
+              }
+            },
+            resetStopwatch() {
+              state.stopwatch.running = false;
+              state.stopwatch.elapsedMs = 0;
+              state.stopwatch.startedAt = 0;
+              state.stopwatch.laps = [];
+              persist();
+            },
+            lapStopwatch() {
+              const current = Math.floor(stopwatchMs());
+              if (!state.stopwatch.laps.length || state.stopwatch.laps[state.stopwatch.laps.length - 1] !== current) {
+                state.stopwatch.laps.push(current);
+                persist();
+              }
+              return current;
+            },
+            getStopwatchLaps() { normaliseState(); return state.stopwatch.laps.slice(); },
+            alarmTick(checkFn) {
+              const now = new Date();
+              const minuteKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}:${now.getMinutes()}`;
+              if (state.lastAlarmMinute === minuteKey) return;
+              const seconds = now.getSeconds();
+              const ms = now.getMilliseconds();
+              if (seconds !== 0 || ms > 1400) return;
+              state.lastAlarmMinute = minuteKey;
+              persist();
+              const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+              const dow = now.getDay();
+              const alarms = loadAlarms();
+              alarms.forEach((al, i) => {
+                if (!al.enabled || al.time !== timeStr) return;
+                if (al.days.length > 0 && !al.days.includes(dow)) return;
+                if (typeof checkFn === 'function') {
+                  try { checkFn(al, i); } catch (e) { }
+                }
+                bgBeep(880, 0.8); setTimeout(() => bgBeep(1047, 0.8), 400); setTimeout(() => bgBeep(1319, 1.2), 800);
+                if (al.days.length === 0) {
+                  al.enabled = false;
+                  saveAlarms(alarms);
+                }
+              });
+            },
+            ensureBooted() { return true; }
+          };
+
+          normaliseState();
+          persist();
+
+          if (!bgRoot._clockTimer) {
+            bgRoot._clockTimer = setInterval(() => {
+              timerMs();
+              bgRoot.clock.alarmTick();
+            }, 250);
+          }
+        }
+
+        /* ---------------------------- Email service ---------------------------- */
+        if (!bgRoot.email) {
+          const ACCTS_KEY = 'nbosp_email_accts_v2';
+          const state = {
+            started: false,
+            accounts: [],
+            syncTimers: {},
+            onChange: null,
+            lastBootAt: 0
+          };
+
+          const rawLoad = () => {
+            try { return JSON.parse(localStorage.getItem(ACCTS_KEY) || '[]'); } catch { return []; }
+          };
+
+          function saveAccounts() {
+            lsSave(ACCTS_KEY, state.accounts);
+          }
+
+          function clearTimers() {
+            Object.values(state.syncTimers).forEach(t => clearInterval(t));
+            state.syncTimers = {};
+          }
+
+          async function api(path, opts) {
+            const r = await fetch('/api/email' + path, Object.assign({ credentials: 'include' }, opts || {}));
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || r.statusText);
+            return d;
+          }
+
+          async function connectAccount(acct) {
+            if (!acct || !acct.host || !acct.user || !acct.pass) return;
+            await api('/connect', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: acct.type, host: acct.host, port: acct.port, ssl: acct.ssl, user: acct.user, pass: acct.pass })
+            });
+          }
+
+          function renderHook() {
+            if (typeof state.onChange === 'function') {
+              try { state.onChange(); } catch (e) { }
+            }
+          }
+
+          async function syncAccount(acct) {
+            try {
+              await connectAccount(acct);
+              const d = await api('/messages?folder=INBOX&page=1&limit=10', { method: 'GET' });
+              const unread = (d.messages || []).filter(m => !m.seen).length;
+              acct._unread = unread;
+              acct._lastSync = Date.now();
+              state.accounts = rawLoad();
+              const target = state.accounts.find(a => a.id === acct.id);
+              if (target) {
+                target._unread = unread;
+                target._lastSync = acct._lastSync;
+                saveAccounts();
+              }
+              if (unread > 0 && window.Notify?.show) {
+                Notify.show({ title: 'Email', body: `${unread} new in ${acct.name || acct.email || 'Email'}`, type: 'info', appName: 'Email' });
+              }
+              renderHook();
+            } catch { }
+          }
+
+          function schedule() {
+            clearTimers();
+            state.accounts = rawLoad();
+            state.accounts.forEach(acct => {
+              const mins = parseInt(acct.syncInterval) || 0;
+              if (!mins) return;
+              state.syncTimers[acct.id] = setInterval(() => { syncAccount(acct); }, mins * 60000);
+            });
+          }
+
+          bgRoot.email = {
+            state,
+            ensureBooted() {
+              if (state.started) return;
+              state.started = true;
+              state.lastBootAt = Date.now();
+              state.accounts = rawLoad();
+              schedule();
+              state.accounts.forEach(acct => {
+                const mins = parseInt(acct.syncInterval) || 0;
+                if (mins) syncAccount(acct);
+              });
+            },
+            refreshAccounts: schedule,
+            getAccounts() {
+              state.accounts = rawLoad();
+              return state.accounts.slice();
+            },
+            saveAccounts,
+            setAccounts(next) {
+              state.accounts = Array.isArray(next) ? next : [];
+              saveAccounts();
+              schedule();
+              renderHook();
+            },
+            syncNow(acctId) {
+              const list = rawLoad();
+              if (acctId) {
+                const acct = list.find(a => a.id === acctId);
+                if (acct) return syncAccount(acct);
+                return Promise.resolve();
+              }
+              return Promise.allSettled(list.map(acct => syncAccount(acct)));
+            },
+            stop() {
+              clearTimers();
+              state.started = false;
+            }
+          };
+        }
+      })();
+
       /* ── APP 8: Clock (NBOSP — AOSP DeskClock style) ── */
       registerApp({
         id: 'nbosp-clock', name: 'Clock', icon: 'alarm-clock',
@@ -8975,6 +9312,27 @@ self.onmessage = async (e) => {
 
 
           function pad(n) { return String(Math.floor(n)).padStart(2, '0'); }
+
+          // ── Clock background service
+          const clockSvc = window.__NBOSP_BG?.clock;
+
+          function syncClockState() {
+            if (!clockSvc?.state) {
+              return {
+                timer: { running: false, done: false, presetMs: 0, remainingMs: 0, endAt: 0 },
+                stopwatch: { running: false, elapsedMs: 0, startedAt: 0, laps: [] }
+              };
+            }
+            const s = clockSvc.state;
+            return {
+              timer: { ...s.timer },
+              stopwatch: { ...s.stopwatch, laps: Array.isArray(s.stopwatch?.laps) ? s.stopwatch.laps.slice() : [] }
+            };
+          }
+
+          function saveClockState(/* st */) {
+            clockSvc?.persist?.();
+          }
 
           // ── Web Audio beep
           function beep(freq, dur) {
@@ -9256,11 +9614,17 @@ self.onmessage = async (e) => {
 
           function syncTiFromInputs() {
             tiSet = tiMs = ((parseInt(tiH.value) || 0) * 3600 + (parseInt(tiM.value) || 0) * 60 + (parseInt(tiS.value) || 0)) * 1000;
+            clockSvc?.setTimerPreset?.(tiSet);
+            saveClockState(syncClockState());
             renderTiDisplay();
           }
           function renderTiDisplay() {
-            const ms = tiRun ? Math.max(0, tiEnd - Date.now()) : tiMs;
-            const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
+            const st = syncClockState();
+            tiRun = !!st.timer.running;
+            tiDone = !!st.timer.done;
+            tiSet = Math.max(0, Number(st.timer.presetMs) || 0);
+            tiMs = tiRun ? Math.max(0, Number(st.timer.endAt) - Date.now()) : Math.max(0, Number(st.timer.remainingMs) || tiSet || 0);
+            const h = Math.floor(tiMs / 3600000), m = Math.floor((tiMs % 3600000) / 60000), s = Math.floor((tiMs % 60000) / 1000);
             tiDisplay.textContent = h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
             tiDisplay.style.color = tiDone ? 'var(--accent)' : 'var(--text-primary)';
           }
@@ -9275,13 +9639,21 @@ self.onmessage = async (e) => {
             tiReset.style.display = (tiMs !== tiSet || tiDone) ? 'block' : 'none';
           }
           tiStart.addEventListener('click', () => {
-            if (!tiSet) return;
-            if (tiRun) { tiMs = Math.max(0, tiEnd - Date.now()); tiRun = false; }
-            else { tiEnd = Date.now() + tiMs; tiRun = true; tiDone = false; }
-            renderTiBtns();
+            const st = syncClockState();
+            if (!st.timer.presetMs && !st.timer.remainingMs && !tiSet) return;
+            if (st.timer.running) {
+              clockSvc?.pauseTimer?.();
+            } else if (st.timer.done) {
+              clockSvc?.restartTimer?.();
+            } else {
+              clockSvc?.startTimer?.(st.timer.remainingMs || tiSet || 0);
+            }
+            renderTiDisplay(); renderTiBtns();
           });
           tiReset.addEventListener('click', () => {
-            tiRun = false; tiDone = false; tiMs = tiSet;
+            clockSvc?.resetTimer?.();
+            const st = syncClockState();
+            tiRun = false; tiDone = false; tiMs = Math.max(0, Number(st.timer.remainingMs) || st.timer.presetMs || 0);
             tiH.value = tiSet ? Math.floor(tiSet / 3600000) || '' : '';
             tiM.value = tiSet ? String(Math.floor((tiSet % 3600000) / 60000)) : '';
             tiS.value = tiSet ? String(Math.floor((tiSet % 60000) / 1000)) : '';
@@ -9289,6 +9661,7 @@ self.onmessage = async (e) => {
           });
 
           timerSec.append(tiDisplay, tiInpRow, tiBtnRow);
+          renderTiDisplay();
           renderTiBtns();
 
           // ════════════════════════════════════════════════════
@@ -9296,7 +9669,14 @@ self.onmessage = async (e) => {
           // ════════════════════════════════════════════════════
 
           let swRun = false, swElapsed = 0, swStart = 0, swLaps = [];
-          function swNow() { return swRun ? swElapsed + (performance.now() - swStart) : swElapsed; }
+          function swNow() {
+            const st = syncClockState();
+            swRun = !!st.stopwatch.running;
+            swElapsed = Math.max(0, Number(st.stopwatch.elapsedMs) || 0);
+            swStart = Math.max(0, Number(st.stopwatch.startedAt) || 0);
+            swLaps = Array.isArray(st.stopwatch.laps) ? st.stopwatch.laps.slice() : [];
+            return swRun ? swElapsed + (Date.now() - swStart) : swElapsed;
+          }
 
           const swDisplay = createEl('div', { className: 'nbc-sw-display', textContent: '00:00.00' });
 
@@ -9321,57 +9701,75 @@ self.onmessage = async (e) => {
 
           function renderSwLaps() {
             swLapScroll.innerHTML = '';
-            if (!swLaps.length) return;
-            const splits = swLaps.map((v, i) => v - (i > 0 ? swLaps[i - 1] : 0));
+            const laps = swLaps.slice();
+            if (!laps.length) return;
+            const splits = laps.map((v, i) => v - (i > 0 ? laps[i - 1] : 0));
             const bestSplit = Math.min(...splits), worstSplit = Math.max(...splits);
-            [...swLaps].reverse().forEach((lapEnd, ri) => {
-              const i = swLaps.length - 1 - ri;
+            [...laps].reverse().forEach((lapEnd, ri) => {
+              const i = laps.length - 1 - ri;
               const split = splits[i];
               const row = createEl('div', { className: 'nbc-lap-row' });
               const lapLabel = createEl('span', { textContent: `Lap ${i + 1}`, style: 'color:var(--text-secondary);' });
               const splitEl = createEl('span', { textContent: fmtSw(split) });
-              if (swLaps.length > 1 && split === bestSplit) splitEl.className = 'nbc-lap-best';
-              else if (swLaps.length > 1 && split === worstSplit) splitEl.className = 'nbc-lap-worst';
+              if (laps.length > 1 && split === bestSplit) splitEl.className = 'nbc-lap-best';
+              else if (laps.length > 1 && split === worstSplit) splitEl.className = 'nbc-lap-worst';
               const overallEl = createEl('span', { textContent: fmtSw(lapEnd), style: 'color:var(--text-muted);font-size:12px;' });
               row.append(lapLabel, splitEl, overallEl); swLapScroll.appendChild(row);
             });
           }
 
           swStartBtn.addEventListener('click', () => {
-            if (swRun) {
-              swElapsed = swNow(); swRun = false;
-              swStartBtn.textContent = 'Start'; swLapBtn.textContent = 'Reset';
+            const st = syncClockState();
+            if (st.stopwatch.running) {
+              clockSvc?.pauseStopwatch?.();
             } else {
-              swStart = performance.now(); swRun = true;
-              swStartBtn.textContent = 'Stop'; swLapBtn.textContent = 'Lap';
+              clockSvc?.startStopwatch?.();
             }
+            swNow();
+            swStartBtn.textContent = swRun ? 'Start' : 'Stop';
+            swLapBtn.textContent = swRun ? 'Reset' : 'Lap';
           });
           swLapBtn.addEventListener('click', () => {
-            if (swRun) { swLaps.push(swNow()); renderSwLaps(); }
-            else { swRun = false; swElapsed = 0; swStart = 0; swLaps = []; swLapScroll.innerHTML = ''; swDisplay.textContent = '00:00.00'; swStartBtn.textContent = 'Start'; swLapBtn.textContent = 'Lap'; }
+            const st = syncClockState();
+            if (st.stopwatch.running) {
+              clockSvc?.lapStopwatch?.();
+              swNow(); renderSwLaps();
+            } else {
+              clockSvc?.resetStopwatch?.();
+              swRun = false; swElapsed = 0; swStart = 0; swLaps = [];
+              swLapScroll.innerHTML = '';
+              swDisplay.textContent = '00:00.00';
+              swStartBtn.textContent = 'Start'; swLapBtn.textContent = 'Lap';
+            }
           });
 
           // ── Main 50ms tick (timer + stopwatch)
           const mainInt = setInterval(() => {
-            // Timer
-            if (tiRun) {
-              const rem = tiEnd - Date.now();
-              if (rem <= 0) {
-                tiRun = false; tiDone = true; tiMs = 0;
-                renderTiDisplay(); renderTiBtns();
-                beep(880, 0.7); setTimeout(() => beep(1047, 0.7), 350); setTimeout(() => beep(1319, 1.0), 700);
-              } else { renderTiDisplay(); }
+            const st = syncClockState();
+            tiRun = !!st.timer.running;
+            tiDone = !!st.timer.done;
+            tiSet = Math.max(0, Number(st.timer.presetMs) || 0);
+            tiMs = clockSvc?.timerMs ? clockSvc.timerMs() : (tiRun ? Math.max(0, Number(st.timer.endAt) - Date.now()) : Math.max(0, Number(st.timer.remainingMs) || 0));
+            if (tiRun || tiDone) {
+              renderTiDisplay(); renderTiBtns();
             }
-            // Stopwatch
+
+            swRun = !!st.stopwatch.running;
+            swElapsed = Math.max(0, Number(st.stopwatch.elapsedMs) || 0);
+            swStart = Math.max(0, Number(st.stopwatch.startedAt) || 0);
+            swLaps = Array.isArray(st.stopwatch.laps) ? st.stopwatch.laps.slice() : swLaps;
             if (swRun) {
               const t = swNow();
               const m = Math.floor(t / 60000), s = Math.floor((t % 60000) / 1000), cs = Math.floor((t % 1000) / 10);
               swDisplay.textContent = `${pad(m)}:${pad(s)}.${pad(cs)}`;
             }
-          }, 50);
+          }, 250);
           state.cleanups?.push(() => clearInterval(mainInt));
 
           // ── Boot
+          clockSvc?.ensureBooted?.();
+          renderTiDisplay(); renderTiBtns();
+          swNow(); swDisplay.textContent = fmtSw(swNow()); renderSwLaps();
           switchTab('clock');
         }
       });
@@ -12702,6 +13100,15 @@ wireRecoveryControls();
         startGame();
       }
 
+      /* ── Background email bootstrap (silent startup sync) ─────────────────── */
+      (function () {
+        const bg = window.__NBOSP_BG = window.__NBOSP_BG || {};
+        if (bg.email && bg.email.__patchedStartup) return;
+        const svc = bg.email = bg.email || {};
+        svc.__patchedStartup = true;
+        try { svc.ensureBooted?.(); } catch (e) { }
+      })();
+
       // ─────────────────────────────────────────────────────────────────────────────
       // NBOSP Email — IMAP · POP3 · Exchange
       // ─────────────────────────────────────────────────────────────────────────────
@@ -12819,10 +13226,13 @@ wireRecoveryControls();
           let selectedUids = new Set();
           let syncTimers = {};
           let unreadMap = {};   // "acctId|folder" → count
+          const emailBg = window.__NBOSP_BG?.email || null;
 
           // ── Storage
           const loadAccts = () => { try { return JSON.parse(localStorage.getItem(SK) || '[]'); } catch { return []; } };
-          const saveAccts = () => { try { localStorage.setItem(SK, JSON.stringify(accounts)); } catch { } };
+          const saveAccts = () => { try { localStorage.setItem(SK, JSON.stringify(accounts)); if (emailBg?.setAccounts) emailBg.setAccounts(accounts); } catch { } };
+
+          // ── API helpers
 
           // ── API helpers
           async function api(method, path, body, params) {
@@ -13508,6 +13918,15 @@ wireRecoveryControls();
           // SYNC ENGINE + NOTIFICATIONS
           // ────────────────────────────────────────────────────────────────────────
           function scheduleSyncAll() {
+            emailBg?.ensureBooted?.();
+            if (emailBg?.setAccounts) {
+              emailBg.onChange = () => {
+                if (activeAcctId === 'all' || activeFolder === 'INBOX') {
+                  try { buildSidebar(); } catch { }
+                }
+              };
+              emailBg.setAccounts(accounts);
+            }
             Object.values(syncTimers).forEach(clearInterval);
             syncTimers = {};
             accounts.forEach(acct => {
@@ -13556,13 +13975,37 @@ wireRecoveryControls();
           }
 
           accounts = loadAccts();
+          emailBg?.ensureBooted?.();
+          
+          // Show UI structure immediately, but delay message loading until after
+          // credentials are restored from persistent storage (non-blocking).
+          // This avoids the spinner when reopening the app.
           if (!accounts.length) {
             mainEl.style.display = '';
             buildSetup(null);
           } else {
             activeAcctId = accounts.length > 1 ? 'all' : accounts[0].id;
-            showMain();
+            // Show sidebar and structure without loading messages yet
+            setupScreen.style.display = 'none';
+            mainEl.style.display = '';
+            buildSidebar();
+            showEmpty();
             scheduleSyncAll();
+            
+            // Restore credentials in background, then load messages
+            api('GET', '/restore')
+              .then(restore => {
+                if (restore?.restored) {
+                  console.log('[Email] Credentials auto-restored');
+                }
+                // Load messages now that credentials are restored
+                loadMessages();
+              })
+              .catch(e => {
+                console.warn('[Email] Auto-restore failed, messages may not load:', e.message);
+                // Still try to load messages — ensureConnected will handle it
+                loadMessages();
+              });
           }
         }
       });

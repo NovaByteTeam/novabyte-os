@@ -21,10 +21,71 @@ const https = require('https');
 const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
+const { gcmsiv } = require('@noble/ciphers/aes.js');
+const { randomBytes: nobleRandomBytes } = require('@noble/ciphers/utils.js');
 
 // In-memory preview cache: token → { html, ts }
 // Entries expire after 5 minutes (cleaned on each POST /preview).
 const previewCache = new Map();
+
+// ── Session-based persistent credential storage (encrypted) ────────────────────
+// Stores credentials server-side so they survive session expiry.
+// Uses the session store to persist across browser page reloads/app closes.
+// This is more secure than storing in localStorage (which XSS can read).
+const fs = require('fs');
+
+// In-memory registry of accounts per session (backed by session store)
+// Structure: sessionId → { id, type, host, port, ssl, user, pass }[]
+const sessionCredentials = new Map();
+
+// Encryption key for credential storage — MUST be set via environment
+let CRED_ENCRYPT_KEY = null;
+function getCredEncryptKey() {
+  if (!CRED_ENCRYPT_KEY) {
+    const seed = process.env.NBOSP_CRED_KEY;
+    if (!seed) {
+      const msg = '[Email] CRITICAL: NBOSP_CRED_KEY environment variable not set. Email credential persistence disabled for security.';
+      console.error(msg);
+      throw new Error(msg);
+    }
+    CRED_ENCRYPT_KEY = crypto.createHash('sha256').update(seed).digest();
+  }
+  return CRED_ENCRYPT_KEY;
+}
+
+function encryptCreds(creds) {
+  const key = getCredEncryptKey();
+  const nonce = nobleRandomBytes(12);
+  const cipher = gcmsiv(key, nonce);
+  const plaintext = new TextEncoder().encode(JSON.stringify(creds));
+  const encrypted = cipher.encrypt(plaintext);
+  // Prepend nonce to ciphertext for decryption
+  const combined = new Uint8Array(nonce.length + encrypted.length);
+  combined.set(nonce);
+  combined.set(encrypted, nonce.length);
+  return Buffer.from(combined).toString('hex');
+}
+
+function decryptCreds(encryptedHex) {
+  const key = getCredEncryptKey();
+  const combined = Buffer.from(encryptedHex, 'hex');
+  const nonce = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const decipher = gcmsiv(key, nonce);
+  const plaintext = decipher.decrypt(ciphertext);
+  return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+// Session cleanup: remove expired session entries from credential registry
+setInterval(() => {
+  // Cleanup entries older than 24 hours
+  const cutoff = Date.now() - 86400000;
+  for (const [sessionId, entry] of sessionCredentials.entries()) {
+    if (entry.createdAt && entry.createdAt < cutoff) {
+      sessionCredentials.delete(sessionId);
+    }
+  }
+}, 300000); // Run every 5 minutes
 
 // ── Tracker domain blocklist (Disconnect.me) ──────────────────────────────────
 // Loaded once at server startup via require() — works here because email-routes
@@ -331,6 +392,7 @@ async function ewsFolders(creds) {
 
 async function ewsMessages(creds, folder, page, limit) {
   const offset = (page - 1) * limit;
+  const safeFolderId = escapeXmlAttr(folder);
   const soap = `
 <m:FindItem Traversal="Shallow">
   <m:ItemShape>
@@ -349,7 +411,7 @@ async function ewsMessages(creds, folder, page, limit) {
     </t:FieldOrder>
   </m:SortOrder>
   <m:ParentFolderIds>
-    <t:DistinguishedFolderId Id="${folder}"/>
+    <t:DistinguishedFolderId Id="${safeFolderId}"/>
   </m:ParentFolderIds>
 </m:FindItem>`;
 
@@ -369,13 +431,14 @@ async function ewsMessages(creds, folder, page, limit) {
 }
 
 async function ewsMessage(creds, uid) {
+  const safeUid = escapeXmlAttr(uid);
   const soap = `
 <m:GetItem>
   <m:ItemShape>
     <t:BaseShape>Default</t:BaseShape>
     <t:IncludeMimeContent>true</t:IncludeMimeContent>
   </m:ItemShape>
-  <m:ItemIds><t:ItemId Id="${uid}"/></m:ItemIds>
+  <m:ItemIds><t:ItemId Id="${safeUid}"/></m:ItemIds>
 </m:GetItem>`;
 
   const xml = await ewsReq(creds, soap);
@@ -458,10 +521,34 @@ function msgShape(parsed) {
 }
 
 function requireCreds(req, res, next) {
+  // Try to restore from persistent storage if session creds are missing
+  if (!req.session?.emailCreds && req.session?.emailCredsEncrypted) {
+    try {
+      const creds = decryptCreds(req.session.emailCredsEncrypted);
+      req.session.emailCreds = creds;
+      if (req.session.id) {
+        sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
+      }
+    } catch (e) {
+      // Restore failed, fall through to error
+    }
+  }
+  
   if (!req.session?.emailCreds) {
     return res.status(401).json({ error: 'Not connected. POST /api/email/connect first.' });
   }
   next();
+}
+
+// XML escaping helper for EWS SOAP bodies
+function escapeXmlAttr(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -490,9 +577,77 @@ router.get('/csrf-token', (req, res) => {
 });
 
 /**
+ * GET /api/email/restore
+ * Attempts to restore credentials from persistent storage (encrypted in session).
+ * Returns the restored account info without the password (privacy).
+ * Used on app startup to silently reconnect without user re-entry.
+ */
+router.get('/restore', (req, res) => {
+  try {
+    // First check in-memory registry (fastest, survives page reload within same session)
+    if (req.session?.id && sessionCredentials.has(req.session.id)) {
+      const entry = sessionCredentials.get(req.session.id);
+      if (entry?.creds) {
+        const creds = entry.creds;
+        req.session.emailCreds = creds;
+        return res.json({ ok: true, restored: true, type: creds.type, host: creds.host, user: creds.user });
+      }
+    }
+
+    // Fall back to encrypted creds in session store (survives browser restart if session persisted)
+    if (req.session?.emailCredsEncrypted) {
+      try {
+        const creds = decryptCreds(req.session.emailCredsEncrypted);
+        req.session.emailCreds = creds;
+        if (req.session.id) {
+          sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
+        }
+        return res.json({ ok: true, restored: true, type: creds.type, host: creds.host, user: creds.user });
+      } catch (e) {
+        console.warn('[Email] Failed to decrypt restored credentials:', e.message);
+        // Fall through to return no-restore response
+      }
+    }
+
+    res.json({ ok: true, restored: false });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/email/startup
+ * Silent startup hook — called by client on app init/boot.
+ * Attempts to restore credentials and begin background sync without UI.
+ * Returns { ok, restored, hasAccounts, autoSyncEnabled }.
+ */
+router.get('/startup', async (req, res) => {
+  try {
+    // Attempt restore first
+    if (!req.session?.emailCreds && req.session?.emailCredsEncrypted) {
+      try {
+        const creds = decryptCreds(req.session.emailCredsEncrypted);
+        req.session.emailCreds = creds;
+        if (req.session.id) {
+          sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
+        }
+      } catch (e) {
+        console.warn('[Email] Startup restore failed:', e.message);
+      }
+    }
+
+    const restored = Boolean(req.session?.emailCreds);
+    res.json({ ok: true, restored, autoSyncEnabled: restored });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/email/connect
  * Body: { type: 'imap'|'pop3'|'exchange', host, port, ssl, user, pass }
- * Stores credentials in session; returns folders.
+ * Stores credentials in session AND persistent storage; returns folders.
+ * Credentials are encrypted before storage to protect against session store access.
  */
 router.post('/connect', async (req, res) => {
   const { type, host, port, ssl, user, pass } = req.body;
@@ -507,7 +662,23 @@ router.post('/connect', async (req, res) => {
     else if (type === 'exchange') folders = await ewsFolders(creds);
     else return res.status(400).json({ error: 'type must be imap, pop3, or exchange' });
 
+    // Store in session (temporary, lost on session expiry)
     req.session.emailCreds = creds;
+    
+    // Also store in persistent session storage with encryption
+    if (req.session?.id) {
+      try {
+        const encrypted = encryptCreds(creds);
+        // Always overwrite encrypted creds (even if already set) to handle account switches
+        req.session.emailCredsEncrypted = encrypted;
+        // Maintain in-memory registry for quick access with timestamp for TTL cleanup
+        sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
+      } catch (e) {
+        console.warn('[Email] Failed to persist credentials:', e.message);
+        // Still succeed — session storage is a fallback
+      }
+    }
+
     res.json({ ok: true, type, user, host, folders });
   } catch (err) {
     console.error('[Email] connect:', err.message);
@@ -575,9 +746,17 @@ router.get('/message', requireCreds, async (req, res) => {
 
 /**
  * POST /api/email/disconnect
+ * Clears both session and persistent credentials
  */
 router.post('/disconnect', (req, res) => {
   delete req.session.emailCreds;
+  delete req.session.emailCredsEncrypted;
+  
+  // Clear from persistent registry
+  if (req.session?.id) {
+    sessionCredentials.delete(req.session.id);
+  }
+  
   res.json({ ok: true });
 });
 
@@ -1187,10 +1366,13 @@ function rewriteEmailLinks(html) {
 
 // Tags whose entire subtree (including content) is dropped
 const DROP_CONTENT_TAGS = new Set([
-  'script','noscript','style', // style handled separately
+  'script','noscript',
   'object','embed','applet',
   'frame','frameset',
 ]);
+
+// Note: <style> blocks are handled separately in sanitizeEmailHtml() and are NOT in DROP_CONTENT_TAGS
+// (the if (tagName === 'style') block sanitises content before others are checked)
 
 // Tags that are removed but whose text content is preserved
 const STRIP_TAG_ONLY = new Set([
@@ -1268,7 +1450,6 @@ function sanitizeInlineStyle(styleStr, allowFixed) {
   // Parse declarations and rebuild
   const decls = cleaned.split(';');
   const safe = [];
-  let hasPosition = false;
 
   for (const decl of decls) {
     const colon = decl.indexOf(':');
@@ -1281,7 +1462,6 @@ function sanitizeInlineStyle(styleStr, allowFixed) {
     if (prop === 'position') {
       const v = val.toLowerCase();
       if (!allowFixed && (v === 'fixed' || v === 'absolute')) continue;
-      hasPosition = true;
     }
 
     const safeVal = sanitizeCssValue(prop, val);

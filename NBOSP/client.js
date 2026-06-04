@@ -221,6 +221,7 @@ async function ensureEnv() {
   console.log('[NovaByte] No .env found — generating defaults...');
 
   const sessionSecret = crypto.randomBytes(64).toString('hex');
+  const credEncryptKey = crypto.randomBytes(32).toString('hex');
 
   const env = `# NovaByte Environment Configuration
 # Auto-generated on first launch.
@@ -235,6 +236,7 @@ NODE_EXTRA_CA_CERTS=ca.crt
 
 # Security (auto-generated — do not share)
 SESSION_SECRET=${sessionSecret}
+NBOSP_CRED_KEY=${credEncryptKey}
 
 # Rate Limiting
 RATE_LIMIT_WINDOW_MS=900000
