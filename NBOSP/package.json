@@ -4,7 +4,8 @@
   "description": "NovaByte Server",
   "main": "client.js",
   "scripts": {
-    "start": "nw ."
+    "start": "nw .",
+    "prestart": "node scripts/bootstrap.js"
   },
   "window": {
     "title": "NovaByte",

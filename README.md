@@ -12,10 +12,11 @@
 <br>
 
 [![v1.x.x](https://img.shields.io/badge/v1.x.x-End_of_Life-ef4444?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
-[![v2.x.x](https://img.shields.io/badge/v2.x.x-Maintenance-f59e0b?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
+[![v2.3.8](https://img.shields.io/badge/v2.x.x-End_of_Life-ef4444?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
 [![v3.x.x](https://img.shields.io/badge/v3.x.x-Current-22c55e?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
-[![Node](https://img.shields.io/badge/Node.js-24+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![License](https://img.shields.io/badge/License-Private-6b7280?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os)
+[![Node](https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-22c55e?style=flat-square)](#automatic-startup)
+[![License](https://img.shields.io/badge/License-Mixed-6b7280?style=flat-square)](#license)
 [![No Telemetry](https://img.shields.io/badge/Telemetry-None-22c55e?style=flat-square&logo=shieldsdotio&logoColor=white)](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)
 
 <br>
@@ -34,7 +35,7 @@ Most software treats your data as a side effect — something that leaks out as 
 
 **No external dependencies out of the box** — NovaByte ships fully self-contained. There are no calls to CDNs, no fonts loaded from Google, no icons pulled from third-party servers. Everything the OS needs to run is bundled locally. From the moment you launch it, nothing loads from anywhere you did not explicitly navigate to.
 
-**The browser protects you silently** — favicon requests, search suggestions, and email images are all routed through a remote relay server (open source, auditable at github.com/NovaByteOfficial/suggest-relay) so Google, search engines, and email sender tracking servers see the relay's IP, never yours. On top of that, Chromium-specific fingerprinting headers are stripped, results are cached server-side, and tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. If the relay is unreachable, requests fall back to direct — suggestions still work, just without IP masking. For full IP privacy on actual browsing, use a VPN. The experience looks identical to a normal browser. The difference is what the other side never receives.
+**The browser protects you silently** — favicon requests, search suggestions, and email images are all routed through a remote relay server (open source, auditable at https://github.com/NovaByteOfficial/suggest-relay) so Google, search engines, and email sender tracking servers see the relay's IP, never yours. On top of that, Chromium-specific fingerprinting headers are stripped, results are cached server-side, and tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. If the relay is unreachable, requests fall back to direct — suggestions still work, just without IP masking. For full IP privacy on actual browsing, use a VPN. The experience looks identical to a normal browser. The difference is what the other side never receives.
 
 **The email client is private by design** — opening an email in most clients silently tells the sender you read it, when you read it, and roughly where you are. NovaByte removes all of that. Remote images are proxied server-side so your IP never reaches a sender's tracking server. Known tracker pixels are blocked entirely — the server returns a blank placeholder without making any upstream request, so the sender gets no signal whatsoever. CSS-embedded trackers, redirect link wrappers, and tracking query parameters are all stripped before the email renders. You see the email exactly as intended. The sender sees nothing.
 
@@ -45,35 +46,31 @@ Most software treats your data as a side effect — something that leaks out as 
 ## 🔏 Close-Source Announcement — 23/05/2026
 
 > [!IMPORTANT]
-> **After a long time of waiting and planning, we finally closed the source of NovaByte OS on 23 May 2026.**
+> **NovaByte OS source code was closed on 23 May 2026.**
 
-We’ve wanted to do this for a while, and we finally made it happen. Here’s what that means technically and what you should know before poking around the release files:
+This release uses three layers of protection:
 
-### How We Did It
+- **JavaScript obfuscation** — all JavaScript is obfuscated before packaging
+- **NW.js (Node-Webkit)** — the app ships as a desktop executable via NW.js
+- **V8 bytecode compilation** — source files are compiled to V8 bytecode before release
 
-We closed the source using a combination of three layers of protection:
-
-- **JavaScript obfuscation** — all JS logic has been heavily obfuscated before packaging
-- **NW.js (Node-Webkit)** — the app is packaged as a native desktop executable via NW.js, keeping the runtime internals away from plain browser inspection
-- **V8 bytecode compilation** — source files have been compiled to V8 bytecode, meaning what ships is pre-compiled engine output, not readable JavaScript
-
-On top of that, **the full git commit history has been wiped.** There is no history to browse, diff, or trace.
+The full git commit history has also been removed, so there is no history to browse, diff, or trace.
 
 ### app.bin
 
-All core OS logic lives in `app.bin`. This file is compiled bytecode — it is completely unreadable as source code and is not practically reversible. Do not attempt to reverse engineer or deobfuscate `app.bin`. It is not possible to recover meaningful sources from it, while nothing in the world is ever unattackable, but it’s like near impossible since it’s a thing that only Chromium understands, and every Chromium update changes, which makes attacks way too hard, and attempting to recover it is a violation of our terms.
+All core OS logic lives in `app.bin`. It contains compiled bytecode, so it is intentionally difficult to inspect or recover into readable source. Recovering meaningful source code from `app.bin` is intentionally made extremely difficult through V8 bytecode compilation and additional protection layers.
 
 ### index.html
 
-**`index.html` is now 256 AES-GCM-SIV encrypted.** Half of the key is bundled into `server.js` and the other half lives in `app.bin`, so `index.html` now gets real protection instead of just being a plain shell.
+**`index.html` is encrypted with 256-bit AES-GCM-SIV.** Half of the key is bundled into `server.js` and the other half lives in `app.bin`, so the file is protected rather than exposed as plain text.
 
 ### style.css
 
-**`style.css` is also now 256 AES-GCM-SIV encrypted.** Just like `index.html`, the key is split between `server.js` and `app.bin`, giving the stylesheet the same protection layer.
+**`style.css` is also encrypted with 256-bit AES-GCM-SIV.** It uses the same split-key model as `index.html`, with one half in `server.js` and the other half in `app.bin`.
 
 ### HTML / CSS Encryption
 
-We’ve replaced the old base64 + gzip approach for these files with **256 AES-GCM-SIV encryption**. The encryption key is split in two: one half is bundled into `server.js`, and the other half is embedded in `app.bin`. That means `index.html` and `style.css` are now getting real protection. See the BuildScript below for how we did it.
+We replaced the old base64 + gzip approach with **256-bit AES-GCM-SIV encryption** for these assets. The key is split between `server.js` and `app.bin`, and the BuildScript below shows the packaging flow used for release builds.
 
 -----
 
@@ -85,7 +82,7 @@ If you want to close source your own NBOSP-based project the same way we did, we
 
 **→ [Download the BuildScript from Releases](https://github.com/NovaByteTeam/novabyte-os/releases/tag/BuildScript)**
 
-It handles the full pipeline: JS obfuscation, V8 bytecode compilation, NW.js packaging, and the base64+gzip HTML encoding step. Use it as a starting point for your own close-source build.
+It handles the full pipeline: JavaScript obfuscation, V8 bytecode compilation, AES-GCM-SIV HTML/CSS encryption, NW.js packaging, and release generation. Use it as a starting point for your own close-source build.
 
 -----
 
@@ -97,13 +94,13 @@ It handles the full pipeline: JS obfuscation, V8 bytecode compilation, NW.js pac
 
 **→ [Download NovaByte OS v3 (Latest Release)](https://github.com/NovaByteTeam/novabyte-os/releases/latest)**
 
-Download the `.zip`, extract it, and run the exe. No installation required.
+Download the `.zip`, extract it, and run the executable. No installation is required.
 
 -----
 
 ## 🆓 NBOSP — NovaByte Open Source Project
 
-The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base of NovaByte**.
+The `NBOSP/` folder in this repo is the **free, open base of NovaByte**.
 
 > **Who is NBOSP for?** Developers and people who want to run NovaByte daily — those who just want pure stock software. No bloat, no fluff, no extras. Just a minimal, super fast, and clean OS that gets out of your way.
 
@@ -114,9 +111,9 @@ The `NBOSP/` folder in this repo is the **free, open, no-strings-attached base o
 >
 > **This is by design.** NBOSP is the raw skeleton — the base you fork and build on top of. It is not competing with v3 or any consumer OS on features. If you want a fully featured NovaByte OS, download v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
 
-- Do whatever you want with it — copy it, fork it, sell it, modify it, redistribute it
-- No rules, no license restrictions — but attribution is required, so preserve copyright notices and the license text
-- This is pure NovaByte.
+- Use, copy, modify, fork, sell, and redistribute it under the Apache 2.0 licence.
+- Preserve the copyright notices and the `NBOSP/LICENSE` text.
+- This is the NBOSP foundation.
 - Basic security (rate limiting, CSRF protection, security headers) is built in
 - No edition system, no update pipeline, and no telemetry
 - The NBOSP apps are stock versions — pure NovaByte apps that we replaced with our own feature-heavy versions in v3. We took NBOSP and built on top of it with an update system and many more features.
@@ -191,7 +188,7 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 
 #### New Features in NBOSP Browser (Minor updates may still follow)
 
-- **Privacy Relay** — search suggestions, favicons, and email images are all routed through a remote open source relay (`https://suggest-relay.onrender.com`) so Google, search engines, and email tracking servers see the relay's IP, never yours. Fingerprinting headers are stripped on all relay requests. Falls back to direct if the relay is unreachable. Relay code is auditable at github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual browsing, use a VPN.
+- **Privacy Relay** — search suggestions, favicons, and email images are all routed through a remote open source relay (`https://suggest-relay.onrender.com`) so Google, search engines, and email tracking servers see the relay's IP, never yours. Fingerprinting headers are stripped on all relay requests. Falls back to direct if the relay is unreachable. Relay code is auditable at https://github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual browsing, use a VPN.
 - **Bookmarks** — Save and organize your favorite websites
 - **History** — View and quickly access previously visited pages
 - **Find in Page** — Search for text within a page using Ctrl+F
@@ -204,17 +201,35 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 
 #### Automatic Startup
 
-Running `npm start` in the NBOSP folder now automatically opens the OS window. No manual browser navigation needed.
+Running `npm start` in the NBOSP folder automatically prepares and launches NBOSP.
+
+On startup, NBOSP checks whether dependencies are installed. If `node_modules` is missing, the bootstrap system runs the appropriate package manager command for the current platform and waits for installation to complete before launching.
+
+Supported platforms:
+
+- Windows
+- Linux
+- macOS
+
+After dependencies are installed, NBOSP launches automatically.
+
+This means a fresh clone can be started immediately with:
+
+```bash
+npm start
+```
+
+No separate `npm install` step is required on first run.
 
 -----
 
 ## 🔑 NovaByte Services — Licensing
 
 > [!CAUTION]
-> **NovaByte Services are not free to bundle. They require explicit permission and a license from us.**
+> **NovaByte Services are not free to bundle. They require explicit permission and a licence from us.**
 
 > [!IMPORTANT]
-> **NovaByte Services are not available to individuals or the general public. Licenses are only issued to developers who are actively building and capable of releasing a full consumer operating system.**
+> **NovaByte Services are not available to individuals or the general public. Licences are only issued to developers or teams actively building and capable of releasing a full consumer operating system.**
 
 NovaByte Services includes:
 
@@ -258,7 +273,7 @@ Beyond the two required apps, you may choose to include any of the following:
 | 🖩 **Calc+** | Advanced calculator |
 | 🕐 **NovaClock** | Clock, alarms, timers, and world time |
 
-You may not modify or redistribute NovaByte proprietary apps outside the terms of your NovaByte Services license.
+You may not modify or redistribute NovaByte proprietary apps outside the terms of your NovaByte Services licence.
 
 ### Who Can Apply
 
@@ -281,7 +296,7 @@ If you meet the above criteria and want to bundle NovaByte Services into your OS
 
 **No permission = no bundling. There are no exceptions.**
 
-> We built these services from the ground up for a serious OS product. If you’re building something at that level and want them in your product, reach out. NovaByte Services are not available to individuals or anyone outside of that scope — permission is required, and not everyone will get it.
+> We built these services from the ground up for a serious OS product. If you are building something at that level and want them in your product, reach out. NovaByte Services are not available to individuals or anyone outside that scope — permission is required, and not everyone will get it.
 
 -----
 
@@ -295,7 +310,7 @@ If you meet the above criteria and want to bundle NovaByte Services into your OS
 
 The close-source build uses JavaScript obfuscation, V8 bytecode compilation, NW.js packaging, and AES-GCM-SIV encryption for `index.html` and `style.css`. The encryption key is split between `server.js` and `app.bin`. All OS logic is compiled into **`app.bin`** — do not attempt to reverse engineer or deobfuscate it. **`index.html`** and **`style.css`** are protected assets, not plain source files. See the [Close-Source Announcement](#-close-source-announcement--23052026) section for full details.
 
-You are **not permitted** to:
+You are **not permitted to**:
 
 - fork and redistribute them,
 - modify and ship derivatives,
@@ -320,6 +335,8 @@ If you want a freely buildable base, use `NBOSP/` instead.
 > |OS-level vulnerabilities|❌ Devices are exposed and unpatched     |
 > |Nova Core Services      |✅ Partial service-level patches continue|
 > 
+> **NovaByte OS 2.x.x has also reached End of Life and is no longer supported.**
+> 
 > **→ Upgrade to NovaByte OS 3.x.x:** download from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest)
 
 -----
@@ -332,7 +349,7 @@ If you want a freely buildable base, use `NBOSP/` instead.
 |Version    |Status       |Last OS Patch|Core Services|Notes                                                                 |
 |-----------|:-----------:|:-----------:|:-----------:|----------------------------------------------------------------------|
 |**v1.8.21**|🔴 End of Life|2026-04-01   |✅ Active     |Final 1.x release, deprecated                                         |
-|**v2.x.x** |🟡 Maintenance|Active       |✅ Active     |Stable, receiving security patches                                    |
+|**v2.3.8**|🔴 End of Life|2026-05-01   |✅ Active     |Final 2.x release, deprecated                                         |
 |**v3.x.x** |🟢 Current    |Active       |✅ Active     |Latest version, recommended — includes built-in **System Updates** app|
 
 -----
@@ -344,15 +361,18 @@ If you want a freely buildable base, use `NBOSP/` instead.
 ```bash
 git clone https://github.com/NovaByteTeam/novabyte-os.git
 cd novabyte-os/NBOSP
-npm install
 npm start
 ```
 
 The window opens automatically — no manual browser navigation needed.
 
-**On first launch, two things happen automatically:**
+> [!NOTE]
+> NBOSP automatically checks for dependencies on startup. If `node_modules` is missing, the required packages are installed automatically before launch. This only happens on first run or if dependencies have been removed.
 
-- A `.env` file is generated with a secure random `SESSION_SECRET` and sensible defaults. Fill in any API keys you need afterwards — the server starts without them.
+**On first launch, three things happen automatically:**
+
+- Project dependencies are installed if required.
+- A `.env` file is generated with a secure random `SESSION_SECRET` and sensible defaults.
 - A local HTTPS certificate and CA are generated. A native OS prompt will appear asking you to trust the CA — click **Yes** (Windows) or enter your password (macOS/Linux). This only happens once. After that, the app opens over HTTPS with no browser warnings, permanently.
 
 ### Running v3
@@ -414,7 +434,9 @@ const data = await res.json();
 
 If a newer tag exists, prompt the user to download the new release. That’s the whole system — no server required.
 
-### Nova Core Services Updates (v2 / v3 — internal)
+### Nova Core Services Updates (legacy v2.3.8 / v3 — internal)
+
+> v2.3.8 is end-of-life; this snippet is preserved for older internal release workflows only.
 
 ```
 1. Edit Core Services files only
@@ -431,7 +453,9 @@ Nova Core Services is NovaByte’s **independent security update pipeline** — 
 > [!CAUTION]
 > **Want Nova Core Services in your own app or OS? You need a license from us. See [NovaByte Services — Licensing](#-novabyte-services--licensing).**
 
-### v3.x.x — v2.x.x (Current / Maintenance)
+### v3.x.x (Current) — v2.3.8 (End of Life)
+
+> v2.3.8 is no longer supported. The table below is retained for historical reference and for legacy fork maintainers.
 
 |Component             |Files                                                                             |Description                                                   |
 |----------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------|
@@ -487,7 +511,7 @@ You do not have to take our word for it — **the code is right there.**
 
 The only outbound network calls NovaByte makes are ones **you explicitly trigger**:
 
-- **NBOSP Browser** — fetches websites you navigate to. Obviously. Search suggestions, favicons, and email images are routed through a remote relay server (`https://suggest-relay.onrender.com`) so upstream services see the relay's IP, not yours. If the relay is unreachable, requests fall back to direct. The relay is open source and auditable at github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual page browsing, use a VPN.
+- **NBOSP Browser** — fetches websites you navigate to. Obviously. Search suggestions, favicons, and email images are routed through a remote relay server (`https://suggest-relay.onrender.com`) so upstream services see the relay's IP, not yours. If the relay is unreachable, requests fall back to direct. The relay is open source and auditable at https://github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual page browsing, use a VPN.
 - **System Updates (v3 only)** — polls the GitHub Releases API to check if a newer version exists. This is a plain `GET` to `api.github.com/repos/NovaByteTeam/novabyte-os/releases/latest` — public, unauthenticated, no payload sent, no user data attached.
 - **NovaBridge / OAuth (v2/v3)** — connects to services you explicitly authenticate with (e.g. email, calendar). These are your sessions, not ours.
 - **Nova Core Services security patches** — fetches update manifests from our GitHub Releases. Again, a plain unauthenticated `GET`. No user data is sent.
@@ -564,4 +588,4 @@ If you discover a security vulnerability, please **open a private issue** or con
 
 -----
 
-*NovaByte OS is a  project. Built with care.*
+*NovaByte OS is a project. Built with care.*
