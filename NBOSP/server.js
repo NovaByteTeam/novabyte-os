@@ -99,6 +99,7 @@ process.on('unhandledRejection', (reason) => {
     const cookieParser = require('cookie-parser');
     const session = require('express-session');
     const path = require('path');
+    const Database = require('better-sqlite3');
 
     // Import services
     const securityRoutes = require('./security-routes');
@@ -315,17 +316,38 @@ process.on('unhandledRejection', (reason) => {
     });
 
     // ── Favicon Proxy ────────────────────────────────────────────────────────
-    // Fetches favicons server-side so the user's IP is never sent to Google.
-    // Flow: cache hit → Google (server-side) → site's /favicon.ico → default icon
+    // Fetches favicons server-side to protect the user's IP.
+    // Flow: cache hit → relay → HTML parsing → site's /favicon.ico → default icon
     //
     // SSRF protection: blocks private IPs, localhost, non-http(s) schemes.
     // Cache: in-memory Map, 24h TTL, max 500 entries (LRU-style eviction).
     // Rate limit: 60 requests/min per IP (separate from the general limiter).
 
-    const faviconCache = new Map(); // key: hostname → { buf, mime, ts }
-    const FAVICON_TTL   = 24 * 60 * 60 * 1000; // 24 hours
-    const FAVICON_MAX   = 500;                  // max cached entries
-    const FAVICON_FETCH_TIMEOUT = 4000;         // 4 s per upstream attempt
+    const FAVICON_TTL           = 24 * 60 * 60 * 1000; // 24 hours
+    const FAVICON_MAX           = 500;                  // max cached entries
+    const FAVICON_FETCH_TIMEOUT = 4000;                 // 4 s per upstream attempt
+
+    // Persistent favicon cache — survives server restarts
+    const FAVICON_DB_DIR  = path.join(__dirname, 'data');
+    const FAVICON_DB_PATH = path.join(FAVICON_DB_DIR, 'favicons.db');
+    fs.mkdirSync(FAVICON_DB_DIR, { recursive: true });
+    const faviconDb = new Database(FAVICON_DB_PATH);
+    faviconDb.exec(`CREATE TABLE IF NOT EXISTS favicons (
+        hostname TEXT PRIMARY KEY,
+        buf      BLOB NOT NULL,
+        mime     TEXT NOT NULL,
+        ts       INTEGER NOT NULL
+    )`);
+    const _fav = {
+        get:   faviconDb.prepare('SELECT buf, mime, ts FROM favicons WHERE hostname = ?'),
+        set:   faviconDb.prepare('INSERT OR REPLACE INTO favicons (hostname, buf, mime, ts) VALUES (?, ?, ?, ?)'),
+        count: faviconDb.prepare('SELECT COUNT(*) as n FROM favicons').pluck(),
+        evict: faviconDb.prepare('DELETE FROM favicons WHERE hostname = (SELECT hostname FROM favicons ORDER BY ts ASC LIMIT 1)'),
+        clean: faviconDb.prepare('DELETE FROM favicons WHERE ts < ?'),
+    };
+    // Purge stale rows left over from previous sessions
+    _fav.clean.run(Date.now() - FAVICON_TTL);
+    console.log('[Favicon] Persistent cache:', FAVICON_DB_PATH);
 
     // 1x1 transparent PNG — returned when everything else fails
     const FAVICON_DEFAULT = Buffer.from(
@@ -490,23 +512,7 @@ process.on('unhandledRejection', (reason) => {
     }
 
     async function resolveFavicon(hostname) {
-        // 1. Try Google's favicon service (server-side — user IP never exposed)
-        try {
-            const googleUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=32`;
-            const resp = await fetchWithTimeout(googleUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
-            if (resp.ok) {
-                const buf     = Buffer.from(await resp.arrayBuffer());
-                const rawMime = resp.headers.get('content-type') || 'image/png';
-                // Google returns a generic grey globe (~820 bytes) when it has nothing —
-                // treat anything under 90 bytes as a failure so we try the fallbacks.
-                if (buf.length > 90) {
-                    const mime = normaliseFaviconMime(buf, rawMime) || rawMime;
-                    return { buf, mime };
-                }
-            }
-        } catch (_) { /* timeout or network error — fall through */ }
-
-        // 2. Parse the site's HTML for icon declarations (tries HTTPS then HTTP).
+        // 1. Parse the site's HTML for icon declarations (tries HTTPS then HTTP).
         //    Covers: <link rel="icon">, apple-touch-icon, msapplication-TileImage,
         //    and <link rel="manifest"> → icons array.
         //    We fetch only the first 8 KB — enough for the <head>.
@@ -564,7 +570,7 @@ process.on('unhandledRejection', (reason) => {
             }
         }
 
-        // 3. Direct fallback: fetch /favicon.ico (HTTPS then HTTP)
+        // 2. Direct fallback: fetch /favicon.ico (HTTPS then HTTP)
         for (const scheme of ['https', 'http']) {
             try {
                 const directUrl = `${scheme}://${hostname}/favicon.ico`;
@@ -578,7 +584,7 @@ process.on('unhandledRejection', (reason) => {
             } catch (_) { /* try next scheme */ }
         }
 
-        // 4. Nothing worked — callers will use FAVICON_DEFAULT
+        // 3. Nothing worked — callers will use FAVICON_DEFAULT
         return null;
     }
 
@@ -595,27 +601,6 @@ process.on('unhandledRejection', (reason) => {
     // parallel upstream fetches (cache stampede / thundering herd).
     const faviconInFlight = new Map(); // hostname → Promise<{buf,mime}|null>
 
-    // Fetch favicon via relay — Google sees relay IP, not user's.
-    // Falls back to resolveFavicon() (direct) if relay is unreachable.
-    async function resolveFaviconViaRelay(hostname) {
-        try {
-            const url = `${RELAY_URL}/favicon?domain=${encodeURIComponent(hostname)}&size=32`;
-            const r   = await fetch(url, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
-                signal: AbortSignal.timeout(6000),
-            });
-            if (!r.ok) throw new Error(`Relay ${r.status}`);
-            const contentType = (r.headers.get('content-type') || 'image/png').split(';')[0].trim();
-            if (!contentType.startsWith('image/')) throw new Error('Non-image response');
-            const buf = Buffer.from(await r.arrayBuffer());
-            if (buf.length < 10) throw new Error('Empty response');
-            return { buf, mime: contentType };
-        } catch {
-            // Relay unreachable or returned bad data — fall back to direct
-            return resolveFavicon(hostname);
-        }
-    }
-
     app.get('/api/favicon', faviconLimiter, async (req, res) => {
         const raw = req.query.domain;
         if (!raw || typeof raw !== 'string') {
@@ -628,7 +613,7 @@ process.on('unhandledRejection', (reason) => {
         }
 
         // Cache hit
-        const cached = faviconCache.get(hostname);
+        const cached = _fav.get.get(hostname);
         if (cached && (Date.now() - cached.ts) < FAVICON_TTL) {
             res.setHeader('Content-Type', cached.mime);
             res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -638,7 +623,7 @@ process.on('unhandledRejection', (reason) => {
         // Coalesce concurrent requests for the same hostname onto one upstream fetch
         let promise = faviconInFlight.get(hostname);
         if (!promise) {
-            promise = resolveFaviconViaRelay(hostname).finally(() => faviconInFlight.delete(hostname));
+            promise = resolveFavicon(hostname).finally(() => faviconInFlight.delete(hostname));
             faviconInFlight.set(hostname, promise);
         }
 
@@ -647,10 +632,8 @@ process.on('unhandledRejection', (reason) => {
         const mime   = result ? result.mime : 'image/png';
 
         // Store in cache — evict oldest entry if at capacity
-        if (faviconCache.size >= FAVICON_MAX) {
-            faviconCache.delete(faviconCache.keys().next().value);
-        }
-        faviconCache.set(hostname, { buf, mime, ts: Date.now() });
+        if (_fav.count.get() >= FAVICON_MAX) _fav.evict.run();
+        _fav.set.run(hostname, buf, mime, Date.now());
 
         res.setHeader('Content-Type', mime);
         res.setHeader('Cache-Control', 'public, max-age=86400');

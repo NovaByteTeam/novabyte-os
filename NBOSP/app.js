@@ -1752,7 +1752,6 @@ self.onmessage = async (e) => {
             proxyUrl: '',
             username: 'user',
             pinnedApps: ['shell', 'vault', 'browser'],
-            proxyFavicons: true,   // Route tab favicons through local server (privacy)
             proxyEmailImages: true, // Route email images through local server (privacy)
             blockTrackers: true,   // Block known tracker domains via Disconnect.me list
           },
@@ -5466,9 +5465,8 @@ self.onmessage = async (e) => {
                   }
                   try {
                     const hostname = new URL(url || tab.url).hostname;
-                    tab.favicon = OS.settings.get('proxyFavicons') !== false
-                      ? '/api/favicon?domain=' + hostname
-                      : 'https://www.google.com/s2/favicons?domain=' + hostname + '&sz=32';
+                    tab.favicon = '/api/favicon?domain=' + hostname;
+                    renderTabs();
                   } catch (_) { }
                   if (url && !url.startsWith('novabyte:') && !url.startsWith('file://')) {
                     addHistory(url, title || url, tab.favicon);
@@ -7931,11 +7929,6 @@ self.onmessage = async (e) => {
               return row;
             }
 
-            proxySection.appendChild(makeToggleRow(
-              'Proxy favicons',
-              'Fetch website icons through the local server instead of directly — hides your IP from icon providers.',
-              'proxyFavicons'
-            ));
             proxySection.appendChild(makeToggleRow(
               'Proxy email images',
               'Load images in emails through the local server to prevent senders from tracking your IP and open time.',
