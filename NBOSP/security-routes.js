@@ -10,15 +10,60 @@ const router = express.Router();
 const securityMiddleware = require('./security-middleware');
 
 // No-op audit service stub (v3 audit logging service was stripped)
+// In-memory failed login attempt tracking for rate limiting (SEC3)
+const failedLoginAttempts = new Map(); // ip -> { count, lastAttempt, lockedUntil }
+
 const auditService = {
     query: (filters) => [],
     getStatistics: () => ({}),
     log: (entry) => { /* no-op */ },
-    getFailedLoginAttempts: (ipAddress) => [],
+    getFailedLoginAttempts: (ipAddress) => {
+        const record = failedLoginAttempts.get(ipAddress);
+        if (!record) return [];
+        return [{
+            ip: ipAddress,
+            attempts: record.count,
+            lastAttempt: record.lastAttempt,
+            lockedUntil: record.lockedUntil
+        }];
+    },
+    recordFailedLogin: (ipAddress) => {
+        const record = failedLoginAttempts.get(ipAddress) || { count: 0, lastAttempt: 0 };
+        record.count++;
+        record.lastAttempt = Date.now();
+        // Lock after 5 failures for 15 minutes
+        if (record.count >= securitySettings.maxLoginAttempts) {
+            record.lockedUntil = Date.now() + securitySettings.lockoutDuration;
+        }
+        failedLoginAttempts.set(ipAddress, record);
+        return record;
+    },
+    resetFailedLogins: (ipAddress) => {
+        failedLoginAttempts.delete(ipAddress);
+    },
+    isLoginLocked: (ipAddress) => {
+        const record = failedLoginAttempts.get(ipAddress);
+        if (!record || !record.lockedUntil) return false;
+        if (record.lockedUntil <= Date.now()) {
+            // Lock expired, reset
+            failedLoginAttempts.delete(ipAddress);
+            return false;
+        }
+        return true;
+    },
     getSuspiciousActivities: (filters) => [],
     updateSuspiciousActivity: (id, status, notes) => null,
     exportLogs: (format, filters) => ''
 };
+
+// Cleanup expired login locks every 5 minutes
+setInterval(() => {
+    for (const [ip, record] of failedLoginAttempts.entries()) {
+        if (record.lockedUntil && record.lockedUntil <= Date.now()) {
+            failedLoginAttempts.delete(ip);
+        }
+    }
+}, 5 * 60 * 1000);
 
 // In-memory session storage (would be database in production)
 const sessions = new Map();
@@ -299,8 +344,13 @@ router.post('/report',
             // Check for suspicious patterns and potentially block IP
             if (type === 'suspicious_login' && ipAddress) {
                 const attempts = auditService.getFailedLoginAttempts(ipAddress);
-                if (attempts.length >= 3) {
-                    securityMiddleware.blockIP(ipAddress, 'Multiple suspicious login reports');
+                // Record this failed login attempt
+                auditService.recordFailedLogin(ipAddress);
+                const updatedRecord = auditService.getFailedLoginAttempts(ipAddress)[0];
+                
+                // Block IP if too many attempts
+                if (updatedRecord && updatedRecord.attempts >= securitySettings.maxLoginAttempts) {
+                    securityMiddleware.blockIP(ipAddress, `Multiple failed login attempts (${updatedRecord.attempts})`);
                 }
             }
 

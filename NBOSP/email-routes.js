@@ -77,15 +77,34 @@ function decryptCreds(encryptedHex) {
 }
 
 // Session cleanup: remove expired session entries from credential registry
-setInterval(() => {
-  // Cleanup entries older than 24 hours
-  const cutoff = Date.now() - 86400000;
-  for (const [sessionId, entry] of sessionCredentials.entries()) {
-    if (entry.createdAt && entry.createdAt < cutoff) {
-      sessionCredentials.delete(sessionId);
+// Also implements LRU cap to prevent unbounded growth (M1)
+const MAX_CREDENTIAL_CACHE_SIZE = 1000;
+let cleanupInterval = null;
+
+function startCredentialCleanup() {
+  if (cleanupInterval) return; // Already running
+  cleanupInterval = setInterval(() => {
+    // Cleanup entries older than 24 hours
+    const cutoff = Date.now() - 86400000;
+    for (const [sessionId, entry] of sessionCredentials.entries()) {
+      if (entry.createdAt && entry.createdAt < cutoff) {
+        sessionCredentials.delete(sessionId);
+      }
     }
-  }
-}, 300000); // Run every 5 minutes
+    // If still over limit, evict oldest (LRU)
+    if (sessionCredentials.size > MAX_CREDENTIAL_CACHE_SIZE) {
+      const toEvict = sessionCredentials.size - MAX_CREDENTIAL_CACHE_SIZE + 100;
+      let evicted = 0;
+      for (const [sessionId, entry] of sessionCredentials.entries()) {
+        if (evicted >= toEvict) break;
+        sessionCredentials.delete(sessionId);
+        evicted++;
+      }
+    }
+  }, 300000); // Run every 5 minutes
+}
+
+startCredentialCleanup();
 
 // ── Tracker domain blocklist (Disconnect.me) ──────────────────────────────────
 // Loaded once at server startup via require() — works here because email-routes
@@ -121,7 +140,10 @@ async function imapConnect(creds) {
     secure: Boolean(creds.ssl),
     auth: { user: creds.user, pass: creds.pass },
     logger: false,
-    tls: { rejectUnauthorized: true }
+    tls: { rejectUnauthorized: true },
+    timeout: 10000,           // 10s connection timeout
+    commandTimeout: 30000,    // 30s command timeout
+    idleTimeout: 30 * 60 * 1000  // 30m idle timeout
   });
   await client.connect();
   return client;
@@ -144,13 +166,22 @@ async function imapFolders(creds) {
 
 // Some IMAP servers or JSON serialisers encode '/' as '&#x2F;' in folder paths.
 // Decode all named/numeric HTML entities before using a path with ImapFlow.
+// Memoize results to avoid O(n) regex replacements on repeated folder paths (P1)
+const decodedPathCache = new Map();
 function decodeEntities(str) {
   if (!str || !str.includes('&')) return str;
-  return str
+  if (decodedPathCache.has(str)) return decodedPathCache.get(str);
+  const decoded = str
     .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  if (decodedPathCache.size > 500) {
+    const first = decodedPathCache.keys().next().value;
+    decodedPathCache.delete(first);
+  }
+  decodedPathCache.set(str, decoded);
+  return decoded;
 }
 
 // Common folder name aliases per provider (Gmail, Outlook, Yahoo, etc.)
