@@ -4711,7 +4711,7 @@ self.onmessage = async (e) => {
           }
           function getSetting(key, def) { const v = loadSettings()[key]; return v !== undefined ? v : def; }
 
-          // Search engines — Google is default out of the box
+          // Search engines — DuckDuckGo is default out of the box
           const SEARCH_ENGINES = {
             google: { label: 'Google', url: 'https://www.google.com/search?q=' },
             bing: { label: 'Bing', url: 'https://www.bing.com/search?q=' },
@@ -4721,8 +4721,8 @@ self.onmessage = async (e) => {
             yahoo: { label: 'Yahoo', url: 'https://search.yahoo.com/search?p=' },
           };
           function getSearchUrl(q) {
-            const eng = getSetting('searchEngine', 'google');
-            const base = SEARCH_ENGINES[eng]?.url || SEARCH_ENGINES.google.url;
+            const eng = getSetting('searchEngine', 'duckduckgo');
+            const base = SEARCH_ENGINES[eng]?.url || SEARCH_ENGINES.duckduckgo.url;
             return base + encodeURIComponent(q);
           }
 
@@ -6197,7 +6197,7 @@ self.onmessage = async (e) => {
 
           function renderSettingsPage(activeCategory) {
             activeCategory = activeCategory || 'general';
-            const eng = getSetting('searchEngine', 'google');
+            const eng = getSetting('searchEngine', 'duckduckgo');
             const sd = viewport.querySelector('.speed-dial');
             if (sd) sd.remove();
             for (const [, wv] of tabWebviews) wv.style.visibility = 'hidden';
@@ -6641,7 +6641,7 @@ self.onmessage = async (e) => {
           }
 
           async function fetchSuggestions(q, signal) {
-            const eng = getSetting('searchEngine', 'google');
+            const eng = getSetting('searchEngine', 'duckduckgo');
             try {
               const r = await fetch(
                 `/api/suggest?engine=${encodeURIComponent(eng)}&q=${encodeURIComponent(q)}`,
