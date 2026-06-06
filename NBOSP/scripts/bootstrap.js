@@ -42,8 +42,8 @@ function shouldInstall() {
 function runInstall() {
   const useCi = fs.existsSync(packageLock);
   const args  = useCi
-    ? ['ci',      '--no-audit', '--no-fund']
-    : ['install', '--no-audit', '--no-fund'];
+    ? ['ci',      '--no-audit', '--no-fund', '--loglevel=error']
+    : ['install', '--no-audit', '--no-fund', '--loglevel=error'];
 
   console.log(`[bootstrap] Running npm ${args[0]}...`);
 
