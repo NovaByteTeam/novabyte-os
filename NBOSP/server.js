@@ -397,7 +397,7 @@ process.on('unhandledRejection', (reason) => {
     // Minimal outbound headers — no user-identifying info forwarded
     const CLEAN_HEADERS = {
         'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)',
-        'Accept':     'image/png,image/x-icon,image/*,*/*;q=0.8',
+        'Accept':     'image/png,image/x-icon,image/svg+xml,image/*,*/*;q=0.8',
     };
 
     // Normalise content-type to something browsers will actually render as an image.
@@ -428,6 +428,42 @@ process.on('unhandledRejection', (reason) => {
         return null;
     }
 
+    // Parse a multi-image ICO container and extract the highest-resolution image.
+    // Modern ICO files embed PNG frames for larger sizes — pull those out and serve
+    // them directly instead of the raw ICO blob (better quality, broader support).
+    // Returns { buf, mime: 'image/png' } on a PNG frame, null otherwise (caller
+    // falls back to serving the full ICO as-is).
+    function extractBestIcoImage(icoBuf) {
+        try {
+            if (icoBuf.length < 6) return null;
+            // ICO magic: 0x00 0x00 0x01 0x00
+            if (icoBuf[0] !== 0x00 || icoBuf[1] !== 0x00 ||
+                icoBuf[2] !== 0x01 || icoBuf[3] !== 0x00) return null;
+            const count = icoBuf.readUInt16LE(4);
+            if (count === 0 || count > 256 || icoBuf.length < 6 + count * 16) return null;
+
+            let best = null;
+            for (let i = 0; i < count; i++) {
+                const dir = 6 + i * 16;
+                const w   = icoBuf[dir]     || 256; // 0 means 256 px
+                const h   = icoBuf[dir + 1] || 256;
+                const imageSize   = icoBuf.readUInt32LE(dir + 8);
+                const imageOffset = icoBuf.readUInt32LE(dir + 12);
+                if (imageOffset + imageSize > icoBuf.length) continue;
+                if (!best || w * h > best.area) {
+                    best = { area: w * h, imageOffset, imageSize };
+                }
+            }
+            if (!best) return null;
+
+            const frame = icoBuf.slice(best.imageOffset, best.imageOffset + best.imageSize);
+            // Embedded PNG frame — extract and serve directly
+            const isPng = frame[0] === 0x89 && frame[1] === 0x50 &&
+                          frame[2] === 0x4e && frame[3] === 0x47;
+            return isPng ? { buf: frame, mime: 'image/png' } : null;
+        } catch (_) { return null; }
+    }
+
     // Fetch an image URL and return { buf, mime } if it looks like a valid icon, else null.
     // Applies SSRF guard + magic-byte MIME normalisation.
     // Early-exits on text/html Content-Type before buffering — avoids downloading a full
@@ -439,18 +475,48 @@ process.on('unhandledRejection', (reason) => {
             if (isPrivateHost(parsed.hostname)) return null;
             const resp = await fetchWithTimeout(url, { headers: CLEAN_HEADERS, redirect: 'follow' });
             if (!resp.ok) return null;
-            // Reject text/* responses immediately — no image will be hiding in them
+            // SSRF guard on the *final* URL — a redirect could land on a private host
+            try {
+                const finalHost = new URL(resp.url).hostname;
+                if (isPrivateHost(finalHost)) return null;
+            } catch (_) { return null; }
+            // Reject clearly-non-image types before buffering.
+            // Allow text/xml and application/xml — SVGs are sometimes served with those.
             const ct = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-            if (ct.startsWith('text/') || ct === 'application/json' || ct === 'application/javascript') {
+            if (ct === 'text/html' || ct === 'application/json' || ct === 'application/javascript' ||
+                (ct.startsWith('text/') && ct !== 'text/xml')) {
                 resp.body?.cancel?.();
                 return null;
             }
             const buf     = Buffer.from(await resp.arrayBuffer());
             const rawMime = resp.headers.get('content-type') || '';
             const mime    = normaliseFaviconMime(buf, rawMime);
-            if (mime && buf.length > 90) return { buf, mime };
+            if (!mime || buf.length <= 90) return null;
+            // ICO: extract the highest-resolution PNG frame from the container
+            if (mime === 'image/x-icon') {
+                const extracted = extractBestIcoImage(buf);
+                if (extracted) return extracted;
+            }
+            return { buf, mime };
         } catch (_) { /* network error or SSRF block */ }
         return null;
+    }
+
+    // Strip well-known cache-busting query params from a favicon URL so that
+    // /icon.png?v=1 and /icon.png?v=2 resolve to the same canonical URL.
+    // This prevents stale version tokens from causing duplicate upstream fetches
+    // and ensures version bumps don't slip through as distinct cache misses.
+    const CACHE_BUST_PARAMS = new Set(['v', 'ver', 'version', 'rev', 'revision',
+                                       't', 'ts', 'timestamp', '_', 'cb', 'bust']);
+    function canonicaliseFaviconUrl(urlStr) {
+        try {
+            const u = new URL(urlStr);
+            let changed = false;
+            for (const key of CACHE_BUST_PARAMS) {
+                if (u.searchParams.has(key)) { u.searchParams.delete(key); changed = true; }
+            }
+            return changed ? u.toString() : urlStr;
+        } catch (_) { return urlStr; }
     }
 
     // Parse HTML <head> for icon declarations in priority order.
@@ -474,7 +540,7 @@ process.on('unhandledRejection', (reason) => {
             const rel = relM[1].toLowerCase().trim();
             const hrefM = tag.match(/href\s*=\s*["']([^"']+)["']/i);
             if (!hrefM) continue;
-            const url = abs(hrefM[1]);
+            const url = canonicaliseFaviconUrl(abs(hrefM[1]));
             if (!url) continue;
 
             if (rel === 'icon' || rel === 'shortcut icon') {
@@ -492,7 +558,7 @@ process.on('unhandledRejection', (reason) => {
             if (!/name\s*=\s*["']msapplication-TileImage["']/i.test(tag)) continue;
             const contentM = tag.match(/content\s*=\s*["']([^"']+)["']/i);
             if (!contentM) continue;
-            const url = abs(contentM[1]);
+            const url = canonicaliseFaviconUrl(abs(contentM[1]));
             if (url) candidates.push({ priority: 3, url });
         }
 
@@ -527,7 +593,10 @@ process.on('unhandledRejection', (reason) => {
                 });
                 if (homeResp.ok || homeResp.status === 206) {
                     html = await homeResp.text();
-                    homeBaseUrl = homeUrl;
+                    // Use the response URL (post-redirect) as the base for resolving
+                    // relative hrefs — homepage redirects (e.g. example.com → www.example.com)
+                    // would otherwise resolve icons against the wrong origin.
+                    homeBaseUrl = homeResp.url || homeUrl;
                     break; // got HTML — stop trying schemes
                 }
             } catch (_) { /* try next scheme */ }
@@ -576,10 +645,19 @@ process.on('unhandledRejection', (reason) => {
                 const directUrl = `${scheme}://${hostname}/favicon.ico`;
                 const resp = await fetchWithTimeout(directUrl, { headers: CLEAN_HEADERS, redirect: 'follow' });
                 if (resp.ok) {
+                    // A redirect might lead to a soft-404 HTML page — reject it early
+                    const ct = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+                    if (ct === 'text/html') continue;
                     const buf     = Buffer.from(await resp.arrayBuffer());
                     const rawMime = resp.headers.get('content-type') || 'image/x-icon';
                     const mime    = normaliseFaviconMime(buf, rawMime) || rawMime;
-                    if (buf.length > 90) return { buf, mime };
+                    if (buf.length > 90) {
+                        if (mime === 'image/x-icon') {
+                            const extracted = extractBestIcoImage(buf);
+                            if (extracted) return extracted;
+                        }
+                        return { buf, mime };
+                    }
                 }
             } catch (_) { /* try next scheme */ }
         }
