@@ -3312,6 +3312,28 @@ self.onmessage = async (e) => {
         WM.createWindow('browser', { url });
       };
 
+      // ── Parse mailto: URIs into compose-prefill objects ─────────────────
+      function parseMailto(url) {
+        try {
+          const noScheme = url.replace(/^mailto:/i, '');
+          const [toRaw = '', queryRaw = ''] = noScheme.split('?');
+          const params = new URLSearchParams(queryRaw);
+          return {
+            to:      decodeURIComponent(toRaw),
+            subject: params.get('subject') || '',
+            body:    params.get('body')    || '',
+            cc:      params.get('cc')      || '',
+            bcc:     params.get('bcc')     || '',
+          };
+        } catch { return {}; }
+      }
+
+      // ── Opens email compose — overridden by email app when it is running ──
+      OS.openMailto = function (url) {
+        if (!url) return;
+        WM.createWindow('nbosp-email', { compose: parseMailto(url) });
+      };
+
       // Intercept <a> clicks anywhere in the NovaByte UI
       document.addEventListener('click', e => {
         const a = e.target.closest('a[href]');
@@ -3323,6 +3345,10 @@ self.onmessage = async (e) => {
           e.preventDefault();
           e.stopPropagation();
           OS.openUrl(href);
+        } else if (/^mailto:/i.test(href.trim())) {
+          e.preventDefault();
+          e.stopPropagation();
+          OS.openMailto(href);
         }
       }, true);
 
@@ -3332,6 +3358,9 @@ self.onmessage = async (e) => {
           if (url.match(/^https?:\/\//i)) {
             policy.ignore();
             OS.openUrl(url);
+          } else if (/^mailto:/i.test(url)) {
+            policy.ignore();
+            OS.openMailto(url);
           }
         });
       }
@@ -6488,11 +6517,28 @@ self.onmessage = async (e) => {
                   const nPath = require('path');
                   const nFs = require('fs');
                   const nOs = require('os');
-                  const tmpDir = nOs.tmpdir();
-                  const tmpFile = nPath.join(tmpDir, 'nbosp_' + targetNode.id + '.html');
+                  const nUrl = require('url');
+                  // Per-folder temp dir — siblings from the same folder land here so
+                  // relative imports (style.css, app.js, images) resolve correctly.
+                  const dirKey = targetNode.parentId || 'root';
+                  const tmpBase = nPath.join(nOs.tmpdir(), 'nbosp_vault_' + dirKey);
+                  if (!nFs.existsSync(tmpBase)) nFs.mkdirSync(tmpBase, { recursive: true });
+                  // Write all loaded siblings from the same parent folder
+                  if (targetNode.parentId) {
+                    for (const [, sib] of FS.files) {
+                      if (sib.type !== 'file' || sib.parentId !== targetNode.parentId || sib.content == null) continue;
+                      const sibContent = sib.content instanceof Uint8Array ? Buffer.from(sib.content) : sib.content;
+                      try { nFs.writeFileSync(nPath.join(tmpBase, sib.name), sibContent); } catch (_) {}
+                    }
+                  }
+                  // Write the requested file (may already be there from sibling pass)
+                  const tmpFile = nPath.join(tmpBase, targetNode.name);
                   const contentToWrite = targetNode.content instanceof Uint8Array ? Buffer.from(targetNode.content) : targetNode.content;
                   nFs.writeFileSync(tmpFile, contentToWrite);
-                  wv.src = 'file:///' + tmpFile.replace(/\\/g, '/');
+                  // pathToFileURL handles cross-platform correctly:
+                  //   Unix  /tmp/nbosp_vault_x/index.html → file:///tmp/...  (3 slashes)
+                  //   Win   C:\...\nbosp_vault_x\index.html → file:///C:/...  (3 slashes)
+                  wv.src = nUrl.pathToFileURL(tmpFile).href;
                 } catch (_) {
                   const contentStr = targetNode.content instanceof Uint8Array ? new TextDecoder().decode(targetNode.content) : String(targetNode.content);
                   const blob = new Blob([contentStr], { type: 'text/html' });
@@ -6748,16 +6794,29 @@ self.onmessage = async (e) => {
               const htmlContent = fileNode.content instanceof Uint8Array
                 ? new TextDecoder().decode(fileNode.content)
                 : String(fileNode.content);
-              // Try Node fs (NW.js native), fall back to blob URL
+              // Try Node fs (NW.js native) — use per-folder temp dir so relative
+              // sibling files (style.css, images, etc.) resolve correctly.
               let loaded = false;
               try {
                 const nPath = require('path');
                 const nFs = require('fs');
                 const nOs = require('os');
-                const tmpDir = nOs.tmpdir();
-                const tmpFile = nPath.join(tmpDir, 'nbosp_' + fileNode.id + '.html');
+                const nUrl = require('url');
+                const dirKey = fileNode.parentId || 'root';
+                const tmpBase = nPath.join(nOs.tmpdir(), 'nbosp_vault_' + dirKey);
+                if (!nFs.existsSync(tmpBase)) nFs.mkdirSync(tmpBase, { recursive: true });
+                // Write all loaded siblings from the same parent folder first
+                if (fileNode.parentId) {
+                  for (const [, sib] of FS.files) {
+                    if (sib.type !== 'file' || sib.parentId !== fileNode.parentId || sib.content == null) continue;
+                    const sibContent = sib.content instanceof Uint8Array ? Buffer.from(sib.content) : sib.content;
+                    try { nFs.writeFileSync(nPath.join(tmpBase, sib.name), sibContent); } catch (_) {}
+                  }
+                }
+                const tmpFile = nPath.join(tmpBase, fileNode.name);
                 nFs.writeFileSync(tmpFile, htmlContent, 'utf8');
-                const fileUrl = 'file:///' + tmpFile.replace(/\\/g, '/');
+                // pathToFileURL handles cross-platform correctly (Unix 3 slashes, Win 3 slashes)
+                const fileUrl = nUrl.pathToFileURL(tmpFile).href;
                 wv.src = fileUrl;
                 currentUrl = fileUrl;
                 loaded = true;
@@ -13109,7 +13168,7 @@ wireRecoveryControls();
         id: 'nbosp-email', name: 'Email', icon: 'mail',
         description: 'IMAP · POP3 · Exchange',
         defaultSize: [860, 580], minSize: [600, 420],
-        init(content) {
+        init(content, state, options) {
           // ── NovaByte runtime guard — refuses to launch without AppDirs ──
           if (!window.AppDirs?.getVFSDir('com.nbosp.email', 'files')) {
             content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
@@ -13731,7 +13790,18 @@ wireRecoveryControls();
               });
               iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block;';
               const html = full.html;
-              const sanitized = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html, {ALLOWED_TAGS: ['p', 'div', 'span', 'b', 'i', 'u', 'strong', 'em', 'a', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'br', 'table', 'thead', 'tbody', 'tr', 'td', 'th', 'blockquote', 'pre', 'code'], ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'target']}) : html;
+              const sanitized = (() => {
+                if (typeof DOMPurify === 'undefined') return html;
+                DOMPurify.addHook('afterSanitizeAttributes', node => {
+                  if (node.tagName === 'A') {
+                    node.setAttribute('target', '_blank');
+                    node.setAttribute('rel', 'noopener noreferrer');
+                  }
+                });
+                const result = DOMPurify.sanitize(html);
+                DOMPurify.removeHook('afterSanitizeAttributes');
+                return result;
+              })();
               const hasDoc = /^<!doctype/i.test(html.trimStart()) || /^<html[\s>]/i.test(html.trimStart());
               iframe.srcdoc = hasDoc ? sanitized
                 : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + sanitized + '</body></html>';
@@ -13897,6 +13967,13 @@ wireRecoveryControls();
           }
 
           composeBtn.addEventListener('click', () => openCompose());
+
+          // While email app is running, intercept OS.openMailto so compose
+          // opens inline without re-launching the app.
+          OS.openMailto = (url) => openCompose(parseMailto(url));
+
+          // Support WM.createWindow('nbosp-email', { compose: { to, subject, … } })
+          if (options?.compose) openCompose(options.compose);
 
           // ────────────────────────────────────────────────────────────────────────
           // SEARCH / PAGINATION

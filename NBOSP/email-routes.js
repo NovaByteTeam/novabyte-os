@@ -1400,6 +1400,7 @@ const DROP_CONTENT_TAGS = new Set([
   'script','noscript',
   'object','embed','applet',
   'frame','frameset',
+  'title', // <title> content must be dropped — not rendered as visible text
 ]);
 
 // Note: <style> blocks are handled separately in sanitizeEmailHtml() and are NOT in DROP_CONTENT_TAGS
