@@ -317,7 +317,7 @@ process.on('unhandledRejection', (reason) => {
 
     // ── Favicon Proxy ────────────────────────────────────────────────────────
     // Fetches favicons server-side to protect the user's IP.
-    // Flow: cache hit → relay → HTML parsing → site's /favicon.ico → default icon
+    // Flow: cache hit → HTML parsing → site's /favicon.ico → DDG fallback → default icon
     //
     // SSRF protection: blocks private IPs, localhost, non-http(s) schemes.
     // Cache: in-memory Map, 24h TTL, max 500 entries (LRU-style eviction).
@@ -397,7 +397,7 @@ process.on('unhandledRejection', (reason) => {
     // Minimal outbound headers — no user-identifying info forwarded
     const CLEAN_HEADERS = {
         'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)',
-        'Accept':     'image/png,image/x-icon,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept':     'image/avif,image/png,image/x-icon,image/svg+xml,image/*,*/*;q=0.8',
     };
 
     // Normalise content-type to something browsers will actually render as an image.
@@ -416,6 +416,13 @@ process.on('unhandledRejection', (reason) => {
             if (buf.length >= 12 &&
                 buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
                 buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+            // AVIF/AVIS: ISOBMFF container — bytes 4–7 are 'ftyp', bytes 8–11 are the brand.
+            // No fixed byte-0 signature; size field at 0–3 is variable.
+            if (buf.length >= 12 &&
+                buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) {
+                const brand = buf.slice(8, 12).toString('ascii');
+                if (brand === 'avif' || brand === 'avis') return 'image/avif';
+            }
             // ICO: \x00\x00\x01\x00
             if (buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] === 0x00) return 'image/x-icon';
             // SVG: starts with '<svg' or '<?xml' followed eventually by '<svg'
@@ -577,6 +584,60 @@ process.on('unhandledRejection', (reason) => {
         try { return new URL(hrefM[1], baseUrl).toString(); } catch (_) { return null; }
     }
 
+    // Dedicated DDG fetch — intentionally stricter than fetchIconUrl:
+    //
+    // 1. redirect: 'manual'
+    //    DDG may respond with a redirect to the origin host's actual favicon URL.
+    //    If we followed that redirect, the origin site would see our server's IP and
+    //    know it's being queried — leaking to two parties instead of one. manual mode
+    //    stops at DDG's edge; any 3xx is treated as a miss and falls through to
+    //    FAVICON_DEFAULT.
+    //
+    // 2. Generic User-Agent
+    //    'Mozilla/5.0' instead of 'Mozilla/5.0 (compatible; NovaByte/1.0)' so DDG
+    //    cannot fingerprint or aggregate requests by software identity.
+    //
+    // Why DDG and not a direct fetch to the origin:
+    //
+    //    DDG serves favicons from their pre-crawl cache so the origin site gets zero
+    //    live requests. A tracker domain that sent an email cannot use a favicon fetch
+    //    as a read-receipt — their servers never see a hit from us.
+    //
+    //    DDG's favicon service is explicitly built for anonymity. Their dedicated help
+    //    page (duckduckgo.com/duckduckgo-help-pages/privacy/favicons) states favicons
+    //    are routed through DDG's servers rather than fetched directly from sites, by
+    //    design. DDG staff have confirmed: "the favicon service adheres to our strict
+    //    privacy policy — requests are anonymous and we do not collect or share any
+    //    personal information." Their privacy policy additionally states they never log
+    //    IP addresses to disk tied to any individual.
+    //
+    //    Tor Browser defaults to DDG as its search engine — a strong third-party
+    //    endorsement: the most anonymity-focused browser in the world trusts them.
+    async function fetchDDGFavicon(hostname) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FAVICON_FETCH_TIMEOUT);
+        try {
+            const resp = await fetch(`https://icons.duckduckgo.com/ip3/${hostname}.ico`, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0',
+                    'Accept':     'image/*,*/*;q=0.8',
+                },
+                redirect: 'manual',   // stop at DDG — never follow a redirect to origin
+                signal: controller.signal,
+            });
+            if (resp.status !== 200) return null; // 3xx or error → miss
+            const buf  = Buffer.from(await resp.arrayBuffer());
+            const mime = normaliseFaviconMime(buf, resp.headers.get('content-type') || '');
+            if (!mime || buf.length <= 90) return null;
+            if (mime === 'image/x-icon') {
+                const extracted = extractBestIcoImage(buf);
+                if (extracted) return extracted;
+            }
+            return { buf, mime };
+        } catch (_) { return null; }
+        finally { clearTimeout(timer); }
+    }
+
     async function resolveFavicon(hostname) {
         // 1. Parse the site's HTML for icon declarations (tries HTTPS then HTTP).
         //    Covers: <link rel="icon">, apple-touch-icon, msapplication-TileImage,
@@ -662,7 +723,16 @@ process.on('unhandledRejection', (reason) => {
             } catch (_) { /* try next scheme */ }
         }
 
-        // 3. Nothing worked — callers will use FAVICON_DEFAULT
+        // 3. DuckDuckGo favicon service — last resort for JS-rendered icons the HTML
+        //    parse cannot see. Uses fetchDDGFavicon (not fetchIconUrl) so we never
+        //    follow a redirect off DDG's servers to the origin host. See the
+        //    fetchDDGFavicon comment above for the full privacy rationale.
+        try {
+            const result = await fetchDDGFavicon(hostname);
+            if (result) return result;
+        } catch (_) { /* DDG unreachable — fall through */ }
+
+        // 4. Nothing worked — callers will use FAVICON_DEFAULT
         return null;
     }
 
