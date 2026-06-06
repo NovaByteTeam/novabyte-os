@@ -61,8 +61,23 @@ function runInstall() {
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
+function syncVendor() {
+  const src  = path.join(nodeModules, 'dompurify', 'dist', 'purify.min.js');
+  const dest = path.join(root, 'js', 'purify.min.js');
+  if (mtime(src) === mtime(dest)) return;
+  try {
+    fs.copyFileSync(src, dest);
+    console.log('[bootstrap] Synced vendor: purify.min.js');
+  } catch (err) {
+    console.error('[bootstrap] Failed to sync DOMPurify:', err.message);
+    process.exit(1);
+  }
+}
+
 if (shouldInstall()) {
   runInstall();
 } else {
   console.log('[bootstrap] Dependencies up to date.');
 }
+
+syncVendor();
