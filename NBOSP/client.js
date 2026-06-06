@@ -1,23 +1,22 @@
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const dotenv = require('dotenv');
+const { spawn }                  = require('child_process');
+const path                       = require('path');
+const fs                         = require('fs');
+const dotenv                     = require('dotenv');
+const os                         = require('os');
+const crypto                     = require('crypto');
+const { execSync, execFileSync } = require('child_process');
+require('reflect-metadata');                                    // required by @peculiar/x509 2.x (tsyringe)
+const x509                       = require('@peculiar/x509');
 
-process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --max-old-space-size=4096';
-
-// ── Certificate bootstrap ────────────────────────────────────────────────────
+// ── Certificate bootstrap ─────────────────────────────────────────────────────
 // Generates a local CA + server cert (proper chain, like mkcert).
 // Installs the CA into the OS trust store once — triggers native OS prompt.
 // After that, Chromium trusts the cert natively, no flags needed.
 //
-//   Windows → PowerShell Import-Certificate → Windows security dialog
-//   macOS   → security add-trusted-cert     → password / Touch ID popup
-//   Linux   → sudo update-ca-certificates   → terminal sudo prompt
+//   Windows → certutil.exe            → Windows security dialog
+//   macOS   → security add-trusted-cert → password / Touch ID popup
+//   Linux   → sudo update-ca-certificates → terminal sudo prompt
 //             + certutil for Chrome NSS db
-
-const os     = require('os');
-const crypto = require('crypto');
-const { execSync, execFileSync } = require('child_process');
 
 const CA_KEY          = path.join(__dirname, 'ca.key');
 const CA_CRT          = path.join(__dirname, 'ca.crt');
@@ -38,7 +37,7 @@ async function certsAreFresh() {
 
 function installCaTrustWindows(caCrtPath) {
   // certutil.exe is built into Windows — same tool mkcert uses.
-  // stdio:'inherit' is required so the Windows security dialog has a window to attach to.
+  // stdio:'inherit' required so the Windows security dialog has a window to attach to.
   // -user = CurrentUser\Root store, no admin rights needed.
   try {
     execFileSync('certutil', ['-addstore', '-user', 'Root', caCrtPath], {
@@ -53,17 +52,14 @@ function installCaTrustWindows(caCrtPath) {
 }
 
 function installCaTrustMac(caCrtPath) {
-  // mkcert approach: use osascript to run `security add-trusted-cert` with
-  // administrator privileges. This triggers the native macOS password/Touch ID
-  // popup. Must target /Library/Keychains/System.keychain (not login keychain)
-  // because Chromium reads the System keychain for trusted roots.
+  // FIX: Single-quote escape the path to prevent shell injection via special chars/spaces.
+  // mkcert approach: osascript elevates `security add-trusted-cert` with admin privileges.
+  // Targets /Library/Keychains/System.keychain (Chromium reads System, not login keychain).
   // stdio must be 'inherit' so the auth dialog can render.
-  const cmd = [
-    'osascript', '-e',
-    `do shell script "security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${caCrtPath}" with administrator privileges`
-  ];
+  const quotedPath = "'" + caCrtPath.replace(/'/g, "'\\''") + "'";
+  const shellScript = `do shell script "security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ${quotedPath}" with administrator privileges`;
   try {
-    execFileSync(cmd[0], cmd.slice(1), { stdio: 'inherit', timeout: 120000 });
+    execFileSync('osascript', ['-e', shellScript], { stdio: 'inherit', timeout: 120000 });
     return true;
   } catch (e) {
     console.error('[NovaByte] macOS CA install failed:', e.message);
@@ -72,20 +68,15 @@ function installCaTrustMac(caCrtPath) {
 }
 
 function installCaTrustLinux(caCrtPath) {
-  // On Linux, Chromium/NW.js uses the NSS database (~/.pki/nssdb), NOT the
-  // system CA store. So certutil into the NSS db is the critical step.
-  // update-ca-certificates is done too, but certutil is what actually makes
-  // Chromium trust the cert.
-  //
+  // On Linux, Chromium/NW.js uses the NSS database (~/.pki/nssdb), NOT the system CA store.
+  // certutil into the NSS db is the critical step; update-ca-certificates is supplemental.
   // certutil requires libnss3-tools (Debian/Ubuntu) or nss-tools (RHEL).
-  // We create the NSS db if it doesn't exist yet.
 
   let nssOk = false;
   let sysOk = false;
 
-  // ── 1. NSS db for Chromium (the critical step for NW.js) ─────────────────
+  // ── 1. NSS db for Chromium (critical for NW.js) ───────────────────────────
   try {
-    // Find certutil
     let certutil = '';
     for (const p of ['/usr/bin/certutil', '/usr/local/bin/certutil']) {
       if (fs.existsSync(p)) { certutil = p; break; }
@@ -96,7 +87,6 @@ function installCaTrustLinux(caCrtPath) {
 
     if (certutil) {
       const nssDb = path.join(os.homedir(), '.pki', 'nssdb');
-      // Create NSS db if it doesn't exist
       if (!fs.existsSync(nssDb)) {
         fs.mkdirSync(nssDb, { recursive: true });
         execFileSync(certutil, ['-N', '-d', `sql:${nssDb}`, '--empty-password'], { stdio: 'pipe', timeout: 15000 });
@@ -114,7 +104,7 @@ function installCaTrustLinux(caCrtPath) {
     console.error('[NovaByte] NSS db install failed:', e.message);
   }
 
-  // ── 2. System CA store (for other tools, optional for Chromium) ───────────
+  // ── 2. System CA store (optional for Chromium, useful for other tools) ────
   try {
     // Debian/Ubuntu/Mint
     execFileSync('sudo', ['cp', caCrtPath, '/usr/local/share/ca-certificates/novabyte-ca.crt'], { stdio: 'inherit', timeout: 30000 });
@@ -126,10 +116,10 @@ function installCaTrustLinux(caCrtPath) {
       execFileSync('sudo', ['cp', caCrtPath, '/etc/pki/ca-trust/source/anchors/novabyte-ca.crt'], { stdio: 'inherit', timeout: 30000 });
       execFileSync('sudo', ['update-ca-trust', 'extract'], { stdio: 'pipe', timeout: 30000 });
       sysOk = true;
-    } catch (_2) {}
+    } catch (_e) {}
   }
 
-  // NSS ok is sufficient for NW.js/Chromium to work
+  // NSS ok is sufficient for NW.js/Chromium
   return nssOk || sysOk;
 }
 
@@ -141,27 +131,28 @@ function installCaTrust(caCrtPath) {
 }
 
 // ── PEM helper ────────────────────────────────────────────────────────────────
+// FIX: Loop instead of regex — avoids the overhead of .match(/.{1,64}/g) on large buffers.
 function toPem(der, type) {
-  const b64 = Buffer.from(der).toString('base64').match(/.{1,64}/g).join('\n');
-  return `-----BEGIN ${type}-----\n${b64}\n-----END ${type}-----\n`;
+  const b64 = Buffer.from(der).toString('base64');
+  const lines = [];
+  for (let i = 0; i < b64.length; i += 64) lines.push(b64.slice(i, i + 64));
+  return `-----BEGIN ${type}-----\n${lines.join('\n')}\n-----END ${type}-----\n`;
 }
 
-// ── Cert generation using @peculiar/x509 (bundled inside selfsigned) ─────────
-async function generateCerts(sandboxDir) {
-  // Install selfsigned (brings @peculiar/x509 with it)
-  execSync(
-    'npm install selfsigned --prefix ' + JSON.stringify(sandboxDir) +
-    ' --no-save --no-audit --no-fund --loglevel=error',
-    { cwd: sandboxDir, stdio: 'pipe', timeout: 60000 }
-  );
-
-  const x509 = require(path.join(sandboxDir, 'node_modules', '@peculiar', 'x509'));
+// ── Cert generation using @peculiar/x509 ─────────────────────────────────────
+async function generateCerts() {
   const subtle = crypto.subtle;
-  const keyParams = { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' };
+  const keyParams = {
+    name: 'RSASSA-PKCS1-v1_5',
+    modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]),
+    hash: 'SHA-256'
+  };
   const notBefore = new Date();
-  const notAfter  = new Date(Date.now() + 10 * 365.25 * 24 * 60 * 60 * 1000);
+  // FIX: Reuse CERT_MAX_AGE_MS constant instead of duplicating the magic number.
+  const notAfter = new Date(Date.now() + CERT_MAX_AGE_MS);
 
-  // 1. Generate CA key pair + self-signed CA cert
+  // 1. CA key pair + self-signed CA cert
   const caKeys = await subtle.generateKey(keyParams, true, ['sign', 'verify']);
   const caCert = await x509.X509CertificateGenerator.createSelfSigned({
     serialNumber: '01',
@@ -175,7 +166,7 @@ async function generateCerts(sandboxDir) {
     ]
   });
 
-  // 2. Generate server key pair + cert signed by CA
+  // 2. Server key pair + cert signed by CA
   const serverKeys = await subtle.generateKey(keyParams, true, ['sign', 'verify']);
   const serverCert = await x509.X509CertificateGenerator.create({
     serialNumber: '02',
@@ -202,8 +193,8 @@ async function generateCerts(sandboxDir) {
   const serverKeyDer = await subtle.exportKey('pkcs8', serverKeys.privateKey);
 
   return {
-    caCertPem:    caCert.toString('pem'),
-    caKeyPem:     toPem(caKeyDer, 'PRIVATE KEY'),
+    caCertPem:     caCert.toString('pem'),
+    caKeyPem:      toPem(caKeyDer, 'PRIVATE KEY'),
     serverCertPem: serverCert.toString('pem'),
     serverKeyPem:  toPem(serverKeyDer, 'PRIVATE KEY'),
   };
@@ -211,49 +202,48 @@ async function generateCerts(sandboxDir) {
 
 
 // ── .env Management ──────────────────────────────────────────────────────────
-// Load .env using dotenv's parser, validate schema, generate missing secrets,
+// Load .env via dotenv's parser, validate schema, generate missing secrets,
 // and write atomically (cross-platform safe).
 
 async function parseEnvFile(filePath) {
   try {
     const content = await fs.promises.readFile(filePath, 'utf8');
-    // Use dotenv's parser for robust handling of quoted values, comments, etc.
-    const parsed = dotenv.parse(content);
-    return parsed;
-  } catch (e) {
-    return null;
-  }
+    return dotenv.parse(content);
+  } catch (_) { return null; }
 }
 
 async function atomicWriteEnv(filePath, env) {
-  // Write to temp file in same directory
   const tempPath = filePath + '.tmp';
+  // FIX: Always double-quote values so spaces, $, #, and special chars survive a round-trip.
   const content = Object.entries(env)
-    .map(([k, v]) => `${k}=${v}`)
+    .map(([k, v]) => {
+      const escaped = String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      return `${k}="${escaped}"`;
+    })
     .join('\n') + '\n';
 
   await fs.promises.writeFile(tempPath, content, { encoding: 'utf8', mode: 0o600 });
 
-  // Rename temp to final path (fs.rename overwrites on most platforms)
-  // If this fails on Windows with EEXIST, we unlink and retry
   try {
     await fs.promises.rename(tempPath, filePath);
   } catch (err) {
     if (err.code === 'EEXIST' || err.code === 'EACCES') {
-      // File exists or access denied; unlink then retry
+      // Windows can't atomically overwrite — unlink then retry
       await fs.promises.unlink(filePath);
       await fs.promises.rename(tempPath, filePath);
     } else {
+      // FIX: Clean up temp file before re-throwing so we don't leave orphaned .tmp files.
+      try { await fs.promises.unlink(tempPath); } catch (_) {}
       throw err;
     }
   }
 }
 
 async function ensureEnv() {
-  const envPath = path.join(__dirname, '.env');
+  const envPath     = path.join(__dirname, '.env');
   const examplePath = path.join(__dirname, '.env.example');
 
-  // 1. Load .env, or create from .env.example if missing
+  // 1. Load .env, or bootstrap from .env.example if missing
   let env = await parseEnvFile(envPath);
   if (!env || Object.keys(env).length === 0) {
     console.log('[NovaByte] No .env found — bootstrapping from .env.example...');
@@ -264,63 +254,56 @@ async function ensureEnv() {
     env = { ...example };
   }
 
-  // 2. Check for missing required secrets
+  // 2. Generate any missing required secrets
   const secretsRequired = { SESSION_SECRET: 64, NBOSP_CRED_KEY: 32 };
   const missing = {};
-  
   for (const [key, byteLength] of Object.entries(secretsRequired)) {
-    const val = (env[key] || '').trim();
-    if (!val) {
+    if (!(env[key] || '').trim()) {
       console.log(`[NovaByte] Generating missing ${key}...`);
       missing[key] = crypto.randomBytes(byteLength).toString('hex');
     }
   }
 
-  // 3. Generate secrets if needed, write atomically
   if (Object.keys(missing).length > 0) {
     Object.assign(env, missing);
     await atomicWriteEnv(envPath, env);
     console.log('[NovaByte] .env updated with generated secrets (atomic, platform-safe).');
   }
 
-  // 4. Schema validation: type and format checks
+  // 3. Schema validation
   const parsePort = (v) => {
     const n = Number(v);
-    return !Number.isInteger(n) || n < 1 || n > 65535 ? null : n;
+    return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : null;
   };
   const parsePositiveInt = (v) => {
     const n = Number(v);
-    return !Number.isInteger(n) || n < 1 ? null : n;
+    return Number.isInteger(n) && n >= 1 ? n : null;
   };
   const validateCorsOrigin = (v) => {
     if (!v) return null;
-    const urls = v.split(',').map(u => u.trim()).filter(u => u);
+    const urls = v.split(',').map(u => u.trim()).filter(Boolean);
     for (const url of urls) {
       try {
-        const parsed = new URL(url);
-        if (parsed.protocol !== 'https:') return null;
-      } catch (_) {
-        return null;
-      }
+        if (new URL(url).protocol !== 'https:') return null;
+      } catch (_) { return null; }
     }
     return urls.length > 0 ? urls : null;
   };
 
   const schema = {
-    PORT: (v) => parsePort(v) ? null : `must be integer 1-65535, got "${v}"`,
-    RATE_LIMIT_WINDOW_MS: (v) => parsePositiveInt(v) ? null : `must be positive integer, got "${v}"`,
-    RATE_LIMIT_MAX_REQUESTS: (v) => parsePositiveInt(v) ? null : `must be positive integer, got "${v}"`,
-    CORS_ORIGIN: (v) => validateCorsOrigin(v) ? null : `must be comma-separated https:// URLs, got "${v}"`,
-    SESSION_SECRET: (v) => v && v.length >= 128 ? null : `must be 128+ character hex string, got "${v}"`,
-    NBOSP_CRED_KEY: (v) => v && v.length >= 64 ? null : `must be 64+ character hex string, got "${v}"`,
+    PORT:                   (v) => parsePort(v)          ? null : `must be integer 1-65535`,
+    RATE_LIMIT_WINDOW_MS:   (v) => parsePositiveInt(v)   ? null : `must be a positive integer`,
+    RATE_LIMIT_MAX_REQUESTS:(v) => parsePositiveInt(v)   ? null : `must be a positive integer`,
+    CORS_ORIGIN:            (v) => validateCorsOrigin(v) ? null : `must be comma-separated https:// URLs`,
+    // FIX: Never print the actual secret value in error output — log length only.
+    SESSION_SECRET: (v) => v && v.length >= 128 ? null : `must be 128+ char hex string (got length ${v ? v.length : 0})`,
+    NBOSP_CRED_KEY: (v) => v && v.length >= 64  ? null : `must be 64+ char hex string (got length ${v ? v.length : 0})`,
   };
 
   const errors = [];
   for (const [key, validate] of Object.entries(schema)) {
     const error = validate(env[key] || '');
-    if (error) {
-      errors.push(`${key}: ${error}`);
-    }
+    if (error) errors.push(`${key}: ${error}`);
   }
 
   if (errors.length > 0) {
@@ -329,15 +312,14 @@ async function ensureEnv() {
     throw new Error(msg);
   }
 
-  // Load validated values into process.env so they are available to this process and child processes
   Object.assign(process.env, env);
   console.log('[NovaByte] .env loaded, validated, and applied to process.env.');
 }
 
 // ── Main cert bootstrap ───────────────────────────────────────────────────────
 async function ensureCerts() {
-  const fresh   = await certsAreFresh();
-  let trusted   = false;
+  const fresh = await certsAreFresh();
+  let trusted = false;
   try { await fs.promises.access(CA_TRUSTED_FLAG); trusted = true; } catch (_) {}
 
   if (fresh && trusted) {
@@ -346,14 +328,10 @@ async function ensureCerts() {
     return true;
   }
 
-  // Generate fresh CA + server cert if needed
   if (!fresh) {
     console.log('[NovaByte] Generating CA and server certificate...');
-    const sandboxId  = 'nb_cert_' + crypto.randomBytes(6).toString('hex');
-    const sandboxDir = path.join(os.tmpdir(), sandboxId);
     try {
-      await fs.promises.mkdir(sandboxDir, { recursive: true });
-      const { caCertPem, caKeyPem, serverCertPem, serverKeyPem } = await generateCerts(sandboxDir);
+      const { caCertPem, caKeyPem, serverCertPem, serverKeyPem } = await generateCerts();
 
       await fs.promises.writeFile(CA_CRT,   caCertPem,     { encoding: 'utf8', mode: 0o644 });
       await fs.promises.writeFile(CA_KEY,   caKeyPem,      { encoding: 'utf8', mode: 0o600 });
@@ -362,17 +340,13 @@ async function ensureCerts() {
 
       // Invalidate old trust flag — new CA means we must re-install
       try { await fs.promises.unlink(CA_TRUSTED_FLAG); } catch (_) {}
-
       console.log('[NovaByte] Certificates generated.');
     } catch (err) {
       console.error('[NovaByte] Certificate generation failed:', err.message);
       return false;
-    } finally {
-      try { await fs.promises.rm(sandboxDir, { recursive: true, force: true }); } catch (_) {}
     }
   }
 
-  // Install CA into OS trust store (triggers native OS prompt)
   console.log('[NovaByte] Installing CA into OS trust store...');
   const ok = installCaTrust(CA_CRT);
   if (ok) {
@@ -391,7 +365,7 @@ async function stripSpkiFromPackageJson() {
     const pkgPath = path.join(__dirname, 'package.json');
     const parsed  = JSON.parse(await fs.promises.readFile(pkgPath, 'utf8'));
     if (!parsed.window) return;
-    let args = parsed.window['chromium-args'] || '';
+    const args = parsed.window['chromium-args'] || '';
     const cleaned = args
       .replace(/--ignore-certificate-errors(?!-spki)\s*/g, '')
       .replace(/--allow-insecure-localhost\s*/g, '')
@@ -408,72 +382,102 @@ async function stripSpkiFromPackageJson() {
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
-// Note: ensureEnv() must run first to populate process.env from .env
-let port = 3003;
+// FIX: Single `win` at module scope so F11/F12 hotkey handlers can read it.
+// Previously there were TWO `let win = null` — one inside the IIFE (set by openWindow)
+// and one at module scope (read by hotkeys). The outer one was never updated, so
+// both hotkeys were permanently broken. Now there's only one.
+let win = null;
 
 (async () => {
-  await ensureEnv();
-  // After ensureEnv(), process.env is populated with validated .env values
-  port = parseInt(process.env.PORT || 3003, 10);
-  
-  await ensureCerts();
-  // Always use https — server.js loads cert.key/cert.crt and starts HTTPS if they exist.
-  // If cert generation failed we still try https (server falls back to http internally).
-  const appUrl = `https://localhost:${port}`;
+  // FIX: Wrap the entire startup in try/catch so fatal errors produce clean messages
+  // instead of unhandled promise rejection noise.
+  try {
+    await ensureEnv();
+    // FIX: `port` belongs inside the IIFE — the outer `let port = 3003` was dead code.
+    const port   = parseInt(process.env.PORT || '3003', 10);
+    const appUrl = `https://localhost:${port}`;
 
-  const logStream = fs.createWriteStream(path.join(__dirname, 'server.log'), { flags: 'a' });
-  
-  // Find Node.js executable for spawning server.js
-  // In packaged NW.js apps, process.execPath is the NW.js binary, not Node
-  // Set NODE_BIN_PATH at build time to the actual Node binary path
-  let nodeBin = process.env.NODE_BIN_PATH || 'node';
-  
-  const server = spawn(nodeBin, ['--max-old-space-size=4096', '--expose-gc', path.join(__dirname, 'server.js')], {
-    cwd: __dirname,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env
-  });
+    await ensureCerts();
+    // Always target https — server.js loads cert.key/cert.crt and starts HTTPS if they exist.
 
-  server.on('exit', () => {});
-  server.on('error', () => {});
+    const logStream = fs.createWriteStream(path.join(__dirname, 'server.log'), { flags: 'a' });
 
-  let _conout = null;
-  if (process.platform === 'win32' && process.env.NW_SHOW_CONSOLE === 'true') {
-    try {
-      _conout = fs.createWriteStream('\\\\.\\CONOUT$', { flags: 'a' });
-      _conout.on('error', () => { _conout = null; });
-    } catch (_) { _conout = null; }
-  }
-
-  function tee(chunk, isErr) {
-    logStream.write(chunk);
-    if (_conout) { try { _conout.write(chunk); } catch (_) {} }
-    else { try { (isErr ? process.stderr : process.stdout).write(chunk); } catch (_) {} }
-  }
-
-  let opened = false;
-  let win = null;
-  function openWindow() {
-    if (opened) return;
-    opened = true;
-    nw.Window.open(appUrl, { title: 'NovaByte', width: 1280, height: 720 }, function (window) {
-      win = window;
-      win.on('close', function () {
-        server.kill();
-        this.close(true);
-        nw.App.quit();
-      });
+    // In packaged NW.js apps, process.execPath is the NW.js binary, not Node.
+    // Set NODE_BIN_PATH at build time to the actual Node binary path.
+    // FIX: Don't set NODE_OPTIONS on the current process — the heap flag is passed
+    // directly to server.js via spawn args, so setting it in NODE_OPTIONS would
+    // apply it twice to the server and unnecessarily to the NW.js process as well.
+    const nodeBin = process.env.NODE_BIN_PATH || 'node';
+    const server  = spawn(nodeBin, ['--max-old-space-size=4096', '--expose-gc', path.join(__dirname, 'server.js')], {
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env
     });
+
+    let _conout = null;
+    if (process.platform === 'win32' && process.env.NW_SHOW_CONSOLE === 'true') {
+      try {
+        _conout = fs.createWriteStream('\\\\.\\CONOUT$', { flags: 'a' });
+        _conout.on('error', () => { _conout = null; });
+      } catch (_) { _conout = null; }
+    }
+
+    function tee(chunk, isErr) {
+      try { logStream.write(chunk); } catch (_) {}
+      if (_conout) {
+        try { _conout.write(chunk); } catch (_) {}
+      } else {
+        try { (isErr ? process.stderr : process.stdout).write(chunk); } catch (_) {}
+      }
+    }
+
+    // FIX: Log server errors/exits instead of silently swallowing them.
+    server.on('error', (err) => {
+      tee(Buffer.from(`[NovaByte] Server spawn error: ${err.message}\n`), true);
+    });
+
+    // FIX: Close streams when server exits so nothing is left dangling.
+    server.on('exit', (code, signal) => {
+      tee(Buffer.from(`[NovaByte] Server exited (code=${code}, signal=${signal})\n`), false);
+      logStream.end();
+      if (_conout) try { _conout.end(); } catch (_) {}
+    });
+
+    let opened = false;
+    function openWindow() {
+      if (opened) return;
+      opened = true;
+      nw.Window.open(appUrl, { title: 'NovaByte', width: 1280, height: 720 }, function (window) {
+        // FIX: Assigns to module-scope `win` — hotkeys now work correctly.
+        win = window;
+        win.on('close', function () {
+          server.kill();
+          this.close(true);
+          nw.App.quit();
+        });
+      });
+    }
+
+    server.stdout.on('data', d => {
+      tee(d, false);
+      // FIX: Short-circuit once the window is open — no point checking every chunk forever.
+      if (!opened && d.toString().includes('Address')) openWindow();
+    });
+    server.stderr.on('data', d => tee(d, true));
+
+    setTimeout(openWindow, 8000);
+
+    // FIX: Removed `nw.App.quit()` from inside the quit handler — calling it there
+    // is recursive and either infinite-loops or no-ops depending on NW.js internals.
+    nw.App.on('quit', () => {
+      server.kill();
+    });
+
+  } catch (err) {
+    console.error('[NovaByte] Fatal startup error:', err.message);
+    process.exit(1);
   }
-
-  server.stdout.on('data', d => { tee(d, false); if (d.toString().includes('Address')) openWindow(); });
-  server.stderr.on('data', d => tee(d, true));
-  setTimeout(openWindow, 8000);
-
-  nw.App.on('quit', () => { server.kill(); nw.App.quit(); });
 })();
-
-let win = null; // accessible to hotkey handlers below
 
 nw.App.registerGlobalHotKey(new nw.Shortcut({
   key: 'F11',

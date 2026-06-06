@@ -1,90 +1,68 @@
-const fs = require('fs');
-const path = require('path');
+'use strict';
+
+const fs            = require('fs');
+const path          = require('path');
 const { spawnSync } = require('child_process');
 
-const root = path.resolve(__dirname, '..');
-const packageJsonPath = path.join(root, 'package.json');
-const packageLockPath = path.join(root, 'package-lock.json');
-const nodeModulesDir = path.join(root, 'node_modules');
+const root        = path.resolve(__dirname, '..');
+const packageJson = path.join(root, 'package.json');
+const packageLock = path.join(root, 'package-lock.json');
+const nodeModules = path.join(root, 'node_modules');
+const nmLock      = path.join(nodeModules, '.package-lock.json');
 
-function loadPackageJson() {
+function mtime(p) {
+  try { return fs.statSync(p).mtimeMs; } catch { return -1; }
+}
+
+function readPkg() {
   try {
-    return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    return JSON.parse(fs.readFileSync(packageJson, 'utf8'));
   } catch (err) {
     console.error('[bootstrap] Failed to read package.json:', err.message);
     process.exit(1);
   }
 }
 
-function depsToCheck(pkg) {
-  return [
-    ...Object.keys(pkg.dependencies || {}),
-    ...Object.keys(pkg.devDependencies || {}),
-  ];
-}
+function shouldInstall() {
+  if (!fs.existsSync(nodeModules)) return true;
 
-function shouldInstall(pkg) {
-  if (!fs.existsSync(nodeModulesDir)) return true;
-
-  // Check declared deps exist in node_modules
-  for (const dep of depsToCheck(pkg)) {
-    if (!fs.existsSync(path.join(nodeModulesDir, dep))) {
-      return true;
-    }
+  // Fast path (npm 7+): 2 stat calls instead of N existsSync calls.
+  // npm writes node_modules/.package-lock.json after every install/ci.
+  if (fs.existsSync(packageLock)) {
+    const nm = mtime(nmLock);
+    return nm === -1 || mtime(packageLock) > nm;
   }
 
-  return false;
+  // No lockfile: fall back to checking each declared dep folder exists.
+  const pkg  = readPkg();
+  const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
+  return deps.some(d => !fs.existsSync(path.join(nodeModules, d)));
 }
 
-function runNpmInstall() {
-  const useCi = fs.existsSync(packageLockPath);
-  const args = useCi
-    ? ['ci', '--no-audit', '--no-fund']
+function runInstall() {
+  const useCi = fs.existsSync(packageLock);
+  const args  = useCi
+    ? ['ci',      '--no-audit', '--no-fund']
     : ['install', '--no-audit', '--no-fund'];
 
-  console.log(`[bootstrap] Dependencies missing. Running npm ${args.join(' ')} ...`);
+  console.log(`[bootstrap] Running npm ${args[0]}...`);
 
-  const npmExecPath = process.env.npm_execpath;
+  const npmExec          = process.env.npm_execpath;
+  const [cmd, spawnArgs] = (npmExec && fs.existsSync(npmExec))
+    ? [process.execPath, [npmExec, ...args]]
+    : [process.platform === 'win32' ? 'npm.cmd' : 'npm', args];
 
-  let result;
+  const r = spawnSync(cmd, spawnArgs, {
+    cwd: root, stdio: 'inherit', env: process.env, windowsHide: true,
+  });
 
-  if (npmExecPath && fs.existsSync(npmExecPath)) {
-    // Best cross-platform path: run the exact npm entrypoint that launched this script.
-    result = spawnSync(process.execPath, [npmExecPath, ...args], {
-      cwd: root,
-      stdio: 'inherit',
-      env: process.env,
-      windowsHide: true,
-    });
-  } else {
-    // Fallback for unusual environments.
-    const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    result = spawnSync(npmBin, args, {
-      cwd: root,
-      stdio: 'inherit',
-      env: process.env,
-      windowsHide: true,
-    });
-  }
-
-  if (result.error) {
-    console.error('[bootstrap] Failed to start npm:', result.error.message);
-    process.exit(1);
-  }
-
-  if (typeof result.status === 'number' && result.status !== 0) {
-    process.exit(result.status);
-  }
+  if (r.error)  { console.error('[bootstrap] npm spawn failed:', r.error.message); process.exit(1); }
+  if (r.signal) { console.error(`[bootstrap] npm killed by signal ${r.signal}`);   process.exit(1); }
+  if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
-function main() {
-  const pkg = loadPackageJson();
-
-  if (shouldInstall(pkg)) {
-    runNpmInstall();
-  } else {
-    console.log('[bootstrap] Dependencies already installed.');
-  }
+if (shouldInstall()) {
+  runInstall();
+} else {
+  console.log('[bootstrap] Dependencies up to date.');
 }
-
-main();

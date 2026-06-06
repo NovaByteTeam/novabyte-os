@@ -6,8 +6,8 @@
   "scripts": {
     "start": "nw .",
     "prestart": "node scripts/bootstrap.js",
-    "dev": "node -e \"const {exec} = require('child_process'); exec('taskkill /F /IM node.exe', () => exec('nw . --enable-logging=stderr --v=1'));\"",
-    "clean": "node -e \"require('child_process').exec('taskkill /F /IM node.exe', () => console.log('✔ All ghost background threads successfully cleared. Ready for fresh boot!'));\""
+    "dev": "nw . --enable-logging=stderr --v=1",
+    "clean": "node -e \"const {exec}=require('child_process');exec(process.platform==='win32'?'taskkill /F /IM node.exe':'pkill node||true',()=>console.log('✔ Cleared.'))\""
   },
   "window": {
     "title": "NovaByte",
@@ -21,7 +21,7 @@
       "128": "assets/icon.png"
     },
     "dev_tools": true,
-    "chromium-args": "--no-first-run  --disable-features=Vulkan,CanvasOopRasterization --disable-zero-copy --js-flags=\"--max-old-space-size=4096 --expose-gc --initial-heap-size=512\" --enable-gpu-rasterization --enable-oop-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --disable-renderer-backgrounding"
+    "chromium-args": "--no-first-run --disable-features=Vulkan --disable-zero-copy --js-flags=\"--expose-gc --initial-heap-size=512\" --enable-gpu-rasterization --enable-oop-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --disable-renderer-backgrounding"
   },
   "node-remote": "https://localhost:*",
   "keywords": [
@@ -31,6 +31,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@noble/ciphers": "^2.2.0",
+    "@peculiar/x509": "^2.0.0",
+    "reflect-metadata": "^0.2.2",
     "better-sqlite3": "^12.10.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
