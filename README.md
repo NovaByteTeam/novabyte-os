@@ -390,6 +390,24 @@ novabyte-os/
 │   ├── server.js
 │   ├── client.js
 │   ├── js/
+│   │   ├── app-init.js              # OS Initialization & Security Policies
+│   │   ├── app-utils.js             # Core Functional Utilities
+│   │   ├── app-utils2.js            # Supplemental System Utilities
+│   │   ├── app-workers.js           # Multi-threaded Worker Blobs
+│   │   ├── app-kernel.js            # Core Kernel Operations
+│   │   ├── app-fs.js                # Virtual Filesystem API
+│   │   ├── app-wm.js                # Desktop Window Manager
+│   │   ├── app-notifications.js     # System Notification UI
+│   │   ├── app-menu.js              # Global Context Menus
+│   │   ├── app-modals.js            # Modal Dialog Services
+│   │   ├── app-registry-core.js     # App Registry Engine & Global Exposer
+│   │   ├── app-boot.js              # Main System Boot Sequence
+│   │   ├── app-events.js            # Global Event Loop & DOM Listeners
+│   │   └── apps/                    # Independent App Modules
+│   │       ├── files.js
+│   │       ├── textedit.js
+│   │       ├── terminal.js
+│   │       └── [other apps...]
 │   ├── assets/
 │   └── LICENSE
 ├── .gitignore
@@ -398,6 +416,14 @@ novabyte-os/
 ```
 
 > v1/, v2/, and v3/ are closed source and not included in this repository.
+
+### 🧩 Architecture Note: Flat-Module Isolation
+
+NBOSP utilizes a highly maintainable, **Flat-Module Architecture**. Core subsystems and standalone applications are completely separated into dedicated files to ensure modular development without performance overhead.
+
+To maintain cross-script communication across individual files without monolithic bundling:
+* **Global Exposures:** Core modules explicitly bind their APIs to the global browser execution context (e.g., `window.Notify = Notify;`, `window.registerApp = registerApp;`) at the foot of their files.
+* **Fearless Optimization:** You can completely optimize or rewrite individual components (like an app inside `js/apps/`) safely. As long as the file interfaces with the global window bindings, internal code variations will not trigger unexpected side effects across the rest of the OS.
 
 -----
 

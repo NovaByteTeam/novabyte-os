@@ -21,3 +21,4 @@
 **/ca.crt
 **/ca.trusted
 /NBOSP/data/
+/NBOSP/js/purify.min.js

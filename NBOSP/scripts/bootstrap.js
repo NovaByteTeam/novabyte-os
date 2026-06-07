@@ -4,7 +4,7 @@ const fs            = require('fs');
 const path          = require('path');
 const { spawnSync } = require('child_process');
 
-const root        = path.resolve(__dirname, '..');
+const root        = path.resolve(__dirname, '..');   // NBOSP/ from scripts/
 const packageJson = path.join(root, 'package.json');
 const packageLock = path.join(root, 'package-lock.json');
 const nodeModules = path.join(root, 'node_modules');
@@ -25,14 +25,12 @@ function readPkg() {
 
 function shouldInstall() {
   if (!fs.existsSync(nodeModules)) return true;
-
   // Fast path (npm 7+): 2 stat calls instead of N existsSync calls.
   // npm writes node_modules/.package-lock.json after every install/ci.
   if (fs.existsSync(packageLock)) {
     const nm = mtime(nmLock);
     return nm === -1 || mtime(packageLock) > nm;
   }
-
   // No lockfile: fall back to checking each declared dep folder exists.
   const pkg  = readPkg();
   const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
@@ -56,8 +54,8 @@ function runInstall() {
     cwd: root, stdio: 'inherit', env: process.env, windowsHide: true,
   });
 
-  if (r.error)  { console.error('[bootstrap] npm spawn failed:', r.error.message); process.exit(1); }
-  if (r.signal) { console.error(`[bootstrap] npm killed by signal ${r.signal}`);   process.exit(1); }
+  if (r.error)        { console.error('[bootstrap] npm spawn failed:', r.error.message); process.exit(1); }
+  if (r.signal)       { console.error(`[bootstrap] npm killed by signal ${r.signal}`);   process.exit(1); }
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
@@ -79,5 +77,4 @@ if (shouldInstall()) {
 } else {
   console.log('[bootstrap] Dependencies up to date.');
 }
-
 syncVendor();

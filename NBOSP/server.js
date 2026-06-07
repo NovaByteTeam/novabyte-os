@@ -187,10 +187,19 @@ process.on('unhandledRejection', (reason) => {
     }));
 
     // Optimize static asset delivery speed with aggressive browser caching
+    // In development, use short TTL to allow faster iteration; in production, cache for 24h
+    const isDevelopment = process.env.NODE_ENV !== 'production';
     const cacheOptions = {
-        maxAge: '1d', // Cache elements for 24 hours locally
+        maxAge: isDevelopment ? '1m' : '1d', // 1 min in dev, 24 hours in production
         etag: true,
-        immutable: true
+        immutable: !isDevelopment // Only immutable in production
+    };
+    
+    // JS files need no-cache in development for fresh loads
+    const jsCacheOptions = {
+        maxAge: isDevelopment ? 0 : '1d', // No cache in dev, 24h in production
+        etag: true,
+        immutable: !isDevelopment
     };
 
     // Rate limiting
@@ -1165,7 +1174,7 @@ process.on('unhandledRejection', (reason) => {
 
     // Static files
     app.use(express.static(path.join(__dirname, 'public'), cacheOptions));
-    app.use('/js', express.static(path.join(__dirname, 'js'), cacheOptions));
+    app.use('/js', express.static(path.join(__dirname, 'js'), jsCacheOptions));  // Use strict caching for JS
     app.use('/css', express.static(path.join(__dirname, 'css'), cacheOptions));
 
     // Serve split-out app.js and style.css from project root
