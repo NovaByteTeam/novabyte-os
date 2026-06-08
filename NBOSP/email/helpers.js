@@ -56,8 +56,17 @@ function msgShape(parsed) {
     }
   }
 
+  function decodeSubject(str) {
+    if (!str || typeof str !== 'string') return str;
+    return str
+      .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
+      .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
+      .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+      .replace(/&amp;/gi, '&');
+  }
+
   return {
-    subject: parsed.subject || '(no subject)',
+    subject: decodeSubject(parsed.subject || '(no subject)'),
     from: getAddress(parsed.from),
     to: getAddress(parsed.to),
     cc: getAddress(parsed.cc),

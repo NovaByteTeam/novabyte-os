@@ -8,6 +8,16 @@ function missingDep(name) {
   return new Error(`Missing dependency: run "npm install ${name}"`);
 }
 
+// Decode HTML entities in email subjects and headers
+function decodeEntities(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
 function setDependencies(deps) {
   ImapFlow = deps.ImapFlow;
   PostalMime = deps.PostalMime;
@@ -113,7 +123,7 @@ async function imapMessages(creds, folder, page, limit, msgShape) {
         uid: msg.uid,
         seq: msg.seq,
         seen: msg.flags?.has('\\Seen') || false,
-        subject: env.subject || '(no subject)',
+        subject: decodeEntities(env.subject || '(no subject)'),
         from: env.from?.[0]
           ? [env.from[0].name, `<${env.from[0].address}>`].filter(Boolean).join(' ').trim()
           : '',
@@ -172,7 +182,7 @@ async function imapSearch(creds, query, folder) {
     if (uids.length) {
       for await (const msg of client.fetch(uids.slice(-40).reverse(), { envelope: true, flags: true }, { uid: true })) {
         messages.push({
-          uid: msg.uid, subject: msg.envelope.subject || '(no subject)',
+          uid: msg.uid, subject: decodeEntities(msg.envelope.subject || '(no subject)'),
           from: msg.envelope.from?.[0]?.address || '', date: msg.envelope.date, seen: msg.flags.has('\\Seen')
         });
       }

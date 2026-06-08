@@ -848,8 +848,16 @@ registerApp({
                   const newUnread = (d.messages || []).filter(m => !m.seen);
                   if (!newUnread.length) return;
                   if (Notification.permission === 'granted') {
+                    const decodeEntities = (str) => {
+                      if (!str) return str;
+                      return str
+                        .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
+                        .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
+                        .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+                        .replace(/&amp;/gi, '&');
+                    };
                     new Notification(`${acct.name || acct.email} — ${newUnread.length} new`, {
-                      body: newUnread[0].subject, icon: '/assets/apple-touch-icon.svg'
+                      body: decodeEntities(newUnread[0].subject), icon: '/assets/apple-touch-icon.svg'
                     });
                   }
                   Notify.show({ title: 'Email', body: `${newUnread.length} new in ${acct.name || acct.email}`, type: 'info', appName: 'Email' });

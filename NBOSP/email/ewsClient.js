@@ -9,6 +9,15 @@ function setDependencies(deps) {
   PostalMime = deps.PostalMime;
 }
 
+function decodeEntities(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
 function ewsReq(creds, soapBody) {
   return new Promise((resolve, reject) => {
     const envelope = `<?xml version="1.0" encoding="utf-8"?>
@@ -126,7 +135,7 @@ async function ewsMessages(creds, folder, page, limit) {
     uid: b.match(/Id="([^"]+)"/)?.[1] || '',
     seq: 0,
     seen: xval(b, 'IsRead') === 'true',
-    subject: xval(b, 'Subject') || '(no subject)',
+    subject: decodeEntities(xval(b, 'Subject') || '(no subject)'),
     from: xval(b, 'Name') || xval(b, 'EmailAddress'),
     date: xval(b, 'DateTimeReceived') ? new Date(xval(b, 'DateTimeReceived')).toISOString() : null
   }));

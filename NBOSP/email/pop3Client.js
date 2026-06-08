@@ -6,6 +6,15 @@ function missingDep(name) {
   return new Error(`Missing dependency: run "npm install ${name}"`);
 }
 
+function decodeEntities(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
 function setDependencies(deps) {
   POP3Client = deps.POP3Client;
   PostalMime = deps.PostalMime;
@@ -45,7 +54,7 @@ async function pop3Messages(creds, limit, msgShape) {
           uid: i,
           seq: i,
           seen: false,
-          subject: parsed.subject || '(no subject)',
+          subject: decodeEntities(parsed.subject || '(no subject)'),
           from: parsed.from?.text || '',
           to: parsed.to?.text || '',
           date: parsed.date?.toISOString() || null
