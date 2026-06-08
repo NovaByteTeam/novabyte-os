@@ -1,67 +1,93 @@
-
 const ContextMenu = {
-        current: null,
+  current: null,
+  _activeDismiss: null, // Track the current event handler for absolute safety
 
-        show(x, y, items) {
-          ContextMenu.hide();
-          const menu = createEl('div', { className: 'context-menu', role: 'menu' });
+  show(x, y, items) {
+    ContextMenu.hide();
+    
+    const menu = createEl('div', { className: 'context-menu', role: 'menu' });
+    const fragment = document.createDocumentFragment();
+    const len = items.length;
 
-          for (const item of items) {
-            if (item.separator) {
-              menu.appendChild(createEl('div', { className: 'ctx-separator' }));
-              continue;
-            }
-            const btn = createEl('button', {
-              className: 'ctx-item' + (item.danger ? ' danger' : ''),
-              role: 'menuitem',
-              'aria-label': item.label
-            });
-            if (item.icon) {
-              const iconEl = createEl('span');
-              iconEl.innerHTML = svgIcon(item.icon, 14);
-              btn.appendChild(iconEl);
-            }
-            btn.appendChild(createEl('span', { textContent: item.label }));
-            if (item.shortcut) {
-              btn.appendChild(createEl('span', { className: 'ctx-shortcut', textContent: item.shortcut }));
-            }
-            btn.addEventListener('click', () => {
-              ContextMenu.hide();
-              if (item.action) item.action();
-            });
-            menu.appendChild(btn);
-          }
+    // Use a high-performance indexed loop instead of for...of
+    for (let i = 0; i < len; i++) {
+      const item = items[i];
+      
+      if (item.separator) {
+        fragment.appendChild(createEl('div', { className: 'ctx-separator' }));
+        continue;
+      }
+      
+      const btn = createEl('button', {
+        className: 'ctx-item' + (item.danger ? ' danger' : ''),
+        role: 'menuitem',
+        'aria-label': item.label
+      });
+      
+      // Store reference to the specific action directly on the DOM element for event delegation
+      if (item.action) btn._action = item.action;
 
-          // Position
-          document.body.appendChild(menu);
-          const rect = menu.getBoundingClientRect();
-          if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8;
-          if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8;
-          menu.style.left = x + 'px';
-          menu.style.top = y + 'px';
+      if (item.icon) {
+        const iconEl = createEl('span');
+        iconEl.innerHTML = svgIcon(item.icon, 14);
+        btn.appendChild(iconEl);
+      }
+      
+      btn.appendChild(createEl('span', { textContent: item.label }));
+      
+      if (item.shortcut) {
+        btn.appendChild(createEl('span', { className: 'ctx-shortcut', textContent: item.shortcut }));
+      }
+      
+      fragment.appendChild(btn);
+    }
 
-          ContextMenu.current = menu;
+    menu.appendChild(fragment);
 
-          const dismiss = (e) => {
-            if (!menu.contains(e.target)) {
-              ContextMenu.hide();
-              document.removeEventListener('pointerdown', dismiss);
-            }
-          };
-          setTimeout(() => document.addEventListener('pointerdown', dismiss), 10);
-        },
+    // Single delegated handler to manage all menu actions instantly
+    menu.addEventListener('click', (e) => {
+      const btn = e.target.closest('.ctx-item');
+      if (btn) {
+        ContextMenu.hide();
+        if (btn._action) btn._action();
+      }
+    });
 
-        hide() {
-          if (ContextMenu.current) {
-            ContextMenu.current.remove();
-            ContextMenu.current = null;
-          }
-        }
-      };
+    // Append to DOM and compute placement boundaries
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
 
+    if (x + rect.width > winW) x = winW - rect.width - 8;
+    if (y + rect.height > winH) y = winH - rect.height - 8;
+    
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+
+    ContextMenu.current = menu;
+
+    // Optimized dismiss handler using capture phase to avoid setTimeout lag
+    const dismiss = (e) => {
+      if (!menu.contains(e.target)) {
+        ContextMenu.hide();
+      }
+    };
+    
+    ContextMenu._activeDismiss = dismiss;
+    document.addEventListener('pointerdown', dismiss, { capture: true, passive: true });
+  },
+
+  hide() {
+    if (ContextMenu.current) {
+      ContextMenu.current.remove();
+      ContextMenu.current = null;
+    }
+    if (ContextMenu._activeDismiss) {
+      document.removeEventListener('pointerdown', ContextMenu._activeDismiss, { capture: true });
+      ContextMenu._activeDismiss = null;
+    }
+  }
+};
 
 window.ContextMenu = ContextMenu;
-
-
-
-/* Exposed to Global Scope for Flat-Module Architecture */

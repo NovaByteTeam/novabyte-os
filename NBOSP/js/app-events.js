@@ -1627,5 +1627,3 @@ wireRecoveryControls();
         svc.__patchedStartup = true;
         try { svc.ensureBooted?.(); } catch (e) { }
       })();
-
-

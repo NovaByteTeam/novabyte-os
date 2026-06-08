@@ -42,10 +42,13 @@ registerApp({
           // List view
           const listView = createEl('div', { style: 'display:none;flex:1;overflow:auto;flex-direction:column;' });
           const listHeader = createEl('div', { style: 'display:grid;grid-template-columns:1fr 80px 120px 110px;background:var(--bg-sunken);border-bottom:1px solid var(--border-subtle);flex-shrink:0;position:sticky;top:0;z-index:1;' });
-          ['Name', 'Size', 'Type', 'Modified'].forEach((h, i) => {
+          
+          const headers = ['Name', 'Size', 'Type', 'Modified'];
+          const sortKeys = ['name', 'size', 'mime', 'modified'];
+          headers.forEach((h, i) => {
             const th = createEl('button', { style: 'padding:6px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);background:none;border:none;cursor:pointer;', textContent: h });
             th.addEventListener('click', () => {
-              const key = ['name', 'size', 'mime', 'modified'][i];
+              const key = sortKeys[i];
               if (sortBy === key) sortAsc = !sortAsc; else { sortBy = key; sortAsc = true; }
               renderFiles();
             });
@@ -69,6 +72,7 @@ registerApp({
           let selectedIds = new Set();
           let clipboardOp = null;
           let isRenaming = false;
+          let currentFilesCache = [];
 
           // Single navigation state (no tabs)
           const _startFolder = options?.folderId || FS.rootId;
@@ -117,6 +121,23 @@ registerApp({
             if (document.activeElement !== pathBar) pathBar.value = FS.getPath(nav.cwd);
           }
 
+          // ── Automatic Core Folders Rebuilder ────────────────────────
+          async function ensureDefaultSystemFolders() {
+            // Full comprehensive list of OS directories, fully capitalized
+            const defaultFolders = ['data', 'Downloads', 'Documents', 'Pictures', 'Music', 'Videos', 'System'];
+            const len = defaultFolders.length;
+            const currentItems = FS.listDir(nav.cwd);
+            
+            for (let i = 0; i < len; i++) {
+              const folderName = defaultFolders[i];
+              // JIT-friendly presence check
+              const exists = currentItems.some(item => item.name === folderName && item.type === 'folder');
+              if (!exists) {
+                await FS.createFolder(nav.cwd, folderName);
+              }
+            }
+          }
+
           // ── Sort ─────────────────────────────────────────────────────
           function sortFiles(files) {
             return [...files].sort((a, b) => {
@@ -148,7 +169,43 @@ registerApp({
             input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { isRenaming = false; renderFiles(); } });
           }
 
-          // ── Render icon view ─────────────────────────────────────────
+          // ── Selection UI Sync ────────────────────────────────────────
+          function updateSelectionVisuals() {
+            if (viewMode === 'icon') {
+              Array.from(filesGrid.children).forEach(item => {
+                if (item._fileNode) {
+                  item.classList.toggle('selected', selectedIds.has(item._fileNode.id));
+                }
+              });
+            } else {
+              Array.from(listBody.children).forEach(row => {
+                if (row._fileNode) {
+                  row.style.background = selectedIds.has(row._fileNode.id) ? 'var(--accent-muted)' : '';
+                }
+              });
+            }
+            
+            const selCount = selectedIds.size;
+            if (selCount > 0) {
+              const totalSize = currentFilesCache.filter(f => selectedIds.has(f.id)).reduce((s, f) => s + (f.size || 0), 0);
+              statusBar.textContent = `${selCount} of ${currentFilesCache.length} selected${totalSize > 0 ? ' — ' + formatBytes(totalSize) : ''}`;
+            } else {
+              statusBar.textContent = `${currentFilesCache.length} item${currentFilesCache.length !== 1 ? 's' : ''}`;
+            }
+          }
+
+          function handleSelectionEvent(e, fileId) {
+            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+              selectedIds.has(fileId) ? selectedIds.delete(fileId) : selectedIds.add(fileId);
+            } else {
+              if (!selectedIds.has(fileId)) {
+                selectedIds.clear(); selectedIds.add(fileId);
+              }
+            }
+            updateSelectionVisuals();
+          }
+
+          // ── Optimized Icon View Generator ────────────────────────────
           function renderFileList(files) {
             filesGrid.innerHTML = '';
             if (!files.length) {
@@ -156,97 +213,114 @@ registerApp({
               statusBar.textContent = 'Empty';
               return;
             }
+
+            const fragment = document.createDocumentFragment();
             files.forEach(f => {
               const item = createEl('div', { className: 'vault-file' + (selectedIds.has(f.id) ? ' selected' : ''), role: 'gridcell', tabindex: '0' });
               item._fileNode = f;
 
               const iconDiv = createEl('div', { className: 'vault-file-icon', style: 'position:relative;' });
               iconDiv.innerHTML = svgIcon(f.type === 'folder' ? 'folder' : FS.getMimeIcon(f.mimeType, f.name), 36);
-              if (f.tags && f.tags[0]) {
-                const dot = createEl('div', { style: `position:absolute;bottom:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--${f.tags[0] === 'red' ? 'text-danger' : f.tags[0] === 'green' ? 'text-success' : f.tags[0] === 'blue' ? 'accent' : 'text-warning'});` });
+              if (f.tags?.[0]) {
+                const colorMap = { red: 'text-danger', green: 'text-success', blue: 'accent', yellow: 'text-warning' };
+                const dot = createEl('div', { style: `position:absolute;bottom:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--${colorMap[f.tags[0]] || 'text-warning'});` });
                 iconDiv.appendChild(dot);
               }
 
               const nameDiv = createEl('div', { className: 'vault-file-name', textContent: f.name });
-              item.appendChild(iconDiv);
-              item.appendChild(nameDiv);
-
-              item.addEventListener('click', e => {
-                if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                  selectedIds.has(f.id) ? selectedIds.delete(f.id) : selectedIds.add(f.id);
-                } else if (!selectedIds.has(f.id)) {
-                  selectedIds.clear(); selectedIds.add(f.id);
-                }
-                renderFileList(files);
-              });
-              item.addEventListener('dblclick', () => { if (f.type === 'folder') navigateTo(f.id); else openFileWithDefaultApp(f); });
-              item.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); selectedIds.add(f.id); renderFileList(files); showFileContextMenu(e.clientX, e.clientY, f, files); });
-              item.addEventListener('keydown', e => {
-                if (e.key === 'Enter') { if (f.type === 'folder') navigateTo(f.id); else openFileWithDefaultApp(f); }
-                if (e.key === 'F2') inlineRename(f, nameDiv);
-                if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); trashSelected(files); }
-              });
-
-              filesGrid.appendChild(item);
+              item.append(iconDiv, nameDiv);
+              fragment.appendChild(item);
             });
-
-            const selCount = selectedIds.size;
-            if (selCount > 0) {
-              const totalSize = files.filter(f => selectedIds.has(f.id)).reduce((s, f) => s + (f.size || 0), 0);
-              statusBar.textContent = `${selCount} of ${files.length} selected${totalSize > 0 ? ' — ' + formatBytes(totalSize) : ''}`;
-            } else {
-              statusBar.textContent = `${files.length} item${files.length !== 1 ? 's' : ''}`;
-            }
+            filesGrid.appendChild(fragment);
+            updateSelectionVisuals();
           }
 
-          // ── Render list view ─────────────────────────────────────────
+          // ── Optimized List View Generator ────────────────────────────
           function renderListView(files) {
             listBody.innerHTML = '';
+            const fragment = document.createDocumentFragment();
             files.forEach(f => {
-              const row = createEl('div', { style: 'display:grid;grid-template-columns:1fr 80px 120px 110px;align-items:center;border-bottom:1px solid var(--border-subtle);cursor:pointer;transition:background var(--t-fast);' + (selectedIds.has(f.id) ? 'background:var(--accent-muted);' : '') });
+              const row = createEl('div', { style: 'display:grid;grid-template-columns:1fr 80px 120px 110px;align-items:center;border-bottom:1px solid var(--border-subtle);cursor:pointer;transition:background var(--t-fast);' });
               row._fileNode = f;
+              
               const nameCell = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:6px 12px;min-width:0;' });
-              const ic = createEl('span', { style: 'flex-shrink:0;color:var(--text-muted);' }); ic.innerHTML = svgIcon(f.type === 'folder' ? 'folder' : FS.getMimeIcon(f.mimeType, f.name), 16);
+              const ic = createEl('span', { style: 'flex-shrink:0;color:var(--text-muted);' }); 
+              ic.innerHTML = svgIcon(f.type === 'folder' ? 'folder' : FS.getMimeIcon(f.mimeType, f.name), 16);
               const nm = createEl('span', { style: 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', textContent: f.name });
-              nameCell.appendChild(ic); nameCell.appendChild(nm);
+              nameCell.append(ic, nm);
+              
               const sizeCell = createEl('div', { style: 'padding:6px 12px;font-size:12px;color:var(--text-secondary);', textContent: f.type === 'folder' ? '—' : formatBytes(f.size || 0) });
               const typeCell = createEl('div', { style: 'padding:6px 12px;font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', textContent: f.type === 'folder' ? 'Folder' : (f.mimeType?.split('/')[1] || 'File').toUpperCase() });
               const dateCell = createEl('div', { style: 'padding:6px 12px;font-size:12px;color:var(--text-secondary);', textContent: new Date(f.modified || Date.now()).toLocaleDateString() });
-              row.appendChild(nameCell); row.appendChild(sizeCell); row.appendChild(typeCell); row.appendChild(dateCell);
-              row.addEventListener('mouseenter', () => { if (!selectedIds.has(f.id)) row.style.background = 'rgba(255,255,255,0.04)'; });
-              row.addEventListener('mouseleave', () => { if (!selectedIds.has(f.id)) row.style.background = ''; });
-              row.addEventListener('click', e => {
-                if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                  selectedIds.has(f.id) ? selectedIds.delete(f.id) : selectedIds.add(f.id);
-                } else if (!selectedIds.has(f.id)) {
-                  selectedIds.clear(); selectedIds.add(f.id);
-                }
-                renderListView(files);
-              });
-              row.addEventListener('dblclick', () => { if (f.type === 'folder') navigateTo(f.id); else openFileWithDefaultApp(f); });
-              row.addEventListener('contextmenu', e => { e.preventDefault(); selectedIds.add(f.id); renderListView(files); showFileContextMenu(e.clientX, e.clientY, f, files); });
-              listBody.appendChild(row);
+              
+              row.append(nameCell, sizeCell, typeCell, dateCell);
+              fragment.appendChild(row);
             });
-            const selCount = selectedIds.size;
-            statusBar.textContent = selCount > 0 ? `${selCount} of ${files.length} selected` : `${files.length} item${files.length !== 1 ? 's' : ''}`;
+            listBody.appendChild(fragment);
+            updateSelectionVisuals();
           }
+
+          // ── Centralized Event Delegation for File Items ──────────────
+          function attachDelegatedHandlers(parentElement) {
+            parentElement.addEventListener('click', e => {
+              const targetItem = e.target.closest('.vault-file, [style*="grid-template-columns"]');
+              if (targetItem?._fileNode) handleSelectionEvent(e, targetItem._fileNode.id);
+            });
+
+            parentElement.addEventListener('dblclick', e => {
+              const targetItem = e.target.closest('.vault-file, [style*="grid-template-columns"]');
+              if (targetItem?._fileNode) {
+                const f = targetItem._fileNode;
+                if (f.type === 'folder') navigateTo(f.id); else openFileWithDefaultApp(f);
+              }
+            });
+
+            parentElement.addEventListener('contextmenu', e => {
+              const targetItem = e.target.closest('.vault-file, [style*="grid-template-columns"]');
+              if (targetItem?._fileNode) {
+                e.preventDefault(); e.stopPropagation();
+                const f = targetItem._fileNode;
+                selectedIds.add(f.id);
+                updateSelectionVisuals();
+                showFileContextMenu(e.clientX, e.clientY, f, currentFilesCache);
+              }
+            });
+          }
+
+          attachDelegatedHandlers(filesGrid);
+          attachDelegatedHandlers(listBody);
+
+          listBody.addEventListener('mouseenter', e => {
+            const row = e.target.closest('[style*="grid-template-columns"]');
+            if (row?._fileNode && !selectedIds.has(row._fileNode.id)) row.style.background = 'rgba(255,255,255,0.04)';
+          }, { capture: true });
+
+          listBody.addEventListener('mouseleave', e => {
+            const row = e.target.closest('[style*="grid-template-columns"]');
+            if (row?._fileNode && !selectedIds.has(row._fileNode.id)) row.style.background = '';
+          }, { capture: true });
 
           // ── Main render ──────────────────────────────────────────────
           function renderFiles(searchQuery) {
             updatePathBar();
             let files = FS.listDir(nav.cwd);
-            if (searchQuery) files = files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
-            files = sortFiles(files);
+            if (searchQuery) {
+              const q = searchQuery.toLowerCase();
+              files = files.filter(f => f.name.toLowerCase().includes(q));
+            }
+            currentFilesCache = sortFiles(files);
+            
             filesGrid.style.display = viewMode === 'icon' ? 'grid' : 'none';
             listView.style.display = viewMode === 'list' ? 'flex' : 'none';
-            if (viewMode === 'icon') renderFileList(files);
-            else renderListView(files);
+            
+            if (viewMode === 'icon') renderFileList(currentFilesCache);
+            else renderListView(currentFilesCache);
           }
 
           // ── Context menu ─────────────────────────────────────────────
           function showFileContextMenu(x, y, f, files) {
             const inTrash = nav.cwd === FS.specialFolders.trash;
-            const isHtml = f.type !== 'folder' && (f.name.endsWith('.html') || f.name.endsWith('.htm') || (f.mimeType || '') === 'text/html');
+            const isHtml = f.type !== 'folder' && (f.name.endsWith('.html') || f.name.endsWith('.htm') || f.mimeType === 'text/html');
             ContextMenu.show(x, y, [
               { label: 'Open', icon: 'eye', action: () => { if (f.type === 'folder') navigateTo(f.id); else openFileWithDefaultApp(f); } },
               ...(isHtml ? [{ label: 'Edit in Text Editor', icon: 'edit', action: () => WM.createWindow('quill', { fileId: f.id }) }] : []),
@@ -255,7 +329,7 @@ registerApp({
                 label: 'Rename', icon: 'file-text', shortcut: 'F2', action: async () => {
                   if (OS.settings.get('filesViewOnly')) { Notify.show({ title: 'Blocked', body: 'Renaming disabled.', type: 'warning', appName: 'Files' }); return; }
                   const nameEl = filesGrid.querySelector('.vault-file.selected .vault-file-name');
-                  if (nameEl && nameEl.tagName) inlineRename(f, nameEl);
+                  if (nameEl?.tagName) inlineRename(f, nameEl);
                   else { const name = await showPrompt('Rename', f.name); if (name && name !== f.name) { await FS.rename(f.id, name); renderFiles(); renderDesktopIcons(); } }
                 }
               },
@@ -309,7 +383,7 @@ registerApp({
                 { label: 'View: Icons', action: () => { viewMode = 'icon'; renderFiles(); } },
                 { label: 'View: List', action: () => { viewMode = 'list'; renderFiles(); } },
                 { separator: true },
-                { label: 'Select All', action: () => { FS.listDir(nav.cwd).forEach(f => selectedIds.add(f.id)); renderFiles(); } }]);
+                { label: 'Select All', action: () => { FS.listDir(nav.cwd).forEach(f => selectedIds.add(f.id)); updateSelectionVisuals(); } }]);
             }
           });
 
@@ -338,15 +412,15 @@ registerApp({
           // ── Keyboard shortcuts ───────────────────────────────────────
           const _kd = e => {
             const win = content.closest('.app-window');
-            if (!win || win.dataset.appId !== 'vault') return;
+            if (win?.dataset.appId !== 'vault') return;
             const ae = document.activeElement;
             if (ae === pathBar || ae === searchInput) return;
             if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
             if ((e.key === 'Backspace' && !e.altKey) || (e.key === 'ArrowLeft' && e.altKey)) { e.preventDefault(); goBack(); }
             if (e.key === 'ArrowUp' && e.altKey) { e.preventDefault(); goUp(); }
-            if (e.key === 'F2') { const sel = filesGrid.querySelector('.vault-file.selected'); if (sel && sel._fileNode) { const nm = sel.querySelector('.vault-file-name'); if (nm) inlineRename(sel._fileNode, nm); } }
+            if (e.key === 'F2') { const sel = filesGrid.querySelector('.vault-file.selected'); if (sel?._fileNode) { const nm = sel.querySelector('.vault-file-name'); if (nm) inlineRename(sel._fileNode, nm); } }
             if (e.key === 'Delete') { e.preventDefault(); trashSelected(); }
-            if (e.ctrlKey && e.key === 'a') { e.preventDefault(); FS.listDir(nav.cwd).forEach(f => selectedIds.add(f.id)); renderFiles(); }
+            if (e.ctrlKey && e.key === 'a') { e.preventDefault(); FS.listDir(nav.cwd).forEach(f => selectedIds.add(f.id)); updateSelectionVisuals(); }
             if (e.ctrlKey && e.key === 'l') { e.preventDefault(); pathBar.focus(); pathBar.select(); }
             if (e.ctrlKey && e.key === 'f') { e.preventDefault(); searchInput.focus(); }
           };
@@ -354,21 +428,31 @@ registerApp({
           state.cleanups.push(() => document.removeEventListener('keydown', _kd));
 
           // ── Init ─────────────────────────────────────────────────────
-          renderFiles();
+          ensureDefaultSystemFolders().then(() => {
+            renderFiles();
+          });
+        },
+
+        // ── Static Extension Map for onDrop Optimization ─────────────
+        _extMap: { 
+          jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', 
+          webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', mp3: 'audio/mpeg', 
+          mp4: 'audio/mp4', ogg: 'audio/ogg', wav: 'audio/wav', flac: 'audio/flac', 
+          m4a: 'audio/mp4', aac: 'audio/aac', opus: 'audio/ogg; codecs=opus', 
+          weba: 'audio/webm', webm: 'audio/webm', pdf: 'application/pdf', 
+          txt: 'text/plain', md: 'text/markdown', json: 'application/json' 
         },
 
         async onDrop(file, state) {
           try {
             const fileId = generateId();
             const fileData = await file.arrayBuffer();
-            // Resolve MIME type — browsers sometimes leave file.type empty for less common formats
             let mime = file.type;
             if (!mime) {
               const ext = file.name.split('.').pop().toLowerCase();
-              const extMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', mp3: 'audio/mpeg', mp4: 'audio/mp4', ogg: 'audio/ogg', wav: 'audio/wav', flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac', opus: 'audio/ogg; codecs=opus', weba: 'audio/webm', webm: 'audio/webm', pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', json: 'application/json' };
-              mime = extMap[ext] || 'application/octet-stream';
+              mime = this._extMap[ext] || 'application/octet-stream';
             }
-            const parentId = (state._nav && state._nav.cwd) || FS.specialFolders.desktop || FS.rootId;
+            const parentId = state._nav?.cwd || FS.specialFolders.desktop || FS.rootId;
             const node = { id: fileId, name: file.name, type: 'file', size: file.size, content: new Uint8Array(fileData), mimeType: mime, parentId, modified: Date.now() };
             FS.files.set(fileId, node);
             await OS.workers.fs.call('putFiles', [node]);
@@ -379,5 +463,3 @@ registerApp({
           }
         }
       });
-
-
