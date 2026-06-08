@@ -5,13 +5,19 @@ registerApp({
         init(content, state, options) {
           // ── NovaByte runtime guard — refuses to launch without AppDirs ──
           if (!window.AppDirs?.getVFSDir('com.nbosp.email', 'files')) {
-            content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-            content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.email</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+            // Create guard stylesheet with nonce before applying to avoid CSP violation
+            const guardStyle = document.createElement('style');
+            guardStyle.setAttribute('nonce', window.__cspNonce || '');
+            guardStyle.textContent = `.em-guard{display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);}.em-guard>div:first-child{font-size:32px;}.em-guard>div:last-child{font-size:14px;text-align:center;}`;
+            document.head.appendChild(guardStyle);
+            content.className = 'em-guard';
+            content.innerHTML = '<div>⚠️</div><div><b>com.nbosp.email</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
             return;
           }
 
           // ── CSS
           const _style = document.createElement('style');
+          _style.setAttribute('nonce', window.__cspNonce || '');
           _style.textContent = `
       .em-root{display:flex;flex-direction:column;height:100%;overflow:hidden;font-size:13px;}
       .em-toolbar{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border);background:var(--bg-elevated);flex-shrink:0;}
@@ -622,7 +628,6 @@ registerApp({
                 sandbox: 'allow-popups allow-popups-to-escape-sandbox',
                 title: 'Email body', referrerpolicy: 'no-referrer'
               });
-              iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;display:block;';
               const html = full.html;
               const sanitized = (() => {
                 if (typeof DOMPurify === 'undefined') return html;

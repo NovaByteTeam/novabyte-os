@@ -7,7 +7,7 @@ const express = require('express');
 const router = express.Router();
 
 // Import services
-const securityMiddleware = require('./security-middleware');
+const securityMiddleware = require('./middleware');
 
 // No-op audit service stub (v3 audit logging service was stripped)
 // In-memory failed login attempt tracking for rate limiting (SEC3)

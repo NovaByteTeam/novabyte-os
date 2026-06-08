@@ -300,6 +300,128 @@ If you meet the above criteria and want to bundle NovaByte Services into your OS
 
 -----
 
+## 🏗️ NBOSP Server Architecture — Modular & Security-First
+
+The NBOSP backend (`NBOSP/server/`) has been refactored into a clean, modular architecture with separation of concerns, making it easy to maintain, test, and extend.
+
+### Server Folder Structure
+
+```
+server/
+  ├── index.js          # Main Express entry point (330 lines)
+  ├── middleware.js     # Security stack: CSP, CORS, rate limiting, sessions (250 lines)
+  ├── ssl.js           # HTTPS/HTTP server factory with graceful fallback (50 lines)
+  ├── env.js           # Environment validation with fallback seeds (50 lines)
+  ├── routes.js        # Sub-router mounting (security + email APIs)
+  ├── favicons.js      # Favicon proxy with SSRF protection + DB caching (400 lines)
+  └── proxies.js       # Search suggest & email image proxies (500 lines)
+```
+
+### Key Features
+
+#### Content Security Policy (CSP) — Nonce-Based
+
+- **Unique nonce per request** — `crypto.randomBytes(16)` generates a fresh base64 nonce on every page load
+- **Automatic injection** — Server regex injects the nonce into every `<script>` and `<style>` tag in `index.html`
+- **Global exposure** — Nonce is exposed via `window.__cspNonce` for dynamic element creation
+- **No unsafe-inline** — CSP header explicitly forbids inline scripts/styles without nonce
+
+**How it works:**
+
+1. Middleware generates: `res.locals.nonce = crypto.randomBytes(16).toString('base64')`
+2. Helmet CSP header includes: `'nonce-${nonce}'` for script and style directives
+3. GET / route rewrites HTML: `/<script([\s>])/g` → `<script nonce="${nonce}"`
+4. Frontend apps use: `setAttribute('nonce', window.__cspNonce)` for dynamic styles
+
+#### Security Layers
+
+| Layer | What it does |
+|-------|-------------|
+| **Helmet CSP** | Enforces strict Content Security Policy with nonce-based script/style execution |
+| **CORS** | Configurable origins, credentials, methods, and allowed headers |
+| **Rate Limiting** | Tiered limits per endpoint (general, email, favicon, suggest, email image) |
+| **CSRF Protection** | Session-based CSRF tokens with secure, httpOnly cookies |
+| **Session Management** | Express-session with 24h expiry, sameSite=lax, secure on production |
+| **SSRF Guards** | Private IP blocking on all proxy endpoints (favicon, email image proxy) |
+| **Tracking Strippers** | Remove utm_*, fbclid, gclid, and 50+ tracking parameters before proxying |
+| **Security Headers** | X-Content-Type-Options, X-XSS-Protection, CORP policies |
+
+#### Modular Proxies
+
+**Search Suggest Proxy** (`GET /api/suggest?q=...&engine=...`)
+- Supports: Google, DuckDuckGo, Bing, Brave, Ecosia, Yahoo
+- Relay-first strategy: routes through `suggest-relay.onrender.com` (IP masking)
+- Fallback to direct if relay unreachable
+- Cache: 60s TTL, 2000 entry cap
+- Rate limit: 120 req/min per IP
+
+**Email Image Proxy** (`GET /api/email-image?url=...`)
+- Strips tracking parameters (utm_*, fbclid, gclid, etc.)
+- SSRF protection: blocks private IP ranges
+- Inline redirect validation (max 5 hops)
+- Cache: 1h TTL, 200 entry cap
+- Default: 1x1 transparent PNG on error
+- Rate limit: 500 req/min per IP
+
+**Favicon Proxy** (`GET /api/favicon?domain=...`)
+- Fetches favicons from domain with SSRF protection
+- SQLite database cache (better-sqlite3)
+- 24h TTL per entry, max 500 entries, LRU eviction
+- Fallback chain: direct → DuckDuckGo icon service
+- MIME detection: PNG, GIF, JPEG, WebP, AVIF, ICO, SVG
+- ICO parsing: extracts best PNG frame from ICO files
+
+#### Environment Configuration
+
+Sensible defaults for development with fallback secrets:
+
+```javascript
+// Development fallbacks (git-ignored in production)
+NBOSP_CRED_KEY=abcd1234... (AES-GCM-SIV key for email credentials)
+SESSION_SECRET=efgh5678... (express-session signing key)
+PORT=3003
+CORS_ORIGIN=https://localhost:3003
+```
+
+Validation ensures:
+- Numeric vars are in valid ranges (PORT: 1-65535)
+- Secrets are hex strings 32+ chars
+- CORS origins include https://
+
+### Startup Flow
+
+```
+npm start
+  ↓
+scripts/startup.js spawns Node
+  ↓
+server/index.js boots Express
+  ↓
+setupMiddleware(app) ← Helmet, CORS, rate limiting, CSP nonce
+  ↓
+GET / with nonce injection ← Runs BEFORE static middleware
+  ↓
+Static assets served ← /js, /assets, /css (except index.html)
+  ↓
+Favicon/proxy/security routes mounted
+  ↓
+Listen on 127.0.0.1:3003 (or HTTPS if certs present)
+```
+
+### Extension Points
+
+To add new features to NBOSP, you have clear entry points:
+
+1. **New API endpoint?** → Add to `security/routes.js` or `email/index.js`
+2. **New proxy/relay?** → Add to `server/proxies.js` or create a new module
+3. **New middleware?** → Add to `server/middleware.js` or create in `security/middleware.js`
+4. **New rate limit tier?** → Define in `server/middleware.js` and mount in `server/index.js`
+5. **Configuration changes?** → Edit `server/env.js` for env vars or Helmet CSP in middleware
+
+All modules are independent and require only their immediate dependencies — no global state, no tight coupling.
+
+-----
+
 ## 🔒 Repository Notice — v1, v2, and v3
 
 > [!CAUTION]
@@ -386,28 +508,79 @@ Download the compiled exe from [Releases](https://github.com/NovaByteTeam/novaby
 ```
 novabyte-os/
 ├── NBOSP/                           # NovaByte Open Source Project (free, no rules)
-│   ├── index.html
-│   ├── server.js
-│   ├── client.js
+│   ├── index.html                   # Single entry point (nonce injection target)
+│   ├── style.css                    # Global styles
+│   ├── ui-init.js                   # UI initialization hooks
+│   ├── trackers.js                  # Generated tracker data (from build script)
+│   ├── client.js                    # Minimal ~11-line entry point stub
+│   ├── server/                      # Backend modules
+│   │   ├── index.js                 # Main Express entry point (330 lines)
+│   │   ├── middleware.js            # Helmet CSP, CORS, rate limiting, CSRF, sessions (250 lines)
+│   │   ├── ssl.js                   # HTTPS/HTTP server factory with graceful fallback (50 lines)
+│   │   ├── env.js                   # Environment validation with fallback secrets (50 lines)
+│   │   ├── routes.js                # Sub-router composition and mounting
+│   │   ├── favicons.js              # Favicon proxy with SSRF protection, DB caching (400 lines)
+│   │   └── proxies.js               # Search suggest & email image proxies (500 lines)
+│   ├── scripts/                     # Launcher modules
+│   │   ├── startup.js               # NW.js app initialization, window spawn, logging streams
+│   │   ├── env.js                   # Platform-specific environment validation, secret generation
+│   │   ├── certs.js                 # HTTPS certificate generation and validation
+│   │   ├── ca-trust.js              # Local CA trust (Windows certutil, macOS security, Linux NSS)
+│   │   ├── bootstrap.js             # Dependency auto-install, first-run setup, self-healing config
+│   │   ├── logger.js                # Centralized logging and output capture
+│   │   └── utils.js                 # Shared utilities for platform-specific operations
+│   ├── security/                    # Security modules
+│   │   ├── routes.js                # Security API endpoints (strip tracking, etc.)
+│   │   └── middleware.js            # CSRF validation, IP blocking, request validation
+│   ├── email/                       # Email modules
+│   │   ├── index.js                 # Route definitions and account management
+│   │   ├── controller.js            # Request handlers and business logic
+│   │   ├── credentials.js           # Encrypted credential storage and retrieval
+│   │   ├── imapClient.js            # IMAP connection and message fetching
+│   │   ├── pop3Client.js            # POP3 connection and message fetching
+│   │   └── ewsClient.js             # Exchange Web Services (EWS) client
 │   ├── js/
-│   │   ├── app-init.js              # OS Initialization & Security Policies
-│   │   ├── app-utils.js             # Core Functional Utilities
-│   │   ├── app-utils2.js            # Supplemental System Utilities
-│   │   ├── app-workers.js           # Multi-threaded Worker Blobs
-│   │   ├── app-kernel.js            # Core Kernel Operations
-│   │   ├── app-fs.js                # Virtual Filesystem API
-│   │   ├── app-wm.js                # Desktop Window Manager
-│   │   ├── app-notifications.js     # System Notification UI
-│   │   ├── app-menu.js              # Global Context Menus
-│   │   ├── app-modals.js            # Modal Dialog Services
-│   │   ├── app-registry-core.js     # App Registry Engine & Global Exposer
-│   │   ├── app-boot.js              # Main System Boot Sequence
-│   │   ├── app-events.js            # Global Event Loop & DOM Listeners
-│   │   └── apps/                    # Independent App Modules
-│   │       ├── files.js
-│   │       ├── textedit.js
-│   │       ├── terminal.js
-│   │       └── [other apps...]
+│   │   ├── core/                    # Core system modules
+│   │   │   ├── app-boot.js          # Boot sequence and startup orchestration
+│   │   │   ├── app-events.js        # Global event bus
+│   │   │   ├── app-fs.js            # Virtual filesystem API
+│   │   │   ├── app-init.js          # Security & initialization
+│   │   │   ├── app-kernel.js        # Kernel loop
+│   │   │   ├── app-menu.js          # Context menu system
+│   │   │   ├── app-modals.js        # Modal dialog system
+│   │   │   ├── app-notifications.js # Notification system
+│   │   │   ├── app-registry-core.js # Core app registry
+│   │   │   ├── app-utils.js         # Shared utilities
+│   │   │   ├── app-utils2.js        # Extended utilities
+│   │   │   ├── app-wm.js            # Desktop window manager
+│   │   │   └── app-workers.js       # Multi-threaded worker management
+│   │   ├── platform/                # Platform framework modules
+│   │   │   ├── frame-security.js    # NW.js frame security validation
+│   │   │   ├── app-sandbox.js       # App sandbox enforcement
+│   │   │   ├── app-permission-manager.js # Permission system
+│   │   │   ├── app-registry.js      # Full app registry
+│   │   │   ├── app-package.js       # App package management
+│   │   │   ├── my-apps-manager.js   # User app management
+│   │   │   ├── safe-storage.js      # Secure storage abstraction
+│   │   │   └── web-app-manager.js   # Web app management
+│   │   └── apps/                    # Standalone applications
+│   │       ├── files.js             # File manager
+│   │       ├── terminal.js          # Terminal emulator
+│   │       ├── calculator.js        # Calculator
+│   │       ├── email.js             # Email client (IMAP/POP3/Exchange)
+│   │       ├── browser.js           # Web browser (NW.js WebView)
+│   │       ├── calendar.js          # Calendar
+│   │       ├── clock.js             # Clock, alarms, timers
+│   │       ├── contacts.js          # Contact manager
+│   │       ├── downloads.js         # Downloads manager
+│   │       ├── gallery.js           # Image gallery/viewer
+│   │       ├── music.js             # Music player
+│   │       ├── search.js            # System-wide search
+│   │       ├── settings.js          # Settings panel
+│   │       ├── textedit.js          # Text editor
+│   │       └── appmanager.js        # App manager/installer
+│   ├── data/
+│   │   └── favicons.db              # Persistent SQLite favicon cache
 │   ├── assets/
 │   └── LICENSE
 ├── .gitignore
@@ -417,9 +590,18 @@ novabyte-os/
 
 > v1/, v2/, and v3/ are closed source and not included in this repository.
 
-### 🧩 Architecture Note: Flat-Module Isolation
+### 🧩 Architecture Note: Modular Isolation
 
-NBOSP utilizes a highly maintainable, **Flat-Module Architecture**. Core subsystems and standalone applications are completely separated into dedicated files to ensure modular development without performance overhead.
+NBOSP uses a fully decoupled modular architecture. The original monolithic `app.js` (14,000+ lines), `server.js` (~1,450 lines), and `client.js` (400+ lines) have been split into **57 modular files** across clearly separated layers:
+
+| Layer | Location | Count |
+|---|---|---|
+| Backend modules | `server/` | 7 files |
+| Launcher modules | `scripts/` | 7 files |
+| Frontend core | `js/core/` | 13 files |
+| Frontend platform | `js/platform/` | 8 files |
+| Standalone apps | `js/apps/` | 15 files |
+| Security / Email | `security/`, `email/` | 8 files |
 
 To maintain cross-script communication across individual files without monolithic bundling:
 * **Global Exposures:** Core modules explicitly bind their APIs to the global browser execution context (e.g., `window.Notify = Notify;`, `window.registerApp = registerApp;`) at the foot of their files.

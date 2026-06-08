@@ -695,10 +695,10 @@
   <!-- Performance & Efficiency Optimization Modules -->
   <!-- Performance Configuration (must load first) -->
   <!-- NW.js Frame Security (must load early, before app sandbox) -->
-  <script src="/js/frame-security.js">
+  <script src="/js/platform/frame-security.js">
   </script>
   <!-- App Sandbox with Frame Security Validation -->
-  <script src="/js/app-sandbox.js">
+  <script src="/js/platform/app-sandbox.js">
   </script>
   <!-- IndexedDB Manager for large app data storage -->
   <!-- Memory Manager for app unload on inactivity and garbage collection -->
@@ -738,35 +738,7 @@
   <script src="/js/purify.min.js"></script>
   <script src="ui-init.js">
   </script>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  
   <!-- Complete Keyboard Developer Tool Pack -->
   <script>
     window.addEventListener('keydown', function(e) {
@@ -784,43 +756,16 @@
     });
   </script>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  <script src="js/app-init.js"></script>
-  <script src="js/app-utils.js"></script>
-  <script src="js/app-workers.js"></script>
-  <script src="js/app-kernel.js"></script>
-  <script src="js/app-fs.js"></script>
-  <script src="js/app-wm.js"></script>
-  <script src="js/app-notifications.js"></script>
-  <script src="js/app-menu.js"></script>
-  <script src="js/app-modals.js"></script>
-  <script src="js/app-registry-core.js"></script>
+  <script src="js/core/app-init.js"></script>
+  <script src="js/core/app-utils.js"></script>
+  <script src="js/core/app-workers.js"></script>
+  <script src="js/core/app-kernel.js"></script>
+  <script src="js/core/app-fs.js"></script>
+  <script src="js/core/app-wm.js"></script>
+  <script src="js/core/app-notifications.js"></script>
+  <script src="js/core/app-menu.js"></script>
+  <script src="js/core/app-modals.js"></script>
+  <script src="js/core/app-registry-core.js"></script>
   <script src="js/apps/files.js"></script>
   <script src="js/apps/textedit.js"></script>
   <script src="js/apps/terminal.js"></script>
@@ -830,9 +775,9 @@
   <script src="js/apps/calculator.js"></script>
   <script src="js/apps/appmanager.js"></script>
   <script src="js/apps/clock.js"></script>
-  <script src="js/app-utils2.js"></script>
-  <script src="js/app-boot.js"></script>
-  <script src="js/app-events.js"></script>
+  <script src="js/core/app-utils2.js"></script>
+  <script src="js/core/app-boot.js"></script>
+  <script src="js/core/app-events.js"></script>
   <script src="js/apps/email.js"></script>
   <script src="js/apps/gallery.js"></script>
   <script src="js/apps/downloads.js"></script>

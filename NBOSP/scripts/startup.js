@@ -46,7 +46,7 @@ async function bootstrap(appDir) {
 
   const server = spawn(
     nodeBin,
-    [`--max-old-space-size=${heapMb}`, '--expose-gc', path.join(appDir, 'server.js')],
+    [`--max-old-space-size=${heapMb}`, '--expose-gc', path.join(appDir, 'server', 'index.js')],
     { cwd: appDir, stdio: ['ignore', 'pipe', 'pipe'], env: process.env }
   );
 
