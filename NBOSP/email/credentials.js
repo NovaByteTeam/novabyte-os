@@ -81,5 +81,53 @@ function startCredentialCleanup() {
 
 startCredentialCleanup();
 
+function getCredEncryptKey() {
+  if (!CRED_ENCRYPT_KEY) {
+    const seed = process.env.NBOSP_CRED_KEY;
+    if (!seed) {
+      const msg = '[Email] CRITICAL: NBOSP_CRED_KEY environment variable not set. Email credential persistence disabled for security.';
+      console.error(msg);
+      throw new Error(msg);
+    }
+    CRED_ENCRYPT_KEY = crypto.createHash('sha256').update(seed).digest();
+  }
+  return CRED_ENCRYPT_KEY;
+}
 
-module.exports = { encryptCreds, decryptCreds, sessionCredentials };
+function restoreCredsFromSession(req) {
+  // Try to restore from persistent storage if session creds are missing
+  if (!req.session?.emailCreds && req.session?.emailCredsEncrypted) {
+    try {
+      const creds = decryptCreds(req.session.emailCredsEncrypted);
+      req.session.emailCreds = creds;
+      if (req.session.id) {
+        sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
+      }
+      return true;
+    } catch (e) {
+      console.warn('[Email] Failed to decrypt restored credentials:', e.message);
+      return false;
+    }
+  }
+  return false;
+}
+
+function requireCreds(req, res, next) {
+  // Try to restore from persistent storage if session creds are missing
+  restoreCredsFromSession(req);
+  
+  if (!req.session?.emailCreds) {
+    return res.status(401).json({ error: 'Not connected. POST /api/email/connect first.' });
+  }
+  next();
+}
+
+module.exports = { 
+  encryptCreds, 
+  decryptCreds, 
+  sessionCredentials,
+  getCredEncryptKey,
+  restoreCredsFromSession,
+  requireCreds,
+  MAX_CREDENTIAL_CACHE_SIZE
+};

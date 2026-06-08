@@ -538,7 +538,8 @@ novabyte-os/
 │   │   ├── credentials.js           # Encrypted credential storage and retrieval
 │   │   ├── imapClient.js            # IMAP connection and message fetching
 │   │   ├── pop3Client.js            # POP3 connection and message fetching
-│   │   └── ewsClient.js             # Exchange Web Services (EWS) client
+│   │   ├── ewsClient.js             # Exchange Web Services (EWS) client
+│   │   └── helpers.js               # Email HTML processing: image proxying, link unwrapping, tracking blocking, sanitization
 │   ├── js/
 │   │   ├── core/                    # Core system modules
 │   │   │   ├── app-boot.js          # Boot sequence and startup orchestration

@@ -1,9 +1,17 @@
 'use strict';
-// ─────────────────────────────────────────────────────────────────────────────
-// POP3  (pop3)
-// ─────────────────────────────────────────────────────────────────────────────
 
-async function pop3Messages(creds, limit) {
+let POP3Client, PostalMime;
+
+function missingDep(name) {
+  return new Error(`Missing dependency: run "npm install ${name}"`);
+}
+
+function setDependencies(deps) {
+  POP3Client = deps.POP3Client;
+  PostalMime = deps.PostalMime;
+}
+
+async function pop3Messages(creds, limit, msgShape) {
   if (!POP3Client) throw missingDep('node-pop3');
   if (!PostalMime) throw missingDep('postal-mime');
 
@@ -53,7 +61,7 @@ async function pop3Messages(creds, limit) {
   }
 }
 
-async function pop3Message(creds, uid) {
+async function pop3Message(creds, uid, msgShape) {
   if (!POP3Client) throw missingDep('node-pop3');
   if (!PostalMime) throw missingDep('postal-mime');
 
@@ -76,5 +84,8 @@ async function pop3Message(creds, uid) {
   }
 }
 
-
-module.exports = { pop3Messages, pop3Message };
+module.exports = { 
+  setDependencies,
+  pop3Messages, 
+  pop3Message
+};

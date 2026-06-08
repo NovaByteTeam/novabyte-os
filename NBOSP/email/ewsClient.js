@@ -1,9 +1,13 @@
 'use strict';
+
 const https = require('https');
 const http = require('http');
-// ─────────────────────────────────────────────────────────────────────────────
-// Exchange EWS  (pure HTTP, no extra package)
-// ─────────────────────────────────────────────────────────────────────────────
+
+let PostalMime;
+
+function setDependencies(deps) {
+  PostalMime = deps.PostalMime;
+}
 
 function ewsReq(creds, soapBody) {
   return new Promise((resolve, reject) => {
@@ -48,6 +52,16 @@ function ewsReq(creds, soapBody) {
 function xval(xml, tag) {
   const m = xml.match(new RegExp(`<(?:[a-z]:)?${tag}[^>]*>([\\s\\S]*?)<\\/(?:[a-z]:)?${tag}>`, 'i'));
   return m ? m[1].trim() : '';
+}
+
+function escapeXmlAttr(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 async function ewsFolders(creds) {
@@ -136,7 +150,22 @@ async function ewsMessage(creds, uid) {
   const mime = xval(xml, 'MimeContent');
   if (mime && PostalMime) {
     const parser = new PostalMime();
-    return msgShape(await parser.parse(Buffer.from(mime, 'base64')));
+    // Note: msgShape is expected to be imported and called by the controller
+    const parsed = await parser.parse(Buffer.from(mime, 'base64'));
+    return {
+      subject: parsed.subject || '(no subject)',
+      from: parsed.from?.text || '',
+      to: parsed.to?.text || '',
+      cc: parsed.cc?.text || '',
+      date: parsed.date instanceof Date ? parsed.date.toISOString() : null,
+      text: parsed.text || '',
+      html: parsed.html || null,
+      attachments: (parsed.attachments || []).map(a => ({
+        filename: a.filename,
+        contentType: a.contentType || a.mimeType,
+        size: a.size || 0
+      }))
+    };
   }
   // fallback — text only from XML
   return {
@@ -147,114 +176,9 @@ async function ewsMessage(creds, uid) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function msgShape(parsed) {
-  // Handle both mailparser and PostalMime formats
-  const getAddress = (addr) => {
-    if (!addr) return '';
-    if (typeof addr === 'string') return addr;
-    if (Array.isArray(addr)) return addr.map(a => a.address || a).join(', ');
-    return addr.address || addr.text || '';
-  };
-
-  // Helper: decode top-level HTML entities that IMAP servers or PostalMime
-  // sometimes introduce (e.g. &lt;div&gt; instead of <div>).
-  // Runs two passes to handle double-encoded sequences like &amp;#39; → &#39; → '.
-  // Only decodes when the result actually contains HTML markup — avoids
-  // mangling plain-text emails that happen to contain &amp; or &lt; literally.
-  function decodeIfEntityEncoded(str) {
-    if (!str || !str.includes('&lt;')) return str;
-    function onePass(s) {
-      return s
-        .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-        .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
-        .replace(/&#39;/gi, "'").replace(/&#x27;/gi, "'")
-        .replace(/&#x2F;/gi, '/').replace(/&#x2f;/gi, '/')
-        .replace(/&amp;/gi, '&');  // &amp; last so it doesn't pre-expand others
-    }
-    let decoded = onePass(str);
-    // Second pass handles double-encoded sequences (&amp;lt; → &lt; → <)
-    if (decoded.includes('&lt;') || decoded.includes('&amp;') || decoded.includes('&#')) decoded = onePass(decoded);
-    return (/<[a-zA-Z]/.test(decoded) || /<!doctype/i.test(decoded)) ? decoded : str;
-  }
-
-  let html = parsed.html ? decodeIfEntityEncoded(parsed.html) : null;
-  let text = parsed.text || '';
-  // PostalMime sometimes sets `text` to an entity-encoded copy of the HTML body
-  // when there is no text/plain part. Detect and promote it to `html`.
-  if (!html && text) {
-    const decoded = text
-      .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-      .replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'");
-    if (/^\s*<!doctype\s+html/i.test(decoded) || /^\s*<html[\s>]/i.test(decoded)) {
-      html = decoded;
-      text = '';
-    }
-  }
-
-  return {
-    subject: parsed.subject || '(no subject)',
-    from: getAddress(parsed.from),
-    to: getAddress(parsed.to),
-    cc: getAddress(parsed.cc),
-    date: parsed.date instanceof Date ? parsed.date.toISOString() : (parsed.date || null),
-    text,
-    html,
-    attachments: (parsed.attachments || []).map(a => ({
-      filename: a.filename,
-      contentType: a.contentType || a.mimeType,
-      size: a.size || 0
-    }))
-  };
-}
-
-function requireCreds(req, res, next) {
-  // Try to restore from persistent storage if session creds are missing
-  if (!req.session?.emailCreds && req.session?.emailCredsEncrypted) {
-    try {
-      const creds = decryptCreds(req.session.emailCredsEncrypted);
-      req.session.emailCreds = creds;
-      if (req.session.id) {
-        sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
-      }
-    } catch (e) {
-      // Restore failed, fall through to error
-    }
-  }
-  
-  if (!req.session?.emailCreds) {
-    return res.status(401).json({ error: 'Not connected. POST /api/email/connect first.' });
-  }
-  next();
-}
-
-// XML escaping helper for EWS SOAP bodies
-function escapeXmlAttr(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Routes
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * GET /api/email/csrf-token
- * Returns a fresh CSRF token for the current session.
- * The client must call this on startup (and after any session loss) so that
- * subsequent POST requests — /connect, /preview, /send, etc. — have a valid
- * token to include in the X-CSRF-Token (or _csrf) header/body field.
- *
- * If csurf is not installed the endpoint still responds with ok:true and a
- * null token so the client does not need special-case handling.
- */
-
-module.exports = { ewsReq };
+module.exports = {
+  setDependencies,
+  ewsFolders,
+  ewsMessages,
+  ewsMessage
+};

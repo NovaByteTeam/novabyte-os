@@ -1,8 +1,47 @@
 'use strict';
-const path = require('path');
-// ─────────────────────────────────────────────────────────────────────────────
-// IMAP  (imapflow)
-// ─────────────────────────────────────────────────────────────────────────────
+
+// ImapFlow is imported/checked in index.js and passed in via dependency injection
+// or required here. For now we check at runtime.
+let ImapFlow, PostalMime;
+
+function missingDep(name) {
+  return new Error(`Missing dependency: run "npm install ${name}"`);
+}
+
+function setDependencies(deps) {
+  ImapFlow = deps.ImapFlow;
+  PostalMime = deps.PostalMime;
+}
+
+// Some IMAP servers or JSON serialisers encode '/' as '&#x2F;' in folder paths.
+// Decode all named/numeric HTML entities before using a path with ImapFlow.
+// Memoize results to avoid O(n) regex replacements on repeated folder paths (P1)
+const decodedPathCache = new Map();
+function decodeEntities(str) {
+  if (!str || !str.includes('&')) return str;
+  if (decodedPathCache.has(str)) return decodedPathCache.get(str);
+  const decoded = str
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  if (decodedPathCache.size > 500) {
+    const first = decodedPathCache.keys().next().value;
+    decodedPathCache.delete(first);
+  }
+  decodedPathCache.set(str, decoded);
+  return decoded;
+}
+
+// Common folder name aliases per provider (Gmail, Outlook, Yahoo, etc.)
+const FOLDER_ALIASES = {
+  inbox: ['inbox'],
+  sent: ['sent', 'sent mail', 'sent messages', 'sent items', '[gmail]/sent mail'],
+  drafts: ['drafts', 'draft', '[gmail]/drafts'],
+  trash: ['trash', 'deleted', 'deleted items', 'bin', '[gmail]/trash'],
+  spam: ['spam', 'junk', 'junk e-mail', 'junk mail', 'bulk mail', '[gmail]/spam'],
+  archive: ['archive', 'all mail', '[gmail]/all mail'],
+};
 
 async function imapConnect(creds) {
   if (!ImapFlow) throw missingDep('imapflow');
@@ -36,36 +75,6 @@ async function imapFolders(creds) {
   }
 }
 
-// Some IMAP servers or JSON serialisers encode '/' as '&#x2F;' in folder paths.
-// Decode all named/numeric HTML entities before using a path with ImapFlow.
-// Memoize results to avoid O(n) regex replacements on repeated folder paths (P1)
-const decodedPathCache = new Map();
-function decodeEntities(str) {
-  if (!str || !str.includes('&')) return str;
-  if (decodedPathCache.has(str)) return decodedPathCache.get(str);
-  const decoded = str
-    .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
-  if (decodedPathCache.size > 500) {
-    const first = decodedPathCache.keys().next().value;
-    decodedPathCache.delete(first);
-  }
-  decodedPathCache.set(str, decoded);
-  return decoded;
-}
-
-// Common folder name aliases per provider (Gmail, Outlook, Yahoo, etc.)
-const FOLDER_ALIASES = {
-  inbox: ['inbox'],
-  sent: ['sent', 'sent mail', 'sent messages', 'sent items', '[gmail]/sent mail'],
-  drafts: ['drafts', 'draft', '[gmail]/drafts'],
-  trash: ['trash', 'deleted', 'deleted items', 'bin', '[gmail]/trash'],
-  spam: ['spam', 'junk', 'junk e-mail', 'junk mail', 'bulk mail', '[gmail]/spam'],
-  archive: ['archive', 'all mail', '[gmail]/all mail'],
-};
-
 async function resolveFolder(client, folder) {
   // Decode HTML entities (e.g. &#x2F; → /) that may be embedded in stored paths.
   folder = decodeEntities(folder);
@@ -84,7 +93,7 @@ async function resolveFolder(client, folder) {
   }
 }
 
-async function imapMessages(creds, folder, page, limit) {
+async function imapMessages(creds, folder, page, limit, msgShape) {
   const client = await imapConnect(creds);
   try {
     const box = await resolveFolder(client, folder);
@@ -118,7 +127,7 @@ async function imapMessages(creds, folder, page, limit) {
   }
 }
 
-async function imapMessage(creds, folder, uid) {
+async function imapMessage(creds, folder, uid, msgShape) {
   if (!PostalMime) throw missingDep('postal-mime');
   const client = await imapConnect(creds);
   try {
@@ -136,5 +145,52 @@ async function imapMessage(creds, folder, uid) {
   }
 }
 
+async function imapBatch(creds, op, uids, folder, dest) {
+  if (!ImapFlow) throw missingDep('imapflow');
+  const client = await imapConnect(creds);
+  try {
+    await resolveFolder(client, folder);
+    if (op === 'delete') {
+      await client.messageDelete(uids, { uid: true });
+    } else if (op === 'read') {
+      await client.messageFlagsAdd(uids, ['\\Seen'], { uid: true });
+    } else if (op === 'move' && dest) {
+      await client.messageMove(uids, dest, { uid: true });
+    }
+  } finally {
+    await client.logout().catch(() => { });
+  }
+}
 
-module.exports = { imapConnect, imapFolders, imapMessages, imapMessage };
+async function imapSearch(creds, query, folder) {
+  if (!ImapFlow) throw missingDep('imapflow');
+  const client = await imapConnect(creds);
+  try {
+    await resolveFolder(client, folder);
+    const uids = await client.search({ or: [{ subject: query }, { from: query }, { body: query }] }, { uid: true });
+    const messages = [];
+    if (uids.length) {
+      for await (const msg of client.fetch(uids.slice(-40).reverse(), { envelope: true, flags: true }, { uid: true })) {
+        messages.push({
+          uid: msg.uid, subject: msg.envelope.subject || '(no subject)',
+          from: msg.envelope.from?.[0]?.address || '', date: msg.envelope.date, seen: msg.flags.has('\\Seen')
+        });
+      }
+    }
+    return messages;
+  } finally { 
+    await client.logout().catch(() => { }); 
+  }
+}
+
+module.exports = { 
+  setDependencies,
+  imapConnect, 
+  imapFolders, 
+  imapMessages, 
+  imapMessage,
+  imapBatch,
+  imapSearch,
+  resolveFolder,
+  decodeEntities
+};
