@@ -7,8 +7,8 @@ function configureSSL(app) {
     let server;
     
     // Resolve absolute paths to the correct 'cert.key' and 'cert.crt' in the root directory
-    const keyPath = path.resolve(__dirname, '..', 'cert.key');
-    const certPath = path.resolve(__dirname, '..', 'cert.crt');
+    const keyPath = path.resolve(__dirname, '..', '..', 'cert.key');
+    const certPath = path.resolve(__dirname, '..', '..', 'cert.crt');
 
     try {
         const httpsOptions = {

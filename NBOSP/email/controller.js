@@ -7,9 +7,9 @@ const path = require('path');
 
 // Import modules
 const { encryptCreds, decryptCreds, sessionCredentials, restoreCredsFromSession, requireCreds } = require('./credentials');
-const imapClient = require('./imapClient');
-const pop3Client = require('./pop3Client');
-const ewsClient = require('./ewsClient');
+const imapClient = require('./protocols/imapClient');
+const pop3Client = require('./protocols/pop3Client');
+const ewsClient = require('./protocols/ewsClient');
 const { msgShape, rewriteEmailImages, rewriteEmailLinks, sanitizeEmailHtml, setTrackerDomains } = require('./helpers');
 
 // Optional dependencies

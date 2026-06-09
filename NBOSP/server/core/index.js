@@ -11,10 +11,10 @@ const app = express();
 
 const { validateEnvironment } = require('./env');
 const { configureSSL } = require('./ssl');
-const { setupMiddleware } = require('./middleware');
-const { mountRoutes } = require('./routes');
-const { setupFaviconRoutes } = require('./favicons');
-const { setupSuggestProxy, setupEmailImageProxy } = require('./proxies');
+const { setupMiddleware } = require('../middleware');
+const { mountRoutes } = require('../routes');
+const { setupFaviconRoutes } = require('../favicons');
+const { setupSuggestProxy, setupEmailImageProxy } = require('../proxies');
 
 // Global error handlers
 process.on('uncaughtException', (error) => {
@@ -40,11 +40,11 @@ setupMiddleware(app);
 let _indexHtmlRaw = null;
 async function getIndexHtml() {
     if (!_indexHtmlRaw) {
-        _indexHtmlRaw = await fs.promises.readFile(path.join(__dirname, '..', 'index.html'), 'utf8');
+        _indexHtmlRaw = await fs.promises.readFile(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
     }
     return _indexHtmlRaw;
 }
-fs.watch(path.join(__dirname, '..', 'index.html'), () => { _indexHtmlRaw = null; });
+fs.watch(path.join(__dirname, '..', '..', 'index.html'), () => { _indexHtmlRaw = null; });
 
 // GET / with nonce injection (MUST come before static middleware!)
 app.get('/', async (req, res) => {
@@ -81,10 +81,10 @@ const jsCacheOptions = {
 };
 
 // Serve static assets (but NOT index.html — handled by GET / route above)
-app.use(express.static(path.resolve(__dirname, '..'), { ignore: ['index.html'] }));
-app.use('/assets', express.static(path.join(__dirname, '..', 'assets'), cacheOptions));
-app.use('/js', express.static(path.join(__dirname, '..', 'js'), jsCacheOptions));
-app.use('/css', express.static(path.join(__dirname, '..', 'css'), cacheOptions));
+app.use(express.static(path.resolve(__dirname, '..', '..'), { ignore: ['index.html'] }));
+app.use('/assets', express.static(path.join(__dirname, '..', '..', 'assets'), cacheOptions));
+app.use('/js', express.static(path.join(__dirname, '..', '..', 'js'), jsCacheOptions));
+app.use('/css', express.static(path.join(__dirname, '..', '..', 'css'), cacheOptions));
 
 // 4. Setup icon/proxy routes
 setupFaviconRoutes(app);
@@ -105,7 +105,7 @@ app.get('/manifest.json', (req, res) => {
 });
 
 app.get('/version.json', async (req, res) => {
-    const versionPath = path.join(__dirname, '..', 'version.json');
+    const versionPath = path.join(__dirname, '..', '..', 'version.json');
     try {
         await fs.promises.access(versionPath);
         return res.sendFile(versionPath);
@@ -118,17 +118,17 @@ app.get('/version.json', async (req, res) => {
 app.get('/app.js', (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(__dirname, '..', 'app.js'));
+    res.sendFile(path.join(__dirname, '..', '..', 'app.js'));
 });
 
 app.get('/ui-init.js', (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(__dirname, '..', 'ui-init.js'));
+    res.sendFile(path.join(__dirname, '..', '..', 'ui-init.js'));
 });
 
 app.get('/trackers.js', async (req, res) => {
-    const p = path.join(__dirname, '..', 'trackers.js');
+    const p = path.join(__dirname, '..', '..', 'trackers.js');
     try {
         await fs.promises.access(p);
     } catch {
@@ -142,7 +142,7 @@ app.get('/trackers.js', async (req, res) => {
 app.get('/style.css', (req, res) => {
     res.setHeader('Content-Type', 'text/css');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(__dirname, '..', 'style.css'));
+    res.sendFile(path.join(__dirname, '..', '..', 'style.css'));
 });
 
 // 7. Memory monitoring
@@ -278,7 +278,7 @@ server.listen(PORT, HOST, () => {
     const isHttps = process.env.HTTPS === 'true';
     const protocol = isHttps ? 'https' : 'http';
     try {
-        const pkg = require('../package.json');
+        const pkg = require('../../package.json');
         console.log('');
         console.log(`  NovaByte v${pkg.version}`);
     } catch {

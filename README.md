@@ -308,13 +308,14 @@ The NBOSP backend (`NBOSP/server/`) has been refactored into a clean, modular ar
 
 ```
 server/
-  ├── index.js          # Main Express entry point (330 lines)
-  ├── middleware.js     # Security stack: CSP, CORS, rate limiting, sessions (250 lines)
-  ├── ssl.js           # HTTPS/HTTP server factory with graceful fallback (50 lines)
-  ├── env.js           # Environment validation with fallback seeds (50 lines)
-  ├── routes.js        # Sub-router mounting (security + email APIs)
-  ├── favicons.js      # Favicon proxy with SSRF protection + DB caching (400 lines)
-  └── proxies.js       # Search suggest & email image proxies (500 lines)
+  ├── core/
+  │   ├── index.js      # Main Express entry point (330 lines)
+  │   ├── middleware.js # Security stack: CSP, CORS, rate limiting, sessions (250 lines)
+  │   ├── ssl.js        # HTTPS/HTTP server factory with graceful fallback (50 lines)
+  │   └── env.js        # Environment validation with fallback seeds (50 lines)
+  ├── routes.js         # Sub-router mounting (security + email APIs)
+  ├── favicons.js       # Favicon proxy with SSRF protection + DB caching (400 lines)
+  └── proxies.js        # Search suggest & email image proxies (500 lines)
 ```
 
 ### Key Features
@@ -514,10 +515,11 @@ novabyte-os/
 │   ├── trackers.js                  # Generated tracker data (from build script)
 │   ├── client.js                    # Minimal ~11-line entry point stub
 │   ├── server/                      # Backend modules
-│   │   ├── index.js                 # Main Express entry point (330 lines)
-│   │   ├── middleware.js            # Helmet CSP, CORS, rate limiting, CSRF, sessions (250 lines)
-│   │   ├── ssl.js                   # HTTPS/HTTP server factory with graceful fallback (50 lines)
-│   │   ├── env.js                   # Environment validation with fallback secrets (50 lines)
+│   │   ├── core/                    # Core server modules (nested)
+│   │   │   ├── index.js             # Main Express entry point (330 lines)
+│   │   │   ├── middleware.js        # Helmet CSP, CORS, rate limiting, CSRF, sessions (250 lines)
+│   │   │   ├── ssl.js               # HTTPS/HTTP server factory with graceful fallback (50 lines)
+│   │   │   └── env.js               # Environment validation with fallback secrets (50 lines)
 │   │   ├── routes.js                # Sub-router composition and mounting
 │   │   ├── favicons.js              # Favicon proxy with SSRF protection, DB caching (400 lines)
 │   │   └── proxies.js               # Search suggest & email image proxies (500 lines)
@@ -536,10 +538,11 @@ novabyte-os/
 │   │   ├── index.js                 # Route definitions and account management
 │   │   ├── controller.js            # Request handlers and business logic
 │   │   ├── credentials.js           # Encrypted credential storage and retrieval
-│   │   ├── imapClient.js            # IMAP connection and message fetching
-│   │   ├── pop3Client.js            # POP3 connection and message fetching
-│   │   ├── ewsClient.js             # Exchange Web Services (EWS) client
-│   │   └── helpers.js               # Email HTML processing: image proxying, link unwrapping, tracking blocking, sanitization
+│   │   ├── helpers.js               # Email HTML processing: image proxying, link unwrapping, tracking blocking, sanitization
+│   │   └── protocols/               # Email protocol implementations
+│   │       ├── imapClient.js        # IMAP connection and message fetching
+│   │       ├── pop3Client.js        # POP3 connection and message fetching
+│   │       └── ewsClient.js         # Exchange Web Services (EWS) client
 │   ├── js/
 │   │   ├── core/                    # Core system modules (nested by domain)
 │   │   │   ├── core/                # Kernel & boot layer
@@ -560,15 +563,19 @@ novabyte-os/
 │   │   │   │   └── wm.js            # Window manager
 │   │   │   └── utils/               # Shared utilities
 │   │   │       └── base-utils.js    # Base utility functions
-│   │   ├── platform/                # Platform framework modules
-│   │   │   ├── frame-security.js    # NW.js frame security validation
-│   │   │   ├── app-sandbox.js       # App sandbox enforcement
-│   │   │   ├── app-permission-manager.js # Permission system
-│   │   │   ├── app-registry.js      # Full app registry
-│   │   │   ├── app-package.js       # App package management
-│   │   │   ├── my-apps-manager.js   # User app management
-│   │   │   ├── safe-storage.js      # Secure storage abstraction
-│   │   │   └── web-app-manager.js   # Web app management
+│   │   ├── platform/                # Platform framework modules (nested by concern)
+│   │   │   ├── security/            # Security modules
+│   │   │   │   ├── frame-security.js      # NW.js frame security validation
+│   │   │   │   ├── app-sandbox.js         # App sandbox enforcement
+│   │   │   │   └── app-permission-manager.js # Permission system
+│   │   │   ├── core/                # Core platform modules
+│   │   │   │   ├── app-registry.js        # Full app registry
+│   │   │   │   └── app-package.js         # App package management
+│   │   │   ├── ui/                  # Platform UI modules
+│   │   │   │   ├── my-apps-manager.js     # User app management
+│   │   │   │   └── web-app-manager.js     # Web app management
+│   │   │   └── utils/               # Platform utilities
+│   │   │       └── safe-storage.js        # Secure storage abstraction
 │   │   └── apps/                    # Standalone applications
 │   │       ├── files.js             # File manager
 │   │       ├── terminal.js          # Terminal emulator
