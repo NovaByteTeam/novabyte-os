@@ -541,20 +541,25 @@ novabyte-os/
 │   │   ├── ewsClient.js             # Exchange Web Services (EWS) client
 │   │   └── helpers.js               # Email HTML processing: image proxying, link unwrapping, tracking blocking, sanitization
 │   ├── js/
-│   │   ├── core/                    # Core system modules
-│   │   │   ├── app-boot.js          # Boot sequence and startup orchestration
-│   │   │   ├── app-events.js        # Global event bus
-│   │   │   ├── app-fs.js            # Virtual filesystem API
-│   │   │   ├── app-init.js          # Security & initialization
-│   │   │   ├── app-kernel.js        # Kernel loop
-│   │   │   ├── app-menu.js          # Context menu system
-│   │   │   ├── app-modals.js        # Modal dialog system
-│   │   │   ├── app-notifications.js # Notification system
-│   │   │   ├── app-registry-core.js # Core app registry
-│   │   │   ├── app-utils.js         # Shared utilities
-│   │   │   ├── app-utils2.js        # Extended utilities
-│   │   │   ├── app-wm.js            # Desktop window manager
-│   │   │   └── app-workers.js       # Multi-threaded worker management
+│   │   ├── core/                    # Core system modules (nested by domain)
+│   │   │   ├── core/                # Kernel & boot layer
+│   │   │   │   ├── boot.js          # Boot sequence and startup orchestration
+│   │   │   │   ├── init.js          # Security & initialization
+│   │   │   │   └── kernel.js        # Kernel loop
+│   │   │   ├── events/              # Event system
+│   │   │   │   └── system-events.js # Global event bus
+│   │   │   ├── services/            # Core OS services
+│   │   │   │   ├── fs.js            # Virtual filesystem API
+│   │   │   │   ├── notifications.js # Notification system
+│   │   │   │   ├── registry.js      # Core app registry
+│   │   │   │   └── workers.js       # Multi-threaded worker management
+│   │   │   ├── ui/                  # UI primitives
+│   │   │   │   ├── desktop.js       # Desktop shell
+│   │   │   │   ├── menu.js          # Context menu system
+│   │   │   │   ├── modals.js        # Modal dialog system
+│   │   │   │   └── wm.js            # Window manager
+│   │   │   └── utils/               # Shared utilities
+│   │   │       └── base-utils.js    # Base utility functions
 │   │   ├── platform/                # Platform framework modules
 │   │   │   ├── frame-security.js    # NW.js frame security validation
 │   │   │   ├── app-sandbox.js       # App sandbox enforcement
@@ -599,10 +604,10 @@ NBOSP uses a fully decoupled modular architecture. The original monolithic `app.
 |---|---|---|
 | Backend modules | `server/` | 7 files |
 | Launcher modules | `scripts/` | 7 files |
-| Frontend core | `js/core/` | 13 files |
+| Frontend core | `js/core/` (sub-folders: `core/`, `events/`, `services/`, `ui/`, `utils/`) | 13 files |
 | Frontend platform | `js/platform/` | 8 files |
 | Standalone apps | `js/apps/` | 15 files |
-| Security / Email | `security/`, `email/` | 8 files |
+| Security / Email | `security/`, `email/` | 9 files |
 
 To maintain cross-script communication across individual files without monolithic bundling:
 * **Global Exposures:** Core modules explicitly bind their APIs to the global browser execution context (e.g., `window.Notify = Notify;`, `window.registerApp = registerApp;`) at the foot of their files.
