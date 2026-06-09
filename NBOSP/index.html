@@ -739,24 +739,6 @@
   <script src="ui-init.js">
   </script>
   
-  <!-- Complete Keyboard Developer Tool Pack -->
-  <script>
-    window.addEventListener('keydown', function(e) {
-      // F12 or Ctrl+Shift+I: Toggles Chrome Inspect DevTools natively
-      if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
-        e.preventDefault();
-        const win = nw.Window.get();
-        win.showDevTools();
-      }
-      // F5 or Ctrl+R: Performs a safe page hot-reload cache flash
-      if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
-        e.preventDefault();
-        nw.Window.get().reload();
-      }
-    });
-  </script>
-
-  
   <script src="js/core/core/init.js"></script>
   <script src="js/core/utils/base-utils.js"></script>
   <script src="js/core/services/workers.js"></script>

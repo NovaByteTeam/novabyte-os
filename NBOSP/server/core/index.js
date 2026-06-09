@@ -52,16 +52,24 @@ app.get('/', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    const nonce = res.locals.nonce;
+    // res.locals.nonce is unreliable (often empty due to middleware order).
+    // Helmet already set the CSP header with the real nonce — extract it from there.
+    const cspHeader = res.getHeader('Content-Security-Policy') || '';
+    const nonceMatch = cspHeader.match(/'nonce-([^']+)'/);
+    const nonce = nonceMatch ? nonceMatch[1] : (res.locals.nonce || '');
     let html = await getIndexHtml();
 
-    // Inject nonce into script tags
-    html = html.replace(/<script([\s>])/g, `<script nonce="${nonce}"$1`);
-    html = html.replace(/<style([\s>])/g, `<style nonce="${nonce}"$1`);
+    // 1. Inject __cspNonce script and CSRF meta BEFORE stamping nonces,
+    //    so the injected <script> tag is included in the nonce-stamping pass below.
+    const csrfToken = req.session?.csrfToken || res.locals.csrfToken || '';
+    html = html.replace('</head>', `<meta name="csrf-token" content="${csrfToken}"><script>window.__cspNonce="${nonce}";</script></head>`);
+
+    // 2. Strip any hard-coded CSP meta tag (server header takes precedence)
     html = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>\s*/i, '');
 
-    const csrfToken = req.session?.csrfToken || res.locals.csrfToken || '';
-    html = html.replace('</head>', `<meta name="csrf-token" content="${csrfToken}"><script nonce="${nonce}">window.__cspNonce="${nonce}";</script></head>`);
+    // 3. Stamp nonce onto every <script> and <style> tag (including the one injected above)
+    html = html.replace(/<script([\s>])/g, `<script nonce="${nonce}"$1`);
+    html = html.replace(/<style([\s>])/g, `<style nonce="${nonce}"$1`);
 
     res.send(html);
 });

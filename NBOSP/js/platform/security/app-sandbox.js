@@ -70,11 +70,17 @@ const AppSandbox = (() => {
     // Security: Content Security Policy
     const csp = [
       "default-src 'self' blob: data:",
-      "script-src 'self' blob:", // FIX: removed 'unsafe-inline' and 'unsafe-eval' — they negate XSS protection
+      // unsafe-inline is acceptable here: the iframe is already sandboxed at the NW.js
+      // level (nwdisable, null origin, no allow-same-origin) so it cannot reach Node.js
+      // or the main page regardless. Blocking inline scripts in the iframe's own CSP
+      // only hurts third-party apps without buying meaningful security.
+      "script-src 'self' blob: 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline' blob:",
       "img-src 'self' blob: data: https:",
       "font-src 'self' blob: data:",
-      "connect-src 'self' blob: data:",
+      // connect-src 'none' forces ALL network through the IPC bridge where permissions
+      // are enforced. Without this, apps can exfiltrate data directly to external URLs.
+      "connect-src 'none'",
       "frame-src 'self' blob: data:",
       "object-src 'none'",
       "base-uri 'self'",
@@ -175,15 +181,16 @@ const AppSandbox = (() => {
    */
   function respond(iframe, type, requestId, result, error = null) {
     try {
-      // FIX: use specific target origin instead of '*'.
-      // Blob URLs with allow-same-origin share the parent page's origin.
-      const targetOrigin = window.location.origin;
+      // Blob: iframes without allow-same-origin have null origin, so targetOrigin
+      // of window.location.origin is silently dropped by the browser. Use '*' here.
+      // Security is maintained by the event.source identity check in setupAPIBridge —
+      // only messages from the exact iframe.contentWindow are processed.
       iframe.contentWindow.postMessage({
         type: `${type}:response`,
         requestId,
         result,
         error
-      }, targetOrigin);
+      }, '*');
     } catch (e) {
       console.error(`[AppSandbox] Failed to respond to ${type}:`, e);
     }
@@ -538,7 +545,11 @@ const AppSandbox = (() => {
     };
 
     window.addEventListener('message', (event) => {
-      if (event.origin !== window.location.origin) return;
+      // Blob: iframes without allow-same-origin report event.origin as "null".
+      // Accept both our own origin and "null"; real security is the
+      // event.source === iframe.contentWindow check inside messageHandler.
+      const isOwnOrigin = event.origin === window.location.origin || event.origin === 'null';
+      if (!isOwnOrigin) return;
       messageHandler(event);
     });
 

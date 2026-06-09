@@ -15,8 +15,13 @@
         if (typeof tag === 'string' && tag.toLowerCase() === 'style') {
           if (!_nonceCaptured) {
             _nonce = window.__cspNonce || null;
-            _nonceCaptured = true;
-            try { delete window.__cspNonce; } catch (e) { window.__cspNonce = undefined; }
+            if (_nonce) {
+              // Only lock once we actually have a value — if __cspNonce isn't
+              // set yet, keep retrying on subsequent createElement('style') calls
+              // rather than permanently caching null.
+              _nonceCaptured = true;
+              try { delete window.__cspNonce; } catch (e) { window.__cspNonce = undefined; }
+            }
           }
           if (_nonce) el.nonce = _nonce;
         }
@@ -967,6 +972,3 @@
        ║   NovaByte — "Your world. Your browser."                       ║
        ║                                                                    ║
        ╚══════════════════════════════════════════════════════════════════════╝ */
-
-
-

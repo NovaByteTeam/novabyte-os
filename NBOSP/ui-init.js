@@ -30,4 +30,19 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  // ── Developer keyboard shortcuts ─────────────────────────────────────────
+  // Previously: inline <script> block in index.html (line ~743).
+  // F12 / Ctrl+Shift+I  →  toggle Chrome DevTools (NW.js only)
+  // F5  / Ctrl+R        →  hot-reload the page
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
+      e.preventDefault();
+      nw.Window.get().showDevTools();
+    }
+    if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+      e.preventDefault();
+      nw.Window.get().reload();
+    }
+  });
+
 });
