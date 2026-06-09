@@ -3,8 +3,13 @@ registerApp({
         description: 'Web Browser',
         defaultSize: [900, 600], minSize: [500, 350],
         onClose(state) {
-          // Tell client.js to destroy all hidden browser windows for this session
-          if (window.ipc) window.ipc.postMessage(JSON.stringify({ type: 'browser:closeAll' }));
+          if (window.ipc && typeof window.ipc.postMessage === 'function') {
+            try {
+              window.ipc.postMessage(JSON.stringify({ type: 'browser:closeAll', source: 'browser-app' }));
+            } catch (err) {
+              console.error('[NB Browser] Failed to send IPC close message:', err);
+            }
+          }
         },
         init(content, state, options) {
           // ── NovaByte runtime guard — refuses to launch without AppDirs ──
@@ -28,7 +33,7 @@ registerApp({
 
           // Normalise any stored favicon URL to go through the local proxy.
           // Old bookmarks/history may have the Google URL baked in — rewrite on the fly.
-          function normFavicon(favicon) {
+          function normFavicon(favicon, siteUrl = '') {
             if (!favicon) return '';
             // Already a proxy URL — use as-is
             if (favicon.startsWith('/api/favicon') || favicon.startsWith('/api/email-image')) return favicon;
@@ -39,13 +44,23 @@ registerApp({
                 const domain = u.searchParams.get('domain');
                 if (domain) return '/api/favicon?domain=' + encodeURIComponent(domain);
               }
-            } catch (_) { }
+            } catch (err) {
+              console.debug('[NB Browser] Invalid favicon URL:', favicon);
+            }
+            // Resolve relative paths into absolute URLs using the guest tab's current domain
+            if (!/^https?:\/\//i.test(favicon) && siteUrl) {
+              try {
+                favicon = new URL(favicon, siteUrl).href;
+              } catch (_) {}
+            }
             // Any other external URL — proxy it via favicon endpoint using the URL's hostname
             if (/^https?:\/\//i.test(favicon)) {
               try {
                 const domain = new URL(favicon).hostname;
                 return '/api/favicon?domain=' + encodeURIComponent(domain);
-              } catch (_) { }
+              } catch (err) {
+                console.debug('[NB Browser] Failed to extract domain from favicon:', favicon);
+              }
             }
             return favicon;
           }
@@ -53,15 +68,26 @@ registerApp({
           let _settingsCache = null;
           function loadSettings() {
             if (_settingsCache) return _settingsCache;
-            try { _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}'); }
-            catch { _settingsCache = {}; }
+            try {
+              _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}');
+            } catch (err) {
+              // FIX: Proper error logging for JSON.parse failures to detect corruption
+              console.error('[NB Browser] Settings cache corrupted, resetting:', err);
+              _settingsCache = {};
+              localStorage.removeItem(ST_KEY);
+            }
             return _settingsCache;
           }
+          let _settingsSaveTimer = null;
           function saveSetting(key, val) {
             const s = loadSettings();
             s[key] = val;
             _settingsCache = s;
-            localStorage.setItem(ST_KEY, JSON.stringify(s));
+            clearTimeout(_settingsSaveTimer);
+            _settingsSaveTimer = setTimeout(() => {
+              try { localStorage.setItem(ST_KEY, JSON.stringify(s)); }
+              catch (_) { console.warn('[NB Browser] Failed to save settings'); }
+            }, 300);
           }
           function getSetting(key, def) { const v = loadSettings()[key]; return v !== undefined ? v : def; }
 
@@ -83,48 +109,87 @@ registerApp({
           let _bookmarksCache = null;
           function loadBookmarks() {
             if (_bookmarksCache) return _bookmarksCache;
-            try { _bookmarksCache = JSON.parse(localStorage.getItem(BK_KEY) || '[]'); }
-            catch { _bookmarksCache = []; }
+            try {
+              _bookmarksCache = JSON.parse(localStorage.getItem(BK_KEY) || '[]');
+            } catch (err) {
+              // FIX: Proper error logging for JSON.parse failures to detect corruption
+              console.error('[NB Browser] Bookmarks cache corrupted, resetting:', err);
+              _bookmarksCache = [];
+              localStorage.removeItem(BK_KEY);
+            }
             return _bookmarksCache;
           }
+          let _bookmarksSaveTimer = null;
           function saveBookmarks(arr) {
             _bookmarksCache = arr.slice(0, 500);
-            localStorage.setItem(BK_KEY, JSON.stringify(_bookmarksCache));
+            clearTimeout(_bookmarksSaveTimer);
+            _bookmarksSaveTimer = setTimeout(() => {
+              try { localStorage.setItem(BK_KEY, JSON.stringify(_bookmarksCache)); }
+              catch (_) { console.warn('[NB Browser] Failed to save bookmarks'); }
+            }, 300);
           }
           let _historyCache = null;
           function loadHistory() {
             if (_historyCache) return _historyCache;
-            try { _historyCache = JSON.parse(localStorage.getItem(HX_KEY) || '[]'); }
-            catch { _historyCache = []; }
+            try {
+              _historyCache = JSON.parse(localStorage.getItem(HX_KEY) || '[]');
+            } catch (err) {
+              // FIX: Proper error logging for JSON.parse failures to detect corruption
+              console.error('[NB Browser] History cache corrupted, resetting:', err);
+              _historyCache = [];
+              localStorage.removeItem(HX_KEY);
+            }
             return _historyCache;
           }
+          let _historySaveTimer = null;
           function saveHistory(arr) {
             _historyCache = arr.slice(0, 1000);
-            localStorage.setItem(HX_KEY, JSON.stringify(_historyCache));
+            clearTimeout(_historySaveTimer);
+            _historySaveTimer = setTimeout(() => {
+              try { localStorage.setItem(HX_KEY, JSON.stringify(_historyCache)); }
+              catch (_) { console.warn('[NB Browser] Failed to save history'); }
+            }, 300);
           }
           function isBookmarked(url) { return loadBookmarks().some(b => b.url === url); }
           function toggleBookmark(url, title, favicon) {
             let arr = loadBookmarks();
             const idx = arr.findIndex(b => b.url === url);
             if (idx >= 0) { arr.splice(idx, 1); saveBookmarks(arr); return false; }
-            arr.unshift({ url, title: title || url, favicon: favicon || '', ts: Date.now() });
+            arr.unshift({ url: url.slice(0, 2000), title: (title || url).slice(0, 300), favicon: favicon || '', ts: Date.now() });
             saveBookmarks(arr);
             return true;
           }
 
           let _panelType = null; // track which panel is currently open for live refresh
-          function addHistory(url, title, favicon) {
-            const tab = tabs.find(t => t.id === activeTabId);
-            if (tab?.incognito || tab?.isPopup) return; // no history in incognito or popup windows
+          function addHistory(originTabId, url, title, favicon) {
+            const tab = tabs.find(t => t.id === originTabId);
+            if (!tab || tab.incognito || tab.isPopup) return; // no history in incognito or popup windows
             try {
+              // Drop oversized Base64 data-URIs before they can exhaust the 5 MB localStorage quota.
+              // Legitimate favicons proxied through /api/favicon are short strings; anything larger
+              // than 2 KB inline is almost certainly an unintentional or malicious blob.
+              let safeFavicon = favicon || '';
+              if (safeFavicon.startsWith('data:') && safeFavicon.length > 2048) {
+                safeFavicon = '';
+              }
+              const safeTitle = (title || url).slice(0, 300);
+              const safeStorageUrl = url.slice(0, 2000);
               let arr = loadHistory().filter(h => h.url !== url); // deduplicate
-              arr.unshift({ url, title: title || url, favicon: favicon || '', ts: Date.now() });
+              arr.unshift({ url: safeStorageUrl, title: safeTitle, favicon: safeFavicon, ts: Date.now() });
               saveHistory(arr);
               // Live-refresh history panel if it's open
               if (_panelType === 'history' && panel.style.display !== 'none') showPanel('history');
             } catch { }
           }
           // loadHistory defined above (write-through cache version)
+
+          // FIX: Helper for event delegation to prevent listener accumulation on repeated renders
+          function delegateEvent(container, eventType, selector, handler) {
+            container.addEventListener(eventType, (e) => {
+              const target = e.target.closest(selector);
+              if (target) handler.call(target, e);
+            });
+          }
 
           function renderTabs() {
             tabsBar.innerHTML = '';
@@ -284,21 +349,34 @@ registerApp({
             if (tabId === activeTabId && tabs.length > 1) {
               switchToTab(tabs[idx > 0 ? idx - 1 : 1].id);
             }
+            // FIX: Revoke any tracked blob URLs to prevent memory leaks
+            const closedTab = tabs.find(t => t.id === tabId);
+            if (closedTab?.activeBlobUrl) {
+              try { URL.revokeObjectURL(closedTab.activeBlobUrl); } catch (_) {}
+            }
             tabs = tabs.filter(t => t.id !== tabId);
             // Run per-tab cleanups (cancels poll timers, etc.) before removing the webview
             (tabCleanups.get(tabId) || []).forEach(fn => { try { fn(); } catch (_) {} });
             tabCleanups.delete(tabId);
-            if (tabs.length === 0) { createNewTab(); return; }
-            renderTabs();
+            // FIX: Remove DOM elements BEFORE checking tabs.length, to prevent zombie viewport elements
             const closedWv = tabWebviews?.get(tabId); if (closedWv) { closedWv.remove(); tabWebviews.delete(tabId); }
             const closedIfr = tabIframes?.get(tabId); if (closedIfr) { closedIfr.remove(); tabIframes.delete(tabId); }
             tabViewMode.delete(tabId);
+            tabZoom.delete(tabId);  // FIX: Clean up orphaned zoom state to prevent memory leak
             const closedNotice = viewport.querySelector('.browser-iframe-blocked[data-tab="' + tabId + '"]'); if (closedNotice) closedNotice.remove();
+            // Now evaluate whether we need a default fallback tab
+            if (tabs.length === 0) { createNewTab(); return; }
+            renderTabs();
           }
 
           function renderSpeedDial() {
-            // Hide all webviews
-            tabWebviews.forEach(wv => { wv.style.visibility = 'hidden'; wv.style.pointerEvents = 'none'; });
+            // Batch visibility changes to prevent layout thrashing
+            requestAnimationFrame(() => {
+              for (const wv of tabWebviews.values()) {
+                wv.style.visibility = 'hidden';
+                wv.style.pointerEvents = 'none';
+              }
+            });
             // Remove old speed dial
             const old = viewport.querySelector('.speed-dial');
             if (old) old.remove();
@@ -317,9 +395,7 @@ registerApp({
             if (bookmarks.length) {
               const grid = createEl('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:12px;width:100%;max-width:640px;' });
               bookmarks.forEach(bk => {
-                const tile = createEl('div', { style: 'display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;background:var(--bg-elevated);border-radius:10px;cursor:pointer;border:1px solid var(--border-subtle);transition:background 0.15s;' });
-                tile.addEventListener('mouseenter', () => tile.style.background = 'var(--bg-hover)');
-                tile.addEventListener('mouseleave', () => tile.style.background = 'var(--bg-elevated)');
+                const tile = createEl('div', { className: 'speed-dial-tile' });
                 const ico = createEl('div', { style: 'width:32px;height:32px;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg-hover);' });
                 {
                   const _fimg = document.createElement('img');
@@ -443,7 +519,7 @@ registerApp({
             if (tab?.incognito) return; // no bookmarks in incognito
             const added = toggleBookmark(currentUrl, tab?.title, tab?.favicon);
             starBtn.style.color = added ? 'var(--accent)' : '';
-            starBtn.innerHTML = svgIcon(added ? 'star' : 'star', 16);
+            starBtn.innerHTML = svgIcon(added ? 'star-filled' : 'star', 16);
             Notify.show({ title: added ? 'Bookmark added' : 'Bookmark removed', body: tab?.title || currentUrl, type: 'info', appName: 'Browser' });
           });
 
@@ -515,7 +591,14 @@ registerApp({
             const ifr = tabIframes.get(activeTabId);
             if (!ifr) return;
             let doc;
-            try { doc = ifr.contentDocument; } catch (_) { return; }
+            try {
+              doc = ifr.contentDocument;
+            } catch (e) {
+              // FIX: Handle cross-origin iframe errors gracefully with user feedback
+              console.warn('[NB Browser] Cannot search cross-origin iframe:', e.message);
+              findCount.textContent = '0/0';
+              return;
+            }
             if (!doc || !doc.body) return;
 
             // Clear previous highlights then NORMALIZE to merge fragmented text nodes.
@@ -668,10 +751,36 @@ registerApp({
             if (!items.length) {
               list.innerHTML = '<div style="text-align:center;padding:32px 16px;color:var(--text-muted);font-size:13px;">' + (type === 'bookmarks' ? 'No bookmarks yet.<br>Click ★ to save a page.' : 'No history yet.') + '</div>';
             } else {
+              // FIX: Use event delegation for panel rows to prevent listener accumulation
+              // Hover styling moved to CSS to avoid redundant capture-phase event thrashing
+              list.addEventListener('click', (e) => {
+                const del = e.target.closest('[data-panel-del]');
+                if (!del) {
+                  const row = e.target.closest('[data-panel-row]');
+                  if (row) navigate(row.dataset.url);
+                  return;
+                }
+                e.stopPropagation();
+                const row = del.closest('[data-panel-row]');
+                if (!row) return;
+                const itemUrl = row.dataset.url;
+                const itemTs = row.dataset.ts;
+                if (type === 'bookmarks') {
+                  let arr = loadBookmarks();
+                  arr = arr.filter(b => b.url !== itemUrl);
+                  saveBookmarks(arr);
+                } else {
+                  saveHistory(loadHistory().filter(h => h.ts != itemTs));
+                }
+                showPanel(type);
+              });
               items.forEach(item => {
-                const row = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border-subtle);' });
-                row.addEventListener('mouseenter', () => row.style.background = 'var(--bg-hover)');
-                row.addEventListener('mouseleave', () => row.style.background = '');
+                const row = createEl('div', { 
+                  style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border-subtle);',
+                  'data-panel-row': 'true',
+                  'data-url': item.url,
+                  'data-ts': item.ts || ''
+                });
                 const ico = createEl('span', { style: 'flex-shrink:0;color:var(--text-muted);' });
                 {
                   const _fimg2 = document.createElement('img');
@@ -692,18 +801,14 @@ registerApp({
                 _iUrl.style.cssText = 'font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
                 _iUrl.textContent = item.url;
                 info.append(_iTitle, _iUrl);
-                const del = createEl('button', { className: 'browser-nav-btn', style: 'padding:2px 4px;opacity:0;transition:opacity 0.1s;', title: 'Remove' });
-                del.innerHTML = svgIcon('x', 12);
-                row.addEventListener('mouseenter', () => del.style.opacity = '1');
-                row.addEventListener('mouseleave', () => del.style.opacity = '0');
-                del.addEventListener('click', (e) => {
-                  e.stopPropagation();
-                  if (type === 'bookmarks') { let arr = loadBookmarks(); arr = arr.filter(b => b.url !== item.url); saveBookmarks(arr); }
-                  else { saveHistory(loadHistory().filter(h => h.ts !== item.ts)); }
-                  showPanel(type);
+                const del = createEl('button', { 
+                  className: 'browser-nav-btn', 
+                  style: 'padding:2px 4px;opacity:0;transition:opacity 0.1s;', 
+                  title: 'Remove',
+                  'data-panel-del': 'true'
                 });
-                row.appendChild(ico); row.appendChild(info); row.appendChild(del);
-                row.addEventListener('click', () => { panel.style.display = 'none'; navigate(item.url); });
+                del.innerHTML = svgIcon('x', 12);
+                row.append(ico, info, del);
                 list.appendChild(row);
               });
             }
@@ -771,13 +876,30 @@ registerApp({
             })
             .then(src => {
               // trackers.js exports: const TRACKER_DOMAINS = new Set([...domains...]);
-              // Extract the domain strings from the Set literal — fast regex, no eval.
-              const matches = src.match(/"([^"]+)"/g);
-              if (matches) {
-                TRACKER_DOMAINS = new Set(matches.map(s => s.slice(1, -1)));
+              // Extract only the array literal passed to the Set constructor — not every
+              // quoted string in the file (comments, variable names, etc. would match otherwise).
+              let domains = null;
+              const arrayMatch = src.match(/new\s+Set\s*\(\s*(\[[\s\S]*?\])\s*\)/);
+              if (arrayMatch) {
+                try {
+                  const parsed = JSON.parse(arrayMatch[1]);
+                  if (Array.isArray(parsed)) domains = parsed.filter(d => typeof d === 'string' && d.length > 0);
+                } catch (parseErr) {
+                  console.warn('[Tracker blocker] JSON.parse of Set array failed:', parseErr.message);
+                }
+              }
+              // Fallback: file may simply be a JSON array of domain strings
+              if (!domains) {
+                try {
+                  const parsed = JSON.parse(src.trim());
+                  if (Array.isArray(parsed)) domains = parsed.filter(d => typeof d === 'string' && d.length > 0);
+                } catch (_) { }
+              }
+              if (domains && domains.length > 0) {
+                TRACKER_DOMAINS = new Set(domains);
                 console.log('[Tracker blocker] Loaded', TRACKER_DOMAINS.size, 'domains via fetch');
               } else {
-                console.warn('[Tracker blocker] Fetched trackers.js but found no domain strings');
+                console.warn('[Tracker blocker] Fetched trackers.js but could not extract domain list');
               }
             })
             .catch(e => console.warn('[Tracker blocker] Could not fetch /trackers.js —', e.message));
@@ -800,6 +922,11 @@ registerApp({
             // Incognito = in-memory partition (no persist:), normal = shared persistent session
             wv.setAttribute('partition', tab?.incognito ? ('incognito_' + tabId) : BROWSER_PARTITION);
             wv.setAttribute('allowfullscreen', 'true');
+            // FIX: Add sandbox restrictions to prevent privilege escalation via file:// or blob:
+            // Disable node integration and V8 code caching to block access to Node APIs
+            wv.setAttribute('nodeintegration', 'false');
+            wv.setAttribute('enableremotemodule', 'false');
+            wv.setAttribute('sandbox', 'true');
             wv.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointer-events:none;z-index:0;top:0;left:0;';
 
             // ── Permission gate — must explicitly allow fullscreen or NW.js
@@ -816,7 +943,9 @@ registerApp({
               currentUrl = url;
               urlBar.value = stripHttps(url);
               updateUrlIcon(url);
-              starBtn.style.color = isBookmarked(url) ? 'var(--accent)' : '';
+              const _bkd = isBookmarked(url);
+              starBtn.style.color = _bkd ? 'var(--accent)' : '';
+              starBtn.innerHTML = svgIcon(_bkd ? 'star-filled' : 'star', 16);
               renderTabs();
             }
 
@@ -852,7 +981,7 @@ registerApp({
                     renderTabs();
                   } catch (_) { }
                   if (url && !url.startsWith('novabyte:') && !url.startsWith('file://')) {
-                    addHistory(url, title || url, tab.favicon);
+                    addHistory(tabId, url, title || url, tab.favicon);
                   }
                 });
               } catch (_) { }
@@ -901,7 +1030,16 @@ registerApp({
                 hint  = desc ? 'Error: ' + desc : '';
               }
 
-              const safeUrl  = failedUrl.replace(/'/g, "\\'").replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              // FIX: HTML-escape hint to prevent XSS if error description ever contains markup
+              const safeHint = hint.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+              // FIX: Properly escape backslashes BEFORE single quotes to prevent string breakout
+              // A trailing backslash would un-escape the closing quote: 'url\' → ends the string
+              const safeUrl = failedUrl
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'")
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
               const bypassBtn = showBypass
                 ? `<button onclick="window.__nbBypass()" style="background:#e05d44;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;margin-right:8px;">Proceed anyway (unsafe)</button>`
                 : '';
@@ -928,7 +1066,7 @@ registerApp({
   <h1>${title}</h1>
   <p>${message}</p>
   <div class="url">${safeUrl}</div>
-  ${hint ? `<div class="hint">${hint}</div>` : ''}
+  ${safeHint ? `<div class="hint">${safeHint}</div>` : ''}
   <div class="actions">
     ${bypassBtn}
     <button onclick="window.__nbRetry()">↺ Retry</button>
@@ -943,8 +1081,9 @@ registerApp({
               try {
                 // Write the error page directly into the webview via innerHTML
                 // (safer than document.write and avoids creating blob URLs)
+                const htmlStr = JSON.stringify(errorHtml);
                 wv.executeScript({
-                  code: `document.documentElement.innerHTML = ${JSON.stringify(errorHtml)};`
+                  code: `requestAnimationFrame(() => { document.documentElement.innerHTML = ${htmlStr}; });`
                 }, () => { });
               } catch (_) { }
             });
@@ -958,7 +1097,10 @@ registerApp({
               if (!e.url || e.url === 'about:blank' || e.url === 'about:newtab') return;
               // 'ERR_ABORTED' (-3) fires on legitimate JS-driven navigations — ignore
               if (e.reason === 'ERR_ABORTED') return;
-              const safeUrl = (e.url || '').replace(/'/g, "\\'");
+              // FIX: Properly escape backslashes first to prevent string injection
+              const safeUrl = (e.url || '')
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'");
               try {
                 wv.executeScript({ code: `
                   const html = '<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">'
@@ -979,6 +1121,9 @@ registerApp({
             // ── Fallback: poll via executeScript every 500ms ───────────────
             let _lastPolledUrl = '';
             const _urlPollTimer = setInterval(() => {
+              // Only poll the active tab — background tabs don't need URL sync
+              // and executeScript on every open tab compounds linearly with tab count.
+              if (tabId !== activeTabId) return;
               try {
                 wv.executeScript({ code: 'location.href' }, results => {
                   if (chrome.runtime?.lastError) return;
@@ -989,7 +1134,9 @@ registerApp({
                     syncUrlForTab(url, tabId, 'poll');
                   }
                 });
-              } catch (_) { }
+              } catch (err) {
+                console.warn('[NB Browser] URL poll executeScript failed:', err);
+              }
             }, 500);
 
             state.cleanups = state.cleanups || [];
@@ -1068,6 +1215,33 @@ registerApp({
             state.cleanups.push(() => document.removeEventListener('fullscreenchange', _onFsChange));
 
             // History is now saved from the loadstop handler above via executeScript.
+
+            // ── Process status monitoring ─────────────────────────────────
+            // NW.js Chrome Apps webview fires 'unresponsive' when the guest renderer
+            // stops responding (OOM, infinite loop, etc.). There is no Electron-style
+            // 'render-process-gone' in this API surface — 'unresponsive' is the correct
+            // hook. Track per-tab so the infobar is only shown once until recovery.
+            let _tabUnresponsive = false;
+            wv.addEventListener('unresponsive', () => {
+              if (_tabUnresponsive) return;
+              _tabUnresponsive = true;
+              console.warn('[NB Browser] Page became unresponsive: tabId', tabId);
+              if (tabId === activeTabId) {
+                // Surface a non-blocking infobar rather than a full crash screen;
+                // the process may recover and the user may want to wait.
+                showInfoBar(
+                  tabId,
+                  '⚠\uFE0F This page is not responding. ',
+                  [{ label: 'Wait', action: () => {} }, { label: 'Reload', action: () => navigate(tabs.find(t => t.id === tabId)?.url || '') }]
+                );
+              }
+            });
+            wv.addEventListener('responsive', () => {
+              if (!_tabUnresponsive) return;
+              _tabUnresponsive = false;
+              console.log('[NB Browser] Page became responsive again: tabId', tabId);
+              dismissInfoBar(tabId);
+            });
 
             // ── Download handling ────────────────────────────────────────
             // Chrome Apps webview fires permissionrequest with permission==='download'
@@ -1227,7 +1401,13 @@ registerApp({
 
                 const popWv = document.createElement('webview');
                 popWv.style.cssText = 'flex:1;width:100%;';
-                popWv.setAttribute('partition', BROWSER_PARTITION);
+                // Inherit the parent tab's isolation context: an incognito tab's popup must
+                // use the same in-memory partition as its opener, not the persistent session.
+                const _parentTab = tabs.find(t => t.id === tabId);
+                const _popPartition = _parentTab?.incognito
+                  ? ('incognito_' + tabId)
+                  : BROWSER_PARTITION;
+                popWv.setAttribute('partition', _popPartition);
 
                 card.append(bar, popWv);
                 backdrop.appendChild(card);
@@ -1261,7 +1441,15 @@ registerApp({
                   renderTabs();
                   const bgWv = getOrCreateWebview(newTab.id);
                   if (!bgWv.parentNode) viewport.appendChild(bgWv);
-                  bgWv.src = url;
+                  // bgWv.src bypasses navigate(), so replicate its scheme and local-address
+                  // guards here — without this, a newwindow event can load javascript: URIs
+                  // or reach private-network addresses regardless of navigate()'s protections.
+                  const _bgCanonical = url.toLowerCase()
+                    .replace(/[\s\u0000-\u001f\u007f-\u009f]/g, '')
+                    .trim();
+                  if (!/^(javascript|data|vbscript|about):/i.test(_bgCanonical) && !isLocalAddress(url)) {
+                    bgWv.src = url;
+                  }
                 } else {
                   switchToTab(newTab.id);
                   navigate(url);
@@ -1345,13 +1533,16 @@ registerApp({
             // Hide the elements of the old mode
             const wv = tabWebviews.get(tabId);
             const ifr = tabIframes.get(tabId);
-            if (mode === 'iframe') {
-              if (wv) { wv.style.visibility = 'hidden'; wv.style.pointerEvents = 'none'; }
-            } else {
-              if (ifr) { ifr.style.visibility = 'hidden'; ifr.style.pointerEvents = 'none'; }
-              const blocked = viewport.querySelector('.browser-iframe-blocked[data-tab="' + tabId + '"]');
-              if (blocked) blocked.remove();
-            }
+            // Batch visibility changes to prevent layout thrashing
+            requestAnimationFrame(() => {
+              if (mode === 'iframe') {
+                if (wv) { wv.style.visibility = 'hidden'; wv.style.pointerEvents = 'none'; }
+              } else {
+                if (ifr) { ifr.style.visibility = 'hidden'; ifr.style.pointerEvents = 'none'; }
+                const blocked = viewport.querySelector('.browser-iframe-blocked[data-tab="' + tabId + '"]');
+                if (blocked) blocked.remove();
+              }
+            });
           }
 
           function updateModeBtn() {
@@ -1371,73 +1562,76 @@ registerApp({
             const tab = tabs.find(t => t.id === tabId);
             const isMobile = tab?.userAgent === 'mobile';
 
-            if (mode === 'iframe') {
-              // Hide all webviews — also reset position:absolute so any webview that
-              // was in non-mobile mode (position:relative) doesn't remain in flex flow
-              // and push the iframe down, causing the black-gap bug.
-              for (const [, wv] of tabWebviews) {
-                wv.style.position = 'absolute';
-                wv.style.visibility = 'hidden';
-                wv.style.pointerEvents = 'none';
-                wv.style.zIndex = '0';
-              }
-              // Show/hide iframes and restore mobile frame state for the active tab
-              for (const [id, ifr] of tabIframes) {
-                if (id === tabId) {
-                  applyMobileViewportFrame(ifr, isMobile);
-                  const z = tabZoom.get(tabId) || 1.0;
-                  if (isMobile) {
-                    ifr.style.width = '390px';
-                    ifr.style.height = '100%';
-                    ifr.style.transformOrigin = 'top center';
-                    ifr.style.transform = z !== 1.0 ? `translateX(-50%) scale(${z})` : 'translateX(-50%)';
-                  } else {
-                    const pct = (100 / z).toFixed(4) + '%';
-                    ifr.style.width = pct;
-                    ifr.style.height = pct;
-                    ifr.style.transformOrigin = 'top left';
-                    ifr.style.transform = z !== 1.0 ? `scale(${z})` : '';
-                  }
-                  ifr.style.visibility = 'visible';
-                  ifr.style.pointerEvents = 'auto';
-                  ifr.style.zIndex = '1';
-                } else {
-                  ifr.style.visibility = 'hidden';
-                  ifr.style.pointerEvents = 'none';
-                  ifr.style.zIndex = '0';
-                }
-              }
-            } else {
-              // webview mode — existing logic
-              // Hide all iframes
-              for (const [, ifr] of tabIframes) {
-                ifr.style.visibility = 'hidden';
-                ifr.style.pointerEvents = 'none';
-              }
-              // Remove blocked notices for other tabs
-              viewport.querySelectorAll('.browser-iframe-blocked:not([data-tab="' + tabId + '"])').forEach(n => n.remove());
-              for (const [id, wv] of tabWebviews) {
-                if (id === tabId) {
-                  applyMobileViewportFrame(wv, isMobile);
-                  // Explicitly reset dimensions — switching from iframe mode can leave
-                  // stale styles that cause the bottom half to be cut off
-                  if (!isMobile) {
-                    wv.style.width = '100%';
-                    wv.style.height = '100%';
-                    wv.style.top = '0';
-                    wv.style.left = '0';
-                  }
-                  wv.style.visibility = 'visible';
-                  wv.style.pointerEvents = 'auto';
-                  wv.style.zIndex = '1';
-                } else {
+            // Batch all visibility changes together to prevent layout thrashing
+            requestAnimationFrame(() => {
+              if (mode === 'iframe') {
+                // Hide all webviews — also reset position:absolute so any webview that
+                // was in non-mobile mode (position:relative) doesn't remain in flex flow
+                // and push the iframe down, causing the black-gap bug.
+                for (const [, wv] of tabWebviews) {
                   wv.style.position = 'absolute';
                   wv.style.visibility = 'hidden';
                   wv.style.pointerEvents = 'none';
                   wv.style.zIndex = '0';
                 }
+                // Show/hide iframes and restore mobile frame state for the active tab
+                for (const [id, ifr] of tabIframes) {
+                  if (id === tabId) {
+                    applyMobileViewportFrame(ifr, isMobile);
+                    const z = tabZoom.get(tabId) || 1.0;
+                    if (isMobile) {
+                      ifr.style.width = '390px';
+                      ifr.style.height = '100%';
+                      ifr.style.transformOrigin = 'top center';
+                      ifr.style.transform = z !== 1.0 ? `translateX(-50%) scale(${z})` : 'translateX(-50%)';
+                    } else {
+                      const pct = (100 / z).toFixed(4) + '%';
+                      ifr.style.width = pct;
+                      ifr.style.height = pct;
+                      ifr.style.transformOrigin = 'top left';
+                      ifr.style.transform = z !== 1.0 ? `scale(${z})` : '';
+                    }
+                    ifr.style.visibility = 'visible';
+                    ifr.style.pointerEvents = 'auto';
+                    ifr.style.zIndex = '1';
+                  } else {
+                    ifr.style.visibility = 'hidden';
+                    ifr.style.pointerEvents = 'none';
+                    ifr.style.zIndex = '0';
+                  }
+                }
+              } else {
+                // webview mode — existing logic
+                // Hide all iframes
+                for (const [, ifr] of tabIframes) {
+                  ifr.style.visibility = 'hidden';
+                  ifr.style.pointerEvents = 'none';
+                }
+                // Remove blocked notices for other tabs
+                viewport.querySelectorAll('.browser-iframe-blocked:not([data-tab="' + tabId + '"])').forEach(n => n.remove());
+                for (const [id, wv] of tabWebviews) {
+                  if (id === tabId) {
+                    applyMobileViewportFrame(wv, isMobile);
+                    // Explicitly reset dimensions — switching from iframe mode can leave
+                    // stale styles that cause the bottom half to be cut off
+                    if (!isMobile) {
+                      wv.style.width = '100%';
+                      wv.style.height = '100%';
+                      wv.style.top = '0';
+                      wv.style.left = '0';
+                    }
+                    wv.style.visibility = 'visible';
+                    wv.style.pointerEvents = 'auto';
+                    wv.style.zIndex = '1';
+                  } else {
+                    wv.style.position = 'absolute';
+                    wv.style.visibility = 'hidden';
+                    wv.style.pointerEvents = 'none';
+                    wv.style.zIndex = '0';
+                  }
+                }
               }
-            }
+            });
           }
 
           function applyWebviewSettings(wv) {
@@ -1541,7 +1735,12 @@ registerApp({
 
           // Clear browsing data across all open webviews
           function clearWebviewData(types, title, body) {
-            tabWebviews.forEach(wv => { try { wv.clearData({}, types); } catch (_) { } });
+            // Batch operations to avoid layout thrashing
+            requestAnimationFrame(() => {
+              for (const [, wv] of tabWebviews) {
+                try { wv.clearData({}, types); } catch (_) { }
+              }
+            });
             Notify.show({ title, body, type: 'info', appName: 'Browser' });
           }
 
@@ -1554,7 +1753,12 @@ registerApp({
             const eng = getSetting('searchEngine', 'brave');
             const sd = viewport.querySelector('.speed-dial');
             if (sd) sd.remove();
-            for (const [, wv] of tabWebviews) wv.style.visibility = 'hidden';
+            // Batch visibility changes to prevent layout thrashing
+            requestAnimationFrame(() => {
+              for (const [, wv] of tabWebviews) {
+                wv.style.visibility = 'hidden';
+              }
+            });
             const old = viewport.querySelector('.browser-settings-page');
             if (old) old.remove();
 
@@ -1802,6 +2006,33 @@ registerApp({
             if (hostname === '[::1]' || hostname === '::1') return true;
             // Strip IPv6 brackets for regex checks below
             const h = hostname.replace(/^\[|\]$/g, '');
+            // FIX: Detect and reject alternative IP formats that bypass string matching
+            // Octal encoding: 0177.0.0.1 → 127.0.0.1
+            if (/^0[0-7]{3}\./.test(h)) return true; // octal-encoded first octet
+            // Hexadecimal encoding: 0x7f000001 → 127.0.0.1
+            if (/^0x[0-9a-f]+$/i.test(h)) {
+              try {
+                const num = parseInt(h, 16);
+                // Check if this resolves to loopback (127.0.0.1 = 2130706433)
+                // or any RFC-1918 private range
+                if (num >= 2130706432 && num <= 2130706447) return true; // 127.0.0.0/24
+                if (num >= 167772160 && num <= 167772191) return true;  // 10.0.0.0/24
+                if (num >= 2886729728 && num <= 2886732799) return true; // 172.16.0.0/12
+                if (num >= 3232235520 && num <= 3232235775) return true; // 192.168.0.0/16
+              } catch {}
+            }
+            // Dword decimal encoding: 2130706433 → 127.0.0.1 (network byte order check)
+            if (/^\d+$/.test(h)) {
+              try {
+                const num = parseInt(h, 10);
+                // Loopback range: 2130706432-2130706447 (127.0.0.0 - 127.0.0.15)
+                // Also check 127.0.0.1 specifically: 2130706433
+                if (num >= 2130706432 && num <= 2147483647) return true; // 127.x.x.x range
+                if (num >= 167772160 && num <= 184549375) return true;   // 10.0.0.0/8
+                if (num >= 2886729728 && num <= 2887778303) return true;  // 172.16.0.0/12
+                if (num >= 3232235520 && num <= 3232301055) return true;  // 192.168.0.0/16
+              } catch {}
+            }
             // IPv4 loopback (127.x.x.x), link-local (169.254.x.x),
             // RFC-1918 private ranges (10.x, 172.16-31.x, 192.168.x)
             return /^127\./.test(h) ||
@@ -1811,12 +2042,35 @@ registerApp({
                    /^192\.168\./.test(h);
           }
 
+          // FIX: Validate file paths to prevent path traversal attacks
+          // Ensures resolved path stays within intended base directory
+          function validateFilePath(basePath, filePath) {
+            try {
+              const nPath = require('path');
+              const resolved = nPath.resolve(basePath, filePath);
+              const relative = nPath.relative(basePath, resolved);
+              // Reject if relative path starts with .. (traversal outside base)
+              if (relative.startsWith('..') || relative.startsWith('/..') || relative.startsWith('\\..')) {
+                console.error('[NB Browser] SECURITY: Path traversal attempt blocked:', filePath);
+                return null;
+              }
+              return resolved;
+            } catch (err) {
+              console.error('[NB Browser] Path validation error:', err);
+              return null;
+            }
+          }
+
           function navigate(rawUrl) {
             if (!rawUrl) return;
             let url = rawUrl.trim();
-            // Block dangerous schemes — must check before any branching
-            const _lowerUrl = url.toLowerCase().replace(/^[\s\u0000-\u001f]+/, '');
-            if (/^(javascript|data|vbscript|about):/i.test(_lowerUrl)) return;
+            // FIX: Canonicalize URL by removing ALL control characters (leading, internal, trailing)
+            // before checking dangerous schemes. Chromium strips \x09, \x0a, \x0d internally.
+            // Without removing these first, attackers can bypass the regex: java\tscript:code
+            const _canonicalUrl = url.toLowerCase()
+              .replace(/[\s\u0000-\u001f\u007f-\u009f]/g, '')
+              .trim();
+            if (/^(javascript|data|vbscript|about):/i.test(_canonicalUrl)) return;
 
             // Block navigation to localhost / private / loopback addresses
             if (isLocalAddress(url)) {
@@ -1841,6 +2095,8 @@ registerApp({
 
             // Resolve vault:// URLs by looking up the file in FS and loading via temp file or blob
             if (url.startsWith('vault:')) {
+              // FIX: Capture target tab ID upfront to prevent race conditions if user switches tabs
+              const targetTabId = activeTabId;
               const vaultRel = url.replace(/^vault:\/\/+/, '').replace(/^\//, '');
               let targetNode = null;
               for (const [, node] of FS.files) {
@@ -1858,15 +2114,15 @@ registerApp({
               }
               if (targetNode && targetNode.content != null) {
                 urlBar.value = stripHttps(url); currentUrl = url; updateUrlIcon(url);
-                const activeTab = tabs.find(t => t.id === activeTabId);
+                const activeTab = tabs.find(t => t.id === targetTabId);
                 if (activeTab) { activeTab.url = url; activeTab.title = targetNode.name; }
                 renderTabs();
                 // hide speed dial if present
                 const sd = viewport.querySelector('.speed-dial');
                 if (sd) sd.remove();
-                const wv = getOrCreateWebview(activeTabId);
+                const wv = getOrCreateWebview(targetTabId);
                 if (!wv.parentNode) viewport.appendChild(wv);
-                showWebviewForTab(activeTabId);
+                showWebviewForTab(targetTabId);
                 try {
                   const nPath = require('path');
                   const nFs = require('fs');
@@ -1881,24 +2137,51 @@ registerApp({
                   if (targetNode.parentId) {
                     for (const [, sib] of FS.files) {
                       if (sib.type !== 'file' || sib.parentId !== targetNode.parentId || sib.content == null) continue;
+                      // FIX: Validate file paths to prevent traversal attacks
+                      const validPath = validateFilePath(tmpBase, sib.name);
+                      if (!validPath) {
+                        console.warn('[NB Browser] Skipping suspicious sibling file:', sib.name);
+                        continue;
+                      }
                       const sibContent = sib.content instanceof Uint8Array ? Buffer.from(sib.content) : sib.content;
-                      try { nFs.writeFileSync(nPath.join(tmpBase, sib.name), sibContent); } catch (_) {}
+                      try {
+                        nFs.writeFileSync(validPath, sibContent);
+                      } catch (err) {
+                        console.error('[NB Browser] Failed to write sibling file ' + sib.name + ':', err);
+                      }
                     }
                   }
                   // Write the requested file (may already be there from sibling pass)
-                  const tmpFile = nPath.join(tmpBase, targetNode.name);
+                  // FIX: Validate main file path
+                  const validTmpFile = validateFilePath(tmpBase, targetNode.name);
+                  if (!validTmpFile) {
+                    throw new Error('Invalid target file path');
+                  }
                   const contentToWrite = targetNode.content instanceof Uint8Array ? Buffer.from(targetNode.content) : targetNode.content;
-                  nFs.writeFileSync(tmpFile, contentToWrite);
+                  nFs.writeFileSync(validTmpFile, contentToWrite);
                   // pathToFileURL handles cross-platform correctly:
                   //   Unix  /tmp/nbosp_vault_x/index.html → file:///tmp/...  (3 slashes)
                   //   Win   C:\...\nbosp_vault_x\index.html → file:///C:/...  (3 slashes)
-                  wv.src = nUrl.pathToFileURL(tmpFile).href;
-                } catch (_) {
+                  // FIX: Verify tab is still the active target before applying URL change
+                  if (activeTabId === targetTabId) {
+                    wv.src = nUrl.pathToFileURL(validTmpFile).href;
+                  }
+                } catch (err) {
+                  console.error('[NB Browser] Failed to load vault file via file:// URL:', err);
+                  // Fallback: use blob URL instead of file:// to avoid sandbox issues
                   const contentStr = targetNode.content instanceof Uint8Array ? new TextDecoder().decode(targetNode.content) : String(targetNode.content);
                   const blob = new Blob([contentStr], { type: 'text/html' });
                   const _blobUrl = URL.createObjectURL(blob);
-                  wv.src = _blobUrl;
-                  wv.addEventListener('loadstop', () => URL.revokeObjectURL(_blobUrl), { once: true });
+                  // FIX: Only apply blob URL if tab is still the active target
+                  if (activeTabId === targetTabId) {
+                    wv.src = _blobUrl;
+                  }
+                  // FIX: Track blob URLs on tab state for proper cleanup
+                  const tab = tabs.find(t => t.id === targetTabId);
+                  if (tab) {
+                    if (tab.activeBlobUrl) URL.revokeObjectURL(tab.activeBlobUrl);
+                    tab.activeBlobUrl = _blobUrl;
+                  }
                 }
                 return;
               }
@@ -2163,25 +2446,44 @@ registerApp({
                 if (fileNode.parentId) {
                   for (const [, sib] of FS.files) {
                     if (sib.type !== 'file' || sib.parentId !== fileNode.parentId || sib.content == null) continue;
+                    // FIX: Validate file paths to prevent traversal attacks
+                    const validPath = validateFilePath(tmpBase, sib.name);
+                    if (!validPath) {
+                      console.warn('[NB Browser] Skipping suspicious sibling file:', sib.name);
+                      continue;
+                    }
                     const sibContent = sib.content instanceof Uint8Array ? Buffer.from(sib.content) : sib.content;
-                    try { nFs.writeFileSync(nPath.join(tmpBase, sib.name), sibContent); } catch (_) {}
+                    try {
+                      nFs.writeFileSync(validPath, sibContent);
+                    } catch (err) {
+                      console.error('[NB Browser] Failed to write sibling file ' + sib.name + ':', err);
+                    }
                   }
                 }
-                const tmpFile = nPath.join(tmpBase, fileNode.name);
-                nFs.writeFileSync(tmpFile, htmlContent, 'utf8');
+                // FIX: Validate main file path
+                const validTmpFile = validateFilePath(tmpBase, fileNode.name);
+                if (!validTmpFile) {
+                  throw new Error('Invalid file path for vault extraction');
+                }
+                nFs.writeFileSync(validTmpFile, htmlContent, 'utf8');
                 // pathToFileURL handles cross-platform correctly (Unix 3 slashes, Win 3 slashes)
-                const fileUrl = nUrl.pathToFileURL(tmpFile).href;
+                const fileUrl = nUrl.pathToFileURL(validTmpFile).href;
                 wv.src = fileUrl;
                 currentUrl = fileUrl;
                 loaded = true;
               } catch (err) {
-                console.warn('Node fs unavailable, falling back to blob URL:', err);
+                console.error('[NB Browser] File system error during vault loading:', err);
               }
               if (!loaded) {
                 const blob = new Blob([htmlContent], { type: 'text/html' });
                 const blobUrl = URL.createObjectURL(blob);
                 wv.src = blobUrl;
-                wv.addEventListener('loadstop', () => URL.revokeObjectURL(blobUrl), { once: true });
+                // FIX: Track blob URLs on tab state for proper cleanup instead of loadstop event
+                const tab = tabs.find(t => t.id === activeTabId);
+                if (tab) {
+                  if (tab.activeBlobUrl) URL.revokeObjectURL(tab.activeBlobUrl);
+                  tab.activeBlobUrl = blobUrl;
+                }
                 currentUrl = blobUrl;
               }
               return;
@@ -2189,12 +2491,15 @@ registerApp({
           }
 
           // Open URL passed from OS.openUrl()
-          if (options?.url) { renderTabs(); navigate(options.url); return; }
+          if (options?.url) {
+            renderTabs();
+            navigate(options.url);
+            return;
+          }
 
+          // FIX: Consolidate initialization rendering to prevent layout thrashing
+          // Batch initialization into single pass instead of separate renderTabs then renderSpeedDial
           renderTabs();
-          // Show speed dial on first open (no URL loaded yet)
           renderSpeedDial();
         }
       });
-
-

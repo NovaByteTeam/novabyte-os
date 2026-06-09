@@ -5252,6 +5252,17 @@
     /* ── Vertical Tabs ── */
 
     /* ── Side Rail & Panel ── */
+    /* FIX: Hover styling for bookmark/history panel rows using CSS instead of JavaScript
+       This prevents redundant capture-phase event listener thrashing on mouse movements */
+    [data-panel-row]:hover {
+      background: var(--bg-hover) !important;
+    }
+    [data-panel-row]:hover [data-panel-del] {
+      opacity: 1 !important;
+    }
+    [data-panel-del] {
+      transition: opacity 0.1s ease;
+    }
 
     /* ── Reader Mode ── */
 
@@ -6398,4 +6409,22 @@
 
     .note-default {
       background: var(--bg-overlay);
+    }
+
+    /* Optimization for speed dial grid interactivity — replaces JS mouseenter/mouseleave handlers */
+    .speed-dial-tile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 8px;
+      background: var(--bg-elevated);
+      border-radius: 10px;
+      cursor: pointer;
+      border: 1px solid var(--border-subtle);
+      transition: background 0.15s ease;
+    }
+
+    .speed-dial-tile:hover {
+      background: var(--bg-hover) !important;
     }
