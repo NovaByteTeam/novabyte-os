@@ -14,29 +14,26 @@ registerApp({
       return;
     }
 
-    // Fix #1: State tracked via primitive integer instead of object property lookups
     // 0 = IDLE, 1 = EVALUATED
-    let bitState = 0; 
+    let bitState = 0;
     let expr = '';
 
     // ── Allocation-Light Character-Code Parser ───────────────────────────────
-    // Fix #2: Bypasses RegExp instantiation and string slicing during tokenization.
-    // Accumulates numbers mathematically directly from Unicode points.
     class HardcoreParser {
-      #s = ''; 
-      #len = 0; 
+      #s = '';
+      #len = 0;
       #i = 0;
 
       evaluate(raw) {
         this.#s = String(raw);
         this.#len = this.#s.length;
         this.#i = 0;
-        
+
         const v = this.#addSub();
         this.#skip();
-        
+
         if (this.#i < this.#len) throw new SyntaxError();
-        // Fix #3: Direct evaluation checks to filter out NaN and Infinities
+        // NaN check: v !== v; Infinity/-Infinity check explicit
         if (v !== v || v === Infinity || v === -Infinity) throw new RangeError();
         return v;
       }
@@ -44,7 +41,6 @@ registerApp({
       #skip() {
         while (this.#i < this.#len) {
           const c = this.#s.charCodeAt(this.#i);
-          // Space, Tab, CR, LF
           if (c === 32 || c === 9 || c === 13 || c === 10) {
             this.#i++;
           } else {
@@ -53,6 +49,8 @@ registerApp({
         }
       }
 
+      // #eat advances #i only on a match; returns false without consuming otherwise.
+      // Loop termination in #mulDiv/#addSub depends on this non-consuming false path.
       #eat(code) {
         this.#skip();
         if (this.#i < this.#len && this.#s.charCodeAt(this.#i) === code) {
@@ -70,7 +68,7 @@ registerApp({
 
         while (this.#i < this.#len) {
           const c = this.#s.charCodeAt(this.#i);
-          if (c >= 48 && c <= 57) { // '0' - '9'
+          if (c >= 48 && c <= 57) { // '0'-'9'
             sawDigit = true;
             v = v * 10 + (c - 48);
             if (decimals >= 0) decimals++;
@@ -146,22 +144,31 @@ registerApp({
       style: 'display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:none;align-content:start;'
     });
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Fix #4: Single scroll helper — was duplicated in update() and equals()
+    const scrollEnd = () => { display.scrollLeft = 9999; };
+
+    // Fix #5: Unified result line formatter — prefixes both success and error
+    // consistently so the display line always reads as "= value" or "= Error: …"
+    const setResult = (text, isError = false) => {
+      result.textContent = isError ? `= Error: ${text}` : `= ${text}`;
+    };
+
     // ── Action logic ──────────────────────────────────────────────────────────
     const update = () => {
       display.value = expr;
-      display.scrollLeft = 9999; // Scrolls to the end natively without forcing a synchronous layout reflow
+      scrollEnd();
 
       if (!expr) { result.textContent = 'Ready'; return; }
 
       try {
-        result.textContent = String(parser.evaluate(expr));
+        setResult(String(parser.evaluate(expr)));
       } catch {
-        result.textContent = 'Invalid expression';
+        setResult('Invalid expression', true);
       }
     };
 
     const append = (v) => {
-      // Fix #4: Inline character code range check avoids executing a RegExp instance match
       const c = v.charCodeAt(0);
       if (bitState === 1 && ((c >= 48 && c <= 57) || c === 46)) expr = '';
       bitState = 0;
@@ -187,15 +194,15 @@ registerApp({
         const out = parser.evaluate(expr);
         expr     = String(out);
         bitState = 1;
-        display.value      = expr;
-        display.scrollLeft = 9999;
-        result.textContent = '=' + expr;
+        display.value = expr;
+        scrollEnd();
+        setResult(expr);
       } catch {
-        result.textContent = 'Invalid expression';
+        setResult('Invalid expression', true);
       }
     };
 
-    // Fix #5: Flat layout array maps simple keys cleanly for iteration
+    // ── Button layout ─────────────────────────────────────────────────────────
     const labels = [
       'C', '⌫', '%', '÷',
       '7', '8', '9', '×',
@@ -225,7 +232,6 @@ registerApp({
     const ac = new AbortController();
     const { signal } = ac;
 
-    // Fix #6: Centralized action router matches key tokens via clean switch evaluations
     const handleKeyAction = (key) => {
       switch (key) {
         case '=':  equals(); break;

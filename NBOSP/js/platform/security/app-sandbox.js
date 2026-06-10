@@ -2,7 +2,7 @@
  * NovaByte - App Sandbox
  * ────────────────────────────────────────────────────────────
  * Creates secure execution environments for apps using
- * sandboxed iframes with strict CSP policies.
+ * sandboxed webviews with process isolation.
  *
  * @module js/app-sandbox
  */
@@ -12,85 +12,31 @@ const AppSandbox = (() => {
   const eventSubscriptions = new Map(); // sandboxId -> Map(eventName -> handler)
 
   /**
-   * Create a sandboxed iframe for app execution
+   * Create a sandboxed webview for app execution.
+   * webview runs in a separate renderer process — true process isolation.
+   * Cannot access main page JS, DOM, or memory regardless of app content.
    * @param {object} app - App object
    * @param {HTMLElement} container - Container element
    * @param {object} state - Window state
-   * @returns {HTMLIFrameElement} Sandboxed iframe
+   * @returns {HTMLElement} Sandboxed webview
    */
   function createSandbox(app, container, state) {
-    const iframe = document.createElement('iframe');
+    const webview = document.createElement('webview');
 
-    // NW.js Frame Security: Mark as normal frame (no Node.js access)
-    // This ensures the iframe cannot access Node.js APIs even if it somehow
-    // matches the node-remote pattern. The 'nwdisable' attribute is the
-    // explicit security boundary in NW.js that prevents frame privilege escalation.
-    iframe.setAttribute('nwdisable', '');
+    // NW.js webview security: separate renderer process provides the isolation boundary.
+    // nodeintegration=false means the app cannot require() Node.js modules even if
+    // the preload script has access — defense in depth.
+    webview.setAttribute('nodeintegration', 'false');
+    webview.setAttribute('nodeintegrationsubframes', 'false');
 
-    // Security: strict sandboxing
-    // NOTE: allow-same-origin is intentionally ABSENT.
-    // allow-same-origin + allow-scripts is a known sandbox escape in NW.js —
-    // the framed document can call frameElement.removeAttribute('sandbox')
-    // gaining full Node.js access. Storage access for blob: URLs is handled
-    // via the nova:storage:* API bridge instead.
-    const sandboxAttrs = [
-      'allow-scripts',
-      'allow-forms',
-      'allow-modals',
-      'allow-popups',
-      'allow-downloads'
-    ];
-
-    // Apply app-specific sandbox restrictions
-    if (app.sandbox) {
-      if (app.sandbox.allowScripts === false) {
-        const idx = sandboxAttrs.indexOf('allow-scripts');
-        if (idx > -1) sandboxAttrs.splice(idx, 1);
-      }
-      if (app.sandbox.allowForms === false) {
-        const idx = sandboxAttrs.indexOf('allow-forms');
-        if (idx > -1) sandboxAttrs.splice(idx, 1);
-      }
-      if (app.sandbox.allowPopups === false) {
-        const idx = sandboxAttrs.indexOf('allow-popups');
-        if (idx > -1) sandboxAttrs.splice(idx, 1);
-      }
-    }
-
-    iframe.sandbox = sandboxAttrs.join(' ');
-
-    // FIX: securifyFrame() must run AFTER iframe.sandbox is assigned.
-    // Previously it ran before, so its sandbox enforcement was silently
-    // overwritten by the iframe.sandbox = ... line above.
-    // Now FrameSecurity has the final word on sandbox attributes.
-    if (typeof window.FrameSecurity !== 'undefined') {
-      window.FrameSecurity.securifyFrame(iframe, 'normal');
-    }
-
-    // Security: Content Security Policy
-    const csp = [
-      "default-src 'self' blob: data:",
-      // unsafe-inline is acceptable here: the iframe is already sandboxed at the NW.js
-      // level (nwdisable, null origin, no allow-same-origin) so it cannot reach Node.js
-      // or the main page regardless. Blocking inline scripts in the iframe's own CSP
-      // only hurts third-party apps without buying meaningful security.
-      "script-src 'self' blob: 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline' blob:",
-      "img-src 'self' blob: data: https:",
-      "font-src 'self' blob: data:",
-      // connect-src 'none' forces ALL network through the IPC bridge where permissions
-      // are enforced. Without this, apps can exfiltrate data directly to external URLs.
-      "connect-src 'none'",
-      "frame-src 'self' blob: data:",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self'"
-    ].join('; ');
-
-    iframe.setAttribute('csp', csp); // FIX: property assignment was silently ignored; setAttribute actually applies it
+    // Isolated storage partition per sandbox instance.
+    // 'persist:' prefix means storage survives webview destruction (expected for apps).
+    // Each app instance gets its own partition — cross-app storage access is impossible.
+    const sandboxId = `sandbox_${app.id}_${Date.now()}`;
+    webview.setAttribute('partition', `persist:${sandboxId}`);
 
     // Styling
-    iframe.style.cssText = `
+    webview.style.cssText = `
       width: 100%;
       height: 100%;
       border: none;
@@ -99,37 +45,27 @@ const AppSandbox = (() => {
       flex-direction: column;
     `;
 
-    // Security: prevent framing
-    iframe.allow = "fullscreen"; // FIX: removed camera/microphone — these must be gated by device:camera/microphone permissions
-
-    // Store reference
-    const sandboxId = `sandbox_${app.id}_${Date.now()}`;
-    iframe.dataset.sandboxId = sandboxId;
-    iframe.dataset.appId = app.id;
+    webview.dataset.sandboxId = sandboxId;
+    webview.dataset.appId = app.id;
 
     activeSandboxes.set(sandboxId, {
       appId: app.id,
-      iframe: iframe,
+      iframe: webview,    // backward-compat alias — callers reading sandbox.iframe still work
+      webview: webview,
       created: new Date().toISOString(),
       state: state,
       windowId: state?.id
     });
 
-    // ── Fullscreen Support for Web Content ──
-    // When content inside the iframe (e.g., YouTube video) requests fullscreen,
-    // expand the window to fill the available space for an immersive viewing experience.
+    // ── Fullscreen Support ──
     if (state && state.element) {
       const origMaximized = state.maximized;
-
-      // Listen for fullscreen requests from iframe content
-      iframe.addEventListener('fullscreenchange', () => {
-        if (document.fullscreenElement === iframe) {
-          // Entering fullscreen — maximize and expand window
+      webview.addEventListener('fullscreenchange', () => {
+        if (document.fullscreenElement === webview) {
           if (typeof WM !== 'undefined' && WM.toggleMaximize && !state.maximized) {
             WM.toggleMaximize(state.id);
           }
         } else {
-          // Exiting fullscreen — restore window to original state if it was not maximized
           if (typeof WM !== 'undefined' && WM.toggleMaximize && !origMaximized && state.maximized) {
             WM.toggleMaximize(state.id);
           }
@@ -139,37 +75,12 @@ const AppSandbox = (() => {
 
     eventSubscriptions.set(sandboxId, new Map());
 
-    // Setup API bridge
-    setupAPIBridge(iframe, app, sandboxId);
+    setupAPIBridge(webview, app, sandboxId);
+    setupErrorHandling(webview, app);
 
-    // Setup error handling
-    setupErrorHandling(iframe, app);
+    console.log(`[AppSandbox] Created webview sandbox for ${app.name} (${sandboxId})`);
 
-    // NW.js Frame Security Validation: Verify frame type is enforced
-    // Use the FrameSecurity module to validate that this iframe is correctly
-    // marked as a "normal frame" with nwdisable and cannot escalate to Node.js access.
-    if (typeof window.FrameSecurity !== 'undefined') {
-      // FIX: abort sandbox creation on any frame security failure
-      const validation = window.FrameSecurity.validateFrameSecurity(iframe);
-      if (!validation.valid) {
-        console.error(`[AppSandbox] BLOCKED: Frame security validation failed for ${app.name}:`, validation.issues);
-        if (container) container.innerHTML = '';
-        throw new Error(`[AppSandbox] Frame security violation for ${app.name}: ${validation.issues.join(', ')}`);
-      }
-      if (validation.frameType !== 'normal') {
-        console.error(`[AppSandbox] BLOCKED: ${app.name} sandbox type is "${validation.frameType}", expected "normal"`);
-        if (container) container.innerHTML = '';
-        throw new Error(`[AppSandbox] Frame type violation for ${app.name}: expected normal, got ${validation.frameType}`);
-      }
-    } else {
-      // FIX: hard-fail if FrameSecurity module is missing -- never silently skip
-      console.error('[AppSandbox] BLOCKED: FrameSecurity module not loaded');
-      throw new Error('[AppSandbox] FrameSecurity module is required but not loaded');
-    }
-
-    console.log(`[AppSandbox] Created sandbox for ${app.name} (${sandboxId})`);
-
-    return iframe;
+    return webview;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -179,25 +90,23 @@ const AppSandbox = (() => {
   /**
    * Send a response back to the sandboxed app
    */
-  function respond(iframe, type, requestId, result, error = null) {
+  function respond(webview, type, requestId, result, error = null) {
     try {
-      // Blob: iframes without allow-same-origin have null origin, so targetOrigin
-      // of window.location.origin is silently dropped by the browser. Use '*' here.
-      // Security is maintained by the event.source identity check in setupAPIBridge —
-      // only messages from the exact iframe.contentWindow are processed.
-      iframe.contentWindow.postMessage({
+      // Apps are served from our own origin (https://localhost:PORT/api/apps/serve/…),
+      // so we can use the exact origin instead of '*'.
+      webview.contentWindow.postMessage({
         type: `${type}:response`,
         requestId,
         result,
         error
-      }, '*');
+      }, window.location.origin);
     } catch (e) {
       console.error(`[AppSandbox] Failed to respond to ${type}:`, e);
     }
   }
 
-  function respondError(iframe, type, requestId, code, message) {
-    respond(iframe, type, requestId, null, { code, message });
+  function respondError(webview, type, requestId, code, message) {
+    respond(webview, type, requestId, null, { code, message });
   }
 
   /**
@@ -249,7 +158,7 @@ const AppSandbox = (() => {
   /**
    * Show a file open/save dialog
    */
-  function showFileDialog(mode, iframe, type, requestId, app, payload) {
+  function showFileDialog(mode, webview, type, requestId, app, payload) {
     const overlay = document.createElement('div');
     overlay.className = 'nsec-overlay';
     overlay.style.zIndex = '100001';
@@ -443,7 +352,7 @@ const AppSandbox = (() => {
     cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.background = 'transparent'; });
     cancelBtn.addEventListener('click', () => {
       overlay.remove();
-      respond(iframe, type, requestId, { cancelled: true });
+      respond(webview, type, requestId, { cancelled: true });
     });
 
     const confirmBtn = document.createElement('button');
@@ -467,7 +376,7 @@ const AppSandbox = (() => {
         const node = FS.files.get(selectedFile);
         if (!node || node.type === 'folder') return;
         overlay.remove();
-        respond(iframe, type, requestId, {
+        respond(webview, type, requestId, {
           success: true,
           file: {
             id: node.id,
@@ -486,7 +395,7 @@ const AppSandbox = (() => {
         try {
           const newNode = await FS.createFile(currentFolderId, name, content, mimeType);
           overlay.remove();
-          respond(iframe, type, requestId, {
+          respond(webview, type, requestId, {
             success: true,
             file: {
               id: newNode.id,
@@ -496,7 +405,7 @@ const AppSandbox = (() => {
           });
         } catch (e) {
           overlay.remove();
-          respondError(iframe, type, requestId, 'WRITE_ERROR', e.message || 'Failed to write file');
+          respondError(webview, type, requestId, 'WRITE_ERROR', e.message || 'Failed to write file');
         }
       }
     });
@@ -523,42 +432,32 @@ const AppSandbox = (() => {
 
   /**
    * Setup postMessage API bridge
-   * @param {HTMLIFrameElement} iframe - Sandbox iframe
+   * @param {HTMLElement} webview - Sandbox webview
    * @param {object} app - App object
    * @param {string} sandboxId - Sandbox ID
    */
-  function setupAPIBridge(iframe, app, sandboxId) {
+  function setupAPIBridge(webview, app, sandboxId) {
     const messageHandler = (event) => {
-      // Security: verify message origin
-      if (event.source !== iframe.contentWindow) {
-        return;
-      }
+      // Apps served from our origin — same-origin postMessage, no 'null' hack needed.
+      if (event.origin !== window.location.origin) return;
+      // event.source === webview.contentWindow: NW.js exposes ContentWindow on webview,
+      // so this check prevents messages from any other frame on the same origin.
+      if (event.source !== webview.contentWindow) return;
 
       const { type, payload, requestId } = event.data;
-
-      if (!type || !type.startsWith('nova:')) {
-        return;
-      }
+      if (!type || !type.startsWith('nova:')) return;
 
       const sandbox = activeSandboxes.get(sandboxId);
-      handleAPICall(type, payload, requestId, app, iframe, sandbox);
+      handleAPICall(type, payload, requestId, app, webview, sandbox);
     };
 
-    window.addEventListener('message', (event) => {
-      // Blob: iframes without allow-same-origin report event.origin as "null".
-      // Accept both our own origin and "null"; real security is the
-      // event.source === iframe.contentWindow check inside messageHandler.
-      const isOwnOrigin = event.origin === window.location.origin || event.origin === 'null';
-      if (!isOwnOrigin) return;
-      messageHandler(event);
-    });
+    window.addEventListener('message', messageHandler);
 
     // Store cleanup
     const sandbox = activeSandboxes.get(sandboxId);
     if (sandbox) {
       sandbox.cleanup = () => {
         window.removeEventListener('message', messageHandler);
-        // Clean up event subscriptions
         const subs = eventSubscriptions.get(sandboxId);
         if (subs) {
           for (const [eventName, handler] of subs) {
@@ -581,23 +480,23 @@ const AppSandbox = (() => {
    * @param {object} payload - Call payload
    * @param {string} requestId - Request ID for response correlation
    * @param {object} app - App object
-   * @param {HTMLIFrameElement} iframe - Sandbox iframe
+   * @param {HTMLElement} webview - Sandbox webview
    * @param {object} sandbox - Sandbox info object
    */
-  async function handleAPICall(type, payload, requestId, app, iframe, sandbox) {
+  async function handleAPICall(type, payload, requestId, app, webview, sandbox) {
     const windowId = sandbox?.windowId;
 
     try {
       // ── FS: Read ──────────────────────────────────────────────────────
       if (type === 'nova:fs:read') {
         if (!AppPermissionManager.isGranted('fs:read', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
         }
         const node = resolveFile(payload);
-        if (!node) return respondError(iframe, type, requestId, 'NOT_FOUND', 'File or folder not found');
+        if (!node) return respondError(webview, type, requestId, 'NOT_FOUND', 'File or folder not found');
         if (node.type === 'folder') {
           const children = FS.listDir(node.id);
-          return respond(iframe, type, requestId, {
+          return respond(webview, type, requestId, {
             success: true,
             isFolder: true,
             name: node.name,
@@ -609,7 +508,7 @@ const AppSandbox = (() => {
             }))
           });
         }
-        return respond(iframe, type, requestId, {
+        return respond(webview, type, requestId, {
           success: true,
           data: node.content,
           mimeType: node.mimeType,
@@ -625,60 +524,60 @@ const AppSandbox = (() => {
       // ── FS: Write ─────────────────────────────────────────────────────
       if (type === 'nova:fs:write') {
         if (!AppPermissionManager.isGranted('fs:write', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
         }
         const { path, content, mimeType } = payload;
         if (!path || content === undefined) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'path and content are required');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'path and content are required');
         }
         let node = FS.getByPath(path);
         if (node) {
           if (node.type === 'folder') {
-            return respondError(iframe, type, requestId, 'INVALID_OPERATION', 'Cannot write to a folder');
+            return respondError(webview, type, requestId, 'INVALID_OPERATION', 'Cannot write to a folder');
           }
           await FS.writeFile(node.id, content);
-          return respond(iframe, type, requestId, { success: true, id: node.id });
+          return respond(webview, type, requestId, { success: true, id: node.id });
         }
         const parts = path.split('/').filter(Boolean);
         const fileName = parts.pop();
         const parentPath = '/' + parts.join('/');
         const parent = parts.length > 0 ? FS.getByPath(parentPath) : FS.files.get(FS.rootId);
         if (!parent || parent.type !== 'folder') {
-          return respondError(iframe, type, requestId, 'NOT_FOUND', 'Parent folder not found');
+          return respondError(webview, type, requestId, 'NOT_FOUND', 'Parent folder not found');
         }
         const newNode = await FS.createFile(parent.id, fileName,
           typeof content === 'string' ? content : JSON.stringify(content),
           mimeType || 'text/plain');
-        return respond(iframe, type, requestId, { success: true, id: newNode.id, path: FS.getPath(newNode.id) });
+        return respond(webview, type, requestId, { success: true, id: newNode.id, path: FS.getPath(newNode.id) });
       }
 
       // ── FS: Delete ────────────────────────────────────────────────────
       if (type === 'nova:fs:delete') {
         if (!AppPermissionManager.isGranted('fs:delete', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:delete permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:delete permission required');
         }
         const node = resolveFile(payload);
-        if (!node) return respondError(iframe, type, requestId, 'NOT_FOUND', 'File not found');
+        if (!node) return respondError(webview, type, requestId, 'NOT_FOUND', 'File not found');
         if (payload.permanent) {
           await FS.permanentDelete(node.id);
         } else {
           await FS.deleteToTrash(node.id);
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── FS: List ──────────────────────────────────────────────────────
       if (type === 'nova:fs:list') {
         if (!AppPermissionManager.isGranted('fs:read', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
         }
         const node = resolveFile(payload);
-        if (!node) return respondError(iframe, type, requestId, 'NOT_FOUND', 'Folder not found');
+        if (!node) return respondError(webview, type, requestId, 'NOT_FOUND', 'Folder not found');
         if (node.type !== 'folder') {
-          return respondError(iframe, type, requestId, 'INVALID_OPERATION', 'Path is not a folder');
+          return respondError(webview, type, requestId, 'INVALID_OPERATION', 'Path is not a folder');
         }
         const children = FS.listDir(node.id);
-        return respond(iframe, type, requestId, {
+        return respond(webview, type, requestId, {
           success: true,
           path: FS.getPath(node.id),
           files: children.map(c => ({
@@ -691,11 +590,11 @@ const AppSandbox = (() => {
       // ── FS: Mkdir ─────────────────────────────────────────────────────
       if (type === 'nova:fs:mkdir') {
         if (!AppPermissionManager.isGranted('fs:write', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
         }
         const { path, name } = payload;
         if (!name) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'name is required');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'name is required');
         }
         let parent;
         if (path) {
@@ -704,20 +603,20 @@ const AppSandbox = (() => {
           parent = FS.files.get(FS.rootId);
         }
         if (!parent || parent.type !== 'folder') {
-          return respondError(iframe, type, requestId, 'NOT_FOUND', 'Parent folder not found');
+          return respondError(webview, type, requestId, 'NOT_FOUND', 'Parent folder not found');
         }
         const newFolder = await FS.createFolder(parent.id, name);
-        return respond(iframe, type, requestId, { success: true, id: newFolder.id, path: FS.getPath(newFolder.id) });
+        return respond(webview, type, requestId, { success: true, id: newFolder.id, path: FS.getPath(newFolder.id) });
       }
 
       // ── FS: Stat ──────────────────────────────────────────────────────
       if (type === 'nova:fs:stat') {
         if (!AppPermissionManager.isGranted('fs:read', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
         }
         const node = resolveFile(payload);
-        if (!node) return respondError(iframe, type, requestId, 'NOT_FOUND', 'File not found');
-        return respond(iframe, type, requestId, {
+        if (!node) return respondError(webview, type, requestId, 'NOT_FOUND', 'File not found');
+        return respond(webview, type, requestId, {
           success: true,
           stat: fileToJSON(node)
         });
@@ -726,36 +625,36 @@ const AppSandbox = (() => {
       // ── FS: Rename ────────────────────────────────────────────────────
       if (type === 'nova:fs:rename') {
         if (!AppPermissionManager.isGranted('fs:write', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
         }
         const node = resolveFile(payload);
-        if (!node) return respondError(iframe, type, requestId, 'NOT_FOUND', 'File not found');
+        if (!node) return respondError(webview, type, requestId, 'NOT_FOUND', 'File not found');
         if (!payload.name) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'name is required');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'name is required');
         }
         await FS.rename(node.id, payload.name);
-        return respond(iframe, type, requestId, { success: true, name: payload.name });
+        return respond(webview, type, requestId, { success: true, name: payload.name });
       }
 
       // ── FS: Move ──────────────────────────────────────────────────────
       if (type === 'nova:fs:move') {
         if (!AppPermissionManager.isGranted('fs:write', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
         }
         const node = resolveFile(payload);
-        if (!node) return respondError(iframe, type, requestId, 'NOT_FOUND', 'File not found');
+        if (!node) return respondError(webview, type, requestId, 'NOT_FOUND', 'File not found');
         const destParent = payload.destPath ? FS.getByPath(payload.destPath) : null;
         if (!destParent || destParent.type !== 'folder') {
-          return respondError(iframe, type, requestId, 'NOT_FOUND', 'Destination folder not found');
+          return respondError(webview, type, requestId, 'NOT_FOUND', 'Destination folder not found');
         }
         await FS.move(node.id, destParent.id);
-        return respond(iframe, type, requestId, { success: true, path: FS.getPath(node.id) });
+        return respond(webview, type, requestId, { success: true, path: FS.getPath(node.id) });
       }
 
       // ── Notifications: Show ───────────────────────────────────────────
       if (type === 'nova:notifications:show') {
         if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
         }
         if (typeof Notify !== 'undefined') {
           Notify.show({
@@ -769,53 +668,53 @@ const AppSandbox = (() => {
             category: payload.category || 'app'
           });
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Notifications: Clear ──────────────────────────────────────────
       if (type === 'nova:notifications:clear') {
         if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
         }
         if (typeof Notify !== 'undefined' && typeof Notify.clearAll === 'function') {
           Notify.clearAll();
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Settings: Get ─────────────────────────────────────────────────
       if (type === 'nova:settings:get') {
         // FIX: any app could read any system setting key (credentials, etc.)
         if (!AppPermissionManager.isGranted('system:info', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'system:info permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'system:info permission required');
         }
         const value = OS?.settings?.get(payload.key);
-        return respond(iframe, type, requestId, { success: true, value });
+        return respond(webview, type, requestId, { success: true, value });
       }
 
       // ── Settings: Set ─────────────────────────────────────────────────
       if (type === 'nova:settings:set') {
         if (!AppPermissionManager.isGranted('system:settings', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'system:settings permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'system:settings permission required');
         }
         OS?.settings?.set(payload.key, payload.value);
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Request Permission ────────────────────────────────────────────
       if (type === 'nova:request-permission') {
         const { permission } = payload;
         if (!permission) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'permission is required');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'permission is required');
         }
         try {
           const granted = await AppPermissionManager.requestPermission(permission, app.id, {
             reason: payload.reason || `${app.name} wants to access this permission.`,
             permanent: payload.permanent !== false
           });
-          return respond(iframe, type, requestId, { granted });
+          return respond(webview, type, requestId, { granted });
         } catch (e) {
-          return respondError(iframe, type, requestId, 'ERROR', e.message || 'Permission request failed');
+          return respondError(webview, type, requestId, 'ERROR', e.message || 'Permission request failed');
         }
       }
 
@@ -824,7 +723,7 @@ const AppSandbox = (() => {
         if (windowId && typeof WM.closeWindow === 'function') {
           WM.closeWindow(windowId);
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Window: Minimize ──────────────────────────────────────────────
@@ -832,7 +731,7 @@ const AppSandbox = (() => {
         if (windowId && typeof WM.minimizeWindow === 'function') {
           WM.minimizeWindow(windowId);
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Window: Maximize / Restore ────────────────────────────────────
@@ -840,7 +739,7 @@ const AppSandbox = (() => {
         if (windowId && typeof WM.toggleMaximize === 'function') {
           WM.toggleMaximize(windowId);
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Window: Set Title ─────────────────────────────────────────────
@@ -851,7 +750,7 @@ const AppSandbox = (() => {
             state.titleText.textContent = payload.title || '';
           }
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Window: Resize ────────────────────────────────────────────────
@@ -871,14 +770,14 @@ const AppSandbox = (() => {
             }
           }
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Window: Get State ─────────────────────────────────────────────
       if (type === 'nova:window:getState') {
         const state = windowId ? OS.windows.get(windowId) : null;
         if (state) {
-          return respond(iframe, type, requestId, {
+          return respond(webview, type, requestId, {
             success: true,
             id: state.id,
             x: state.x, y: state.y,
@@ -887,16 +786,16 @@ const AppSandbox = (() => {
             minimized: !!state.minimized
           });
         }
-        return respondError(iframe, type, requestId, 'NOT_FOUND', 'Window not found');
+        return respondError(webview, type, requestId, 'NOT_FOUND', 'Window not found');
       }
 
       // ── Clipboard: Read ───────────────────────────────────────────────
       if (type === 'nova:clipboard:read') {
         // FIX: reading clipboard was entirely ungated; now requires fs:read
         if (!AppPermissionManager.isGranted('fs:read', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required for clipboard access');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required for clipboard access');
         }
-        return respond(iframe, type, requestId, {
+        return respond(webview, type, requestId, {
           success: true,
           data: OS.clipboard || null
         });
@@ -905,7 +804,7 @@ const AppSandbox = (() => {
       // ── Clipboard: Write ──────────────────────────────────────────────
       if (type === 'nova:clipboard:write') {
         if (!AppPermissionManager.isGranted('fs:read', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required for clipboard access');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required for clipboard access');
         }
         OS.clipboard = payload.data || '';
         if (!OS.clipboardHistory) OS.clipboardHistory = [];
@@ -913,33 +812,33 @@ const AppSandbox = (() => {
           OS.clipboardHistory.unshift(payload.data);
           if (OS.clipboardHistory.length > 30) OS.clipboardHistory.pop();
         }
-        return respond(iframe, type, requestId, { success: true });
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── App: Launch ───────────────────────────────────────────────────
       if (type === 'nova:app:launch') {
         // FIX: require system:apps permission — previously any app could launch any other app
         if (!AppPermissionManager.isGranted('system:apps', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'system:apps permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'system:apps permission required');
         }
         const { appId, options } = payload;
         if (!appId) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'appId is required');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'appId is required');
         }
         try {
           if (typeof WM.createWindow === 'function') {
             const win = WM.createWindow(appId, options || {});
-            return respond(iframe, type, requestId, { success: !!win, windowId: win ? win.id : null });
+            return respond(webview, type, requestId, { success: !!win, windowId: win ? win.id : null });
           }
-          return respondError(iframe, type, requestId, 'UNAVAILABLE', 'Window manager not available');
+          return respondError(webview, type, requestId, 'UNAVAILABLE', 'Window manager not available');
         } catch (e) {
-          return respondError(iframe, type, requestId, 'ERROR', e.message);
+          return respondError(webview, type, requestId, 'ERROR', e.message);
         }
       }
 
       // ── App: Info ─────────────────────────────────────────────────────
       if (type === 'nova:app:info') {
-        return respond(iframe, type, requestId, {
+        return respond(webview, type, requestId, {
           success: true,
           id: app.id,
           name: app.name,
@@ -955,18 +854,18 @@ const AppSandbox = (() => {
       if (type === 'nova:events:subscribe') {
         const { event } = payload;
         if (!event) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'event name is required');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'event name is required');
         }
         const subs = eventSubscriptions.get(sandboxId);
         if (subs && subs.has(event)) {
-          return respondError(iframe, type, requestId, 'ALREADY_SUBSCRIBED', `Already subscribed to '${event}'`);
+          return respondError(webview, type, requestId, 'ALREADY_SUBSCRIBED', `Already subscribed to '${event}'`);
         }
         const handler = (data) => {
-          respond(iframe, 'nova:events:event', generateRequestId(), { event, data });
+          respond(webview, 'nova:events:event', generateRequestId(), { event, data });
         };
         OS.events.on(event, handler);
         if (subs) subs.set(event, handler);
-        return respond(iframe, type, requestId, { success: true, subscribed: event });
+        return respond(webview, type, requestId, { success: true, subscribed: event });
       }
 
       // ── Events: Unsubscribe ───────────────────────────────────────────
@@ -978,30 +877,30 @@ const AppSandbox = (() => {
           OS.events.off(event, handler);
           subs.delete(event);
         }
-        return respond(iframe, type, requestId, { success: true, unsubscribed: event });
+        return respond(webview, type, requestId, { success: true, unsubscribed: event });
       }
 
       // ── Net: Fetch ────────────────────────────────────────────────────
       if (type === 'nova:net:fetch') {
         const { url, method, headers, body } = payload;
         if (!url) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'url is required');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'url is required');
         }
         // FIX: allowlist HTTP methods — reject anything outside safe set
         const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
         const safeMethod = (method || 'GET').toUpperCase();
         if (!ALLOWED_METHODS.includes(safeMethod)) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', `Method not allowed: ${safeMethod}`);
+          return respondError(webview, type, requestId, 'INVALID_ARGS', `Method not allowed: ${safeMethod}`);
         }
         // FIX: validate protocol — block file://, javascript:, data:, etc.
         if (!url.startsWith('/')) {
           try {
             const _proto = new URL(url).protocol;
             if (!['http:', 'https:'].includes(_proto)) {
-              return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Only http and https URLs are allowed');
+              return respondError(webview, type, requestId, 'INVALID_ARGS', 'Only http and https URLs are allowed');
             }
           } catch (_) {
-            return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid URL');
+            return respondError(webview, type, requestId, 'INVALID_ARGS', 'Invalid URL');
           }
         }
         // Determine permission level
@@ -1020,7 +919,7 @@ const AppSandbox = (() => {
         }
         const netPerm = isInternal ? 'net:internal' : 'net:external';
         if (!AppPermissionManager.isGranted(netPerm, app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', `${netPerm} permission required`);
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', `${netPerm} permission required`);
         }
         try {
           const res = await fetch(url, {
@@ -1029,7 +928,7 @@ const AppSandbox = (() => {
             body: body || null
           });
           const resBody = await res.text();
-          return respond(iframe, type, requestId, {
+          return respond(webview, type, requestId, {
             success: true,
             status: res.status,
             statusText: res.statusText,
@@ -1037,7 +936,7 @@ const AppSandbox = (() => {
             body: resBody
           });
         } catch (e) {
-          return respondError(iframe, type, requestId, 'NETWORK_ERROR', e.message);
+          return respondError(webview, type, requestId, 'NETWORK_ERROR', e.message);
         }
       }
 
@@ -1047,14 +946,14 @@ const AppSandbox = (() => {
         // FIX: sanitize storage key — prevent key injection across app boundaries
         // e.g. "../../other_app_id_secret" must not escape this app's namespace
         if (!rawKey || /[^\w\-. ]/.test(rawKey)) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
         }
         const key = `nova_storage_${app.id}_${rawKey}`;
         try {
           const value = localStorage.getItem(key);
-          return respond(iframe, type, requestId, { success: true, value: value !== null ? value : null });
+          return respond(webview, type, requestId, { success: true, value: value !== null ? value : null });
         } catch (e) {
-          return respond(iframe, type, requestId, { success: true, value: null });
+          return respond(webview, type, requestId, { success: true, value: null });
         }
       }
 
@@ -1062,14 +961,14 @@ const AppSandbox = (() => {
       if (type === 'nova:storage:set') {
         const rawKey = String(payload.key || '');
         if (!rawKey || /[^\w\-. ]/.test(rawKey)) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
         }
         const key = `nova_storage_${app.id}_${rawKey}`;
         try {
           localStorage.setItem(key, payload.value);
-          return respond(iframe, type, requestId, { success: true });
+          return respond(webview, type, requestId, { success: true });
         } catch (e) {
-          return respondError(iframe, type, requestId, 'STORAGE_FULL', 'Failed to write to storage');
+          return respondError(webview, type, requestId, 'STORAGE_FULL', 'Failed to write to storage');
         }
       }
 
@@ -1077,14 +976,14 @@ const AppSandbox = (() => {
       if (type === 'nova:storage:delete') {
         const rawKey = String(payload.key || '');
         if (!rawKey || /[^\w\-. ]/.test(rawKey)) {
-          return respondError(iframe, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'Invalid storage key');
         }
         const key = `nova_storage_${app.id}_${rawKey}`;
         try {
           localStorage.removeItem(key);
-          return respond(iframe, type, requestId, { success: true });
+          return respond(webview, type, requestId, { success: true });
         } catch (e) {
-          return respondError(iframe, type, requestId, 'ERROR', e.message);
+          return respondError(webview, type, requestId, 'ERROR', e.message);
         }
       }
 
@@ -1098,9 +997,9 @@ const AppSandbox = (() => {
             if (k && k.startsWith(prefix)) toRemove.push(k);
           }
           toRemove.forEach(k => localStorage.removeItem(k));
-          return respond(iframe, type, requestId, { success: true });
+          return respond(webview, type, requestId, { success: true });
         } catch (e) {
-          return respondError(iframe, type, requestId, 'ERROR', e.message);
+          return respondError(webview, type, requestId, 'ERROR', e.message);
         }
       }
 
@@ -1113,22 +1012,22 @@ const AppSandbox = (() => {
             const k = localStorage.key(i);
             if (k && k.startsWith(prefix)) keys.push(k.slice(prefix.length));
           }
-          return respond(iframe, type, requestId, { success: true, keys });
+          return respond(webview, type, requestId, { success: true, keys });
         } catch (e) {
-          return respondError(iframe, type, requestId, 'ERROR', e.message);
+          return respondError(webview, type, requestId, 'ERROR', e.message);
         }
       }
 
       // ── Device: Geolocation ───────────────────────────────────────────
       if (type === 'nova:device:geolocation') {
         if (!AppPermissionManager.isGranted('device:geolocation', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'device:geolocation permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'device:geolocation permission required');
         }
         if (typeof navigator === 'undefined' || !navigator.geolocation) {
-          return respondError(iframe, type, requestId, 'UNAVAILABLE', 'Geolocation not available');
+          return respondError(webview, type, requestId, 'UNAVAILABLE', 'Geolocation not available');
         }
         navigator.geolocation.getCurrentPosition(
-          (pos) => respond(iframe, type, requestId, {
+          (pos) => respond(webview, type, requestId, {
             success: true,
             coords: {
               latitude: pos.coords.latitude,
@@ -1141,7 +1040,7 @@ const AppSandbox = (() => {
             },
             timestamp: pos.timestamp
           }),
-          (err) => respondError(iframe, type, requestId, 'GEOLOCATION_ERROR', err.message),
+          (err) => respondError(webview, type, requestId, 'GEOLOCATION_ERROR', err.message),
           payload.options || {}
         );
         return; // async callback will send response
@@ -1149,7 +1048,7 @@ const AppSandbox = (() => {
 
       // ── System: Info ──────────────────────────────────────────────────
       if (type === 'nova:system:info') {
-        return respond(iframe, type, requestId, {
+        return respond(webview, type, requestId, {
           success: true,
           os: {
             version: OS.version,
@@ -1162,7 +1061,7 @@ const AppSandbox = (() => {
 
       // ── Ready Handshake ───────────────────────────────────────────────
       if (type === 'nova:ready') {
-        return respond(iframe, type, requestId, {
+        return respond(webview, type, requestId, {
           success: true,
           appId: app.id,
           permissions: app.permissions || [],
@@ -1175,27 +1074,34 @@ const AppSandbox = (() => {
       // ── Dialog: Open ──────────────────────────────────────────────────
       if (type === 'nova:dialog:open') {
         if (!AppPermissionManager.isGranted('fs:read', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:read permission required');
         }
-        showFileDialog('open', iframe, type, requestId, app, payload);
+        showFileDialog('open', webview, type, requestId, app, payload);
         return; // async, response sent by dialog callback
       }
 
       // ── Dialog: Save ──────────────────────────────────────────────────
       if (type === 'nova:dialog:save') {
         if (!AppPermissionManager.isGranted('fs:write', app.id)) {
-          return respondError(iframe, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'fs:write permission required');
         }
-        showFileDialog('save', iframe, type, requestId, app, payload);
+        showFileDialog('save', webview, type, requestId, app, payload);
         return;
       }
 
+      // ── Audit: eval ──────────────────────────────────────────────────
+      // Sent by the capability shim whenever an app calls eval(). Log it — don't block.
+      if (type === 'nova:audit:eval') {
+        console.warn(`[AppSandbox] ${app.name} called eval():`, payload?.preview);
+        return; // fire-and-forget, no response needed
+      }
+
       // ── Unknown API ───────────────────────────────────────────────────
-      respondError(iframe, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
+      respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
 
     } catch (err) {
       console.error(`[AppSandbox] Error handling ${type}:`, err);
-      respondError(iframe, type, requestId, 'INTERNAL_ERROR', err.message || 'Internal error');
+      respondError(webview, type, requestId, 'INTERNAL_ERROR', err.message || 'Internal error');
     }
   }
 
@@ -1205,20 +1111,24 @@ const AppSandbox = (() => {
 
   /**
    * Setup error handling for sandbox
-   * @param {HTMLIFrameElement} iframe - Sandbox iframe
+   * @param {HTMLElement} webview - Sandbox webview
    * @param {object} app - App object
    */
-  function setupErrorHandling(iframe, app) {
-    iframe.addEventListener('error', (event) => {
-      console.error(`[AppSandbox] Error in ${app.name}:`, event.error);
+  function setupErrorHandling(webview, app) {
+    // loadabort fires when webview navigation is cancelled (network error, blocked URL, etc.)
+    webview.addEventListener('loadabort', (event) => {
+      console.error(`[AppSandbox] Load aborted in ${app.name}:`, event.reason);
     });
 
-    iframe.contentWindow.addEventListener('error', (event) => {
-      console.error(`[AppSandbox] Runtime error in ${app.name}:`, event.error);
-    });
-
-    iframe.contentWindow.addEventListener('unhandledrejection', (event) => {
-      console.error(`[AppSandbox] Unhandled rejection in ${app.name}:`, event.reason);
+    // consolemessage proxies console output from the webview's separate renderer process.
+    // We can't attach to webview.contentWindow.addEventListener due to process isolation,
+    // so this is the correct surface for runtime error/warning visibility.
+    webview.addEventListener('consolemessage', (event) => {
+      if (event.level >= 2) {
+        const level = event.level >= 3 ? 'error' : 'warn';
+        console[level](`[AppSandbox] ${app.name}:`, event.message,
+          event.sourceId ? `(${event.sourceId}:${event.line})` : '');
+      }
     });
   }
 
@@ -1226,38 +1136,163 @@ const AppSandbox = (() => {
   //  APP LOADING
   // ═══════════════════════════════════════════════════════════════════════
 
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  CAPABILITY PROXY SHIM
+  //  Injected as the first <script> in every packaged app's HTML.
+  //  Overrides fetch / XHR / eval / sendBeacon so apps that use standard
+  //  web APIs work transparently — all network goes through the IPC bridge
+  //  where permissions are enforced. connect-src 'none' in the served CSP
+  //  ensures nothing bypasses this at the browser level.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  const CAPABILITY_SHIM = `<script>
+(function(){
+  // Lightweight request helper — sends a nova: IPC message and resolves on response.
+  function _ipc(type, payload) {
+    return new Promise(function(resolve, reject) {
+      var id = 'shim_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+      function handler(e) {
+        if (!e.data || e.data.requestId !== id) return;
+        window.removeEventListener('message', handler);
+        if (e.data.error) reject(new TypeError(e.data.error.message || String(e.data.error)));
+        else resolve(e.data.result);
+      }
+      window.addEventListener('message', handler);
+      window.parent.postMessage({ type: type, requestId: id, payload: payload }, '*');
+    });
+  }
+
+  // ── fetch ────────────────────────────────────────────────────────────
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    return _ipc('nova:net:fetch', {
+      url: String(url),
+      method: ((opts.method || 'GET') + '').toUpperCase(),
+      headers: opts.headers || {},
+      body: opts.body || null
+    }).then(function(r) {
+      return new Response(r.body, { status: r.status, statusText: r.statusText, headers: r.headers });
+    });
+  };
+
+  // ── XMLHttpRequest ───────────────────────────────────────────────────
+  window.XMLHttpRequest = function() {
+    var _m = 'GET', _u = '', _hdrs = {};
+    var pub = {
+      readyState: 0, status: 0, statusText: '', responseText: '', response: '',
+      onreadystatechange: null, onload: null, onerror: null, ontimeout: null,
+      open: function(m, u) { _m = m; _u = u; },
+      setRequestHeader: function(k, v) { _hdrs[k] = v; },
+      getResponseHeader: function() { return null; },
+      getAllResponseHeaders: function() { return ''; },
+      send: function(body) {
+        var self = this;
+        _ipc('nova:net:fetch', {
+          url: _u, method: (_m + '').toUpperCase(), headers: _hdrs, body: body || null
+        }).then(function(r) {
+          self.readyState = 4; self.status = r.status; self.statusText = r.statusText;
+          self.responseText = r.body; self.response = r.body;
+          if (self.onload) self.onload();
+          if (self.onreadystatechange) self.onreadystatechange();
+        }).catch(function(err) {
+          self.readyState = 4; self.status = 0;
+          if (self.onerror) self.onerror(err);
+          if (self.onreadystatechange) self.onreadystatechange();
+        });
+      }
+    };
+    return pub;
+  };
+
+  // ── eval (audit only — still executes) ──────────────────────────────
+  var _realEval = window.eval;
+  window.eval = function(code) {
+    window.parent.postMessage({ type: 'nova:audit:eval', requestId: null,
+      payload: { preview: String(code).slice(0, 200) } }, '*');
+    return _realEval.call(window, code);
+  };
+
+  // ── navigator.sendBeacon ────────────────────────────────────────────
+  navigator.sendBeacon = function(url, data) {
+    _ipc('nova:net:fetch', { url: String(url), method: 'POST', headers: {}, body: data || null });
+    return true;
+  };
+
+  // ── WebSocket ───────────────────────────────────────────────────────
+  // No WS proxy implemented yet — throw a clear error rather than silently failing.
+  window.WebSocket = function(url) {
+    throw new Error('[NovaByte] WebSocket is not supported in sandboxed apps yet. Use fetch() instead.');
+  };
+})();
+\x3C/script>`;
+
   /**
-   * Load app content into sandbox
-   * @param {HTMLIFrameElement} iframe - Sandbox iframe
+   * Prepend the capability shim as the very first script in the app's HTML.
+   * Injects after <head> if present, otherwise prepends to the document.
+   */
+  function injectCapabilityShim(html) {
+    // Try to inject right after opening <head> tag
+    const headMatch = html.match(/<head(\s[^>]*)?>/i);
+    if (headMatch) {
+      const idx = html.indexOf(headMatch[0]) + headMatch[0].length;
+      return html.slice(0, idx) + '\n' + CAPABILITY_SHIM + '\n' + html.slice(idx);
+    }
+    // No <head> — prepend before everything
+    return CAPABILITY_SHIM + '\n' + html;
+  }
+
+  /**
+   * Load app content into sandbox.
+   * Registers app files with the Express serve route so the webview gets
+   * a server-sent CSP header (no inheritance from the main page).
+   * @param {HTMLElement} webview - Sandbox webview
    * @param {object} app - App object
    * @param {object} state - Window state
    */
-  function loadAppContent(iframe, app, state) {
-    // For web apps (external URLs)
+  async function loadAppContent(webview, app, state) {
+    // For web apps (external URLs) — load directly
     if (app.type === 'webapp' && app.url) {
-      iframe.src = app.url;
+      webview.src = app.url;
       return;
     }
 
-    // For packaged apps with HTML entry point
+    // For packaged apps with an HTML entry point
     if (app.entry && app.files && app.files[app.entry]) {
       try {
-        const htmlContent = atob(app.files[app.entry]);
-        const blob = new Blob([htmlContent], { type: 'text/html' });
-        iframe.src = URL.createObjectURL(blob);
+        const sandboxId = webview.dataset.sandboxId;
+
+        // Inject capability shim into entry HTML before registering.
+        // The shim overrides fetch/XHR/eval so network calls route through the IPC bridge.
+        const shimmedFiles = Object.assign({}, app.files);
+        const rawHtml = atob(shimmedFiles[app.entry]);
+        shimmedFiles[app.entry] = btoa(injectCapabilityShim(rawHtml));
+
+        // Register app files with the Express serve route.
+        // The server responds with a baseUrl to serve from, and sets a relaxed CSP header
+        // on those responses (allowing inline scripts without inheriting the main page CSP).
+        const regRes = await fetch('/api/apps/serve/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sandboxId, files: shimmedFiles })
+        });
+        if (!regRes.ok) throw new Error(`File registration failed: ${regRes.status}`);
+        const { baseUrl } = await regRes.json();
+
+        // Load via HTTPS URL — webview's separate renderer gets its own CSP from server headers
+        webview.src = `${window.location.origin}${baseUrl}/${app.entry}`;
       } catch (error) {
         console.error(`[AppSandbox] Failed to load app content for ${app.name}:`, error);
-        showErrorPage(iframe, app, 'Failed to load app content');
+        showErrorPage(webview, app, 'Failed to load app content');
       }
     } else {
-      // Default: create a simple app shell
-      createDefaultAppShell(iframe, app, state);
+      createDefaultAppShell(webview, app, state);
     }
   }
 
   /**
    * Create default app shell for apps without content
-   * @param {HTMLIFrameElement} iframe - Sandbox iframe
+   * @param {HTMLElement} webview - Sandbox webview
    * @param {object} app - App object
    * @param {object} state - Window state
    */
@@ -1275,7 +1310,14 @@ const AppSandbox = (() => {
       .replace(/'/g, '&#x27;');
   }
 
-  function createDefaultAppShell(iframe, app, state) {
+  /**
+   * Create default app shell for apps without content.
+   * Registers via the Express serve route — webview cannot load blob: URLs.
+   * @param {HTMLElement} webview - Sandbox webview
+   * @param {object} app - App object
+   * @param {object} state - Window state
+   */
+  async function createDefaultAppShell(webview, app, state) {
     const html = `
       <!DOCTYPE html>
       <html>
@@ -1332,80 +1374,43 @@ const AppSandbox = (() => {
           </div>
         </div>
         <script>
-          // Safe localStorage wrapper for sandboxed contexts
-          (function() {
-            if (typeof localStorage === 'undefined') {
-              const memStore = new Map();
-              window.localStorage = {
-                getItem: (key) => memStore.get(key) ?? null,
-                setItem: (key, value) => { memStore.set(key, String(value)); },
-                removeItem: (key) => { memStore.delete(key); },
-                clear: () => { memStore.clear(); },
-                key: (index) => Array.from(memStore.keys())[index] ?? null,
-                get length() { return memStore.size; }
-              };
-            } else {
-              // Wrap existing localStorage with error handling
-              const originalLocalStorage = localStorage;
-              const memStore = new Map();
-              let useMemory = false;
-              
-              try {
-                originalLocalStorage.setItem('__test__', '1');
-                originalLocalStorage.removeItem('__test__');
-              } catch (e) {
-                useMemory = true;
-              }
-              
-              if (useMemory) {
-                window.localStorage = {
-                  getItem: (key) => memStore.get(key) ?? null,
-                  setItem: (key, value) => { memStore.set(key, String(value)); },
-                  removeItem: (key) => { memStore.delete(key); },
-                  clear: () => { memStore.clear(); },
-                  key: (index) => Array.from(memStore.keys())[index] ?? null,
-                  get length() { return memStore.size; }
-                };
-              }
-            }
-          })();
-
-          // Test API bridge
           window.addEventListener('message', (event) => {
             if (event.origin !== window.location.origin) return;
             if (event.data.type && event.data.type.startsWith('nova:')) {
-              document.getElementById('apiStatus').textContent =
-                'API Bridge: Connected ✓';
+              document.getElementById('apiStatus').textContent = 'API Bridge: Connected ✓';
             }
           });
-
-          // Request API access
           setTimeout(() => {
-            window.parent.// FIX: use parent origin instead of '*'
-            var _pOrigin = (function(){
-              try{return window.parent.location.origin;}catch(e){return window.location.origin;}
-            })();
-            postMessage({
-              type: 'nova:ready',
-              appId: '${escapeHtml(app.id)}'
-            }, _pOrigin);
+            window.parent.postMessage({ type: 'nova:ready', appId: '${escapeHtml(app.id)}' },
+              window.location.origin);
           }, 100);
         </script>
       </body>
       </html>
     `;
 
-    const blob = new Blob([html], { type: 'text/html' });
-    iframe.src = URL.createObjectURL(blob);
+    try {
+      const sandboxId = webview.dataset.sandboxId;
+      const regRes = await fetch('/api/apps/serve/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sandboxId, files: { 'index.html': btoa(html) } })
+      });
+      if (!regRes.ok) throw new Error(`Registration failed: ${regRes.status}`);
+      const { baseUrl } = await regRes.json();
+      webview.src = `${window.location.origin}${baseUrl}/index.html`;
+    } catch (error) {
+      console.error(`[AppSandbox] Failed to create default shell for ${app.name}:`, error);
+    }
   }
 
   /**
    * Show error page in sandbox
-   * @param {HTMLIFrameElement} iframe - Sandbox iframe
+   * @param {HTMLElement} webview - Sandbox webview
    * @param {object} app - App object
    * @param {string} message - Error message
    */
-  function showErrorPage(iframe, app, message) {
+  async function showErrorPage(webview, app, message) {
     const html = `
       <!DOCTYPE html>
       <html>
@@ -1428,8 +1433,19 @@ const AppSandbox = (() => {
       </body>
       </html>
     `;
-    const blob = new Blob([html], { type: 'text/html' });
-    iframe.src = URL.createObjectURL(blob);
+    try {
+      const sandboxId = webview.dataset.sandboxId;
+      const regRes = await fetch('/api/apps/serve/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sandboxId, files: { 'error.html': btoa(html) } })
+      });
+      if (!regRes.ok) throw new Error(`Registration failed: ${regRes.status}`);
+      const { baseUrl } = await regRes.json();
+      webview.src = `${window.location.origin}${baseUrl}/error.html`;
+    } catch (e) {
+      console.error(`[AppSandbox] Could not show error page for ${app.name}:`, e);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1453,31 +1469,30 @@ const AppSandbox = (() => {
     container.innerHTML = '';
 
     // Create sandbox
-    const iframe = createSandbox(app, container, state);
+    const webview = createSandbox(app, container, state);
 
     // Add to container
-    container.appendChild(iframe);
+    container.appendChild(webview);
 
-    // Load app content
-    loadAppContent(iframe, app, state);
+    // loadAppContent is async (registers files with server) — fire and let errors surface in the webview
+    loadAppContent(webview, app, state);
 
     console.log(`[AppSandbox] Launched ${app.name} in sandbox`);
 
+    const sandboxId = webview.dataset.sandboxId;
     return {
       success: true,
-      sandboxId: iframe.dataset.sandboxId,
+      sandboxId,
       appId: app.id,
       windowId: state?.id,
-      iframe: iframe,
+      iframe: webview,    // backward-compat alias
+      webview: webview,
       cleanup: () => {
-        const sandbox = activeSandboxes.get(iframe.dataset.sandboxId);
-        if (sandbox && sandbox.cleanup) {
-          sandbox.cleanup();
-        }
-        if (iframe.src && iframe.src.startsWith('blob:')) {
-          URL.revokeObjectURL(iframe.src);
-        }
-        activeSandboxes.delete(iframe.dataset.sandboxId);
+        const sandbox = activeSandboxes.get(sandboxId);
+        if (sandbox && sandbox.cleanup) sandbox.cleanup();
+        // Unregister app files from the serve registry
+        fetch(`/api/apps/serve/unregister/${sandboxId}`, { method: 'DELETE' }).catch(() => {});
+        activeSandboxes.delete(sandboxId);
       }
     };
   }
@@ -1488,9 +1503,7 @@ const AppSandbox = (() => {
    */
   function destroy(sandboxId) {
     const sandbox = activeSandboxes.get(sandboxId);
-    if (!sandbox) {
-      return false;
-    }
+    if (!sandbox) return false;
 
     // Clean up event subscriptions
     const subs = eventSubscriptions.get(sandboxId);
@@ -1502,13 +1515,10 @@ const AppSandbox = (() => {
       eventSubscriptions.delete(sandboxId);
     }
 
-    if (sandbox.cleanup) {
-      sandbox.cleanup();
-    }
+    if (sandbox.cleanup) sandbox.cleanup();
 
-    if (sandbox.iframe && sandbox.iframe.src.startsWith('blob:')) {
-      URL.revokeObjectURL(sandbox.iframe.src);
-    }
+    // Unregister app files from the Express serve registry
+    fetch(`/api/apps/serve/unregister/${sandboxId}`, { method: 'DELETE' }).catch(() => {});
 
     activeSandboxes.delete(sandboxId);
     console.log(`[AppSandbox] Destroyed sandbox: ${sandboxId}`);

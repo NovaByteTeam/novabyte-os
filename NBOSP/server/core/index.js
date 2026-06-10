@@ -147,75 +147,6 @@ app.get('/trackers.js', async (req, res) => {
     res.sendFile(p);
 });
 
-app.get('/style.css', (req, res) => {
-    res.setHeader('Content-Type', 'text/css');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(__dirname, '..', '..', 'style.css'));
-});
-
-// 7. Memory monitoring
-setInterval(() => {
-    const m = process.memoryUsage();
-    const mb = v => Math.round(v / 1024 / 1024);
-    process.stdout.write(
-        `[Memory] heapUsed=${mb(m.heapUsed)}MB heapTotal=${mb(m.heapTotal)}MB rss=${mb(m.rss)}MB external=${mb(m.external)}MB\n`
-    );
-    if (typeof global.gc === 'function' && m.heapUsed / m.heapTotal > 0.85 && m.heapUsed > 100 * 1024 * 1024) {
-        global.gc();
-        process.stdout.write('[Memory] gc() triggered - heap was above 85%\n');
-    }
-}, 60_000).unref();
-
-// 8. Health checks
-app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'ok' });
-});
-
-app.get('/api/health', (req, res) => {
-    res.status(200).json({ status: 'ok' });
-});
-
-// 11. Strip tracking parameters
-app.get('/api/security/strip-tracking', (req, res) => {
-    const { url } = req.query;
-    if (!url || typeof url !== 'string') {
-        return res.status(400).json({ error: 'url parameter is required' });
-    }
-
-    let urlObj;
-    try {
-        urlObj = new URL(decodeURIComponent(url));
-    } catch (_) {
-        return res.status(400).json({ error: 'Invalid URL' });
-    }
-
-    if (!['http:', 'https:'].includes(urlObj.protocol)) {
-        return res.status(400).json({ error: 'Only http and https URLs are supported' });
-    }
-
-    const h = urlObj.hostname.toLowerCase();
-    const BLOCKED = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
-    const BLOCKED_PREFIXES = ['10.', '192.168.',
-        '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.',
-        '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.',
-        '172.28.', '172.29.', '172.30.', '172.31.',
-        '169.254.', '100.64.'];
-    if (BLOCKED.includes(h) || BLOCKED_PREFIXES.some(p => h.startsWith(p)) || h.endsWith('.local') || h.endsWith('.internal')) {
-        return res.status(400).json({ error: 'Internal URLs are not permitted' });
-    }
-
-    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
-        'utm_term', 'fbclid', 'gclid', 'mc_eid', 'mc_cid', '_hsenc', '_hsmi'];
-    let stripped = false;
-    trackingParams.forEach(param => {
-        if (urlObj.searchParams.has(param)) {
-            urlObj.searchParams.delete(param);
-            stripped = true;
-        }
-    });
-    res.json({ stripped, url: urlObj.toString() });
-});
-
 // 12. Mount all API routes
 mountRoutes(app);
 
@@ -231,6 +162,80 @@ app.get('/api/user/sessions', (req, res) => res.json([]));
 app.get('/api/files/list', (req, res) => res.json([]));
 app.get('/api/files/search', (req, res) => res.json([]));
 app.get('/api/files/metadata', (req, res) => res.json({}));
+
+
+// ── App Serve Registry ─────────────────────────────────────────────────────
+// Temporary in-memory store: sandboxId → { files: { 'filename': '<base64>' }, created: ms }
+// Used by webview sandboxes to serve packaged .novaapp files under their own relaxed CSP.
+// Entries auto-expire after 30 minutes; explicit cleanup happens when a sandbox is destroyed.
+const _appServeRegistry = new Map();
+const _APP_SERVE_TTL = 30 * 60 * 1000; // 30 min
+
+function _pruneAppServeRegistry() {
+  const cutoff = Date.now() - _APP_SERVE_TTL;
+  for (const [k, v] of _appServeRegistry) {
+    if (v.created < cutoff) _appServeRegistry.delete(k);
+  }
+}
+
+// Register app files for serving (called by app-sandbox.js loadAppContent)
+app.post('/api/apps/serve/register', express.json({ limit: '50mb' }), (req, res) => {
+  const { sandboxId, files } = req.body || {};
+  if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
+    return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
+  }
+  // sandboxId must match our internal format to prevent registry pollution
+  if (!/^sandbox_[\w-]+_\d+$/.test(sandboxId)) {
+    return res.status(400).json({ error: 'Invalid sandboxId format' });
+  }
+  _pruneAppServeRegistry();
+  _appServeRegistry.set(sandboxId, { files, created: Date.now() });
+  res.json({ ok: true, baseUrl: `/api/apps/serve/${sandboxId}` });
+});
+
+// Unregister (called on sandbox destroy)
+app.delete('/api/apps/serve/unregister/:sandboxId', (req, res) => {
+  _appServeRegistry.delete(req.params.sandboxId);
+  res.json({ ok: true });
+});
+
+// Serve app files with a relaxed CSP.
+// The webview's separate renderer process provides the real isolation boundary.
+// server-sent CSP header takes effect (replaces the main page's strict policy).
+app.get('/api/apps/serve/:sandboxId/*assets', (req, res) => {
+  const entry = _appServeRegistry.get(req.params.sandboxId);
+  if (!entry) return res.status(404).end();
+
+  const filePath = Array.isArray(req.params.assets) 
+    ? req.params.assets.join('/') 
+    : (req.params.assets || 'index.html');
+  const fileData = entry.files[filePath];
+  if (!fileData) return res.status(404).end();
+
+  const ext = filePath.split('.').pop().toLowerCase();
+  const MIME = {
+    html: 'text/html', js: 'application/javascript', mjs: 'application/javascript',
+    css: 'text/css', json: 'application/json',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
+    ico: 'image/x-icon', woff: 'font/woff', woff2: 'font/woff2'
+  };
+
+  // Relaxed CSP for third-party apps — unsafe-inline/eval allowed because:
+  //   1. webview process isolation is the real security boundary
+  //   2. connect-src 'none' still blocks direct exfiltration; all network goes through IPC
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self' blob: data: 'unsafe-inline' 'unsafe-eval'",
+    "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'",
+    "style-src 'self' 'unsafe-inline' blob: data:",
+    "img-src 'self' blob: data: https:",
+    "font-src 'self' blob: data:",
+    "connect-src 'none'"
+  ].join('; '));
+  res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(Buffer.from(fileData, 'base64'));
+});
 
 // 14. 404 handler
 app.use((req, res) => {

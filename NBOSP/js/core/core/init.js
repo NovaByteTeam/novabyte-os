@@ -1,35 +1,4 @@
-// Auto-apply CSP nonce to dynamically created <style> elements so they aren't
-// blocked by style-src-elem. window.__cspNonce is injected by the server at render time.
-    // Fix CVE-NB-2026-009-H2 (2026-05-14): nonce is captured into a closure-local variable
-    // and then deleted from window immediately, so an XSS payload cannot read it to
-    // self-apply a valid nonce and bypass CSP style-src restrictions.
-    (function () {
-      // The server injects window.__cspNonce just before the closing head tag, which runs
-      // AFTER this script block. Capture it lazily on the first createElement('style') call.
-      // Once captured, delete it from window so XSS running later cannot read the nonce.
-      var _nonce = null;
-      var _nonceCaptured = false;
-      var _orig = document.createElement.bind(document);
-      document.createElement = function (tag) {
-        var el = _orig.apply(document, arguments);
-        if (typeof tag === 'string' && tag.toLowerCase() === 'style') {
-          if (!_nonceCaptured) {
-            _nonce = window.__cspNonce || null;
-            if (_nonce) {
-              // Only lock once we actually have a value — if __cspNonce isn't
-              // set yet, keep retrying on subsequent createElement('style') calls
-              // rather than permanently caching null.
-              _nonceCaptured = true;
-              try { delete window.__cspNonce; } catch (e) { window.__cspNonce = undefined; }
-            }
-          }
-          if (_nonce) el.nonce = _nonce;
-        }
-        return el;
-      };
-    })();
-
-    // Basic frame-busting guard for clickjacking resistance in a static HTML page.
+// Basic frame-busting guard for clickjacking resistance in a static HTML page.
     // Fix CVE-NB-2026-009-H1 (2026-05-14): replaced innerHTML='' (XSS sink) with
     // style-based hide — achieves the same visual effect without touching innerHTML.
     if (window.top !== window.self) {
