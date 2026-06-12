@@ -489,5 +489,3 @@ registerApp({
           switchTab('clock');
         }
       });
-
-
