@@ -77,7 +77,7 @@
 
     // Settings (nook) — system UI, never prompt
     nook: {
-      normal   : ['system:info', 'system:settings', 'admin:system', 'device:camera', 'device:microphone', 'device:geolocation'],
+      normal   : ['system:info', 'system:settings', 'admin:system', 'fs:read', 'fs:write', 'fs:delete', 'fs:metadata', 'device:camera', 'device:microphone', 'device:geolocation'],
       dangerous: [],
     },
 
