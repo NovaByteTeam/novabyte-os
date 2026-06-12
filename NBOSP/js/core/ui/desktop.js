@@ -1031,20 +1031,14 @@ function renderDesktopIcons() {
 
   const desktopFolder = FS.specialFolders.desktop;
   if (!desktopFolder) {
-    // FS not ready yet — schedule one retry rather than clearing and leaving a blank desktop.
-    // Guard prevents stacking multiple retries if called repeatedly before FS loads.
     if (!renderDesktopIcons._retryScheduled) {
       renderDesktopIcons._retryScheduled = true;
-      setTimeout(() => {
-        renderDesktopIcons._retryScheduled = false;
-        renderDesktopIcons();
-      }, 400);
+      setTimeout(() => { renderDesktopIcons._retryScheduled = false; renderDesktopIcons(); }, 400);
     }
     return;
   }
   renderDesktopIcons._retryScheduled = false;
 
-  // FS is ready — safe to abort stale drag controllers and rebuild the DOM.
   for (const ac of _iconDragControllers) ac.abort();
   _iconDragControllers = [];
 

@@ -1246,6 +1246,42 @@ registerApp({
             // ── Download handling ────────────────────────────────────────
             // Chrome Apps webview fires permissionrequest with permission==='download'
             // (will-download is Electron-only). We intercept here and save via Node.js.
+
+            async function ensureBrowserFsWritePermission() {
+              const mgr = window.AppPermissionManager;
+              if (!mgr) return true;
+
+              const appId = 'browser';
+              if (mgr.isGranted('fs:write', appId)) return true;
+
+              if (mgr.isDenied?.('fs:write', appId)) {
+                Notify.show({
+                  title: 'Download blocked',
+                  body: 'Browser does not have permission to write files. Grant "fs:write" in Settings → Apps.',
+                  type: 'error',
+                  appName: 'Browser',
+                });
+                return false;
+              }
+
+              const granted = await mgr.requestPermission('fs:write', appId, {
+                appName: 'Browser',
+                reason: 'Browser needs to save downloaded files to your Downloads folder.',
+              });
+
+              if (!granted) {
+                Notify.show({
+                  title: 'Download blocked',
+                  body: 'Browser was denied permission to write files.',
+                  type: 'error',
+                  appName: 'Browser',
+                });
+                return false;
+              }
+
+              return true;
+            }
+
             wv.addEventListener('permissionrequest', e => {
               if (e.permission === 'fullscreen') {
                 e.request.allow();
@@ -1262,6 +1298,7 @@ registerApp({
                   const _url = e.request.url;
                   // Only allow http(s) downloads — block file:, data:, etc.
                   if (!_url || !/^https?:\/\//i.test(_url)) return;
+                  if (!(await ensureBrowserFsWritePermission())) return;
                   try {
                     // Derive filename from URL and sanitise against path traversal
                     let baseName = (() => {

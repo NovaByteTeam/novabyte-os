@@ -72,7 +72,7 @@
     // Browser
     browser: {
       normal   : ['net:internal'],
-      dangerous: ['net:external', 'device:camera', 'device:microphone', 'device:geolocation'],
+      dangerous: ['net:external', 'device:camera', 'device:microphone', 'device:geolocation', 'fs:write'],
     },
 
     // Settings (nook) — system UI, never prompt

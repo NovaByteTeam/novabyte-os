@@ -178,16 +178,15 @@ const Boot = {
     // fs must init before the rest depend on it
     await OS.workers.fs.call('init');
 
-    await Promise.all([
-      OS.settings.load().then(() => {
-        if (isSafeMode && typeof OS.settings.applySafeModeDefaults === 'function') {
-          OS.settings.applySafeModeDefaults();
-        }
-      }),
-      FS.init(),
-      OPFS.init(),
-      AppDirs.bootstrap(),
-    ]);
+    await OS.settings.load().then(() => {
+      if (isSafeMode && typeof OS.settings.applySafeModeDefaults === 'function') {
+        OS.settings.applySafeModeDefaults();
+      }
+    });
+
+    await FS.init();
+    await AppDirs.bootstrap();
+    await OPFS.init();
 
     window.__NB_RUNTIME.ready = true;
     Boot._patchSettingsSet();

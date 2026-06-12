@@ -44,6 +44,7 @@ const FS = {
       }
       this.updateSearchIndex();
     } catch (e) {
+      console.warn('[FS] createDefaultFS failed, retrying once:', e);
       await this.createDefaultFS();
     }
   },
