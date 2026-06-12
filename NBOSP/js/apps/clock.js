@@ -2,24 +2,22 @@ registerApp({
   id: 'nbosp-clock',
   name: 'Clock',
   icon: 'alarm-clock',
-  description: 'Alarm · Clock · Timer · Stopwatch',
+  description: 'Alarm Â· Clock Â· Timer Â· Stopwatch',
   defaultSize: [400, 600],
   minSize: [340, 480],
 
   init(content, state) {
-    // ── NovaByte runtime guard ─────────────────────────────────────────────
     if (!window.AppDirs?.getVFSDir('com.nbosp.clock', 'files')) {
       content.style.cssText =
         'display:flex;align-items:center;justify-content:center;height:100%;' +
         'flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML =
-        '<div style="font-size:32px">⚠️</div>' +
+        '<div style="font-size:32px">âš ï¸</div>' +
         '<div style="font-size:14px;text-align:center"><b>com.nbosp.clock</b><br>' +
         'App data directory missing.<br>This app requires NovaByte OS.</div>';
       return;
     }
 
-    // ── Persistence ────────────────────────────────────────────────────────
     const SK = 'nbosp_clock_v1';
 
     function loadDb() {
@@ -33,7 +31,7 @@ registerApp({
     function saveDb() {
       try {
         localStorage.setItem(SK, JSON.stringify(db));
-      } catch { /* storage unavailable — fail silently */ }
+      } catch {}
     }
 
     const TIME_RE = /^\d{2}:\d{2}$/;
@@ -54,10 +52,8 @@ registerApp({
     if (!Array.isArray(db.alarms)) db.alarms = [];
     db.alarms = db.alarms.map(sanitiseAlarm).filter(al => TIME_RE.test(al.time));
 
-    // ── Helpers ────────────────────────────────────────────────────────────
     function pad(n) { return String(Math.floor(n)).padStart(2, '0'); }
 
-    // ── Clock background service ───────────────────────────────────────────
     const clockSvc = window.__NBOSP_BG?.clock;
 
     function syncClockState() {
@@ -77,7 +73,7 @@ registerApp({
       };
     }
 
-    // ── Web Audio beep — single shared AudioContext, no leak ──────────────
+    // Reuse one context.
     let _actx = null;
     function getAudioContext() {
       if (!_actx || _actx.state === 'closed') {
@@ -86,7 +82,7 @@ registerApp({
       return _actx;
     }
 
-    // Returns a cleanup fn that cancels pending beep timeouts
+    // Lets us cancel the queued tones.
     function beep(freq, dur) {
       const ids = [];
       function _beep(f, d, delayMs) {
@@ -103,7 +99,7 @@ registerApp({
             gn.connect(actx.destination);
             osc.start();
             osc.stop(actx.currentTime + (d || 1.2));
-          } catch { /* AudioContext blocked or unavailable */ }
+          } catch {}
         }, delayMs);
         ids.push(id);
       }
@@ -113,14 +109,13 @@ registerApp({
       return () => ids.forEach(clearTimeout);
     }
 
-    // Track beep cleanup so teardown cancels pending timeouts
+    // Keep cleanup around for teardown.
     let _cancelBeep = null;
     function fireAlarmBeep() {
       _cancelBeep?.();
       _cancelBeep = beep(880, 0.8);
     }
 
-    // ── Root layout ────────────────────────────────────────────────────────
     const root = createEl('div', { className: 'nbc-root' });
     content.appendChild(root);
 
@@ -132,7 +127,6 @@ registerApp({
     const body = createEl('div', { className: 'nbc-body' });
     root.append(tabBar, body);
 
-    // Build all sections upfront
     const clockSec = createEl('div', { className: 'nbc-section', style: 'align-items:center;padding:28px 16px 16px;' });
     const alarmSec = createEl('div', { className: 'nbc-section' });
     const timerSec = createEl('div', { className: 'nbc-section', style: 'align-items:center;justify-content:center;padding:20px;gap:18px;' });
@@ -158,16 +152,12 @@ registerApp({
     }
     switchTab(activeTab);
 
-    // ════════════════════════════════════════════════════════════════════════
-    // CLOCK TAB
-    // ════════════════════════════════════════════════════════════════════════
 
     const NS_SVG = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS_SVG, 'svg');
     svg.setAttribute('viewBox', '0 0 200 200');
     svg.setAttribute('class', 'nbc-clock-face');
 
-    // Build tick marks
     const tickMarkup = Array.from({ length: 60 }, (_, i) => {
       const angle = (i * 6 - 90) * Math.PI / 180;
       const major = i % 5 === 0;
@@ -190,7 +180,7 @@ registerApp({
       '<circle cx="100" cy="100" r="5" fill="var(--accent)"/>' +
       '<circle cx="100" cy="100" r="2" fill="var(--bg-elevated)"/>';
 
-    // Cache hand references — never re-query
+    // Hand refs live once; no need to query again.
     const hrHand = svg.querySelector('#nbc-hr');
     const mnHand = svg.querySelector('#nbc-mn');
     const scHand = svg.querySelector('#nbc-sc');
@@ -207,7 +197,6 @@ registerApp({
       const sec = now.getSeconds();
       const ms  = now.getMilliseconds();
 
-      // Analog hands — every call (smooth second hand)
       const h = (now.getHours() % 12) + now.getMinutes() / 60 + sec / 3600;
       const m = now.getMinutes() + sec / 60;
       const s = sec + ms / 1000;
@@ -215,7 +204,6 @@ registerApp({
       mnHand.setAttribute('transform', `rotate(${(m * 6).toFixed(2)} 100 100)`);
       scHand.setAttribute('transform', `rotate(${(s * 6).toFixed(2)} 100 100)`);
 
-      // Digital display — only update when second changes
       if (sec !== _lastClockSec) {
         _lastClockSec = sec;
         digitalEl.textContent = now.toLocaleTimeString([], {
@@ -225,7 +213,6 @@ registerApp({
           weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
         });
 
-        // Alarm check — only at second === 0, within a safe window from the tick
         if (sec === 0 && ms < 300) {
           const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
           if (timeStr !== _lastAlarmMinute) {
@@ -248,9 +235,6 @@ registerApp({
     state.cleanups?.push(() => clearInterval(clockInt));
     tickClock();
 
-    // ════════════════════════════════════════════════════════════════════════
-    // ALARM TAB
-    // ════════════════════════════════════════════════════════════════════════
 
     const alarmHdr = createEl('div', {
       style: 'display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;',
@@ -268,7 +252,7 @@ registerApp({
     const DOW      = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
     const DOW_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    // Unique id counter for toggle inputs — avoids duplicate ids
+    // Simple id counter for toggle inputs.
     let _toggleIdCounter = 0;
 
     function makeToggle(checked, onChange) {
@@ -338,7 +322,7 @@ registerApp({
         else if (al.days.length === 7) parts.push('Every day');
         else if (al.days.length === 5 && !al.days.includes(0) && !al.days.includes(6)) parts.push('Weekdays');
         else parts.push(al.days.map(d => DOW[d]).join(' '));
-        meta.textContent = parts.join(' · ');
+        meta.textContent = parts.join(' Â· ');
 
         left.append(timeRow, meta);
 
@@ -354,11 +338,10 @@ registerApp({
       alarmList.appendChild(frag);
     }
 
-    // Track open modal for cleanup on app teardown
+    // Track the open modal for teardown.
     let _activeModal = null;
 
     function openAlarmModal(idx) {
-      // Close any existing modal first
       _activeModal?.remove();
 
       const isEdit = idx !== null && idx >= 0 && idx < db.alarms.length;
@@ -367,7 +350,6 @@ registerApp({
         : { time: '07:00', label: '', days: [1, 2, 3, 4, 5], enabled: true };
       const al = { ...src, days: [...src.days] };
 
-      // Append to content (scoped), not document.body
       const ov = createEl('div', {
         style: 'position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;',
       });
@@ -381,7 +363,6 @@ registerApp({
         style: 'background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:16px;padding:22px;width:320px;max-width:95%;box-shadow:0 24px 48px rgba(0,0,0,0.4);',
       });
 
-      // Header
       const hdr = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;' });
       hdr.appendChild(createEl('span', { textContent: isEdit ? 'Edit Alarm' : 'Add Alarm', style: 'font-size:15px;font-weight:700;' }));
       const xBtn = createEl('button', { className: 'btn btn-icon btn-sm' });
@@ -390,7 +371,6 @@ registerApp({
       hdr.appendChild(xBtn);
       box.appendChild(hdr);
 
-      // Time input
       const timeInp = createEl('input', {
         type: 'time',
         className: 'input',
@@ -401,7 +381,6 @@ registerApp({
       timeInp.value = al.time;
       box.appendChild(timeInp);
 
-      // Label
       const labelInp = createEl('input', {
         type: 'text',
         className: 'input',
@@ -413,7 +392,6 @@ registerApp({
       labelInp.value = al.label;
       box.appendChild(labelInp);
 
-      // Repeat days
       box.appendChild(createEl('div', {
         textContent: 'Repeat',
         style: 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;',
@@ -441,7 +419,6 @@ registerApp({
       });
       box.appendChild(daysRow);
 
-      // Actions
       const acts = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
 
       if (isEdit) {
@@ -477,7 +454,6 @@ registerApp({
         closeModal();
       });
 
-      // Close on overlay click (not box click)
       ov.addEventListener('click', e => { if (e.target === ov) closeModal(); });
 
       rightActs.append(cancelBtn, saveBtn);
@@ -487,16 +463,12 @@ registerApp({
       content.appendChild(ov);
       _activeModal = ov;
 
-      // Focus without layout thrash — rAF ensures element is painted
       requestAnimationFrame(() => timeInp.focus());
     }
 
     addAlarmBtn.addEventListener('click', () => openAlarmModal(null));
     renderAlarms();
 
-    // ════════════════════════════════════════════════════════════════════════
-    // TIMER TAB
-    // ════════════════════════════════════════════════════════════════════════
 
     let tiMs = 0, tiSet = 0, tiRun = false, tiDone = false;
 
@@ -598,9 +570,6 @@ registerApp({
     renderTiDisplay();
     renderTiBtns();
 
-    // ════════════════════════════════════════════════════════════════════════
-    // STOPWATCH TAB
-    // ════════════════════════════════════════════════════════════════════════
 
     let swRun = false, swElapsed = 0, swStart = 0, swLaps = [];
 
@@ -645,7 +614,6 @@ registerApp({
       const worstSplit = Math.max(...splits);
       const frag       = document.createDocumentFragment();
 
-      // Render in reverse (newest first)
       for (let ri = swLaps.length - 1; ri >= 0; ri--) {
         const split = splits[ri];
         const row   = createEl('div', { className: 'nbc-lap-row' });
@@ -694,11 +662,9 @@ registerApp({
       }
     });
 
-    // ── Unified 250ms tick — timer + stopwatch display only ───────────────
     const mainInt = setInterval(() => {
       const st = syncClockState();
 
-      // Timer
       tiRun  = !!st.timer.running;
       tiDone = !!st.timer.done;
       tiSet  = Math.max(0, Number(st.timer.presetMs) || 0);
@@ -712,7 +678,6 @@ registerApp({
         renderTiBtns();
       }
 
-      // Stopwatch
       const swWasRun = swRun;
       swRun     = !!st.stopwatch.running;
       swElapsed = Math.max(0, Number(st.stopwatch.elapsedMs) || 0);
@@ -733,7 +698,6 @@ registerApp({
       if (_actx && _actx.state !== 'closed') _actx.close();
     });
 
-    // ── Boot ───────────────────────────────────────────────────────────────
     clockSvc?.ensureBooted?.();
     renderTiDisplay();
     renderTiBtns();
