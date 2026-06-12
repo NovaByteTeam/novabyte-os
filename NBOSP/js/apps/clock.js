@@ -2,7 +2,7 @@ registerApp({
   id: 'nbosp-clock',
   name: 'Clock',
   icon: 'alarm-clock',
-  description: 'Alarm Â· Clock Â· Timer Â· Stopwatch',
+  description: 'Alarm · Clock · Timer · Stopwatch',
   defaultSize: [400, 600],
   minSize: [340, 480],
 
@@ -12,7 +12,7 @@ registerApp({
         'display:flex;align-items:center;justify-content:center;height:100%;' +
         'flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML =
-        '<div style="font-size:32px">âš ï¸</div>' +
+        '<div style="font-size:32px">⚠️</div>' +
         '<div style="font-size:14px;text-align:center"><b>com.nbosp.clock</b><br>' +
         'App data directory missing.<br>This app requires NovaByte OS.</div>';
       return;
@@ -322,7 +322,7 @@ registerApp({
         else if (al.days.length === 7) parts.push('Every day');
         else if (al.days.length === 5 && !al.days.includes(0) && !al.days.includes(6)) parts.push('Weekdays');
         else parts.push(al.days.map(d => DOW[d]).join(' '));
-        meta.textContent = parts.join(' Â· ');
+        meta.textContent = parts.join(' · ');
 
         left.append(timeRow, meta);
 
