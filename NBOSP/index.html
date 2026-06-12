@@ -697,6 +697,8 @@
   <!-- NW.js Frame Security (must load early, before app sandbox) -->
   <script src="/js/platform/security/frame-security.js">
   </script>
+  <!-- App Registry and Permission Manager (must load before app sandbox) -->
+
   <!-- App Sandbox with Frame Security Validation -->
   <script src="/js/platform/security/app-sandbox.js">
   </script>
@@ -762,6 +764,9 @@
   <script src="js/apps/calculator.js"></script>
   <script src="js/apps/appmanager.js"></script>
   <script src="js/apps/clock.js"></script>
+  <script src="/js/platform/core/app-registry.js"></script>
+  <script src="/js/platform/security/app-permission-manager.js"></script>
+  <script src="/js/platform/security/app-permissions-bootstrap.js"></script>
   <script src="js/core/ui/desktop.js"></script>
   <script src="js/core/core/boot.js"></script>
   <script src="js/core/events/system-events.js"></script>

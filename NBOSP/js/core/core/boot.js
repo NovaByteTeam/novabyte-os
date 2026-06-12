@@ -1,6 +1,6 @@
 // ── Static Configurations & Constants ──────────────────────────────
 const BOOT_TIMEOUT_MS = 15000;
-const BOOT_THRESHOLD  = 2;
+const BOOT_THRESHOLD  = 5;
 
 const KEYS = Object.freeze({
   TIMEOUT       : 'nova_boot_timeout_flag',
@@ -420,6 +420,8 @@ async function boot() {
     return;
   }
 
+  // Track this attempt — cleared immediately on subsystem success (not at end of boot)
+  // so that rapid dev restarts don't accumulate toward the threshold.
   priorAttempts.push({ ts: Date.now(), ua: uaShort });
   if (priorAttempts.length > 10) priorAttempts.shift();
   Storage.set(KEYS.ATTEMPTS, priorAttempts);
@@ -450,6 +452,10 @@ async function boot() {
     triggerRecovery('worker_init_failed');
     return;
   }
+
+  // Subsystems initialised cleanly — this is not a crash loop. Clear attempts now
+  // so a subsequent fast restart doesn't accumulate toward the threshold.
+  Storage.remove(KEYS.ATTEMPTS);
 
   // 7. Settings & UI ───────────────────────────────────────────────
   const sGet = Boot.applyOSVars();
@@ -513,7 +519,21 @@ function loadInstalledNovaApps() {
       minSecurityPatch   : appData.minSecurityPatch   || null,
       permissions        : appData.permissions        || [],
       optionalPermissions: appData.optionalPermissions || [],
-      init(contentEl) {
+      async init(contentEl) {
+        // ── Permission gate ────────────────────────────────────────────
+        const _requiredPerms = appData.permissions         || [];
+        const _optionalPerms = appData.optionalPermissions || [];
+        const _allDangerous  = [..._requiredPerms, ..._optionalPerms];
+        if (_allDangerous.length > 0 && typeof AppPermissionManager !== 'undefined') {
+          const _mgr     = AppPermissionManager;
+          const _missing = _allDangerous.filter(p =>
+            !_mgr.isGranted(p, appData.id) && !(_mgr.isDenied && _mgr.isDenied(p, appData.id))
+          );
+          if (_missing.length > 0) {
+            await _mgr.requestAll(_missing, appData.id, appData.name || appData.id);
+          }
+        }
+        // ── Launch ────────────────────────────────────────────────────
         const entryKey = appData.entry || 'index.html';
         if (!appData._cachedHtml) {
           const entryB64 = appData.files?.[entryKey];

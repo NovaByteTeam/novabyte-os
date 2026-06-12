@@ -46,30 +46,17 @@ async function getIndexHtml() {
 }
 fs.watch(path.join(__dirname, '..', '..', 'index.html'), () => { _indexHtmlRaw = null; });
 
-// GET / with nonce injection (MUST come before static middleware!)
+// GET / (MUST come before static middleware!)
 app.get('/', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // res.locals.nonce is unreliable (often empty due to middleware order).
-    // Helmet already set the CSP header with the real nonce — extract it from there.
-    const cspHeader = res.getHeader('Content-Security-Policy') || '';
-    const nonceMatch = cspHeader.match(/'nonce-([^']+)'/);
-    const nonce = nonceMatch ? nonceMatch[1] : (res.locals.nonce || '');
     let html = await getIndexHtml();
 
-    // 1. Inject __cspNonce script and CSRF meta BEFORE stamping nonces,
-    //    so the injected <script> tag is included in the nonce-stamping pass below.
+    // Inject CSRF token meta tag — the only runtime injection needed
     const csrfToken = req.session?.csrfToken || res.locals.csrfToken || '';
-    html = html.replace('</head>', `<meta name="csrf-token" content="${csrfToken}"><script>window.__cspNonce="${nonce}";</script></head>`);
-
-    // 2. Strip any hard-coded CSP meta tag (server header takes precedence)
-    html = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>\s*/i, '');
-
-    // 3. Stamp nonce onto every <script> and <style> tag (including the one injected above)
-    html = html.replace(/<script([\s>])/g, `<script nonce="${nonce}"$1`);
-    html = html.replace(/<style([\s>])/g, `<style nonce="${nonce}"$1`);
+    html = html.replace('</head>', `<meta name="csrf-token" content="${csrfToken}"></head>`);
 
     res.send(html);
 });
@@ -147,6 +134,75 @@ app.get('/trackers.js', async (req, res) => {
     res.sendFile(p);
 });
 
+app.get('/style.css', (req, res) => {
+    res.setHeader('Content-Type', 'text/css');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(__dirname, '..', '..', 'style.css'));
+});
+
+// 7. Memory monitoring
+setInterval(() => {
+    const m = process.memoryUsage();
+    const mb = v => Math.round(v / 1024 / 1024);
+    process.stdout.write(
+        `[Memory] heapUsed=${mb(m.heapUsed)}MB heapTotal=${mb(m.heapTotal)}MB rss=${mb(m.rss)}MB external=${mb(m.external)}MB\n`
+    );
+    if (typeof global.gc === 'function' && m.heapUsed / m.heapTotal > 0.85 && m.heapUsed > 100 * 1024 * 1024) {
+        global.gc();
+        process.stdout.write('[Memory] gc() triggered - heap was above 85%\n');
+    }
+}, 60_000).unref();
+
+// 8. Health checks
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
+
+// 11. Strip tracking parameters
+app.get('/api/security/strip-tracking', (req, res) => {
+    const { url } = req.query;
+    if (!url || typeof url !== 'string') {
+        return res.status(400).json({ error: 'url parameter is required' });
+    }
+
+    let urlObj;
+    try {
+        urlObj = new URL(decodeURIComponent(url));
+    } catch (_) {
+        return res.status(400).json({ error: 'Invalid URL' });
+    }
+
+    if (!['http:', 'https:'].includes(urlObj.protocol)) {
+        return res.status(400).json({ error: 'Only http and https URLs are supported' });
+    }
+
+    const h = urlObj.hostname.toLowerCase();
+    const BLOCKED = ['localhost', '127.0.0.1', '::1', '0.0.0.0'];
+    const BLOCKED_PREFIXES = ['10.', '192.168.',
+        '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.',
+        '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.',
+        '172.28.', '172.29.', '172.30.', '172.31.',
+        '169.254.', '100.64.'];
+    if (BLOCKED.includes(h) || BLOCKED_PREFIXES.some(p => h.startsWith(p)) || h.endsWith('.local') || h.endsWith('.internal')) {
+        return res.status(400).json({ error: 'Internal URLs are not permitted' });
+    }
+
+    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content',
+        'utm_term', 'fbclid', 'gclid', 'mc_eid', 'mc_cid', '_hsenc', '_hsmi'];
+    let stripped = false;
+    trackingParams.forEach(param => {
+        if (urlObj.searchParams.has(param)) {
+            urlObj.searchParams.delete(param);
+            stripped = true;
+        }
+    });
+    res.json({ stripped, url: urlObj.toString() });
+});
+
 // 12. Mount all API routes
 mountRoutes(app);
 
@@ -202,13 +258,15 @@ app.delete('/api/apps/serve/unregister/:sandboxId', (req, res) => {
 // Serve app files with a relaxed CSP.
 // The webview's separate renderer process provides the real isolation boundary.
 // server-sent CSP header takes effect (replaces the main page's strict policy).
-app.get('/api/apps/serve/:sandboxId/*assets', (req, res) => {
+app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stable Express 5 syntax
   const entry = _appServeRegistry.get(req.params.sandboxId);
   if (!entry) return res.status(404).end();
 
-  const filePath = Array.isArray(req.params.assets) 
-    ? req.params.assets.join('/') 
-    : (req.params.assets || 'index.html');
+  // Express v5 parses matching grouped strings as an array of path parts
+  const filePath = (req.params.file && req.params.file.length > 0)
+    ? req.params.file.join('/')
+    : 'index.html';
+
   const fileData = entry.files[filePath];
   if (!fileData) return res.status(404).end();
 

@@ -1,215 +1,398 @@
 registerApp({
-        id: 'nbosp-contacts', name: 'Contacts', icon: 'users',
-        description: 'Contact Book',
-        defaultSize: [640, 500], minSize: [440, 320],
-        init(content, state) {
-          // ── NovaByte runtime guard — refuses to launch without AppDirs ──
-          if (!window.AppDirs?.getVFSDir('com.nbosp.contacts', 'files')) {
-            content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-            content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.contacts</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
-            return;
-          }
-          const SK = 'nova_contacts';
+  id: 'nbosp-contacts', name: 'Contacts', icon: 'users',
+  description: 'Contact Book',
+  defaultSize: [640, 500], minSize: [440, 320],
 
-          function load() { try { return JSON.parse(localStorage.getItem(SK) || '[]'); } catch { return []; } }
-          function save(arr) { lsSave(SK, arr); }
-          function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-          function initials(name) {
-            const parts = (name || '?').trim().split(/\s+/);
-            return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
-          }
+  init(content, state) {
+    // ── NovaByte runtime guard ──────────────────────────────────────────────
+    if (!window.AppDirs?.getVFSDir('com.nbosp.contacts', 'files')) {
+      content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
+      const warn = createEl('div', { style: 'font-size:32px;' });
+      warn.textContent = '⚠️';
+      const msg = createEl('div', { style: 'font-size:14px;text-align:center;' });
+      const b = createEl('b');
+      b.textContent = 'com.nbosp.contacts';
+      msg.append(b, document.createTextNode('\nApp data directory missing.\nThis app requires NovaByte OS.'));
+      content.append(warn, msg);
+      return;
+    }
 
-          let contacts = load();
-          let selected = null;
-          let editMode = false;
-          let searchQ = '';
+    // ── Storage helpers ─────────────────────────────────────────────────────
+    const SK = 'nova_contacts';
 
-          /* ── Root layout ── */
-          const root = createEl('div', { style: 'display:flex;height:100%;overflow:hidden;' });
-          content.appendChild(root);
+    function isValidContact(c) {
+      return c !== null && typeof c === 'object' &&
+        typeof c.id === 'string' && c.id.length > 0 &&
+        typeof c.name === 'string' &&
+        typeof c.email === 'string' &&
+        typeof c.phone === 'string' &&
+        typeof c.notes === 'string';
+    }
 
-          /* ── Left: list panel ── */
-          const leftPanel = createEl('div', { style: 'width:220px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sidebar);' });
+    function load() {
+      try {
+        const raw = localStorage.getItem(SK);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        // Validate + sanitise each entry; drop malformed ones
+        return arr.filter(isValidContact).map(c => ({
+          id:    String(c.id),
+          name:  String(c.name),
+          email: String(c.email),
+          phone: String(c.phone),
+          notes: String(c.notes),
+        }));
+      } catch {
+        return [];
+      }
+    }
 
-          const listToolbar = createEl('div', { style: 'padding:8px;border-bottom:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:6px;flex-shrink:0;' });
-          const searchInp = createEl('input', { type: 'text', placeholder: 'Search contacts…', style: 'width:100%;background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text-primary);outline:none;' });
-          const addBtn = createEl('button', { className: 'btn btn-sm btn-primary', style: 'display:flex;align-items:center;gap:4px;justify-content:center;' });
-          addBtn.innerHTML = svgIcon('plus', 12) + ' New Contact';
-          listToolbar.append(searchInp, addBtn);
+    function save(arr) {
+      try {
+        lsSave(SK, arr);
+      } catch (e) {
+        // Storage quota or private-mode error — surface silently, data stays in memory
+        console.warn('[contacts] save failed:', e);
+      }
+    }
 
-          const contactList = createEl('div', { style: 'flex:1;overflow-y:auto;' });
-          leftPanel.append(listToolbar, contactList);
+    function genId() {
+      // crypto.randomUUID is baseline-widely-available; collision-free
+      return crypto.randomUUID();
+    }
 
-          /* ── Right: detail / edit panel ── */
-          const rightPanel = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
+    function initials(name) {
+      const parts = (name || '?').trim().split(/\s+/);
+      return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+    }
 
-          const detailArea = createEl('div', { style: 'flex:1;overflow-y:auto;padding:20px;' });
-          const actionBar = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border-subtle);flex-shrink:0;background:var(--bg-elevated);' });
-          rightPanel.append(detailArea, actionBar);
+    // ── State ────────────────────────────────────────────────────────────────
+    let contacts  = load();
+    let selectedId = null;   // track by id, not reference, so mutations stay clean
+    let editMode  = false;
+    let searchQ   = '';
 
-          root.append(leftPanel, rightPanel);
+    function getSelected() {
+      return selectedId ? (contacts.find(c => c.id === selectedId) ?? null) : null;
+    }
 
-          /* ── Render contact list ── */
-          function renderList() {
-            contactList.innerHTML = '';
-            const q = searchQ.toLowerCase();
-            const filtered = contacts.filter(c =>
-              !q || (c.name || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q)
-            ).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    // ── DOM scaffolding (built once, never torn down) ────────────────────────
+    const root = createEl('div', { style: 'display:flex;height:100%;overflow:hidden;' });
+    content.appendChild(root);
 
-            if (!filtered.length) {
-              const empty = createEl('div', { style: 'padding:20px;text-align:center;color:var(--text-muted);font-size:12px;' });
-              empty.textContent = searchQ ? 'No matches' : 'No contacts yet';
-              contactList.appendChild(empty);
-              return;
-            }
+    // Left panel
+    const leftPanel = createEl('div', {
+      style: 'width:220px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sidebar);',
+    });
+    const listToolbar = createEl('div', {
+      style: 'padding:8px;border-bottom:1px solid var(--border-subtle);display:flex;flex-direction:column;gap:6px;flex-shrink:0;',
+    });
+    const searchInp = createEl('input', {
+      type: 'text', placeholder: 'Search contacts…',
+      style: 'width:100%;background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text-primary);outline:none;',
+    });
+    const addBtn = createEl('button', {
+      className: 'btn btn-sm btn-primary',
+      style: 'display:flex;align-items:center;gap:4px;justify-content:center;',
+    });
+    // Safe: svgIcon returns trusted runtime SVG; text node for label
+    addBtn.appendChild(createEl('span', {}));  // icon slot, set below
+    addBtn.querySelector('span').innerHTML = svgIcon('plus', 12);
+    addBtn.appendChild(document.createTextNode(' New Contact'));
+    listToolbar.append(searchInp, addBtn);
 
-            filtered.forEach(c => {
-              const row = createEl('div', { style: 'display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer;border-radius:0;transition:background 0.1s;border-bottom:1px solid var(--border-subtle);' + (selected?.id === c.id ? 'background:var(--accent-muted);' : ''), 'data-id': c.id });
-              row.addEventListener('mouseenter', () => { if (selected?.id !== c.id) row.style.background = 'var(--bg-hover)'; });
-              row.addEventListener('mouseleave', () => { if (selected?.id !== c.id) row.style.background = ''; });
-              row.addEventListener('click', () => selectContact(c.id));
+    const contactList = createEl('div', { style: 'flex:1;overflow-y:auto;' });
+    leftPanel.append(listToolbar, contactList);
 
-              const avatar = createEl('div', { style: 'width:32px;height:32px;border-radius:50%;background:var(--accent-muted);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;' });
-              avatar.textContent = initials(c.name);
+    // Right panel
+    const rightPanel = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
+    const detailArea = createEl('div', { style: 'flex:1;overflow-y:auto;padding:20px;' });
+    const actionBar  = createEl('div', {
+      style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border-subtle);flex-shrink:0;background:var(--bg-elevated);',
+    });
+    rightPanel.append(detailArea, actionBar);
+    root.append(leftPanel, rightPanel);
 
-              const info = createEl('div', { style: 'min-width:0;' });
-              const nameEl = createEl('div', { textContent: c.name || '(no name)', style: 'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' });
-              const subEl = createEl('div', { textContent: c.email || c.phone || '', style: 'font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' });
-              info.append(nameEl, subEl);
-              row.append(avatar, info);
-              contactList.appendChild(row);
-            });
-          }
+    // ── Render helpers ───────────────────────────────────────────────────────
 
-          /* ── Render detail / edit ── */
-          function renderDetail() {
-            detailArea.innerHTML = '';
-            actionBar.innerHTML = '';
+    // Clear a node's children without innerHTML to avoid listener-leak warnings
+    function clearChildren(node) {
+      while (node.firstChild) node.removeChild(node.firstChild);
+    }
 
-            if (!selected) {
-              const empty = createEl('div', { style: 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);gap:8px;' });
-              empty.innerHTML = svgIcon('users', 36) + '<div style="font-size:13px;margin-top:10px;">Select a contact</div>';
-              detailArea.appendChild(empty);
-              return;
-            }
+    // ── List render (event-delegated — no per-row listeners) ─────────────────
+    //
+    // Hover state is handled with a CSS class set on contactList via delegation
+    // rather than per-row mouseenter/mouseleave listeners.
+    //
+    // We track a single "hovered" data-id so the CSS variable assignment
+    // happens in one place.
 
-            if (editMode) {
-              /* ── Edit form ── */
-              const form = createEl('div', { style: 'display:flex;flex-direction:column;gap:12px;max-width:360px;' });
+    function renderList() {
+      clearChildren(contactList);
 
-              function field(label, key, type) {
-                const wrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
-                const lbl = createEl('label', { textContent: label, style: 'font-size:11px;color:var(--text-muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;' });
-                const inp = createEl('input', { type: type || 'text', value: selected[key] || '', style: 'background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--text-primary);outline:none;width:100%;', 'data-key': key });
-                inp.addEventListener('focus', () => inp.style.borderColor = 'var(--accent)');
-                inp.addEventListener('blur', () => inp.style.borderColor = 'var(--border-default)');
-                wrap.append(lbl, inp);
-                form.appendChild(wrap);
-                return inp;
-              }
+      const q        = searchQ.toLowerCase();
+      const filtered = contacts
+        .filter(c => !q ||
+          c.name.toLowerCase().includes(q) ||
+          c.email.toLowerCase().includes(q))
+        .sort((a, b) => a.name.localeCompare(b.name));
 
-              const nameInp = field('Name', 'name');
-              const emailInp = field('Email', 'email', 'email');
-              const phoneInp = field('Phone', 'phone', 'tel');
-              const wrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
-              wrap.appendChild(createEl('label', { textContent: 'Notes', style: 'font-size:11px;color:var(--text-muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;' }));
-              const notesInp = createEl('textarea', { id: 'contact-notes-input', name: 'contact-notes', style: 'background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--text-primary);outline:none;width:100%;min-height:80px;resize:vertical;', 'data-key': 'notes' });
-              notesInp.value = selected.notes || '';
-              notesInp.addEventListener('focus', () => notesInp.style.borderColor = 'var(--accent)');
-              notesInp.addEventListener('blur', () => notesInp.style.borderColor = 'var(--border-default)');
-              wrap.appendChild(notesInp);
-              form.appendChild(wrap);
+      if (!filtered.length) {
+        const empty = createEl('div', { style: 'padding:20px;text-align:center;color:var(--text-muted);font-size:12px;' });
+        empty.textContent = searchQ ? 'No matches' : 'No contacts yet';
+        contactList.appendChild(empty);
+        return;
+      }
 
-              detailArea.appendChild(form);
+      // Build all rows into a fragment — one DOM write
+      const frag = document.createDocumentFragment();
+      for (const c of filtered) {
+        const isActive = c.id === selectedId;
+        const row = createEl('div', {
+          style: 'display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer;transition:background 0.1s;border-bottom:1px solid var(--border-subtle);' +
+                 (isActive ? 'background:var(--accent-muted);' : ''),
+          'data-id': c.id,
+        });
 
-              const saveBtn = createEl('button', { className: 'btn btn-primary btn-sm', textContent: 'Save' });
-              const cancelBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Cancel' });
-              actionBar.append(saveBtn, cancelBtn);
+        const avatar = createEl('div', {
+          style: 'width:32px;height:32px;border-radius:50%;background:var(--accent-muted);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;',
+        });
+        avatar.textContent = initials(c.name);
 
-              saveBtn.addEventListener('click', () => {
-                selected.name = nameInp.value.trim() || '(no name)';
-                selected.email = emailInp.value.trim();
-                selected.phone = phoneInp.value.trim();
-                selected.notes = notesInp.value.trim();
-                save(contacts);
-                editMode = false;
-                renderList();
-                renderDetail();
-              });
-              cancelBtn.addEventListener('click', () => {
-                if (!selected.name) { contacts = contacts.filter(c => c.id !== selected.id); selected = null; }
-                editMode = false;
-                renderList();
-                renderDetail();
-              });
+        const info   = createEl('div', { style: 'min-width:0;' });
+        const nameEl = createEl('div', {
+          style: 'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
+        });
+        nameEl.textContent = c.name || '(no name)';
+        const subEl = createEl('div', {
+          style: 'font-size:11px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
+        });
+        subEl.textContent = c.email || c.phone || '';
+        info.append(nameEl, subEl);
+        row.append(avatar, info);
+        frag.appendChild(row);
+      }
+      contactList.appendChild(frag);
+    }
 
-            } else {
-              /* ── View mode ── */
-              const avatar = createEl('div', { style: 'width:56px;height:56px;border-radius:50%;background:var(--accent-muted);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;margin-bottom:14px;flex-shrink:0;' });
-              avatar.textContent = initials(selected.name);
+    // Delegated pointer/click handlers on contactList (attached once below)
+    function onListPointerOver(e) {
+      const row = e.target.closest('[data-id]');
+      if (!row) return;
+      if (row.dataset.id !== selectedId) row.style.background = 'var(--bg-hover)';
+    }
+    function onListPointerOut(e) {
+      const row = e.target.closest('[data-id]');
+      if (!row) return;
+      if (row.dataset.id !== selectedId) row.style.background = '';
+    }
+    function onListClick(e) {
+      const row = e.target.closest('[data-id]');
+      if (!row) return;
+      selectContact(row.dataset.id);
+    }
+    contactList.addEventListener('pointerover',  onListPointerOver);
+    contactList.addEventListener('pointerout',   onListPointerOut);
+    contactList.addEventListener('click',        onListClick);
 
-              const nameEl = createEl('div', { textContent: selected.name || '(no name)', style: 'font-size:17px;font-weight:700;margin-bottom:16px;' });
-              detailArea.append(avatar, nameEl);
+    // ── Detail / edit render ─────────────────────────────────────────────────
+    //
+    // actionBar buttons are also built fresh each render but the total number
+    // is tiny (2–3). No delegation needed there; clearing them is cheap.
+    // The key fix is that detailArea/actionBar innerHTML = '' is replaced
+    // with clearChildren() so any future sub-node cleanup hooks can fire.
 
-              function infoRow(icon, label, value, clickFn) {
-                if (!value) return;
-                const row = createEl('div', { style: 'display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-subtle);cursor:' + (clickFn ? 'pointer' : 'default') + ';' });
-                row.addEventListener('mouseenter', () => { if (clickFn) row.style.background = 'var(--bg-hover)'; });
-                row.addEventListener('mouseleave', () => row.style.background = '');
-                if (clickFn) row.addEventListener('click', clickFn);
-                const ico = createEl('span', { style: 'color:var(--text-muted);flex-shrink:0;margin-top:1px;' });
-                ico.innerHTML = svgIcon(icon, 15);
-                const wrap2 = createEl('div', { style: 'min-width:0;' });
-                const lbl = createEl('div', { textContent: label, style: 'font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;' });
-                const val = createEl('div', { textContent: value, style: 'font-size:13px;color:' + (clickFn ? 'var(--text-link)' : 'var(--text-primary)') + ';word-break:break-all;' });
-                wrap2.append(lbl, val);
-                row.append(ico, wrap2);
-                detailArea.appendChild(row);
-              }
+    function renderDetail() {
+      clearChildren(detailArea);
+      clearChildren(actionBar);
 
-              infoRow('mail', 'Email', selected.email, selected.email ? () => WM.createWindow('email', { to: selected.email }) : null);
-              infoRow('phone', 'Phone', selected.phone);
-              infoRow('file', 'Notes', selected.notes);
+      const selected = getSelected();
 
-              const editBtn = createEl('button', { className: 'btn btn-sm btn-primary', textContent: 'Edit' });
-              const delBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: 'Delete' });
-              actionBar.append(editBtn, delBtn, createEl('span', { style: 'flex:1;' }));
+      if (!selected) {
+        const empty = createEl('div', {
+          style: 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-muted);gap:8px;',
+        });
+        const ico = createEl('span', {});
+        ico.innerHTML = svgIcon('users', 36);   // trusted runtime value
+        const lbl = createEl('div', { style: 'font-size:13px;margin-top:10px;' });
+        lbl.textContent = 'Select a contact';
+        empty.append(ico, lbl);
+        detailArea.appendChild(empty);
+        return;
+      }
 
-              editBtn.addEventListener('click', () => { editMode = true; renderDetail(); });
-              delBtn.addEventListener('click', () => {
-                contacts = contacts.filter(c => c.id !== selected.id);
-                save(contacts);
-                selected = null;
-                renderList();
-                renderDetail();
-              });
-            }
-          }
+      if (editMode) {
+        // ── Edit form ──────────────────────────────────────────────────────
+        const form = createEl('div', { style: 'display:flex;flex-direction:column;gap:12px;max-width:360px;' });
 
-          function selectContact(id) {
-            selected = contacts.find(c => c.id === id) || null;
-            editMode = false;
-            renderList();
-            renderDetail();
-          }
+        // Unique prefix per instance avoids duplicate id collisions when the
+        // app is opened multiple times simultaneously.
+        const uid = selected.id;
 
-          addBtn.addEventListener('click', () => {
-            const c = { id: genId(), name: '', email: '', phone: '', notes: '' };
-            contacts.push(c);
-            selected = c;
-            editMode = true;
-            renderList();
-            renderDetail();
+        function buildField(labelText, key, inputType) {
+          const inputId = `nbosp-contacts-${uid}-${key}`;
+          const wrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
+          const lbl  = createEl('label', {
+            htmlFor: inputId,
+            style: 'font-size:11px;color:var(--text-muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;',
           });
+          lbl.textContent = labelText;
+          const inp  = createEl('input', {
+            id: inputId, type: inputType || 'text',
+            style: 'background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--text-primary);outline:none;width:100%;',
+          });
+          inp.value = selected[key] || '';
+          inp.addEventListener('focus', () => { inp.style.borderColor = 'var(--accent)'; });
+          inp.addEventListener('blur',  () => { inp.style.borderColor = 'var(--border-default)'; });
+          wrap.append(lbl, inp);
+          form.appendChild(wrap);
+          return inp;
+        }
 
-          searchInp.addEventListener('input', () => { searchQ = searchInp.value; renderList(); });
+        const nameInp  = buildField('Name',  'name');
+        const emailInp = buildField('Email', 'email', 'email');
+        const phoneInp = buildField('Phone', 'phone', 'tel');
 
+        // Notes textarea
+        const notesId   = `nbosp-contacts-${uid}-notes`;
+        const notesWrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
+        const notesLbl  = createEl('label', {
+          htmlFor: notesId,
+          style: 'font-size:11px;color:var(--text-muted);font-weight:600;letter-spacing:0.05em;text-transform:uppercase;',
+        });
+        notesLbl.textContent = 'Notes';
+        const notesInp = createEl('textarea', {
+          id: notesId,
+          style: 'background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:6px;padding:7px 10px;font-size:13px;color:var(--text-primary);outline:none;width:100%;min-height:80px;resize:vertical;',
+        });
+        notesInp.value = selected.notes || '';
+        notesInp.addEventListener('focus', () => { notesInp.style.borderColor = 'var(--accent)'; });
+        notesInp.addEventListener('blur',  () => { notesInp.style.borderColor = 'var(--border-default)'; });
+        notesWrap.append(notesLbl, notesInp);
+        form.appendChild(notesWrap);
+        detailArea.appendChild(form);
+
+        // Snapshot of the original values for cancel — prevents mutating state
+        // before the user commits, which was the original cancel-edit bug.
+        const snapshot = { name: selected.name, email: selected.email, phone: selected.phone, notes: selected.notes };
+
+        const saveBtn   = createEl('button', { className: 'btn btn-primary btn-sm' });
+        saveBtn.textContent = 'Save';
+        const cancelBtn = createEl('button', { className: 'btn btn-sm' });
+        cancelBtn.textContent = 'Cancel';
+        actionBar.append(saveBtn, cancelBtn);
+
+        saveBtn.addEventListener('click', () => {
+          selected.name  = nameInp.value.trim()  || '(no name)';
+          selected.email = emailInp.value.trim();
+          selected.phone = phoneInp.value.trim();
+          selected.notes = notesInp.value.trim();
+          save(contacts);
+          editMode = false;
           renderList();
           renderDetail();
+        });
+
+        cancelBtn.addEventListener('click', () => {
+          // New unsaved contact (snapshot name is empty string) → discard entirely
+          if (!snapshot.name) {
+            contacts = contacts.filter(c => c.id !== selectedId);
+            selectedId = null;
+          } else {
+            // Restore original values — do not mutate selected before save
+            selected.name  = snapshot.name;
+            selected.email = snapshot.email;
+            selected.phone = snapshot.phone;
+            selected.notes = snapshot.notes;
+          }
+          editMode = false;
+          renderList();
+          renderDetail();
+        });
+
+      } else {
+        // ── View mode ────────────────────────────────────────────────────────
+        const avatar = createEl('div', {
+          style: 'width:56px;height:56px;border-radius:50%;background:var(--accent-muted);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;margin-bottom:14px;flex-shrink:0;',
+        });
+        avatar.textContent = initials(selected.name);
+
+        const nameEl = createEl('div', { style: 'font-size:17px;font-weight:700;margin-bottom:16px;' });
+        nameEl.textContent = selected.name || '(no name)';
+        detailArea.append(avatar, nameEl);
+
+        function buildInfoRow(iconName, labelText, value, clickFn) {
+          if (!value) return;
+          const row = createEl('div', {
+            style: 'display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-subtle);cursor:' + (clickFn ? 'pointer' : 'default') + ';',
+          });
+          if (clickFn) {
+            row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-hover)'; });
+            row.addEventListener('mouseleave', () => { row.style.background = ''; });
+            row.addEventListener('click', clickFn);
+          }
+          const ico = createEl('span', { style: 'color:var(--text-muted);flex-shrink:0;margin-top:1px;' });
+          ico.innerHTML = svgIcon(iconName, 15);  // trusted runtime value
+          const wrap = createEl('div', { style: 'min-width:0;' });
+          const lbl  = createEl('div', { style: 'font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;' });
+          lbl.textContent = labelText;
+          const val  = createEl('div', { style: 'font-size:13px;color:' + (clickFn ? 'var(--text-link)' : 'var(--text-primary)') + ';word-break:break-all;' });
+          val.textContent = value;
+          wrap.append(lbl, val);
+          row.append(ico, wrap);
+          detailArea.appendChild(row);
         }
-      });
 
+        // Only attach click handler when email exists (eliminates the redundant double-check)
+        buildInfoRow('mail',  'Email', selected.email, selected.email ? () => WM.createWindow('email', { to: selected.email }) : null);
+        buildInfoRow('phone', 'Phone', selected.phone, null);
+        buildInfoRow('file',  'Notes', selected.notes, null);
 
+        const editBtn = createEl('button', { className: 'btn btn-sm btn-primary' });
+        editBtn.textContent = 'Edit';
+        const delBtn = createEl('button', { className: 'btn btn-sm btn-danger' });
+        delBtn.textContent = 'Delete';
+        actionBar.append(editBtn, delBtn, createEl('span', { style: 'flex:1;' }));
 
+        editBtn.addEventListener('click', () => { editMode = true; renderDetail(); });
+        delBtn.addEventListener('click',  () => {
+          contacts   = contacts.filter(c => c.id !== selectedId);
+          selectedId = null;
+          save(contacts);
+          renderList();
+          renderDetail();
+        });
+      }
+    }
 
+    // ── Contact selection ────────────────────────────────────────────────────
+    function selectContact(id) {
+      selectedId = id;
+      editMode   = false;
+      renderList();
+      renderDetail();
+    }
+
+    // ── Add new contact ──────────────────────────────────────────────────────
+    addBtn.addEventListener('click', () => {
+      const c = { id: genId(), name: '', email: '', phone: '', notes: '' };
+      contacts.push(c);
+      selectedId = c.id;
+      editMode   = true;
+      renderList();
+      renderDetail();
+    });
+
+    // ── Search ───────────────────────────────────────────────────────────────
+    searchInp.addEventListener('input', () => {
+      searchQ = searchInp.value;
+      renderList();
+    });
+
+    // ── Initial render ───────────────────────────────────────────────────────
+    renderList();
+    renderDetail();
+  },
+});

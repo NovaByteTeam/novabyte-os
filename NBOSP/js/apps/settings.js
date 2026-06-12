@@ -21,6 +21,7 @@ registerApp({
             { id: 'system', name: 'System', icon: 'processor' },
             { id: 'storage', name: 'Storage', icon: 'database' },
             { id: 'privacy', name: 'Privacy', icon: 'lock' },
+            { id: 'apps', name: 'Apps', icon: 'package' },
             { id: 'about', name: 'About', icon: 'info' }
           ];
 
@@ -72,6 +73,9 @@ registerApp({
                 break;
               case 'privacy':
                 renderPrivacy();
+                break;
+              case 'apps':
+                renderApps();
                 break;
               case 'desktop':
                 renderDesktop();
@@ -737,6 +741,347 @@ registerApp({
             mainContent.appendChild(cursorGroup);
           }
 
+          function renderApps() {
+            mainContent.innerHTML = '';
+            mainContent.appendChild(createEl('h2', { textContent: 'App Permissions', style: { marginBottom: '4px' } }));
+            mainContent.appendChild(createEl('p', {
+              textContent: 'Manage what each app is allowed to access. Denied permissions can be re-enabled here.',
+              style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }
+            }));
+
+            const mgr   = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
+            const pmap  = typeof AppPermissionsMap    !== 'undefined' ? AppPermissionsMap    : null;
+
+            if (!mgr || !pmap) {
+              const warn = createEl('div', { style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;' });
+              warn.textContent = 'Permission system not available.';
+              mainContent.appendChild(warn);
+              return;
+            }
+
+            // Friendly display names for permission strings
+            const PERM_LABELS = {
+              'fs:read': 'Read files', 'fs:write': 'Write files', 'fs:delete': 'Delete files', 'fs:metadata': 'File metadata',
+              'net:internal': 'Internal network', 'net:external': 'External network', 'net:websocket': 'WebSocket',
+              'mail:read': 'Read emails', 'mail:write': 'Compose emails', 'mail:send': 'Send emails', 'mail:delete': 'Delete emails',
+              'calendar:read': 'Read calendar', 'calendar:write': 'Edit calendar', 'calendar:delete': 'Delete events',
+              'contacts:read': 'Read contacts', 'contacts:write': 'Edit contacts',
+              'device:camera': 'Camera', 'device:microphone': 'Microphone',
+              'device:geolocation': 'Location', 'device:notifications': 'Notifications',
+              'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps',
+              'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs',
+              'data:export': 'Export data', 'data:backup': 'Backup data',
+            };
+
+            const RISK_COLOR = { low: '#3fb950', medium: '#d29922', high: '#f0883e', critical: '#f85149' };
+            const RISK_BG    = { low: 'rgba(63,185,80,0.1)', medium: 'rgba(210,153,34,0.1)', high: 'rgba(240,136,62,0.1)', critical: 'rgba(248,81,73,0.1)' };
+
+            // Collect all app IDs from pmap + any web apps in OS.apps
+            const appIds = new Set(Object.keys(pmap));
+            if (typeof OS !== 'undefined' && OS.apps) {
+              Object.keys(OS.apps).forEach(id => { if (id.startsWith('wa_')) appIds.add(id); });
+            }
+
+            // Load installed .novaapp packages from storage
+            let _novaApps = [];
+            try { _novaApps = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { _novaApps = []; }
+            const novaAppIds = new Set(_novaApps.map(a => a.id));
+
+            // Group: built-ins first, then .novaapp packages, then web apps
+            const builtIns = [...appIds].filter(id => !id.startsWith('wa_') && !novaAppIds.has(id)).sort();
+            const webApps  = [...appIds].filter(id =>  id.startsWith('wa_')).sort();
+
+            function buildAppCard(appId, _novaData) {
+              const entry   = (typeof OS !== 'undefined' && OS.apps) ? OS.apps[appId] : null;
+              const appName = _novaData?.name ?? entry?.name ?? appId;
+
+              // For .novaapp packages: all declared permissions are "dangerous" (user-visible)
+              let dangerous, normal, appVersion, appVerified, appAuthor;
+              if (_novaData) {
+                dangerous   = [...(_novaData.permissions || []), ...(_novaData.optionalPermissions || [])];
+                normal      = [];
+                appVersion  = _novaData.version  || null;
+                appVerified = _novaData.verified  ?? false;
+                appAuthor   = _novaData.author    || null;
+              } else {
+                const mapEntry = pmap[appId];
+                dangerous   = mapEntry?.dangerous ?? ['net:external', 'device:camera', 'device:microphone', 'device:geolocation'];
+                normal      = mapEntry?.normal    ?? [];
+                appVersion  = null;
+                appVerified = null;
+                appAuthor   = null;
+              }
+
+              // Skip built-in apps with no permissions (calculator, clock etc. — nothing to manage)
+              // But always show .novaapp packages and web apps so user knows they're installed
+              if (dangerous.length === 0 && normal.length === 0 && !_novaData && !appId.startsWith('wa_')) return null;
+
+              const card = createEl('div', {
+                style: 'background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden;'
+              });
+
+              // Card header
+              const header = createEl('div', {
+                style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;cursor:pointer;user-select:none;'
+              });
+
+              const headerLeft = createEl('div', { style: 'display:flex;align-items:center;gap:10px;' });
+
+              // App icon — svgIcon for named icons, emoji passthrough, letter fallback
+              const iconEl = createEl('div', {
+                style: 'width:34px;height:34px;border-radius:8px;background:var(--accent-muted,rgba(88,166,255,0.15));display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:var(--accent);flex-shrink:0;overflow:hidden;'
+              });
+              const _iconVal = _novaData?.icon ?? entry?.icon ?? null;
+              const _isEmoji  = _iconVal && /\p{Emoji}/u.test(_iconVal) && _iconVal.length <= 4;
+              const _isSvgKey = _iconVal && !_isEmoji && /^[a-z][a-z0-9-]*$/.test(_iconVal);
+              if (_isSvgKey && typeof svgIcon === 'function') {
+                iconEl.innerHTML = svgIcon(_iconVal, 18);
+                iconEl.style.color = 'var(--accent)';
+              } else if (_isEmoji) {
+                iconEl.style.fontSize = '20px';
+                iconEl.textContent = _iconVal;
+              } else {
+                iconEl.textContent = appName.charAt(0).toUpperCase();
+              }
+              headerLeft.appendChild(iconEl);
+
+              const nameEl = createEl('div');
+              nameEl.appendChild(createEl('div', { textContent: appName, style: 'font-weight:600;font-size:13.5px;color:var(--text-primary);' }));
+
+              // Permission summary badges
+              const badgeRow = createEl('div', { style: 'display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;' });
+              const grantedCount = dangerous.filter(p => mgr.isGranted(p, appId)).length;
+              const deniedCount  = dangerous.filter(p => mgr.isDenied  ? mgr.isDenied(p, appId) : false).length;
+              const pendingCount = dangerous.length - grantedCount - deniedCount;
+
+              if (grantedCount > 0) {
+                const b = createEl('span', { textContent: grantedCount + ' allowed', style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(63,185,80,0.12);color:#3fb950;border:1px solid rgba(63,185,80,0.3);' });
+                badgeRow.appendChild(b);
+              }
+              if (deniedCount > 0) {
+                const b = createEl('span', { textContent: deniedCount + ' denied', style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(248,81,73,0.12);color:#f85149;border:1px solid rgba(248,81,73,0.3);' });
+                badgeRow.appendChild(b);
+              }
+              if (pendingCount > 0) {
+                const b = createEl('span', { textContent: pendingCount + ' not asked', style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' });
+                badgeRow.appendChild(b);
+              }
+              if (dangerous.length === 0 && normal.length === 0) {
+                const b = createEl('span', { textContent: 'No permissions', style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' });
+                badgeRow.appendChild(b);
+              } else if (dangerous.length === 0) {
+                const b = createEl('span', { textContent: 'No sensitive permissions', style: 'font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,0.06);color:var(--text-muted);border:1px solid var(--border-subtle);' });
+                badgeRow.appendChild(b);
+              }
+              // Version / author / verified — only for .novaapp
+              if (appVersion || appAuthor || appVerified !== null) {
+                const metaRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:3px;align-items:center;flex-wrap:wrap;' });
+                if (appVersion) {
+                  metaRow.appendChild(createEl('span', { textContent: 'v' + appVersion, style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' }));
+                }
+                if (appAuthor) {
+                  metaRow.appendChild(createEl('span', { textContent: 'by ' + appAuthor, style: 'font-size:10px;color:var(--text-muted);' }));
+                }
+                if (appVerified === true) {
+                  metaRow.appendChild(createEl('span', { textContent: '✓ Verified', style: 'font-size:10px;color:#3fb950;' }));
+                } else if (appVerified === false) {
+                  metaRow.appendChild(createEl('span', { textContent: '⚠ Unverified', style: 'font-size:10px;color:#d29922;' }));
+                }
+                nameEl.appendChild(metaRow);
+              }
+              nameEl.appendChild(badgeRow);
+              headerLeft.appendChild(nameEl);
+              header.appendChild(headerLeft);
+
+              // Chevron
+              const chevron = createEl('span', { style: 'color:var(--text-muted);font-size:12px;transition:transform 0.2s;' });
+              chevron.textContent = '▶';
+              header.appendChild(chevron);
+
+              card.appendChild(header);
+
+              // Expandable body
+              const body = createEl('div', { style: 'display:none;border-top:1px solid var(--border-subtle);' });
+
+              // DANGEROUS permissions
+              if (dangerous.length > 0) {
+                const section = createEl('div', { style: 'padding:10px 14px 6px;' });
+                section.appendChild(createEl('div', {
+                  textContent: 'SENSITIVE PERMISSIONS',
+                  style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:8px;'
+                }));
+
+                dangerous.forEach(perm => {
+                  const cat       = (typeof AppPermissionManager !== 'undefined') ? AppPermissionManager.PERMISSION_CATEGORIES?.[perm] : null;
+                  const risk      = cat?.risk ?? 'medium';
+                  const label     = PERM_LABELS[perm] ?? perm;
+                  const isGranted = mgr.isGranted(perm, appId);
+                  const isDenied  = mgr.isDenied ? mgr.isDenied(perm, appId) : false;
+
+                  const row = createEl('div', {
+                    style: 'display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border-subtle);'
+                  });
+
+                  const left = createEl('div', { style: 'display:flex;align-items:center;gap:8px;' });
+
+                  // Risk badge
+                  const riskBadge = createEl('span', {
+                    textContent: risk.charAt(0).toUpperCase() + risk.slice(1),
+                    style: `font-size:9px;padding:1px 6px;border-radius:20px;background:${RISK_BG[risk]};color:${RISK_COLOR[risk]};border:1px solid ${RISK_COLOR[risk]}40;font-weight:600;`
+                  });
+
+                  const labelEl = createEl('div');
+                  labelEl.appendChild(createEl('div', { textContent: label, style: 'font-size:13px;color:var(--text-primary);font-weight:500;' }));
+                  const permCodeEl = createEl('div', { textContent: perm, style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' });
+                  labelEl.appendChild(permCodeEl);
+
+                  left.appendChild(riskBadge);
+                  left.appendChild(labelEl);
+                  row.appendChild(left);
+
+                  // Toggle switch
+                  const toggleWrap = createEl('label', { style: 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;' });
+                  const toggleInput = createEl('input', { type: 'checkbox' });
+                  toggleInput.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+                  toggleInput.checked = isGranted;
+
+                  const slider = createEl('span', {
+                    style: `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${isGranted ? 'var(--accent)' : (isDenied ? 'rgba(248,81,73,0.3)' : 'var(--bg-elevated)')};border:1px solid var(--border-subtle);`
+                  });
+                  const knob = createEl('span', {
+                    style: `position:absolute;top:2px;left:${isGranted ? '20px' : '2px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`
+                  });
+                  slider.appendChild(knob);
+                  toggleWrap.appendChild(toggleInput);
+                  toggleWrap.appendChild(slider);
+
+                  toggleInput.addEventListener('change', async () => {
+                    if (toggleInput.checked) {
+                      await mgr.grantPermission(perm, appId, { permanent: true, reason: 'Manually granted via Settings', grantedBy: 'user' });
+                      if (mgr.resetPermission) await mgr.resetPermission(perm, appId).catch(() => {});
+                      await mgr.grantPermission(perm, appId, { permanent: true, reason: 'Manually granted via Settings', grantedBy: 'user' });
+                      slider.style.background = 'var(--accent)';
+                      knob.style.left = '20px';
+                    } else {
+                      await mgr.revokePermission(perm, appId);
+                      // Persist as a denial so it won't re-prompt
+                      if (mgr.resetPermission) {
+                        await mgr.resetPermission(perm, appId);
+                      }
+                      // Write denial by calling revokePermission — bootstrap will treat missing as pending
+                      slider.style.background = 'rgba(248,81,73,0.3)';
+                      knob.style.left = '2px';
+                    }
+                    // Refresh badges without full re-render
+                    renderApps();
+                  });
+
+                  row.appendChild(toggleWrap);
+                  section.appendChild(row);
+                });
+
+                body.appendChild(section);
+              }
+
+              // NORMAL permissions list (read-only, always granted)
+              if (normal.length > 0) {
+                const normSection = createEl('div', { style: 'padding:8px 14px 10px;' });
+                normSection.appendChild(createEl('div', {
+                  textContent: 'AUTOMATIC PERMISSIONS',
+                  style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:6px;'
+                }));
+                const normList = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:5px;' });
+                normal.forEach(perm => {
+                  const chip = createEl('span', {
+                    textContent: PERM_LABELS[perm] ?? perm,
+                    style: 'font-size:11px;padding:2px 8px;border-radius:20px;background:rgba(63,185,80,0.08);color:#3fb950;border:1px solid rgba(63,185,80,0.2);'
+                  });
+                  normList.appendChild(chip);
+                });
+                normSection.appendChild(normList);
+                body.appendChild(normSection);
+              }
+
+              // Reset all button
+              if (dangerous.length > 0) {
+                const footer = createEl('div', { style: 'padding:8px 14px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;' });
+                const resetBtn = createEl('button', {
+                  className: 'btn btn-sm',
+                  textContent: 'Reset All Permissions',
+                  style: 'font-size:11px;'
+                });
+                resetBtn.addEventListener('click', async () => {
+                  if (mgr.resetPermission) {
+                    for (const p of dangerous) await mgr.resetPermission(p, appId);
+                  } else {
+                    await mgr.revokeAllPermissions(appId);
+                  }
+                  Notify.show({ title: 'Permissions Reset', body: appName + ' will be asked again next launch.', type: 'info', appName: 'Settings' });
+                  renderApps();
+                });
+                footer.appendChild(resetBtn);
+                body.appendChild(footer);
+              }
+
+              card.appendChild(body);
+
+              // Toggle expand/collapse
+              let expanded = false;
+              header.addEventListener('click', () => {
+                expanded = !expanded;
+                body.style.display  = expanded ? 'block' : 'none';
+                chevron.style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
+              });
+
+              return card;
+            }
+
+            // Built-in apps
+            if (builtIns.length > 0) {
+              const groupLabel = createEl('div', {
+                textContent: 'BUILT-IN APPS',
+                style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:10px;'
+              });
+              mainContent.appendChild(groupLabel);
+              builtIns.forEach(id => {
+                const card = buildAppCard(id);
+                if (card) mainContent.appendChild(card);
+              });
+            }
+
+            // .novaapp packages
+            if (_novaApps.length > 0) {
+              const groupLabel = createEl('div', {
+                textContent: 'INSTALLED PACKAGES',
+                style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin:16px 0 10px;'
+              });
+              mainContent.appendChild(groupLabel);
+              _novaApps.forEach(novaData => {
+                const card = buildAppCard(novaData.id, novaData);
+                if (card) mainContent.appendChild(card);
+              });
+            }
+
+            // Web apps
+            if (webApps.length > 0) {
+              const groupLabel = createEl('div', {
+                textContent: 'WEB APPS',
+                style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin:16px 0 10px;'
+              });
+              mainContent.appendChild(groupLabel);
+              webApps.forEach(id => {
+                const card = buildAppCard(id);
+                if (card) mainContent.appendChild(card);
+              });
+            }
+
+            if (builtIns.length === 0 && webApps.length === 0) {
+              const empty = createEl('div', { style: 'text-align:center;color:var(--text-muted);padding:40px 0;font-size:13px;' });
+              empty.textContent = 'No apps found.';
+              mainContent.appendChild(empty);
+            }
+          }
+
           function renderPrivacy() {
             mainContent.appendChild(createEl('h2', { textContent: 'Privacy & Security', style: { marginBottom: '20px' } }));
 
@@ -1108,5 +1453,3 @@ registerApp({
           renderContent();
         }
       });
-
-

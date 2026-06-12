@@ -32,7 +32,19 @@ registerApp({
               minSecurityPatch: appData.minSecurityPatch || null,
               permissions: appData.permissions || [],
               optionalPermissions: appData.optionalPermissions || [],
-              init(contentEl) {
+              async init(contentEl) {
+                // ── Permission gate ────────────────────────────────────────
+                const _requiredPerms  = appData.permissions         || [];
+                const _optionalPerms  = appData.optionalPermissions || [];
+                const _allDangerous   = [..._requiredPerms, ..._optionalPerms];
+                if (_allDangerous.length > 0 && typeof AppPermissionManager !== 'undefined') {
+                  const _mgr     = AppPermissionManager;
+                  const _missing = _allDangerous.filter(p => !_mgr.isGranted(p, appData.id) && !(_mgr.isDenied && _mgr.isDenied(p, appData.id)));
+                  if (_missing.length > 0) {
+                    await _mgr.requestAll(_missing, appData.id, appData.name || appData.id);
+                  }
+                }
+                // ── Launch ────────────────────────────────────────────────
                 const entryKey = appData.entry || 'index.html';
                 const entryB64 = appData.files?.[entryKey];
                 if (!entryB64) { contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Entry file not found in package.</div>'; return; }
@@ -43,7 +55,7 @@ registerApp({
                   const iframe = createEl('iframe', { src: url, style: 'width:100%;height:100%;border:none;display:block;', sandbox: 'allow-scripts allow-forms allow-popups allow-modals' });
                   contentEl.style.padding = '0';
                   contentEl.appendChild(iframe);
-                  iframe.addEventListener('load', () => URL.revokeObjectURL(url));
+                  iframe.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
                 } catch (e) { contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${e.message}</div>`; }
               }
             };
@@ -779,5 +791,3 @@ registerApp({
           };
         }
       })();
-
-

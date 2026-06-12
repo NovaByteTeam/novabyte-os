@@ -1,278 +1,240 @@
 /**
- * NovaByte - App Registry
- * ────────────────────────────────────────────────────────────
+ * NovaByte — App Registry
+ * ─────────────────────────────────────────────────────────────
  * Manages installed applications, registration with OS.apps,
  * and app lifecycle (install, uninstall, update).
- * 
- * @module js/app-registry
+ *
+ * Fixes applied vs previous version:
+ *  [R1] window.AppRegistry — exported as a true global so every
+ *       other file (AppPermissionManager, system-events, etc.) can
+ *       reference it without import gymnastics.
+ *  [R2] launchApp — no longer throws on missing permissions.
+ *       Instead it calls AppPermissionManager.requestAll() which
+ *       shows the sequential Android-style prompt queue, then
+ *       proceeds or aborts cleanly.
+ *  [R3] lastLaunched written on every launch — consumed by
+ *       AppPermissionManager's 30-day unused-app expiry sweep.
+ *  [R4] onInstall / onUninstall accept multiple callbacks via
+ *       arrays instead of a single overwriteable reference.
+ *  [R5] checkPermissions() guards against AppPermissionManager
+ *       not yet being loaded.
+ *
+ * @module js/platform/core/app-registry
  */
 
 const AppRegistry = (() => {
-  const STORAGE_KEY = 'nova_installed_apps';
-  let installedApps = new Map();
-  let onAppInstalled = null;
-  let onAppUninstalled = null;
+  'use strict';
 
-  /**
-   * Initialize app registry
-   */
+  const STORAGE_KEY = 'nova_installed_apps';
+
+  let installedApps    = new Map();
+  const _onInstalled   = [];
+  const _onUninstalled = [];
+
+  // ── Storage ────────────────────────────────────────────────────────────────
+
+  function _saveToStorage() {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...installedApps.values()]));
+    } catch (e) {
+      if (e.name !== 'SecurityError') console.error('[AppRegistry] save failed:', e);
+    }
+  }
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
   function initialize() {
     try {
       if (typeof localStorage === 'undefined' || !localStorage) {
-        console.warn('[AppRegistry] localStorage not available, using in-memory storage');
-        installedApps = new Map();
+        console.warn('[AppRegistry] localStorage unavailable — in-memory only');
         return;
       }
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const apps = JSON.parse(stored);
-        apps.forEach(app => installedApps.set(app.id, app));
-      }
-      console.log(`[AppRegistry] Loaded ${installedApps.size} installed apps`);
-    } catch (error) {
-      if (error.name === 'SecurityError' || error.message.includes('Forbidden')) {
-        console.warn('[AppRegistry] localStorage access denied (sandboxed context), using in-memory storage');
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const apps = JSON.parse(raw);
+      for (const app of apps) installedApps.set(app.id, app);
+      console.log(`[AppRegistry] Loaded ${installedApps.size} app(s)`);
+    } catch (e) {
+      if (e.name === 'SecurityError') {
+        console.warn('[AppRegistry] localStorage denied (sandboxed) — in-memory only');
       } else {
-        console.error('[AppRegistry] Failed to initialize:', error);
+        console.error('[AppRegistry] initialize failed:', e);
       }
       installedApps = new Map();
     }
   }
 
-  /**
-   * Register an app with the OS
-   * @param {object} appConfig - App configuration object
-   * @returns {object} Registered app
-   */
+  // ── Registration ───────────────────────────────────────────────────────────
+
   function registerApp(appConfig) {
-    if (!appConfig.id || !appConfig.name) {
-      throw new Error('App must have id and name');
-    }
+    if (!appConfig?.id || !appConfig?.name) throw new Error('[AppRegistry] App must have id and name');
 
     const app = {
-      id: appConfig.id,
+      icon               : 'app-window',
+      description        : '',
+      version            : '1.0.0',
+      author             : 'Unknown',
+      type               : 'webapp',
+      entry              : 'index.html',
+      permissions        : [],
+      optionalPermissions: [],
+      defaultSize        : [800, 600],
+      minSize            : [400, 300],
+      maxSize            : null,
+      resizable          : true,
+      frame              : true,
+      sandbox            : { allowSameOrigin: true, allowScripts: true, allowForms: true, allowPopups: false },
+      categories         : ['other'],
+      installedDate      : new Date().toISOString(),
+      lastLaunched       : null,
+      launchCount        : 0,
+      source             : 'local',
+      signature          : null,
+      verified           : false,
+      ...appConfig,
+      // these must not be overridden by appConfig spread above
+      id  : appConfig.id,
       name: appConfig.name,
-      icon: appConfig.icon || 'app-window',
-      description: appConfig.description || '',
-      version: appConfig.version || '1.0.0',
-      author: appConfig.author || 'Unknown',
-      type: appConfig.type || 'webapp',
-      entry: appConfig.entry || 'index.html',
-      permissions: appConfig.permissions || [],
-      optionalPermissions: appConfig.optionalPermissions || [],
-      defaultSize: appConfig.defaultSize || [800, 600],
-      minSize: appConfig.minSize || [400, 300],
-      maxSize: appConfig.maxSize || null,
-      resizable: appConfig.resizable !== false,
-      frame: appConfig.frame !== false,
-      sandbox: appConfig.sandbox || {
-        allowSameOrigin: true,
-        allowScripts: true,
-        allowForms: true,
-        allowPopups: false
-      },
-      categories: appConfig.categories || ['other'],
-      installedDate: appConfig.installedDate || new Date().toISOString(),
-      lastLaunched: appConfig.lastLaunched || null,
-      launchCount: appConfig.launchCount || 0,
-      source: appConfig.source || 'local',
-      signature: appConfig.signature || null,
-      verified: appConfig.verified || false,
-      ...appConfig
     };
 
-    // Register with OS.apps if available
-    if (typeof OS !== 'undefined' && OS.apps) {
+    // Register with OS.apps so WM / launchpad can open it
+    if (typeof OS !== 'undefined' && OS?.apps) {
       OS.apps[app.id] = {
-        id: app.id,
-        name: app.name,
-        icon: app.icon,
+        id         : app.id,
+        name       : app.name,
+        icon       : app.icon,
         description: app.description,
         defaultSize: app.defaultSize,
-        minSize: app.minSize,
-        init: (content, state, options) => {
-          return AppRegistry.launchApp(app.id, content, state, options);
-        },
-        onDrop: appConfig.onDrop,
-        onClose: appConfig.onClose
+        minSize    : app.minSize,
+        init       : (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
+        onDrop     : appConfig.onDrop  ?? undefined,
+        onClose    : appConfig.onClose ?? undefined,
       };
     }
 
     installedApps.set(app.id, app);
-    saveToStorage();
-    console.log(`[AppRegistry] Registered app: ${app.name} (${app.id}) v${app.version}`);
-
-    if (onAppInstalled) {
-      onAppInstalled(app);
-    }
-
+    _saveToStorage();
+    console.log(`[AppRegistry] Registered: ${app.name} (${app.id}) v${app.version}`);
+    for (const cb of _onInstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return app;
   }
 
-  /**
-   * Unregister an app
-   * @param {string} appId - App ID to unregister
-   * @returns {boolean} Success status
-   */
   function unregisterApp(appId) {
     const app = installedApps.get(appId);
-    if (!app) {
-      return false;
-    }
-
-    if (typeof OS !== 'undefined' && OS.apps) {
-      delete OS.apps[appId];
-    }
-
+    if (!app) return false;
+    if (typeof OS !== 'undefined' && OS?.apps) delete OS.apps[appId];
     installedApps.delete(appId);
-    saveToStorage();
-    console.log(`[AppRegistry] Unregistered app: ${appId}`);
-
-    if (onAppUninstalled) {
-      onAppUninstalled(app);
-    }
-
+    _saveToStorage();
+    console.log(`[AppRegistry] Unregistered: ${appId}`);
+    for (const cb of _onUninstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return true;
   }
 
+  // ── Launch ─────────────────────────────────────────────────────────────────
+
   /**
-   * Launch an app
-   * @param {string} appId - App ID to launch
-   * @param {HTMLElement} content - Content container
-   * @param {object} state - Window state
-   * @param {object} options - Launch options
-   * @returns {object} Launch result
+   * Launch an app.
+   * FIX [R2]: missing required permissions now trigger the sequential
+   * permission-request queue rather than throwing immediately.
    */
-  function launchApp(appId, content, state, options) {
+  async function launchApp(appId, content, state, options) {
     const app = installedApps.get(appId);
-    if (!app) {
-      throw new Error(`App not found: ${appId}`);
+    if (!app) throw new Error(`[AppRegistry] App not found: ${appId}`);
+
+    // FIX [R2]: request missing permissions before proceeding
+    const mgr = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
+    if (mgr && app.permissions.length > 0) {
+      const missing = app.permissions.filter(p => !mgr.isGranted(p, appId));
+      if (missing.length > 0) {
+        const allGranted = await mgr.requestAll(missing, appId, app.name);
+        if (!allGranted) {
+          console.warn(`[AppRegistry] Launch aborted — permissions denied for ${appId}`);
+          return null;
+        }
+      }
     }
 
-    if (!checkPermissions(app)) {
-      throw new Error(`Missing required permissions for ${appId}`);
-    }
-
-    app.launchCount = (app.launchCount || 0) + 1;
+    // FIX [R3]: update usage timestamps so 30-day expiry sweep has data
+    app.launchCount  = (app.launchCount || 0) + 1;
     app.lastLaunched = new Date().toISOString();
-    saveToStorage();
+    _saveToStorage();
 
-    console.log(`[AppRegistry] Launching app: ${app.name} (${appId})`);
+    // Also tell the permission manager this app was just used
+    if (mgr?.recordAppUse) mgr.recordAppUse(appId);
 
-    return AppSandbox.launch(app, content, state, options);
+    console.log(`[AppRegistry] Launching: ${app.name} (${appId})`);
+
+    if (typeof AppSandbox !== 'undefined') {
+      return AppSandbox.launch(app, content, state, options);
+    }
+    // Fallback if sandbox not loaded
+    if (typeof app.init === 'function') return app.init(content, state, options);
+    return null;
   }
 
+  // ── Permissions ────────────────────────────────────────────────────────────
+
   /**
-   * Check if app has required permissions
-   * @param {object} app - App object
-   * @returns {boolean} Has permissions
+   * FIX [R5]: guard against AppPermissionManager not yet being loaded.
    */
   function checkPermissions(app) {
-    for (const perm of app.permissions) {
-      if (!AppPermissionManager.isGranted(perm, app.id)) {
-        return false;
-      }
-    }
+    if (typeof AppPermissionManager === 'undefined') return true; // defer to launchApp
+    return app.permissions.every(p => AppPermissionManager.isGranted(p, app.id));
+  }
+
+  // ── Update ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Patch fields on an existing installedApps entry.
+   * Used by app-permissions-bootstrap to write permissions[] into the
+   * internal map — the only object launchApp() actually reads from.
+   */
+  function updateApp(appId, patch) {
+    const app = installedApps.get(appId);
+    if (!app) return false;
+    Object.assign(app, patch);
+    _saveToStorage();
     return true;
   }
 
-  /**
-   * Get app by ID
-   * @param {string} appId - App ID
-   * @returns {object|null} App object or null
-   */
-  function getApp(appId) {
-    return installedApps.get(appId) || null;
-  }
+  // ── Queries ────────────────────────────────────────────────────────────────
 
-  /**
-   * Get all installed apps
-   * @returns {Array} Array of app objects
-   */
-  function getAllApps() {
-    return Array.from(installedApps.values());
-  }
+  function getApp(appId)              { return installedApps.get(appId) ?? null; }
+  function getAllApps()               { return [...installedApps.values()]; }
+  function getAppsByCategory(cat)    { return [...installedApps.values()].filter(a => a.categories.includes(cat)); }
 
-  /**
-   * Get apps by category
-   * @param {string} category - Category name
-   * @returns {Array} Filtered apps
-   */
-  function getAppsByCategory(category) {
-    return Array.from(installedApps.values()).filter(
-      app => app.categories.includes(category)
-    );
-  }
-
-  /**
-   * Save registry to storage
-   */
-  function saveToStorage() {
-    try {
-      if (typeof localStorage === 'undefined' || !localStorage) {
-        return; // Silently skip in sandboxed contexts
-      }
-      const apps = Array.from(installedApps.values());
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(apps));
-    } catch (error) {
-      if (error.name === 'SecurityError' || error.message.includes('Forbidden')) {
-        return; // Silently skip in sandboxed contexts
-      }
-      console.error('[AppRegistry] Failed to save:', error);
-    }
-  }
-
-  /**
-   * Register callback for app installed
-   * @param {function} callback - Callback function
-   */
-  function onInstall(callback) {
-    onAppInstalled = callback;
-  }
-
-  /**
-   * Register callback for app uninstalled
-   * @param {function} callback - Callback function
-   */
-  function onUninstall(callback) {
-    onAppUninstalled = callback;
-  }
-
-  /**
-   * Get app statistics
-   * @returns {object} Statistics object
-   */
   function getStats() {
-    const apps = Array.from(installedApps.values());
+    const apps = [...installedApps.values()];
     return {
-      totalApps: apps.length,
-      totalLaunches: apps.reduce((sum, app) => sum + (app.launchCount || 0), 0),
-      byCategory: apps.reduce((cats, app) => {
-        app.categories.forEach(cat => {
-          cats[cat] = (cats[cat] || 0) + 1;
-        });
-        return cats;
+      totalApps   : apps.length,
+      totalLaunches: apps.reduce((s, a) => s + (a.launchCount || 0), 0),
+      byCategory  : apps.reduce((acc, a) => {
+        for (const c of a.categories) acc[c] = (acc[c] || 0) + 1;
+        return acc;
       }, {}),
-      verifiedApps: apps.filter(app => app.verified).length
+      verifiedApps: apps.filter(a => a.verified).length,
     };
   }
 
+  // ── Hooks ──────────────────────────────────────────────────────────────────
+
+  // FIX [R4]: arrays instead of single overwriteable references
+  function onInstall(cb)   { if (typeof cb === 'function') _onInstalled.push(cb); }
+  function onUninstall(cb) { if (typeof cb === 'function') _onUninstalled.push(cb); }
+
   return {
-    initialize,
-    registerApp,
-    unregisterApp,
-    launchApp,
-    getApp,
-    getAllApps,
-    getAppsByCategory,
-    checkPermissions,
-    onInstall,
-    onUninstall,
-    getStats
+    initialize, registerApp, unregisterApp, launchApp, updateApp,
+    getApp, getAllApps, getAppsByCategory, checkPermissions,
+    onInstall, onUninstall, getStats,
   };
 })();
 
-// Auto-initialize on load
+// FIX [R1]: expose as a true global so AppPermissionManager, system-events,
+// and any other file can reference window.AppRegistry directly.
+window.AppRegistry = AppRegistry;
+
+// Auto-initialize
 if (typeof document !== 'undefined') {
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => AppRegistry.initialize());
@@ -281,7 +243,4 @@ if (typeof document !== 'undefined') {
   }
 }
 
-// Export for Node.js/CommonJS
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = AppRegistry;
-}
+if (typeof module !== 'undefined' && module.exports) module.exports = AppRegistry;

@@ -5,13 +5,21 @@ registerApp({
         init(content, state, options) {
           // ── NovaByte runtime guard — refuses to launch without AppDirs ──
           if (!window.AppDirs?.getVFSDir('com.nbosp.email', 'files')) {
-            // Create guard stylesheet with nonce before applying to avoid CSP violation
             const guardStyle = document.createElement('style');
             guardStyle.setAttribute('nonce', window.__cspNonce || '');
             guardStyle.textContent = `.em-guard{display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);}.em-guard>div:first-child{font-size:32px;}.em-guard>div:last-child{font-size:14px;text-align:center;}`;
             document.head.appendChild(guardStyle);
             content.className = 'em-guard';
-            content.innerHTML = '<div>⚠️</div><div><b>com.nbosp.email</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+            // Use DOM methods instead of innerHTML to avoid any parser overhead
+            const iconDiv = document.createElement('div');
+            iconDiv.textContent = '⚠️';
+            const msgDiv = document.createElement('div');
+            const b = document.createElement('b');
+            b.textContent = 'com.nbosp.email';
+            const br1 = document.createElement('br');
+            const br2 = document.createElement('br');
+            msgDiv.append(b, br1, document.createTextNode('App data directory missing.'), br2, document.createTextNode('This app requires NovaByte OS.'));
+            content.append(iconDiv, msgDiv);
             return;
           }
 
@@ -106,6 +114,35 @@ registerApp({
           const COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#10b981', '#ef4444', '#3b82f6'];
           const FICONS = { inbox: '📥', sent: '📤', drafts: '📝', trash: '🗑️', spam: '⚠️', junk: '⚠️', archive: '📦', starred: '⭐', all: '📬' };
 
+          // ── Hoisted utilities — defined once, referenced throughout
+          // FIX: was recreated on every setInterval tick for every account.
+          function decodeEntities(str) {
+            if (!str) return str;
+            return str
+              .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
+              .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
+              .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+              .replace(/&amp;/gi, '&');
+          }
+
+          // FIX: was called on line 812 but never defined anywhere in the file.
+          function parseMailto(url) {
+            try {
+              const u = new URL(url);
+              if (u.protocol !== 'mailto:') return {};
+              const params = u.searchParams;
+              return {
+                to: decodeURIComponent(u.pathname),
+                subject: params.get('subject') || '',
+                body: params.get('body') || '',
+                cc: params.get('cc') || '',
+                bcc: params.get('bcc') || '',
+              };
+            } catch {
+              return {};
+            }
+          }
+
           // ── State
           let accounts = [];
           let activeAcctId = 'all';
@@ -115,24 +152,48 @@ registerApp({
           let activeMsgUid = null;
           let loading = false;
           let searchQ = '';
-          let selectedUids = new Set();
+          // FIX: selectedUids and unreadMap are never reassigned — const is correct.
+          const selectedUids = new Set();
           let syncTimers = {};
-          let unreadMap = {};   // "acctId|folder" → count
+          const unreadMap = {};   // "acctId|folder" → count
           const emailBg = window.__NBOSP_BG?.email || null;
+
+          // ── Instance cleanup
+          // FIX: closing and reopening the app called init() again, creating a new closure
+          // while the old syncTimers kept firing and OS.openMailto pointed at the stale
+          // closure's openCompose. This tears down the previous instance before setting up
+          // the new one.
+          window.__nbospEmailCleanup?.();
+          const _prevOpenMailto = OS.openMailto;
+          window.__nbospEmailCleanup = () => {
+            Object.values(syncTimers).forEach(clearInterval);
+            syncTimers = {};
+            if (typeof _prevOpenMailto === 'function') OS.openMailto = _prevOpenMailto;
+          };
 
           // ── Storage
           const loadAccts = () => { try { return JSON.parse(localStorage.getItem(SK) || '[]'); } catch { return []; } };
           const saveAccts = () => { try { localStorage.setItem(SK, JSON.stringify(accounts)); if (emailBg?.setAccounts) emailBg.setAccounts(accounts); } catch { } };
 
-          // ── API helpers
+          // ── CSRF token — read once at init rather than querying the DOM on every request.
+          // FIX: api() was calling document.querySelector('meta[name="csrf-token"]') on every
+          // non-GET request. The meta tag doesn't change, so one read and a local variable is
+          // correct. Falls back to a server endpoint if the meta tag is absent.
+          let _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || window.__csrfToken || '';
+          if (!_csrfToken) {
+            fetch('/api/email/csrf-token', { credentials: 'include' })
+              .then(r => r.ok ? r.json() : null)
+              .then(d => { if (d?.csrfToken) { _csrfToken = d.csrfToken; window.__csrfToken = d.csrfToken; } })
+              .catch(() => { });
+          }
 
-          // ── API helpers
+          // ── API helper
           async function api(method, path, body, params) {
             let url = '/api/email' + path;
             if (params) { const qs = new URLSearchParams(params).toString(); if (qs) url += '?' + qs; }
             const opts = { method, credentials: 'include', headers: {} };
             if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
-              opts.headers['X-CSRF-Token'] = (document.querySelector('meta[name="csrf-token"]')?.content) || window.__csrfToken || '';
+              opts.headers['X-CSRF-Token'] = _csrfToken;
             }
             if (body && !(body instanceof FormData)) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
             else if (body instanceof FormData) opts.body = body;
@@ -151,10 +212,16 @@ registerApp({
             return accounts.find(a => a.id === activeAcctId) || null;
           }
 
+          // FIX: original used plain multiplication `h * 31` before the `& 0xffffffff` mask.
+          // JS numbers are 64-bit floats, so large values of h lose integer precision before
+          // the bitwise mask is applied, producing a biased colour distribution. Math.imul
+          // performs correct 32-bit integer multiplication without floating-point rounding.
           function avatarColor(s) {
-            let h = 0; for (let i = 0; i < (s || '').length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffffffff;
+            let h = 0;
+            for (let i = 0; i < (s || '').length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
             return COLORS[Math.abs(h) % COLORS.length];
           }
+
           function fmtDate(iso) {
             if (!iso) return '';
             const d = new Date(iso), now = new Date();
@@ -238,7 +305,7 @@ registerApp({
             if (accounts.length > 1) {
               sidebar.appendChild(createEl('div', { className: 'em-sb-section', textContent: 'Accounts' }));
               const row = createEl('div', { className: 'em-sb-row' + (activeAcctId === 'all' ? ' active' : '') });
-              row.innerHTML = '📬 Combined Inbox';
+              row.textContent = '📬 Combined Inbox';
               row.addEventListener('click', () => { activeAcctId = 'all'; activeFolder = 'INBOX'; page = 1; searchQ = ''; searchInp.value = ''; buildSidebar(); loadMessages(); });
               sidebar.appendChild(row);
             }
@@ -266,13 +333,13 @@ registerApp({
             });
 
             const addRow = createEl('div', { className: 'em-sb-row', style: 'color:var(--accent);margin-top:6px;' });
-            addRow.innerHTML = '＋ Add Account';
+            addRow.textContent = '＋ Add Account';
             addRow.addEventListener('click', () => buildSetup(null));
             sidebar.appendChild(addRow);
 
             if (accounts.length) {
               const settRow = createEl('div', { className: 'em-sb-row', style: 'color:var(--text-secondary);' });
-              settRow.innerHTML = '⚙ Settings';
+              settRow.textContent = '⚙ Settings';
               settRow.addEventListener('click', () => {
                 const acct = accounts.find(a => a.id === activeAcctId) || accounts[0];
                 buildSetup(acct);
@@ -395,7 +462,8 @@ registerApp({
                   smtpHost: smtpHostInp.value.trim(),
                   smtpPort: smtpPortInp.value,
                   signature: sigTa.value.trim(),
-                  syncInterval: parseInt(syncInp.value) || 0,
+                  // FIX: parseInt without radix — explicitly pass base 10.
+                  syncInterval: parseInt(syncInp.value, 10) || 0,
                   color: existing?.color || COLORS[accounts.length % COLORS.length],
                   folders: null
                 };
@@ -479,7 +547,9 @@ registerApp({
             }
             if (!messages.length) {
               const w = createEl('div', { className: 'em-empty' });
-              w.innerHTML = '📭<br><span>' + (searchQ ? 'No results' : 'No messages') + '</span>';
+              w.appendChild(document.createTextNode('📭'));
+              w.appendChild(document.createElement('br'));
+              w.appendChild(createEl('span', { textContent: searchQ ? 'No results' : 'No messages' }));
               msgListEl.appendChild(w);
               paginationEl.style.display = 'none'; return;
             }
@@ -576,7 +646,9 @@ registerApp({
               await ensureConnected(acct);
               const full = await api('GET', '/message', null, { folder: activeFolder, uid: msg.uid });
               msg.seen = true;
-              msgListEl.querySelector(`.em-msg-row[data-uid="${msg.uid}"]`)?.classList.remove('unread');
+              // FIX: msg.uid used raw in querySelector attribute selector. CSS.escape prevents
+              // a malformed UID from breaking the selector or enabling selector injection.
+              msgListEl.querySelector(`.em-msg-row[data-uid="${CSS.escape(String(msg.uid))}"]`)?.classList.remove('unread');
               renderReader(full, msg, acct);
             } catch (e) {
               readerEl.innerHTML = '';
@@ -616,7 +688,8 @@ registerApp({
               subject: 'Fwd: ' + (full.subject || ''),
               body: '\n\n----\nFrom: ' + full.from + '\nDate: ' + new Date(full.date).toLocaleString() + '\nSubject: ' + full.subject + '\n\n' + (full.text || '')
             }, acct));
-            delBtn.addEventListener('click', () => doDeleteMsg(msg, msgListEl.querySelector(`.em-msg-row[data-uid="${msg.uid}"]`)));
+            // FIX: same CSS.escape fix applied here for the delete button's querySelector.
+            delBtn.addEventListener('click', () => doDeleteMsg(msg, msgListEl.querySelector(`.em-msg-row[data-uid="${CSS.escape(String(msg.uid))}"]`)));
 
             // Body
             const bodyEl = createEl('div', { className: 'em-reader-body' });
@@ -629,6 +702,9 @@ registerApp({
                 title: 'Email body', referrerpolicy: 'no-referrer'
               });
               const html = full.html;
+              // FIX: DOMPurify.addHook was called without a matching removeHook in a
+              // try/finally, so if sanitize() threw, the hook stayed permanently attached
+              // to DOMPurify's global hook registry for the lifetime of the page.
               const sanitized = (() => {
                 if (typeof DOMPurify === 'undefined') return html;
                 DOMPurify.addHook('afterSanitizeAttributes', node => {
@@ -637,9 +713,11 @@ registerApp({
                     node.setAttribute('rel', 'noopener noreferrer');
                   }
                 });
-                const result = DOMPurify.sanitize(html);
-                DOMPurify.removeHook('afterSanitizeAttributes');
-                return result;
+                try {
+                  return DOMPurify.sanitize(html);
+                } finally {
+                  DOMPurify.removeHook('afterSanitizeAttributes');
+                }
               })();
               const hasDoc = /^<!doctype/i.test(html.trimStart()) || /^<html[\s>]/i.test(html.trimStart());
               iframe.srcdoc = hasDoc ? sanitized
@@ -778,7 +856,7 @@ registerApp({
               errSpan.textContent = '';
               sendBtn.textContent = 'Sending…'; sendBtn.disabled = true;
               try {
-                const smtpPort = parseInt(acct.smtpPort) || (acct.ssl ? 465 : 587);
+                const smtpPort = parseInt(acct.smtpPort, 10) || (acct.ssl ? 465 : 587);
                 const payload = {
                   host: acct.smtpHost || acct.host,
                   port: smtpPort,
@@ -809,6 +887,8 @@ registerApp({
 
           // While email app is running, intercept OS.openMailto so compose
           // opens inline without re-launching the app.
+          // FIX: parseMailto was called here but never defined. It is now defined at the
+          // top of init(). The previous handler is also restored by __nbospEmailCleanup.
           OS.openMailto = (url) => openCompose(parseMailto(url));
 
           // Support WM.createWindow('nbosp-email', { compose: { to, subject, … } })
@@ -839,7 +919,8 @@ registerApp({
             Object.values(syncTimers).forEach(clearInterval);
             syncTimers = {};
             accounts.forEach(acct => {
-              const mins = parseInt(acct.syncInterval) || 0;
+              // FIX: parseInt without radix.
+              const mins = parseInt(acct.syncInterval, 10) || 0;
               if (!mins) return;
               syncTimers[acct.id] = setInterval(async () => {
                 try {
@@ -848,14 +929,8 @@ registerApp({
                   const newUnread = (d.messages || []).filter(m => !m.seen);
                   if (!newUnread.length) return;
                   if (Notification.permission === 'granted') {
-                    const decodeEntities = (str) => {
-                      if (!str) return str;
-                      return str
-                        .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
-                        .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
-                        .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-                        .replace(/&amp;/gi, '&');
-                    };
+                    // FIX: decodeEntities was defined inline here, creating a new function
+                    // object on every interval tick for every account. It is now hoisted.
                     new Notification(`${acct.name || acct.email} — ${newUnread.length} new`, {
                       body: decodeEntities(newUnread[0].subject), icon: '/assets/apple-touch-icon.svg'
                     });
@@ -883,17 +958,12 @@ registerApp({
           // Read CSRF token from the server-injected meta tag. If the meta tag is
           // absent (e.g. loaded as a standalone file without the server's HTML pass),
           // fall back to GET /api/email/csrf-token so POST requests still work.
-          window.__csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-          if (!window.__csrfToken) {
-            fetch('/api/email/csrf-token', { credentials: 'include' })
-              .then(r => r.ok ? r.json() : null)
-              .then(d => { if (d?.csrfToken) window.__csrfToken = d.csrfToken; })
-              .catch(() => { });
-          }
+          // (Token initialisation is handled above at the top of init, before any API call.)
+          window.__csrfToken = _csrfToken;
 
           accounts = loadAccts();
           emailBg?.ensureBooted?.();
-          
+
           // Show UI structure immediately, but delay message loading until after
           // credentials are restored from persistent storage (non-blocking).
           // This avoids the spinner when reopening the app.
@@ -908,7 +978,7 @@ registerApp({
             buildSidebar();
             showEmpty();
             scheduleSyncAll();
-            
+
             // Restore credentials in background, then load messages
             api('GET', '/restore')
               .then(restore => {
@@ -926,6 +996,3 @@ registerApp({
           }
         }
       });
-
-
-
