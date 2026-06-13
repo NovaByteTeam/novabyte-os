@@ -285,6 +285,10 @@ registerApp({
         actionBar.append(saveBtn, cancelBtn);
 
         saveBtn.addEventListener('click', () => {
+          if (!AppPermissionManager?.isGranted('contacts:write', 'com.nbosp.contacts')) {
+            Notify.show({ title: 'Permission denied', body: 'Contacts needs contacts:write to save.', type: 'error', appName: 'Contacts' });
+            return;
+          }
           selected.name  = nameInp.value.trim()  || '(no name)';
           selected.email = emailInp.value.trim();
           selected.phone = phoneInp.value.trim();

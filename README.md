@@ -98,6 +98,16 @@ Download the `.zip`, extract it, and run the executable. No installation is requ
 
 -----
 
+## 🛠️ Building .novaapp Apps? Use NovaByte Studio
+
+**[NovaByte Studio](https://github.com/NovaByteOfficial/novapack-studio)** is the best tool for creating and testing `.novaapp` packages. It bundles NBOSP inside it so you can build and test your app without setting up NBOSP separately — just download Studio and start building.
+
+> **Want to build your own OS based on NBOSP?** That's what this repo is for — fork it and build on top of it. Studio is for `.novaapp` app development only.
+
+**[Download NovaByte Studio →](https://github.com/NovaByteOfficial/novapack-studio/releases)**
+
+---
+
 ## 🆓 NBOSP — NovaByte Open Source Project
 
 The `NBOSP/` folder in this repo is the **free, open base of NovaByte**.

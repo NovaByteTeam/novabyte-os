@@ -812,7 +812,7 @@ registerApp({
 
             const toggleWrap  = createEl('label', { style: 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;' });
             const toggleInput = createEl('input', { type: 'checkbox' });
-            toggleInput.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+            toggleInput.style.cssText = 'opacity:0;position:absolute;inset:0;width:100%;height:100%;cursor:pointer;z-index:2;';
             toggleInput.checked = isGranted;
             const slider = createEl('span', {
               style: `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${isGranted ? 'var(--accent)' : (isDenied ? 'rgba(248,81,73,0.3)' : 'var(--bg-elevated)')};border:1px solid var(--border-subtle);`
@@ -827,7 +827,7 @@ registerApp({
               if (toggleInput.checked) {
                 // FIX: original called grantPermission twice (before and after resetPermission)
                 // Correct: optional reset to clear denial state, then a single grant
-                if (mgr.resetPermission) await mgr.resetPermission(perm, appId).catch(() => {});
+                if (mgr.resetPermission) await Promise.resolve(mgr.resetPermission(perm, appId)).catch(() => {});
                 await mgr.grantPermission(perm, appId, { permanent: true, reason: 'Manually granted via Settings', grantedBy: 'user' });
                 slider.style.background = 'var(--accent)';
                 knob.style.left = '20px';

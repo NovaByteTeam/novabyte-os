@@ -503,7 +503,8 @@ const AppPermissionManager = (() => {
       const denyBtn  = card.querySelector('[data-action="deny"]');
       const grantBtn = card.querySelector('[data-action="grant"]');
 
-      function cleanup() { document.body.removeChild(overlay); }
+      let _cleaned = false;
+      function cleanup() { if (!_cleaned) { _cleaned = true; try { document.body.removeChild(overlay); } catch { /* already removed */ } } }
 
       denyBtn.addEventListener('click',  () => { cleanup(); resolve(false); }, { once: true });
       grantBtn.addEventListener('click', () => { cleanup(); resolve(true);  }, { once: true });

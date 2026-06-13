@@ -24,35 +24,83 @@ registerApp({
           function setBootApps(list) { localStorage.setItem('nova_boot_apps', JSON.stringify(list)); }
 
           function buildNovaAppConfig(appData) {
+            const appId = appData.id;
+            function ensureAppVFS() {
+              try {
+                const vfsDir = window.AppDirs?.getVFSDir(appId, 'files');
+                if (!vfsDir) console.warn('[AppManager] VFS dir missing for', appId, '— app will have no private storage');
+                return vfsDir;
+              } catch (e) { console.warn('[AppManager] VFS bootstrap failed for', appId, e); return null; }
+            }
             return {
-              id: appData.id, name: appData.name, icon: appData.icon || 'box',
+              id: appId, name: appData.name, icon: appData.icon || 'box',
               description: appData.description || '',
               defaultSize: appData.defaultSize || [800, 560],
               minSize: appData.minSize || [400, 300],
               minSecurityPatch: appData.minSecurityPatch || null,
-              permissions: appData.permissions || [],
-              optionalPermissions: appData.optionalPermissions || [],
+              permissions: (appData.permissions || []),
+              optionalPermissions: (appData.optionalPermissions || []),
               async init(contentEl) {
-                // ── Permission gate ────────────────────────────────────────
+                ensureAppVFS();
+
+                // ── Permission gate (parent-side, before iframe loads) ──
                 const _requiredPerms  = appData.permissions         || [];
                 const _optionalPerms  = appData.optionalPermissions || [];
                 const _allDangerous   = [..._requiredPerms, ..._optionalPerms];
                 if (_allDangerous.length > 0 && typeof AppPermissionManager !== 'undefined') {
                   const _mgr     = AppPermissionManager;
-                  const _missing = _allDangerous.filter(p => !_mgr.isGranted(p, appData.id) && !(_mgr.isDenied && _mgr.isDenied(p, appData.id)));
+                  const _missing = _allDangerous.filter(p => !_mgr.isGranted(p, appId) && !(_mgr.isDenied && _mgr.isDenied(p, appId)));
                   if (_missing.length > 0) {
-                    await _mgr.requestAll(_missing, appData.id, appData.name || appData.id);
+                    const _ok = await _mgr.requestAll(_missing, appId, appData.name || appId);
+                    if (!_ok) {
+                      contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:var(--font-ui,sans-serif);color:var(--text-muted);font-size:13px;text-align:center;padding:24px;">🔒<br><br>This app requires additional permissions to run.<br>Grant them in Settings → Apps and try again.</div>';
+                      return;
+                    }
                   }
                 }
-                // ── Launch ────────────────────────────────────────────────
+
+                // ── Private data shim injected into iframe ────────────
+                const vfsDir = ensureAppVFS();
+                const bridgeScript = `
+                  (function() {
+                    try {
+                      if (!window.__novaPrivateStore) {
+                        window.__novaPrivateStore = {};
+                      }
+                      window.__novaPrivateStore.appId = ${JSON.stringify(appId)};
+                      window.__novaPrivateStore.vfsDir = ${JSON.stringify(vfsDir)};
+                      window.__novaPrivateStore.getVFSDir = function() { return ${JSON.stringify(vfsDir)}; };
+                      window.__novaPrivateStore.lsKey = function(k) { return 'nova_app_' + ${JSON.stringify(appId)} + '_' + k; };
+                      window.__novaPrivateStore.get = function(k) {
+                        try { const v = localStorage.getItem(this.lsKey(k)); return v ? JSON.parse(v) : null; }
+                        catch { return null; }
+                      };
+                      window.__novaPrivateStore.set = function(k, v) {
+                        try { localStorage.setItem(this.lsKey(k), JSON.stringify(v)); }
+                        catch { /* quota */ }
+                      };
+                      window.__novaPrivateStore.del = function(k) { localStorage.removeItem(this.lsKey(k)); };
+                    } catch (e) { console.warn('[NovaAppBridge] init failed:', e); }
+                  })();
+                `;
+                const bridgeStyle = '<style>#nv-bridge-shim{display:none}</style>';
+
                 const entryKey = appData.entry || 'index.html';
                 const entryB64 = appData.files?.[entryKey];
-                if (!entryB64) { contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Entry file not found in package.</div>'; return; }
+                if (!entryB64) {
+                  contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Entry file not found in package.</div>';
+                  return;
+                }
                 try {
                   const html = decodeURIComponent(escape(atob(entryB64)));
-                  const blob = new Blob([html], { type: 'text/html' });
+                  const wrapped = bridgeStyle + '<script id="nv-bridge-shim">' + bridgeScript + '</script>' + html;
+                  const blob = new Blob([wrapped], { type: 'text/html' });
                   const url = URL.createObjectURL(blob);
-                  const iframe = createEl('iframe', { src: url, style: 'width:100%;height:100%;border:none;display:block;', sandbox: 'allow-scripts allow-forms allow-popups allow-modals' });
+                  const iframe = createEl('iframe', {
+                    src: url,
+                    sandbox: 'allow-scripts allow-forms allow-popups allow-modals allow-same-origin',
+                    style: 'width:100%;height:100%;border:none;display:block;'
+                  });
                   contentEl.style.padding = '0';
                   contentEl.appendChild(iframe);
                   iframe.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });

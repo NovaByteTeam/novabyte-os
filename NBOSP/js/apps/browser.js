@@ -2130,8 +2130,12 @@ registerApp({
             const settingsPage = viewport.querySelector('.browser-settings-page');
             if (settingsPage) settingsPage.remove();
 
-            // Resolve vault:// URLs by looking up the file in FS and loading via temp file or blob
-            if (url.startsWith('vault:')) {
+             // Resolve vault:// URLs by looking up the file in FS and loading via temp file or blob
+             if (url.startsWith('vault:')) {
+               if (!AppPermissionManager?.isGranted('fs:write', 'browser')) {
+                 Notify.show({ title: 'Permission denied', body: 'Browser needs fs:write to access vault files.', type: 'error', appName: 'Browser' });
+                 return;
+               }
               // FIX: Capture target tab ID upfront to prevent race conditions if user switches tabs
               const targetTabId = activeTabId;
               const vaultRel = url.replace(/^vault:\/\/+/, '').replace(/^\//, '');
@@ -2441,8 +2445,12 @@ registerApp({
             }
           });
 
-          // Open HTML file from vault — write to temp disk file so webview can load it natively
-          if (options?.fileId) {
+           // Open HTML file from vault — write to temp disk file so webview can load it natively
+           if (options?.fileId) {
+             if (!AppPermissionManager?.isGranted('fs:write', 'browser')) {
+               Notify.show({ title: 'Permission denied', body: 'Browser needs fs:write to open vault files.', type: 'error', appName: 'Browser' });
+               return;
+             }
             const fileNode = FS.files.get(options.fileId);
             if (fileNode != null && fileNode.content != null) {
               function getVaultPath(node) {

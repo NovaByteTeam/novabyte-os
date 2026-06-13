@@ -60,7 +60,7 @@
     // Calendar
     'calendar-app': {
       normal   : [],
-      dangerous: ['calendar:read', 'calendar:write', 'calendar:delete'],
+      dangerous: ['calendar:read', 'calendar:write', 'calendar:delete', 'fs:write'],
     },
 
     // Contacts

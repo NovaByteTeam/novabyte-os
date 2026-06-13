@@ -55,6 +55,7 @@ registerApp({
     }
 
     function loadEvents() {
+      if (!AppPermissionManager?.isGranted('calendar:read', 'calendar-app')) return [];
       try {
         const raw = JSON.parse(localStorage.getItem(STORE_KEY) ?? '[]');
         return Array.isArray(raw) ? raw.map(sanitizeEvent).filter(Boolean) : [];
@@ -500,6 +501,10 @@ registerApp({
         if (!dateVal || !/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) { dateInp.focus(); return; }
 
         if (isEdit) {
+          if (!AppPermissionManager?.isGranted('calendar:write', 'calendar-app')) {
+            Notify.show({ title: 'Permission denied', body: 'Calendar needs calendar:write to edit events.', type: 'error', appName: 'Calendar' });
+            return;
+          }
           const idx = events.findIndex(ev => ev.id === existing.id);
           if (idx !== -1) {
             // structuredClone for clean immutable update — no Object.assign mutation
@@ -511,6 +516,10 @@ registerApp({
             });
           }
         } else {
+          if (!AppPermissionManager?.isGranted('calendar:write', 'calendar-app')) {
+            Notify.show({ title: 'Permission denied', body: 'Calendar needs calendar:write to create events.', type: 'error', appName: 'Calendar' });
+            return;
+          }
           events.push({
             id:        crypto.randomUUID(),   // FIX: UUID not Date.now() — no collision risk
             title:     t,
