@@ -54,7 +54,7 @@
     // Email
     'nbosp-email': {
       normal   : ['net:internal'],
-      dangerous: ['mail:read', 'mail:write', 'mail:send', 'mail:delete', 'net:external'],
+      dangerous: ['mail:read', 'mail:write', 'mail:send', 'mail:delete', 'net:external', 'fs:write'],
     },
 
     // Calendar

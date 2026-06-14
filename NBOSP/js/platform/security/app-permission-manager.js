@@ -44,10 +44,9 @@ const AppPermissionManager = (() => {
     DEVICE_CAMERA     : 'device:camera',
     DEVICE_MICROPHONE : 'device:microphone',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
-    SYSTEM_APPS       : 'system:apps',
-    DATA_EXPORT       : 'data:export',    DATA_BACKUP       : 'data:backup',
-    ADMIN_USERS       : 'admin:users',    ADMIN_SYSTEM      : 'admin:system',
-    ADMIN_AUDIT       : 'admin:audit',
+    SYSTEM_APPS       : 'system:apps',    SYSTEM_EVENTS     : 'system:events',
+    ADMIN_APPS        : 'admin:apps',     ADMIN_USERS       : 'admin:users',
+    ADMIN_SYSTEM      : 'admin:system',   ADMIN_AUDIT       : 'admin:audit',
   });
 
   const PERMISSION_CATEGORIES = Object.freeze({
@@ -74,8 +73,10 @@ const AppPermissionManager = (() => {
     'system:info'       : { category: 'system',     risk: 'low',      label: 'System information' },
     'system:settings'   : { category: 'system',     risk: 'medium',   label: 'System settings' },
     'system:apps'       : { category: 'system',     risk: 'medium',   label: 'Manage apps' },
+    'system:events'     : { category: 'system',     risk: 'medium',   label: 'System events' },
     'data:export'       : { category: 'data',       risk: 'high',     label: 'Export data' },
     'data:backup'       : { category: 'data',       risk: 'high',     label: 'Backup data' },
+    'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },
     'admin:audit'       : { category: 'admin',      risk: 'high',     label: 'Audit logs' },

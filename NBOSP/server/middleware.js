@@ -31,7 +31,9 @@ function setupMiddleware(app) {
                 baseUri: ["'self'"],
                 formAction: ["'self'"],
                 frameAncestors: ["'self'"]
-            }
+            },
+            setAllHeaders: false,
+            disableFloc: true
         },
         crossOriginResourcePolicy: false,
         originAgentCluster: false

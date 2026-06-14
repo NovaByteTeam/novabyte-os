@@ -81,18 +81,6 @@ function startCredentialCleanup() {
 
 startCredentialCleanup();
 
-function getCredEncryptKey() {
-  if (!CRED_ENCRYPT_KEY) {
-    const seed = process.env.NBOSP_CRED_KEY;
-    if (!seed) {
-      const msg = '[Email] CRITICAL: NBOSP_CRED_KEY environment variable not set. Email credential persistence disabled for security.';
-      console.error(msg);
-      throw new Error(msg);
-    }
-    CRED_ENCRYPT_KEY = crypto.createHash('sha256').update(seed).digest();
-  }
-  return CRED_ENCRYPT_KEY;
-}
 
 function restoreCredsFromSession(req) {
   // Try to restore from persistent storage if session creds are missing

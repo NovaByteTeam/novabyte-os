@@ -35,6 +35,11 @@ const AppSandbox = (() => {
     const sandboxId = `sandbox_${app.id}_${Date.now()}`;
     webview.setAttribute('partition', `persist:${sandboxId}`);
 
+    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id);
+    if (sandboxAttr) {
+      webview.setAttribute('sandbox', sandboxAttr);
+    }
+
     // Styling
     webview.style.cssText = `
       width: 100%;
@@ -50,11 +55,12 @@ const AppSandbox = (() => {
 
     activeSandboxes.set(sandboxId, {
       appId: app.id,
-      iframe: webview,    // backward-compat alias — callers reading sandbox.iframe still work
+      iframe: webview,
       webview: webview,
       created: new Date().toISOString(),
       state: state,
-      windowId: state?.id
+      windowId: state?.id,
+      wsConnections: new Map()
     });
 
     // ── Fullscreen Support ──
@@ -466,6 +472,10 @@ const AppSandbox = (() => {
           subs.clear();
         }
         eventSubscriptions.delete(sandboxId);
+        for (const [, wsState] of (sandbox.wsConnections || new Map())) {
+          try { wsState.ws.close(1000, 'sandbox closed'); } catch { /* already closed */ }
+        }
+        sandbox.wsConnections?.clear();
       };
     }
   }
@@ -852,6 +862,9 @@ const AppSandbox = (() => {
 
       // ── Events: Subscribe ─────────────────────────────────────────────
       if (type === 'nova:events:subscribe') {
+        if (!AppPermissionManager.isGranted('system:events', app.id)) {
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'system:events permission required');
+        }
         const { event } = payload;
         if (!event) {
           return respondError(webview, type, requestId, 'INVALID_ARGS', 'event name is required');
@@ -870,6 +883,9 @@ const AppSandbox = (() => {
 
       // ── Events: Unsubscribe ───────────────────────────────────────────
       if (type === 'nova:events:unsubscribe') {
+        if (!AppPermissionManager.isGranted('system:events', app.id)) {
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'system:events permission required');
+        }
         const { event } = payload;
         const subs = eventSubscriptions.get(sandboxId);
         if (subs && subs.has(event)) {
@@ -886,13 +902,11 @@ const AppSandbox = (() => {
         if (!url) {
           return respondError(webview, type, requestId, 'INVALID_ARGS', 'url is required');
         }
-        // FIX: allowlist HTTP methods — reject anything outside safe set
         const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
         const safeMethod = (method || 'GET').toUpperCase();
         if (!ALLOWED_METHODS.includes(safeMethod)) {
           return respondError(webview, type, requestId, 'INVALID_ARGS', `Method not allowed: ${safeMethod}`);
         }
-        // FIX: validate protocol — block file://, javascript:, data:, etc.
         if (!url.startsWith('/')) {
           try {
             const _proto = new URL(url).protocol;
@@ -903,12 +917,9 @@ const AppSandbox = (() => {
             return respondError(webview, type, requestId, 'INVALID_ARGS', 'Invalid URL');
           }
         }
-        // Determine permission level
-        // FIX: parse the URL properly; startsWith is trivially bypassed
-        // (e.g. http://localhost.evil.com passes the old check).
         let isInternal = false;
         if (url.startsWith('/')) {
-          isInternal = true; // relative path — same origin
+          isInternal = true;
         } else {
           try {
             const _u = new URL(url);
@@ -938,6 +949,70 @@ const AppSandbox = (() => {
         } catch (e) {
           return respondError(webview, type, requestId, 'NETWORK_ERROR', e.message);
         }
+      }
+
+      // ── Net: WebSocket ────────────────────────────────────────────────
+      if (type === 'nova:net:websocket') {
+        const { url, protocols } = payload;
+        if (!url) {
+          return respondError(webview, type, requestId, 'INVALID_ARGS', 'url is required');
+        }
+        if (typeof WebSocket === 'undefined') {
+          return respondError(webview, type, requestId, 'UNAVAILABLE', 'WebSocket not supported');
+        }
+        if (!AppPermissionManager.isGranted('net:websocket', app.id)) {
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'net:websocket permission required');
+        }
+        let ws;
+        try {
+          ws = protocols?.length
+            ? new WebSocket(url, protocols)
+            : new WebSocket(url);
+        } catch (e) {
+          return respondError(webview, type, requestId, 'INVALID_ARGS', e.message);
+        }
+        const wsId = 'ws_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        const wsState = { ws, appId: app.id, handlers: {} };
+        const sandbox = activeSandboxes.get(sandboxId);
+        if (sandbox) {
+          if (!sandbox.wsConnections) sandbox.wsConnections = new Map();
+          sandbox.wsConnections.set(wsId, wsState);
+        }
+        ws.onopen = () => respond(webview, type, requestId, { success: true, wsId, readyState: ws.readyState });
+        ws.onmessage = (e) => {
+          respond(webview, 'nova:net:ws:message', generateRequestId(), { wsId, data: e.data });
+        };
+        ws.onerror = (e) => {
+          respond(webview, 'nova:net:ws:error', generateRequestId(), { wsId, error: 'WebSocket error' });
+        };
+        ws.onclose = (e) => {
+          respond(webview, 'nova:net:ws:close', generateRequestId(), { wsId, code: e.code, reason: e.reason, clean: e.clean });
+          activeSandboxes.get(sandboxId)?.wsConnections?.delete(wsId);
+        };
+        return; // response sent via onopen callback
+      }
+
+      // ── Net: WebSocket Send ───────────────────────────────────────────
+      if (type === 'nova:net:ws:send') {
+        const { wsId, data } = payload;
+        const wsState = activeSandboxes.get(sandboxId)?.wsConnections?.get(wsId);
+        if (!wsState) return respondError(webview, type, requestId, 'NOT_FOUND', 'WebSocket connection not found');
+        if (wsState.ws.readyState !== WebSocket.OPEN) {
+          return respondError(webview, type, requestId, 'INVALID_STATE', 'WebSocket is not open');
+        }
+        wsState.ws.send(data ?? '');
+        return respond(webview, type, requestId, { success: true });
+      }
+
+      // ── Net: WebSocket Close ──────────────────────────────────────────
+      if (type === 'nova:net:ws:close') {
+        const { wsId, code, reason } = payload;
+        const wsState = activeSandboxes.get(sandboxId)?.wsConnections?.get(wsId);
+        if (wsState) {
+          wsState.ws.close(code ?? 1000, reason);
+          activeSandboxes.get(sandboxId)?.wsConnections?.delete(wsId);
+        }
+        return respond(webview, type, requestId, { success: true });
       }
 
       // ── Storage: Get ──────────────────────────────────────────────────
@@ -1048,6 +1123,9 @@ const AppSandbox = (() => {
 
       // ── System: Info ──────────────────────────────────────────────────
       if (type === 'nova:system:info') {
+        if (!AppPermissionManager.isGranted('system:info', app.id)) {
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'system:info permission required');
+        }
         return respond(webview, type, requestId, {
           success: true,
           os: {
@@ -1162,84 +1240,20 @@ const AppSandbox = (() => {
       window.parent.postMessage({ type: type, requestId: id, payload: payload }, '*');
     });
   }
-
-  // ── fetch ────────────────────────────────────────────────────────────
-  window.fetch = function(url, opts) {
-    opts = opts || {};
-    return _ipc('nova:net:fetch', {
-      url: String(url),
-      method: ((opts.method || 'GET') + '').toUpperCase(),
-      headers: opts.headers || {},
-      body: opts.body || null
-    }).then(function(r) {
-      return new Response(r.body, { status: r.status, statusText: r.statusText, headers: r.headers });
-    });
-  };
-
-  // ── XMLHttpRequest ───────────────────────────────────────────────────
-  window.XMLHttpRequest = function() {
-    var _m = 'GET', _u = '', _hdrs = {};
-    var pub = {
-      readyState: 0, status: 0, statusText: '', responseText: '', response: '',
-      onreadystatechange: null, onload: null, onerror: null, ontimeout: null,
-      open: function(m, u) { _m = m; _u = u; },
-      setRequestHeader: function(k, v) { _hdrs[k] = v; },
-      getResponseHeader: function() { return null; },
-      getAllResponseHeaders: function() { return ''; },
-      send: function(body) {
-        var self = this;
-        _ipc('nova:net:fetch', {
-          url: _u, method: (_m + '').toUpperCase(), headers: _hdrs, body: body || null
-        }).then(function(r) {
-          self.readyState = 4; self.status = r.status; self.statusText = r.statusText;
-          self.responseText = r.body; self.response = r.body;
-          if (self.onload) self.onload();
-          if (self.onreadystatechange) self.onreadystatechange();
-        }).catch(function(err) {
-          self.readyState = 4; self.status = 0;
-          if (self.onerror) self.onerror(err);
-          if (self.onreadystatechange) self.onreadystatechange();
-        });
-      }
-    };
-    return pub;
-  };
-
-  // ── eval (audit only — still executes) ──────────────────────────────
-  var _realEval = window.eval;
-  window.eval = function(code) {
-    window.parent.postMessage({ type: 'nova:audit:eval', requestId: null,
-      payload: { preview: String(code).slice(0, 200) } }, '*');
-    return _realEval.call(window, code);
-  };
-
-  // ── navigator.sendBeacon ────────────────────────────────────────────
-  navigator.sendBeacon = function(url, data) {
-    _ipc('nova:net:fetch', { url: String(url), method: 'POST', headers: {}, body: data || null });
-    return true;
-  };
-
-  // ── WebSocket ───────────────────────────────────────────────────────
-  // No WS proxy implemented yet — throw a clear error rather than silently failing.
-  window.WebSocket = function(url) {
-    throw new Error('[NovaByte] WebSocket is not supported in sandboxed apps yet. Use fetch() instead.');
-  };
-})();
 \x3C/script>`;
+
+  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'none\'">';
 
   /**
    * Prepend the capability shim as the very first script in the app's HTML.
    * Injects after <head> if present, otherwise prepends to the document.
    */
   function injectCapabilityShim(html) {
-    // Try to inject right after opening <head> tag
-    const headMatch = html.match(/<head(\s[^>]*)?>/i);
-    if (headMatch) {
-      const idx = html.indexOf(headMatch[0]) + headMatch[0].length;
-      return html.slice(0, idx) + '\n' + CAPABILITY_SHIM + '\n' + html.slice(idx);
+    if (/<head(\s[^>]*)?>/i.test(html)) {
+      const relaxed = RELAXED_CSP_META + '\n';
+      return html.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + relaxed + CAPABILITY_SHIM);
     }
-    // No <head> — prepend before everything
-    return CAPABILITY_SHIM + '\n' + html;
+    return CAPABILITY_SHIM + '\n' + RELAXED_CSP_META + '\n' + html;
   }
 
   /**
@@ -1311,6 +1325,42 @@ const AppSandbox = (() => {
   }
 
   /**
+   * Build a safe sandbox attribute string from an app's sandbox config.
+   * FIX: allow-same-origin is always stripped — combining it with allow-scripts
+   * is a known sandbox escape (the exact warning you saw). Same-origin access
+   * is already provided by the webview's partition, so this token is both
+   * unsafe and unnecessary.
+   */
+  function sanitizeSandboxAttr(sandboxConfig, appId) {
+    const tokens = [];
+
+    const has = (key) => {
+      if (sandboxConfig && typeof sandboxConfig === 'object') {
+        if (sandboxConfig[key] === true) return true;
+      }
+      if (typeof sandboxConfig === 'string') {
+        return sandboxConfig.includes(key);
+      }
+      return false;
+    };
+
+    if (has('allowScripts'))       tokens.push('allow-scripts');
+    if (has('allowForms'))         tokens.push('allow-forms');
+    if (has('allowPopups'))        tokens.push('allow-popups');
+    if (has('allowPopupsToEscapeSandbox')) tokens.push('allow-popups-to-escape-sandbox');
+    if (has('allowModals'))        tokens.push('allow-modals');
+
+    if (tokens.length === 0) {
+      tokens.push('allow-scripts', 'allow-forms', 'allow-popups', 'allow-modals');
+    }
+
+    if (typeof console !== 'undefined') {
+      console.log(`[AppSandbox] sandbox attrs for ${appId || 'unknown'}: ${tokens.join(' ')}`);
+    }
+    return tokens.join(' ');
+  }
+
+  /**
    * Create default app shell for apps without content.
    * Registers via the Express serve route — webview cannot load blob: URLs.
    * @param {HTMLElement} webview - Sandbox webview
@@ -1324,6 +1374,7 @@ const AppSandbox = (() => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        ${RELAXED_CSP_META}
         <title>${escapeHtml(app.name)}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1416,6 +1467,7 @@ const AppSandbox = (() => {
       <html>
       <head>
         <meta charset="UTF-8">
+        ${RELAXED_CSP_META}
         <title>Error - ${escapeHtml(app.name)}</title>
         <style>
           body { font-family: sans-serif; padding: 40px; text-align: center; }

@@ -172,8 +172,24 @@ registerApp({
           };
 
           // ── Storage
-          const loadAccts = () => { try { return JSON.parse(localStorage.getItem(SK) || '[]'); } catch { return []; } };
-          const saveAccts = () => { try { localStorage.setItem(SK, JSON.stringify(accounts)); if (emailBg?.setAccounts) emailBg.setAccounts(accounts); } catch { } };
+          // Passwords are kept only in memory (credCache) and in the server-side
+          // session via /connect. localStorage holds everything EXCEPT pass so that
+          // credentials are never written to disk in plaintext.
+          const credCache = {};  // acctId → { user, pass }
+
+          const loadAccts = () => {
+            try {
+              return JSON.parse(localStorage.getItem(SK) || '[]');
+            } catch { return []; }
+          };
+          const saveAccts = () => {
+            try {
+              // Strip pass before persisting; credCache holds it in-memory.
+              const safe = accounts.map(({ pass: _omit, ...rest }) => rest);
+              localStorage.setItem(SK, JSON.stringify(safe));
+              if (emailBg?.setAccounts) emailBg.setAccounts(accounts);
+            } catch { }
+          };
 
           // ── CSRF token — read once at init rather than querying the DOM on every request.
           // FIX: api() was calling document.querySelector('meta[name="csrf-token"]') on every
@@ -204,7 +220,15 @@ registerApp({
           }
 
           async function ensureConnected(acct) {
-            await api('POST', '/connect', { type: acct.type, host: acct.host, port: acct.port, ssl: acct.ssl, user: acct.user, pass: acct.pass });
+            // Use credCache if available (fresh login). If not (e.g. after page refresh),
+            // skip re-connecting — the server session is already warm from /restore.
+            const pass = credCache[acct.id]?.pass;
+            if (pass) {
+              await api('POST', '/connect', { type: acct.type, host: acct.host, port: acct.port, ssl: acct.ssl, user: acct.user, pass });
+            }
+            // If no pass in credCache, trust that /restore already re-established the session.
+            // If the session has actually expired, the subsequent API call will 401 and
+            // the error will surface naturally to the user.
           }
 
           function getActiveAcct() {
@@ -392,7 +416,7 @@ registerApp({
             const { w: nameW, inp: nameInp } = fldRow('Display Name', 'text', 'Work Email', existing?.name || '');
             const { w: hostW, inp: hostInp } = fldRow('Incoming Server (IMAP/POP3/EWS Host)', 'text', 'mail.example.com', existing?.host || '');
             const { w: userW, inp: userInp } = fldRow('Username / Email', 'email', 'user@example.com', existing?.user || '');
-            const { w: passW, inp: passInp } = fldRow('Password', 'password', '••••••••', existing?.pass || '');
+            const { w: passW, inp: passInp } = fldRow('Password', 'password', '••••••••', (existing && credCache[existing.id]?.pass) || '');
 
             const row2 = createEl('div', { className: 'em-row2' });
             const { w: portW, inp: portInp } = fldRow('Port', 'number', '993', existing?.port || '993');
@@ -430,6 +454,7 @@ registerApp({
             if (existing) {
               const delBtn = createEl('button', { className: 'em-btn danger', textContent: 'Remove', style: 'flex-shrink:0;' });
               delBtn.addEventListener('click', async () => {
+                delete credCache[existing.id];
                 accounts = accounts.filter(a => a.id !== existing.id);
                 saveAccts();
                 // Clear session credentials for the removed account so the server
@@ -453,12 +478,15 @@ registerApp({
               saveBtn.textContent = 'Connecting…'; saveBtn.disabled = true;
               try {
                 await api('POST', '/connect', { type: proto, host, port: portInp.value, ssl: sslChk.checked, user, pass });
+                const acctId = existing?.id || Date.now().toString(36);
+                // Store pass only in credCache (in-memory), never on the acct object.
+                credCache[acctId] = { user, pass };
                 const acct = {
-                  id: existing?.id || Date.now().toString(36),
+                  id: acctId,
                   name: nameInp.value.trim() || user,
                   email: user, type: proto, host,
                   port: portInp.value,
-                  ssl: sslChk.checked, user, pass,
+                  ssl: sslChk.checked, user,
                   smtpHost: smtpHostInp.value.trim(),
                   smtpPort: smtpPortInp.value,
                   signature: sigTa.value.trim(),
@@ -857,12 +885,13 @@ registerApp({
               sendBtn.textContent = 'Sending…'; sendBtn.disabled = true;
               try {
                 const smtpPort = parseInt(acct.smtpPort, 10) || (acct.ssl ? 465 : 587);
+                // Don't send pass in the request body — server pulls it from the
+                // session (req.session.emailCreds.pass) which is already set by /connect or /restore.
                 const payload = {
                   host: acct.smtpHost || acct.host,
                   port: smtpPort,
                   ssl: smtpPort === 465,
                   user: acct.user,
-                  pass: acct.pass,
                   to, cc: ccInp.value, bcc: bccInp.value,
                   subject: subjInp.value,
                   text: bodyTa.value
@@ -977,7 +1006,7 @@ registerApp({
             mainEl.style.display = '';
             buildSidebar();
             showEmpty();
-            scheduleSyncAll();
+
 
             // Restore credentials in background, then load messages
             api('GET', '/restore')
@@ -985,6 +1014,7 @@ registerApp({
                 if (restore?.restored) {
                   console.log('[Email] Credentials auto-restored');
                 }
+                scheduleSyncAll();
                 // Load messages now that credentials are restored
                 loadMessages();
               })
