@@ -84,6 +84,7 @@ registerApp({
                   })();
                 `;
                 const bridgeStyle = '<style>#nv-bridge-shim{display:none}</style>';
+                const bridgeScriptTag = '<script id="nv-bridge-shim">' + bridgeScript + '</script>';
 
                 const entryKey = appData.entry || 'index.html';
                 const entryB64 = appData.files?.[entryKey];
@@ -93,24 +94,101 @@ registerApp({
                 }
                 try {
                   const html = decodeURIComponent(escape(atob(entryB64)));
-                  const wrapped = bridgeStyle + '<script id="nv-bridge-shim">' + bridgeScript + '</script>' + html;
-                  const blob = new Blob([wrapped], { type: 'text/html' });
+                  let pkgData = null;
+                  if (appData.verified === false || appData._wasObfuscated) {
+                    const scriptMatch = html.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+                    if (scriptMatch) {
+                      try {
+                        const _vm = require('vm');
+                        const _script = new _vm.Script('(function() { var window = { __pkg: void 0, eval: eval }; ' + scriptMatch[1] + '; return window.__pkg; })()');
+                        const _result = _script.runInThisContext();
+                        if (_result && typeof _result === 'object') pkgData = _result;
+                      } catch (_e) { console.warn('[AppManager] Obfuscated pkg parse failed:', _e); }
+                    }
+                  }
+                  if (pkgData && !appData.manifest) {
+                    appData.manifest = pkgData;
+                    appData.name = appData.name || pkgData.name || appData.id;
+                    appData.description = appData.description || pkgData.description || '';
+                    appData.icon = appData.icon || pkgData.icon || 'box';
+                    appData.defaultSize = appData.defaultSize || pkgData.defaultSize || [800, 560];
+                    appData.minSize = appData.minSize || pkgData.minSize || [400, 300];
+                  }
+                  const sandboxId = 'sandbox_' + appId.replace(/\./g, '_') + '_' + Date.now();
+                  let serveFailed = false;
+                  try {
+                    const shimmedFiles = Object.assign({}, appData.files);
+                    shimmedFiles[appData.entry || 'index.html'] = btoa(html);
+                    const regRes = await fetch('/api/apps/serve/register', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ sandboxId, files: shimmedFiles })
+                    });
+                    if (regRes.ok) {
+                      const regData = await regRes.json();
+                      const webview = createEl('webview', {
+                        src: window.location.origin + regData.baseUrl + '/' + (appData.entry || 'index.html'),
+                        style: 'width:100%;height:100%;border:none;display:block;'
+                      });
+                  if (webview.tagName !== 'WEBVIEW' && typeof FrameSecurity !== 'undefined' && typeof FrameSecurity.securifyFrame === 'function') {
+                        FrameSecurity.securifyFrame(webview);
+                      }
+                      contentEl.style.padding = '0';
+                      contentEl.appendChild(webview);
+                      webview.addEventListener('load', () => {
+                        if (pkgData) {
+                          try { webview.contentWindow.postMessage({ type: '__nova_pkg_data', data: pkgData }, '*'); } catch (_e) { }
+                        }
+                      }, { once: true });
+                      return;
+                    } else {
+                      serveFailed = true;
+                    }
+                  } catch (regErr) {
+                    serveFailed = true;
+                  }
+                  let wrappedHtml = html.replace(/<link[^>]+rel=["']stylesheet["'][^>]*>/gi, '').replace(/<script[^>]+src=["'][^"']+["'][^>]*><\/script>/gi, '');
+                  for (const [relPath, raw] of Object.entries(appData.files)) {
+                    if (relPath === (appData.entry || 'index.html')) continue;
+                    if (!raw || typeof raw !== 'string') continue;
+                    const lower = relPath.toLowerCase();
+                    let tag = null;
+                    if (lower.endsWith('.css')) {
+                      tag = '<style data-ninline>\n' + raw + '\n</style>';
+                    } else if (lower.endsWith('.js') || lower.endsWith('.mjs')) {
+                      tag = '<script data-ninline>\n' + raw + '\n</script>';
+                    }
+                    if (!tag) continue;
+                    wrappedHtml = wrappedHtml.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + tag);
+                  }
+                  wrappedHtml = wrappedHtml.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + bridgeScriptTag);
+                  const blob = new Blob([wrappedHtml], { type: 'text/html' });
                   const url = URL.createObjectURL(blob);
-                  const iframe = createEl('iframe', {
+                  const webview = createEl('webview', {
                     src: url,
-                    sandbox: 'allow-scripts allow-forms allow-popups allow-modals allow-same-origin',
                     style: 'width:100%;height:100%;border:none;display:block;'
                   });
+                  if (webview.tagName !== 'WEBVIEW' && typeof FrameSecurity !== 'undefined' && typeof FrameSecurity.securifyFrame === 'function') {
+                    FrameSecurity.securifyFrame(webview);
+                  }
                   contentEl.style.padding = '0';
-                  contentEl.appendChild(iframe);
-                  iframe.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
-                } catch (e) { contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${e.message}</div>`; }
+                  contentEl.appendChild(webview);
+                  webview.addEventListener('load', () => {
+                    if (pkgData) {
+                      try { webview.contentWindow.postMessage({ type: '__nova_pkg_data', data: pkgData }, '*'); } catch (_e) { }
+                    }
+                  }, { once: true });
+                }
+                catch (e) { contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${e.message}</div>`; }
               }
             };
           }
 
           function registerNovaApp(appData) {
-            if (!OS.apps[appData.id]) registerApp(buildNovaAppConfig(appData));
+            const cfg = buildNovaAppConfig(appData);
+            OS.apps[appData.id] = cfg;
+            const ri = APP_REGISTRY.findIndex(a => a.id === appData.id);
+            if (ri > -1) APP_REGISTRY[ri] = cfg; else APP_REGISTRY.push(cfg);
           }
 
           let installedApps = getStoredApps();
@@ -293,16 +371,70 @@ registerApp({
             function processFile(file) {
               if (!file.name.endsWith('.novaapp')) { Notify.show({ title: 'Invalid File', body: 'Please select a valid .novaapp package.', type: 'error', appName: 'App Manager' }); return; }
               const reader = new FileReader();
-              reader.onload = ev => {
+              reader.onload = async ev => {
                 try {
-                  const pkg = JSON.parse(ev.target.result);
+                  const _raw = ev.target.result;
+                  let pkg;
+                  try {
+                    pkg = JSON.parse(_raw);
+                  } catch (_) {
+                    // Obfuscated package — builder writes: window.__pkg={...};
+                    // Use Node's vm module (available via node-remote on localhost).
+                    let _vmErr;
+                    try {
+                      const _vm = require('vm');
+                      const _script = new _vm.Script('(function() { var window = { __pkg: void 0, eval: eval }; ' + _raw + '; return window.__pkg; })()');
+                      const _pkgResult = _script.runInThisContext();
+                      if (_pkgResult && typeof _pkgResult === 'object') pkg = _pkgResult;
+                    } catch (_e) { _vmErr = _e; }
+                    if (!pkg) throw new Error('Package is not valid JSON or a recognised obfuscated .novaapp file.' + (_vmErr ? ' (' + _vmErr.message + ')' : ''));
+                  }
                   if (!pkg.manifest?.id || !pkg.manifest?.name || !pkg.manifest?.version) throw new Error('Missing required manifest fields (id, name, version).');
-                  const payload = JSON.stringify({ novabyte_app: pkg.novabyte_app, manifest: pkg.manifest, files: pkg.files, compiled_at: pkg.compiled_at });
-                  let hash = 0; for (let i = 0; i < payload.length; i++) { const c = payload.charCodeAt(i); hash = ((hash << 5) - hash) + c; hash |= 0; }
-                  const verified = Math.abs(hash).toString(16).padStart(64, '0') === pkg.signature;
-                  if (!verified && !confirm(`⚠ Signature check failed for "${pkg.manifest.name}".\n\nInstall anyway?`)) return;
+                   // Signature: builder.js uses plain SHA-256. We delegate verification to
+                   // AppPackage.verifyPackage(), falling back to plain SHA-256 as a last resort.
+                   let verified = false;
+                   try {
+                     if (typeof AppPackage !== 'undefined' && typeof AppPackage.verifyPackage === 'function') {
+                       verified = await AppPackage.verifyPackage(pkg, null);  // no HMAC key — SHA-256 only
+                     }
+                   } catch (_) { verified = false; }
+                   if (!verified) {
+                     try {
+                       const _payload = JSON.stringify({ novabyte_app: pkg.novabyte_app, manifest: pkg.manifest, files: pkg.files, compiled_at: pkg.compiled_at });
+                       const _hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(_payload));
+                       verified = Array.from(new Uint8Array(_hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('') === pkg.signature;
+                     } catch (_) { verified = false; }
+                   }
+                   if (!verified && !confirm(`⚠ Signature check failed for "${pkg.manifest.name}".\n\nInstall anyway?`)) return;
                   const idx = installedApps.findIndex(a => a.id === pkg.manifest.id);
-                  if (idx > -1) { if (!confirm(`"${pkg.manifest.name}" is already installed (v${installedApps[idx].version}).\n\nReplace with v${pkg.manifest.version}?`)) return; delete OS.apps[pkg.manifest.id]; const ri = APP_REGISTRY.findIndex(a => a.id === pkg.manifest.id); if (ri > -1) APP_REGISTRY.splice(ri, 1); installedApps.splice(idx, 1); }
+                   if (idx > -1) { if (!confirm(`"${pkg.manifest.name}" is already installed (v${installedApps[idx].version}).\n\nReplace with v${pkg.manifest.version}?`)) return; delete OS.apps[pkg.manifest.id]; const ri = APP_REGISTRY.findIndex(a => a.id === pkg.manifest.id); if (ri > -1) APP_REGISTRY.splice(ri, 1); installedApps.splice(idx, 1); }
+                  const entryKey = pkg.manifest.entry || 'index.html';
+                  try {
+                    const entryB64 = pkg.files[entryKey];
+                    if (entryB64 && typeof entryB64 === 'string') {
+                      let html = decodeURIComponent(escape(atob(entryB64)));
+                      html = html.replace(/<link[^>]+rel=["']stylesheet["'][^>]*>/gi, '').replace(/<script[^>]+src=["'][^"']+["'][^>]*><\/script>/gi, '');
+                      for (const [relPath, rawB64] of Object.entries(pkg.files)) {
+                        if (relPath === entryKey || !rawB64 || typeof rawB64 !== 'string') continue;
+                        const lower = relPath.toLowerCase();
+                        let tag = null;
+                        if (lower.endsWith('.css')) {
+                          const css = decodeURIComponent(escape(atob(rawB64)));
+                          tag = '<style data-ninline>\n' + css + '\n</style>';
+                        } else if (lower.endsWith('.js') || lower.endsWith('.mjs')) {
+                          const js = decodeURIComponent(escape(atob(rawB64)));
+                          tag = '<script data-ninline>\n' + js + '\n</script>';
+                        }
+                        if (!tag) continue;
+                        if (/<head(\s[^>]*)?>/i.test(html)) {
+                          html = html.replace(/<head(\s[^>]*)?>/i, (m) => m + '\n' + tag);
+                        } else {
+                          html = tag + '\n' + html;
+                        }
+                      }
+                      pkg.files[entryKey] = btoa(unescape(encodeURIComponent(html)));
+                    }
+                  } catch (inlineErr) { console.warn('[AppManager] Inline bundling failed, using original files:', inlineErr); }
                   const appData = { ...pkg.manifest, files: pkg.files, verified, source: 'file', installedAt: Date.now() };
                   installedApps.push(appData); saveStoredApps(installedApps); registerNovaApp(appData);
                   pushLog({ action: 'install', appId: appData.id, label: `${appData.name} v${appData.version} installed` });
@@ -324,7 +456,8 @@ registerApp({
               setDisabled(getDisabled().filter(id => id !== appId));
               setBootApps(getBootApps().filter(id => id !== appId));
               if (WM.updateTaskbar) WM.updateTaskbar();
-              selectedPkgId = null; renderList(); renderDetail(); refreshStats();
+              selectedPkgId = null; renderList(); renderDetail();
+              if (typeof refreshStats === 'function') refreshStats();
               Notify.show({ title: 'App Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'App Manager' });
             }
 

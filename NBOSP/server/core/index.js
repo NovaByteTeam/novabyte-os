@@ -241,7 +241,7 @@ app.post('/api/apps/serve/register', express.json({ limit: '50mb' }), (req, res)
     return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
   }
   // sandboxId must match our internal format to prevent registry pollution
-  if (!/^sandbox_[\w-]+_\d+$/.test(sandboxId)) {
+  if (!/^sandbox_[\w.-]+_\d+$/.test(sandboxId)) {
     return res.status(400).json({ error: 'Invalid sandboxId format' });
   }
   _pruneAppServeRegistry();
@@ -282,14 +282,17 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
   // Relaxed CSP for third-party apps — unsafe-inline/eval allowed because:
   //   1. webview process isolation is the real security boundary
   //   2. connect-src 'none' still blocks direct exfiltration; all network goes through IPC
-  res.setHeader('Content-Security-Policy', [
-    "default-src 'self' blob: data: 'unsafe-inline' 'unsafe-eval'",
-    "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'",
-    "style-src 'self' 'unsafe-inline' blob: data:",
-    "img-src 'self' blob: data: https:",
-    "font-src 'self' blob: data:",
-    "connect-src 'none'"
-  ].join('; '));
+  const isHtml = ext === 'html';
+  if (isHtml) {
+    res.setHeader('Content-Security-Policy', [
+      "default-src 'self' blob: data: 'unsafe-inline' 'unsafe-eval'",
+      "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline' blob: data:",
+      "img-src 'self' blob: data: https:",
+      "font-src 'self' blob: data:",
+      "connect-src 'none'"
+    ].join('; '));
+  }
   res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
   res.setHeader('Cache-Control', 'no-store');
   res.send(Buffer.from(fileData, 'base64'));

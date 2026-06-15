@@ -82,6 +82,8 @@ const WM = window.WM = (() => {
         y:         40 + Math.random() * 100,
         minWidth:  app.minSize?.[0]     ?? 300,
         minHeight: app.minSize?.[1]     ?? 200,
+        maxWidth:  app.maxSize?.[0]     ?? null,
+        maxHeight: app.maxSize?.[1]     ?? null,
       };
       const cfg = { ...defaults, ...options };
 
@@ -131,6 +133,7 @@ const WM = window.WM = (() => {
         id, appId, element: win, content, titlebar, titleText,
         x: cfg.x, y: cfg.y, width: cfg.width, height: cfg.height,
         minWidth: cfg.minWidth, minHeight: cfg.minHeight,
+        maxWidth: cfg.maxWidth, maxHeight: cfg.maxHeight,
         maximized: false, minimized: false,
         preMaxState: null, snapSide: null, preSnapState: null,
         _minimizeTimer: null,
@@ -265,6 +268,7 @@ const WM = window.WM = (() => {
 
       wm.focusWindow(id);
       wm.updateTaskbar();
+      wm.applyWindowFlags(state);
 
       try {
         if (app.init) app.init(content, state, options);
@@ -397,10 +401,10 @@ const WM = window.WM = (() => {
       const a    = area ?? wm.getWorkArea();
       const minW = state.minWidth  || 300;
       const minH = state.minHeight || 200;
+      const maxW = state.maxWidth  ? Math.max(minW, state.maxWidth)  : (window.innerWidth  || minW);
+      const maxH = state.maxHeight ? Math.max(minH, state.maxHeight) : (window.innerHeight || minH);
       const vw   = window.innerWidth;
       const vh   = window.innerHeight;
-      const maxW = Math.max(minW, vw);
-      const maxH = Math.max(minH, vh);
       const width  = Math.min(Math.max(w, minW), maxW);
       const height = Math.min(Math.max(h, minH), maxH);
 
@@ -417,6 +421,19 @@ const WM = window.WM = (() => {
         w: width,
         h: height,
       };
+    },
+
+    applyWindowFlags(state) {
+      const app = OS.apps[state.appId];
+      if (!app) return;
+      const el = state.element;
+      if (app.alwaysOnTop) el.style.zIndex = String(9999 + (Number(el.style.zIndex) || 0));
+      if (app.transparent) el.classList.add('app-window--transparent');
+      if (app.resizable === false) el.classList.add('app-window--no-resize');
+      if (app.frame === false) el.classList.add('app-window--frameless');
+      if (app.startMinimized) {
+        setTimeout(() => wm.minimizeWindow(state.id), 0);
+      }
     },
 
     toggleMaximize(id) {

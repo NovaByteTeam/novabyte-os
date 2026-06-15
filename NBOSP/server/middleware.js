@@ -15,8 +15,8 @@ function setupMiddleware(app) {
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
-                scriptSrc: ["'self'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
-                scriptSrcElem: ["'self'", "'sha256-tyfqxgVVARi92sm+Jt8CKSEsLJ5OJvLOMUJBWYUZQqQ='", "'sha256-AMlrwjczHQQ7gOKTfvMcRSj2K4s5MkWwgSQs0MqhM28='", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://localhost:3003', 'https://127.0.0.1:3003'],
+                scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
+                scriptSrcElem: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net', 'https://localhost:3003', 'https://127.0.0.1:3003'],
                 styleSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 styleSrcElem: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com', 'https://fonts.googleapis.com'],
                 scriptSrcAttr: ["'unsafe-inline'"],

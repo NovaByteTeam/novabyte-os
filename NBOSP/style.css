@@ -2519,6 +2519,37 @@
       animation: maximizePulse 0.6s ease-in-out infinite;
     }
 
+    .app-window--no-resize .window-resize-handle {
+      display: none;
+    }
+
+    .app-window--no-resize {
+      overflow: hidden;
+    }
+
+    .app-window--frameless .window-titlebar {
+      border-bottom: none;
+      background: transparent;
+    }
+
+    .app-window--frameless .window-controls {
+      display: none;
+    }
+
+    .app-window--transparent {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: none;
+    }
+
+    .app-window--transparent .window-titlebar {
+      background: transparent;
+    }
+
+    .app-window.app-window--no-fullscreen .window-control-btn.maximize {
+      display: none;
+    }
+
     .window-content {
       flex: 1;
       overflow: auto;

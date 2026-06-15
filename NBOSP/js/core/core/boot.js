@@ -508,7 +508,12 @@ function loadInstalledNovaApps() {
     const appData = apps[i];
     if (OS.apps[appData.id]) continue;
 
-    registerApp({
+    const _register = typeof AppRegistry !== 'undefined'
+      ? AppRegistry.registerApp.bind(AppRegistry)
+      : null;
+    if (!_register) { console.warn('[boot] AppRegistry unavailable, skipping restore for', appData.id); continue; }
+
+    _register({
       id                 : appData.id,
       name               : appData.name,
       icon               : appData.icon               || 'box',
