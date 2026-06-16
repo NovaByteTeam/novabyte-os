@@ -547,12 +547,14 @@ registerApp({
       cancelBtn.addEventListener('click', close,      { signal: sig });
 
       if (isEdit) {
-        const delBtn = createEl('button', { className: 'btn', style: 'color:var(--text-danger);border-color:var(--text-danger);', textContent: 'Delete' });
-        delBtn.addEventListener('click', () => {
-          events = events.filter(ev => ev.id !== existing.id);
-          saveEvents(events); close(); renderAll();
-        }, { signal: sig });
-        actions.appendChild(delBtn);
+        if (AppPermissionManager?.isGranted('calendar:delete', 'calendar-app')) {
+          const delBtn = createEl('button', { className: 'btn', style: 'color:var(--text-danger);border-color:var(--text-danger);', textContent: 'Delete' });
+          delBtn.addEventListener('click', () => {
+            events = events.filter(ev => ev.id !== existing.id);
+            saveEvents(events); close(); renderAll();
+          }, { signal: sig });
+          actions.appendChild(delBtn);
+        }
       } else {
         actions.appendChild(createEl('div'));
       }

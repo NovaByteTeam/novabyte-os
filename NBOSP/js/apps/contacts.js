@@ -5,13 +5,13 @@ registerApp({
 
   init(content, state) {
     // ── NovaByte runtime guard ──────────────────────────────────────────────
-    if (!window.AppDirs?.getVFSDir('com.nbosp.contacts', 'files')) {
+          if (!window.AppDirs?.getVFSDir('com.nbosp.contacts', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       const warn = createEl('div', { style: 'font-size:32px;' });
       warn.textContent = '⚠️';
       const msg = createEl('div', { style: 'font-size:14px;text-align:center;' });
       const b = createEl('b');
-      b.textContent = 'com.nbosp.contacts';
+       b.textContent = 'nbosp-contacts';
       msg.append(b, document.createTextNode('\nApp data directory missing.\nThis app requires NovaByte OS.'));
       content.append(warn, msg);
       return;
@@ -31,6 +31,7 @@ registerApp({
 
     function load() {
       try {
+        if (!AppPermissionManager?.isGranted('contacts:read', 'nbosp-contacts')) return [];
         const raw = localStorage.getItem(SK);
         if (!raw) return [];
         const arr = JSON.parse(raw);
@@ -285,7 +286,7 @@ registerApp({
         actionBar.append(saveBtn, cancelBtn);
 
         saveBtn.addEventListener('click', () => {
-          if (!AppPermissionManager?.isGranted('contacts:write', 'com.nbosp.contacts')) {
+          if (!AppPermissionManager?.isGranted('contacts:write', 'nbosp-contacts')) {
             Notify.show({ title: 'Permission denied', body: 'Contacts needs contacts:write to save.', type: 'error', appName: 'Contacts' });
             return;
           }
@@ -362,6 +363,10 @@ registerApp({
 
         editBtn.addEventListener('click', () => { editMode = true; renderDetail(); });
         delBtn.addEventListener('click',  () => {
+          if (!AppPermissionManager?.isGranted('contacts:delete', 'nbosp-contacts')) {
+            Notify.show({ title: 'Permission denied', body: 'Contacts needs contacts:delete to remove.', type: 'error', appName: 'Contacts' });
+            return;
+          }
           contacts   = contacts.filter(c => c.id !== selectedId);
           selectedId = null;
           save(contacts);

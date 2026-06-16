@@ -83,6 +83,7 @@ const AppSandbox = (() => {
 
     setupAPIBridge(webview, app, sandboxId);
     setupErrorHandling(webview, app);
+    setupPermissionRequestGate(webview, app);
 
     console.log(`[AppSandbox] Created webview sandbox for ${app.name} (${sandboxId})`);
 
@@ -1211,12 +1212,41 @@ const AppSandbox = (() => {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  //  PERMISSION REQUEST GATE (webview-level device permissions)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Gate webview-level permission requests (geolocation, media) against
+   * AppPermissionManager. The sandboxed webview's permissionrequest event
+   * is the only enforcement surface for these device features at the
+   * renderer-process boundary.
+   */
+  function setupPermissionRequestGate(webview, app) {
+    webview.addEventListener('permissionrequest', e => {
+      if (e.permission === 'geolocation') {
+        if (!AppPermissionManager?.isGranted('device:geolocation', app.id)) {
+          e.request.deny();
+          return;
+        }
+        e.request.allow();
+        return;
+      }
+      if (e.permission === 'media') {
+        const camOk = AppPermissionManager?.isGranted('device:camera', app.id);
+        const micOk = AppPermissionManager?.isGranted('device:microphone', app.id);
+        if (!camOk || !micOk) {
+          e.request.deny();
+          return;
+        }
+        e.request.allow();
+        return;
+      }
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   //  APP LOADING
   // ═══════════════════════════════════════════════════════════════════════
-
-
-  // ═══════════════════════════════════════════════════════════════════════
-  //  CAPABILITY PROXY SHIM
   //  Injected as the first <script> in every packaged app's HTML.
   //  Overrides fetch / XHR / eval / sendBeacon so apps that use standard
   //  web APIs work transparently — all network goes through the IPC bridge

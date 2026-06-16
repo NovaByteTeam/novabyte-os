@@ -66,7 +66,7 @@
     // Contacts
     'nbosp-contacts': {
       normal   : [],
-      dangerous: ['contacts:read', 'contacts:write'],
+      dangerous: ['contacts:read', 'contacts:write', 'contacts:delete'],
     },
 
     // Browser
@@ -328,12 +328,11 @@
   function _gateThirdPartyApps() {
     if (typeof OS === 'undefined' || !OS?.apps) return;
     for (const [appId, entry] of Object.entries(OS.apps)) {
-      // Skip built-ins (already handled) and already-wrapped entries
       if (APP_PERMISSION_MAP[appId] || entry.__permWrapped) continue;
-      // Only gate web apps (wa_ prefix) and any unknown app with an init
-      if (!appId.startsWith('wa_') && !entry.__isWebApp) continue;
-      if (!entry.init) continue;
+      const isWebApp = appId.startsWith('webapp_') || appId.startsWith('wa_') || entry.__isWebApp;
+      if (!isWebApp || !entry.init) continue;
 
+      entry.__isWebApp = true;
       const originalInit = entry.init;
       entry.init = async function (content, state, options) {
         const mgr     = AppPermissionManager;
@@ -346,22 +345,21 @@
       };
       entry.__permWrapped = true;
     }
-    // Also hook future web app registrations via OS.apps Proxy if supported
     _watchForNewWebApps();
   }
 
   function _watchForNewWebApps() {
-    // Poll for newly installed web apps that appear after bootstrap
-    // (App Manager installs them into OS.apps dynamically)
     let knownIds = new Set(Object.keys(OS.apps || {}));
     const interval = setInterval(() => {
       if (typeof OS === 'undefined' || !OS?.apps) return;
       for (const [appId, entry] of Object.entries(OS.apps)) {
         if (knownIds.has(appId)) continue;
         knownIds.add(appId);
-        if (!entry.__permWrapped && appId.startsWith('wa_') && entry.init) {
+        const isWebApp = appId.startsWith('webapp_') || appId.startsWith('wa_') || entry.__isWebApp;
+        if (!entry.__permWrapped && isWebApp && entry.init) {
           const originalInit = entry.init;
           const appName      = entry.name || appId;
+          entry.__isWebApp = true;
           entry.init = async function (content, state, options) {
             const mgr     = AppPermissionManager;
             const missing = WEB_APP_DANGEROUS.filter(p => !mgr.isGranted(p, appId) && !mgr.isDenied(p, appId));
@@ -373,7 +371,6 @@
         }
       }
     }, 2000);
-    // Clean up after 5 minutes — by then all web apps are loaded
     setTimeout(() => clearInterval(interval), 300_000);
   }
 

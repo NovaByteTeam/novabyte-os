@@ -488,7 +488,6 @@ async function boot() {
     lockScreen();
   } else {
     renderDesktopIcons();
-    Notify.show({ title: 'Welcome, ' + OS.username, body: 'NovaByte is ready.', type: 'info', appName: 'System' });
   }
 
   // 10. Post-boot Hooks ────────────────────────────────────────────
@@ -500,32 +499,19 @@ async function boot() {
  * Re-register any .novaapp packages the user has previously installed.
  * Called at idle time after boot — safe to call manually if needed.
  */
-function loadInstalledNovaApps() {
-  const apps = Storage.get(KEYS.INSTALLED_APPS, []);
-  if (!apps.length) return;
-
-  for (let i = 0; i < apps.length; i++) {
-    const appData = apps[i];
-    if (OS.apps[appData.id]) continue;
-
-    const _register = typeof AppRegistry !== 'undefined'
-      ? AppRegistry.registerApp.bind(AppRegistry)
-      : null;
-    if (!_register) { console.warn('[boot] AppRegistry unavailable, skipping restore for', appData.id); continue; }
-
-    _register({
-      id                 : appData.id,
-      name               : appData.name,
-      icon               : appData.icon               || 'box',
-      description        : appData.description        || '',
-      defaultSize        : appData.defaultSize        || [800, 560],
-      minSize            : appData.minSize            || [400, 300],
-      minSecurityPatch   : appData.minSecurityPatch   || null,
-      permissions        : appData.permissions        || [],
+  function registerWithFiles(appData) {
+    const cfg = {
+      id: appData.id,
+      name: appData.name,
+      icon: appData.icon || 'box',
+      description: appData.description || '',
+      defaultSize: appData.defaultSize || [800, 560],
+      minSize: appData.minSize || [400, 300],
+      minSecurityPatch: appData.minSecurityPatch || null,
+      permissions: appData.permissions || [],
       optionalPermissions: appData.optionalPermissions || [],
       async init(contentEl) {
-        // ── Permission gate ────────────────────────────────────────────
-        const _requiredPerms = appData.permissions         || [];
+        const _requiredPerms = appData.permissions || [];
         const _optionalPerms = appData.optionalPermissions || [];
         const _allDangerous  = [..._requiredPerms, ..._optionalPerms];
         if (_allDangerous.length > 0 && typeof AppPermissionManager !== 'undefined') {
@@ -537,41 +523,97 @@ function loadInstalledNovaApps() {
             await _mgr.requestAll(_missing, appData.id, appData.name || appData.id);
           }
         }
-        // ── Launch ────────────────────────────────────────────────────
+
         const entryKey = appData.entry || 'index.html';
-        if (!appData._cachedHtml) {
-          const entryB64 = appData.files?.[entryKey];
-          if (!entryB64) {
-            contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Entry file not found in package.</div>';
-            return;
-          }
-          try {
-            appData._cachedHtml = decodeURIComponent(
-              atob(entryB64).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-            );
-          } catch (e) {
-            contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${e.message}</div>`;
-            return;
-          }
+        const rawEntry = appData.files?.[entryKey];
+        if (!rawEntry) {
+          contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Entry file not found in package.</div>';
+          return;
         }
+        let html;
         try {
-          const blob   = new Blob([appData._cachedHtml], { type: 'text/html' });
-          const url    = URL.createObjectURL(blob);
-          const iframe = createEl('iframe', {
-            src    : url,
-            style  : 'width:100%;height:100%;border:none;display:block;',
-            sandbox: 'allow-scripts allow-forms allow-popups allow-modals',
-          });
-          contentEl.style.padding = '0';
-          contentEl.appendChild(iframe);
-          iframe.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+          html = decodeURIComponent(
+            atob(rawEntry).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+          );
         } catch (e) {
           contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${e.message}</div>`;
+          return;
         }
+
+        if (!appData._cachedHtml) appData._cachedHtml = html;
+
+        const shimmedFiles = Object.assign({}, appData.files);
+        shimmedFiles[entryKey] = btoa(html);
+
+        const origin = (typeof window.location !== 'undefined' && window.location.origin)
+          ? window.location.origin
+          : 'http://127.0.0.1:3003';
+
+        const sandboxId = 'sandbox_' + appData.id.replace(/[^a-zA-Z0-9_-]/g, '_') + '_' + Date.now();
+        let baseUrl = '/api/apps/serve/' + sandboxId + '/';
+        let webview;
+        try {
+          const regRes = await fetch('/api/apps/serve/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sandboxId, files: shimmedFiles })
+          });
+          if (!regRes.ok) throw new Error('serve register failed: ' + regRes.status);
+          const regData = await regRes.json();
+          baseUrl = regData.baseUrl || baseUrl;
+          const url = origin + baseUrl + encodeURIComponent(entryKey);
+
+          webview = createEl('webview', {
+            src    : url,
+            style  : 'width:100%;height:100%;border:none;display:block;'
+          });
+          if (webview.tagName !== 'WEBVIEW' && typeof FrameSecurity !== 'undefined' && typeof FrameSecurity.securifyFrame === 'function') {
+            FrameSecurity.securifyFrame(webview);
+          }
+          webview.dataset.novaServed = '1';
+        } catch (e) {
+          console.error('[NovaApp] serve-register failed for', appData.id, 'falling back to blob:', e);
+          try {
+            const blob = new Blob([html], { type: 'text/html' });
+            const blobUrl = URL.createObjectURL(blob);
+            webview = createEl('webview', {
+              src    : blobUrl,
+              style  : 'width:100%;height:100%;border:none;display:block;'
+            });
+            if (webview.tagName !== 'WEBVIEW' && typeof FrameSecurity !== 'undefined' && typeof FrameSecurity.securifyFrame === 'function') {
+              FrameSecurity.securifyFrame(webview);
+            }
+            webview.dataset.novaBlobUrl = blobUrl;
+          } catch (blobErr) {
+            contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${blobErr.message}</div>`;
+            return;
+          }
+        }
+
+        webview.addEventListener('did-fail-load', (e) => {
+          console.error('[NovaApp] webview load failed', appData.id, baseUrl + encodeURIComponent(entryKey), e);
+        });
+        webview.addEventListener('did-finish-load', () => {
+          console.log('[NovaApp] webview loaded', appData.id);
+        });
+        contentEl.style.padding = '0';
+        contentEl.appendChild(webview);
       },
-    });
+    };
+
+    OS.apps[appData.id] = cfg;
+    APP_REGISTRY.push(cfg);
   }
-}
+
+  function loadInstalledNovaApps() {
+    const apps = Storage.get(KEYS.INSTALLED_APPS, []);
+    for (let i = 0; i < apps.length; i++) {
+      const appData = apps[i];
+      if (OS.apps[appData.id]) continue;
+      if (!appData.files) continue;
+      registerWithFiles(appData);
+    }
+  }
 
 // ── Global Exports ─────────────────────────────────────────────────
 window.boot = boot;

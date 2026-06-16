@@ -523,6 +523,10 @@ registerApp({
           // LOAD MESSAGES
           // ────────────────────────────────────────────────────────────────────────
           async function loadMessages() {
+            if (!AppPermissionManager?.isGranted('mail:read', 'nbosp-email')) {
+              Notify.show({ title: 'Permission denied', body: 'Email needs mail:read permission.', type: 'error', appName: 'Email' });
+              messages = []; renderMsgList(); return;
+            }
             if (!accounts.length) return;
             loading = true; messages = [];
             renderMsgList();
@@ -779,9 +783,13 @@ registerApp({
           // DELETE / ARCHIVE
           // ────────────────────────────────────────────────────────────────────────
           async function doDeleteMsg(msg, rowEl) {
-            try {
-              const acct = msg._acctId ? accounts.find(a => a.id === msg._acctId) : getActiveAcct();
-              if (!acct) return;
+              if (!AppPermissionManager?.isGranted('mail:delete', 'nbosp-email')) {
+                Notify.show({ title: 'Permission denied', body: 'Email needs mail:delete to remove messages.', type: 'error', appName: 'Email' });
+                return;
+              }
+              try {
+                const acct = msg._acctId ? accounts.find(a => a.id === msg._acctId) : getActiveAcct();
+                if (!acct) return;
               await ensureConnected(acct);
               await api('POST', '/batch', { op: 'delete', uids: [msg.uid], folder: activeFolder });
               if (rowEl) { rowEl.style.transition = 'opacity .18s,transform .18s'; rowEl.style.opacity = '0'; rowEl.style.transform = 'translateX(40px)'; setTimeout(() => rowEl.remove(), 200); }
@@ -792,9 +800,13 @@ registerApp({
           }
 
           async function doArchiveMsg(msg, rowEl) {
-            try {
-              const acct = msg._acctId ? accounts.find(a => a.id === msg._acctId) : getActiveAcct();
-              if (!acct) return;
+              if (!AppPermissionManager?.isGranted('mail:delete', 'nbosp-email')) {
+                Notify.show({ title: 'Permission denied', body: 'Email needs mail:delete to archive messages.', type: 'error', appName: 'Email' });
+                return;
+              }
+              try {
+                const acct = msg._acctId ? accounts.find(a => a.id === msg._acctId) : getActiveAcct();
+                if (!acct) return;
               await ensureConnected(acct);
               await api('POST', '/batch', { op: 'move', uids: [msg.uid], folder: activeFolder, dest: 'Archive' });
               if (rowEl) { rowEl.style.transition = 'opacity .18s,transform .18s'; rowEl.style.opacity = '0'; rowEl.style.transform = 'translateX(-40px)'; setTimeout(() => rowEl.remove(), 200); }
@@ -807,6 +819,10 @@ registerApp({
           // COMPOSE
           // ────────────────────────────────────────────────────────────────────────
           function openCompose(prefill = {}, fromAcct = null) {
+            if (!AppPermissionManager?.isGranted('mail:write', 'nbosp-email')) {
+              Notify.show({ title: 'Permission denied', body: 'Email needs mail:write to compose.', type: 'error', appName: 'Email' });
+              return;
+            }
             root.querySelector('.em-compose-overlay')?.remove();
             const overlay = createEl('div', { className: 'em-compose-overlay' });
             const win = createEl('div', { className: 'em-compose-win' });
@@ -878,6 +894,14 @@ registerApp({
             attachBtn.addEventListener('click', () => fileInp.click());
 
             sendBtn.addEventListener('click', async () => {
+              if (!AppPermissionManager?.isGranted('mail:send', 'nbosp-email')) {
+                Notify.show({ title: 'Permission denied', body: 'Email needs mail:send permission.', type: 'error', appName: 'Email' });
+                return;
+              }
+              if (!AppPermissionManager?.isGranted('mail:write', 'nbosp-email')) {
+                Notify.show({ title: 'Permission denied', body: 'Email needs mail:write permission to compose.', type: 'error', appName: 'Email' });
+                return;
+              }
               const to = toInp.value.trim();
               if (!to) { errSpan.textContent = 'Recipient required.'; return; }
               if (!acct) { errSpan.textContent = 'No account selected.'; return; }

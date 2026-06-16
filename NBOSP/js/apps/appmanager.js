@@ -14,7 +14,15 @@ registerApp({
 
           // ── Helpers ────────────────────────────────────────────────────
           function getStoredApps() { try { return JSON.parse(localStorage.getItem(APPS_KEY) || '[]'); } catch { return []; } }
-          function saveStoredApps(list) { lsSave(APPS_KEY, list); }
+          function saveStoredApps(list) {
+            try {
+              localStorage.setItem(APPS_KEY, JSON.stringify(list));
+            } catch (e) {
+              if (e.name === 'QuotaExceededError' || e.code === 22) {
+                console.warn('[AppManager] localStorage quota exceeded; app state saved in-memory only. Apps may need reinstall after refresh. Hint: uninstall large unused apps to free quota.');
+              }
+            }
+          }
           function getLog() { try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch { return []; } }
           function pushLog(entry) { const l = getLog(); l.unshift({ ...entry, ts: Date.now() }); if (l.length > 200) l.pop(); localStorage.setItem(LOG_KEY, JSON.stringify(l)); }
           function getPinned() { return OS.settings.get('pinnedApps') || []; }

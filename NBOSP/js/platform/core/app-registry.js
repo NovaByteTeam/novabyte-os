@@ -25,7 +25,7 @@
 const AppRegistry = (() => {
   'use strict';
 
-  const STORAGE_KEY = 'nova_installed_apps';
+  const STORAGE_KEY = 'nova_registry_meta';
 
   let installedApps    = new Map();
   const _onInstalled   = [];

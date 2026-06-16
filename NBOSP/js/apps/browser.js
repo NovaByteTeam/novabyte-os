@@ -926,7 +926,7 @@ registerApp({
             // Disable node integration and V8 code caching to block access to Node APIs
             wv.setAttribute('nodeintegration', 'false');
             wv.setAttribute('enableremotemodule', 'false');
-            wv.setAttribute('sandbox', 'true');
+            wv.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
             wv.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointer-events:none;z-index:0;top:0;left:0;';
 
             // ── Permission gate — must explicitly allow fullscreen or NW.js
@@ -1688,16 +1688,31 @@ registerApp({
 
             // ── Geolocation + media permission gate ───────────────────
             wv.addEventListener('permissionrequest', e => {
+              const appId = 'browser';
               if (e.permission === 'geolocation') {
-                getSetting('enable_geolocation', true) ? e.request.allow() : e.request.deny();
+                const osAllowed = AppPermissionManager?.isGranted('device:geolocation', appId);
+                const browserAllowed = getSetting('enable_geolocation', true);
+                if (!osAllowed) {
+                  Notify.show({ title: 'Permission denied', body: 'Browser needs Location access in Settings → Apps.', type: 'error', appName: 'Browser' });
+                  e.request.deny();
+                  return;
+                }
+                browserAllowed ? e.request.allow() : e.request.deny();
               } else if (e.permission === 'media') {
-                // Show a non-blocking OS permission prompt — never grant camera/mic silently
-                const _origin = (() => { try { return new URL(currentUrl).hostname; } catch { return currentUrl || 'this site'; } })();
-                showModal(
-                  'Permission Request',
-                  _origin + ' wants to access your camera and/or microphone.',
-                  [{ label: 'Allow', primary: true, value: true }, { label: 'Deny', value: false }]
-                ).then(result => { result ? e.request.allow() : e.request.deny(); });
+                const camGranted  = AppPermissionManager?.isGranted('device:camera', appId);
+                const micGranted  = AppPermissionManager?.isGranted('device:microphone', appId);
+                if (!camGranted && !micGranted) {
+                  Notify.show({ title: 'Permission denied', body: 'Browser needs Camera/Microphone access in Settings → Apps.', type: 'error', appName: 'Browser' });
+                  e.request.deny();
+                  return;
+                }
+                // Per-device decision: deny the missing side if partial grant
+                if (camGranted && !micGranted) {
+                  Notify.show({ title: 'Permission limited', body: 'Camera allowed, microphone is not permitted.', type: 'info', appName: 'Browser' });
+                } else if (!camGranted && micGranted) {
+                  Notify.show({ title: 'Permission limited', body: 'Microphone allowed, camera is not permitted.', type: 'info', appName: 'Browser' });
+                }
+                e.request.allow();
               } else if (e.permission === 'pointerLock') {
                 e.request.allow(); // pointer lock is low-risk UX feature
               } else {
