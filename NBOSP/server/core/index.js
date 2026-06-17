@@ -306,6 +306,13 @@ app.use((req, res) => {
 // 15. Global error handler
 app.use((err, req, res, next) => {
     console.error('[Error]', err);
+    // If headers are already sent, the original request already got a response —
+    // this error surfaced asynchronously afterward (e.g. a session store write that
+    // failed after res.json() already ran). Writing again here is what throws
+    // ERR_HTTP_HEADERS_SENT. Just log and hand off to Node's default handling.
+    if (res.headersSent) {
+        return next(err);
+    }
     const message = process.env.NODE_ENV === 'production'
         ? 'An internal server error occurred'
         : err.message;
