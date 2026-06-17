@@ -83,11 +83,15 @@ startCredentialCleanup();
 
 
 function restoreCredsFromSession(req) {
-  // Try to restore from persistent storage if session creds are missing
-  if (!req.session?.emailCreds && req.session?.emailCredsEncrypted) {
+  // Try to restore from persistent storage if session creds are missing.
+  // Note: req.emailCreds is request-scoped, not req.session.emailCreds —
+  // the plaintext never touches the session object, so it never gets
+  // serialized to disk by the session store. Only emailCredsEncrypted
+  // (the ciphertext) is durable.
+  if (!req.emailCreds && req.session?.emailCredsEncrypted) {
     try {
       const creds = decryptCreds(req.session.emailCredsEncrypted);
-      req.session.emailCreds = creds;
+      req.emailCreds = creds;
       if (req.session.id) {
         sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
       }
@@ -104,7 +108,7 @@ function requireCreds(req, res, next) {
   // Try to restore from persistent storage if session creds are missing
   restoreCredsFromSession(req);
   
-  if (!req.session?.emailCreds) {
+  if (!req.emailCreds) {
     return res.status(401).json({ error: 'Not connected. POST /api/email/connect first.' });
   }
   next();

@@ -10,7 +10,7 @@ const { encryptCreds, decryptCreds, sessionCredentials, restoreCredsFromSession,
 const imapClient = require('./protocols/imapClient');
 const pop3Client = require('./protocols/pop3Client');
 const ewsClient = require('./protocols/ewsClient');
-const { msgShape, rewriteEmailImages, rewriteEmailLinks, sanitizeEmailHtml } = require('./helpers');
+const { msgShape, rewriteEmailImages, sanitizeEmailHtml } = require('./helpers');
 
 // Optional dependencies
 let nodemailer, ImapFlow, POP3Client, PostalMime;
@@ -60,7 +60,7 @@ router.get('/restore', (req, res) => {
       const entry = sessionCredentials.get(req.session.id);
       if (entry?.creds) {
         const creds = entry.creds;
-        req.session.emailCreds = creds;
+        req.emailCreds = creds;
         return res.json({ ok: true, restored: true, type: creds.type, host: creds.host, user: creds.user });
       }
     }
@@ -68,7 +68,7 @@ router.get('/restore', (req, res) => {
     if (req.session?.emailCredsEncrypted) {
       try {
         const creds = decryptCreds(req.session.emailCredsEncrypted);
-        req.session.emailCreds = creds;
+        req.emailCreds = creds;
         if (req.session.id) {
           sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
         }
@@ -89,10 +89,10 @@ router.get('/restore', (req, res) => {
  */
 router.get('/startup', async (req, res) => {
   try {
-    if (!req.session?.emailCreds && req.session?.emailCredsEncrypted) {
+    if (!req.emailCreds && req.session?.emailCredsEncrypted) {
       try {
         const creds = decryptCreds(req.session.emailCredsEncrypted);
-        req.session.emailCreds = creds;
+        req.emailCreds = creds;
         if (req.session.id) {
           sessionCredentials.set(req.session.id, { creds, createdAt: Date.now() });
         }
@@ -101,7 +101,7 @@ router.get('/startup', async (req, res) => {
       }
     }
 
-    const restored = Boolean(req.session?.emailCreds);
+    const restored = Boolean(req.emailCreds);
     res.json({ ok: true, restored, autoSyncEnabled: restored });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -124,8 +124,12 @@ router.post('/connect', async (req, res) => {
     else if (type === 'exchange') folders = await ewsClient.ewsFolders(creds);
     else return res.status(400).json({ error: 'type must be imap, pop3, or exchange' });
 
-    req.session.emailCreds = creds;
-    
+    // Plaintext creds intentionally NOT written to req.session — only the
+    // encrypted blob is durable. requireCreds derives req.emailCreds fresh
+    // from emailCredsEncrypted on each request, so it never round-trips
+    // through the session store (and therefore never lands on disk).
+    req.emailCreds = creds;
+
     if (req.session?.id) {
       try {
         const encrypted = encryptCreds(creds);
@@ -147,7 +151,7 @@ router.post('/connect', async (req, res) => {
  * GET /api/email/folders
  */
 router.get('/folders', requireCreds, async (req, res) => {
-  const { emailCreds: c } = req.session;
+  const c = req.emailCreds;
   try {
     let folders;
     if (c.type === 'imap') folders = await imapClient.imapFolders(c);
@@ -163,7 +167,7 @@ router.get('/folders', requireCreds, async (req, res) => {
  * GET /api/email/messages?folder=INBOX&page=1&limit=20
  */
 router.get('/messages', requireCreds, async (req, res) => {
-  const { emailCreds: c } = req.session;
+  const c = req.emailCreds;
   const folder = req.query.folder || 'INBOX';
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(50, Math.max(5, parseInt(req.query.limit) || 20));
@@ -182,7 +186,7 @@ router.get('/messages', requireCreds, async (req, res) => {
  * GET /api/email/message?folder=INBOX&uid=123
  */
 router.get('/message', requireCreds, async (req, res) => {
-  const { emailCreds: c } = req.session;
+  const c = req.emailCreds;
   const { folder = 'INBOX', uid } = req.query;
   if (!uid) return res.status(400).json({ error: 'uid is required' });
   try {
@@ -191,7 +195,7 @@ router.get('/message', requireCreds, async (req, res) => {
     else if (c.type === 'pop3') msg = await pop3Client.pop3Message(c, uid, msgShape);
     else msg = await ewsClient.ewsMessage(c, uid, msgShape);
     if (msg.html) {
-      msg.html = sanitizeEmailHtml(rewriteEmailLinks(rewriteEmailImages(msg.html)));
+      msg.html = sanitizeEmailHtml(rewriteEmailImages(msg.html));
     }
     res.json(msg);
   } catch (err) {
@@ -203,7 +207,6 @@ router.get('/message', requireCreds, async (req, res) => {
  * POST /api/email/disconnect
  */
 router.post('/disconnect', (req, res) => {
-  delete req.session.emailCreds;
   delete req.session.emailCredsEncrypted;
   
   if (req.session?.id) {
@@ -217,7 +220,7 @@ router.post('/disconnect', (req, res) => {
  * POST /api/email/batch
  */
 router.post('/batch', requireCreds, async (req, res) => {
-  const c = req.session.emailCreds;
+  const c = req.emailCreds;
   const { op, uids = [], folder = 'INBOX', dest } = req.body;
   if (!uids.length) return res.json({ ok: true });
   try {
@@ -235,7 +238,7 @@ router.post('/batch', requireCreds, async (req, res) => {
  */
 router.post('/send', requireCreds, async (req, res) => {
   if (!nodemailer) return res.status(500).json({ error: 'Missing dependency: run "npm install nodemailer"' });
-  const sess = req.session.emailCreds;
+  const sess = req.emailCreds;
   const smtpHost = req.body.host || sess.smtpHost || sess.host;
   const smtpPort = parseInt(req.body.port) || sess.smtpPort || 587;
   const useDirectSsl = smtpPort === 465;
@@ -263,7 +266,7 @@ router.post('/send', requireCreds, async (req, res) => {
  * GET /api/email/search
  */
 router.get('/search', requireCreds, async (req, res) => {
-  const c = req.session.emailCreds;
+  const c = req.emailCreds;
   const q = (req.query.q || '').trim();
   const folder = req.query.folder || 'INBOX';
   if (!q) return res.json({ messages: [] });
@@ -290,7 +293,7 @@ router.post('/preview', requireCreds, (req, res) => {
 
   cleanPreviewCache();
   const token = crypto.randomBytes(24).toString('hex');
-  const safeHtml = sanitizeEmailHtml(rewriteEmailLinks(rewriteEmailImages(html)));
+  const safeHtml = sanitizeEmailHtml(rewriteEmailImages(html));
   previewCache.set(token, { html: safeHtml, ts: Date.now() });
 
   if (req.session) {

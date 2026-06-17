@@ -348,8 +348,6 @@ function rewriteEmailLink(href) {
 
   const hostname = u.hostname.toLowerCase().replace(/^www\./, '');
 
-  if (isTrackerDomain(hostname)) return '#';
-
   const match = matchTrackingRedirectDomain(hostname);
   if (match) {
     const destStr = extractRedirectDest(u, match.paramSpec);

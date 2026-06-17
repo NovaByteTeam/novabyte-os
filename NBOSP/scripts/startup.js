@@ -24,6 +24,17 @@ async function bootstrap(appDir) {
   // ensureEnv merges into process.env, ensureCerts does file + OS trust work.
   await Promise.all([ensureEnv(appDir), ensureCerts(appDir)]);
 
+  if (process.env.HTTPS !== 'true') {
+    const envPath = path.join(appDir, '.env');
+    try {
+      const content = await fs.promises.readFile(envPath, 'utf8');
+      if (!/^HTTPS=.*$/m.test(content)) {
+        await fs.promises.appendFile(envPath, '\nHTTPS=true\n');
+        process.env.HTTPS = 'true';
+      }
+    } catch (_) { /* best effort */ }
+  }
+
   const port   = parseInt(process.env.PORT || '3003', 10);
   const appUrl = `https://localhost:${port}`;
 

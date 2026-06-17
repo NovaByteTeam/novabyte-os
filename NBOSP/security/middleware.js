@@ -297,8 +297,15 @@ function csrfTokenMiddleware(req, res, next) {
         req.session.csrfToken = generateCSRFToken();
         // Force-save the session immediately so the token persists even when
         // saveUninitialized is false (i.e. on a brand-new session with no prior data).
+        // IMPORTANT: next() must wait for this save to finish — calling it
+        // immediately marks the session as already-saved for this request,
+        // so later mutations (e.g. emailCredsEncrypted set further down the
+        // chain) can silently fail to persist once the response ends.
         if (typeof req.session.save === 'function') {
-            req.session.save(() => { });
+            return req.session.save(() => {
+                res.locals.csrfToken = req.session.csrfToken;
+                next();
+            });
         }
     }
 

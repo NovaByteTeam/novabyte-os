@@ -240,6 +240,14 @@ function setupEmailImageProxy(app) {
             return res.send(EMAIL_IMG_DEFAULT);
         }
 
+        const cacheKey = urlObj.toString();
+        const cached = emailImgCache.get(cacheKey);
+        if (cached && (Date.now() - cached.ts) < EMAIL_IMG_TTL) {
+            res.setHeader('Content-Type', cached.mime);
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+            return res.send(cached.buf);
+        }
+
         const result = await fetchEmailImage(raw);
         const buf  = result ? result.buf  : EMAIL_IMG_DEFAULT;
         const mime = result ? result.mime : 'image/png';

@@ -3,6 +3,13 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const session = require('express-session');
+const path = require('path');
+const FileStore = require('session-file-store')(session);
+
+// Sessions persist to disk here so they survive server restarts —
+// without this, express-session falls back to MemoryStore, which is
+// wiped every time the process dies (refresh survives, restart doesn't).
+const SESSION_STORE_PATH = path.join(__dirname, '..', 'data', 'sessions');
 
 function setupMiddleware(app) {
     app.use((req, res, next) => {
@@ -150,6 +157,12 @@ function setupMiddleware(app) {
 
     // Session middleware (required for CSRF protection)
     app.use(session({
+        store: new FileStore({
+            path: SESSION_STORE_PATH,
+            ttl: 24 * 60 * 60, // seconds — matches cookie maxAge below
+            retries: 1,
+            logFn: () => {} // session-file-store logs every read/write by default; silence it
+        }),
         secret: (() => {
             if (!process.env.SESSION_SECRET) {
                 throw new Error('SESSION_SECRET environment variable is required but not set.');
