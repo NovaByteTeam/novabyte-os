@@ -268,6 +268,7 @@ Beyond the two required apps, you may choose to include any of the following:
 | 🔐 **Encryption Vault** | Key generation app with military-grade types |
 | 🖩 **Calc+** | Advanced calculator |
 | 🕐 **NovaClock** | Clock, alarms, timers, and world time |
+| 🔍 **NovaSearch** | System-wide search across files, contacts, downloads, and live web results |
 
 You may not modify or redistribute NovaByte proprietary apps outside the terms of your NovaByte Services licence.
 
