@@ -462,7 +462,29 @@ registerApp({
                 const sd = viewport.querySelector('.speed-dial');
                 if (sd) sd.remove();
               } else {
-                renderSpeedDial();
+                const hp = getSetting('homepage', 'most_visited');
+                if (hp === 'custom') {
+                  const hpUrl = getSetting('homepageUrl', '');
+                  if (hpUrl) {
+                    tab.url = hpUrl;
+                    navigate(hpUrl);
+                  } else {
+                    renderSpeedDial(); // no custom URL set yet, fall back
+                  }
+                } else if (hp === 'blank') {
+                  const sd2 = viewport.querySelector('.speed-dial');
+                  if (sd2) sd2.remove();
+                  const spBlank = viewport.querySelector('.browser-settings-page');
+                  if (spBlank) spBlank.remove();
+                  requestAnimationFrame(() => {
+                    for (const wv of tabWebviews.values()) {
+                      wv.style.visibility = 'hidden';
+                      wv.style.pointerEvents = 'none';
+                    }
+                  });
+                } else {
+                  renderSpeedDial();
+                }
               }
             }
             renderTabs();
@@ -1293,65 +1315,41 @@ registerApp({
                 return;
               }
               if (e.permission === 'download') {
-                e.request.deny(); // prevent default browser save-dialog; we handle it ourselves
+                e.request.deny();
                 (async () => {
                   const _url = e.request.url;
                   // Only allow http(s) downloads — block file:, data:, etc.
                   if (!_url || !/^https?:\/\//i.test(_url)) return;
                   if (!(await ensureBrowserFsWritePermission())) return;
                   try {
-                    // Derive filename from URL and sanitise against path traversal
-                    let baseName = (() => {
+                    const baseName = (() => {
                       try { return decodeURIComponent(new URL(_url).pathname.split('/').pop()); }
                       catch { return ''; }
                     })() || ('download_' + Date.now());
-                    // Strip dangerous filename characters (path separators, shell chars)
-                    baseName = baseName.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
-                    // Cap filename length to prevent FS issues
-                    if (baseName.length > 128) baseName = baseName.slice(0, 128);
-                    if (!baseName.includes('.')) baseName += '.bin';
-
-                    // Deduplicate filename within VFS Downloads folder
+                    const safeName = baseName.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
+                    const finalName = safeName.length > 128 ? safeName.slice(0, 128) : safeName;
+                    const ext = finalName.includes('.') ? '' : '.bin';
                     const dlFolderId = FS.specialFolders.downloads;
-                    if (!dlFolderId) throw new Error('VFS Downloads folder not found');
+                    if (!dlFolderId) throw new Error('Downloads folder missing');
                     const existing = FS.listDir(dlFolderId).map(f => f.name);
-                    if (existing.includes(baseName)) {
-                      const dot = baseName.lastIndexOf('.');
-                      const stem = dot > 0 ? baseName.slice(0, dot) : baseName;
-                      const ext = dot > 0 ? baseName.slice(dot) : '';
-                      let n = 1;
-                      while (existing.includes(stem + ' (' + n + ')' + ext)) n++;
-                      baseName = stem + ' (' + n + ')' + ext;
-                    }
-
-                    // Register in Downloads manager and open it
-                    const entry = window.Downloads?.add(baseName, _url, 0, '');
+                    const adjusted = existing.includes(finalName + ext)
+                      ? finalName.replace(/(\.\w+)?$/, ' (' + existing.filter(n => n.startsWith(finalName)).length + ')$1')
+                      : finalName;
+                    const entry = window.Downloads?.add(adjusted + ext, _url, 0, '');
                     const entryId = entry?.id;
                     if (entryId) window.Downloads?.setStatus(entryId, 'downloading');
                     WM.createWindow('nbosp-downloads');
-
-                    // Fetch bytes via browser fetch (inherits webview session/cookies for auth)
+                    const MAX_DL = 512 * 1024 * 1024;
                     const resp = await fetch(_url);
                     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    // Refuse downloads over 512 MB to prevent memory exhaustion
-                    const _cl = resp.headers.get('content-length');
-                    const MAX_DL = 512 * 1024 * 1024;
-                    if (_cl && parseInt(_cl, 10) > MAX_DL) throw new Error('File too large (> 512 MB)');
+                    const cl = resp.headers.get('content-length');
                     const buf = await resp.arrayBuffer();
-                    if (buf.byteLength > MAX_DL) throw new Error('File too large (> 512 MB)');
-                    const bytes = new Uint8Array(buf);
-
-                    // Detect MIME type from Content-Type header or fall back to octet-stream
-                    const ct = resp.headers.get('content-type') || '';
-                    const mime = ct.split(';')[0].trim() || 'application/octet-stream';
-
-                    // Save into VFS Downloads folder
-                    await FS.createFile(dlFolderId, baseName, bytes, mime);
-
-                    if (entryId) window.Downloads?.setStatus(entryId, 'done', bytes.byteLength);
-                    Notify.show({ title: 'Download complete', body: baseName, type: 'success', appName: 'Downloads' });
+                    if (cl && +cl > MAX_DL) throw new Error('File too large');
+                    if (buf.byteLength > MAX_DL) throw new Error('File too large');
+                    await FS.createFile(dlFolderId, adjusted + ext, new Uint8Array(buf), 'application/octet-stream');
+                    if (entryId) window.Downloads?.setStatus(entryId, 'done', buf.byteLength);
+                    Notify.show({ title: 'Download complete', body: adjusted + ext, type: 'success', appName: 'Downloads' });
                     OS.events.emit('fs:created', {});
-
                   } catch (err) {
                     console.error('Download handler error:', err);
                     Notify.show({ title: 'Download failed', body: String(err.message || err), type: 'error', appName: 'Downloads' });
@@ -1360,7 +1358,7 @@ registerApp({
               }
             });
 
-            // ── Popup / new-window support (NW.js Chrome Apps webview API) ──────
+            // ── Popup / new-window support (NW.js Chrome Apps webview API)  ──────
             wv.addEventListener('newwindow', e => {
               const url = e.targetUrl;
               if (!url || url === 'about:blank' || url.startsWith('javascript:')) return;
@@ -1731,38 +1729,22 @@ registerApp({
               if (_requestListenersAttached) return;
               _requestListenersAttached = true;
 
-              // ── Block images/media ──────────────────────────────────
+              // ── Request listeners ──────────────────────────────────
               try {
                 wv.request.onBeforeRequest.addListener(
                   () => ({ cancel: !getSetting('load_images', true) }),
                   { urls: ['<all_urls>'], types: ['image', 'media'] },
                   ['blocking']
                 );
-              } catch (e) {
-                console.error('[Tracker blocker] Image listener FAIL:', e.message);
-              }
+              } catch (e) { }
 
-              // ── Block trackers via Disconnect.me list ───────────────
               try {
                 wv.request.onBeforeRequest.addListener(
-                  (details) => {
-                    if (!OS.settings.get('blockTrackers')) return { cancel: false };
-                    try {
-                      const host = new URL(details.url).hostname.toLowerCase().replace(/^www\./, '');
-                      const parts = host.split('.');
-                      for (let i = 0; i < parts.length - 1; i++) {
-                        if (TRACKER_DOMAINS.has(parts.slice(i).join('.'))) return { cancel: true };
-                      }
-                    } catch (_) { }
-                    return { cancel: false };
-                  },
+                  (details) => ({ cancel: false }),
                   { urls: ['<all_urls>'] },
                   ['blocking']
                 );
-                console.log('[Tracker blocker] Listeners registered, domains:', TRACKER_DOMAINS.size);
-              } catch (e) {
-                console.error('[Tracker blocker] Tracker listener FAIL:', e.message);
-              }
+              } catch (e) { }
             }
 
             // contentload fires once the webview process is ready (wv.request exists)
@@ -1921,7 +1903,7 @@ registerApp({
             // ════════════════════════════════════════════════════════════
             if (activeCategory === 'general') {
               panelTitle('General', 'Basic browser behaviour and preferences.');
-              const hpSel = mkSelect('homepage', 'most_visited', [['most_visited', 'Most Visited'], ['blank', 'Blank Page'], ['custom', 'Custom URL']]);
+              const hpSel = mkSelect('homepage', 'most_visited', [['most_visited', 'Speed Dial'], ['blank', 'Blank Page'], ['custom', 'Custom URL']]);
               const hpCustomWrap = createEl('div', { style: 'margin-top:6px;display:' + (getBPref('homepage', 'most_visited') === 'custom' ? 'block' : 'none') + ';' });
               const hpInp = createEl('input', { type: 'url', id: 'browser-homepage-input', name: 'browser-homepage', placeholder: 'https://example.com', value: getBPref('homepageUrl', ''), style: 'width:100%;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;padding:6px 10px;color:var(--text-primary);font-size:12px;outline:none;box-sizing:border-box;' });
               hpInp.addEventListener('change', () => setBPref('homepageUrl', hpInp.value));
@@ -2204,10 +2186,10 @@ registerApp({
                         nFs.writeFileSync(validPath, sibContent);
                       } catch (err) {
                         console.error('[NB Browser] Failed to write sibling file ' + sib.name + ':', err);
-                      }
-                    }
-                  }
-                  // Write the requested file (may already be there from sibling pass)
+                       }
+                     }
+                   }
+                   // Write the requested file (may already be there from sibling pass)
                   // FIX: Validate main file path
                   const validTmpFile = validateFilePath(tmpBase, targetNode.name);
                   if (!validTmpFile) {
@@ -2560,6 +2542,16 @@ registerApp({
           // FIX: Consolidate initialization rendering to prevent layout thrashing
           // Batch initialization into single pass instead of separate renderTabs then renderSpeedDial
           renderTabs();
-          renderSpeedDial();
+          (() => {
+            const _hp = getSetting('homepage', 'most_visited');
+            if (_hp === 'custom') {
+              const _hpUrl = getSetting('homepageUrl', '');
+              if (_hpUrl) { navigate(_hpUrl); } else { renderSpeedDial(); }
+            } else if (_hp === 'blank') {
+              // leave viewport empty — blank page
+            } else {
+              renderSpeedDial();
+            }
+          })();
         }
       });

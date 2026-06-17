@@ -127,8 +127,6 @@ const OS = {
       proxyUrl: '',
       username: 'user',
       pinnedApps: ['shell', 'vault', 'browser'],
-      proxyEmailImages: true, // Route email images through local server (privacy)
-      blockTrackers: true,   // Block known tracker domains via Disconnect.me list
     },
     
     applySafeModeDefaults() {

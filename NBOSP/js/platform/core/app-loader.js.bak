@@ -1,0 +1,83 @@
+(function () {
+  const APP_SCRIPTS = [
+    '/js/apps/files.js',
+    '/js/apps/textedit.js',
+    '/js/apps/terminal.js',
+    '/js/apps/browser.js',
+    '/js/apps/calendar.js',
+    '/js/apps/settings.js',
+    '/js/apps/calculator.js',
+    '/js/apps/appmanager.js',
+    '/js/apps/clock.js',
+    '/js/apps/email.js',
+    '/js/apps/gallery.js',
+    '/js/apps/downloads.js',
+    '/js/apps/contacts.js',
+    '/js/apps/search.js',
+    '/js/apps/music.js',
+  ];
+
+  function appIdFromPath(path) {
+    const map = {
+      'search': 'nbosp-search', 'browser': 'com.nbosp.browser', 'contacts': 'nbosp-contacts',
+      'email': 'nbosp-email', 'calendar': 'nbosp-calendar', 'settings': 'nbosp-settings',
+      'clock': 'nbosp-clock', 'appmanager': 'nbosp-app-manager', 'calculator': 'nbosp-calculator',
+      'files': 'nbosp-files', 'gallery': 'nbosp-gallery', 'downloads': 'nbosp-downloads',
+      'textedit': 'nbosp-textedit', 'terminal': 'nbosp-terminal', 'music': 'nbosp-music',
+    };
+    const name = path.split('/').pop().replace(/\.js$/, '');
+    return map[name] || null;
+  }
+
+  function disableApp(appId) {
+    try {
+      const key = 'nova_disabled_apps';
+      const prev = JSON.parse(localStorage.getItem(key) || '[]');
+      const next = prev.filter(x => (typeof x === 'string' ? x : x?.id) !== appId);
+      next.push({ id: appId, reason: 'syntax_error', ts: Date.now() });
+      localStorage.setItem(key, JSON.stringify(next));
+      console.warn('[AppLoader] Disabled broken app:', appId);
+    } catch { }
+  }
+
+  window.NovaAppLoader = {
+    ready: false,
+    failed: [],
+
+    loadAll() {
+      return new Promise(resolve => {
+        let i = 0;
+        const next = () => {
+          if (i >= APP_SCRIPTS.length) {
+            this.ready = true;
+            return resolve();
+          }
+          const path = APP_SCRIPTS[i++];
+          const aid = appIdFromPath(path);
+
+          if (aid) {
+            try {
+              const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+              if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === aid)) {
+                console.warn('[AppLoader] Skipping disabled app:', aid);
+                return next();
+              }
+            } catch { }
+          }
+
+          const s = document.createElement('script');
+          s.src = path;
+          s.onload = () => next();
+          s.onerror = () => {
+            console.warn('[AppLoader] Skipping broken app:', path);
+            if (aid) disableApp(aid);
+            this.failed.push(path);
+            next();
+          };
+          document.head.appendChild(s);
+        };
+        next();
+      });
+    }
+  };
+})();

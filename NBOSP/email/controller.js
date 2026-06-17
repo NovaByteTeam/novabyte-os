@@ -10,7 +10,7 @@ const { encryptCreds, decryptCreds, sessionCredentials, restoreCredsFromSession,
 const imapClient = require('./protocols/imapClient');
 const pop3Client = require('./protocols/pop3Client');
 const ewsClient = require('./protocols/ewsClient');
-const { msgShape, rewriteEmailImages, rewriteEmailLinks, sanitizeEmailHtml, setTrackerDomains } = require('./helpers');
+const { msgShape, rewriteEmailImages, rewriteEmailLinks, sanitizeEmailHtml } = require('./helpers');
 
 // Optional dependencies
 let nodemailer, ImapFlow, POP3Client, PostalMime;
@@ -23,16 +23,6 @@ try { nodemailer = require('nodemailer'); } catch (e) { nodemailer = null; }
 imapClient.setDependencies({ ImapFlow, PostalMime });
 pop3Client.setDependencies({ POP3Client, PostalMime });
 ewsClient.setDependencies({ PostalMime });
-
-// Load tracker domains
-let EMAIL_TRACKER_DOMAINS = new Set();
-try {
-  ({ TRACKER_DOMAINS: EMAIL_TRACKER_DOMAINS } = require(path.join(__dirname, '../trackers.js')));
-  console.log('[Email] Tracker blocklist loaded:', EMAIL_TRACKER_DOMAINS.size, 'domains');
-  setTrackerDomains(EMAIL_TRACKER_DOMAINS);
-} catch (e) {
-  console.warn('[Email] trackers.js not found — email link tracker blocking disabled:', e.message);
-}
 
 // ── Preview cache ──────────────────────────────────────────────────────────────
 const previewCache = new Map();

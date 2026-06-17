@@ -70,53 +70,32 @@ const AppRegistry = (() => {
   function registerApp(appConfig) {
     if (!appConfig?.id || !appConfig?.name) throw new Error('[AppRegistry] App must have id and name');
 
+    if (installedApps.has(appConfig.id)) {
+      return installedApps.get(appConfig.id);
+    }
+
     const app = {
-      icon               : 'app-window',
-      description        : '',
-      version            : '1.0.0',
-      author             : 'Unknown',
-      type               : 'webapp',
-      entry              : 'index.html',
-      permissions        : [],
-      optionalPermissions: [],
-      defaultSize        : [800, 600],
-      minSize            : [400, 300],
-      maxSize            : null,
-      resizable          : true,
-      frame              : true,
-      sandbox            : { allowSameOrigin: true, allowScripts: true, allowForms: true, allowPopups: false },
-      categories         : ['other'],
-      installedDate      : new Date().toISOString(),
-      lastLaunched       : null,
-      launchCount        : 0,
-      source             : 'local',
-      signature          : null,
-      verified           : false,
+      icon: 'app-window', description: '', version: '1.0.0', author: 'Unknown',
+      type: 'webapp', entry: 'index.html', permissions: [], optionalPermissions: [],
+      defaultSize: [800, 600], minSize: [400, 300], maxSize: null,
+      resizable: true, frame: true, sandbox: { allowSameOrigin: true, allowScripts: true, allowForms: true, allowPopups: false },
+      categories: ['other'], installedDate: new Date().toISOString(),
+      lastLaunched: null, launchCount: 0, source: 'local', signature: null, verified: false,
       ...appConfig,
-      // these must not be overridden by appConfig spread above
-      id  : appConfig.id,
+      id: appConfig.id,
       name: appConfig.name,
     };
 
-    // Register with OS.apps so WM / launchpad can open it
     if (typeof OS !== 'undefined' && OS?.apps) {
       OS.apps[app.id] = {
-        id         : app.id,
-        name       : app.name,
-        icon       : app.icon,
-        description: app.description,
-        defaultSize: app.defaultSize,
-        minSize    : app.minSize,
-        maxSize    : app.maxSize ?? null,
-        resizable  : app.resizable !== false,
-        frame      : app.frame !== false,
-        alwaysOnTop: app.alwaysOnTop || false,
-        fullscreenable: app.fullscreenable !== false,
-        startMinimized: app.startMinimized || false,
-        transparent: app.transparent || false,
-        init       : (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
-        onDrop     : appConfig.onDrop  ?? undefined,
-        onClose    : appConfig.onClose ?? undefined,
+        id: app.id, name: app.name, icon: app.icon, description: app.description,
+        defaultSize: app.defaultSize, minSize: app.minSize, maxSize: app.maxSize ?? null,
+        resizable: app.resizable !== false, frame: app.frame !== false,
+        alwaysOnTop: app.alwaysOnTop || false, fullscreenable: app.fullscreenable !== false,
+        startMinimized: app.startMinimized || false, transparent: app.transparent || false,
+        init: (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
+        onDrop: appConfig.onDrop ?? undefined,
+        onClose: appConfig.onClose ?? undefined,
       };
     }
 
@@ -146,6 +125,20 @@ const AppRegistry = (() => {
    * permission-request queue rather than throwing immediately.
    */
   async function launchApp(appId, content, state, options) {
+    try {
+      const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
+        console.warn('[AppRegistry] Launch blocked — disabled app:', appId);
+        try {
+          const name = OS?.apps?.[appId]?.name || appId;
+          if (typeof Notify !== 'undefined' && Notify.show) {
+            Notify.show({ title: 'App disabled', body: name + ' has a broken install and was disabled.', type: 'warn', appName: 'System' });
+          }
+        } catch { }
+        return null;
+      }
+    } catch { }
+
     const app = installedApps.get(appId);
     if (!app) throw new Error(`[AppRegistry] App not found: ${appId}`);
 

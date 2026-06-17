@@ -277,10 +277,34 @@
       }
 
       // Set up error handler for syntax errors
+      function disableAppByPath(src) {
+        try {
+          const id = src.split('/js/apps/').pop().split('.')[0];
+          const map = { 'search': 'nbosp-search', 'browser': 'com.nbosp.browser', 'contacts': 'nbosp-contacts',
+            'email': 'nbosp-email', 'calendar': 'nbosp-calendar', 'settings': 'nbosp-settings',
+            'clock': 'nbosp-clock', 'appmanager': 'nbosp-app-manager', 'calculator': 'nbosp-calculator',
+            'files': 'nbosp-files', 'gallery': 'nbosp-gallery', 'downloads': 'nbosp-downloads',
+            'textedit': 'nbosp-textedit', 'terminal': 'nbosp-terminal', 'music': 'nbosp-music' };
+          const appId = id ? (map[id] || id) : null;
+          if (appId) {
+            localStorage.setItem('nova_disabled_apps', JSON.stringify([
+              ...(JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]').filter(x => x !== appId)),
+              { id: appId, reason: 'broken: ' + src, ts: Date.now() }
+            ]));
+          }
+        } catch { }
+      }
+
       window.addEventListener('error', function (e) {
         const msg = e.message || '';
         if (msg.includes('SyntaxError') || msg.includes('Unexpected token')) {
-          console.error('[CRITICAL] Syntax error detected:', msg);
+          const src = (e.filename || e.target?.src || '');
+          if (src.startsWith('/js/apps/') || src.includes('/js/apps/')) {
+            console.warn('[AppLoader] Skipping broken app file:', src, msg);
+            disableAppByPath(src);
+            return;
+          }
+          console.error('[CRITICAL] Syntax error in core file:', src, msg);
           localStorage.setItem(RECOVERY_FORCE_KEY, '1');
           localStorage.setItem('nova_boot_attempts', JSON.stringify([
             { ts: Date.now() - 2000, reason: 'syntax_error_1', ua: navigator.userAgent.slice(0, 80) },

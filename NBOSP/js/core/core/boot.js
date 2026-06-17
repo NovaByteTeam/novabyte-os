@@ -468,8 +468,6 @@ async function boot() {
   Boot.startServices();
 
   // 8. Deferred Non-Critical Work ──────────────────────────────────
-  // loadInstalledNovaApps has no visible effect until the launcher opens.
-  // Running it at idle keeps it out of the boot frame budget.
   const scheduleIdle = window.requestIdleCallback
     ? (fn) => requestIdleCallback(fn, { timeout: 3000 })
     : (fn) => setTimeout(fn, 0);

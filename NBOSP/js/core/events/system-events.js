@@ -1144,6 +1144,12 @@ window.addEventListener('error', (e) => {
   if (document.body.classList.contains('os-booted')) return;
   const msg = e.message || '';
   if (msg.includes('SyntaxError') || msg.includes('Unexpected token')) {
+    const target = e.target;
+    const src = target?.src || e.filename || '';
+    if (src.includes('/js/apps/') || src.includes('\\js\\apps\\')) {
+      console.warn('[Boot] App syntax error skipped from recovery:', src, msg);
+      return;
+    }
     console.error('[BOOT] Syntax error detected:', msg);
     triggerRecovery('syntax_error: ' + msg.slice(0, 100));
   }

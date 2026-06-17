@@ -2,12 +2,6 @@
 
 // Shared helper functions for email processing
 
-let EMAIL_TRACKER_DOMAINS = new Set();
-
-function setTrackerDomains(domains) {
-  EMAIL_TRACKER_DOMAINS = domains;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Message shape helper
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,26 +76,6 @@ function msgShape(parsed) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tracking param set (shared by image proxy + link proxy)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const EMAIL_TRACKING_PARAMS = new Set([
-  'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
-  'utm_id','utm_source_platform','utm_creative_format','utm_marketing_tactic',
-  'fbclid','gclid','gclsrc','dclid','gbraid','wbraid',
-  'mc_eid','mc_cid','_hsenc','_hsmi','mkt_tok','yclid',
-  'igshid','s_cid','ncid','ref','trk','trkinfo',
-  // Salesforce/Pardot
-  'pi_campaign_id','pi_list_email_id',
-  // HubSpot
-  '__hstc','__hssc','__hsfp','hsCtaTracking',
-  // Klaviyo
-  '_kx',
-  // Brevo / Sendinblue
-  'sib_id',
-]);
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Shared URL helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -129,17 +103,6 @@ function tryDecodeUrl(raw, maxPasses = 3) {
   return prev;
 }
 
-/** Strip known tracking query params from a URL string, return cleaned string. */
-function stripEmailTrackingParams(urlStr) {
-  try {
-    const u = new URL(urlStr);
-    for (const key of [...u.searchParams.keys()]) {
-      if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) u.searchParams.delete(key);
-    }
-    return u.toString();
-  } catch (_) { return urlStr; }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // IMAGE PROXY — rewriteEmailImages
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,24 +117,8 @@ function proxyEmailImageUrl(src) {
     const u = new URL(src);
     // Only proxy http/https — never proxy javascript:, data:, file:, etc.
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return src;
-    const clean = stripEmailTrackingParams(src);
-    return '/api/email-image?url=' + encodeURIComponent(clean);
+    return '/api/email-image?url=' + encodeURIComponent(src);
   } catch (_) { return src; }
-}
-
-/**
- * True if hostname belongs to a known tracker domain (subdomain-aware).
- * Uses the shared EMAIL_TRACKER_DOMAINS set loaded from trackers.js.
- */
-function isTrackerDomain(hostname) {
-  if (!hostname || EMAIL_TRACKER_DOMAINS.size === 0) return false;
-  const h = hostname.toLowerCase().replace(/^www\./, '');
-  if (EMAIL_TRACKER_DOMAINS.has(h)) return true;
-  // Subdomain check: if h is foo.tracker.com and tracker.com is in the set, match
-  for (const domain of EMAIL_TRACKER_DOMAINS) {
-    if (h.endsWith('.' + domain)) return true;
-  }
-  return false;
 }
 
 // Regex to extract image src from tag — allows src="...", src='...', srcset, etc.
@@ -414,29 +361,16 @@ function rewriteEmailLink(href) {
         if (destProto === 'javascript:' || destProto === 'data:' || destProto === 'vbscript:') return '#';
 
         const destHost = destU.hostname.toLowerCase().replace(/^www\./, '');
-        if (!isTrackerDomain(destHost) && !matchTrackingRedirectDomain(destHost)) {
-          for (const key of [...destU.searchParams.keys()]) {
-            if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) destU.searchParams.delete(key);
-          }
+        { // redirect tracking removed
           return destU.toString();
         }
       }
     }
 
-    for (const key of [...u.searchParams.keys()]) {
-      if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) u.searchParams.delete(key);
-    }
     return u.toString();
   }
 
-  let changed = false;
-  for (const key of [...u.searchParams.keys()]) {
-    if (EMAIL_TRACKING_PARAMS.has(key.toLowerCase())) {
-      u.searchParams.delete(key);
-      changed = true;
-    }
-  }
-  return changed ? u.toString() : href;
+  return href;
 }
 
 function rewriteEmailLinks(html) {
@@ -714,6 +648,4 @@ module.exports = {
   rewriteEmailImages,
   rewriteEmailLinks,
   sanitizeEmailHtml,
-  setTrackerDomains,
-  stripEmailTrackingParams,
 };

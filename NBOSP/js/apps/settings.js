@@ -926,47 +926,6 @@ registerApp({
     function renderPrivacy() {
       mainContent.appendChild(createEl('h2', { textContent: 'Privacy & Security', style: { marginBottom: '20px' } }));
 
-      const proxySection = createEl('div', { className: 'nook-privacy-section' });
-      proxySection.appendChild(createEl('h3', { textContent: 'Proxy Privacy' }));
-      proxySection.appendChild(createEl('p', {
-        textContent: 'Route requests through the local server so external services never see your IP address.',
-        style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }
-      }));
-
-      function makeToggleRow(label, description, settingKey) {
-        const row      = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border-subtle)' });
-        const info     = createEl('div');
-        info.appendChild(createEl('div', { textContent: label,       style: 'font-weight:500;color:var(--text-primary);margin-bottom:3px' }));
-        info.appendChild(createEl('div', { textContent: description, style: 'font-size:12px;color:var(--text-secondary)' }));
-        const currentVal = OS.settings.get(settingKey) !== false;
-        const toggle   = createEl('label', { style: 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer' });
-        const input    = createEl('input', { type: 'checkbox' });
-        input.style.cssText = 'opacity:0;width:0;height:0;position:absolute';
-        input.checked = currentVal;
-        const slider   = createEl('span', { style: `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${currentVal ? 'var(--accent)' : 'var(--bg-elevated)'};border:1px solid var(--border-subtle)` });
-        const knob     = createEl('span', { style: `position:absolute;top:2px;left:${currentVal ? '20px' : '2px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3)` });
-        slider.appendChild(knob);
-        toggle.append(input, slider);
-        input.addEventListener('change', () => {
-          OS.settings.set(settingKey, input.checked);
-          slider.style.background = input.checked ? 'var(--accent)' : 'var(--bg-elevated)';
-          knob.style.left         = input.checked ? '20px' : '2px';
-        });
-        row.append(info, toggle);
-        return row;
-      }
-
-      proxySection.appendChild(makeToggleRow(
-        'Proxy email images',
-        'Load images in emails through the local server to prevent senders from tracking your IP and open time.',
-        'proxyEmailImages'
-      ));
-      proxySection.appendChild(makeToggleRow(
-        'Block trackers',
-        'Block requests to known tracking, analytics, fingerprinting, and advertising domains. Uses the Disconnect.me tracker list.',
-        'blockTrackers'
-      ));
-      mainContent.appendChild(proxySection);
 
       // Data management
       const exportSection = createEl('div', { className: 'nook-privacy-section' });

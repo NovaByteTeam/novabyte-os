@@ -21,29 +21,13 @@
 
 <br>
 
-[**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Your Privacy**](#-your-privacy-comes-first) · [**Privacy & No Telemetry**](#-privacy--no-telemetry--fully-verified) · [**Security**](#-security) · [**Versions**](#-versions)
+[**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Security**](#-security) · [**Versions**](#-versions)
 
 </div>
 
 -----
 
-## 🛡 Your Privacy Comes First
-
-Privacy is not a feature we added. It is a principle we built around.
-
-Most software treats your data as a side effect — something that leaks out as you use it, collected quietly, rarely explained. We built NovaByte to work the opposite way. Every part of the OS that touches the outside world has been designed so that as little as possible leaves your machine, and what does leave is never yours.
-
-**No external dependencies out of the box** — NovaByte ships fully self-contained. There are no calls to CDNs, no fonts loaded from Google, no icons pulled from third-party servers. Everything the OS needs to run is bundled locally. From the moment you launch it, nothing loads from anywhere you did not explicitly navigate to.
-
-**The browser protects you silently** — search suggestions and email images are all routed through a remote relay server (open source, auditable at https://github.com/NovaByteOfficial/suggest-relay) so search engines and email sender tracking servers see the relay's IP, never yours. On top of that, Chromium-specific fingerprinting headers are stripped, results are cached server-side, and tracker scripts and pixels are blocked at the network level using the Disconnect.me blocklist before any connection is made. If the relay is unreachable, requests fall back to direct — suggestions still work, just without IP masking. For full IP privacy on actual browsing, use a VPN. The experience looks identical to a normal browser. The difference is what the other side never receives.
-
-**The email client is private by design** — opening an email in most clients silently tells the sender you read it, when you read it, and roughly where you are. NovaByte removes all of that. Remote images are proxied server-side so your IP never reaches a sender's tracking server. Known tracker pixels are blocked entirely — the server returns a blank placeholder without making any upstream request, so the sender gets no signal whatsoever. CSS-embedded trackers, redirect link wrappers, and tracking query parameters are all stripped before the email renders. You see the email exactly as intended. The sender sees nothing.
-
-**Verifiable, not promised** — NBOSP is fully open source. You do not have to trust any of this — you can read every line. If we say something does not phone home, the code is there to confirm it.
-
------
-
-## 🔏 Close-Source Announcement — 23/05/2026
+## Close-Source Announcement — 23/05/2026
 
 > [!IMPORTANT]
 > **NovaByte OS source code was closed on 23 May 2026.**
@@ -141,17 +125,20 @@ These are the **actual features pulled directly from the source code** — not g
 |📁 **NBOSP Files**|Icon grid and list view. Sort by name, size, type, or modified date. Back/up navigation with a path bar. Search within the current folder. New file/folder, copy, cut, paste, rename (F2), move to trash, restore, permanent delete. Multi-select (Ctrl+A). Drag-and-drop file import. Keyboard shortcuts. **No tabs, no split panes, no cloud sync, no bulk rename.**|
 |📝 **NBOSP TextEdit**|Plain text editor. Line numbers, status bar showing line/column/word count, Tab indentation, auto-close brackets, Save/Save As to the VFS. Ctrl+S to save. Word count via context menu. **Single file at a time only — no file list, no tabs, no rich formatting, no markdown preview.**|
 |💻 **NBOSP Terminal**|A real shell emulator with a working command set: `ls`, `cd`, `cat`, `grep`, `cp`, `mv`, `rm`, `mkdir`, `find`, `diff`, `wc`, `sort`, `head`, `tail`, `echo`, `env`, `export`, `alias`, `history`, `ps`, `neofetch`, and more. Pipe chains, `&&`/`||`/`;` chaining, output redirect (`>`), tab autocomplete, command history, custom aliases, shell variables, multiple tabs (Ctrl+Shift+T). **All commands run against the VFS — not a real system shell.**|
-|🌐 **NBOSP Browser**|NW.js WebView with real site rendering. Tabs, bookmarks, history, incognito mode, find-in-page (Ctrl+F), zoom controls, mobile/desktop user-agent toggle, popup blocker, per-tab WebView/iframe mode toggle. Privacy relay routes search suggestions and email images through a remote relay. See the [browser section](#-nbosp-browser--now-powered-by-nwjs--webview) for full details. **No extensions, no sync, no password manager.**|
+|🌐 **NBOSP Browser**|NW.js WebView with real site rendering. Tabs, bookmarks, history, incognito mode, find-in-page (Ctrl+F), zoom controls, mobile/desktop user-agent toggle, popup blocker, per-tab WebView/iframe mode toggle. See the [browser section](#-nbosp-browser--now-powered-by-nwjs--webview) for full details. **No extensions, no sync, no password manager.**|
 |📅 **NBOSP Calendar**|Month, week, day, and agenda views. Mini calendar sidebar. Upcoming events list. Create/edit/delete events with title, date, start/end time, description, and colour. Navigate prev/next/today. **No recurring events, no reminders/notifications, no calendar sync (Google, Outlook, etc.).**|
-|📧 **NBOSP Email**|Multi-account IMAP/POP3/Exchange. Sidebar with Inbox, Sent, Drafts, Trash, Spam, Archive, Starred. Search, compose, reply, forward, batch-select, pagination. Full privacy pipeline: tracker pixel blocking, CSS tracker stripping, link unwrapping, tracking parameter removal, script sandboxing. **No filters/rules, no tags, no offline cache.**|
+|📧 **NBOSP Email**|Multi-account IMAP/POP3/Exchange. Sidebar with Inbox, Sent, Drafts, Trash, Spam, Archive, Starred. Search, compose, reply, forward, batch-select, pagination. **No filters/rules, no tags, no offline cache.**|
 |🖼 **NBOSP Gallery**|Scans the VFS for image files and shows them in a grid. Lightbox viewer with prev/next navigation, filename caption, and keyboard support (arrow keys, Escape). **No editing, no albums, no metadata, no sorting — just a viewer.**|
 |⬇️ **NBOSP Downloads**|Displays files saved from the browser: name, size, date, and status badge (done/downloading/failed). Remove individual items or clear all completed. Live-updates via a global `Downloads.add()` API. **No download queue controls, no pause/resume, no browser integration for in-progress downloads.**|
 |👤 **NBOSP Contacts**|Add/edit/delete contacts with name, email, phone, and notes fields. Alphabetically sorted list. Search by name, email, or phone. Avatar initials. **No groups, no import/export (vCard, CSV), no photo support.**|
-|🔍 **NBOSP Search**|System-wide search across files (by filename), contacts (name/email/phone), and the downloads list. Clicking a result opens the relevant app. Up to 8 results per section. **Filename matching only — no full-text/content search inside files.**|
+|🔍 **NBOSP Search**|System-wide search across files (by filename), contacts (name/email/phone), downloads list, and live web results via DuckDuckGo. Clicking a result opens the relevant app or browser. Up to 12 results per section. **Filename matching only for local files — no full-text/content search inside files.**|
 |🕐 **NBOSP Clock**|Four tabs: analog+digital clock with date display; alarms with custom time, label, and day-of-week repeat (toggle on/off per alarm); countdown timer with H/M/S input, start/pause/reset; and stopwatch. **No world clock, no multiple time zones.**|
 |⚙️ **NBOSP Settings**|Appearance (7 themes: Nova Dark, Nova Light, Nord, Dracula, Catppuccin, Tokyo Night, Gruvbox; accent colour picker; 12/24h clock toggle), System (change username), Storage, Privacy, Desktop, Accessibility, About. **Settings are thin — each section has a handful of toggles, not deep configuration panels.** Unlike the other apps, Settings is actively developed — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving new options and visual updates as NBOSP evolves.|
 |🖩 **NBOSP Calculator**|Standard arithmetic with live expression preview. Supports `+`, `-`, `*`, `/`, `%`, parentheses, and decimal input. Backspace, clear, keyboard support. **No scientific mode, no history, no unit conversion.**|
 |📦 **NBOSP App Manager**|Install `.novaapp` packages from disk. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. **No app store/catalogue, no update management, no package signing verification in the UI.**|
+
+> [!IMPORTANT]
+> **Starting with 3.0.2, no new features will be added to NBOSP apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings is the only exception** — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving updates.
 
 > **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
 
@@ -168,11 +155,11 @@ NBOSP does **not** use the built-in System Updates app. Updates to NBOSP apps de
 
 If NovaByte fixes or improves something in the NBOSP source, that fix lives in the upstream repo. Your fork does not receive it automatically. Your forker or maintainer has to pull the change, repackage it, and release their own updated build.
 
-|Update type                                |How you get it                                           |
+|Update type                |How you get it                      |
 |-------------------------------------------|---------------------------------------------------------|
-|NBOSP app fix from upstream NovaByte       |Forker/maintainer repackages → you re-clone their release|
-|NBOSP app fix from your own fork maintainer|Forker/maintainer releases → you re-clone                |
-|v3 built-in app fix                        |System Updates app → click Update → done                 |
+|NBOSP app fix from upstream NovaByte    |Forker/maintainer repackages → you re-clone their release|
+|NBOSP app fix from your own fork maintainer|Forker/maintainer releases → you re-clone        |
+|v3 built-in app fix            |System Updates app → click Update → done         |
 
 ### 🌐 NBOSP Browser — Now Powered by NW.js & WebView
 
@@ -198,7 +185,6 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 
 #### New Features in NBOSP Browser (Minor updates may still follow)
 
-- **Privacy Relay** — search suggestions and email images are all routed through a remote open source relay (`https://suggest-relay.onrender.com`) so search engines and email tracking servers see the relay's IP, never yours. Fingerprinting headers are stripped on all relay requests. Falls back to direct if the relay is unreachable. Relay code is auditable at https://github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual browsing, use a VPN.
 - **Bookmarks** — Save and organize your favorite websites
 - **History** — View and quickly access previously visited pages
 - **Find in Page** — Search for text within a page using Ctrl+F
@@ -264,8 +250,8 @@ These two apps **must be bundled** in any NovaByte Services-licensed OS, shippin
 
 | App | Description |
 |-----|-------------|
-| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser. Includes advanced privacy protections, tracker blocking via the Disconnect.me blocklist, remote relay routing for search suggestions, favicons, and email images (upstream services see the relay's IP, not the user's), per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
-| 📧 **NovaMail** | NovaByte's proprietary email client. Must ship alongside your own email app. Includes full multi-layer privacy protection — tracker pixel blocking, CSS tracker stripping, link unwrapping, tracking parameter removal, and full script sandboxing. |
+| 🌐 **Horizon Browser** | NovaByte's proprietary browser. Must ship alongside your own browser. Includes server-side email image proxying (requests are stripped of tracking headers and parameters before leaving your machine; a VPN is required for actual IP privacy), per-tab webview/iframe mode, bookmarks, history, incognito tabs, find-in-page, zoom controls, popup blocker, and mobile/desktop site toggling. |
+| 📧 **NovaMail** | NovaByte's proprietary email client. Must ship alongside your own email app. Includes server-side email image proxying. |
 
 #### Optional Apps (choose any)
 
@@ -318,14 +304,14 @@ The NBOSP backend (`NBOSP/server/`) has been refactored into a clean, modular ar
 
 ```
 server/
-  ├── core/
-  │   ├── index.js      # Main Express entry point (330 lines)
-  │   ├── middleware.js # Security stack: CSP, CORS, rate limiting, sessions (250 lines)
-  │   ├── ssl.js        # HTTPS/HTTP server factory with graceful fallback (50 lines)
-  │   └── env.js        # Environment validation with fallback seeds (50 lines)
-  ├── routes.js         # Sub-router mounting (security + email APIs)
-  ├── favicons.js       # Favicon proxy with SSRF protection + DB caching (400 lines)
-  └── proxies.js        # Search suggest & email image proxies (500 lines)
+ ├── core/
+ │  ├── index.js   # Main Express entry point (330 lines)
+ │  ├── middleware.js # Security stack: CSP, CORS, rate limiting, sessions (250 lines)
+ │  ├── ssl.js    # HTTPS/HTTP server factory with graceful fallback (50 lines)
+ │  └── env.js    # Environment validation with fallback seeds (50 lines)
+ ├── routes.js     # Sub-router mounting (security + email APIs)
+ ├── favicons.js    # Favicon proxy with SSRF protection + DB caching (400 lines)
+ └── proxies.js    # Search suggest & email image proxies (500 lines)
 ```
 
 ### Key Features
@@ -350,31 +336,23 @@ server/
 |-------|-------------|
 | **Helmet CSP** | Enforces strict Content Security Policy with nonce-based script/style execution |
 | **CORS** | Configurable origins, credentials, methods, and allowed headers |
-| **Rate Limiting** | Tiered limits per endpoint (general, email, favicon, suggest, email image) |
+| **Rate Limiting** | Dedicated limits for email image proxy |
 | **CSRF Protection** | Session-based CSRF tokens with secure, httpOnly cookies |
 | **Session Management** | Express-session with 24h expiry, sameSite=lax, secure on production |
 | **SSRF Guards** | Private IP blocking on all proxy endpoints (favicon, email image proxy) |
-| **Tracking Strippers** | Remove utm_*, fbclid, gclid, and 50+ tracking parameters before proxying |
 | **Security Headers** | X-Content-Type-Options, X-XSS-Protection, CORP policies |
 
 #### Modular Proxies
 
-**Search Suggest Proxy** (`GET /api/suggest?q=...&engine=...`)
-- Supports: Google, DuckDuckGo, Bing, Brave, Ecosia, Yahoo
-- Relay-first strategy: routes through `suggest-relay.onrender.com` (IP masking)
-- Fallback to direct if relay unreachable
-- Cache: 60s TTL, 2000 entry cap
-- Rate limit: 120 req/min per IP
-
-**Email Image Proxy** (`GET /api/email-image?url=...`)
-- Strips tracking parameters (utm_*, fbclid, gclid, etc.)
+**Email Image Proxy** (`GET /api/email-image?url=..`)
+- Fetches images through a local server-side proxy for SSRF protection
 - SSRF protection: blocks private IP ranges
 - Inline redirect validation (max 5 hops)
 - Cache: 1h TTL, 200 entry cap
 - Default: 1x1 transparent PNG on error
 - Rate limit: 500 req/min per IP
 
-**Favicon Proxy** (`GET /api/favicon?domain=...`)
+**Favicon Proxy** (`GET /api/favicon?domain=..`)
 - Fetches favicons from domain with SSRF protection
 - SQLite database cache (better-sqlite3)
 - 24h TTL per entry, max 500 entries, LRU eviction
@@ -388,8 +366,8 @@ Sensible defaults for development with fallback secrets:
 
 ```javascript
 // Development fallbacks (git-ignored in production)
-NBOSP_CRED_KEY=abcd1234... (AES-GCM-SIV key for email credentials)
-SESSION_SECRET=efgh5678... (express-session signing key)
+NBOSP_CRED_KEY=abcd1234.. (AES-GCM-SIV key for email credentials)
+SESSION_SECRET=efgh5678.. (express-session signing key)
 PORT=3003
 CORS_ORIGIN=https://localhost:3003
 ```
@@ -403,19 +381,19 @@ Validation ensures:
 
 ```
 npm start
-  ↓
+ ↓
 scripts/startup.js spawns Node
-  ↓
+ ↓
 server/index.js boots Express
-  ↓
+ ↓
 setupMiddleware(app) ← Helmet, CORS, rate limiting, CSP nonce
-  ↓
+ ↓
 GET / with nonce injection ← Runs BEFORE static middleware
-  ↓
+ ↓
 Static assets served ← /js, /assets, /css (except index.html)
-  ↓
+ ↓
 Favicon/proxy/security routes mounted
-  ↓
+ ↓
 Listen on 127.0.0.1:3003 (or HTTPS if certs present)
 ```
 
@@ -424,7 +402,7 @@ Listen on 127.0.0.1:3003 (or HTTPS if certs present)
 To add new features to NBOSP, you have clear entry points:
 
 1. **New API endpoint?** → Add to `security/routes.js` or `email/index.js`
-2. **New proxy/relay?** → Add to `server/proxies.js` or create a new module
+2. **New proxy?** → Add to `server/proxies.js` or create a new module
 3. **New middleware?** → Add to `server/middleware.js` or create in `security/middleware.js`
 4. **New rate limit tier?** → Define in `server/middleware.js` and mount in `server/index.js`
 5. **Configuration changes?** → Edit `server/env.js` for env vars or Helmet CSP in middleware
@@ -461,12 +439,12 @@ If you want a freely buildable base, use `NBOSP/` instead.
 > [!WARNING]
 > **NovaByte OS 1.x.x has reached End of Life and is no longer supported.**
 > 
-> |                        |Status                                  |
+> |            |Status                 |
 > |------------------------|----------------------------------------|
-> |OS security patches     |❌ No further patches                    |
-> |New features            |❌ No backports                          |
-> |OS-level vulnerabilities|❌ Devices are exposed and unpatched     |
-> |Nova Core Services      |✅ Partial service-level patches continue|
+> |OS security patches   |❌ No further patches          |
+> |New features      |❌ No backports             |
+> |OS-level vulnerabilities|❌ Devices are exposed and unpatched   |
+> |Nova Core Services   |✅ Partial service-level patches continue|
 > 
 > **NovaByte OS 2.x.x has also reached End of Life and is no longer supported.**
 > 
@@ -479,11 +457,11 @@ If you want a freely buildable base, use `NBOSP/` instead.
 > [!NOTE]
 > **Versioning naming:** NBOSP and v3 use the same version number format. NBOSP releases are named **NovaByte 3.x.x** and v3 releases are named **NovaByte OS 3.x.x** — the numbers are identical, only the product name prefix differs (e.g. `NovaByte 3.0.2` = `NovaByte OS 3.0.2`).
 
-|Version    |Status       |Last OS Patch|Core Services|Notes                                                                 |
+|Version  |Status    |Last OS Patch|Core Services|Notes                                 |
 |-----------|:-----------:|:-----------:|:-----------:|----------------------------------------------------------------------|
-|**v1.8.21**|🔴 End of Life|2026-04-01   |✅ Active     |Final 1.x release, deprecated                                         |
-|**v2.3.8**|🔴 End of Life|2026-05-01   |✅ Active     |Final 2.x release, deprecated                                         |
-|**v3.x.x** |🟢 Current    |Active       |✅ Active     |Latest version, recommended — includes built-in **System Updates** app|
+|**v1.8.21**|🔴 End of Life|2026-04-01  |✅ Active   |Final 1.x release, deprecated                     |
+|**v2.3.8**|🔴 End of Life|2026-05-01  |✅ Active   |Final 2.x release, deprecated                     |
+|**v3.x.x** |🟢 Current  |Active    |✅ Active   |Latest version, recommended — includes built-in **System Updates** app|
 
 -----
 
@@ -518,94 +496,93 @@ Download the compiled exe from [Releases](https://github.com/NovaByteTeam/novaby
 
 ```
 novabyte-os/
-├── NBOSP/                           # NovaByte Open Source Project (free, no rules)
-│   ├── index.html                   # Single entry point (nonce injection target)
-│   ├── style.css                    # Global styles
-│   ├── ui-init.js                   # UI initialization hooks
-│   ├── trackers.js                  # Generated tracker data (from build script)
-│   ├── client.js                    # Minimal ~11-line entry point stub
-│   ├── server/                      # Backend modules
-│   │   ├── core/                    # Core server modules (nested)
-│   │   │   ├── index.js             # Main Express entry point (330 lines)
-│   │   │   ├── middleware.js        # Helmet CSP, CORS, rate limiting, CSRF, sessions (250 lines)
-│   │   │   ├── ssl.js               # HTTPS/HTTP server factory with graceful fallback (50 lines)
-│   │   │   └── env.js               # Environment validation with fallback secrets (50 lines)
-│   │   ├── routes.js                # Sub-router composition and mounting
-│   │   ├── favicons.js              # Favicon proxy with SSRF protection, DB caching (400 lines)
-│   │   └── proxies.js               # Search suggest & email image proxies (500 lines)
-│   ├── scripts/                     # Launcher modules
-│   │   ├── startup.js               # NW.js app initialization, window spawn, logging streams
-│   │   ├── env.js                   # Platform-specific environment validation, secret generation
-│   │   ├── certs.js                 # HTTPS certificate generation and validation
-│   │   ├── ca-trust.js              # Local CA trust (Windows certutil, macOS security, Linux NSS)
-│   │   ├── bootstrap.js             # Dependency auto-install, first-run setup, self-healing config
-│   │   ├── logger.js                # Centralized logging and output capture
-│   │   └── utils.js                 # Shared utilities for platform-specific operations
-│   ├── security/                    # Security modules
-│   │   ├── routes.js                # Security API endpoints (strip tracking, etc.)
-│   │   └── middleware.js            # CSRF validation, IP blocking, request validation
-│   ├── email/                       # Email modules
-│   │   ├── index.js                 # Route definitions and account management
-│   │   ├── controller.js            # Request handlers and business logic
-│   │   ├── credentials.js           # Encrypted credential storage and retrieval
-│   │   ├── helpers.js               # Email HTML processing: image proxying, link unwrapping, tracking blocking, sanitization
-│   │   └── protocols/               # Email protocol implementations
-│   │       ├── imapClient.js        # IMAP connection and message fetching
-│   │       ├── pop3Client.js        # POP3 connection and message fetching
-│   │       └── ewsClient.js         # Exchange Web Services (EWS) client
-│   ├── js/
-│   │   ├── core/                    # Core system modules (nested by domain)
-│   │   │   ├── core/                # Kernel & boot layer
-│   │   │   │   ├── boot.js          # Boot sequence and startup orchestration
-│   │   │   │   ├── init.js          # Security & initialization
-│   │   │   │   └── kernel.js        # Kernel loop
-│   │   │   ├── events/              # Event system
-│   │   │   │   └── system-events.js # Global event bus
-│   │   │   ├── services/            # Core OS services
-│   │   │   │   ├── fs.js            # Virtual filesystem API
-│   │   │   │   ├── notifications.js # Notification system
-│   │   │   │   ├── registry.js      # Core app registry
-│   │   │   │   └── workers.js       # Multi-threaded worker management
-│   │   │   ├── ui/                  # UI primitives
-│   │   │   │   ├── desktop.js       # Desktop shell
-│   │   │   │   ├── menu.js          # Context menu system
-│   │   │   │   ├── modals.js        # Modal dialog system
-│   │   │   │   └── wm.js            # Window manager
-│   │   │   └── utils/               # Shared utilities
-│   │   │       └── base-utils.js    # Base utility functions
-│   │   ├── platform/                # Platform framework modules (nested by concern)
-│   │   │   ├── security/            # Security modules
-│   │   │   │   ├── frame-security.js      # NW.js frame security validation
-│   │   │   │   ├── app-sandbox.js         # App sandbox enforcement
-│   │   │   │   └── app-permission-manager.js # Permission system
-│   │   │   ├── core/                # Core platform modules
-│   │   │   │   ├── app-registry.js        # Full app registry
-│   │   │   │   └── app-package.js         # App package management
-│   │   │   ├── ui/                  # Platform UI modules
-│   │   │   │   ├── my-apps-manager.js     # User app management
-│   │   │   │   └── web-app-manager.js     # Web app management
-│   │   │   └── utils/               # Platform utilities
-│   │   │       └── safe-storage.js        # Secure storage abstraction
-│   │   └── apps/                    # Standalone applications
-│   │       ├── files.js             # File manager
-│   │       ├── terminal.js          # Terminal emulator
-│   │       ├── calculator.js        # Calculator
-│   │       ├── email.js             # Email client (IMAP/POP3/Exchange)
-│   │       ├── browser.js           # Web browser (NW.js WebView)
-│   │       ├── calendar.js          # Calendar
-│   │       ├── clock.js             # Clock, alarms, timers
-│   │       ├── contacts.js          # Contact manager
-│   │       ├── downloads.js         # Downloads manager
-│   │       ├── gallery.js           # Image gallery/viewer
-│   │       ├── music.js             # Music player
-│   │       ├── search.js            # System-wide search
-│   │       ├── settings.js          # Settings panel
-│   │       ├── textedit.js          # Text editor
-│   │       └── appmanager.js        # App manager/installer
-│   ├── data/
-│   │   └── favicons.db              # Persistent SQLite favicon cache
-│   ├── assets/
-│   └── LICENSE
+├── NBOSP/              # NovaByte Open Source Project (free, no rules)
+│  ├── index.html          # Single entry point (nonce injection target)
+│  ├── style.css          # Global styles
+│  ├── ui-init.js          # UI initialization hooks
+│  ├── client.js          # Minimal ~11-line entry point stub
+│  ├── server/           # Backend modules
+│  │  ├── core/          # Core server modules (nested)
+│  │  │  ├── index.js       # Main Express entry point (330 lines)
+│  │  │  ├── middleware.js    # Helmet CSP, CORS, rate limiting, CSRF, sessions (250 lines)
+│  │  │  ├── ssl.js        # HTTPS/HTTP server factory with graceful fallback (50 lines)
+│  │  │  └── env.js        # Environment validation with fallback secrets (50 lines)
+│  │  ├── routes.js        # Sub-router composition and mounting
+│  │  ├── favicons.js       # Favicon proxy with SSRF protection, DB caching (400 lines)
+│  │  └── proxies.js        # Email image proxy (500 lines)
+│  ├── scripts/           # Launcher modules
+│  │  ├── startup.js        # NW.js app initialization, window spawn, logging streams
+│  │  ├── env.js          # Platform-specific environment validation, secret generation
+│  │  ├── certs.js         # HTTPS certificate generation and validation
+│  │  ├── ca-trust.js       # Local CA trust (Windows certutil, macOS security, Linux NSS)
+│  │  ├── bootstrap.js       # Dependency auto-install, first-run setup, self-healing config
+│  │  ├── logger.js        # Centralized logging and output capture
+│  │  └── utils.js         # Shared utilities for platform-specific operations
+│  ├── security/          # Security modules
+│  │  ├── routes.js        # Security API endpoints
+│  │  └── middleware.js      # CSRF validation, IP blocking, request validation
+│  ├── email/            # Email modules
+│  │  ├── index.js         # Route definitions and account management
+│  │  ├── controller.js      # Request handlers and business logic
+│  │  ├── credentials.js      # Encrypted credential storage and retrieval
+│  │  ├── helpers.js        # Email HTML processing: image proxying, sanitization
+│  │  └── protocols/        # Email protocol implementations
+│  │    ├── imapClient.js    # IMAP connection and message fetching
+│  │    ├── pop3Client.js    # POP3 connection and message fetching
+│  │    └── ewsClient.js     # Exchange Web Services (EWS) client
+│  ├── js/
+│  │  ├── core/          # Core system modules (nested by domain)
+│  │  │  ├── core/        # Kernel & boot layer
+│  │  │  │  ├── boot.js     # Boot sequence and startup orchestration
+│  │  │  │  ├── init.js     # Security & initialization
+│  │  │  │  └── kernel.js    # Kernel loop
+│  │  │  ├── events/       # Event system
+│  │  │  │  └── system-events.js # Global event bus
+│  │  │  ├── services/      # Core OS services
+│  │  │  │  ├── fs.js      # Virtual filesystem API
+│  │  │  │  ├── notifications.js # Notification system
+│  │  │  │  ├── registry.js   # Core app registry
+│  │  │  │  └── workers.js    # Multi-threaded worker management
+│  │  │  ├── ui/         # UI primitives
+│  │  │  │  ├── desktop.js    # Desktop shell
+│  │  │  │  ├── menu.js     # Context menu system
+│  │  │  │  ├── modals.js    # Modal dialog system
+│  │  │  │  └── wm.js      # Window manager
+│  │  │  └── utils/        # Shared utilities
+│  │  │    └── base-utils.js  # Base utility functions
+│  │  ├── platform/        # Platform framework modules (nested by concern)
+│  │  │  ├── security/      # Security modules
+│  │  │  │  ├── frame-security.js   # NW.js frame security validation
+│  │  │  │  ├── app-sandbox.js     # App sandbox enforcement
+│  │  │  │  └── app-permission-manager.js # Permission system
+│  │  │  ├── core/        # Core platform modules
+│  │  │  │  ├── app-registry.js    # Full app registry
+│  │  │  │  └── app-package.js     # App package management
+│  │  │  ├── ui/         # Platform UI modules
+│  │  │  │  ├── my-apps-manager.js   # User app management
+│  │  │  │  └── web-app-manager.js   # Web app management
+│  │  │  └── utils/        # Platform utilities
+│  │  │    └── safe-storage.js    # Secure storage abstraction
+│  │  └── apps/          # Standalone applications
+│  │    ├── files.js       # File manager
+│  │    ├── terminal.js     # Terminal emulator
+│  │    ├── calculator.js    # Calculator
+│  │    ├── email.js       # Email client (IMAP/POP3/Exchange)
+│  │    ├── browser.js      # Web browser (NW.js WebView)
+│  │    ├── calendar.js     # Calendar
+│  │    ├── clock.js       # Clock, alarms, timers
+│  │    ├── contacts.js     # Contact manager
+│  │    ├── downloads.js     # Downloads manager
+│  │    ├── gallery.js      # Image gallery/viewer
+│  │    ├── music.js       # Music player
+│  │    ├── search.js      # System-wide search
+│  │    ├── settings.js     # Settings panel
+│  │    ├── textedit.js     # Text editor
+│  │    └── appmanager.js    # App manager/installer
+│  ├── data/
+│  │  └── favicons.db       # Persistent SQLite favicon cache
+│  ├── assets/
+│  └── LICENSE
 ├── .gitignore
 ├── logo.svg
 └── README.md
@@ -688,87 +665,27 @@ Nova Core Services is NovaByte’s **independent security update pipeline** — 
 
 > v2.3.8 is no longer supported. The table below is retained for historical reference and for legacy fork maintainers.
 
-|Component             |Files                                                                             |Description                                                   |
+|Component       |Files                                       |Description                          |
 |----------------------|----------------------------------------------------------------------------------|--------------------------------------------------------------|
-|🔐 Security Runtime    |`nova-security-api.js`, `app-sandbox.js`                                          |Patch enforcement, iframe sandboxing, CSP, privilege brokering|
-|🛡 Privacy Engine      |`app-permission-manager.js`                                                       |Permission types, consent UI, grant/revoke enforcement        |
-|📦 Package Integrity   |`app-package.js`                                                                  |`.novaapp` creation, signing, verification, installation      |
-|⚡ App Runtime         |`app-registry.js`, `web-app-manager.js`, `my-apps-manager.js`                     |App lifecycle, registry, web app management                   |
-|💾 Session Manager     |`session-manager.js`, `app-session-handlers.js`                                   |Auto-save, crash recovery, per-app state persistence          |
-|🌐 NovaBridge          |`api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js`|REST/WebSocket transport, OAuth flows, real-time sync         |
-|🚀 Performance Services|`sw.js`                                                                           |Caching, offline support, push notifications                  |
-|🔌 Driver Services     |`driver-manager-ui.js`                                                            |Hardware driver installation and management                   |
-|⚙️ System Shell        |`user-power-menu.js`                                                              |Lock, log off, restart, shutdown with GPO enforcement         |
+|🔐 Security Runtime  |`nova-security-api.js`, `app-sandbox.js`                     |Patch enforcement, iframe sandboxing, CSP, privilege brokering|
+|🛡 Privacy Engine   |`app-permission-manager.js`                            |Permission types, consent UI, grant/revoke enforcement    |
+|📦 Package Integrity  |`app-package.js`                                 |`.novaapp` creation, signing, verification, installation   |
+|⚡ App Runtime     |`app-registry.js`, `web-app-manager.js`, `my-apps-manager.js`           |App lifecycle, registry, web app management          |
+|💾 Session Manager   |`session-manager.js`, `app-session-handlers.js`                  |Auto-save, crash recovery, per-app state persistence     |
+|🌐 NovaBridge     |`api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js`|REST/WebSocket transport, OAuth flows, real-time sync     |
+|🚀 Performance Services|`sw.js`                                      |Caching, offline support, push notifications         |
+|🔌 Driver Services   |`driver-manager-ui.js`                              |Hardware driver installation and management          |
+|⚙️ System Shell    |`user-power-menu.js`                               |Lock, log off, restart, shutdown with GPO enforcement     |
 
 ### v1.x.x (End of Life — limited coverage)
 
-|Component             |Files                                                                             |Description                    |
+|Component       |Files                                       |Description          |
 |----------------------|----------------------------------------------------------------------------------|-------------------------------|
-|⚡ App Runtime         |`web-app-manager.js`                                                              |Web app management             |
-|💾 Session Manager     |`session-manager.js`, `app-session-handlers.js`                                   |Auto-save, crash recovery      |
-|🌐 NovaBridge          |`api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js`|Transport, OAuth, sync         |
-|🚀 Performance Services|`sw.js`                                                                           |Caching, offline support       |
-|⚙️ System Shell        |`user-power-menu.js`                                                              |Power menu with GPO enforcement|
-
-## 🔍 Privacy & No Telemetry — Fully Verified
-
-> [!NOTE]
-> **NovaByte OS does not track you. Zero telemetry. Zero analytics. Zero data collection. This is fully verifiable.**
-
-### The Short Answer
-
-NovaByte collects **nothing** from you. No usage data, no crash reports phoned home, no analytics pings, no identifiers, no behavioral tracking — nothing. This is not a policy promise buried in fine print. It is a technical reality you can verify yourself.
-
-### How to Verify It Yourself
-
-NBOSP is **fully open source** and publicly available at:
-
-**→ [github.com/NovaByteTeam/novabyte-os — NBOSP folder](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)**
-
-You can read every line of code. Here is exactly what to look for — and what you will not find:
-
-|What trackers look like                                                               |Status in NBOSP|
-|--------------------------------------------------------------------------------------|---------------|
-|Calls to analytics endpoints (e.g. `api.segment.io`, `collect.mixpanel.com`, `gtm.js`)|❌ Not present  |
-|`navigator.sendBeacon()` calls sending usage data                                     |❌ Not present  |
-|Any `fetch()` or `XMLHttpRequest` to a remote telemetry server                        |❌ Not present  |
-|Fingerprinting (canvas, audio, font enumeration)                                      |❌ Not present  |
-|Third-party tracking scripts loaded at runtime                                        |❌ Not present  |
-|Any remote logging of user actions, sessions, or errors                               |❌ Not present  |
-
-You do not have to take our word for it — **the code is right there.**
-
-### What Network Calls Does NovaByte Actually Make?
-
-The only outbound network calls NovaByte makes are ones **you explicitly trigger**:
-
-- **NBOSP Browser** — fetches websites you navigate to. Obviously. Search suggestions and email images are routed through a remote relay server (`https://suggest-relay.onrender.com`) so upstream services see the relay's IP, not yours. If the relay is unreachable, requests fall back to direct. The relay is open source and auditable at https://github.com/NovaByteOfficial/suggest-relay. For full IP privacy on actual page browsing, use a VPN.
-- **System Updates (v3 only)** — polls the GitHub Releases API to check if a newer version exists. This is a plain `GET` to `api.github.com/repos/NovaByteTeam/novabyte-os/releases/latest` — public, unauthenticated, no payload sent, no user data attached.
-- **NovaBridge / OAuth (v2/v3)** — connects to services you explicitly authenticate with (e.g. email, calendar). These are your sessions, not ours.
-- **Nova Core Services security patches** — fetches update manifests from our GitHub Releases. Again, a plain unauthenticated `GET`. No user data is sent.
-
-Nothing phones home silently. Nothing runs in the background without your action.
-
-### Email Privacy — Multi-Layer Protection
-
-The NovaByte email client goes further than any standard email app to protect your privacy. Every email you open is processed through a server-side rewriting pipeline before it ever reaches your screen:
-
-**Tracking pixel blocking**
-All remote images in emails are routed through a local server-side proxy (`/api/email-image`). Your IP address never reaches any sender's tracking server. On top of that, the proxy checks every image URL against the Disconnect.me tracker blocklist (4,000+ domains) — known tracker pixels return a transparent placeholder instead of being fetched at all, so Samsung, Mailchimp, and similar senders never even get a proxy hit for their open-tracking pixels.
-
-**CSS tracker stripping**
-Some senders embed tracking pixels as CSS `background-image` inside `<style>` blocks rather than as `<img>` tags — a technique specifically designed to evade image-blocking. NovaByte scans all `<style>` blocks and replaces any tracker domain URLs with `none` before the email renders.
-
-**Link unwrapping**
-Marketing emails route every link through their own redirect servers (e.g. `click.mailchimp.com`, `t6.uk.email.samsung.com`) to record what you click and when. NovaByte unwraps 30+ known ESP redirect domains and replaces them with the real destination URL — so clicking a link goes straight to the site, never through a tracker.
-
-**Tracking parameter stripping**
-All links have tracking query parameters removed before display — `utm_source`, `utm_campaign`, `fbclid`, `gclid`, `mc_eid`, `mkt_tok`, and more. Clean URLs only.
-
-**Script sandboxing**
-Emails are rendered in a fully sandboxed iframe with `script-src 'none'` — no JavaScript in any email can execute, ever.
-
-**What this means in practice:** when you open a marketing email in NovaByte, the sender receives no open notification, no IP address, no click data, and no timing information. From their perspective, the email was never opened.
+|⚡ App Runtime     |`web-app-manager.js`                               |Web app management       |
+|💾 Session Manager   |`session-manager.js`, `app-session-handlers.js`                  |Auto-save, crash recovery   |
+|🌐 NovaBridge     |`api-client.js`, `socket-client.js`, `oauth-handler.js`, `novamail-integration.js`|Transport, OAuth, sync     |
+|🚀 Performance Services|`sw.js`                                      |Caching, offline support    |
+|⚙️ System Shell    |`user-power-menu.js`                               |Power menu with GPO enforcement|
 
 ### NBOSP Specifically
 
@@ -793,7 +710,6 @@ v3 is closed source, so you cannot audit its binary directly — that is the nat
 If you require full auditability with zero trust assumptions, **NBOSP is your answer** — it is open, forkable, and zero-telemetry by design.
 
 -----
-
 ## 🔐 Security
 
 - All versions use **HTTPS** with self-signed certificates locally
@@ -810,10 +726,10 @@ If you discover a security vulnerability, please **open a private issue** or con
 
 ### 📜 Repository License Breakdown
 
-|Directory            |License Type           |Terms & Permissions                                                                                                        |
+|Directory      |License Type      |Terms & Permissions                                                    |
 |:--------------------|:----------------------|:--------------------------------------------------------------------------------------------------------------------------|
-|📁 `NBOSP/`           |**Apache 2.0 License** |Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text.|
-|📁 `v1/`, `v2/`, `v3/`|**All Rights Reserved**|Closed source. Source not included in this repo. Compiled exe available via Releases.                                      |
+|📁 `NBOSP/`      |**Apache 2.0 License** |Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text.|
+|📁 `v1/`, `v2/`, `v3/`|**All Rights Reserved**|Closed source. Source not included in this repo. Compiled exe available via Releases.                   |
 
 *See `NBOSP/LICENSE` for the complete Apache 2.0 legal text governing the open-source base.*
 

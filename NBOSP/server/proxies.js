@@ -1,30 +1,19 @@
 // ── Search Suggest Proxy ──────────────────────────────────────────────────
-// Forwards suggestion requests to the NovaByte suggest relay.
-// The relay runs on a remote machine — upstream engines see the relay's IP,
-// not the user's. Relay is open source: github.com/NovaByteOfficial/suggest-relay
-//
-// Falls back to fetching upstream engines directly if the relay is unreachable
-// (e.g. offline use) so suggestions still work without a relay connection.
-// Note: fallback fetches come from the user's machine — IP masking only applies
-// when the relay is reachable. Like Brave without a VPN — get a VPN if full
-// IP privacy matters to you.
-//
+// Direct engine URLs
 // Cache: in-memory Map, 60s TTL, 2000 entry cap.
-// Rate limit: 120 req/min per IP — one request per keystroke at normal typing speed.
+// Rate limit: 120 req/min per IP.
 
 const rateLimit = require('express-rate-limit');
-
-const RELAY_URL = 'https://suggest-relay.onrender.com'; // official hosted instance
 
 const suggestCache = new Map(); // key: `${engine}:${q}` → { data, ts }
 const SUGGEST_TTL     = 60 * 1000; // 60 seconds
 const SUGGEST_MAX     = 2000;
-const SUGGEST_TIMEOUT = 5000;      // slightly higher than relay's 4s timeout
+const SUGGEST_TIMEOUT = 5000;
 
-// Direct engine URLs — used as fallback only if relay is unreachable
+// Direct engine URLs
 const SUGGEST_ENGINES_DIRECT = {
     google:     q => `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(q)}`,
-    duckduckgo: q => `https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}&type=list`,
+    duckduckgo: q => `https://duckduckgo.com/ac/?q=${encodeURIComponent(q)}&type=list&no-datr=1`,
     bing:       q => `https://api.bing.com/qsonhs.aspx?q=${encodeURIComponent(q)}`,
     brave:      q => `https://search.brave.com/api/suggest?q=${encodeURIComponent(q)}`,
     ecosia:     q => `https://ac.ecosia.org/autocomplete?q=${encodeURIComponent(q)}&type=list`,
@@ -43,16 +32,6 @@ function parseSuggestions(engine, json) {
         // google / duckduckgo / brave / ecosia → ["query", ["s1","s2",...]]
         return (Array.isArray(json?.[1]) ? json[1] : []).filter(Boolean).slice(0, 8);
     } catch { return []; }
-}
-
-async function fetchFromRelay(engine, q, signal) {
-    const url = `${RELAY_URL}/suggest?engine=${encodeURIComponent(engine)}&q=${encodeURIComponent(q)}`;
-    const r   = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
-        signal,
-    });
-    if (!r.ok) throw new Error(`Relay ${r.status}`);
-    return await r.json();
 }
 
 async function fetchDirect(engine, q, signal) {
@@ -96,18 +75,21 @@ function setupSuggestProxy(app) {
         const timer      = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT);
 
         let json;
-        let viaRelay = true;
+        let usedFallback = false;
 
         try {
-            // Try relay first — masks user IP from upstream engines
-            json = await fetchFromRelay(engine, q, controller.signal);
+            json = await fetchDirect(engine, q, controller.signal);
         } catch {
-            // Relay unreachable (offline, cold start, down) — fall back to direct
-            viaRelay = false;
+            clearTimeout(timer);
+            usedFallback = true;
+            const fallbackEngines = engine === 'brave' ? ['duckduckgo', 'google'] : ['duckduckgo'];
+            const fallback = fallbackEngines.find(e => SUGGEST_ENGINES_DIRECT[e]);
+            if (!fallback) {
+                return res.status(502).json({ suggestions: [] });
+            }
             try {
-                json = await fetchDirect(engine, q, controller.signal);
+                json = await fetchDirect(fallback, q, controller.signal);
             } catch {
-                clearTimeout(timer);
                 return res.status(502).json({ suggestions: [] });
             }
         }
@@ -123,26 +105,13 @@ function setupSuggestProxy(app) {
         suggestCache.set(cacheKey, { data: suggestions, ts: Date.now() });
 
         res.setHeader('Cache-Control', 'private, max-age=60');
-        res.setHeader('X-Suggest-Via', viaRelay ? 'relay' : 'direct'); // dev visibility — remove if desired
         res.json({ suggestions });
     });
 }
 // ── End Search Suggest Proxy ──────────────────────────────────────────────
 
 // ── Email Image Proxy ─────────────────────────────────────────────────────
-// Fetches email images server-side so the user's IP is never sent to the
-// sender's tracking server. All <img> URLs in HTML emails are rewritten to
-// point here before the email is rendered.
-//
-// Security:
-//   - SSRF protection: same private-IP blocklist as the favicon proxy
-//   - Redirects followed manually — each hop re-validated against blocklist
-//   - Content-type allowlist: only image/* passes through
-//   - 5MB hard cap — oversized responses return the default placeholder
-//   - All outbound headers stripped (no cookie, no referer, no user IP)
-//   - Tracking params stripped from URLs before fetching
-//   - In-memory cache: 1h TTL, 200 entry cap
-//   - Dedicated rate limiter: 120 req/min per IP
+// Fetches email images through the local server.
 
 const emailImgCache = new Map(); // key: normalised URL → { buf, mime, ts }
 const EMAIL_IMG_TTL     = 60 * 60 * 1000;  // 1 hour
@@ -155,29 +124,6 @@ const EMAIL_IMG_DEFAULT = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
     'base64'
 );
-
-// Tracking / analytics query params to strip before proxying
-const TRACKING_PARAMS = new Set([
-    'utm_source','utm_medium','utm_campaign','utm_content','utm_term',
-    'utm_id','utm_source_platform','utm_creative_format','utm_marketing_tactic',
-    'fbclid','gclid','gclsrc','dclid','gbraid','wbraid',
-    'mc_eid','mc_cid','_hsenc','_hsmi','mkt_tok','yclid',
-    'igshid','s_cid','ncid','ref','trk','trkinfo',
-]);
-
-function stripTrackingParams(urlStr) {
-    try {
-        const u = new URL(urlStr);
-        let changed = false;
-        for (const key of [...u.searchParams.keys()]) {
-            if (TRACKING_PARAMS.has(key.toLowerCase())) {
-                u.searchParams.delete(key);
-                changed = true;
-            }
-        }
-        return changed ? u.toString() : urlStr;
-    } catch (_) { return urlStr; }
-}
 
 function isPrivateHostEI(hostname) {
     const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -208,7 +154,7 @@ async function fetchEmailImage(urlStr) {
         'Accept': 'image/png,image/webp,image/jpeg,image/gif,image/*,*/*;q=0.8',
     };
 
-    let currentUrl = stripTrackingParams(urlStr);
+    let currentUrl = urlStr;
     const visited = new Set();
     const MAX_REDIRECTS = 5;
 
@@ -294,43 +240,7 @@ function setupEmailImageProxy(app) {
             return res.send(EMAIL_IMG_DEFAULT);
         }
 
-        // Block known tracker domains — return transparent placeholder without
-        // making any upstream request, so the sender gets no open-tracking signal
-        // even through the proxy layer.
-        // NOTE: SERVER_TRACKER_DOMAINS would need to be populated from trackers.js
-        // For now this is a no-op since the set is empty.
-
-        const cacheKey = stripTrackingParams(raw);
-
-        // Cache hit
-        const cached = emailImgCache.get(cacheKey);
-        if (cached && (Date.now() - cached.ts) < EMAIL_IMG_TTL) {
-            res.setHeader('Content-Type', cached.mime);
-            res.setHeader('Cache-Control', 'public, max-age=3600');
-            return res.send(cached.buf);
-        }
-
-        // Use relay for the final outbound fetch — sender's tracking server
-        // sees relay IP, not user's. SSRF validation and tracker blocking
-        // already done above; relay just makes the safe outbound request.
-        let result = null;
-        try {
-            const relayUrl = `${RELAY_URL}/email-image?url=${encodeURIComponent(stripTrackingParams(raw))}`;
-            const r = await fetch(relayUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
-                signal: AbortSignal.timeout(7000),
-            });
-            if (r.ok) {
-                const ct = (r.headers.get('content-type') || '').split(';')[0].trim();
-                if (ct.startsWith('image/')) {
-                    const buf = Buffer.from(await r.arrayBuffer());
-                    if (buf.length > 0) result = { buf, mime: ct };
-                }
-            }
-        } catch { /* relay unreachable — fall back to direct */ }
-
-        // Fallback: fetch directly if relay failed or was unreachable
-        if (!result) result = await fetchEmailImage(raw);
+        const result = await fetchEmailImage(raw);
         const buf  = result ? result.buf  : EMAIL_IMG_DEFAULT;
         const mime = result ? result.mime : 'image/png';
 
