@@ -43,6 +43,7 @@ registerApp({
 
     /**
      * Build a trigram index from an array of items.
+     * Stores only 3-grams for memory efficiency.
      * @param {Array}    items
      * @param {Function} keyFn  — returns the string(s) to index for each item
      * @returns {Map<string, Set>}
@@ -50,17 +51,14 @@ registerApp({
     function buildTrigramIndex(items, keyFn) {
       const index = new Map();
       for (const item of items) {
-        const keys = [].concat(keyFn(item)); // allow single string or array
+        const keys = [].concat(keyFn(item));
         for (const key of keys) {
           const lk = (key || '').toLowerCase();
-          // Also store 1- and 2-gram prefixes so short queries still work
-          for (let len = 1; len <= Math.min(lk.length, 3); len++) {
-            for (let i = 0; i <= lk.length - len; i++) {
-              const gram = lk.slice(i, i + len);
-              let bucket = index.get(gram);
-              if (!bucket) { bucket = new Set(); index.set(gram, bucket); }
-              bucket.add(item);
-            }
+          for (let i = 0; i <= lk.length - 3; i++) {
+            const gram = lk.slice(i, i + 3);
+            let bucket = index.get(gram);
+            if (!bucket) { bucket = new Set(); index.set(gram, bucket); }
+            bucket.add(item);
           }
         }
       }
@@ -68,29 +66,38 @@ registerApp({
     }
 
     /**
+     * Linear scan fallback for queries shorter than 3 chars.
+     */
+    function linearSearch(items, lq, verifyFn) {
+      const out = [];
+      for (const item of items) {
+        if (verifyFn(item, lq)) out.push(item);
+      }
+      return out;
+    }
+
+    /**
      * Query a trigram index.
-     * Returns items whose indexed keys contain `lq` (lowercase query).
      * Uses the rarest trigram bucket as the starting candidate set,
      * then verifies each candidate actually contains the full query.
+     * For queries shorter than 3 chars, falls back to linear scan.
      * @param {Map}    index
      * @param {string} lq     — already-lowercased query
      * @param {Function} verifyFn — (item, lq) => boolean for full-string check
+     * @param {Array}  [allItems] — optional full item list for linear fallback
      * @returns {Array}
      */
-    function queryIndex(index, lq, verifyFn) {
+    function queryIndex(index, lq, verifyFn, allItems) {
       if (!lq) return [];
-      // For very short queries use the 1- or 2-gram bucket directly
-      const gramLen = Math.min(lq.length, 3);
-      // Pick the smallest bucket across all grams of the query for fastest intersection
+      if (lq.length < 3) return linearSearch(allItems || [], lq, verifyFn);
       let best = null;
-      for (let i = 0; i <= lq.length - gramLen; i++) {
-        const gram = lq.slice(i, i + gramLen);
+      for (let i = 0; i <= lq.length - 3; i++) {
+        const gram = lq.slice(i, i + 3);
         const bucket = index.get(gram);
-        if (!bucket) return []; // no items can match — short-circuit
+        if (!bucket) return [];
         if (best === null || bucket.size < best.size) best = bucket;
       }
       if (!best) return [];
-      // Verify candidates with exact substring check (handles partial trigram overlaps)
       const out = [];
       for (const item of best) {
         if (verifyFn(item, lq)) out.push(item);
@@ -103,12 +110,18 @@ registerApp({
     // ════════════════════════════════════════════════════════════════════════
 
     let fileIndex = new Map();
+    let fileItems = [];
+    let filePathCache = new Map();
 
     function buildFileIndex() {
       try {
         if (!window.FS?.files) return;
-        const files = [...FS.files.values()].filter(f => f.type === 'file');
-        fileIndex = buildTrigramIndex(files, f => f.name || '');
+        fileItems = [...FS.files.values()].filter(f => f.type === 'file');
+        fileIndex = buildTrigramIndex(fileItems, f => f.name || '');
+        filePathCache = new Map();
+        for (const f of fileItems) {
+          filePathCache.set(f.id, FS.getPath ? FS.getPath(f.id) : (f.name || ''));
+        }
       } catch (err) {
         console.warn('[nbosp-search] File index build failed:', err);
       }
@@ -116,18 +129,22 @@ registerApp({
 
     buildFileIndex();
 
-    // Re-index when the filesystem signals a change (if FS emits events)
+    let fsChangeTimer = null;
     try {
       if (window.FS?.addEventListener) {
-        FS.addEventListener('change', buildFileIndex);
+        FS.addEventListener('change', () => {
+          clearTimeout(fsChangeTimer);
+          fsChangeTimer = setTimeout(buildFileIndex, 200);
+        });
       }
     } catch { /* FS may not support events */ }
 
     function searchFiles(lq) {
       if (!lq) return [];
       return queryIndex(fileIndex, lq, (f, q) =>
-        (f.name || '').toLowerCase().includes(q)
-      ).slice(0, 12);
+        (f.name || '').toLowerCase().includes(q),
+        fileItems
+      );
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -161,14 +178,16 @@ registerApp({
         return queryIndex(this.contactIndex, lq, (c, q) =>
           (c.name  || '').toLowerCase().includes(q) ||
           (c.email || '').toLowerCase().includes(q) ||
-          (c.phone || '').toLowerCase().includes(q)
+          (c.phone || '').toLowerCase().includes(q),
+          this.contacts
         );
       },
 
       searchDownloads(lq) {
         if (this.downloads === null) this._loadDownloads();
         return queryIndex(this.downloadIndex, lq, (d, q) =>
-          (d.name || '').toLowerCase().includes(q)
+          (d.name || '').toLowerCase().includes(q),
+          this.downloads
         );
       },
 
@@ -176,8 +195,17 @@ registerApp({
       invalidateDownloads() { this.downloads = null; this.downloadIndex = new Map(); },
     };
 
-    // Invalidate only when the relevant localStorage key actually changes —
-    // not on every keystroke.
+    function patchLocalStorageInvalidation() {
+      const watched = ['nova_contacts', 'nova_downloads'];
+      const origSet = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function(key, value) {
+        origSet(key, value);
+        if (key === 'nova_contacts')  localCache.invalidateContacts();
+        if (key === 'nova_downloads') localCache.invalidateDownloads();
+      };
+    }
+    patchLocalStorageInvalidation();
+
     window.addEventListener('storage', (e) => {
       if (e.key === 'nova_contacts')  localCache.invalidateContacts();
       if (e.key === 'nova_downloads') localCache.invalidateDownloads();
@@ -187,8 +215,9 @@ registerApp({
     // WEB CACHE — DDG responses, 2-minute TTL
     // ════════════════════════════════════════════════════════════════════════
 
-    const webCache = new Map();
+    const WEB_CACHE_MAX = 50;
     const WEB_CACHE_TTL_MS = 2 * 60 * 1000;
+    const webCache = new Map();
 
     function getCachedWeb(q) {
       const entry = webCache.get(q);
@@ -198,6 +227,10 @@ registerApp({
     }
 
     function setCachedWeb(q, hits) {
+      if (webCache.size >= WEB_CACHE_MAX) {
+        const oldest = webCache.keys().next().value;
+        webCache.delete(oldest);
+      }
       webCache.set(q, { hits, ts: Date.now() });
     }
 
@@ -443,8 +476,8 @@ registerApp({
       let hasAnyLocal = false;
 
       const fileHits = searchFiles(lq);
-      const filesSec = buildSection('Files', fileHits, (f) => {
-        const path = FS.getPath ? FS.getPath(f.id) : (f.name || '');
+      const filesSec = buildSection('Files', fileHits.slice(0, 12), (f) => {
+        const path = filePathCache.get(f.id) || (f.name || '');
         return buildRow(iconForMime(f.mimeType), f.name || '(unnamed)', path, () => {
           if (f.mimeType?.startsWith('image/')) WM.createWindow('nbosp-gallery', { fileId: f.id });
           else if (f.mimeType?.startsWith('audio/')) WM.createWindow('nbosp-music', { fileId: f.id });
@@ -523,9 +556,7 @@ registerApp({
       clearX.style.display = val ? '' : 'none';
       clearTimeout(debounceId);
 
-      // Prefetch: fire DDG immediately for this exact value if not already cached.
-      // Independent fetch (no signal) so the main AbortController can't kill it.
-      if (val.trim() && val !== lastPrefetchQ && !getCachedWeb(val)) {
+      if (val.trim().length >= 3 && val !== lastPrefetchQ && !getCachedWeb(val)) {
         lastPrefetchQ = val;
         fetchDDG(val)
           .then(hits => { if (!getCachedWeb(val)) setCachedWeb(val, hits); })

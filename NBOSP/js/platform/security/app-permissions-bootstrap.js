@@ -90,7 +90,7 @@
     // Music
     'nbosp-music': {
       normal   : ['fs:read', 'fs:metadata'],
-      dangerous: [],
+      dangerous: ['fs:write'],
     },
 
     // Downloads
