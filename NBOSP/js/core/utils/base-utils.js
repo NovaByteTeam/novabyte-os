@@ -220,7 +220,6 @@ function generateId() {
       function svgIcon(name, size) {
         size = size || 18;
 
-        // ── Small UI/nav SVGs — keep crisp at any pixel size ──────────────
         const uiIcons = {
           'x': `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`,
           'plus': `<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>`,
@@ -239,27 +238,19 @@ function generateId() {
           'minimize-2': `<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/>`,
           'align-left': `<line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/>`,
           'align-center': `<line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/>`,
-          'align-right': `<line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/>`,
+          'align-right': `<line x1="21" y1="7" x2="3" y2="7"/><line x1="21" y1="17" x2="3" y2="17"/><line x1="21" y1="12" x2="3" y2="12"/>`,
           'square': `<rect x="3" y="3" width="18" height="18" rx="2"/>`,
           'layout': `<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>`,
-          // ── Media controls — inline so CSP img-src never blocks them ──────────
-          'play': `<polygon points="5 3 19 12 5 21 5 3"/>`,
-          'pause': `<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>`,
-          'skip-back': `<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/>`,
-          'skip-forward': `<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>`,
-          'shuffle': `<polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/>`,
-          'repeat': `<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>`,
-          'volume-2': `<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>`,
-          'unlock': `<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>`,
+           'skip-back': `<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/>`,
+           'skip-forward': `<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>`,
+           'external-link': `<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>`,
         };
 
         if (uiIcons[name]) {
           return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${uiIcons[name]}</svg>`;
         }
 
-        // ── Icons8 3D Fluency map ──────────────────────────────────────────
         const iconMap = {
-          // ── APP ICONS ──────────────────────────────────────────────────────────
           'folder-open': 'safe',
           'pen-tool': 'pen',
           'globe': 'globe',
@@ -279,28 +270,25 @@ function generateId() {
           'database': 'server',
           'terminal': 'command-line',
 
-          // ── FALLBACK / COMPATIBILITY ──────────────────────────────────────────
           'trash': 'trash',
           'trash-2': 'trash',
           'folder': 'opened-folder',
           'file': 'document',
           'file-text': 'document',
           'document': 'document',
-
-          // ── MEDIA / PLAYBACK ──────────────────────────────────────────────────
-          'play': 'play-button',
+          'play': 'play',
           'pause': 'pause-button',
           'volume-2': 'sound',
-
-          // ── MAIL / ARCHIVE ──────────────────────────────────────────────────
           'archive': 'archive',
-
-          // ── GENERAL ICONS ──────────────────────────────────────────────────
           'search': 'magnifying-glass',
           'download': 'download',
           'save': 'save',
           'copy': 'copy',
           'star': 'star',
+          'star-filled': 'rating',
+          'rating': 'rating',
+          'favorite': 'rating',
+          'bookmark-filled': 'rating',
           'bookmark': 'bookmark',
           'refresh': 'refresh',
           'maximize': 'fullscreen',
@@ -308,23 +296,28 @@ function generateId() {
           'eye': 'eye',
           'zap': 'lightning',
           'tag': 'tag',
-          'edit-3': 'edit',
+           'edit-3': 'edit',
+           'edit-pencil': 'edit-pencil',
+           'edit-property': 'edit-property',
           'filter': 'filter',
           'bar-chart-2': 'bar-chart',
           'list-ordered': 'numbered-list',
           'message-square': 'chat',
           'check-circle': 'checkmark',
+          'check-square': 'checkmark',
           'x-circle': 'cancel',
           'keyboard': 'keyboard',
           'layers': 'layers',
-          'clipboard-list': 'document',
-          'clip-board': 'document',
-          'user': 'user',
+          'clipboard-list': 'paste',
+          'clip-board': 'paste',
+          'clipboard': 'paste',
+          'paste': 'paste',
+          'user': 'profile',
           'groups': 'people',
           'key': 'key',
-          'hard-drive': 'hdd',
-          'attention': 'error',
-          'alert-triangle': 'error',
+          'hard-drive': 'database',
+          'attention': 'info',
+          'alert-triangle': 'info',
           'lock': 'lock',
           'plus': 'plus-math',
           'plus-math': 'plus-math',
@@ -332,44 +325,44 @@ function generateId() {
           'cpu': 'processor',
           'processor': 'processor',
           'command-line': 'command-line',
+          'console': 'command-line',
           'administrative-tools': 'document',
           'maintenance': 'document',
           'registry-editor': 'document',
           'quill-pen': 'pen',
           'pen': 'pen',
-          'console': 'console',
           'reading-book-and-apple': 'document',
-
-          // ── ADDITIONAL ICONS ───────────────────────────────────────────────
-          'gamepad-2': 'dice',              // Game icon
-          'box': 'dice',              // Box/tetris fallback
-          'circle': 'dice',              // Circle fallback
-          'bomb': 'bomb',              // Minesweeper
-          'clover': 'clover',            // Chess
-          'timer': 'counter',           // Pomodoro/timer
-          'check-square': 'checkmark',         // Habits/checklist
-          'wallet': 'wallet',            // Budget tracker
-          'file-code': 'code',              // Markdown/code apps
-          'palette': 'color-palette',     // Color picker
-          'type': 'quote',             // Text-based apps
-          'qr-code': 'qr-code',           // QR Generator
-          'metronome': 'counter',           // Metronome
-          'binary': 'barcode',           // Base64/binary
-          'hash': 'barcode',           // Hash generator
-          'regex': 'code',              // Regex tester
-          'text': 'quote',             // Lorem ipsum
-          'diff': 'layers',            // Diff tool
-          'briefcase': 'briefcase',         // Productivity category
-          'chevron-left': 'arrow-left',        // Back button in Files
-          'chevron-right': 'arrow-right',       // Forward button in Files
-          'chevron-up': 'arrow-up',          // Up button in Files
-          'list': 'document',          // List view
-          'move': 'arrow-right',       // Move/cut action
+          'gamepad-2': 'dice',
+          'box': 'dice',
+          'circle': 'dice',
+          'bomb': 'bomb',
+          'clover': 'clover',
+          'timer': 'counter',
+          'wallet': 'wallet',
+          'file-code': 'document',
+          'palette': 'color-palette',
+          'type': 'quote',
+          'qr-code': 'qr-code',
+          'metronome': 'counter',
+          'binary': 'barcode',
+          'hash': 'barcode',
+          'regex': 'document',
+          'text': 'quote',
+          'diff': 'layers',
+          'briefcase': 'briefcase',
+          'chevron-left': 'arrow-left',
+          'chevron-right': 'arrow-right',
+          'chevron-up': 'arrow-up',
+          'list': 'document',
+           'move': 'arrow-right',
+           'shuffle': 'shuffle-96',
+           'repeat': 'repeat',
         };
-
-        const i8name = iconMap[name] || name;
-        // Use local asset — no external dependency
-        const localPath = `/assets/icons8-${i8name}-94.png`;
+        const special = { 'shuffle': 'shuffle-96', 'repeat': 'repeat-button-96', 'pause': 'pause-96' };
+        const i8name = special[name] || iconMap[name] || name;
+        const localPath = special[name]
+          ? `/assets/icons8-${special[name]}.png`
+          : `/assets/icons8-${i8name}-94.png`;
         return `<img src="${localPath}" width="${size}" height="${size}" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">`;
       }
 

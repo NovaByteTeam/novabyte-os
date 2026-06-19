@@ -32,6 +32,10 @@ let config = {
         // Browser proxy service
         '/api/security/strip-tracking',
 
+        // Packaged .novaapp files are registered by the local shell before
+        // launching a sandboxed webview; the route validates sandbox ids.
+        '/api/apps/serve',
+
         // Email API — already session-protected via requireCreds; CSRF here
         // causes Invalid CSRF Token errors due to session/cookie timing in NW.js
         '/api/email',
@@ -577,6 +581,10 @@ function getBlockedIPs() {
  */
 function requestSizeLimit(maxSize = '10mb') {
     return (req, res, next) => {
+        if (req.path === '/api/apps/serve/register') {
+            return next();
+        }
+
         const contentLength = parseInt(req.headers['content-length'] || '0');
         const maxBytes = parseSize(maxSize);
 

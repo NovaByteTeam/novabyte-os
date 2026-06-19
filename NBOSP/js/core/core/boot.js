@@ -471,7 +471,9 @@ async function boot() {
   const scheduleIdle = window.requestIdleCallback
     ? (fn) => requestIdleCallback(fn, { timeout: 3000 })
     : (fn) => setTimeout(fn, 0);
-  scheduleIdle(loadInstalledNovaApps);
+  scheduleIdle(() => {
+    loadInstalledNovaApps().catch(e => console.error('[BOOT] Failed to load installed Nova apps:', e));
+  });
 
   // 9. Finalize ────────────────────────────────────────────────────
   await new Promise(r => setTimeout(r, 800));
@@ -541,7 +543,9 @@ async function boot() {
         if (!appData._cachedHtml) appData._cachedHtml = html;
 
         const shimmedFiles = Object.assign({}, appData.files);
-        shimmedFiles[entryKey] = btoa(html);
+        shimmedFiles[entryKey] = btoa(
+          encodeURIComponent(html).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        );
 
         const origin = (typeof window.location !== 'undefined' && window.location.origin)
           ? window.location.origin
@@ -559,7 +563,9 @@ async function boot() {
           if (!regRes.ok) throw new Error('serve register failed: ' + regRes.status);
           const regData = await regRes.json();
           baseUrl = regData.baseUrl || baseUrl;
-          const url = origin + baseUrl + encodeURIComponent(entryKey);
+          const encodedEntry = String(entryKey).split('/').map(encodeURIComponent).join('/');
+          const serveBaseUrl = String(baseUrl).replace(/\/+$/, '');
+          const url = origin + serveBaseUrl + '/' + encodedEntry;
 
           webview = createEl('webview', {
             src    : url,
@@ -589,7 +595,7 @@ async function boot() {
         }
 
         webview.addEventListener('did-fail-load', (e) => {
-          console.error('[NovaApp] webview load failed', appData.id, baseUrl + encodeURIComponent(entryKey), e);
+          console.error('[NovaApp] webview load failed', appData.id, (typeof serveBaseUrl === 'string' ? serveBaseUrl : baseUrl) + '/' + (typeof encodedEntry === 'string' ? encodedEntry : entryKey), e);
         });
         webview.addEventListener('did-finish-load', () => {
           console.log('[NovaApp] webview loaded', appData.id);
@@ -600,15 +606,24 @@ async function boot() {
     };
 
     OS.apps[appData.id] = cfg;
-    APP_REGISTRY.push(cfg);
+    const ri = APP_REGISTRY.findIndex(app => app.id === appData.id);
+    if (ri > -1) APP_REGISTRY[ri] = cfg;
+    else APP_REGISTRY.push(cfg);
   }
 
-  function loadInstalledNovaApps() {
-    const apps = Storage.get(KEYS.INSTALLED_APPS, []);
+  async function loadInstalledNovaApps() {
+    const storedApps = Storage.get(KEYS.INSTALLED_APPS, []);
+    const apps = window.NovaAppPackageStore?.hydrateApps
+      ? await NovaAppPackageStore.hydrateApps(storedApps)
+      : storedApps;
+
     for (let i = 0; i < apps.length; i++) {
       const appData = apps[i];
       if (OS.apps[appData.id]) continue;
-      if (!appData.files) continue;
+      if (!appData.files) {
+        console.warn('[BOOT] Installed package files missing for', appData.id);
+        continue;
+      }
       registerWithFiles(appData);
     }
   }

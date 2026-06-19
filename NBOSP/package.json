@@ -41,7 +41,7 @@
     "express-rate-limit": "^8.5.2",
     "express-session": "^1.19.0",
     "helmet": "^8.2.0",
-    "imapflow": "^1.4.1",
+    "imapflow": "^1.4.2",
     "node-pop3": "^0.11.0",
     "nodemailer": "^9.0.1",
     "postal-mime": "^2.7.4",

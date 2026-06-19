@@ -61,7 +61,7 @@ class StorageError extends WebAppManagerError {
  * @property {string} id                  Unique identifier.
  * @property {string} name                Human-readable name.
  * @property {string} url                  Launch URL (http or https).
- * @property {string} icon                 Icon (URL, data URI, emoji, or inline SVG).
+ * @property {string|null} icon             Icon URL / emoji / SVG, or null.
  * @property {string} addedDate            ISO 8601 timestamp the app was added.
  * @property {number} launchCount          Number of times the app has been launched.
  * @property {string|null} lastLaunched    ISO 8601 timestamp of last launch, or null.
@@ -461,11 +461,6 @@ function validateAppInput(input) {
     throw new ValidationError('App name must not be empty', { field: 'name' });
   }
 
-  const icon = sanitizeString(input.icon, { maxLength: LIMITS.MAX_ICON_LENGTH, label: 'icon' });
-  if (icon.length === 0) {
-    throw new ValidationError('App icon must not be empty', { field: 'icon' });
-  }
-
   const url = sanitizeString(input.url, { maxLength: LIMITS.MAX_URL_LENGTH, label: 'url' });
   if (!isValidUrl(url)) {
     throw new ValidationError(
@@ -473,6 +468,10 @@ function validateAppInput(input) {
       { field: 'url' },
     );
   }
+
+  const icon = input.icon
+    ? sanitizeString(input.icon, { maxLength: LIMITS.MAX_ICON_LENGTH, label: 'icon' })
+    : null;
 
   return { name, url, icon };
 }
@@ -584,6 +583,18 @@ function addApp(app) {
   state.apps.push(newApp);
   scheduleSave();
   emitEvent(EVENT_ADD, newApp);
+
+  if (!newApp.icon) {
+    try {
+      const parsed = new URL(newApp.url);
+      const hostname = parsed.hostname.replace(/^www\./, '');
+      newApp.icon = `https://icons.duckduckgo.com/ico/${hostname}.ico`;
+      scheduleSave();
+      log.info(`Set DuckDuckGo favicon for ${newApp.name}: ${newApp.icon}`);
+    } catch (err) {
+      log.warn(`Favicon setup failed for ${newApp.name}:`, err);
+    }
+  }
 
   log.info(`Added web app: ${newApp.name}`);
   return freezeApp(newApp);

@@ -5,7 +5,7 @@ registerApp({
   description: 'Install, manage, and customise .novaapp packages and web apps',
   defaultSize: [980, 640],
   minSize: [720, 480],
-  init(content) {
+  async init(content) {
     // ── NovaByte runtime guard — refuses to launch without AppDirs ──
     if (!window.AppDirs?.getVFSDir('com.nbosp.appmanager', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
@@ -21,17 +21,32 @@ registerApp({
     const listenerOpts = { signal: ac.signal };
 
     // ── Helpers ────────────────────────────────────────────────────
-    function getStoredApps() {
-      try { return JSON.parse(localStorage.getItem(APPS_KEY) || '[]'); }
-      catch { return []; }
+    const PackageStore = window.NovaAppPackageStore || null;
+
+    async function getStoredApps() {
+      try {
+        const list = PackageStore?.loadRegistry
+          ? PackageStore.loadRegistry()
+          : JSON.parse(localStorage.getItem(APPS_KEY) || '[]');
+        return PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
+      } catch (e) {
+        console.warn('[AppManager] Failed to load installed packages:', e);
+        return [];
+      }
     }
 
     function saveStoredApps(list) {
       try {
-        localStorage.setItem(APPS_KEY, JSON.stringify(list));
+        if (PackageStore?.saveRegistry) {
+          PackageStore.saveRegistry(list);
+        } else {
+          localStorage.setItem(APPS_KEY, JSON.stringify(list));
+        }
       } catch (e) {
         if (e.name === 'QuotaExceededError' || e.code === 22) {
-          console.warn('[AppManager] localStorage quota exceeded; app state saved in-memory only. Apps may need reinstall after refresh. Hint: uninstall large unused apps to free quota.');
+          console.warn('[AppManager] localStorage quota exceeded while saving app metadata.');
+        } else {
+          console.warn('[AppManager] Failed to save installed app metadata:', e);
         }
       }
     }
@@ -51,7 +66,10 @@ registerApp({
 
     function getPinned() { return OS.settings.get('pinnedApps') || []; }
     function getDisabled() {
-      try { return JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); }
+      try {
+        const raw = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+        return raw.map(x => typeof x === 'string' ? x : x?.id).filter(Boolean);
+      }
       catch { return []; }
     }
     function setDisabled(list) {
@@ -200,7 +218,9 @@ registerApp({
             let serveFailed = false;
             try {
               const shimmedFiles = Object.assign({}, appData.files);
-              shimmedFiles[entryKey] = btoa(html);
+              shimmedFiles[entryKey] = btoa(
+                encodeURIComponent(html).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+              );
 
               const regRes = await fetch('/api/apps/serve/register', {
                 method: 'POST',
@@ -292,6 +312,10 @@ registerApp({
     }
 
     function registerNovaApp(appData) {
+      if (!appData?.files) {
+        console.warn('[AppManager] Package files missing for', appData?.id, '- app was not registered');
+        return;
+      }
       const cfg = buildNovaAppConfig(appData);
       OS.apps[appData.id] = cfg;
       const ri = APP_REGISTRY.findIndex(a => a.id === appData.id);
@@ -299,7 +323,7 @@ registerApp({
       else APP_REGISTRY.push(cfg);
     }
 
-    let installedApps = getStoredApps();
+    let installedApps = await getStoredApps();
     installedApps.forEach(a => registerNovaApp(a));
 
     // ── Shared state ───────────────────────────────────────────────
@@ -520,7 +544,7 @@ registerApp({
 
         const toggleBtn = makeActionBtn(
           isDis ? 'Enable' : 'Disable',
-          isDis ? 'toggle-left' : 'toggle-right',
+          isDis ? 'done' : 'no-entry',
           isDis
             ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
             : 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
@@ -649,6 +673,7 @@ registerApp({
               delete OS.apps[pkg.manifest.id];
               const ri = APP_REGISTRY.findIndex(a => a.id === pkg.manifest.id);
               if (ri > -1) APP_REGISTRY.splice(ri, 1);
+              if (PackageStore?.removeApp) await PackageStore.removeApp(pkg.manifest.id, { updateRegistry: false });
               installedApps.splice(idx, 1);
             }
 
@@ -693,6 +718,9 @@ registerApp({
               source: 'file',
               installedAt: Date.now()
             };
+            if (PackageStore?.installApp) {
+              Object.assign(appData, await PackageStore.installApp(appData));
+            }
             installedApps.push(appData);
             saveStoredApps(installedApps);
             registerNovaApp(appData);
@@ -708,11 +736,16 @@ registerApp({
         reader.readAsText(file);
       }
 
-      function doUninstall(appId) {
+      async function doUninstall(appId) {
         const app = installedApps.find(a => a.id === appId);
         if (!app || !confirm(`Uninstall "${app.name}" v${app.version}?\n\nThis cannot be undone.`)) return;
 
         pushLog({ action: 'uninstall', appId: app.id, label: `${app.name} v${app.version} uninstalled` });
+        try {
+          if (PackageStore?.removeApp) await PackageStore.removeApp(appId, { updateRegistry: false });
+        } catch (e) {
+          console.warn('[AppManager] Failed to remove stored package files for', appId, e);
+        }
         installedApps = installedApps.filter(a => a.id !== appId);
         saveStoredApps(installedApps);
         delete OS.apps[appId];
@@ -839,9 +872,19 @@ registerApp({
             style: `display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:10px;cursor:pointer;transition:background 0.1s;${isSel ? 'background:var(--accent-muted);' : ''}`
           });
           const iconEl = createEl('div', {
-            style: 'width:32px;height:32px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:17px;line-height:1;'
+            style: 'width:32px;height:32px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;'
           });
-          iconEl.textContent = wa.icon || '\uD83C\uDF10';
+          if (wa.icon) {
+            if (/^data:|^https?:\/\//i.test(wa.icon)) {
+              const img = createEl('img', { src: wa.icon, style: 'width:100%;height:100%;object-fit:cover;pointer-events:none;border-radius:9px;', draggable: 'false' });
+              img.onerror = () => { iconEl.innerHTML = svgIcon('globe', 16); };
+              iconEl.appendChild(img);
+            } else {
+              iconEl.textContent = wa.icon;
+            }
+          } else {
+            iconEl.innerHTML = svgIcon('globe', 16);
+          }
           const meta = createEl('div', { style: 'flex:1;min-width:0;' });
           // SECURITY: escapeHtml for user-controlled wa.name
           meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary);font-size:12px;">${escapeHtml(wa.name)}</div><div style="font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(host)}</div>`;
@@ -890,8 +933,6 @@ registerApp({
 
           const { w: wUrl, inp: urlInp } = mkField('URL *', 'url', 'https://example.com', 'web-app-url-input', 'web-app-url');
           const { w: wName, inp: nameInp } = mkField('Name *', 'text', 'My App', 'web-app-name-input', 'web-app-name');
-          const { w: wIcon, inp: iconInp } = mkField('Icon (emoji)', 'text', '\uD83C\uDF10', 'web-app-icon-input', 'web-app-icon');
-          iconInp.value = '\uD83C\uDF10';
 
           const errEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });
           const saveBtn = createEl('button', {
@@ -901,14 +942,13 @@ registerApp({
           saveBtn.addEventListener('click', () => {
             const url = urlInp.value.trim();
             const name = nameInp.value.trim();
-            const icon = iconInp.value.trim() || '\uD83C\uDF10';
             errEl.textContent = '';
 
             if (!url) { errEl.textContent = 'URL is required.'; return; }
             try { new URL(url); } catch { errEl.textContent = 'Please enter a valid URL.'; return; }
             if (!name) { errEl.textContent = 'Name is required.'; return; }
 
-            const addedApp = wam ? wam.addApp({ name, url, icon }) : null;
+            const addedApp = wam ? wam.addApp({ name, url }) : null;
             if (addedApp) {
               Notify.show({ title: 'App Added', body: `"${name}" is now available.`, type: 'success', appName: 'App Manager' });
               selectedWebId = addedApp.id;
@@ -917,7 +957,7 @@ registerApp({
             }
           }, listenerOpts);
 
-          cbody.append(wUrl, wName, wIcon, errEl, saveBtn);
+          cbody.append(wUrl, wName, errEl, saveBtn);
           card.appendChild(cbody);
           wrap.appendChild(card);
           right.appendChild(wrap);
@@ -931,9 +971,19 @@ registerApp({
           style: 'padding:14px 18px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:12px;flex-shrink:0;background:var(--bg-sunken);'
         });
         const hIcon = createEl('div', {
-          style: 'width:48px;height:48px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;line-height:1;'
+          style: 'width:48px;height:48px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;'
         });
-        hIcon.textContent = wa.icon || '\uD83C\uDF10';
+        if (wa.icon) {
+          if (/^data:|^https?:\/\//i.test(wa.icon)) {
+            const img = createEl('img', { src: wa.icon, style: 'width:100%;height:100%;object-fit:cover;pointer-events:none;border-radius:13px;', draggable: 'false', crossorigin: 'anonymous' });
+            img.onerror = () => { hIcon.innerHTML = svgIcon('globe', 24); };
+            hIcon.appendChild(img);
+          } else {
+            hIcon.textContent = wa.icon;
+          }
+        } else {
+          hIcon.innerHTML = svgIcon('globe', 24);
+        }
         const hMeta = createEl('div', { style: 'flex:1;min-width:0;' });
         // SECURITY: escapeHtml for user-controlled wa.name and host
         hMeta.innerHTML = `<div style="font-size:16px;font-weight:700;color:var(--text-primary);">${escapeHtml(wa.name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(host)}</div>`;

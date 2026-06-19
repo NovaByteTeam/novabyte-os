@@ -1,3 +1,4 @@
+const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -154,9 +155,8 @@ function setupMiddleware(app) {
     app.use('/api/email/batch', emailWriteLimiter);
     app.use('/api/favicon', faviconLimiter);
 
-    // Body parsing middleware
-    app.use(require('express').json({ limit: '10mb' }));
-    app.use(require('express').urlencoded({ extended: true, limit: '10mb' }));
+    app.use(express.json({ limit: '4gb' }));
+    app.use(express.urlencoded({ extended: true, limit: '4gb' }));
     app.use(cookieParser());
 
     // Session middleware (required for CSRF protection)

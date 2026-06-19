@@ -134,15 +134,19 @@ function renderLaunchpad() {
         if (isUserApp) {
           menuItems.push({ separator: true }, {
             label: 'Uninstall', icon: 'trash', danger: true,
-            action: () => {
+            action: async () => {
               toggleLaunchpad();
               if (!confirm(`Uninstall "${app.name}"?\n\nThis cannot be undone.`)) return;
               try {
-                const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-                localStorage.setItem(
-                  'nova_installed_apps',
-                  JSON.stringify(stored.filter(a => a.id !== app.id))
-                );
+                if (window.NovaAppPackageStore?.removeApp) {
+                  await NovaAppPackageStore.removeApp(app.id);
+                } else {
+                  const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+                  localStorage.setItem(
+                    'nova_installed_apps',
+                    JSON.stringify(stored.filter(a => a.id !== app.id))
+                  );
+                }
                 delete OS.apps[app.id];
                 const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
                 if (ri > -1) APP_REGISTRY.splice(ri, 1);
@@ -207,7 +211,17 @@ function renderLaunchpad() {
           className: 'launchpad-icon',
           style: 'font-size: 28px; line-height: 1;'
         });
-        icon.textContent = webApp.icon;  // emoji/text icon — textContent is safe
+        if (webApp.icon) {
+          if (/^data:|^https?:\/\//i.test(webApp.icon)) {
+            const img = createEl('img', { src: webApp.icon, style: 'width:100%;height:100%;object-fit:cover;pointer-events:none;border-radius:inherit;', draggable: 'false', crossorigin: 'anonymous' });
+            img.onerror = () => { icon.innerHTML = svgIcon('globe', 28); };
+            icon.appendChild(img);
+          } else {
+            icon.textContent = webApp.icon;
+          }
+        } else {
+          icon.innerHTML = svgIcon('globe', 28);
+        }
 
         const name = createEl('div', { className: 'launchpad-name', textContent: webApp.name });
         const indicator = createEl('div', {
@@ -310,7 +324,7 @@ function renderLaunchpad() {
             { separator: true },
             {
               label: waIsPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
-              icon: waIsPinned ? 'pin-off' : 'pin',
+              icon: 'pin',
               action: () => {
                 const p    = OS.settings.get('pinnedApps') || [];
                 const next = waIsPinned ? p.filter(id => id !== waId) : [...p, waId];

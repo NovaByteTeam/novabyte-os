@@ -265,8 +265,8 @@ registerApp({
           const menuBtn = createEl('button', { className: 'em-tb-btn', title: 'Toggle sidebar', innerHTML: '&#9776;' });
           const acctLabel = createEl('span', { style: 'font-size:13px;font-weight:600;color:var(--text-primary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' });
           const tbSep = createEl('div', { className: 'em-tb-sep' });
-          const refreshBtn = createEl('button', { className: 'em-tb-btn', title: 'Refresh', innerHTML: svgIcon('refresh', 14) });
-          const composeBtn = createEl('button', { className: 'em-tb-btn em-primary', innerHTML: '&#9998; Compose' });
+           const refreshBtn = createEl('button', { className: 'em-tb-btn', title: 'Refresh', innerHTML: svgIcon('refresh', 14) });
+           const composeBtn = createEl('button', { className: 'em-tb-btn em-primary', innerHTML: '&#9998; Compose' });
           toolbar.append(menuBtn, acctLabel, tbSep, refreshBtn, composeBtn);
           root.appendChild(toolbar);
 

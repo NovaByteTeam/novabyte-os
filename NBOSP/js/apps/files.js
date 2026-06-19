@@ -365,7 +365,7 @@ registerApp({
                 { label: 'New Folder', icon: 'folder', shortcut: 'Ctrl+Shift+N', action: async () => { const n = await showPrompt('New Folder', 'New Folder'); if (n) { await FS.createFolder(nav.cwd, n); renderFiles(); renderDesktopIcons(); } } },
                 { separator: true },
                 {
-                  label: 'Paste', icon: 'documents', shortcut: 'Ctrl+V', action: async () => {
+                  label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', action: async () => {
                     if (OS.settings.get('disableClipboardPaste')) { Notify.show({ title: 'Blocked', body: 'Paste disabled.', type: 'warning', appName: 'Files' }); return; }
                     const clip = OS.clipboard; if (!clip?.fileId) return;
                     const src = FS.files.get(clip.fileId); if (!src) return;

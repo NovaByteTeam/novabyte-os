@@ -235,7 +235,7 @@ function _pruneAppServeRegistry() {
 }
 
 // Register app files for serving (called by app-sandbox.js loadAppContent)
-app.post('/api/apps/serve/register', express.json({ limit: '50mb' }), (req, res) => {
+app.post('/api/apps/serve/register', (req, res) => {
   const { sandboxId, files } = req.body || {};
   if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
     return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
@@ -262,15 +262,13 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
   const entry = _appServeRegistry.get(req.params.sandboxId);
   if (!entry) return res.status(404).end();
 
-  // Express v5 parses matching grouped strings as an array of path parts
-  const filePath = (req.params.file && req.params.file.length > 0)
-    ? req.params.file.join('/')
-    : 'index.html';
+  const raw = req.params.file;
+  const filePath = Array.isArray(raw) ? raw.join('/') : (raw || 'index.html');
 
   const fileData = entry.files[filePath];
   if (!fileData) return res.status(404).end();
 
-  const ext = filePath.split('.').pop().toLowerCase();
+  const ext = String(filePath).split('.').pop().toLowerCase();
   const MIME = {
     html: 'text/html', js: 'application/javascript', mjs: 'application/javascript',
     css: 'text/css', json: 'application/json',

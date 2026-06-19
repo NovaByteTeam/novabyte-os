@@ -71,6 +71,14 @@ const WM = window.WM = (() => {
     createWindow(appId, options) {
       if (appId === 'launchpad') { toggleLaunchpad(); return null; }
 
+      const disabled = (() => {
+        try { return JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); }
+        catch { return []; }
+      })();
+      if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
+        return null;
+      }
+
       const id  = generateId();
       const app = OS.apps[appId];
       if (!app) return null;
@@ -892,7 +900,7 @@ const WM = window.WM = (() => {
           }
           menuItems.push({
             label:  isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
-            icon:   isPinned ? 'pin-off' : 'pin',
+            icon:   'pin',
             action: () => {
               const pins = OS.settings.get('pinnedApps') ?? [];
               const next = isPinned ? pins.filter(p => p !== appId) : [...pins, appId];

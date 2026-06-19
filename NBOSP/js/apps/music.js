@@ -294,7 +294,7 @@
       }
 
       const shuffleBtn = ctrlBtn('shuffle', 14, 'Shuffle');
-      const prevBtn = ctrlBtn('skip-back', 16, 'Previous track');
+      const prevBtn = ctrlBtn('arrow-left', 16, 'Previous track');
       const playPauseBtn = createEl('button', {
         style:
           'width:38px;height:38px;border-radius:50%;background:var(--accent);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform 0.1s,background 0.1s;',
@@ -302,14 +302,14 @@
       });
       playPauseBtn.setAttribute('aria-label', 'Play');
       playPauseBtn.innerHTML = svgIcon('play', 18);
-      const nextBtn = ctrlBtn('skip-forward', 16, 'Next track');
+      const nextBtn = ctrlBtn('arrow-right', 16, 'Next track');
       const repeatBtn = ctrlBtn('repeat', 14, 'Repeat');
 
       // Volume row.
       const volRow = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
       const volIco = createEl('span', { style: 'color:var(--text-muted);' });
       volIco.setAttribute('aria-hidden', 'true');
-      volIco.innerHTML = svgIcon('volume-2', 14);
+      volIco.innerHTML = svgIcon('sound', 14);
       const volSlider = createEl('input', {
         type: 'range',
         min: '0',

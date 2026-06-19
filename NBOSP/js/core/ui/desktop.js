@@ -265,14 +265,33 @@ const OPFS = {
     return this.root;
   },
 
+  async _getFileHandle(path, options = {}) {
+    const root = await this.ensureRoot();
+    if (!root) return null;
+
+    const parts = String(path || '').split('/').filter(Boolean);
+    if (!parts.length) throw new Error('Path is required');
+
+    const fileName = parts.pop();
+    let dir = root;
+    for (const part of parts) {
+      dir = await dir.getDirectoryHandle(part, { create: !!options.create });
+    }
+    return dir.getFileHandle(fileName, { create: !!options.create });
+  },
+
   async storeBlob(key, blob) {
+    return this.writeBlob(key, blob);
+  },
+
+  async writeBlob(path, blob, type = 'application/octet-stream') {
     if (this.available && this.root) {
       // FIX: try/finally ensures writable stream is always closed even if write throws
       let writable;
       try {
-        const fileHandle = await this.root.getFileHandle(key, { create: true });
+        const fileHandle = await this._getFileHandle(path, { create: true });
         writable = await fileHandle.createWritable();
-        await writable.write(blob);
+        await writable.write(blob instanceof Blob ? blob : new Blob([blob], { type }));
         await writable.close();
         writable = null;
         return true;
@@ -283,13 +302,13 @@ const OPFS = {
         // fall through to IndexedDB
       }
     }
-    return this._storeIndexedDB(key, blob);
+    return this._storeIndexedDB(path, blob instanceof Blob ? blob : new Blob([blob], { type }));
   },
 
   async getBlob(key) {
     if (this.available && this.root) {
       try {
-        const fileHandle = await this.root.getFileHandle(key);
+        const fileHandle = await this._getFileHandle(key);
         return await fileHandle.getFile();
       } catch {
         // fall through to IndexedDB
@@ -301,7 +320,12 @@ const OPFS = {
   async deleteBlob(key) {
     if (this.available && this.root) {
       try {
-        await this.root.removeEntry(key);
+        const parts = String(key || '').split('/').filter(Boolean);
+        if (!parts.length) return false;
+        const name = parts.pop();
+        let parent = this.root;
+        for (const part of parts) parent = await parent.getDirectoryHandle(part);
+        await parent.removeEntry(name);
         return true;
       } catch {
         // fall through to IndexedDB
@@ -1212,12 +1236,16 @@ function renderDesktopIcons() {
       if (isUserApp) {
         items.push({ separator: true }, {
           label: 'Uninstall', icon: 'trash', danger: true,
-          action: () => {
+          action: async () => {
             if (!confirm(`Uninstall "${app.name}"?\n\nThis cannot be undone.`)) return;
             try {
-              const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-              const updated = stored.filter(a => a.id !== app.id);
-              localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
+              if (window.NovaAppPackageStore?.removeApp) {
+                await NovaAppPackageStore.removeApp(app.id);
+              } else {
+                const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+                const updated = stored.filter(a => a.id !== app.id);
+                localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
+              }
               delete OS.apps[app.id];
               const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
               if (ri > -1) APP_REGISTRY.splice(ri, 1);
