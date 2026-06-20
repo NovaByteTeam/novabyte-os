@@ -360,7 +360,7 @@ const MyAppsManager = (() => {
                     align-items: center;
                     justify-content: center;
                     font-size: 20px;
-                  ">${app.icon || '📱'}</div>
+                  " data-app-id="${app.id}" data-app-icon="${app.icon || ''}">${/^data:|^https?:\/\//i.test(app.icon || '') ? '' : (app.icon || '📱')}</div>
                   <div>
                     <h3 style="color: #e6edf3; font-size: 14px; margin: 0;">${escapeHtml(app.name)}</h3>
                     <p style="color: #8b949e; font-size: 12px; margin: 0;">v${escapeHtml(app.version)}</p>
@@ -411,6 +411,27 @@ const MyAppsManager = (() => {
     `;
 
     container.innerHTML = html;
+
+    container.querySelectorAll('[data-app-icon]').forEach(el => {
+      const raw = el.getAttribute('data-app-icon') || '';
+      const files = (function() {
+        try {
+          const apps = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+          return apps.find(a => a.id === el.getAttribute('data-app-id'))?.files || {};
+        } catch (_) { return {}; }
+      })();
+      const encoded = files[raw];
+      if (encoded && typeof encoded === 'string') {
+        const ext = (raw.split('.').pop() || '').toLowerCase();
+        const mime = ext === 'svg' ? 'image/svg+xml'
+          : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+          : ext === 'gif' ? 'image/gif'
+          : ext === 'webp' ? 'image/webp'
+          : ext === 'ico' ? 'image/x-icon'
+          : 'image/png';
+        el.innerHTML = `<img src="data:${mime};base64,${encoded}" style="width:100%;height:100%;object-fit:cover;border-radius:8px;pointer-events:none;" draggable="false">`;
+      }
+    });
 
     // Event listeners
     const installAppBtn = container.querySelector('#installAppBtn');

@@ -220,6 +220,10 @@ function generateId() {
       function svgIcon(name, size) {
         size = size || 18;
 
+        if (typeof name === 'string' && name.startsWith('data:')) {
+          return `<img src="${name}" width="${size}" height="${size}" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility='hidden';">`;
+        }
+
         const uiIcons = {
           'x': `<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`,
           'plus': `<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>`,

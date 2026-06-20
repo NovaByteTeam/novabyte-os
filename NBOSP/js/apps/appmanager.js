@@ -23,6 +23,24 @@ registerApp({
     // ── Helpers ────────────────────────────────────────────────────
     const PackageStore = window.NovaAppPackageStore || null;
 
+    function resolveIcon(app) {
+      if (!app?.icon || typeof app.icon !== 'string') return null;
+      if (/^data:|^https?:\/\//i.test(app.icon)) return app.icon;
+      const files = app.files || app._files || {};
+      const encoded = files[app.icon];
+      if (encoded && typeof encoded === 'string') {
+        const ext = (app.icon.split('.').pop() || '').toLowerCase();
+        const mime = ext === 'svg' ? 'image/svg+xml'
+          : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+          : ext === 'gif' ? 'image/gif'
+          : ext === 'webp' ? 'image/webp'
+          : ext === 'ico' ? 'image/x-icon'
+          : 'image/png';
+        return `data:${mime};base64,${encoded}`;
+      }
+      return null;
+    }
+
     async function getStoredApps() {
       try {
         const list = PackageStore?.loadRegistry
@@ -316,6 +334,19 @@ registerApp({
         console.warn('[AppManager] Package files missing for', appData?.id, '- app was not registered');
         return;
       }
+
+      if (appData.icon && !/^data:|^https?:\/\//i.test(appData.icon) && appData.files[appData.icon]) {
+        const encoded = appData.files[appData.icon];
+        const ext = (appData.icon.split('.').pop() || '').toLowerCase();
+        const mime = ext === 'svg' ? 'image/svg+xml'
+          : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+          : ext === 'gif' ? 'image/gif'
+          : ext === 'webp' ? 'image/webp'
+          : ext === 'ico' ? 'image/x-icon'
+          : 'image/png';
+        appData = { ...appData, icon: `data:${mime};base64,${encoded}` };
+      }
+
       const cfg = buildNovaAppConfig(appData);
       OS.apps[appData.id] = cfg;
       const ri = APP_REGISTRY.findIndex(a => a.id === appData.id);
@@ -455,7 +486,14 @@ registerApp({
           const iconWrap = createEl('div', {
             style: `width:34px;height:34px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:${isDis ? 'var(--text-muted)' : 'var(--accent)'};opacity:${isDis ? 0.5 : 1};`
           });
-          iconWrap.innerHTML = svgIcon(app.icon || 'box', 17);
+          const iconSrc = resolveIcon(app);
+          if (iconSrc) {
+            const _img = createEl('img', { src: iconSrc, draggable: 'false', style: 'width:100%;height:100%;object-fit:cover;border-radius:8px;pointer-events:none;' });
+            _img.onerror = () => { iconWrap.innerHTML = svgIcon('box', 17); };
+            iconWrap.appendChild(_img);
+          } else {
+            iconWrap.innerHTML = svgIcon(app.icon || 'box', 17);
+          }
           const meta = createEl('div', { style: 'flex:1;min-width:0;' });
           // SECURITY: Use escapeHtml for user-controlled app.name
           meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${isDis ? 'var(--text-muted)' : 'var(--text-primary)'};">${escapeHtml(app.name)}</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">v${escapeHtml(app.version || '1.0.0')}${isDis ? ' \u00B7 disabled' : ''}</div>`;
@@ -513,7 +551,14 @@ registerApp({
         const hIcon = createEl('div', {
           style: `width:56px;height:56px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:${isDis ? 'var(--text-muted)' : 'var(--accent)'};opacity:${isDis ? 0.5 : 1};`
         });
-        hIcon.innerHTML = svgIcon(app.icon || 'box', 28);
+        const iconSrc = resolveIcon(app);
+        if (iconSrc) {
+          const _img = createEl('img', { src: iconSrc, draggable: 'false', style: 'width:100%;height:100%;object-fit:cover;border-radius:13px;pointer-events:none;' });
+          _img.onerror = () => { hIcon.innerHTML = svgIcon('box', 28); };
+          hIcon.appendChild(_img);
+        } else {
+          hIcon.innerHTML = svgIcon(app.icon || 'box', 28);
+        }
         const hMeta = createEl('div', { style: 'flex:1;min-width:0;' });
         // SECURITY: escapeHtml for app.name and app.author (user-controlled)
         hMeta.innerHTML = `<div style="font-size:18px;font-weight:700;color:var(--text-primary);">${escapeHtml(app.name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">v${escapeHtml(app.version || '1.0.0')} \u00B7 ${escapeHtml(app.author || 'Unknown')}</div>`;
@@ -757,7 +802,28 @@ registerApp({
         setDisabled(getDisabled().filter(id => id !== appId));
         setBootApps(getBootApps().filter(id => id !== appId));
 
+        // Remove any desktop shortcut (.lnk) files pointing to this app
+        try {
+          const desktopFolder = FS.specialFolders?.desktop;
+          if (desktopFolder) {
+            const files = FS.listDir(desktopFolder);
+            for (const f of files) {
+              if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+                try {
+                  const data = JSON.parse(f.content || '{}');
+                  if (data?.type === 'app-shortcut' && data?.target === appId) {
+                    await FS.permanentDelete(f.id);
+                  }
+                } catch { /* skip invalid shortcuts */ }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[AppManager] Failed to clean up desktop shortcuts for', appId, e);
+        }
+
         if (WM.updateTaskbar) WM.updateTaskbar();
+        if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
         selectedPkgId = null;
         renderList();
         renderDetail();

@@ -1303,6 +1303,24 @@ function renderDesktopIcons() {
               delete OS.apps[app.id];
               const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
               if (ri > -1) APP_REGISTRY.splice(ri, 1);
+              try {
+                const desktopFolder = FS.specialFolders?.desktop;
+                if (desktopFolder) {
+                  const files = FS.listDir(desktopFolder);
+                  for (const f of files) {
+                    if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+                      try {
+                        const data = JSON.parse(f.content || '{}');
+                        if (data?.type === 'app-shortcut' && data?.target === app.id) {
+                          await FS.permanentDelete(f.id);
+                        }
+                      } catch { /* skip invalid shortcuts */ }
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn('[Desktop] Failed to clean up shortcuts for', app.id, err);
+              }
               renderDesktopIcons();
               WM.updateTaskbar();
               Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Desktop' });

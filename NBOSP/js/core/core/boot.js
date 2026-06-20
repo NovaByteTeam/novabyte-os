@@ -500,10 +500,23 @@ async function boot() {
  * Called at idle time after boot — safe to call manually if needed.
  */
   function registerWithFiles(appData) {
+    let icon = appData.icon || 'box';
+    if (icon && !/^data:|^https?:\/\//i.test(icon) && appData.files?.[icon]) {
+      const encoded = appData.files[icon];
+      const ext = (icon.split('.').pop() || '').toLowerCase();
+      const mime = ext === 'svg' ? 'image/svg+xml'
+        : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+        : ext === 'gif' ? 'image/gif'
+        : ext === 'webp' ? 'image/webp'
+        : ext === 'ico' ? 'image/x-icon'
+        : 'image/png';
+      icon = `data:${mime};base64,${encoded}`;
+    }
+
     const cfg = {
       id: appData.id,
       name: appData.name,
-      icon: appData.icon || 'box',
+      icon,
       description: appData.description || '',
       defaultSize: appData.defaultSize || [800, 560],
       minSize: appData.minSize || [400, 300],
