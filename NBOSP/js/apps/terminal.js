@@ -4,7 +4,7 @@
 // Registers itself with the host OS via the global registerApp() entry point.
 // All DOM output is rendered through createEl / writeLine / writeHTML so the
 // visual output matches the original implementation byte-for-byte.
-// The rewrite is great thing btw we had lots of issues with complex whatever its called commands, its just a way more efficent way to build upon it without worrying about effiency or issues i think, so good luck i guess, spent 7 bloody fucking hours of my life btw so dont misuse this app
+// The rewrite is great thing btw we had lots of issues with complex whatever its called commands, its just a way more efficent way to build upon it without worrying about effiency or issues i think, so good luck i guess, spent 7 bloody fucking hours of my life btw so dont misuse this app [DELETE THIS LINE IN PRODUCTION]
 
 // App bundle id used for the AppDirs runtime guard.
 const APP_BUNDLE_ID = 'com.nbosp.shell';
