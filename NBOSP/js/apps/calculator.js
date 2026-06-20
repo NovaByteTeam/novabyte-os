@@ -100,9 +100,9 @@ registerApp({
       #mulDiv() {
         let v = this.#primary();
         while (this.#i < this.#len) {
-          if      (this.#eat(42)) v *= this.#primary(); // '*'
-          else if (this.#eat(47)) v /= this.#primary(); // '/'
-          else if (this.#eat(37)) v %= this.#primary(); // '%'
+          if      (this.#eat(215)) v *= this.#primary(); // '×'
+          else if (this.#eat(247)) v /= this.#primary(); // '÷'
+          else if (this.#eat(37))  v %= this.#primary(); // '%'
           else break;
         }
         return v;
@@ -238,8 +238,8 @@ registerApp({
         case 'C':  clearAll(); break;
         case '⌫': backspace(); break;
         case '%':  append('%'); break;
-        case '÷':  append('/'); break;
-        case '×':  append('*'); break;
+        case '÷':  append('÷'); break;
+        case '×':  append('×'); break;
         case '−':  append('-'); break;
         default:   append(key); break;
       }
@@ -271,12 +271,14 @@ registerApp({
     content.addEventListener('keydown', (e) => {
       const k = e.key;
       switch (k) {
-        case '+': case '-': case '*': case '/': case '(': case ')':
+        case '*': e.preventDefault(); append('×'); break;
+        case '/': e.preventDefault(); append('÷'); break;
+        case '+': case '-': case '(': case ')':
         case '%': case '.': case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7': case '8': case '9':
           e.preventDefault(); append(k); break;
-        case '÷': e.preventDefault(); append('/'); break;
-        case '×': e.preventDefault(); append('*'); break;
+        case '÷': e.preventDefault(); append('÷'); break;
+        case '×': e.preventDefault(); append('×'); break;
         case '−': e.preventDefault(); append('-'); break;
         case 'Enter': case '=': e.preventDefault(); equals(); break;
         case 'Backspace': e.preventDefault(); backspace(); break;

@@ -115,6 +115,7 @@ registerApp({
     state.cleanups = state.cleanups || [];
     state.cleanups.push(() => appAbort.abort());
 
+
     // ── Memoised favicon normaliser ─────────────────────────────────────────
     const _faviconCache = new Map(); // url → normalised
     function normFavicon(favicon, siteUrl = '') {
@@ -333,6 +334,37 @@ registerApp({
       if (tabEl) switchToTab(Number(tabEl.dataset.tabId));
     }, { signal: appAbort.signal });
 
+    // Right-click a tab → tab strip context menu (Chromium-style essentials).
+    tabsBar.addEventListener('contextmenu', (e) => {
+      const tabEl = e.target.closest('.browser-tab');
+      // Right-click on empty bar space → just offer a new tab.
+      if (!tabEl) {
+        e.preventDefault();
+        ContextMenu.show(e.clientX, e.clientY, [
+          { label: 'New Tab', icon: 'plus', action: createNewTab },
+          { label: 'New Incognito Tab', icon: 'incognito', action: createIncognitoTab },
+        ]);
+        return;
+      }
+      e.preventDefault();
+      const tabId = Number(tabEl.dataset.tabId);
+      const idx = tabs.findIndex(t => t.id === tabId);
+      const isIncog = Boolean(tabs[idx]?.incognito);
+      ContextMenu.show(e.clientX, e.clientY, [
+        { label: 'New Tab', icon: 'plus', action: createNewTab },
+        { label: 'New Incognito Tab', icon: 'incognito', action: createIncognitoTab },
+        { separator: true },
+        { label: 'Reload', icon: 'refresh', action: () => reloadTab(tabId) },
+        { label: 'Duplicate', icon: 'copy', action: () => duplicateTab(tabId) },
+        { separator: true },
+        { label: 'Close Tab', icon: 'x', shortcut: 'Ctrl+W', danger: true, action: () => closeTab(tabId) },
+        { label: 'Close Other Tabs', action: () => closeOthers(tabId) },
+        { label: 'Close Tabs to the Right', action: () => closeTabsToRight(tabId) },
+        { label: 'Close Tabs to the Left', action: () => closeTabsToLeft(tabId) },
+        ...(isIncog ? [{ separator: true }, { label: 'New Incognito Tab', icon: 'incognito', action: createIncognitoTab }] : []),
+      ]);
+    }, { signal: appAbort.signal });
+
     function renderTabs() {
       // Use a DocumentFragment to batch DOM writes (avoids N reflows).
       const frag = document.createDocumentFragment();
@@ -530,6 +562,7 @@ registerApp({
       tabViewMode.delete(tabId);
       tabZoom.delete(tabId);
       tabUnresponsive.delete(tabId);
+      _frameCheckGen.delete(tabId);
 
       const closedNotice = viewport.querySelector(`.browser-iframe-blocked[data-tab="${tabId}"]`);
       if (closedNotice) closedNotice.remove();
@@ -537,6 +570,60 @@ registerApp({
       // Now evaluate whether we need a default fallback tab.
       if (tabs.length === 0) { createNewTab(); return; }
       renderTabs();
+    }
+
+    // ── Tab actions (shared by the toolbar button & context menus) ──────────
+    function reloadTab(tabId) {
+      const tab = tabs.find(t => t.id === tabId);
+      if (!tab) return;
+      if (getTabMode(tabId) === 'iframe') {
+        const ifr = tabIframes.get(tabId);
+        if (ifr) {
+          try { ifr.contentWindow.location.reload(); }
+          catch (_) { const s = ifr.src; ifr.src = ''; ifr.src = s; }
+          return;
+        }
+      } else {
+        const wv = tabWebviews.get(tabId);
+        if (wv) { try { wv.reload(); } catch (_) {} return; }
+      }
+      // No element yet (never-rendered background tab) — load it now.
+      if (tabId !== activeTabId) switchToTab(tabId);
+      if (tab.url) navigate(tab.url);
+    }
+
+    function duplicateTab(tabId) {
+      const src = tabs.find(t => t.id === tabId);
+      if (!src) return;
+      const idx = tabs.findIndex(t => t.id === tabId);
+      const dup = {
+        id: nextTabId++,
+        title: src.title || 'New Tab',
+        url: src.url || '',
+        favicon: src.favicon || '',
+        incognito: src.incognito || false,
+      };
+      tabs.splice(idx + 1, 0, dup);
+      switchToTab(dup.id);
+      if (dup.url) navigate(dup.url);
+    }
+
+    // Snapshot ids BEFORE closing — closeTab reassigns the `tabs` array.
+    function closeOthers(keepTabId) {
+      switchToTab(keepTabId); // keep this one active so closeTab doesn't reshuffle
+      for (const id of tabs.filter(t => t.id !== keepTabId).map(t => t.id)) closeTab(id);
+    }
+    function closeTabsToRight(fromTabId) {
+      const idx = tabs.findIndex(t => t.id === fromTabId);
+      if (idx === -1) return;
+      switchToTab(fromTabId);
+      for (const id of tabs.slice(idx + 1).map(t => t.id)) closeTab(id);
+    }
+    function closeTabsToLeft(fromTabId) {
+      const idx = tabs.findIndex(t => t.id === fromTabId);
+      if (idx === -1) return;
+      switchToTab(fromTabId);
+      for (const id of tabs.slice(0, idx).map(t => t.id)) closeTab(id);
     }
 
     // ── Speed dial (new-tab page) ───────────────────────────────────────────
@@ -1150,6 +1237,25 @@ registerApp({
     }
     const BROWSER_PARTITION = 'persist:' + _bpid;
 
+    // ── URL tracking ───────────────────────────────────────────────────────
+    // Hoisted to this outer scope (not nested in getOrCreateWebview) because
+    // both the per-tab webview listeners AND the shared poll timer below
+    // need to call it, and it doesn't depend on any per-tab closure state.
+    function syncUrlForTab(url, forTabId, source) {
+      if (!url || url === 'about:blank' || url === 'about:newtab') return;
+      const tab = tabs.find(t => t.id === forTabId);
+      if (tab) tab.url = url;
+      if (forTabId !== activeTabId) return;
+      currentUrl = url;
+      urlBar.value = stripHttps(url);
+      updateUrlIcon(url);
+      const bkd = isBookmarked(url);
+      starBtn.style.color = bkd ? 'var(--accent)' : '';
+      starBtn.innerHTML = svgIcon(bkd ? 'star-filled' : 'star', 16);
+      // Update only the active tab's title; full re-render is wasteful for SPAs.
+      if (tab?.title) updateTabTitle(forTabId, tab.title);
+    }
+
     // ── Shared single-timer URL poller ──────────────────────────────────────
     // Instead of N intervals (one per webview), use ONE interval that polls
     // only the currently-active webview. This reduces timer overhead and
@@ -1212,22 +1318,6 @@ registerApp({
       wv.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
       wv.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointerEvents:none;z-index:0;top:0;left:0;';
 
-      // ── URL tracking ──────────────────────────────────────────────────────
-      function syncUrlForTab(url, forTabId, source) {
-        if (!url || url === 'about:blank' || url === 'about:newtab') return;
-        const tab = tabs.find(t => t.id === forTabId);
-        if (tab) tab.url = url;
-        if (forTabId !== activeTabId) return;
-        currentUrl = url;
-        urlBar.value = stripHttps(url);
-        updateUrlIcon(url);
-        const bkd = isBookmarked(url);
-        starBtn.style.color = bkd ? 'var(--accent)' : '';
-        starBtn.innerHTML = svgIcon(bkd ? 'star-filled' : 'star', 16);
-        // Update only the active tab's title; full re-render is wasteful for SPAs.
-        if (tab?.title) updateTabTitle(forTabId, tab.title);
-      }
-
       wv.addEventListener('loadcommit', e => {
         if (e.isTopLevel && e.url) syncUrlForTab(e.url, tabId, 'loadcommit');
       });
@@ -1277,6 +1367,19 @@ registerApp({
           });
         } catch (_) {}
       });
+
+
+      wv.addEventListener('contentload', () => {
+        try {
+          wv.executeScript({ code: 'location.href' }, r => {
+            if (chrome.runtime?.lastError || !r?.[0]) return;
+            syncUrlForTab(r[0], tabId, 'contentload+executeScript');
+          });
+        } catch (_) {}
+      });
+
+
+
 
       // ── Network / certificate error handling ──────────────────────────────
       wv.addEventListener('loaderror', e => {
@@ -1672,17 +1775,16 @@ registerApp({
       ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation');
       ifr.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointerEvents:none;z-index:0;top:0;left:0;background:#fff;';
 
+      // NOTE: blocking is detected server-side via /api/frame-check before the
+      // iframe is ever shown (see navigateFrameMode). The old heuristic here
+      // (checking ifr.contentDocument.URL === 'about:blank') was wrong both
+      // ways: embeddable sites pass through about:blank mid-load (false
+      // positive), and genuinely-blocked sites are cross-origin so
+      // contentDocument throws and the notice was never shown — leaving the
+      // raw "refused to connect" error visible. We now just sync the title.
       ifr.addEventListener('load', () => {
         const tab = tabs.find(t => t.id === tabId);
         if (!tab?.url || !/^https?:/i.test(tab.url)) return;
-        const old = viewport.querySelector(`.browser-iframe-blocked[data-tab="${tabId}"]`);
-        if (old) old.remove();
-        try {
-          const doc = ifr.contentDocument;
-          if (doc && (doc.URL === 'about:blank' || doc.URL === '') && /^https?:/i.test(tab.url)) {
-            showIframeBlockedNotice(tabId, tab.url);
-          }
-        } catch (_) { /* cross-origin but loaded — clear */ }
         try {
           const title = ifr.contentDocument?.title;
           if (title) {
@@ -1690,7 +1792,7 @@ registerApp({
             if (tabId === activeTabId) updateTabTitle(tabId, title);
             else renderTabs();
           }
-        } catch (_) {}
+        } catch (_) { /* cross-origin — title sync not possible, expected */ }
       });
 
       tabIframes.set(tabId, ifr);
@@ -1698,7 +1800,9 @@ registerApp({
     }
 
     function showIframeBlockedNotice(tabId, url) {
-      if (viewport.querySelector(`.browser-iframe-blocked[data-tab="${tabId}"]`)) return;
+      // Remove any prior notice for this tab (e.g. stale from a previous URL).
+      const prior = viewport.querySelector(`.browser-iframe-blocked[data-tab="${tabId}"]`);
+      if (prior) prior.remove();
       const notice = createEl('div', { className: 'browser-iframe-blocked' });
       notice.dataset.tab = tabId;
       // Build via DOM APIs to avoid innerHTML with translated strings.
@@ -1710,6 +1814,32 @@ registerApp({
       sw.addEventListener('click', () => { setTabMode(tabId, 'webview'); navigate(url); });
       notice.append(icon, titleEl, body, sw);
       viewport.appendChild(notice);
+    }
+
+    // ── Per-tab frame-check generation guard ────────────────────────────────
+    // Bumped before each /api/frame-check so a slow response from a previous
+    // navigation can't show/hide the iframe of a newer one.
+    const _frameCheckGen = new Map(); // tabId → number
+
+    /**
+     * Server-side frame-embed check. Returns true if the URL may be loaded in
+     * an <iframe> (no XFO/CSP frame-ancestors blocking it). On any error or
+     * timeout we optimistically return true so we never false-block a
+     * legitimate page — the iframe will just show its normal content.
+     */
+    async function checkFrameEmbeddable(tabId, url) {
+      const gen = (_frameCheckGen.get(tabId) || 0) + 1;
+      _frameCheckGen.set(tabId, gen);
+      try {
+        const r = await fetch('/api/frame-check?url=' + encodeURIComponent(url));
+        if (gen !== _frameCheckGen.get(tabId)) return null; // superseded
+        if (!r.ok) return true; // fail open
+        const j = await r.json();
+        if (gen !== _frameCheckGen.get(tabId)) return null; // superseded
+        return j.embeddable !== false;
+      } catch (_) {
+        return true; // fail open — don't false-block on network errors
+      }
     }
 
     function setTabMode(tabId, mode) {
@@ -1756,19 +1886,37 @@ registerApp({
             if (id === tabId) {
               applyMobileViewportFrame(ifr, isMobile);
               applyZoomToIframe(ifr, isMobile, tabZoom.get(tabId) || 1.0);
-              ifr.style.visibility = 'visible';
-              ifr.style.pointerEvents = 'auto';
-              ifr.style.zIndex = '1';
+              // If we've already determined this URL is frame-blocked, keep
+              // the iframe hidden so Chromium's "refused to connect" error
+              // never shows through under our custom notice.
+              const blocked = viewport.querySelector(`.browser-iframe-blocked[data-tab="${tabId}"]`);
+              if (blocked) {
+                ifr.style.visibility = 'hidden';
+                ifr.style.pointerEvents = 'none';
+                ifr.style.zIndex = '0';
+              } else {
+                ifr.style.visibility = 'visible';
+                ifr.style.pointerEvents = 'auto';
+                ifr.style.zIndex = '1';
+              }
             } else {
+              // Non-active iframes must be pulled out of flow — see note below.
+              ifr.style.position = 'absolute';
               ifr.style.visibility = 'hidden';
               ifr.style.pointerEvents = 'none';
               ifr.style.zIndex = '0';
             }
           }
         } else {
+          // Take every iframe OUT of flow. visibility:hidden alone keeps a
+          // flex item in layout flow, so a previously-shown iframe left at
+          // position:relative + flex:1 would claim half the viewport and show
+          // through as a black bar under the active webview.
           for (const [, ifr] of tabIframes) {
+            ifr.style.position = 'absolute';
             ifr.style.visibility = 'hidden';
             ifr.style.pointerEvents = 'none';
+            ifr.style.zIndex = '0';
           }
           viewport.querySelectorAll(`.browser-iframe-blocked:not([data-tab="${tabId}"])`).forEach(n => n.remove());
           for (const [id, wv] of tabWebviews) {
@@ -1877,6 +2025,180 @@ registerApp({
         if (textZoom !== 10)
           css += `body { zoom: ${textZoom / 10} !important; } `;
         if (css) try { wv.insertCSS({ code: css }); } catch (_) {}
+      });
+
+      // ── Webview viewport right-click menu ──────────────────────────────────
+      // NW.js does NOT forward arbitrary DOM events from guest content to the
+      // host — 'contextmenu' on the <webview> element never fires (confirmed
+      // dead since nw.js 0.29.3, see github.com/nwjs/nw.js/issues/6614: guest
+      // content runs in its own process, so host-side listeners for events
+      // outside the small documented set just don't see it). Only a short
+      // list of events (load*, newwindow, permissionrequest, consolemessage,
+      // ...) actually bubble to the host. So instead:
+      //   1. Inject a script into the guest (on every loadstop, for SPA nav)
+      //      that listens for 'contextmenu' INSIDE the guest's own document —
+      //      the only place that can actually preventDefault() the native
+      //      Chromium menu for that content — and reports the click target +
+      //      position to the host via console.log, tagged with a marker.
+      //   2. Host listens for 'consolemessage' on the <webview> (this one
+      //      reliably bubbles), recognizes the tagged payload, converts the
+      //      guest-relative click position into host-page coordinates using
+      //      the webview's own bounding rect, and shows our ContextMenu.
+      const _CTX_MARKER = '__NBOSP_CTXMENU__:';
+      const _GUEST_CTX_SCRIPT = `
+        (function () {
+          if (window.__nbosp_ctx_injected) return;
+          window.__nbosp_ctx_injected = true;
+          document.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            var el  = e.target;
+            var link = el.closest ? el.closest('a') : null;
+            var img  = el.tagName === 'IMG'   ? el : (el.closest ? el.closest('img')   : null);
+            var vid  = el.tagName === 'VIDEO' ? el : (el.closest ? el.closest('video') : null);
+            var sel  = window.getSelection ? window.getSelection().toString().trim() : '';
+            var ctx = {
+              clientX:      e.clientX,
+              clientY:      e.clientY,
+              linkHref:     link ? (link.href  || '') : '',
+              linkText:     link ? (link.textContent || '').trim().slice(0, 120) : '',
+              imgSrc:       img  ? (img.src   || '') : '',
+              imgAlt:       img  ? (img.alt   || '') : '',
+              videoSrc:     vid  ? (vid.currentSrc || vid.src || '') : '',
+              selectedText: sel.slice(0, 500),
+              pageUrl:      location.href,
+              pageTitle:    document.title
+            };
+            try { console.log('${_CTX_MARKER}' + JSON.stringify(ctx)); } catch (_e) {}
+          }, true);
+        })();
+      `;
+
+      // Re-inject the tracker after every navigation (SPAs included).
+      wv.addEventListener('loadstop', () => {
+        try { wv.executeScript({ code: _GUEST_CTX_SCRIPT }); } catch (_) {}
+      });
+
+      // Open a URL in a new tab (inherits incognito state).
+      function _ctxOpenInNewTab(url) {
+        const _ctxTabId = [...tabWebviews.entries()].find(([, v]) => v === wv)?.[0];
+        const _ctxTab   = tabs.find(t => t.id === _ctxTabId);
+        const t = { id: nextTabId++, title: 'New Tab', url, favicon: '', incognito: _ctxTab?.incognito || false };
+        tabs.push(t);
+        switchToTab(t.id);
+        navigate(url);
+      }
+
+      // Best-effort clipboard write.
+      function _ctxCopyText(text) {
+        try {
+          navigator.clipboard.writeText(text);
+        } catch (_) {
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+          } catch (__) {}
+        }
+      }
+
+      function _buildWebviewMenu(ctx, pageUrl) {
+        const items = [];
+        const hasLink  = ctx?.linkHref  && /^https?:/i.test(ctx.linkHref);
+        const hasImg   = ctx?.imgSrc    && ctx.imgSrc.length > 0;
+        const hasVideo = ctx?.videoSrc  && ctx.videoSrc.length > 0;
+        const hasSel   = ctx?.selectedText && ctx.selectedText.length > 0;
+
+        // Link items
+        if (hasLink) {
+          items.push({ label: 'Open Link in New Tab', action: () => _ctxOpenInNewTab(ctx.linkHref) });
+          items.push({ label: 'Copy Link Address',    action: () => _ctxCopyText(ctx.linkHref) });
+          items.push({ separator: true });
+        }
+
+        // Image items
+        if (hasImg) {
+          items.push({ label: 'Open Image in New Tab', action: () => _ctxOpenInNewTab(ctx.imgSrc) });
+          items.push({ label: 'Copy Image Address',    action: () => _ctxCopyText(ctx.imgSrc) });
+          items.push({ separator: true });
+        }
+
+        // Video items
+        if (hasVideo) {
+          items.push({ label: 'Open Video in New Tab', action: () => _ctxOpenInNewTab(ctx.videoSrc) });
+          items.push({ label: 'Copy Video Address',    action: () => _ctxCopyText(ctx.videoSrc) });
+          items.push({ separator: true });
+        }
+
+        // Selection items
+        if (hasSel) {
+          const snippet = ctx.selectedText.length > 40
+            ? ctx.selectedText.slice(0, 40) + '\u2026'
+            : ctx.selectedText;
+          items.push({ label: 'Copy \u201c' + snippet + '\u201d', action: () => _ctxCopyText(ctx.selectedText) });
+          const _engine = SEARCH_ENGINES[getSetting('searchEngine', 'brave')];
+          if (_engine) {
+            const _q = encodeURIComponent(ctx.selectedText.slice(0, 300));
+            items.push({ label: 'Search for \u201c' + snippet + '\u201d', action: () => _ctxOpenInNewTab(_engine.url + _q) });
+          }
+          items.push({ separator: true });
+        }
+
+        // Page navigation (always present)
+        items.push({ label: 'Back',    action: () => { try { wv.back();    } catch (_) {} } });
+        items.push({ label: 'Forward', action: () => { try { wv.forward(); } catch (_) {} } });
+        items.push({ label: 'Reload',  action: () => { try { wv.reload();  } catch (_) {} } });
+        items.push({ separator: true });
+        if (pageUrl && /^https?:/i.test(pageUrl)) {
+          items.push({ label: 'Copy Page URL', action: () => _ctxCopyText(pageUrl) });
+        }
+        items.push({ label: 'Save as\u2026', action: () => {
+          try { wv.executeScript({ code: 'location.href' }, r => {
+            const url = (r && r[0]) || pageUrl;
+            if (url) window.open(url);
+          }); } catch (_) {}
+        }});
+        items.push({ label: 'Print\u2026', action: () => {
+          try { wv.executeScript({ code: 'window.print()' }); } catch (_) {}
+        }});
+        items.push({ separator: true });
+        items.push({ label: 'View Page Source', action: () => {
+          try { wv.executeScript({ code: 'location.href' }, r => {
+            const url = (r && r[0]) || pageUrl;
+            if (url) _ctxOpenInNewTab('view-source:' + url);
+          }); } catch (_) {}
+        }});
+        items.push({ label: 'Inspect', action: () => {
+          try { wv.showDevTools(true); } catch (_) {
+            try { nw.Window.get().showDevTools(); } catch (__) {}
+          }
+        }});
+
+        return items;
+      }
+
+      // The guest reports right-clicks here, tagged with _CTX_MARKER so we
+      // never mistake an ordinary page's own console.log for our signal.
+      wv.addEventListener('consolemessage', (e) => {
+        const msg = e?.message;
+        if (typeof msg !== 'string' || !msg.startsWith(_CTX_MARKER)) return;
+        let ctx = null;
+        try { ctx = JSON.parse(msg.slice(_CTX_MARKER.length)); } catch (_) { return; }
+
+        const _ctxTabId = [...tabWebviews.entries()].find(([, v]) => v === wv)?.[0];
+        const _ctxTab   = tabs.find(t => t.id === _ctxTabId);
+        const pageUrl    = ctx.pageUrl || _ctxTab?.url || currentUrl || '';
+
+        // Guest coords are relative to the guest viewport; translate into
+        // host-page coords using where the <webview> box actually sits.
+        const rect  = wv.getBoundingClientRect();
+        const hostX = rect.left + (ctx.clientX || 0);
+        const hostY = rect.top  + (ctx.clientY || 0);
+
+        ContextMenu.show(hostX, hostY, _buildWebviewMenu(ctx, pageUrl));
       });
     }
 
@@ -2375,7 +2697,33 @@ registerApp({
         const ifr = getOrCreateIframe(activeTabId);
         if (!ifr.parentNode) viewport.appendChild(ifr);
         showViewForTab(activeTabId);
-        ifr.src = url;
+        // Server-side embed check BEFORE setting src. If the site blocks framing
+        // (XFO / CSP frame-ancestors), keep the iframe hidden and show our
+        // custom notice instead of letting Chromium render "refused to connect".
+        ifr.style.visibility = 'hidden';
+        ifr.style.pointerEvents = 'none';
+        // Abort any previous in-flight navigation.
+        ifr.setAttribute('src', 'about:blank');
+        checkFrameEmbeddable(activeTabId, url).then(result => {
+          // Stale? Another navigation / mode switch superseded this tab.
+          if (result === null) return;
+          if (getTabMode(activeTabId) !== 'iframe') return;
+          const curTab = tabs.find(t => t.id === activeTabId);
+          if (curTab?.url !== url) return; // user navigated elsewhere
+          if (result === false) {
+            // Keep the iframe hidden (it's on about:blank) and show our notice.
+            ifr.style.visibility = 'hidden';
+            ifr.style.pointerEvents = 'none';
+            showIframeBlockedNotice(activeTabId, url);
+            return;
+          }
+          // Embeddable: clear any stale notice and load it.
+          const stale = viewport.querySelector(`.browser-iframe-blocked[data-tab="${activeTabId}"]`);
+          if (stale) stale.remove();
+          ifr.style.visibility = 'visible';
+          ifr.style.pointerEvents = 'auto';
+          ifr.src = url;
+        });
       } else {
         const wv = getOrCreateWebview(activeTabId);
         if (!wv.parentNode) viewport.appendChild(wv);
@@ -2395,6 +2743,7 @@ registerApp({
     let omniIdx = -1;
     let omniTimer = null;
     let omniController = null;
+    let omniGen = 0; // bumped per query + on close → stale renders bail out
 
     function omniReposition() {
       const r = urlBar.getBoundingClientRect();
@@ -2404,6 +2753,11 @@ registerApp({
       omniDrop.style.width = r.width + 'px';
     }
     function omniClose() {
+      // Invalidate any in-flight/queued work so a late async render can't
+      // reopen the dropdown after Enter / blur / Esc.
+      omniGen++;
+      clearTimeout(omniTimer);
+      if (omniController) { try { omniController.abort(); } catch (_) {} omniController = null; }
       omniDrop.style.display = 'none';
       omniDrop.replaceChildren();
       omniItems = [];
@@ -2465,6 +2819,10 @@ registerApp({
       const q = raw.trim();
       if (!q) { omniClose(); return; }
 
+      // Capture this query's generation; any newer query (or omniClose) bumps
+      // omniGen, so a stale fetch result will bail before rendering.
+      const gen = (++omniGen);
+
       // Local sources — instant (Iterator helpers, ES2025, lazy pipelines).
       const lq = q.toLowerCase();
       const bkItems = loadBookmarks()
@@ -2476,6 +2834,7 @@ registerApp({
         .slice(0, 4)
         .map(h => ({ type: 'history', label: h.title || h.url, sub: h.url, url: h.url }));
 
+      if (gen !== omniGen) return; // a newer query / close superseded us
       omniRender([...bkItems, ...hxItems]);
 
       // Skip remote fetch for single-char queries — results are noise
@@ -2486,12 +2845,17 @@ registerApp({
       omniController = new AbortController();
 
       const suggestions = await fetchSuggestions(q, omniController.signal);
-      if (omniController.signal.aborted) return;
+
+      // Stale check AFTER the await: abort() rejects the fetch, but a result
+      // could still resolve just before a newer query fires. The generation
+      // guard is the only reliable way to drop it.
+      if (gen !== omniGen) return;
 
       const sugItems = suggestions
         .filter(s => !bkItems.some(b => b.label === s) && !hxItems.some(h => h.label === s))
         .map(s => ({ type: 'suggest', label: s, url: null }));
 
+      if (gen !== omniGen) return; // final guard before paint
       omniRender([...bkItems, ...hxItems, ...sugItems]);
     }
 

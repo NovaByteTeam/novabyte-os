@@ -44,7 +44,16 @@ const WM = window.WM = (() => {
   // Invalidated by window resize, taskbar class changes, and taskbar resizes.
   let _waCache = null;
   const _clearWACache = () => { _waCache = null; };
+  const resetShellScroll = () => {
+    const root = document.documentElement;
+    const body = document.body;
+    if (root) { root.scrollLeft = 0; root.scrollTop = 0; }
+    if (body) { body.scrollLeft = 0; body.scrollTop = 0; }
+    if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+  };
+  if (typeof window.resetShellScroll !== 'function') window.resetShellScroll = resetShellScroll;
   window.addEventListener('resize', _clearWACache, { passive: true });
+  window.addEventListener('scroll', resetShellScroll, { passive: true });
 
   // ── WM object ──────────────────────────────────────────────────────────────
   const wm = {
@@ -516,6 +525,7 @@ const WM = window.WM = (() => {
 
       const rawMove = (e) => {
         if (!dragging) return;
+        resetShellScroll();
         const dx   = e.clientX - startX;
         const dy   = e.clientY - startY;
         const next = wm.clampWindowRect(state, origX + dx, origY + dy, state.width, state.height, dragArea);
@@ -552,7 +562,10 @@ const WM = window.WM = (() => {
           state.maximized = false;
           state.element.classList.remove('maximized');
           const np = document.getElementById('notification-panel');
-          if (np?.classList.contains('active')) np.classList.remove('active');
+          if (np?.classList.contains('active')) {
+            np.classList.remove('active');
+            resetShellScroll();
+          }
           if (state.preMaxState) {
             state.width  = state.preMaxState.w;
             state.height = state.preMaxState.h;
@@ -583,6 +596,7 @@ const WM = window.WM = (() => {
         }
 
         dragging = true;
+        resetShellScroll();
         dragArea = wm.getWorkArea(); // computed once; reused every RAF in rawMove
         startX   = e.clientX;  startY = e.clientY;
         origX    = state.x;    origY  = state.y;
@@ -613,6 +627,7 @@ const WM = window.WM = (() => {
         state.element.style.top        = `${state.y}px`;
         state.element.style.transform  = 'none';
         document.body.style.cursor     = '';
+        resetShellScroll();
 
         requestAnimationFrame(() => {
           state.element.style.transform  = '';

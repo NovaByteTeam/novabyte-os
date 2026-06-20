@@ -557,7 +557,7 @@ const OPFS = {
   }
 };
 
-// ── AppDirs — per-app OPFS data directories (Android /data/data/ style) ──
+// ── AppDirs — per-app OPFS data directories mirrored into one visible /data tree ──
 const AppDirs = {
   PACKAGES: {
     'vault': 'com.nbosp.vault',
@@ -582,6 +582,8 @@ const AppDirs = {
 
   // Bootstrap the full directory tree — safe to call every boot (idempotent)
   async bootstrap() {
+    await OPFS.init();
+
     // ── 1. OPFS physical directories ────────────────────────────────
     if (OPFS.available && OPFS.root) {
       const mkd = (parent, name) => parent.getDirectoryHandle(name, { create: true });
@@ -599,9 +601,8 @@ const AppDirs = {
           if (w) { try { await w.close(); } catch { /* ignore */ } }
         }
         const data = await mkd(OPFS.root, 'data');
-        const dataData = await mkd(data, 'data');
         for (const pkg of Object.values(this.PACKAGES)) {
-          const appDir = await mkd(dataData, pkg);
+          const appDir = await mkd(data, pkg);
           await mkd(appDir, 'files');
           await mkd(appDir, 'cache');
           await mkd(appDir, 'databases');
@@ -614,10 +615,40 @@ const AppDirs = {
     }
 
     // ── 2. Virtual FS — mirror tree so it's visible in Files app ────
+    const findVChild = (parentId, name, type, excludedIds = new Set()) =>
+      FS.listDir(parentId).find(f =>
+        f.name === name && f.type === type && !excludedIds.has(f.id));
+
+    const mergeVDir = async (sourceId, targetId) => {
+      if (!sourceId || !targetId || sourceId === targetId) return;
+      const children = FS.listDir(sourceId).slice();
+      for (const child of children) {
+        const existing = findVChild(
+          targetId,
+          child.name,
+          child.type,
+          new Set([sourceId, child.id])
+        );
+
+        if (existing && child.type === 'folder') {
+          await mergeVDir(child.id, existing.id);
+          await FS.permanentDelete(child.id);
+        } else if (existing) {
+          await FS.permanentDelete(child.id);
+        } else {
+          await FS.move(child.id, targetId);
+        }
+      }
+    };
+
     const mkVDir = async (parentId, name) => {
-      const existing = FS.listDir(parentId).find(f => f.name === name && f.type === 'folder');
-      if (existing) return existing;
-      return await FS.createFolder(parentId, name);
+      const matches = FS.listDir(parentId).filter(f => f.name === name && f.type === 'folder');
+      const canonical = matches[0] || await FS.createFolder(parentId, name);
+      for (const duplicate of matches.slice(1)) {
+        await mergeVDir(duplicate.id, canonical.id);
+        await FS.permanentDelete(duplicate.id);
+      }
+      return canonical;
     };
     const mkVFile = async (parentId, name, content, mime) => {
       const existing = FS.listDir(parentId).find(f => f.name === name && f.type === 'file');
@@ -628,6 +659,14 @@ const AppDirs = {
       const existing = FS.listDir(parentId).find(f => f.name === name && f.type === 'file');
       if (existing) { await FS.writeFile(existing.id, content); return existing; }
       return await FS.createFile(parentId, name, content, mime || 'application/json');
+    };
+    const collapseLegacyDataDirs = async (dataNode) => {
+      const nestedDataDirs = FS.listDir(dataNode.id)
+        .filter(f => f.name === 'data' && f.type === 'folder');
+      for (const nestedDataDir of nestedDataDirs) {
+        await mergeVDir(nestedDataDir.id, dataNode.id);
+        await FS.permanentDelete(nestedDataDir.id);
+      }
     };
 
     const APP_META = {
@@ -650,7 +689,7 @@ const AppDirs = {
 
     try {
       const dataNode = await mkVDir(FS.rootId, 'data');
-      const dataDataNode = await mkVDir(dataNode.id, 'data');
+      await collapseLegacyDataDirs(dataNode);
 
       // /System/ — OS identity visible in Files
       const systemNode = await mkVDir(FS.rootId, 'System');
@@ -662,7 +701,7 @@ const AppDirs = {
       this.vfsFolders = {};
 
       for (const pkg of Object.values(this.PACKAGES)) {
-        const appNode     = await mkVDir(dataDataNode.id, pkg);
+        const appNode     = await mkVDir(dataNode.id, pkg);
         const filesNode   = await mkVDir(appNode.id, 'files');
         const cacheNode   = await mkVDir(appNode.id, 'cache');
         const dbNode      = await mkVDir(appNode.id, 'databases');
@@ -688,9 +727,7 @@ const AppDirs = {
           if (f.type === 'file') {
             const alreadyMoved = FS.listDir(quillFilesId).find(n => n.name === f.name);
             if (!alreadyMoved) {
-              f.parentId = quillFilesId;
-              FS.files.set(f.id, f);
-              await OS.workers.fs.call('putFiles', [f]);
+              await FS.move(f.id, quillFilesId);
             }
           }
         }
@@ -706,7 +743,7 @@ const AppDirs = {
           JSON.stringify(OS.settings._cache, null, 2));
       }
 
-      this.fsFolders = { data: dataNode.id, dataData: dataDataNode.id, system: systemNode.id };
+      this.fsFolders = { data: dataNode.id, system: systemNode.id };
       console.log('[AppDirs] Virtual FS tree bootstrapped — visible in Files app');
     } catch (e) {
       console.warn('[AppDirs] Virtual FS bootstrap failed:', e);
@@ -718,9 +755,23 @@ const AppDirs = {
     if (this._handles[pkg]) return this._handles[pkg];
     if (!OPFS.available || !OPFS.root) return null;
     try {
-      const data = await OPFS.root.getDirectoryHandle('data');
-      const dataData = await data.getDirectoryHandle('data');
-      const appDir = await dataData.getDirectoryHandle(pkg);
+      const data = await OPFS.root.getDirectoryHandle('data', { create: true });
+      let appDir;
+      try {
+        appDir = await data.getDirectoryHandle(pkg);
+      } catch {
+        try {
+          const legacyData = await data.getDirectoryHandle('data');
+          appDir = await legacyData.getDirectoryHandle(pkg);
+        } catch {
+          appDir = await data.getDirectoryHandle(pkg, { create: true });
+        }
+      }
+      const mkd = (p, n) => p.getDirectoryHandle(n, { create: true });
+      await mkd(appDir, 'files');
+      await mkd(appDir, 'cache');
+      await mkd(appDir, 'databases');
+      await mkd(appDir, 'shared_prefs');
       this._handles[pkg] = appDir;
       return appDir;
     } catch {
@@ -806,11 +857,14 @@ const AppDirs = {
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
     if (!OPFS.available || !OPFS.root) return false;
     try {
-      const data = await OPFS.root.getDirectoryHandle('data');
-      const dataData = await data.getDirectoryHandle('data');
-      await dataData.removeEntry(pkg, { recursive: true });
+      const data = await OPFS.root.getDirectoryHandle('data', { create: true });
+      try { await data.removeEntry(pkg, { recursive: true }); } catch { /* ignore */ }
+      try {
+        const legacyData = await data.getDirectoryHandle('data');
+        await legacyData.removeEntry(pkg, { recursive: true });
+      } catch { /* ignore */ }
       delete this._handles[pkg];
-      const appDir = await dataData.getDirectoryHandle(pkg, { create: true });
+      const appDir = await data.getDirectoryHandle(pkg, { create: true });
       const mkd = (p, n) => p.getDirectoryHandle(n, { create: true });
       await mkd(appDir, 'files');
       await mkd(appDir, 'cache');

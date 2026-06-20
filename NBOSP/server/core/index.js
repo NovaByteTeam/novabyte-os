@@ -14,7 +14,7 @@ const { configureSSL } = require('./ssl');
 const { setupMiddleware } = require('../middleware');
 const { mountRoutes } = require('../routes');
 const { setupFaviconRoutes } = require('../favicons');
-const { setupSuggestProxy, setupEmailImageProxy } = require('../proxies');
+const { setupSuggestProxy, setupEmailImageProxy, setupFrameCheckProxy } = require('../proxies');
 
 // Global error handlers
 process.on('uncaughtException', (error) => {
@@ -85,6 +85,7 @@ app.use('/css', express.static(path.join(__dirname, '..', '..', 'css'), cacheOpt
 setupFaviconRoutes(app);
 setupSuggestProxy(app);
 setupEmailImageProxy(app);
+setupFrameCheckProxy(app);
 
 // 5. Manifest and version endpoints
 app.get('/manifest.json', (req, res) => {

@@ -479,6 +479,10 @@ document.getElementById('launchpad').addEventListener('click', (e) => {
 document.getElementById('notification-panel').addEventListener('click', (e) => {
   if (e.target.id === 'notification-panel') {
     document.getElementById('notification-panel').classList.remove('active');
+    if (typeof window.resetShellScroll === 'function') {
+      window.resetShellScroll();
+      requestAnimationFrame(window.resetShellScroll);
+    }
   }
 });
 
@@ -486,6 +490,10 @@ document.getElementById('tray-bell').addEventListener('click', Notify.togglePane
 
 document.getElementById('notif-close').addEventListener('click', () => {
   document.getElementById('notification-panel').classList.remove('active');
+  if (typeof window.resetShellScroll === 'function') {
+    window.resetShellScroll();
+    requestAnimationFrame(window.resetShellScroll);
+  }
 });
 
 document.getElementById('notif-mark-all').addEventListener('click', () => {

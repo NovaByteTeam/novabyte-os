@@ -332,6 +332,7 @@ function generateId() {
           'quill-pen': 'pen',
           'pen': 'pen',
           'reading-book-and-apple': 'document',
+          'incognito': 'incognito',
           'gamepad-2': 'dice',
           'box': 'dice',
           'circle': 'dice',

@@ -168,8 +168,13 @@ const Notify = {
         togglePanel() {
           Notify.loadPersisted();
           const panel = document.getElementById('notification-panel');
+          if (!panel) return;
           const opening = !panel.classList.contains('active');
           panel.classList.toggle('active');
+          if (typeof window.resetShellScroll === 'function') {
+            window.resetShellScroll();
+            requestAnimationFrame(window.resetShellScroll);
+          }
           if (opening) {
             if (OS.notifications.length) {
               OS.notifications = OS.notifications.map(n => n && !n.read ? { ...n, read: true } : n);
