@@ -66,7 +66,7 @@
     // Contacts
     'nbosp-contacts': {
       normal   : [],
-      dangerous: ['contacts:read', 'contacts:write', 'contacts:delete'],
+      dangerous: ['contacts:read', 'contacts:write', 'contacts:delete', 'fs:write'],
     },
 
     // Browser

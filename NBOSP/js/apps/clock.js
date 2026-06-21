@@ -606,6 +606,23 @@ registerApp({
       return `${pad(m)}:${pad(s)}.${pad(cs)}`;
     }
 
+    // Smooth stopwatch redraw. Elapsed time is derived from Date.now() so there
+    // is no drift — we just repaint the centiseconds each animation frame
+    // instead of every 250ms (which made the display visibly stutter).
+    let swRafId = null;
+    function swStopRaf() {
+      if (swRafId !== null) { cancelAnimationFrame(swRafId); swRafId = null; }
+    }
+    function swEnsureRaf() {
+      if (swRafId !== null || !swRun) return;
+      const loop = () => {
+        if (!swRun) { swRafId = null; return; }
+        swDisplay.textContent = fmtSw(swCurrentMs());
+        swRafId = requestAnimationFrame(loop);
+      };
+      swRafId = requestAnimationFrame(loop);
+    }
+
     function renderSwLaps() {
       if (!swLaps.length) { swLapScroll.innerHTML = ''; return; }
 
@@ -644,6 +661,12 @@ registerApp({
       swSync();
       swStartBtn.textContent = swRun ? 'Stop'  : 'Start';
       swLapBtn.textContent   = swRun ? 'Lap'   : 'Reset';
+      if (swRun) {
+        swEnsureRaf();
+      } else {
+        swStopRaf();
+        swDisplay.textContent = fmtSw(swCurrentMs());
+      }
     });
 
     swLapBtn.addEventListener('click', () => {
@@ -654,6 +677,7 @@ registerApp({
         renderSwLaps();
       } else {
         clockSvc?.resetStopwatch?.();
+        swStopRaf();
         swRun = false; swElapsed = 0; swStart = 0; swLaps = [];
         swLapScroll.innerHTML = '';
         swDisplay.textContent = '00:00.00';
@@ -685,13 +709,25 @@ registerApp({
       if (Array.isArray(st.stopwatch.laps)) swLaps = st.stopwatch.laps.slice();
 
       if (swRun) {
+        // Smooth redraw is driven by rAF; here we just make sure it's running
+        // (e.g. when the stopwatch was started from elsewhere) and keep the
+        // Start/Lap button labels accurate.
+        swEnsureRaf();
+        swStartBtn.textContent = 'Stop';
+        swLapBtn.textContent   = 'Lap';
+      } else if (swWasRun) {
+        // Just stopped/paused elsewhere: final paint + cancel the loop.
+        swStopRaf();
         swDisplay.textContent = fmtSw(swCurrentMs());
+        swStartBtn.textContent = 'Start';
+        swLapBtn.textContent   = 'Reset';
       }
     }, 250);
 
     state.cleanups?.push(() => {
       clearInterval(mainInt);
       clearInterval(clockInt);
+      swStopRaf();
       _cancelBeep?.();
       _activeModal?.remove();
       _activeModal = null;

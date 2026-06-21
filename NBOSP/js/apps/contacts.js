@@ -328,7 +328,7 @@ registerApp({
         nameEl.textContent = selected.name || '(no name)';
         detailArea.append(avatar, nameEl);
 
-        function buildInfoRow(iconName, labelText, value, clickFn) {
+        function buildInfoRow(iconName, labelText, value, clickFn, iconSrc) {
           if (!value) return;
           const row = createEl('div', {
             style: 'display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-subtle);cursor:' + (clickFn ? 'pointer' : 'default') + ';',
@@ -339,7 +339,11 @@ registerApp({
             row.addEventListener('click', clickFn);
           }
           const ico = createEl('span', { style: 'color:var(--text-muted);flex-shrink:0;margin-top:1px;' });
-          ico.innerHTML = svgIcon(iconName, 15);  // trusted runtime value
+          if (iconSrc) {
+            ico.innerHTML = '<img src="' + iconSrc + '" width="15" height="15" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" onerror="this.style.visibility=\'hidden\';">';
+          } else {
+            ico.innerHTML = svgIcon(iconName, 15);
+          }
           const wrap = createEl('div', { style: 'min-width:0;' });
           const lbl  = createEl('div', { style: 'font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;' });
           lbl.textContent = labelText;
@@ -350,9 +354,12 @@ registerApp({
           detailArea.appendChild(row);
         }
 
-        // Only attach click handler when email exists (eliminates the redundant double-check)
-        buildInfoRow('mail',  'Email', selected.email, selected.email ? () => WM.createWindow('email', { to: selected.email }) : null);
-        buildInfoRow('phone', 'Phone', selected.phone, null);
+        buildInfoRow('mail', 'Email', selected.email, selected.email ? () => {
+          navigator.clipboard.writeText(selected.email).then(() => Notify.show({ title: 'Copied', body: selected.email, type: 'info', appName: 'Contacts' }));
+        } : null);
+        buildInfoRow('phone', 'Phone', selected.phone, selected.phone ? () => {
+          navigator.clipboard.writeText(selected.phone).then(() => Notify.show({ title: 'Copied', body: selected.phone, type: 'info', appName: 'Contacts' }));
+        } : null, '/assets/icons8-call-94.png');
         buildInfoRow('file',  'Notes', selected.notes, null);
 
         const editBtn = createEl('button', { className: 'btn btn-sm btn-primary' });
