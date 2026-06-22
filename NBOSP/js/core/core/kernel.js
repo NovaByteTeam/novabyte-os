@@ -126,7 +126,7 @@ const OS = {
       searchEngine: 'brave',
       proxyUrl: '',
       username: 'user',
-      pinnedApps: ['shell', 'vault', 'browser'],
+      pinnedApps: [],
     },
     
     applySafeModeDefaults() {
