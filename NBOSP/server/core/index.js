@@ -289,12 +289,25 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
       "style-src 'self' 'unsafe-inline' blob: data:",
       "img-src 'self' blob: data: https:",
       "font-src 'self' blob: data:",
-      "connect-src 'none'"
+      "connect-src 'self' http://localhost:* https://localhost:*"
     ].join('; '));
   }
   res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
   res.setHeader('Cache-Control', 'no-store');
-  res.send(Buffer.from(fileData, 'base64'));
+  let body = Buffer.from(fileData, 'base64');
+  if (isHtml) {
+    let html = body.toString('utf8');
+    if (!html.includes('__novaPrivateStore')) {
+      const origin = req.get('origin') || req.protocol + '://' + req.get('host');
+      html = html.replace(/<head(\s[^>]*)?>/i, function(m) {
+        return m + '\n' +
+          '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' http://localhost:* https://localhost:*">\n' +
+          '<script>(function(){var o="' + origin.replace(/"/g,'%22') + '";window.nova={ipc:function(t,e){var r=new Promise(function(r,s){var a="s"+Math.random().toString(36).slice(2)+Date.now().toString(36),n=setTimeout(function(){p.has(a)&&(p.delete(a),s(TypeError("timeout "+t)))},3e4);p.set(a,{resolve:r,reject:s,timer:n}),window.parent.postMessage({type:t,requestId:a,payload:e||{}},o)});return r}};var p=new Map;window.addEventListener("message",function(t){if(t.origin!==o)return;var e=t.data;if(!e||!e.requestId)return;if(e.type==="nova:ready:response"&&e.result){var r=e.result.permissions||[];try{window.allowedPermissions=r,window.__novaPermResponse=e.result}catch(t){}}var s=p.get(e.requestId);if(!s)return;clearTimeout(s.timer),p.delete(e.requestId),e.error?s.reject(TypeError(e.error.message||String(e.error))):s.resolve(e.result)});window.__novaPrivateStore={}})<\/script>\n';
+      });
+    }
+    body = Buffer.from(html, 'utf8');
+  }
+  res.send(body);
 });
 
 // 14. 404 handler

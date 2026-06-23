@@ -153,9 +153,14 @@ registerApp({
         minSecurityPatch: appData.minSecurityPatch || null,
         permissions: appData.permissions || [],
         optionalPermissions: appData.optionalPermissions || [],
+        entry: appData.entry || 'index.html',
+        files: appData.files || {},
+        sandbox: appData.sandbox || { allowScripts: true, allowForms: true, allowPopups: false },
+        type: appData.type || 'package',
 
-        async init(contentEl) {
+        async init(contentEl, state, options) {
           ensureAppVFS();
+          console.log('[AM.init]', appId, 'AppSandbox?', typeof AppSandbox, 'FrameSecurity?', typeof FrameSecurity);
 
           // ── Permission gate (parent-side, before iframe loads) ──
           const requiredPerms = appData.permissions || [];
@@ -171,9 +176,23 @@ registerApp({
               const ok = await mgr.requestAll(missing, appId, appData.name || appId);
               if (!ok) {
                 contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:var(--font-ui,sans-serif);color:var(--text-muted);font-size:13px;text-align:center;padding:24px;">\uD83D\uDD12<br><br>This app requires additional permissions to run.<br>Grant them in Settings \u2192 Apps and try again.</div>';
-                return;
+                return null;
               }
             }
+          }
+
+          if (typeof AppSandbox !== 'undefined' && typeof AppSandbox.launch === 'function') {
+            const sandboxApp = {
+              id: appId,
+              name: appData.name,
+              entry: appData.entry || 'index.html',
+              files: appData.files || {},
+              sandbox: appData.sandbox || { allowScripts: true, allowForms: true, allowPopups: false },
+              permissions: appData.permissions || [],
+              optionalPermissions: appData.optionalPermissions || [],
+              type: appData.type || 'package',
+            };
+            return AppSandbox.launch(sandboxApp, contentEl, state || {}, options || {});
           }
 
           // ── Private data shim injected into iframe ────────────
@@ -236,8 +255,17 @@ registerApp({
             let serveFailed = false;
             try {
               const shimmedFiles = Object.assign({}, appData.files);
+              let serveHtml = html;
+              const relaxed = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' http://localhost:* https://localhost:*">\n';
+              const inline = '<script>(function(){var o=window.location.origin;window.nova={ipc:function(t,e){var r=new Promise(function(r,s){var a="s"+Math.random().toString(36).slice(2)+Date.now().toString(36),n=setTimeout(function(){p.has(a)&&(p.delete(a),s(TypeError("timeout "+t)))},3e4);p.set(a,{resolve:r,reject:s,timer:n}),window.parent.postMessage({type:t,requestId:a,payload:e||{}},o)});return r}};var p=new Map;window.addEventListener("message",function(t){if(t.origin!==o)return;var e=t.data;if(!e||!e.requestId)return;if(e.type==="nova:ready:response"&&e.result){var r=e.result.permissions||[];try{window.allowedPermissions=r,window.__novaPermResponse=e.result}catch(t){}}var s=p.get(e.requestId);if(!s)return;clearTimeout(s.timer),p.delete(e.requestId),e.error?s.reject(TypeError(e.error.message||String(e.error))):s.resolve(e.result)});window.__novaPrivateStore={}})<\/script>\n';
+              if (!/<head[\s>]/i.test(serveHtml)) {
+                serveHtml = inline + '\n' + relaxed + '\n' + serveHtml;
+              } else {
+                serveHtml = serveHtml.replace(/<head(\s[^>]*)?>/i, function(m){return m+"\n"+relaxed+inline});
+              }
+              console.log('[AppManager] shim injected, len now:', serveHtml.length, 'has shim marker:', serveHtml.includes('__novaPrivateStore'));
               shimmedFiles[entryKey] = btoa(
-                encodeURIComponent(html).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+                encodeURIComponent(serveHtml).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
               );
 
               const regRes = await fetch('/api/apps/serve/register', {
@@ -248,6 +276,7 @@ registerApp({
 
               if (regRes.ok) {
                 const regData = await regRes.json();
+                console.log('[AppManager] serve registered, baseUrl:', regData.baseUrl);
                 const webview = createEl('webview', {
                   src: window.location.origin + regData.baseUrl + '/' + entryKey,
                   style: 'width:100%;height:100%;border:none;display:block;'
@@ -278,6 +307,7 @@ registerApp({
             }
 
             // ── Fallback: inline HTML with blob URL ──
+            console.log('[AppManager] serve failed, falling back to blob URL');
             let wrappedHtml = html
               .replace(/<link[^>]+rel=["']stylesheet["'][^>]*>/gi, '')
               .replace(/<script[^>]+src=["'][^"']+["'][^>]*><\/script>/gi, '');
@@ -295,6 +325,13 @@ registerApp({
               wrappedHtml = wrappedHtml.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + tag);
             }
 
+            const relaxed = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' http://localhost:* https://localhost:*">\n';
+            const inline = '<script>(function(){var o=window.location.origin;window.nova={ipc:function(t,e){var r=new Promise(function(r,s){var a="s"+Math.random().toString(36).slice(2)+Date.now().toString(36),n=setTimeout(function(){p.has(a)&&(p.delete(a),s(TypeError("timeout "+t)))},3e4);p.set(a,{resolve:r,reject:s,timer:n}),window.parent.postMessage({type:t,requestId:a,payload:e||{}},o)});return r}};var p=new Map;window.addEventListener("message",function(t){if(t.origin!==o)return;var e=t.data;if(!e||!e.requestId)return;if(e.type==="nova:ready:response"&&e.result){var r=e.result.permissions||[];try{window.allowedPermissions=r,window.__novaPermResponse=e.result}catch(t){}}var s=p.get(e.requestId);if(!s)return;clearTimeout(s.timer),p.delete(e.requestId),e.error?s.reject(TypeError(e.error.message||String(e.error))):s.resolve(e.result)});window.__novaPrivateStore={}})<\/script>\n';
+            if (!/<head[\s>]/i.test(wrappedHtml)) {
+              wrappedHtml = inline + '\n' + relaxed + '\n' + wrappedHtml;
+            } else {
+              wrappedHtml = wrappedHtml.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + relaxed + inline);
+            }
             wrappedHtml = wrappedHtml.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + bridgeScriptTag);
 
             const blob = new Blob([wrappedHtml], { type: 'text/html' });

@@ -1193,14 +1193,29 @@ const AppSandbox = (() => {
   // -- Ready handshake --
 
   async function handleReady({ requestId, app, webview }) {
-    return respond(webview, 'nova:ready', requestId, {
+    const mgr = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
+    const granted = mgr
+      ? (app.permissions || []).filter(p => mgr.isGranted(p, app.id))
+      : (app.permissions || []);
+    const optionalGranted = mgr
+      ? (app.optionalPermissions || []).filter(p => mgr.isGranted(p, app.id))
+      : (app.optionalPermissions || []);
+    const payload = {
       success: true,
       appId: app.id,
-      permissions: app.permissions || [],
-      optionalPermissions: app.optionalPermissions || [],
+      permissions: granted,
+      optionalPermissions: optionalGranted,
       osVersion: OS.version,
       securityPatch: OS.securityPatch,
-    });
+    };
+    try {
+      webview.contentWindow.postMessage(
+        { type: 'nova:ready:response', requestId, ...payload, result: payload },
+        window.location.origin
+      );
+    } catch (e) {
+      log('error', `Failed to respond to nova:ready:`, e);
+    }
   }
 
   // -- File dialogs --
@@ -1471,6 +1486,32 @@ const AppSandbox = (() => {
   window.addEventListener('message', function(event) {
     if (event.origin !== PARENT_ORIGIN) return;
     var data = event.data;
+
+    // ── Fix: app-side ready handshake bypasses ipc() ──────────────────
+    // The app sends window.parent.postMessage({ type: 'nova:ready', appId: ... }, '*')
+    // directly instead of going through ipc('nova:ready'), so there is no entry
+    // in pendingRequests. Catch the parent's 'nova:ready:response' here,
+    // surface the permissions on window for late-loading scripts, and re-render
+    // the calendar once the DOM is actually ready.
+    if (data && data.type === 'nova:ready:response' && data.result) {
+      var __novaReadyPerms = (data.result.permissions || []);
+      var __novaReadyOptional = (data.result.optionalPermissions || []);
+      try { window.__novaPermResponse = { permissions: __novaReadyPerms, optionalPermissions: __novaReadyOptional }; } catch (_) {}
+      var __renderFn = null;
+      try { __renderFn = (typeof renderCalendar === 'function') ? renderCalendar : null; } catch (_) {}
+      if (__renderFn) {
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function _rr() {
+            document.removeEventListener('DOMContentLoaded', _rr);
+            try { __renderFn(); } catch (_) {}
+          });
+        } else {
+          try { __renderFn(); } catch (_) {}
+        }
+      }
+    }
+    // ── End ready-handshake fix ────────────────────────────────────────
+
     if (!data || !data.requestId) return;
     var entry = pendingRequests.get(data.requestId);
     if (!entry) return;
@@ -1633,7 +1674,7 @@ const AppSandbox = (() => {
   // need this) and eval (the audit hook catches abuse), but blocks all direct
   // network access via connect-src 'none' — forcing network through the IPC
   // bridge where permissions are enforced.
-  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'none\'">';
+  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' http://localhost:* https://localhost:*">';
 
   /**
    * Prepend the capability shim as the very first script in the app's HTML.
@@ -2080,6 +2121,7 @@ const AppSandbox = (() => {
 
 // CommonJS export for Node.js test runners and bundlers that expect it.
 // In the browser, the module attaches as a global `AppSandbox`.
+window.AppSandbox = AppSandbox;
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AppSandbox;
 }
