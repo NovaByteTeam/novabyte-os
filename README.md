@@ -138,7 +138,7 @@ These are the **actual features pulled directly from the source code** — not g
 |📦 **NBOSP App Manager**|Install `.novaapp` packages from disk. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. **No app store/catalogue, no update management, no package signing verification in the UI.**|
 
 > [!IMPORTANT]
-> **Starting with 3.0.2, no new features will be added to NBOSP apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings is the only exception** — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving updates.
+> **Starting with 3.0.3, no new features will be added to NBOSP apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings is the only exception** — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving updates.
 
 > **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
 

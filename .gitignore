@@ -22,3 +22,6 @@
 **/ca.trusted
 /NBOSP/data/
 /NBOSP/js/purify.min.js
+/NBOSP/.zcode
+/NBOSP/graphify-out
+/NBOSP/.graphifyignore
