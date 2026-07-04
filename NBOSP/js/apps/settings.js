@@ -1117,7 +1117,7 @@ registerApp({
       const verBadge = createEl('div', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:20px;padding:2px 11px;font-size:11px;font-weight:700;color:var(--accent);margin-bottom:3px;' });
       verBadge.textContent = 'v' + OS.version;
       const tagline = createEl('div', { style: 'font-size:10.5px;color:var(--text-muted);font-style:italic;' });
-      tagline.textContent = '\u201cYour world. Your browser.\u201d';
+      tagline.textContent = '';
       logoMeta.append(lgTitle, verBadge, tagline);
       logoRow.append(logoBox, logoMeta);
       swRows.appendChild(logoRow);
@@ -1151,7 +1151,7 @@ registerApp({
       swRows.appendChild(novaVersionRow);
 
       swRows.appendChild(mkRow('Build Channel', 'Stable'));
-      swRows.appendChild(mkRow('Release Date',  '2026-06-03'));
+      swRows.appendChild(mkRow('Release Date',  '2026-07-04'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
       const secRowLeft  = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
@@ -1159,7 +1159,7 @@ registerApp({
       secRow.appendChild(secRowLeft);
       const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
       const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;' });
-      secBadge.textContent = '\uD83D\uDD12 2026-06-03';
+      secBadge.textContent = '\uD83D\uDD12 2026-07-04';
       secRowRight.appendChild(secBadge);
       secRow.appendChild(secRowRight);
       swRows.appendChild(secRow);
@@ -1195,8 +1195,7 @@ registerApp({
       // ── Legal ───────────────────────────────────────────────────────────────
       const { wrap: lgWrap, rows: lgRows } = mkSection('Legal \u0026 Licences', '\u2696\uFE0F');
       lgRows.appendChild(mkRow('Licence',        'Apache 2.0'));
-      lgRows.appendChild(mkRow('Copyright',      '\u00A9 2024\u20132026 NovaByte'));
-      lgRows.appendChild(mkRow('Privacy Policy', 'Privacy-first. Zero telemetry.', true));
+      lgRows.appendChild(mkRow('Copyright',      '\u00A9 2026 NovaByteOfficial'));
       body.appendChild(lgWrap);
 
       // Copy system info
@@ -1206,7 +1205,7 @@ registerApp({
         try { tzCopy = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
         const lines = [
           'NovaByte v' + OS.version,
-          'Security Update: 2026-06-03',
+          'Security Update: 2026-07-04',
           'Browser: '   + detectBrowser(),
           'Platform: '  + navigator.platform,
           'Screen: '    + screen.width + '\u00D7' + screen.height,

@@ -197,10 +197,15 @@ const AppSandbox = (() => {
   // ------------------------------------------------------------------
 
   /** Resolve a payload (with either `path` or `id`) to a file node. */
-  function resolveFile(payload) {
+  function resolveFile(payload, appId) {
     const { path, id } = payload ?? {};
     if (id) return FS.files.get(id) || null;
-    if (path) return FS.getByPath(path);
+    if (path) {
+      const rewritten = String(path).startsWith('/data/')
+        ? '/data/' + String(appId || 'default').replace(/[^a-zA-Z0-9_.-]/g, '_') + String(path).slice('/data'.length)
+        : path;
+      return FS.getByPath(rewritten);
+    }
     return null;
   }
 
@@ -525,7 +530,7 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('fs:read', app.id)) {
       return respondError(webview, 'nova:fs:read', requestId, 'PERMISSION_DENIED', 'fs:read permission required');
     }
-    const node = resolveFile(payload);
+    const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:fs:read', requestId, 'NOT_FOUND', 'File or folder not found');
     if (node.type === 'folder') {
       const children = FS.listDir(node.id);
@@ -562,7 +567,11 @@ const AppSandbox = (() => {
     if (!path || content === undefined) {
       return respondError(webview, 'nova:fs:write', requestId, 'INVALID_ARGS', 'path and content are required');
     }
-    let node = FS.getByPath(path);
+    let resolvedPath = String(path);
+    if (resolvedPath.startsWith('/data/')) {
+      resolvedPath = '/data/' + String(app.id || 'default').replace(/[^a-zA-Z0-9_.-]/g, '_') + resolvedPath.slice('/data'.length);
+    }
+    let node = FS.getByPath(resolvedPath);
     if (node) {
       if (node.type === 'folder') {
         return respondError(webview, 'nova:fs:write', requestId, 'INVALID_OPERATION', 'Cannot write to a folder');
@@ -570,7 +579,7 @@ const AppSandbox = (() => {
       await FS.writeFile(node.id, content);
       return respond(webview, 'nova:fs:write', requestId, { success: true, id: node.id });
     }
-    const parts = path.split('/').filter(Boolean);
+    const parts = resolvedPath.split('/').filter(Boolean);
     const fileName = parts.pop();
     const parentPath = '/' + parts.join('/');
     const parent = parts.length > 0 ? FS.getByPath(parentPath) : FS.files.get(FS.rootId);
@@ -594,7 +603,7 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('fs:delete', app.id)) {
       return respondError(webview, 'nova:fs:delete', requestId, 'PERMISSION_DENIED', 'fs:delete permission required');
     }
-    const node = resolveFile(payload);
+    const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:fs:delete', requestId, 'NOT_FOUND', 'File not found');
     if (payload.permanent) {
       await FS.permanentDelete(node.id);
@@ -608,7 +617,7 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('fs:read', app.id)) {
       return respondError(webview, 'nova:fs:list', requestId, 'PERMISSION_DENIED', 'fs:read permission required');
     }
-    const node = resolveFile(payload);
+    const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:fs:list', requestId, 'NOT_FOUND', 'Folder not found');
     if (node.type !== 'folder') {
       return respondError(webview, 'nova:fs:list', requestId, 'INVALID_OPERATION', 'Path is not a folder');
@@ -632,9 +641,13 @@ const AppSandbox = (() => {
     if (!name) {
       return respondError(webview, 'nova:fs:mkdir', requestId, 'INVALID_ARGS', 'name is required');
     }
+    let resolvedPath = String(path || '');
+    if (resolvedPath.startsWith('/data/')) {
+      resolvedPath = '/data/' + String(app.id || 'default').replace(/[^a-zA-Z0-9_.-]/g, '_') + resolvedPath.slice('/data'.length);
+    }
     let parent;
-    if (path) {
-      parent = FS.getByPath(path);
+    if (resolvedPath) {
+      parent = FS.getByPath(resolvedPath);
     } else {
       parent = FS.files.get(FS.rootId);
     }
@@ -653,7 +666,7 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('fs:read', app.id)) {
       return respondError(webview, 'nova:fs:stat', requestId, 'PERMISSION_DENIED', 'fs:read permission required');
     }
-    const node = resolveFile(payload);
+    const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:fs:stat', requestId, 'NOT_FOUND', 'File not found');
     return respond(webview, 'nova:fs:stat', requestId, { success: true, stat: fileToJSON(node) });
   }
@@ -662,7 +675,7 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('fs:write', app.id)) {
       return respondError(webview, 'nova:fs:rename', requestId, 'PERMISSION_DENIED', 'fs:write permission required');
     }
-    const node = resolveFile(payload);
+    const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:fs:rename', requestId, 'NOT_FOUND', 'File not found');
     if (!payload.name) {
       return respondError(webview, 'nova:fs:rename', requestId, 'INVALID_ARGS', 'name is required');
@@ -675,9 +688,13 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('fs:write', app.id)) {
       return respondError(webview, 'nova:fs:move', requestId, 'PERMISSION_DENIED', 'fs:write permission required');
     }
-    const node = resolveFile(payload);
+    const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:fs:move', requestId, 'NOT_FOUND', 'File not found');
-    const destParent = payload.destPath ? FS.getByPath(payload.destPath) : null;
+    let destPath = String(payload.destPath || '');
+    if (destPath.startsWith('/data/')) {
+      destPath = '/data/' + String(app.id || 'default').replace(/[^a-zA-Z0-9_.-]/g, '_') + destPath.slice('/data'.length);
+    }
+    const destParent = destPath ? FS.getByPath(destPath) : null;
     if (!destParent || destParent.type !== 'folder') {
       return respondError(webview, 'nova:fs:move', requestId, 'NOT_FOUND', 'Destination folder not found');
     }
@@ -1910,28 +1927,39 @@ const AppSandbox = (() => {
   /**
    * Build a safe sandbox attribute string from an app's sandbox config.
    *
-   * allow-same-origin is included by default. Without it, content served
-   * from https://localhost:* gets an opaque/null origin inside the webview
-   * (per the HTML sandboxing spec), which silently breaks the postMessage
-   * bridge: respond() targets webview.contentWindow.postMessage(msg,
-   * window.location.origin), and that delivery is dropped — with no error —
-   * whenever the target's actual origin doesn't match. allow-scripts +
-   * allow-same-origin together is normally flagged as a sandbox-escape
-   * pattern for same-document <iframe>s, because it can let framed content
-   * reach into the embedding page's DOM. That risk doesn't apply the same
-   * way here: the <webview> guest runs in its own OS-level process with its
-   * own storage partition, which is the real isolation boundary — not the
-   * sandbox attribute. allow-same-origin here only governs how the served
-   * app content perceives its own origin (needed for postMessage/storage to
-   * work at all), not whether it can access the host app.
+   * allow-same-origin is NOT included by default for third-party apps. Including
+   * it lets the guest access its own cookies, localStorage, and sessionStorage
+   * on the shared origin — increasing the blast radius of any XSS inside the
+   * sandbox. The same-document <iframe> sandbox-escape also applies when
+   * combined with allow-scripts.
+   *
+   * In a <webview>, the real isolation boundary is the separate renderer
+   * process, so the DOM-level escape risk is lower than for a same-document
+   * iframe. However, the IPC bridge depends on `window.location.origin` matching
+   * between the parent and the webview. Without allow-same-origin the origin
+   * becomes opaque and postMessage silently drops.
+   *
+   * To balance these concerns:
+   *   - System apps (in the audited allowlist) receive allow-same-origin for IPC.
+   *   - Third-party apps must explicitly opt in via `allowSameOrigin: true` in
+   *     their manifest, and should declare the `sandbox:same-origin` permission
+   *     so AppPermissionManager can prompt the user.
    */
   function sanitizeSandboxAttr(sandboxConfig, appId) {
-    const tokens = ['allow-same-origin'];
+    const _SYSTEM_SANDBOX_APPS = new Set([
+      'nook', 'app-manager', 'browser', 'nbosp-email', 'nbosp-gallery',
+      'nbosp-downloads', 'nbosp-search', 'nbosp-music', 'nbosp-contacts',
+      'calendar-app', 'calculator', 'nbosp-clock', 'quill', 'vault', 'shell',
+    ]);
 
-    // Check for a capability. Accepts both camelCase (object key) and
-    // kebab-case (string token) forms — the original code only checked
-    // camelCase, which meant string configs like 'allow-scripts' never
-    // matched and always fell through to the defaults.
+    const isSystemApp = _SYSTEM_SANDBOX_APPS.has(appId);
+    const isExplicitOptIn = sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowSameOrigin === true;
+
+    const tokens = [];
+    if (isSystemApp || isExplicitOptIn) {
+      tokens.push('allow-same-origin');
+    }
+
     const has = (camelKey, kebabToken) => {
       if (sandboxConfig && typeof sandboxConfig === 'object') {
         return sandboxConfig[camelKey] === true;

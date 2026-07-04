@@ -4,6 +4,7 @@
 // Rate limit: 120 req/min per IP.
 
 const rateLimit = require('express-rate-limit');
+const dns = require('dns');
 
 const suggestCache = new Map(); // key: `${engine}:${q}` → { data, ts }
 const SUGGEST_TTL     = 60 * 1000; // 60 seconds
@@ -125,26 +126,12 @@ const EMAIL_IMG_DEFAULT = Buffer.from(
     'base64'
 );
 
-function isPrivateHostEI(hostname) {
-    const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    const PRIVATE_EXACT   = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0',
-        '[::1]', '[::]']);
-    const PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
-        '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
-        '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
-        '192.168.', '169.254.', '100.64.'];
-    if (PRIVATE_EXACT.has(h)) return true;
-    if (PRIVATE_PREFIXES.some(p => h.startsWith(p))) return true;
-    if (h.endsWith('.local') || h.endsWith('.internal')) return true;
-    return false;
-}
-
-function validateEmailImgUrl(raw) {
+async function validateEmailImgUrl(raw) {
     let urlObj;
     try { urlObj = new URL(raw); } catch (_) { return null; }
     if (!['http:', 'https:'].includes(urlObj.protocol)) return null;
-    if (urlObj.username || urlObj.password) return null; // credentials in URL = SSRF risk
-    if (isPrivateHostEI(urlObj.hostname)) return null;
+    if (urlObj.username || urlObj.password) return null;
+    if (await _dnsCheckPrivate(urlObj.hostname)) return null;
     return urlObj;
 }
 
@@ -162,7 +149,7 @@ async function fetchEmailImage(urlStr) {
         if (visited.has(currentUrl)) return null; // redirect loop
         visited.add(currentUrl);
 
-        const urlObj = validateEmailImgUrl(currentUrl);
+        const urlObj = await validateEmailImgUrl(currentUrl);
         if (!urlObj) return null; // SSRF check on every hop
 
         const controller = new AbortController();
@@ -226,13 +213,13 @@ const emailImgLimiter = rateLimit({
 });
 
 function setupEmailImageProxy(app) {
-    app.get('/api/email-image', emailImgLimiter, async (req, res) => {
+    app.get('/api/email-image', emailImgLimiter, requireSession, async (req, res) => {
         const raw = req.query.url;
         if (!raw || typeof raw !== 'string') {
             return res.status(400).json({ error: 'url parameter is required' });
         }
 
-        const urlObj = validateEmailImgUrl(raw);
+        const urlObj = await validateEmailImgUrl(raw);
         if (!urlObj) {
             // Return placeholder silently — don't reveal why to client
             res.setHeader('Content-Type', 'image/png');
@@ -277,19 +264,6 @@ const frameCheckCache = new Map(); // key: origin → { embeddable, ts }
 const FRAME_CHECK_TTL     = 10 * 60 * 1000; // 10 min — XFO/CSP headers rarely change
 const FRAME_CHECK_MAX     = 500;
 const FRAME_CHECK_TIMEOUT = 5000;
-
-function _isPrivateFrameHost(hostname) {
-    const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    const PRIVATE_EXACT = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0', '[::1]', '[::]']);
-    const PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
-        '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
-        '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
-        '192.168.', '169.254.', '100.64.'];
-    if (PRIVATE_EXACT.has(h)) return true;
-    if (PRIVATE_PREFIXES.some(p => h.startsWith(p))) return true;
-    if (h.endsWith('.local') || h.endsWith('.internal')) return true;
-    return false;
-}
 
 /**
  * Evaluate a frame-ancestors source list against our embedding origin.
@@ -392,7 +366,7 @@ async function _probeFrameEmbeddable(targetUrl, embedOrigin) {
 }
 
 function setupFrameCheckProxy(app) {
-    app.get('/api/frame-check', frameCheckLimiter, async (req, res) => {
+    app.get('/api/frame-check', frameCheckLimiter, requireSession, async (req, res) => {
         const raw = req.query.url;
         if (!raw || typeof raw !== 'string') {
             return res.status(400).json({ error: 'url parameter is required' });
@@ -405,7 +379,9 @@ function setupFrameCheckProxy(app) {
         if (!['http:', 'https:'].includes(urlObj.protocol)) {
             return res.status(400).json({ error: 'Only http and https URLs are supported' });
         }
-        if (_isPrivateFrameHost(urlObj.hostname)) {
+
+        const isPrivate = await _dnsCheckPrivate(urlObj.hostname);
+        if (isPrivate) {
             return res.status(400).json({ error: 'Internal URLs are not permitted' });
         }
 
@@ -450,19 +426,61 @@ const APP_PROXY_TIMEOUT    = 30 * 1000;      // 30 s — match IPC timeout
 const APP_PROXY_SIZE_CAP   = 10 * 1024 * 1024; // 10 MB
 const APP_PROXY_METHODS    = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 
-// Reuse the private-host check already defined for the email image proxy.
-// If this module is ever split up, inline the same logic here.
-function _isPrivateAppHost(hostname) {
+function requireSession(req, res, next) {
+    if (!req.session || !req.session.id) {
+        return res.status(401).json({ error: 'Unauthorized — session required' });
+    }
+    next();
+}
+
+const _PRIVATE_EXACT = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0', '[::1]', '[::]']);
+const _PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
+    '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
+    '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
+    '192.168.', '169.254.', '100.64.'];
+
+function _isPrivateHost(hostname) {
     const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    const PRIVATE_EXACT = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0', '[::1]', '[::]']);
-    const PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
-        '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
-        '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
-        '192.168.', '169.254.', '100.64.'];
-    if (PRIVATE_EXACT.has(h)) return true;
-    if (PRIVATE_PREFIXES.some(p => h.startsWith(p))) return true;
+    if (_PRIVATE_EXACT.has(h)) return true;
+    if (_PRIVATE_PREFIXES.some(p => h.startsWith(p))) return true;
     if (h.endsWith('.local') || h.endsWith('.internal')) return true;
     return false;
+}
+
+function _isPrivateIpAddr(ip) {
+    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) return false;
+    const parts = ip.split('.').map(Number);
+    return parts[0] === 10 ||
+           (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+           (parts[0] === 192 && parts[1] === 168) ||
+           (parts[0] === 169 && parts[1] === 254) ||
+           (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127);
+}
+
+const _dnsPrivateCache = new Map();
+const _DNS_TTL = 30_000;
+async function _dnsCheckPrivate(hostname) {
+    if (!hostname || typeof hostname !== 'string') return true;
+    const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (_isPrivateHost(h)) return true;
+
+    const cached = _dnsPrivateCache.get(h);
+    if (cached && Date.now() - cached.ts < _DNS_TTL) return cached.private;
+
+    let private_ = false;
+    try {
+        const { address } = await dns.promises.lookup(h);
+        private_ = _isPrivateIpAddr(address);
+    } catch {
+        private_ = true; // fail closed on DNS error
+    }
+
+    _dnsPrivateCache.set(h, { private: private_, ts: Date.now() });
+    if (_dnsPrivateCache.size > 500) {
+        const first = _dnsPrivateCache.keys().next().value;
+        _dnsPrivateCache.delete(first);
+    }
+    return private_;
 }
 
 const appProxyLimiter = rateLimit({
@@ -474,7 +492,7 @@ const appProxyLimiter = rateLimit({
 });
 
 function setupAppNetworkProxy(app) {
-    app.post('/api/proxy', appProxyLimiter, async (req, res) => {
+    app.post('/api/proxy', appProxyLimiter, requireSession, async (req, res) => {
         const { url: rawUrl, method: rawMethod, headers: reqHeaders, body: reqBody } = req.body ?? {};
 
         // Validate URL
@@ -488,7 +506,10 @@ function setupAppNetworkProxy(app) {
         if (!['http:', 'https:'].includes(urlObj.protocol)) {
             return res.status(400).json({ error: 'Only http and https URLs are supported' });
         }
-        if (_isPrivateAppHost(urlObj.hostname)) {
+        if (_isPrivateHost(urlObj.hostname)) {
+            return res.status(403).json({ error: 'Internal URLs are not permitted' });
+        }
+        if (await _dnsCheckPrivate(urlObj.hostname)) {
             return res.status(403).json({ error: 'Internal URLs are not permitted' });
         }
 
@@ -535,7 +556,7 @@ function setupAppNetworkProxy(app) {
             if (!['http:', 'https:'].includes(hopUrlObj.protocol)) {
                 return res.status(400).json({ error: 'Only http and https URLs are supported' });
             }
-            if (_isPrivateAppHost(hopUrlObj.hostname)) {
+            if (await _dnsCheckPrivate(hopUrlObj.hostname)) {
                 return res.status(403).json({ error: 'Internal URLs are not permitted' });
             }
 

@@ -444,7 +444,17 @@ const WM = window.WM = (() => {
       const app = OS.apps[state.appId];
       if (!app) return;
       const el = state.element;
-      if (app.alwaysOnTop) el.style.zIndex = String(9999 + (Number(el.style.zIndex) || 0));
+
+      if (app.alwaysOnTop) {
+        const phishingCombo = app.frame === false && app.transparent === true;
+        if (phishingCombo) {
+          console.warn('[WM] Phishing overlay risk: app', app.id, 'uses alwaysOnTop + frameless + transparent. Restricting z-index below system chrome.');
+          el.style.zIndex = '1000';
+        } else {
+          el.style.zIndex = String(9999 + (Number(el.style.zIndex) || 0));
+        }
+      }
+
       if (app.transparent) el.classList.add('app-window--transparent');
       if (app.resizable === false) el.classList.add('app-window--no-resize');
       if (app.frame === false) el.classList.add('app-window--frameless');

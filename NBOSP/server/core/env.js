@@ -1,13 +1,6 @@
 require('dotenv').config();
 
 function validateEnvironment() {
-  // Provide automatic fallback values in development mode
-  if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-    // Fallback safety seeds so the app never fails to boot on a clean install
-    if (!process.env.NBOSP_CRED_KEY) process.env.NBOSP_CRED_KEY = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4";
-    if (!process.env.SESSION_SECRET) process.env.SESSION_SECRET = "secret1234567890secret1234567890";
-    if (!process.env.PORT) process.env.PORT = "3003";
-  }
   const errors = [];
 
   // Required secrets (must be non-empty hex strings)

@@ -492,6 +492,15 @@ async function boot() {
 
   // 10. Post-boot Hooks ────────────────────────────────────────────
   Boot._runHooks('after');
+
+  // Freeze hooks to prevent post-boot tampering. Any script that tries to push
+  // onto Boot.hooks after this point will receive a TypeError.
+  try {
+    Object.freeze(Boot.hooks.before);
+    Object.freeze(Boot.hooks.after);
+    Object.freeze(Boot.hooks.onError);
+    Object.freeze(Boot.hooks);
+  } catch (e) { /* non-fatal */ }
 }
 
 // ── App Loader ─────────────────────────────────────────────────────
@@ -500,6 +509,8 @@ async function boot() {
  * Called at idle time after boot — safe to call manually if needed.
  */
   function registerWithFiles(appData) {
+    if (!appData?.id || !appData.files) return;
+
     let icon = appData.icon || 'box';
     if (icon && !/^data:|^https?:\/\//i.test(icon) && appData.files?.[icon]) {
       const encoded = appData.files[icon];
@@ -513,115 +524,24 @@ async function boot() {
       icon = `data:${mime};base64,${encoded}`;
     }
 
-    const cfg = {
-      id: appData.id,
-      name: appData.name,
+    const appMeta = {
+      ...appData,
       icon,
-      description: appData.description || '',
-      defaultSize: appData.defaultSize || [800, 560],
-      minSize: appData.minSize || [400, 300],
-      minSecurityPatch: appData.minSecurityPatch || null,
       permissions: appData.permissions || [],
       optionalPermissions: appData.optionalPermissions || [],
-      async init(contentEl) {
-        const _requiredPerms = appData.permissions || [];
-        const _optionalPerms = appData.optionalPermissions || [];
-        const _allDangerous  = [..._requiredPerms, ..._optionalPerms];
-        if (_allDangerous.length > 0 && typeof AppPermissionManager !== 'undefined') {
-          const _mgr     = AppPermissionManager;
-          const _missing = _allDangerous.filter(p =>
-            !_mgr.isGranted(p, appData.id) && !(_mgr.isDenied && _mgr.isDenied(p, appData.id))
-          );
-          if (_missing.length > 0) {
-            await _mgr.requestAll(_missing, appData.id, appData.name || appData.id);
-          }
-        }
-
-        const entryKey = appData.entry || 'index.html';
-        const rawEntry = appData.files?.[entryKey];
-        if (!rawEntry) {
-          contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Entry file not found in package.</div>';
-          return;
-        }
-        let html;
-        try {
-          html = decodeURIComponent(
-            atob(rawEntry).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-          );
-        } catch (e) {
-          contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${e.message}</div>`;
-          return;
-        }
-
-        if (!appData._cachedHtml) appData._cachedHtml = html;
-
-        const shimmedFiles = Object.assign({}, appData.files);
-        shimmedFiles[entryKey] = btoa(
-          encodeURIComponent(html).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-        );
-
-        const origin = (typeof window.location !== 'undefined' && window.location.origin)
-          ? window.location.origin
-          : 'http://127.0.0.1:3003';
-
-        const sandboxId = 'sandbox_' + appData.id.replace(/[^a-zA-Z0-9_-]/g, '_') + '_' + Date.now();
-        let baseUrl = '/api/apps/serve/' + sandboxId + '/';
-        let webview;
-        try {
-          const regRes = await fetch('/api/apps/serve/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sandboxId, files: shimmedFiles })
-          });
-          if (!regRes.ok) throw new Error('serve register failed: ' + regRes.status);
-          const regData = await regRes.json();
-          baseUrl = regData.baseUrl || baseUrl;
-          const encodedEntry = String(entryKey).split('/').map(encodeURIComponent).join('/');
-          const serveBaseUrl = String(baseUrl).replace(/\/+$/, '');
-          const url = origin + serveBaseUrl + '/' + encodedEntry;
-
-          webview = createEl('webview', {
-            src    : url,
-            style  : 'width:100%;height:100%;border:none;display:block;'
-          });
-          if (webview.tagName !== 'WEBVIEW' && typeof FrameSecurity !== 'undefined' && typeof FrameSecurity.securifyFrame === 'function') {
-            FrameSecurity.securifyFrame(webview);
-          }
-          webview.dataset.novaServed = '1';
-        } catch (e) {
-          console.error('[NovaApp] serve-register failed for', appData.id, 'falling back to blob:', e);
-          try {
-            const blob = new Blob([html], { type: 'text/html' });
-            const blobUrl = URL.createObjectURL(blob);
-            webview = createEl('webview', {
-              src    : blobUrl,
-              style  : 'width:100%;height:100%;border:none;display:block;'
-            });
-            if (webview.tagName !== 'WEBVIEW' && typeof FrameSecurity !== 'undefined' && typeof FrameSecurity.securifyFrame === 'function') {
-              FrameSecurity.securifyFrame(webview);
-            }
-            webview.dataset.novaBlobUrl = blobUrl;
-          } catch (blobErr) {
-            contentEl.innerHTML = `<div style="padding:24px;color:var(--text-danger);font-family:monospace;">Failed to load app: ${blobErr.message}</div>`;
-            return;
-          }
-        }
-
-        webview.addEventListener('did-fail-load', (e) => {
-          console.error('[NovaApp] webview load failed', appData.id, (typeof serveBaseUrl === 'string' ? serveBaseUrl : baseUrl) + '/' + (typeof encodedEntry === 'string' ? encodedEntry : entryKey), e);
-        });
-        webview.addEventListener('did-finish-load', () => {
-          console.log('[NovaApp] webview loaded', appData.id);
-        });
-        contentEl.style.padding = '0';
-        contentEl.appendChild(webview);
-      },
     };
 
-    OS.apps[appData.id] = cfg;
-    const ri = APP_REGISTRY.findIndex(app => app.id === appData.id);
-    if (ri > -1) APP_REGISTRY[ri] = cfg;
-    else APP_REGISTRY.push(cfg);
+    try {
+      const app = AppRegistry.registerApp(appMeta);
+      if (app && !APP_REGISTRY.some(a => a.id === appMeta.id)) {
+        APP_REGISTRY.push(app);
+      }
+      if (window.AppDirs && typeof window.AppDirs.ensureAppDataFolder === 'function') {
+        window.AppDirs.ensureAppDataFolder(appMeta.id).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('[BOOT] Failed to register installed app', appData.id, e);
+    }
   }
 
   async function loadInstalledNovaApps() {

@@ -166,17 +166,6 @@ registerApp({
     function buildNovaAppConfig(appData) {
       const appId = appData.id;
 
-      function ensureAppVFS() {
-        try {
-          const vfsDir = window.AppDirs?.getVFSDir(appId, 'files');
-          if (!vfsDir) console.warn('[AppManager] VFS dir missing for', appId, '— app will have no private storage');
-          return vfsDir;
-        } catch (e) {
-          console.warn('[AppManager] VFS bootstrap failed for', appId, e);
-          return null;
-        }
-      }
-
       return {
         id: appId,
         name: appData.name,
@@ -193,7 +182,7 @@ registerApp({
         type: appData.type || 'package',
 
         async init(contentEl, state, options) {
-          ensureAppVFS();
+          try { await window.AppDirs?.ensureAppDataFolder?.(appId); } catch (_e) { /* best-effort */ }
           console.log('[AM.init]', appId, 'AppSandbox?', typeof AppSandbox, 'FrameSecurity?', typeof FrameSecurity);
 
           // ── Permission gate (parent-side, before iframe loads) ──
@@ -234,7 +223,7 @@ registerApp({
           }
 
           // ── Private data shim injected into iframe ────────────
-          const vfsDir = ensureAppVFS();
+          const vfsDir = (() => { try { return window.AppDirs?.getVFSDir?.(appId, 'files'); } catch { return null; } })();
           const safeAppId = JSON.stringify(appId);
           const safeVfsDir = JSON.stringify(vfsDir);
 
@@ -274,8 +263,11 @@ registerApp({
             //    arbitrary untrusted code in the main context, equivalent to eval().
             //    Obfuscated packages that aren't valid JSON are now rejected outright. ──
             if (appData.verified === false || appData._wasObfuscated) {
-              console.warn('[AppManager] Obfuscated/unverified package detected — skipping unsafe VM execution for', appId);
-              pkgData = null;
+                if (typeof contentEl?.innerHTML === 'string') {
+                    contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">\uD83D\uDD12 App blocked: unverified or obfuscated packages cannot be loaded. Install only apps from trusted sources.</div>';
+                }
+                console.warn('[AppManager] Obfuscated/unverified package blocked:', appId);
+                return;
             }
 
             if (pkgData && !appData.manifest) {
@@ -843,9 +835,10 @@ registerApp({
             }
             installedApps.push(appData);
             saveStoredApps(installedApps);
-            registerNovaApp(appData);
-            pushLog({ action: 'install', appId: appData.id, label: `${appData.name} v${appData.version} installed` });
-            selectedPkgId = appData.id;
+             registerNovaApp(appData);
+             pushLog({ action: 'install', appId: appData.id, label: `${appData.name} v${appData.version} installed` });
+             selectedPkgId = appData.id;
+             try { await window.AppDirs?.ensureAppDataFolder?.(appData.id); } catch (_e) { /* best-effort */ }
             renderList();
             renderDetail();
             Notify.show({ title: 'App Installed', body: `${appData.name} v${appData.version} installed successfully.`, type: 'success', appName: 'App Manager' });

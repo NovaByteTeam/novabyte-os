@@ -359,8 +359,9 @@ function writeLine(tab, text, cls) {
 }
 
 function writeHTML(tab, html) {
+  const safe = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
   const d = createEl('div');
-  d.innerHTML = html;
+  d.innerHTML = safe;
   tab.output.appendChild(d);
   scrollOutput(tab);
 }

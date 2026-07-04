@@ -580,6 +580,31 @@ const AppDirs = {
   // Resolved directory handles cache — avoids repeated getDirectoryHandle calls
   _handles: {},
 
+  // Reverse map: full package id → short app id
+  _PKG_TO_APP: null,
+  _getPkgToApp() {
+    if (!this._PKG_TO_APP) {
+      this._PKG_TO_APP = {};
+      for (const [k, v] of Object.entries(this.PACKAGES)) {
+        this._PKG_TO_APP[v] = k;
+      }
+    }
+    return this._PKG_TO_APP;
+  },
+  _resolveAppId(pkg) {
+    const m = this._getPkgToApp();
+    return m[pkg] || pkg;
+  },
+  _getCallerAppId() {
+    try {
+      const winId = OS?.focusedWindowId;
+      if (!winId || !OS?.windows) return null;
+      return OS.windows.get(winId)?.appId ?? null;
+    } catch {
+      return null;
+    }
+  },
+
   // Bootstrap the full directory tree — safe to call every boot (idempotent)
   async bootstrap() {
     await OPFS.init();
@@ -750,8 +775,78 @@ const AppDirs = {
     }
   },
 
+  async _ensureDataNode() {
+    const dataNode = FS.getByPath('/data');
+    if (dataNode && dataNode.type === 'folder') return dataNode.id;
+    const created = await FS.createFolder(FS.rootId, 'data');
+    return created ? created.id : null;
+  },
+
+  async _ensureVFSChild(parentId, name, type) {
+    const existing = FS.listDir(parentId).find(f => f.name === name && f.type === type);
+    if (existing) return existing;
+    if (type === 'folder') return await FS.createFolder(parentId, name);
+    return await FS.createFile(parentId, name, '', 'application/json');
+  },
+
+  async ensureAppDataFolder(appIdOrPkg) {
+    const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
+    if (this._handles[pkg]) return this._handles[pkg];
+
+    if (OPFS.available && OPFS.root) {
+      try {
+        const data = await OPFS.root.getDirectoryHandle('data', { create: true });
+        const appDir = await data.getDirectoryHandle(pkg, { create: true });
+        const mkd = async (p, n) => { try { await p.getDirectoryHandle(n, { create: true }); } catch {} };
+        await mkd(appDir, 'files');
+        await mkd(appDir, 'cache');
+        await mkd(appDir, 'databases');
+        await mkd(appDir, 'shared_prefs');
+        this._handles[pkg] = appDir;
+      } catch (e) {
+        console.warn('[AppDirs] OPFS ensure failed for', pkg, e);
+      }
+    }
+
+    try {
+      const dataNodeId = FS.specialFolders?.data || (await this._ensureDataNode());
+      const appNode = await this._ensureVFSChild(dataNodeId, pkg, 'folder');
+      const filesNode = await this._ensureVFSChild(appNode.id, 'files', 'folder');
+      const cacheNode = await this._ensureVFSChild(appNode.id, 'cache', 'folder');
+      const dbNode = await this._ensureVFSChild(appNode.id, 'databases', 'folder');
+      const prefsNode = await this._ensureVFSChild(appNode.id, 'shared_prefs', 'folder');
+      if (!this.vfsFolders) this.vfsFolders = {};
+      this.vfsFolders[pkg] = {
+        root: appNode.id,
+        files: filesNode?.id,
+        cache: cacheNode?.id,
+        databases: dbNode?.id,
+        shared_prefs: prefsNode?.id,
+      };
+    } catch (e) {
+      console.warn('[AppDirs] VFS ensure failed for', pkg, e);
+    }
+
+    return this._handles[pkg] || null;
+  },
+
   async getAppDir(appIdOrPkg) {
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
+
+    // Runtime guard: deny requests for another app's directory unless the caller
+    // has system:apps permission. System calls (no focused window) pass through.
+    const callerAppId = this._getCallerAppId();
+    if (callerAppId) {
+      const targetAppId = this._resolveAppId(pkg);
+      if (targetAppId && targetAppId !== callerAppId) {
+        const mgr = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
+        if (!mgr?.isGranted?.('system:apps', callerAppId)) {
+          console.warn('[AppDirs] Access denied — caller', callerAppId, 'tried to access app dir for', pkg);
+          return null;
+        }
+      }
+    }
+
     if (this._handles[pkg]) return this._handles[pkg];
     if (!OPFS.available || !OPFS.root) return null;
     try {
@@ -822,8 +917,11 @@ const AppDirs = {
     'nova_installed_apps':    { pkg: 'com.nbosp.appmanager', subdir: 'databases',    file: 'packages.json' },
   },
 
-  getVFSDir(pkg, subdir) {
-    return this.vfsFolders?.[pkg]?.[subdir] ?? null;
+  getVFSDir(appIdOrPkg, subdir) {
+    const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
+    if (this.vfsFolders?.[pkg]) return this.vfsFolders[pkg][subdir] ?? null;
+    void this.ensureAppDataFolder(pkg);
+    return null;
   },
 
   async syncKey(lsKey, value) {
@@ -864,13 +962,30 @@ const AppDirs = {
         await legacyData.removeEntry(pkg, { recursive: true });
       } catch { /* ignore */ }
       delete this._handles[pkg];
+      delete this.vfsFolders?.[pkg];
       const appDir = await data.getDirectoryHandle(pkg, { create: true });
-      const mkd = (p, n) => p.getDirectoryHandle(n, { create: true });
+      const mkd = async (p, n) => { try { await p.getDirectoryHandle(n, { create: true }); } catch {} };
       await mkd(appDir, 'files');
       await mkd(appDir, 'cache');
       await mkd(appDir, 'databases');
       await mkd(appDir, 'shared_prefs');
       this._handles[pkg] = appDir;
+      try {
+        const dataNodeId = FS.specialFolders?.data || (await this._ensureDataNode());
+        const appNode = await this._ensureVFSChild(dataNodeId, pkg, 'folder');
+        const filesNode = await this._ensureVFSChild(appNode.id, 'files', 'folder');
+        const cacheNode = await this._ensureVFSChild(appNode.id, 'cache', 'folder');
+        const dbNode = await this._ensureVFSChild(appNode.id, 'databases', 'folder');
+        const prefsNode = await this._ensureVFSChild(appNode.id, 'shared_prefs', 'folder');
+        if (!this.vfsFolders) this.vfsFolders = {};
+        this.vfsFolders[pkg] = {
+          root: appNode.id,
+          files: filesNode?.id,
+          cache: cacheNode?.id,
+          databases: dbNode?.id,
+          shared_prefs: prefsNode?.id,
+        };
+      } catch { /* ignore VFS clear errors */ }
       return true;
     } catch {
       return false;

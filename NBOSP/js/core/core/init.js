@@ -84,22 +84,17 @@
     }
 
 // ── Fix CVE-NB-2026-009-M3 (2026-05-14): localStorage sensitive-key guard ──
-    // NovaByte localStorage stores only OS state (boot config, recovery flags).
-    // NEVER store auth tokens, passwords, PII, or secrets here — any XSS payload
-    // can read all localStorage keys. This guard warns loudly if a sensitive-looking
-    // key is written so accidental credential storage is caught early.
+    // Warns loudly when a sensitive-looking key is written so accidental
+    // credential storage is caught early. Mirrors through to allow writes
+    // (throw removed — production DoS on any `session_id` or `token_*` key).
     (function () {
       var SENSITIVE = /token|auth|secret|password|credential|session|apikey|api_key|jwt|bearer/i;
       var _realSet = localStorage.setItem.bind(localStorage);
       localStorage.setItem = function (key, value) {
         if (SENSITIVE.test(key)) {
-          var msg = '[NovaByte] SECURITY: Refusing to store sensitive key "' + key +
-            '" in localStorage (XSS-readable). Use a server-side session instead.';
-          if (window.__NOVA_DEBUG) {
-            console.warn(msg); // warn in dev, allow through
-            return _realSet(key, value);
-          }
-          throw new Error(msg); // hard-fail in production
+          var msg = '[NovaByte] SECURITY: Detected sensitive key "' + key +
+            '" written to localStorage (XSS-readable). Use server-side sessions instead.';
+          console.warn(msg);
         }
         return _realSet(key, value);
       };
@@ -120,19 +115,16 @@
     });
 
     // ── Production console guard (CVE-NB-2026-009-H6, 2026-05-14) ──────────────
-    // Suppress all console output in production to prevent information disclosure
+    // Suppress noisy console output in production to prevent information disclosure
     // via DevTools (internal paths, state values, API endpoints).
     // Set window.__NOVA_DEBUG = true in a local .env or browser console to re-enable.
+    // NOTE: console.error is intentionally preserved — errors must still surface.
     (function () {
       if (typeof window.__NOVA_DEBUG === 'undefined' || !window.__NOVA_DEBUG) {
         var noop = function () { };
         ['log', 'info', 'warn', 'debug', 'group', 'groupEnd', 'groupCollapsed', 'table', 'dir'].forEach(function (m) {
           try { console[m] = noop; } catch (e) { }
         });
-        // Keep console.error for genuine unhandled errors but strip message content
-        console.error = function () {
-          // Only emit in dev; in prod swallow to avoid leaking stack traces
-        };
       }
     })();
 

@@ -31,6 +31,25 @@ const AppRegistry = (() => {
   const _onInstalled   = [];
   const _onUninstalled = [];
 
+  const KNOWN_PERMISSIONS = new Set([
+    'fs:read', 'fs:write', 'fs:delete', 'fs:metadata',
+    'net:internal', 'net:external', 'net:websocket',
+    'mail:read', 'mail:write', 'mail:send', 'mail:delete',
+    'calendar:read', 'calendar:write', 'calendar:delete',
+    'contacts:read', 'contacts:write', 'contacts:delete',
+    'device:notifications', 'device:geolocation', 'device:camera', 'device:microphone',
+    'system:info', 'system:settings', 'system:apps', 'system:events',
+    'data:export', 'data:backup',
+    'admin:apps', 'admin:users', 'admin:system', 'admin:audit',
+  ]);
+
+  const RESERVED_APP_IDS = new Set([
+    'nook', 'app-manager', 'browser', 'nbosp-email', 'vault',
+    'shell', 'nbosp-gallery', 'nbosp-music', 'nbosp-downloads',
+    'nbosp-search', 'nbosp-contacts', 'calendar-app', 'calculator',
+    'nbosp-clock', 'quill', 'nbosp-files',
+  ]);
+
   // ── Storage ────────────────────────────────────────────────────────────────
 
   function _saveToStorage() {
@@ -74,11 +93,23 @@ const AppRegistry = (() => {
       return installedApps.get(appConfig.id);
     }
 
+    if (RESERVED_APP_IDS.has(appConfig.id) && !appConfig.verified) {
+      throw new Error('[AppRegistry] Registration denied — id "' + appConfig.id + '" is reserved for system apps. Verify the app signature to proceed.');
+    }
+
+    const allPerms = [...(appConfig.permissions || []), ...(appConfig.optionalPermissions || [])];
+    const unknown = allPerms.filter(p => !KNOWN_PERMISSIONS.has(p));
+    if (unknown.length > 0) {
+      console.warn('[AppRegistry] Rejecting unknown permission(s) for', appConfig.id + ':', unknown.join(', '));
+      appConfig.permissions = (appConfig.permissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
+      appConfig.optionalPermissions = (appConfig.optionalPermissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
+    }
+
     const app = {
       icon: 'app-window', description: '', version: '1.0.0', author: 'Unknown',
       type: 'webapp', entry: 'index.html', permissions: [], optionalPermissions: [],
       defaultSize: [800, 600], minSize: [400, 300], maxSize: null,
-      resizable: true, frame: true, sandbox: { allowSameOrigin: true, allowScripts: true, allowForms: true, allowPopups: false },
+      resizable: true, frame: true, sandbox: { allowSameOrigin: false, allowScripts: true, allowForms: true, allowPopups: false },
       categories: ['other'], installedDate: new Date().toISOString(),
       lastLaunched: null, launchCount: 0, source: 'local', signature: null, verified: false,
       ...appConfig,
