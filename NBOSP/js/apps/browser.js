@@ -864,6 +864,16 @@ registerApp({
     toolbar.append(backBtn, fwdBtn, refreshBtn, urlBarWrap, starBtn, menuBtn);
 
     // ── View-mode toggle (Webview ↔ iFrame) ─────────────────────────────────
+/*****************************************************************
+ * ⚠️ DEV ONLY - DO NOT SHIP BUTTON TO PRODUCTION ⚠️
+ * * Dev/debug utility: lets a dev building on this app switch a tab
+ * between <webview> and <iframe> rendering — useful when <webview>
+ * isn't viable (e.g. missing nodeintegration/manifest flags) or
+ * when comparing how a tag behaves across the two modes.
+ * * REMOVE or HIDE this button element before deploying to production, 
+ * as non-technical/consumer people do not need this interface. 
+ * The underlying toggle logic is safe to leave in for devs.
+ *****************************************************************/
     const modeBtn = createEl('button', { className: 'browser-mode-btn', title: 'Switch to iframe mode' });
     modeBtn.innerHTML = svgIcon('monitor', 14) + ' <span>Webview</span>';
     modeBtn.addEventListener('click', () => {
