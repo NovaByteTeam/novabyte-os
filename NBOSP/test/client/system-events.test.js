@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 
-// system-events.js has side effects at load time (window.matchMedia call).
-// We test the pure logic functions directly without importing the module.
+// system-events.js has side effects at load time (DOM access, matchMedia, etc.)
+// and is a flat script with no exports. All functions are local closures.
+// We test the documented pure-logic behaviors by re-implementing them here
+// so regressions in the documented contract are caught. The actual module
+// would need to expose these helpers (or be split) for direct import tests.
 
 // ── Mock globals ─────────────────────────────────────────────────────────────
 const mockOS = {
@@ -89,10 +92,10 @@ describe('system-events (js/core/events/system-events.js)', () => {
   });
 
   // Note: We don't import system-events.js directly because it calls
-  // window.matchMedia at load time, which requires a real browser environment.
-  // Instead we test the pure logic functions that are independent of the DOM.
+  // window.matchMedia and accesses many DOM elements at load time.
+  // Instead we test the documented pure-logic behaviors.
 
-  describe('parseSuggestions (proxies.js)', () => {
+  describe('parseSuggestions (search suggestion parsing)', () => {
     function parseSuggestions(engine, json) {
       try {
         if (engine === 'bing') {
@@ -166,6 +169,13 @@ describe('system-events (js/core/events/system-events.js)', () => {
       updateNotificationBadge();
       const badge = document.getElementById('notif-badge');
       expect(badge.textContent).toBe('9+');
+    });
+
+    it('hides badge when no unread notifications', () => {
+      mockOS.notifications = [{ id: 1, read: true }];
+      updateNotificationBadge();
+      const badge = document.getElementById('notif-badge');
+      expect(badge.classList.add).toHaveBeenCalledWith('hidden');
     });
   });
 });

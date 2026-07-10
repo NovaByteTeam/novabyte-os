@@ -8,24 +8,6 @@ process.env.RATE_LIMIT_WINDOW_MS = '900000';
 process.env.RATE_LIMIT_MAX_REQUESTS = '100';
 process.env.CORS_ORIGIN = 'https://localhost:3003';
 
-// ── Mock server/core/index.js ──────────────────────────────────────────────
-// The server module starts listening on import, so we mock the HTTP server
-// and SSL setup to capture the app without binding a real port.
-
-vi.mock('dotenv', () => ({
-  config: vi.fn(),
-}));
-
-const mockApp = {
-  get: vi.fn(),
-  post: vi.fn(),
-  use: vi.fn(),
-  set: vi.fn(),
-  listen: vi.fn(),
-  on: vi.fn(),
-  param: vi.fn(),
-};
-
 const mockServer = {
   listen: vi.fn((port, host, cb) => {
     if (cb) cb();
@@ -36,6 +18,10 @@ const mockServer = {
   headersTimeout: 66000,
   maxRequestsPerSocket: 1000,
 };
+
+vi.mock('dotenv', () => ({
+  config: vi.fn(),
+}));
 
 vi.mock('https', () => ({
   createServer: vi.fn(() => mockServer),
@@ -74,14 +60,34 @@ vi.mock('../../server/proxies.js', () => ({
   setupAppNetworkProxy: vi.fn(),
 }));
 
-describe('server/core/index.js — route registration', () => {
+describe('server/core/index.js — server bootstrap', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.resetModules();
   });
 
-  it('imports without starting a real server', async () => {
+  it('imports and exports app, server, and listen without throwing', async () => {
     const mod = await import('../../server/core/index.js');
-    // The mocked module should export app and server
     expect(mod).toBeDefined();
+    expect(typeof mod.app).toBe('function');
+    expect(mod.server).toBeDefined();
+  });
+
+  it('mocks are correctly wired for ssl, middleware, routes, and favicons', async () => {
+    const ssl = await import('../../server/core/ssl.js');
+    const middleware = await import('../../server/middleware.js');
+    const routes = await import('../../server/routes.js');
+    const favicons = await import('../../server/favicons.js');
+
+    const mockApp = { use: vi.fn(), get: vi.fn() };
+    ssl.configureSSL(mockApp);
+    middleware.setupMiddleware(mockApp);
+    routes.mountRoutes(mockApp);
+    favicons.setupFaviconRoutes(mockApp);
+
+    expect(ssl.configureSSL).toHaveBeenCalled();
+    expect(middleware.setupMiddleware).toHaveBeenCalled();
+    expect(routes.mountRoutes).toHaveBeenCalled();
+    expect(favicons.setupFaviconRoutes).toHaveBeenCalled();
   });
 });

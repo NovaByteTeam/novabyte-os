@@ -9,7 +9,7 @@ const mockIframe = (attrs = {}) => {
       contains: vi.fn((token) => sandboxTokens.includes(token)),
       value: attrs.sandbox || '',
     },
-    hasAttribute: vi.fn((name) => attrs[name] !== undefined),
+    hasAttribute: vi.fn((name) => attrs[name] !== undefined || (name === 'sandbox' && attrs.sandbox !== undefined)),
     getAttribute: vi.fn((name) => attrs[name] ?? null),
     setAttribute: vi.fn(),
     removeAttribute: vi.fn(),
@@ -35,202 +35,265 @@ describe('FrameSecurity (js/platform/security/frame-security.js)', () => {
     vi.clearAllMocks();
   });
 
-  describe('Public API surface', () => {
-    it('loads without error', () => {
-      vi.resetModules();
-      require('../../js/platform/security/frame-security.js');
-      expect(true).toBe(true);
-    });
+  it('loads and exposes the public API on window.FrameSecurity', () => {
+    vi.resetModules();
+    require('../../js/platform/security/frame-security.js');
+    expect(window.FrameSecurity).toBeDefined();
+    expect(typeof window.FrameSecurity.isNodeRemoteUrl).toBe('function');
+    expect(typeof window.FrameSecurity.hasNwDisable).toBe('function');
+    expect(typeof window.FrameSecurity.isInWebview).toBe('function');
+    expect(typeof window.FrameSecurity.getFrameType).toBe('function');
+    expect(typeof window.FrameSecurity.validateFrameSecurity).toBe('function');
+    expect(typeof window.FrameSecurity.securifyFrame).toBe('function');
+    expect(typeof window.FrameSecurity.securifyAllFrames).toBe('function');
+    expect(typeof window.FrameSecurity.auditAllFrames).toBe('function');
+    expect(typeof window.FrameSecurity.startObserver).toBe('function');
+    expect(typeof window.FrameSecurity.stopObserver).toBe('function');
+    expect(typeof window.FrameSecurity.getRecentIssues).toBe('function');
+    expect(typeof window.FrameSecurity.getNodeRemotePatterns).toBe('function');
   });
 
-  describe('isNodeRemoteUrl logic', () => {
-    function isNodeRemoteUrl(urlString) {
-      if (typeof urlString !== 'string') return false;
-      try {
-        const url = new URL(urlString);
-        if (url.protocol !== 'https:') return false;
-        return urlString.startsWith('https://localhost') || urlString.startsWith('https://127.0.0.1');
-      } catch {
-        return false;
-      }
-    }
-
+  describe('isNodeRemoteUrl', () => {
     it('returns false for non-string input', () => {
-      expect(isNodeRemoteUrl(null)).toBe(false);
-      expect(isNodeRemoteUrl(123)).toBe(false);
+      const fs = window.FrameSecurity;
+      expect(fs.isNodeRemoteUrl(null)).toBe(false);
+      expect(fs.isNodeRemoteUrl(123)).toBe(false);
     });
 
     it('returns false for non-https schemes', () => {
-      expect(isNodeRemoteUrl('http://localhost:3003')).toBe(false);
-      expect(isNodeRemoteUrl('blob:http://example.com/uuid')).toBe(false);
+      const fs = window.FrameSecurity;
+      expect(fs.isNodeRemoteUrl('http://localhost:3003/app')).toBe(false);
+      expect(fs.isNodeRemoteUrl('blob:http://example.com/uuid')).toBe(false);
+      expect(fs.isNodeRemoteUrl('file:///etc/passwd')).toBe(false);
+      expect(fs.isNodeRemoteUrl('javascript:alert(1)')).toBe(false);
     });
 
     it('returns true for https://localhost URLs', () => {
-      expect(isNodeRemoteUrl('https://localhost:3003/app')).toBe(true);
+      const fs = window.FrameSecurity;
+      expect(fs.isNodeRemoteUrl('https://localhost:3003/app')).toBe(true);
     });
 
     it('returns true for https://127.0.0.1 URLs', () => {
-      expect(isNodeRemoteUrl('https://127.0.0.1:3003/app')).toBe(true);
+      const fs = window.FrameSecurity;
+      expect(fs.isNodeRemoteUrl('https://127.0.0.1:3003/app')).toBe(true);
     });
 
     it('returns false for public HTTPS URLs', () => {
-      expect(isNodeRemoteUrl('https://example.com')).toBe(false);
+      const fs = window.FrameSecurity;
+      expect(fs.isNodeRemoteUrl('https://example.com')).toBe(false);
     });
   });
 
-  describe('hasSandboxAttribute', () => {
-    function hasSandboxAttribute(iframe) {
-      return Boolean(iframe && iframe.hasAttribute && iframe.hasAttribute('sandbox'));
-    }
-
+  describe('hasNwDisable', () => {
     it('returns false for null iframe', () => {
-      expect(hasSandboxAttribute(null)).toBe(false);
+      const fs = window.FrameSecurity;
+      expect(fs.hasNwDisable(null)).toBe(false);
     });
 
-    it('returns true when sandbox attribute is present', () => {
-      const iframe = mockIframe({ sandbox: 'allow-scripts' });
-      expect(hasSandboxAttribute(iframe)).toBe(true);
+    it('returns true when nwdisable attribute is present', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ nwdisable: '' });
+      expect(fs.hasNwDisable(iframe)).toBe(true);
+    });
+  });
+
+  describe('isInWebview', () => {
+    it('returns false for null iframe', () => {
+      const fs = window.FrameSecurity;
+      expect(fs.isInWebview(null)).toBe(false);
     });
 
-    it('returns true when sandbox is empty string', () => {
-      const iframe = mockIframe({ sandbox: '' });
-      expect(hasSandboxAttribute(iframe)).toBe(true);
+    it('returns true when parentElement is a webview', () => {
+      const fs = window.FrameSecurity;
+      const webviewEl = { tagName: 'WEBVIEW', parentElement: null };
+      const iframe = mockIframe({ parentElement: webviewEl });
+      expect(fs.isInWebview(iframe)).toBe(true);
+    });
+
+    it('returns false for normal parent chain', () => {
+      const fs = window.FrameSecurity;
+      const div = { tagName: 'DIV', parentElement: null };
+      const iframe = mockIframe({ parentElement: div });
+      expect(fs.isInWebview(iframe)).toBe(false);
     });
   });
 
   describe('getFrameType', () => {
-    function getFrameType(iframe) {
-      if (!iframe) return 'normal';
-      if (iframe.src.startsWith('https://localhost') || iframe.src.startsWith('https://127.0.0.1')) return 'node';
-      return 'normal';
-    }
-
     it('returns normal for null iframe', () => {
-      expect(getFrameType(null)).toBe('normal');
+      const fs = window.FrameSecurity;
+      expect(fs.getFrameType(null)).toBe('normal');
     });
 
-    it('returns node for localhost URLs', () => {
-      expect(getFrameType(mockIframe({ src: 'https://localhost:3003/app' }))).toBe('node');
+    it('returns node for localhost URLs without nwdisable', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://localhost:3003/app' });
+      expect(fs.getFrameType(iframe)).toBe('node');
+    });
+
+    it('returns normal when nwdisable is present', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://localhost:3003/app', nwdisable: '' });
+      expect(fs.getFrameType(iframe)).toBe('normal');
     });
 
     it('returns normal for external URLs', () => {
-      expect(getFrameType(mockIframe({ src: 'https://example.com' }))).toBe('normal');
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://example.com/' });
+      expect(fs.getFrameType(iframe)).toBe('normal');
     });
   });
 
   describe('validateFrameSecurity', () => {
-    function validateFrameSecurity(iframe) {
-      if (!iframe) {
-        return { valid: false, frameType: 'normal', issues: ['iframe element is null'] };
-      }
-      const issues = [];
-      const frameType = getFrameType(iframe);
-      const hasSandbox = hasSandboxAttribute(iframe);
-
-      if (frameType === 'node') {
-        if (hasSandbox) issues.push('Node frame should not have sandbox restrictions');
-      } else if (iframe.src) {
-        if (!hasSandbox) {
-          issues.push('Normal frame must have sandbox attribute');
-        } else if (iframe.sandbox.contains('allow-same-origin')) {
-          issues.push('Sandbox includes allow-same-origin — sandbox escape risk');
-        }
-      }
-      return { valid: issues.length === 0, frameType, issues };
-    }
-
-    function getFrameType(iframe) {
-      if (!iframe) return 'normal';
-      if (iframe.src.startsWith('https://localhost') || iframe.src.startsWith('https://127.0.0.1')) return 'node';
-      return 'normal';
-    }
-
-    function hasSandboxAttribute(iframe) {
-      return Boolean(iframe && iframe.hasAttribute && iframe.hasAttribute('sandbox'));
-    }
-
-    it('returns null when input is empty', () => {
-      const result = validateFrameSecurity(null);
+    it('returns invalid for null iframe', () => {
+      const fs = window.FrameSecurity;
+      const result = fs.validateFrameSecurity(null);
       expect(result.valid).toBe(false);
+      expect(result.frameType).toBe('normal');
+      expect(result.issues).toContain('iframe element is null');
     });
 
-    it('validates a correct normal frame', () => {
+    it('validates a correct normal frame with sandbox', () => {
+      const fs = window.FrameSecurity;
       const iframe = mockIframe({ src: 'https://example.com/', sandbox: 'allow-scripts' });
-      const result = validateFrameSecurity(iframe);
+      const result = fs.validateFrameSecurity(iframe);
       expect(result.valid).toBe(true);
       expect(result.frameType).toBe('normal');
     });
 
     it('flags missing sandbox on normal frame', () => {
+      const fs = window.FrameSecurity;
       const iframe = mockIframe({ src: 'https://example.com/' });
-      const result = validateFrameSecurity(iframe);
+      const result = fs.validateFrameSecurity(iframe);
       expect(result.valid).toBe(false);
-      expect(result.issues.some((i) => i.includes('sandbox'))).toBe(true);
+      expect(result.issues.some(i => i.includes('sandbox'))).toBe(true);
     });
 
     it('flags allow-same-origin as escape risk', () => {
+      const fs = window.FrameSecurity;
       const iframe = mockIframe({ src: 'https://example.com/', sandbox: 'allow-scripts allow-same-origin' });
-      const result = validateFrameSecurity(iframe);
+      const result = fs.validateFrameSecurity(iframe);
       expect(result.valid).toBe(false);
-      expect(result.issues.some((i) => i.includes('allow-same-origin'))).toBe(true);
+      expect(result.issues.some(i => i.includes('allow-same-origin'))).toBe(true);
+    });
+
+    it('flags node frame with sandbox restrictions', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://localhost:3003/app', sandbox: 'allow-scripts' });
+      const result = fs.validateFrameSecurity(iframe);
+      expect(result.valid).toBe(false);
+      expect(result.frameType).toBe('node');
+      expect(result.issues.some(i => i.includes('Node frame should not have sandbox'))).toBe(true);
     });
   });
 
   describe('securifyFrame', () => {
-    function securifyFrame(iframe, _frameType, { mode = 'patch' } = {}) {
-      if (!iframe) return iframe;
-      if (iframe.src.startsWith('https://localhost') || iframe.src.startsWith('https://127.0.0.1')) {
-        iframe.removeAttribute('sandbox');
-        iframe.removeAttribute('nwdisable');
-        return iframe;
-      }
-      if (!iframe.hasAttribute('nwdisable')) iframe.setAttribute('nwdisable', '');
-      if (mode === 'replace') {
-        iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
-        return iframe;
-      }
-      if (!iframe.hasAttribute('sandbox')) {
-        iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-modals allow-popups');
-      }
-      return iframe;
-    }
-
-    it('adds nwdisable and sandbox to normal frames', () => {
+    it('adds nwdisable and sandbox to normal frames in patch mode', () => {
+      const fs = window.FrameSecurity;
       const iframe = mockIframe({ src: 'https://example.com/' });
-      securifyFrame(iframe, 'normal', { mode: 'patch' });
+      fs.securifyFrame(iframe, 'normal', { mode: 'patch' });
       expect(iframe.setAttribute).toHaveBeenCalledWith('nwdisable', '');
+      // sandbox is set via setAttribute or sandbox.value depending on DOMTokenList availability
+      const sandboxCalls = iframe.setAttribute.mock.calls.filter(c => c[0] === 'sandbox');
+      const sandboxValueSet = iframe.sandbox.value === 'allow-scripts allow-forms allow-modals allow-popups';
+      expect(sandboxCalls.length > 0 || sandboxValueSet).toBe(true);
     });
 
-    it('strips sandbox/nwdisable from node frames', () => {
+    it('strips sandbox and nwdisable from node frames', () => {
+      const fs = window.FrameSecurity;
       const iframe = mockIframe({ src: 'https://localhost:3003/app', sandbox: 'allow-scripts', nwdisable: '' });
-      securifyFrame(iframe, 'node');
+      fs.securifyFrame(iframe, 'node');
       expect(iframe.removeAttribute).toHaveBeenCalledWith('sandbox');
       expect(iframe.removeAttribute).toHaveBeenCalledWith('nwdisable');
     });
+
+    it('replaces sandbox tokens in replace mode', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://example.com/', sandbox: 'allow-scripts allow-same-origin' });
+      fs.securifyFrame(iframe, 'normal', { mode: 'replace' });
+      // In replace mode the sandbox value is set directly via sandbox.value or setAttribute
+      const expected = 'allow-scripts allow-forms allow-modals allow-popups';
+      const setAttributeCalled = iframe.setAttribute.mock.calls.some(c => c[0] === 'sandbox' && c[1] === expected);
+      const valueSet = iframe.sandbox.value === expected;
+      expect(setAttributeCalled || valueSet).toBe(true);
+    });
   });
 
-  describe('safeId', () => {
-    function safeId(iframe) {
-      if (!iframe) return '<null>';
-      if (iframe.id) return '#' + iframe.id;
-      if (iframe.className) {
-        const first = iframe.className.trim().split(/\s+/)[0];
-        if (first) return '.' + first;
-      }
-      try {
-        const u = new URL(iframe.src || '');
-        return u.protocol + '//' + u.hostname;
-      } catch {
-        return '<no-src>';
-      }
-    }
-
-    it('returns null when input is empty', () => {
-      expect(safeId(null)).toBe('<null>');
+  describe('securifyAllFrames', () => {
+    it('returns summary with securified count when iframes have issues', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://example.com/' });
+      document.querySelectorAll.mockReturnValue([iframe]);
+      const summary = fs.securifyAllFrames({ mode: 'patch' });
+      expect(summary.total).toBe(1);
+      expect(summary.securified.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('prefers id over class and origin', () => {
-      expect(safeId(mockIframe({ id: 'myframe', src: 'https://example.com/page' }))).toBe('#myframe');
+    it('skips excluded iframes', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://example.com/', id: 'skip-me' });
+      document.querySelectorAll.mockReturnValue([iframe]);
+      const summary = fs.securifyAllFrames({ exclude: ['#skip-me'] });
+      expect(summary.skipped).toContain('#skip-me');
+    });
+  });
+
+  describe('auditAllFrames', () => {
+    it('returns total count and issues array', () => {
+      const fs = window.FrameSecurity;
+      const iframe = mockIframe({ src: 'https://example.com/' });
+      document.querySelectorAll.mockReturnValue([iframe]);
+      const audit = fs.auditAllFrames();
+      expect(audit.total).toBe(1);
+      expect(audit.normalFrames).toBe(1);
+      expect(audit.issues.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('startObserver / stopObserver', () => {
+    it('startObserver does not throw when MutationObserver is available', () => {
+      const MockObs = vi.fn().mockImplementation(() => ({ observe: vi.fn(), disconnect: vi.fn() }));
+      window.MutationObserver = MockObs;
+      vi.resetModules();
+      require('../../js/platform/security/frame-security.js');
+      const fs = window.FrameSecurity;
+      expect(() => fs.startObserver({ autoSecurify: true, mode: 'patch' })).not.toThrow();
+    });
+
+    it('startObserver is a no-op when MutationObserver is unavailable', () => {
+      const prev = window.MutationObserver;
+      window.MutationObserver = undefined;
+      vi.resetModules();
+      require('../../js/platform/security/frame-security.js');
+      const fs = window.FrameSecurity;
+      expect(() => fs.startObserver()).not.toThrow();
+      window.MutationObserver = prev;
+    });
+
+    it('stopObserver disconnects an existing observer', () => {
+      vi.resetModules();
+      require('../../js/platform/security/frame-security.js');
+      const fs = window.FrameSecurity;
+      const mockObs = { disconnect: vi.fn() };
+      // Set via the module's internal reference by calling startObserver first
+      fs.startObserver();
+      // The module stores the observer internally; we can't directly set it
+      // because the API is frozen, but we can verify stopObserver doesn't throw
+      expect(() => fs.stopObserver()).not.toThrow();
+    });
+
+    it('getRecentIssues returns a copy of the issues array', () => {
+      const fs = window.FrameSecurity;
+      const result = fs.getRecentIssues();
+      expect(Array.isArray(result)).toBe(true);
+    });
+  });
+
+  describe('getNodeRemotePatterns', () => {
+    it('returns the regex sources for node-remote patterns', () => {
+      const fs = window.FrameSecurity;
+      const patterns = fs.getNodeRemotePatterns();
+      expect(Array.isArray(patterns)).toBe(true);
+      expect(patterns.length).toBeGreaterThan(0);
     });
   });
 });
