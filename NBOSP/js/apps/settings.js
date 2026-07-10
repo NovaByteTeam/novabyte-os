@@ -348,6 +348,27 @@ registerApp({
       recoveryRow.appendChild(recoveryBtn);
       recoveryGroup.appendChild(recoveryRow);
       mainContent.appendChild(recoveryGroup);
+
+      // Developer Mode
+      const devGroup = createEl('div', { className: 'nook-group' });
+      devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Developer' }));
+      const devRow = createEl('div', { className: 'nook-toggle-row' });
+      devRow.appendChild(createEl('span', { textContent: 'Developer Mode' }));
+      const devToggle = createEl('button', {
+        className: 'toggle' + (OS.settings.get('devMode') ? ' active' : '')
+      });
+      devToggle.addEventListener('click', () => {
+        const next = !OS.settings.get('devMode');
+        OS.settings.set('devMode', next);
+        devToggle.classList.toggle('active', next);
+        if (window.DebugOverlay) {
+          next ? window.DebugOverlay.enable() : window.DebugOverlay.disable();
+        }
+        Notify.show({ title: next ? 'Developer Mode Enabled' : 'Developer Mode Disabled', body: 'Press F3 to toggle debug overlay', type: 'info', appName: 'Settings' });
+      });
+      devRow.appendChild(devToggle);
+      devGroup.appendChild(devRow);
+      mainContent.appendChild(devGroup);
     }
 
     // ── Storage ─────────────────────────────────────────────────────────────
@@ -695,6 +716,13 @@ registerApp({
       const builtIns = [...appIds].filter(id => !id.startsWith('wa_') && !novaAppIds.has(id)).sort();
       const webApps  = [...appIds].filter(id =>  id.startsWith('wa_')).sort();
 
+      const devMode = OS.settings.get('devMode');
+      const visibleBuiltIns = builtIns.filter(id => {
+        if (devMode) return true;
+        const entry = OS.apps[id];
+        return !entry?.devOnly;
+      });
+
       function buildAppCard(appId, novaData) {
         const entry   = (typeof OS !== 'undefined' && OS.apps) ? OS.apps[appId] : null;
         const appName = novaData?.name ?? entry?.name ?? appId;
@@ -731,12 +759,16 @@ registerApp({
         const iconVal  = novaData?.icon ?? entry?.icon ?? null;
         const isEmoji  = iconVal && /\p{Emoji}/u.test(iconVal) && iconVal.length <= 4;
         const isSvgKey = iconVal && !isEmoji && /^[a-z][a-z0-9-]*$/.test(iconVal);
+        const isDataUri = iconVal && typeof iconVal === 'string' && iconVal.startsWith('data:image/svg+xml;base64,');
         if (isSvgKey && typeof svgIcon === 'function') {
           iconEl.innerHTML = svgIcon(iconVal, 18);
           iconEl.style.color = 'var(--accent)';
         } else if (isEmoji) {
           iconEl.style.fontSize = '20px';
           iconEl.textContent = iconVal;
+        } else if (isDataUri) {
+          iconEl.style.background = 'transparent';
+          iconEl.innerHTML = '<img src="' + iconVal + '" width="18" height="18" style="display:block;" draggable="false" alt="">';
         } else {
           iconEl.textContent = appName.charAt(0).toUpperCase();
         }
@@ -891,9 +923,9 @@ registerApp({
         return card;
       }
 
-      if (builtIns.length > 0) {
+      if (visibleBuiltIns.length > 0) {
         mainContent.appendChild(createEl('div', { textContent: 'BUILT-IN APPS', style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:10px;' }));
-        for (const id of builtIns) {
+        for (const id of visibleBuiltIns) {
           const card = buildAppCard(id);
           if (card) mainContent.appendChild(card);
         }
@@ -915,7 +947,7 @@ registerApp({
         }
       }
 
-      if (builtIns.length === 0 && webApps.length === 0 && novaApps.length === 0) {
+      if (visibleBuiltIns.length === 0 && webApps.length === 0 && novaApps.length === 0) {
         const empty = createEl('div', { style: 'text-align:center;color:var(--text-muted);padding:40px 0;font-size:13px;' });
         empty.textContent = 'No apps found.';
         mainContent.appendChild(empty);
@@ -1227,5 +1259,11 @@ registerApp({
 
     buildSidebar();
     renderContent();
+
+    if (typeof OS !== 'undefined' && OS.events && typeof OS.events.on === 'function') {
+      OS.events.on('settings:changed', ({ key }) => {
+        if (key === 'devMode' && currentSection === 'apps') renderContent();
+      });
+    }
   }
 });

@@ -122,6 +122,36 @@
       normal   : [],
       dangerous: [],
     },
+
+    // Developer tools
+    sysaccess: {
+      normal   : [],
+      dangerous: ['system:info', 'fs:read', 'fs:write', 'net:internal'],
+    },
+    devconsole: {
+      normal   : [],
+      dangerous: ['system:info', 'system:settings'],
+    },
+    perf: {
+      normal   : [],
+      dangerous: ['system:info', 'system:settings'],
+    },
+    packages: {
+      normal   : [],
+      dangerous: ['system:info', 'system:settings'],
+    },
+    permissions: {
+      normal   : [],
+      dangerous: ['system:apps', 'system:settings'],
+    },
+    modules: {
+      normal   : [],
+      dangerous: ['system:info', 'system:settings', 'net:internal'],
+    },
+    inspector: {
+      normal   : [],
+      dangerous: ['system:info', 'system:apps', 'system:settings'],
+    },
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────

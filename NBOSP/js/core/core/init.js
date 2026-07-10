@@ -84,17 +84,21 @@
     }
 
 // ── Fix CVE-NB-2026-009-M3 (2026-05-14): localStorage sensitive-key guard ──
-    // Warns loudly when a sensitive-looking key is written so accidental
-    // credential storage is caught early. Mirrors through to allow writes
-    // (throw removed — production DoS on any `session_id` or `token_*` key).
+    // Blocks writes of genuine credential material to localStorage (which is
+    // readable by any XSS payload). The regex intentionally targets patterns
+    // that are almost always secrets — password, private key, API key, etc. —
+    // and deliberately excludes overloaded terms like "session" and "token"
+    // that appear in non-secret internal state (session counters, expiry flags,
+    // token counts, recovery identifiers).
     (function () {
-      var SENSITIVE = /token|auth|secret|password|credential|session|apikey|api_key|jwt|bearer/i;
+      var SECRET = /^.*(password|private.?key|secret.?key|apikey|api_key|credential).*$/i;
       var _realSet = localStorage.setItem.bind(localStorage);
       localStorage.setItem = function (key, value) {
-        if (SENSITIVE.test(key)) {
-          var msg = '[NovaByte] SECURITY: Detected sensitive key "' + key +
-            '" written to localStorage (XSS-readable). Use server-side sessions instead.';
-          console.warn(msg);
+        if (SECRET.test(key)) {
+          var msg = '[NovaByte] SECURITY: Refusing to store key "' + key +
+            '" in localStorage (XSS-readable). Use a server-side session instead.';
+          console.error(msg);
+          throw new Error(msg);
         }
         return _realSet(key, value);
       };

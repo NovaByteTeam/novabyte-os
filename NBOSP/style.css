@@ -6471,3 +6471,40 @@
     .speed-dial-tile:hover {
       background: var(--bg-hover) !important;
     }
+
+    /* ── Debug Overlay ── */
+    #debug-overlay {
+      position: fixed;
+      z-index: 99999;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #0f0;
+      background: transparent;
+      padding: 6px 10px;
+      border-radius: 6px;
+      pointer-events: none;
+      user-select: none;
+      white-space: pre;
+      text-shadow: 0 0 6px rgba(0, 0, 0, 0.95), 0 0 3px rgba(0, 0, 0, 0.8), 1px 1px 0 rgba(0,0,0,0.9);
+      transition: opacity 0.2s;
+    }
+
+    #debug-overlay .debug-drag-handle {
+      cursor: grab;
+      pointer-events: auto;
+      touch-action: none;
+      padding: 4px 10px 2px;
+      box-sizing: border-box;
+      border-bottom: 1px solid rgba(0, 255, 0, 0.15);
+      margin-bottom: 4px;
+    }
+
+    #debug-overlay .debug-drag-handle:active {
+      cursor: grabbing;
+    }
+
+    #debug-overlay .debug-content {
+      pointer-events: none;
+      padding: 0 10px 6px;
+    }

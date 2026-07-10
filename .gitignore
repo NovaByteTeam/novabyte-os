@@ -23,5 +23,6 @@
 /NBOSP/data/
 /NBOSP/js/purify.min.js
 /NBOSP/.zcode
+/NBOSP/.vs
 /NBOSP/graphify-out
 /NBOSP/.graphifyignore

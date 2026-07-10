@@ -493,6 +493,14 @@ async function boot() {
   // 10. Post-boot Hooks ────────────────────────────────────────────
   Boot._runHooks('after');
 
+  // 11. Developer Mode / Debug Overlay ───────────────────────────
+  if (OS.settings.get('devMode')) {
+    const overlayPref = OS.settings.get('debugOverlayVisible');
+    if (overlayPref !== false && window.DebugOverlay) {
+      window.DebugOverlay.enable();
+    }
+  }
+
   // Freeze hooks to prevent post-boot tampering. Any script that tries to push
   // onto Boot.hooks after this point will receive a TypeError.
   try {

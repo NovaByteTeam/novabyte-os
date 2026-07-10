@@ -124,6 +124,8 @@ const AppRegistry = (() => {
         resizable: app.resizable !== false, frame: app.frame !== false,
         alwaysOnTop: app.alwaysOnTop || false, fullscreenable: app.fullscreenable !== false,
         startMinimized: app.startMinimized || false, transparent: app.transparent || false,
+        devOnly: appConfig.devOnly || false,
+        autoGrant: appConfig.autoGrant || false,
         init: (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
         onDrop: appConfig.onDrop ?? undefined,
         onClose: appConfig.onClose ?? undefined,
@@ -178,10 +180,16 @@ const AppRegistry = (() => {
     if (mgr && app.permissions.length > 0) {
       const missing = app.permissions.filter(p => !mgr.isGranted(p, appId));
       if (missing.length > 0) {
-        const allGranted = await mgr.requestAll(missing, appId, app.name);
-        if (!allGranted) {
-          console.warn(`[AppRegistry] Launch aborted — permissions denied for ${appId}`);
-          return null;
+        if (app.autoGrant) {
+          for (const p of missing) {
+            await mgr.grantPermission(p, appId, { permanent: true, reason: 'Auto-granted for developer tool', grantedBy: 'system' });
+          }
+        } else {
+          const allGranted = await mgr.requestAll(missing, appId, app.name);
+          if (!allGranted) {
+            console.warn(`[AppRegistry] Launch aborted — permissions denied for ${appId}`);
+            return null;
+          }
         }
       }
     }

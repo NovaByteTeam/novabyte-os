@@ -842,12 +842,19 @@ const WM = window.WM = (() => {
       const container = document.getElementById('taskbar-apps');
       if (!container) return;
 
-      const pinnedApps    = OS.settings.get('pinnedApps') ?? [];
+      const devMode = OS.settings.get('devMode');
+      const pinnedApps = (OS.settings.get('pinnedApps') ?? []).filter(id => {
+        if (devMode) return true;
+        const app = OS.apps[id];
+        return !app?.devOnly;
+      });
       const pinnedAppsSet = new Set(pinnedApps); // O(1) lookups vs O(n) includes()
 
       // Group open windows by appId
       const appWindows = new Map();
       for (const [id, state] of OS.windows) {
+        const app = OS.apps[state.appId];
+        if (!devMode && app?.devOnly) continue;
         appWindows.getOrInsertComputed(state.appId, () => []).push({ id, state });
       }
 

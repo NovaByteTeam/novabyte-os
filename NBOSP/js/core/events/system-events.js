@@ -70,7 +70,8 @@ function toggleLaunchpad() {
 
 function renderLaunchpad() {
   const grid = document.getElementById('launchpad-grid');
-  const apps = APP_REGISTRY;
+  const devMode = OS.settings.get('devMode');
+  const apps = devMode ? APP_REGISTRY : APP_REGISTRY.filter(app => !app.devOnly);
   const webApps = (typeof WebAppManager !== 'undefined' && WebAppManager.getAllApps)
     ? WebAppManager.getAllApps()
     : [];
@@ -748,6 +749,23 @@ document.addEventListener('keydown', (e) => {
     const launchpad = document.getElementById('launchpad');
     if (launchpad.classList.contains('active')) toggleLaunchpad();
     ContextMenu.hide();
+  }
+
+  // F3 — toggle debug overlay only; devMode setting is unchanged
+  if (e.key === 'F3') {
+    e.preventDefault();
+    if (window.DebugOverlay) {
+      window.DebugOverlay.toggle();
+    }
+  }
+
+  // Ctrl+Shift+D — copy debug overlay text to clipboard
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'D') {
+    e.preventDefault();
+    if (window.DebugOverlay) {
+      window.DebugOverlay._copyDebugInfo?.();
+      Notify.show({ title: 'Debug Info Copied', body: 'Overlay text copied to clipboard', type: 'success' });
+    }
   }
 });
 
@@ -1594,4 +1612,12 @@ function launchSnakeGame() {
   svc.__patchedStartup = true;
   try { svc.ensureBooted?.(); } catch { }
 })();
+
+OS.events.on('settings:changed', ({ key }) => {
+  if (key === 'devMode') {
+    if (document.getElementById('launchpad')?.classList.contains('active')) renderLaunchpad();
+    if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+  }
+});
+
 boot();
