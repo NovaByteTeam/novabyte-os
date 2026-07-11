@@ -8,7 +8,7 @@ registerApp({
   autoGrant: true,
   defaultSize: [750, 600],
   minSize: [450, 400],
-  permissions: ['system:info', 'fs:read', 'net:internal'],
+  permissions: ['system:info', 'fs:read', 'net:internal', 'fs:write'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
@@ -84,8 +84,13 @@ registerApp({
 
       const runBtn = createEl('button', {
         textContent: 'Run Test',
-        style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;'
+        style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;margin-right:8px;'
       });
+      const exportBtn = createEl('button', {
+        textContent: 'Export Results',
+        style: 'padding:6px 14px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;'
+      });
+      let lastRunResults = null; // set after each successful Run Test; convenience handle to the object also pushed into runHistory
 
       const section = createEl('div', { style: 'display:flex;flex-direction:column;gap:12px;' });
 
@@ -124,6 +129,40 @@ registerApp({
       ssrfCard.appendChild(createEl('h4', { textContent: 'SSRF Guard Test', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
       ssrfCard.appendChild(createEl('div', { textContent: 'Waiting for test…', style: 'font-size:11px;color:var(--text-muted);margin-bottom:6px;' }));
       section.appendChild(ssrfCard);
+
+      // Run history — lets you compare "it failed 2 minutes ago, now it
+      // passes" instead of Run Test silently overwriting the only visible
+      // result each time. Capped ring buffer, newest first, in-memory only
+      // (resets on window close/reopen — no persistence layer to hook into
+      // here beyond FS, which would be the wrong tool for ephemeral UI state).
+      const HISTORY_CAP = 20;
+      const runHistory = [];
+      const historyCard = createEl('div', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
+      historyCard.appendChild(createEl('h4', { textContent: 'Run History', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+      const historyList = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto;' });
+      historyCard.appendChild(historyList);
+      section.appendChild(historyCard);
+
+      function renderHistory() {
+        historyList.innerHTML = '';
+        if (!runHistory.length) {
+          historyList.appendChild(createEl('div', { textContent: 'No runs yet', style: 'font-size:11px;color:var(--text-muted);' }));
+          return;
+        }
+        runHistory.forEach(run => {
+          const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:3px 6px;background:var(--bg-default);border-radius:4px;font-size:11px;font-family:monospace;' });
+          const time = new Date(run.timestamp).toLocaleTimeString();
+          row.appendChild(createEl('span', { textContent: time, style: 'color:var(--text-muted);' }));
+          const proxyOk = run.proxyResults.filter(r => r.ok).length;
+          const ssrfBlocked = run.ssrfRows.filter(r => r.blocked).length;
+          row.appendChild(createEl('span', {
+            textContent: `proxy ${proxyOk}/${run.proxyResults.length} · ssrf blocked ${ssrfBlocked}/${run.ssrfRows.length}`,
+            style: 'color:' + (proxyOk === run.proxyResults.length ? '#3fb950' : '#f85149') + ';'
+          }));
+          historyList.appendChild(row);
+        });
+      }
+      renderHistory();
 
       const testUrls = ['http://127.0.0.1/x', 'http://localhost/x', 'http://169.254.1.1/x', 'https://example.com/img.png'];
 
@@ -178,9 +217,29 @@ registerApp({
         statusEl.textContent = 'Test complete.';
         runBtn.disabled = false;
         runBtn.textContent = 'Run Test';
+        lastRunResults = { timestamp: new Date().toISOString(), proxyResults, ssrfRows };
+        runHistory.unshift(lastRunResults);
+        if (runHistory.length > HISTORY_CAP) runHistory.length = HISTORY_CAP;
+        renderHistory();
+      }, { signal: ac.signal });
+
+      exportBtn.addEventListener('click', () => {
+        if (!runHistory.length) return;
+        const payload = { exportedAt: new Date().toISOString(), runCount: runHistory.length, runs: runHistory };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = createEl('a', { href: url, download: 'nbosp-sysaccess-network-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Same delayed-revoke pattern as console.js/perf.js exports: some
+        // browsers cancel the download if the blob URL is revoked before
+        // the click's download actually starts.
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
       }, { signal: ac.signal });
 
       panels.network.appendChild(runBtn);
+      panels.network.appendChild(exportBtn);
       panels.network.appendChild(statusEl);
 
       // CORS origins
@@ -228,14 +287,16 @@ registerApp({
         expandedInitialized = true;
       }
 
-      const filterRow = createEl('div', { style: 'margin-bottom:10px;' });
-      const filterInput = createEl('input', { placeholder: 'Filter by name…', value: fsFilterValue, style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+      const filterRow = createEl('div', { style: 'margin-bottom:10px;display:flex;gap:8px;align-items:center;' });
+      const filterInput = createEl('input', { placeholder: 'Filter by name…', value: fsFilterValue, style: 'flex:1;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+      const fsExportBtn = createEl('button', { textContent: 'Export', title: 'Download the currently visible tree as JSON (metadata only, not file content)', style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
       filterRow.appendChild(filterInput);
+      filterRow.appendChild(fsExportBtn);
       panels.fs.appendChild(filterRow);
 
       const layout = createEl('div', { style: 'display:flex;gap:12px;align-items:flex-start;' });
       const treeWrap = createEl('div', { style: 'font-family:monospace;font-size:12px;flex:1;min-width:0;' });
-      const detailWrap = createEl('div', { style: 'width:220px;flex-shrink:0;' });
+      const detailWrap = createEl('div', { style: 'width:320px;flex-shrink:0;' });
       layout.appendChild(treeWrap);
       layout.appendChild(detailWrap);
       panels.fs.appendChild(layout);
@@ -265,6 +326,39 @@ registerApp({
       }
       computeMatch(FS.rootId);
 
+      // Export walks the same subtreeMatches result the renderer just
+      // computed, so "Export" always matches what's actually on screen
+      // (respecting the current filter), not a separate full-tree dump.
+      // Content is deliberately excluded from the export — file bodies can
+      // be large/numerous, and per-file content is already viewable in the
+      // detail panel on demand; a metadata export stays predictable in size.
+      fsExportBtn.addEventListener('click', () => {
+        const rows = [];
+        function walk(id, path) {
+          const node = FS.files.get(id);
+          if (!node || !subtreeMatches.get(id)) return;
+          const nodePath = path + '/' + node.name;
+          rows.push({
+            id: node.id, name: node.name, type: node.type, path: id === FS.rootId ? '/' : nodePath,
+            parentId: node.parentId, size: node.size ?? null, mimeType: node.mimeType ?? null,
+            created: node.created ?? null, modified: node.modified ?? null, accessed: node.accessed ?? null,
+          });
+          if (node.type === 'folder') {
+            const children = FS._childrenByParent.get(id);
+            if (children) for (const cid of children.keys()) walk(cid, id === FS.rootId ? '' : nodePath);
+          }
+        }
+        walk(FS.rootId, '');
+        const payload = { exportedAt: new Date().toISOString(), filter: fsFilterValue || null, nodeCount: rows.length, nodes: rows };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = createEl('a', { href: url, download: 'nbosp-sysaccess-fs-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      }, { signal: ac.signal });
+
       function fmtBytes(n) {
         if (n < 1024) return n + ' b';
         if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
@@ -289,7 +383,10 @@ registerApp({
           ['id', node.id],
           ['parentId', node.parentId || '(root)'],
         ];
-        if (node.type === 'file') rows.push(['size', fmtBytes(node.size || 0)]);
+        if (node.type === 'file') {
+          rows.push(['size', fmtBytes(node.size || 0)]);
+          rows.push(['mimeType', node.mimeType || '(unknown)']);
+        }
         // created/modified/accessed are confirmed real fields set by
         // fs.js (Date.now() epoch ms) — not invented for this UI.
         if (node.created)  rows.push(['created',  new Date(node.created).toLocaleString()]);
@@ -302,6 +399,37 @@ registerApp({
           box.appendChild(row);
         });
         detailWrap.appendChild(box);
+
+        // Content viewer — node.content is confirmed (fs.js) to hold the
+        // actual file body in memory already; no separate worker round-trip
+        // exists or is needed to read it (fs.js has no readFile method at
+        // all — writeFile is the only content-touching call beyond init's
+        // bulk load). Read-only here on purpose: this panel's own
+        // description already states "Read-only in dev mode for safety",
+        // an existing policy this viewer respects rather than adding a
+        // wired-up editor nobody asked for.
+        if (node.type === 'file') {
+          const contentBox = createEl('div', { style: 'margin-top:8px;padding:10px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
+          contentBox.appendChild(createEl('div', { textContent: 'Content', style: 'color:var(--text-muted);font-size:10px;margin-bottom:4px;' }));
+
+          if (node.content === null || node.content === undefined) {
+            contentBox.appendChild(createEl('div', { textContent: '(empty — no content stored)', style: 'font-size:11px;color:var(--text-muted);font-style:italic;' }));
+          } else if (typeof node.content !== 'string') {
+            // Guard against a shape we don't actually expect (e.g. binary
+            // blobKey-backed content) rather than silently rendering
+            // "[object Object]" or crashing on a non-string.
+            contentBox.appendChild(createEl('div', { textContent: `(non-text content, typeof "${typeof node.content}" — cannot preview)`, style: 'font-size:11px;color:var(--text-muted);font-style:italic;' }));
+          } else {
+            const MAX_PREVIEW = 20000;
+            const truncated = node.content.length > MAX_PREVIEW;
+            const pre = createEl('pre', { textContent: truncated ? node.content.slice(0, MAX_PREVIEW) : node.content, style: 'font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;margin:0;color:var(--text-primary);' });
+            contentBox.appendChild(pre);
+            if (truncated) {
+              contentBox.appendChild(createEl('div', { textContent: `(truncated — showing first ${MAX_PREVIEW.toLocaleString()} of ${node.content.length.toLocaleString()} characters)`, style: 'font-size:10px;color:var(--text-muted);margin-top:4px;' }));
+            }
+          }
+          detailWrap.appendChild(contentBox);
+        }
       }
 
       function renderNode(id, depth) {

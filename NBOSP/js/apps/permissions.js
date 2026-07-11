@@ -43,6 +43,24 @@ registerApp({
     // grant/revoke/reset actions. 'log' = the consent log, newest first.
     let view = 'list';
     let detailAppId = null;
+    let listSearch = '';
+    let logSearch = '';
+
+    // AppPermissionManager has no clearConsentLog/exportConsentLog — the
+    // manager module doesn't expose one (confirmed against its return
+    // statement, only getConsentLog exists). "Clear" therefore can't
+    // delete server-side history; it's a client-side cutoff timestamp
+    // that hides everything before it. Persisted so it survives closing
+    // and reopening the app, same storage pattern as modules.js.
+    const LOG_CUTOFF_KEY = 'nbosp_permissions_log_cutoff';
+    let logCutoff = 0;
+    try { logCutoff = Number(localStorage.getItem(LOG_CUTOFF_KEY)) || 0; } catch { /* best-effort */ }
+    function saveLogCutoff() {
+      try {
+        if (typeof lsSave === 'function') lsSave(LOG_CUTOFF_KEY, logCutoff);
+        else localStorage.setItem(LOG_CUTOFF_KEY, String(logCutoff));
+      } catch { /* best-effort, same degrade-silently pattern as elsewhere */ }
+    }
 
     const tabBar = createEl('div', { style: 'display:flex;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);flex-shrink:0;' });
     const listTabBtn = createEl('button', { textContent: 'Apps', style: 'padding:8px 16px;background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:13px;border-bottom:2px solid var(--accent);' });
@@ -104,15 +122,36 @@ registerApp({
 
     function renderList() {
       scroll.innerHTML = '';
-      const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
+      const allApps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
 
-      if (!apps.length) {
+      if (!allApps.length) {
         scroll.appendChild(createEl('div', { textContent: 'No apps registered', style: 'color:var(--text-muted);' }));
         return;
       }
 
+      const searchInput = createEl('input', {
+        placeholder: 'Filter by app name or id…',
+        value: listSearch,
+        style: 'width:100%;padding:6px 10px;margin-bottom:12px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:12px;box-sizing:border-box;'
+      });
+      // Re-render on every keystroke is fine here — apps list is small
+      // (tens, not thousands) and renderList() rebuilds a lightweight
+      // table, not a heavy DOM tree. Cursor position is lost on
+      // innerHTML reset like the rest of this app's re-render pattern
+      // (same tradeoff modules.js and console.js already make).
+      searchInput.addEventListener('input', () => { listSearch = searchInput.value; render(); }, { signal: ac.signal });
+      scroll.appendChild(searchInput);
+
+      const q = listSearch.trim().toLowerCase();
+      const apps = q ? allApps.filter(a => (a.name || '').toLowerCase().includes(q) || a.id.toLowerCase().includes(q)) : allApps;
+
       if (!managerAvailable) {
         scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable — showing app list only.', style: 'color:#d29922;margin-bottom:12px;font-size:12px;' }));
+      }
+
+      if (q && !apps.length) {
+        scroll.appendChild(createEl('div', { textContent: 'No apps match "' + listSearch + '"', style: 'color:var(--text-muted);' }));
+        return;
       }
 
       const table = createEl('table', { style: 'width:100%;border-collapse:collapse;font-size:12px;' });
@@ -144,7 +183,23 @@ registerApp({
         row.appendChild(createEl('td', { textContent: String(granted), style: 'padding:6px;color:#3fb950;' }));
         row.appendChild(createEl('td', { textContent: String(denied), style: 'padding:6px;color:#f85149;' }));
         row.appendChild(createEl('td', { textContent: unknown ? '—' : String(pending), style: 'padding:6px;color:#d29922;', title: unknown ? 'AppPermissionManager unavailable' : '' }));
-        row.appendChild(createEl('td', { textContent: '›', style: 'padding:6px;color:var(--text-muted);text-align:right;' }));
+
+        const actionsCell = createEl('td', { style: 'padding:6px;text-align:right;white-space:nowrap;' });
+        if (managerAvailable && granted > 0) {
+          const revokeAllBtn = createEl('button', {
+            textContent: 'Revoke all',
+            title: 'Revoke every granted permission for ' + (app.name || app.id),
+            style: 'padding:2px 8px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:10px;margin-right:6px;'
+          });
+          revokeAllBtn.addEventListener('click', (e) => {
+            e.stopPropagation(); // don't also trigger the row's drill-into-detail click
+            AppPermissionManager.revokeAllPermissions(app.id);
+            render();
+          }, { signal: ac.signal });
+          actionsCell.appendChild(revokeAllBtn);
+        }
+        actionsCell.appendChild(createEl('span', { textContent: '›', style: 'color:var(--text-muted);' }));
+        row.appendChild(actionsCell);
         tbody.appendChild(row);
       });
       table.appendChild(tbody);
@@ -202,6 +257,50 @@ registerApp({
 
       if (!managerAvailable) {
         scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable — grant/revoke disabled.', style: 'color:#d29922;font-size:12px;' }));
+      } else {
+        // Bulk actions scoped to this one app, backed by real manager
+        // calls — grantPermission looped per-pending permission (no bulk
+        // grant exists on the manager) and revokeAllPermissions(appId)
+        // (which does exist, confirmed in the manager's return statement).
+        // Not offering a cross-app bulk button: the manager has no
+        // "revoke this permission everywhere" call, and faking one by
+        // looping every app client-side would be a much bigger, riskier
+        // action to hide behind an innocuous-looking button.
+        const pendingPerms = effectivePerms.filter(({ permission }) => {
+          const g = grantMap.get(permission);
+          return !g; // no recorded grant/deny state = pending
+        });
+        const grantedCount = effectivePerms.filter(({ permission }) => grantMap.get(permission)?.granted).length;
+
+        if (pendingPerms.length || grantedCount) {
+          const bulkBar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;' });
+          if (pendingPerms.length) {
+            const grantAllBtn = createEl('button', {
+              textContent: 'Grant all pending (' + pendingPerms.length + ')',
+              style: 'padding:4px 12px;background:#3fb950;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;'
+            });
+            grantAllBtn.addEventListener('click', async () => {
+              grantAllBtn.disabled = true;
+              for (const { permission } of pendingPerms) {
+                await AppPermissionManager.grantPermission(permission, app.id, { reason: 'Bulk-granted via Permissions dev tool' });
+              }
+              render();
+            }, { signal: ac.signal });
+            bulkBar.appendChild(grantAllBtn);
+          }
+          if (grantedCount) {
+            const revokeAllBtn = createEl('button', {
+              textContent: 'Revoke all granted (' + grantedCount + ')',
+              style: 'padding:4px 12px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;'
+            });
+            revokeAllBtn.addEventListener('click', () => {
+              AppPermissionManager.revokeAllPermissions(app.id);
+              render();
+            }, { signal: ac.signal });
+            bulkBar.appendChild(revokeAllBtn);
+          }
+          scroll.appendChild(bulkBar);
+        }
       }
 
       effectivePerms.forEach(({ permission, tier }) => {
@@ -279,12 +378,54 @@ registerApp({
         scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable.', style: 'color:var(--text-muted);' }));
         return;
       }
+
+      const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;' });
+      const searchInput = createEl('input', {
+        placeholder: 'Filter by app id or permission…',
+        value: logSearch,
+        style: 'flex:1;padding:6px 10px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:12px;box-sizing:border-box;'
+      });
+      searchInput.addEventListener('input', () => { logSearch = searchInput.value; render(); }, { signal: ac.signal });
+      toolbar.appendChild(searchInput);
+
+      const clearBtn = createEl('button', {
+        textContent: 'Clear view',
+        title: 'Hides entries older than now. The underlying log itself is not cleared — AppPermissionManager has no delete API — so entries reappear if you clear this cutoff or the manager is reset elsewhere.',
+        style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;'
+      });
+      clearBtn.addEventListener('click', () => {
+        logCutoff = Date.now();
+        saveLogCutoff();
+        render();
+      }, { signal: ac.signal });
+      toolbar.appendChild(clearBtn);
+
+      if (logCutoff) {
+        const resetBtn = createEl('button', {
+          textContent: 'Show all',
+          title: 'Remove the clear-view cutoff and show full history again',
+          style: 'padding:6px 12px;background:transparent;color:var(--accent);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;'
+        });
+        resetBtn.addEventListener('click', () => {
+          logCutoff = 0;
+          saveLogCutoff();
+          render();
+        }, { signal: ac.signal });
+        toolbar.appendChild(resetBtn);
+      }
+      scroll.appendChild(toolbar);
+
       // getConsentLog() appends chronologically (oldest pushed last in
       // time), so reverse a copy for a newest-first display without
       // mutating the manager's internal array.
-      const entries = AppPermissionManager.getConsentLog().slice().reverse();
+      let entries = AppPermissionManager.getConsentLog().slice().reverse();
+      if (logCutoff) entries = entries.filter(e => (e.timestamp || 0) >= logCutoff);
+
+      const q = logSearch.trim().toLowerCase();
+      if (q) entries = entries.filter(e => (e.appId || '').toLowerCase().includes(q) || (e.permission || '').toLowerCase().includes(q));
+
       if (!entries.length) {
-        scroll.appendChild(createEl('div', { textContent: 'No consent events recorded yet.', style: 'color:var(--text-muted);' }));
+        scroll.appendChild(createEl('div', { textContent: q ? 'No log entries match "' + logSearch + '"' : 'No consent events recorded yet.', style: 'color:var(--text-muted);' }));
         return;
       }
       entries.forEach(e => {
@@ -303,8 +444,19 @@ registerApp({
       else renderList();
     }
 
+    // The 5s poll exists so externally-changed permission state (granted
+    // elsewhere while this window is open) shows up without manual
+    // refresh — but blindly calling render() while a search box has
+    // focus rebuilds the input via innerHTML and drops both the value
+    // binding and cursor position mid-keystroke. document.activeElement
+    // check is cheap and avoids that without needing a debounce.
+    function pollRender() {
+      if (scroll.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+      render();
+    }
+
     const timeoutId = setTimeout(render, 100);
-    const intervalId = setInterval(render, 5000);
+    const intervalId = setInterval(pollRender, 5000);
     state.cleanups.push(() => {
       clearTimeout(timeoutId);
       clearInterval(intervalId);

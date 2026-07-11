@@ -123,34 +123,34 @@
       dangerous: [],
     },
 
-    // Developer tools
+    // Developer tools — all permissions auto-granted, never prompt
     sysaccess: {
-      normal   : [],
-      dangerous: ['system:info', 'fs:read', 'fs:write', 'net:internal'],
+      normal   : ['system:info', 'fs:read', 'fs:write', 'net:internal'],
+      dangerous: [],
     },
     devconsole: {
-      normal   : [],
-      dangerous: ['system:info', 'system:settings'],
+      normal   : ['system:info', 'system:settings'],
+      dangerous: [],
     },
     perf: {
-      normal   : [],
-      dangerous: ['system:info', 'system:settings'],
+      normal   : ['system:info', 'system:settings', 'fs:write'],
+      dangerous: [],
     },
     packages: {
-      normal   : [],
-      dangerous: ['system:info', 'system:settings'],
+      normal   : ['system:info', 'system:settings', 'fs:write'],
+      dangerous: [],
     },
     permissions: {
-      normal   : [],
-      dangerous: ['system:apps', 'system:settings'],
+      normal   : ['system:apps', 'system:settings', 'fs:write'],
+      dangerous: [],
     },
     modules: {
-      normal   : [],
-      dangerous: ['system:info', 'system:settings', 'net:internal'],
+      normal   : ['system:info', 'system:settings', 'net:internal', 'fs:write'],
+      dangerous: [],
     },
     inspector: {
-      normal   : [],
-      dangerous: ['system:info', 'system:apps', 'system:settings'],
+      normal   : ['system:info', 'system:apps', 'system:settings', 'fs:write'],
+      dangerous: [],
     },
   });
 

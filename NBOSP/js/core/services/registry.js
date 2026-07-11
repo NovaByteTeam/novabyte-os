@@ -1,4 +1,3 @@
-
 const APP_REGISTRY = [];
 
       /* ── WebAppManager — persistent web app store ── */
@@ -29,7 +28,16 @@ const APP_REGISTRY = [];
 
       function registerApp(config) {
         OS.apps[config.id] = config;
-        APP_REGISTRY.push(config);
+        // Replace in place if this id is already registered — without this,
+        // every hot-reload of an app module (js/apps/modules.js's reloadOne)
+        // pushes a brand-new entry alongside the old one. OS.apps stays
+        // correct either way (plain object keyed by id), but APP_REGISTRY
+        // is what the launchpad/taskbar actually iterate, so duplicates
+        // silently pile up there — one extra icon per reload — even though
+        // the "live" app object itself was updated correctly.
+        const existingIdx = APP_REGISTRY.findIndex(a => a.id === config.id);
+        if (existingIdx !== -1) APP_REGISTRY[existingIdx] = config;
+        else APP_REGISTRY.push(config);
       }
 
       // ── Global URL opener — routes all links to com.nbosp.browser ──────
@@ -102,5 +110,3 @@ window.registerApp = registerApp;
 
 
 /* Exposed to Global Scope for Flat-Module Architecture */
-
-

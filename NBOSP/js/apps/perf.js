@@ -8,7 +8,7 @@ registerApp({
   autoGrant: true,
   defaultSize: [600, 500],
   minSize: [400, 350],
-  permissions: ['system:info', 'system:settings'],
+  permissions: ['system:info', 'system:settings', 'fs:write'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
@@ -30,8 +30,10 @@ registerApp({
     const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;flex-shrink:0;' });
     const pauseBtn = createEl('button', { textContent: 'Pause', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
     const resetBtn = createEl('button', { textContent: 'Reset', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+    const exportBtn = createEl('button', { textContent: 'Export', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
     toolbar.appendChild(pauseBtn);
     toolbar.appendChild(resetBtn);
+    toolbar.appendChild(exportBtn);
     content.appendChild(toolbar);
 
     let paused = false;
@@ -53,6 +55,17 @@ registerApp({
     domCanvas.style.cssText = 'width:100%;height:80px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
     content.appendChild(domCanvas);
     content.appendChild(createEl('div', { textContent: 'DOM Nodes', style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
+
+    // Threshold alerts. FPS uses a *sustained* check (N consecutive
+    // sub-threshold samples, not one dip) since a single low reading during
+    // e.g. a window open animation is normal and not worth flagging. DOM
+    // node count uses a delta-from-baseline check since "high" is relative
+    // to what's normal for this session, not a fixed number.
+    const FPS_ALERT_THRESHOLD = 30;
+    const FPS_ALERT_SUSTAIN = 4; // consecutive 500ms samples ≈ 2s sustained
+    const DOM_SPIKE_DELTA = 500; // nodes added since baseline to flag
+    let fpsBelowThresholdStreak = 0;
+    let domBaseline = null;
 
     const stats = createEl('div', { style: 'margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;' });
     const addStat = (label, valueEl) => {
@@ -114,6 +127,42 @@ registerApp({
       });
     }
 
+    // Long task detail log — the count in the stat card tells you *that*
+    // something blocked the main thread; this tells you *what*. Newest
+    // first, capped ring buffer (see LONGTASK_LOG_CAP above).
+    const longTaskSection = createEl('div', { style: 'margin-top:16px;' });
+    longTaskSection.appendChild(createEl('h4', { textContent: 'Long Task Log', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+    const longTaskList = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:180px;overflow:auto;' });
+    longTaskSection.appendChild(longTaskList);
+    content.appendChild(longTaskSection);
+
+    function renderLongTaskLog() {
+      longTaskList.innerHTML = '';
+      if (!longTaskSupported) {
+        longTaskList.appendChild(createEl('div', { textContent: 'Long task tracking not supported in this browser', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        return;
+      }
+      if (!longTaskLog.length) {
+        longTaskList.appendChild(createEl('div', { textContent: 'No long tasks recorded yet', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        return;
+      }
+      longTaskLog.forEach(entry => {
+        const row = createEl('div', { style: 'display:flex;flex-direction:column;gap:1px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;font-size:11px;font-family:monospace;' });
+        const topLine = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
+        const left = createEl('span', { textContent: entry.detail ? entry.detail.source : '(no attribution available)', style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:' + (entry.detail ? 'var(--text-primary)' : 'var(--text-muted)') + ';' });
+        const right = createEl('span', { textContent: entry.duration + 'ms', style: 'flex-shrink:0;color:' + (entry.duration > 200 ? '#f85149' : '#fbbf24') + ';' });
+        topLine.appendChild(left);
+        topLine.appendChild(right);
+        row.appendChild(topLine);
+        if (entry.focusedWindow) {
+          // Correlation, not causation — labeled "likely" since we can only
+          // know which window had focus, not which one actually ran the task.
+          row.appendChild(createEl('div', { textContent: `likely: ${entry.focusedWindow}`, style: 'font-size:10px;color:var(--text-muted);' }));
+        }
+        longTaskList.appendChild(row);
+      });
+    }
+
     // Sparkline history for each tracked metric. Fixed-length ring buffers,
     // same push/shift pattern the original FPS array used.
     const HISTORY_LEN = 120;
@@ -133,9 +182,64 @@ registerApp({
     // that check never actually used the observer, so it silently kept
     // working (for now) on the deprecated API. This version subscribes
     // properly and prefers the replacement entry type when available.
+    //
+    // Attribution shape differs by entry type and is NOT normalized into a
+    // fake common format here — LoAF's `scripts[]` (sourceURL/functionName/
+    // invoker per culprit script) is materially richer than legacy
+    // `longtask`'s `attribution[]` (containerType/Name/Src only, and Chrome
+    // has largely stopped populating it usefully). Storing whichever shape
+    // the browser actually gave us, tagged with which type it is, means the
+    // detail log can honestly show "no attribution available" instead of
+    // fabricating a culprit name from thin data.
+    const LONGTASK_LOG_CAP = 50; // ring buffer — a runaway page could emit hundreds/sec
     let longTaskCount = 0;
     let longTaskSupported = false;
     let longTaskObserver = null;
+    let longTaskEntryType = null;
+    const longTaskLog = []; // newest first: { time, duration, type, detail }
+
+    // NOTE on window attribution: every app window here is a <div> in one
+    // shared document (confirmed — no iframes anywhere in this codebase),
+    // so the browser's own long-task attribution (LoAF's `invoker`, legacy
+    // `attribution[].containerType`) has no frame boundary to attribute
+    // *to* and will just say "self" or be empty. True per-window
+    // attribution isn't something this API can give us here. What we
+    // record instead is which window was focused at the moment the task
+    // fired — a correlation, not a proof of causation, and labeled as such
+    // in the UI rather than presented like a real culprit.
+    function pushLongTaskEntry(e) {
+      const entry = {
+        time: e.startTime,
+        duration: Math.round(e.duration),
+        type: longTaskEntryType,
+        detail: null,
+        focusedWindow: (typeof OS !== 'undefined' && OS.windows && OS.focusedWindowId)
+          ? (OS.windows.get(OS.focusedWindowId)?.appId || null)
+          : null,
+      };
+      if (longTaskEntryType === 'long-animation-frame' && Array.isArray(e.scripts) && e.scripts.length) {
+        // Attribute to the single longest-running script in the frame —
+        // usually the actual culprit rather than an innocent bystander
+        // swept up in the same frame.
+        const top = [...e.scripts].sort((a, b) => (b.duration || 0) - (a.duration || 0))[0];
+        entry.detail = {
+          source: top.sourceFunctionName || top.sourceURL || 'unknown script',
+          invoker: top.invoker || null,
+          scriptDuration: Math.round(top.duration || 0),
+          scriptCount: e.scripts.length,
+        };
+      } else if (longTaskEntryType === 'longtask' && Array.isArray(e.attribution) && e.attribution.length) {
+        const a = e.attribution[0];
+        entry.detail = {
+          source: a.containerName || a.containerSrc || a.containerType || 'unknown container',
+          invoker: null,
+          scriptDuration: null,
+          scriptCount: e.attribution.length,
+        };
+      }
+      longTaskLog.unshift(entry);
+      if (longTaskLog.length > LONGTASK_LOG_CAP) longTaskLog.length = LONGTASK_LOG_CAP;
+    }
 
     if (typeof PerformanceObserver !== 'undefined') {
       const supportedTypes = PerformanceObserver.supportedEntryTypes || [];
@@ -145,9 +249,13 @@ registerApp({
 
       if (entryType) {
         longTaskSupported = true;
+        longTaskEntryType = entryType;
         try {
           longTaskObserver = new PerformanceObserver((list) => {
-            longTaskCount += list.getEntries().filter(e => e.duration > 50).length;
+            const entries = list.getEntries().filter(e => e.duration > 50);
+            longTaskCount += entries.length;
+            entries.forEach(pushLongTaskEntry);
+            if (entries.length) renderLongTaskLog();
           });
           longTaskObserver.observe({ type: entryType, buffered: true });
         } catch {
@@ -241,6 +349,17 @@ registerApp({
       const latest = fpsHistory[fpsHistory.length - 1] || 0;
       fpsEl.textContent = latest + ' fps';
 
+      // Sustained-low-FPS alert: require several consecutive sub-threshold
+      // samples before flagging, so one dip during a window-open animation
+      // doesn't falsely trip it. Resets the streak on any healthy sample.
+      if (latest > 0 && latest < FPS_ALERT_THRESHOLD) {
+        fpsBelowThresholdStreak++;
+      } else {
+        fpsBelowThresholdStreak = 0;
+      }
+      const fpsAlert = fpsBelowThresholdStreak >= FPS_ALERT_SUSTAIN;
+      fpsEl.style.color = fpsAlert ? '#f85149' : '#3fb950';
+
       if (performance.memory) {
         const mb = memHistory[memHistory.length - 1] || 0;
         memEl.textContent = mb.toFixed(1) + ' MB';
@@ -248,10 +367,17 @@ registerApp({
         memEl.textContent = 'N/A';
       }
 
+      // DOM spike alert: relative to a baseline captured on first sample,
+      // not a fixed absolute count — "high" depends on how many
+      // windows/apps are legitimately open in this session.
+      if (domBaseline === null) domBaseline = domCount;
+      const domSpike = domCount - domBaseline >= DOM_SPIKE_DELTA;
       domEl.textContent = String(domCount);
+      domEl.style.color = domSpike ? '#f85149' : 'var(--text-primary)';
 
       if (longTaskSupported) {
         longEl.textContent = longTaskCount > 0 ? longTaskCount + ' (>50ms)' : 'None';
+        longEl.style.color = longTaskCount > 0 ? '#fbbf24' : 'var(--text-primary)';
         longTaskCount = 0; // reset for next window; the observer accumulates continuously
       } else {
         longEl.textContent = 'N/A';
@@ -269,12 +395,50 @@ registerApp({
       memHistory.fill(0);
       domHistory.fill(0);
       longTaskCount = 0;
+      longTaskLog.length = 0;
+      fpsBelowThresholdStreak = 0;
+      domBaseline = null;
+      fpsEl.style.color = '#3fb950';
+      domEl.style.color = 'var(--text-primary)';
+      longEl.style.color = 'var(--text-primary)';
       drawChart(canvas, fpsHistory, '#00ff00', 60);
       drawChart(memCanvas, memHistory, '#67e8f9', null);
       drawChart(domCanvas, domHistory, '#fbbf24', null);
+      renderLongTaskLog();
+    }, { signal: ac.signal });
+
+    exportBtn.addEventListener('click', () => {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        current: {
+          fps: fpsEl.textContent,
+          memory: memEl.textContent,
+          domNodes: domEl.textContent,
+          longTasks: longEl.textContent,
+        },
+        history: {
+          fps: fpsHistory,
+          memoryMB: memHistory,
+          domNodes: domHistory,
+        },
+        longTaskLog,
+        perWindowDomNodes: (typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [])
+          .map(w => ({ appId: w.appId, id: w.id, domNodes: w.content ? w.content.querySelectorAll('*').length : null })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = createEl('a', { href: url, download: 'nbosp-perf-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Same delayed-revoke reasoning as console.js's export: some browsers
+      // cancel the download if the blob URL is revoked before the click's
+      // download actually starts.
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
     }, { signal: ac.signal });
 
     renderPerWindow();
+    renderLongTaskLog();
     rafId = requestAnimationFrame(measureFrame);
 
     // state.cleanups.push(fn) is the teardown hook the window manager

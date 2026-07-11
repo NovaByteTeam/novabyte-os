@@ -8,7 +8,7 @@ registerApp({
   autoGrant: true,
   defaultSize: [700, 550],
   minSize: [420, 350],
-  permissions: ['system:info', 'system:apps', 'system:settings'],
+  permissions: ['system:info', 'system:apps', 'system:settings', 'fs:write'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
@@ -31,13 +31,18 @@ registerApp({
     const ac = new AbortController();
     state.cleanups.push(() => ac.abort());
 
-    const filterRow = createEl('div', { style: 'margin-bottom:12px;flex-shrink:0;' });
-    const filterInput = createEl('input', { placeholder: 'Filter by app id, name, or window id…', style: 'width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
+    const filterRow = createEl('div', { style: 'margin-bottom:12px;flex-shrink:0;display:flex;gap:8px;' });
+    const filterInput = createEl('input', { placeholder: 'Filter by app id, name, or window id…', style: 'flex:1;box-sizing:border-box;padding:7px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
+    const exportBtn = createEl('button', { textContent: 'Export', title: 'Download the currently filtered apps + windows as JSON', style: 'padding:6px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;flex-shrink:0;' });
     filterRow.appendChild(filterInput);
+    filterRow.appendChild(exportBtn);
     content.appendChild(filterRow);
 
     const scroll = createEl('div', { style: 'flex:1;overflow:auto;' });
     content.appendChild(scroll);
+
+    const expandedApps = new Set(); // app ids currently showing detail panel
+    const expandedWins = new Set(); // window ids currently showing detail panel
 
     function render() {
       const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
@@ -60,13 +65,39 @@ registerApp({
 
       filteredApps.forEach(app => {
         const row = createEl('div', { style: 'padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-        const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;' });
-        header.appendChild(createEl('strong', { textContent: app.name || app.id }));
+        const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;cursor:pointer;' });
+        const titleWrap = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
+        titleWrap.appendChild(createEl('span', { textContent: expandedApps.has(app.id) ? '▾' : '▸', style: 'color:var(--text-muted);font-size:10px;width:10px;display:inline-block;' }));
+        titleWrap.appendChild(createEl('strong', { textContent: app.name || app.id }));
+        header.appendChild(titleWrap);
         const badges = [];
         if (app.verified) badges.push(createEl('span', { textContent: '✓ verified', style: 'font-size:11px;color:#3fb950;' }));
         if (app.permissions?.length) badges.push(createEl('span', { textContent: app.permissions.length + ' perms', style: 'font-size:11px;color:var(--text-muted);' }));
         badges.forEach(b => header.appendChild(b));
+        header.addEventListener('click', () => {
+          if (expandedApps.has(app.id)) expandedApps.delete(app.id); else expandedApps.add(app.id);
+          render();
+        }, { signal: ac.signal });
         row.appendChild(header);
+
+        // Close All — uses the same window.WM.closeWindow(id) call the
+        // per-window Close button already uses (see Open Windows section
+        // below), just looped over every open window matching this app id.
+        // `wins` is the full unfiltered window list from the top of
+        // render(), not filteredWins, so this counts/closes all of this
+        // app's windows regardless of what the filter box currently shows.
+        const appWinIds = wins.filter(w => w.appId === app.id).map(w => w.id);
+        if (appWinIds.length) {
+          const closeAllBtn = createEl('button', {
+            textContent: `Close All (${appWinIds.length})`,
+            style: 'padding:2px 8px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:10px;margin-top:6px;'
+          });
+          closeAllBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            appWinIds.forEach(id => window.WM?.closeWindow?.(id));
+          }, { signal: ac.signal });
+          row.appendChild(closeAllBtn);
+        }
 
         const meta = createEl('div', { style: 'font-size:11px;color:var(--text-muted);margin-top:4px;font-family:monospace;' });
         meta.textContent = `id: ${app.id} · version: ${app.version || '?'} · launchCount: ${app.launchCount || 0}`;
@@ -75,6 +106,36 @@ registerApp({
         if (app.permissions?.length) {
           const permStr = app.permissions.map(p => typeof p === 'string' ? p : p.permission || p).join(', ');
           row.appendChild(createEl('div', { textContent: 'Permissions: ' + permStr, style: 'font-size:11px;color:var(--text-muted);margin-top:4px;' }));
+        }
+
+        // Detail panel — fields that exist on every registerApp() call in
+        // this codebase (confirmed against console.js/perf.js/etc: id,
+        // name, description, category, devOnly, autoGrant, defaultSize,
+        // minSize are all real declared fields) but weren't surfaced here
+        // before, only id/name/permissions/verified/launchCount were.
+        if (expandedApps.has(app.id)) {
+          const detail = createEl('div', { style: 'margin-top:8px;padding:8px;background:var(--bg-default);border-radius:4px;font-size:11px;font-family:monospace;display:flex;flex-direction:column;gap:4px;' });
+          const rows = [
+            ['description', app.description || '(none)'],
+            ['category', app.category || '(none)'],
+            ['devOnly', String(!!app.devOnly)],
+            ['autoGrant', String(!!app.autoGrant)],
+            ['defaultSize', app.defaultSize ? app.defaultSize.join(' x ') : '(none)'],
+            ['minSize', app.minSize ? app.minSize.join(' x ') : '(none)'],
+          ];
+          rows.forEach(([label, val]) => {
+            const r = createEl('div', { style: 'display:flex;gap:8px;' });
+            r.appendChild(createEl('span', { textContent: label, style: 'color:var(--text-muted);width:90px;flex-shrink:0;' }));
+            r.appendChild(createEl('span', { textContent: String(val), style: 'word-break:break-all;' }));
+            detail.appendChild(r);
+          });
+          if (app.permissions?.length) {
+            const rawLabel = createEl('div', { textContent: 'raw permissions:', style: 'color:var(--text-muted);margin-top:2px;' });
+            detail.appendChild(rawLabel);
+            const rawBox = createEl('div', { textContent: JSON.stringify(app.permissions, null, 2), style: 'white-space:pre-wrap;word-break:break-all;font-size:10px;' });
+            detail.appendChild(rawBox);
+          }
+          row.appendChild(detail);
         }
 
         appsList.appendChild(row);
@@ -93,8 +154,9 @@ registerApp({
 
       filteredWins.forEach(win => {
         const row = createEl('div', { style: 'padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-        const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
+        const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;' });
         const titleWrap = createEl('div', { style: 'min-width:0;overflow:hidden;display:flex;align-items:center;gap:8px;' });
+        titleWrap.appendChild(createEl('span', { textContent: expandedWins.has(win.id) ? '▾' : '▸', style: 'color:var(--text-muted);font-size:10px;width:10px;display:inline-block;flex-shrink:0;' }));
         titleWrap.appendChild(createEl('strong', { textContent: appNameById.get(win.appId) || win.appId || 'unknown' }));
         titleWrap.appendChild(createEl('span', { textContent: win.appId, style: 'font-size:10px;color:var(--text-muted);opacity:0.7;' }));
         titleWrap.appendChild(createEl('span', { textContent: win.id, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;' }));
@@ -102,6 +164,14 @@ registerApp({
           titleWrap.appendChild(createEl('span', { textContent: 'focused', style: 'font-size:10px;color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;' }));
         }
         header.appendChild(titleWrap);
+        // Clicking the row toggles detail, but the Focus/Close buttons
+        // below need to not also trigger that — handled via stopPropagation
+        // on the button clicks rather than here, since the buttons are
+        // nested inside this same header element.
+        header.addEventListener('click', () => {
+          if (expandedWins.has(win.id)) expandedWins.delete(win.id); else expandedWins.add(win.id);
+          render();
+        }, { signal: ac.signal });
 
         // Click-to-act: WM.focusWindow/closeWindow are real public methods
         // on the window-manager singleton (confirmed as window.WM in
@@ -117,11 +187,13 @@ registerApp({
         const focusBtn = createEl('button', { textContent: 'Focus', style: 'padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
         focusBtn.dataset.windowId = win.id;
         focusBtn.addEventListener('click', (e) => {
+          e.stopPropagation(); // don't also toggle the detail panel
           window.WM?.focusWindow?.(e.currentTarget.dataset.windowId);
         }, { signal: ac.signal });
         const closeBtn = createEl('button', { textContent: 'Close', style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
         closeBtn.dataset.windowId = win.id;
         closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
           window.WM?.closeWindow?.(e.currentTarget.dataset.windowId);
         }, { signal: ac.signal });
         btns.appendChild(focusBtn);
@@ -133,6 +205,43 @@ registerApp({
         // flat on the state object itself (OS.windows.set(id, state)), not
         // nested under a .state property.
         row.appendChild(createEl('div', { textContent: `${win.x || 0},${win.y || 0} ${win.width || '?'}x${win.height || '?'}${win.minimized ? ' [min]' : ''}${win.maximized ? ' [max]' : ''}`, style: 'font-size:11px;color:var(--text-muted);margin-top:4px;font-family:monospace;' }));
+
+        // Detail panel — the confirmed-real fields above plus a generic
+        // dump of any other own-enumerable keys on the state object. Not
+        // hand-listing more fields here since inspector.js/perf.js/
+        // sysaccess.js only actually reference appId/id/x/y/width/height/
+        // minimized/maximized/content anywhere in this codebase; anything
+        // beyond that is real but unconfirmed shape, so it's shown
+        // generically rather than guessed at by name. `content` (a DOM
+        // node) is excluded since it isn't meaningfully displayable as text.
+        if (expandedWins.has(win.id)) {
+          const detail = createEl('div', { style: 'margin-top:8px;padding:8px;background:var(--bg-default);border-radius:4px;font-size:11px;font-family:monospace;display:flex;flex-direction:column;gap:4px;' });
+          const known = new Set(['appId', 'id', 'x', 'y', 'width', 'height', 'minimized', 'maximized', 'content', 'cleanups']);
+          const otherKeys = Object.keys(win).filter(k => !known.has(k));
+          if (otherKeys.length) {
+            const rawLabel = createEl('div', { textContent: 'other fields on this window state:', style: 'color:var(--text-muted);' });
+            detail.appendChild(rawLabel);
+            otherKeys.forEach(k => {
+              let val;
+              try {
+                val = typeof win[k] === 'object' ? JSON.stringify(win[k]) : String(win[k]);
+              } catch {
+                val = '(unserializable)';
+              }
+              const r = createEl('div', { style: 'display:flex;gap:8px;' });
+              r.appendChild(createEl('span', { textContent: k, style: 'color:var(--text-muted);width:90px;flex-shrink:0;' }));
+              r.appendChild(createEl('span', { textContent: val, style: 'word-break:break-all;' }));
+              detail.appendChild(r);
+            });
+          } else {
+            detail.appendChild(createEl('div', { textContent: 'No additional fields beyond those shown above.', style: 'color:var(--text-muted);' }));
+          }
+          if (Array.isArray(win.cleanups)) {
+            detail.appendChild(createEl('div', { textContent: `cleanups registered: ${win.cleanups.length}`, style: 'color:var(--text-muted);margin-top:2px;' }));
+          }
+          row.appendChild(detail);
+        }
+
         winsList.appendChild(row);
       });
 
@@ -144,6 +253,43 @@ registerApp({
     }
 
     filterInput.addEventListener('input', render, { signal: ac.signal });
+
+    // Recomputes the filter fresh at click time rather than depending on
+    // filteredApps/filteredWins from the last render() call — those are
+    // local to render() and would otherwise require hoisting state out or
+    // risking a stale closure if render() ran again (e.g. via a live
+    // event) between the last paint and the click actually firing.
+    exportBtn.addEventListener('click', () => {
+      const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
+      const wins = typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [];
+      const q = filterInput.value.trim().toLowerCase();
+      const filteredApps = q ? apps.filter(a => (a.id || '').toLowerCase().includes(q) || (a.name || '').toLowerCase().includes(q)) : apps;
+      const filteredWins = q ? wins.filter(w => (w.appId || '').toLowerCase().includes(q) || (w.id || '').toLowerCase().includes(q)) : wins;
+
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        filter: filterInput.value.trim() || null,
+        apps: filteredApps.map(a => ({
+          id: a.id, name: a.name, version: a.version, launchCount: a.launchCount,
+          verified: !!a.verified, category: a.category, devOnly: !!a.devOnly, autoGrant: !!a.autoGrant,
+          defaultSize: a.defaultSize, minSize: a.minSize, permissions: a.permissions,
+        })),
+        windows: filteredWins.map(w => ({
+          id: w.id, appId: w.appId, x: w.x, y: w.y, width: w.width, height: w.height,
+          minimized: !!w.minimized, maximized: !!w.maximized, focused: OS.focusedWindowId === w.id,
+        })),
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = createEl('a', { href: url, download: 'nbosp-inspector-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json' });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Same delayed-revoke pattern as the export buttons in the other
+      // apps in this codebase — some browsers cancel the download if the
+      // blob URL is revoked before the click's download actually starts.
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }, { signal: ac.signal });
 
     // Live updates: OS.events fires 'app:opened' / 'app:closed' / 'app:focused'
     // (confirmed as the complete set of window-lifecycle events emitted

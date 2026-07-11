@@ -1062,25 +1062,76 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
     icon.style.transition = '';
     const rect = icon.getBoundingClientRect();
     const desktopRect = desktopEl.getBoundingClientRect();
-    iconPositions[key] = {
-      x: rect.left - desktopRect.left,
-      y: rect.top - desktopRect.top,
-    };
+    let x = rect.left - desktopRect.left;
+    let y = rect.top - desktopRect.top;
+    const w = icon.offsetWidth  || 80;
+    const h = icon.offsetHeight || 80;
+    const occupied = _isPositionOccupied(x, y, w, h, iconPositions, key);
+    if (occupied) {
+      const snapped = _findFreePosition(x, y, w, h, iconPositions, key);
+      x = snapped.x;
+      y = snapped.y;
+      icon.style.left = `${x}px`;
+      icon.style.top  = `${y}px`;
+    }
+    iconPositions[key] = { x, y };
     OS.settings.set('desktopIconPositions', iconPositions);
   }, { signal });
 }
 
 // FIX: hoisted — was recreated on every renderDesktopIcons() call
+function _isPositionOccupied(px, py, w, h, iconPositions, excludeKey) {
+  const buffer = 4;
+  for (const [k, pos] of Object.entries(iconPositions)) {
+    if (k === excludeKey) continue;
+    const ow = 80, oh = 80;
+    if (px + w - buffer > pos.x && px + buffer < pos.x + ow &&
+        py + h - buffer > pos.y && py + buffer < pos.y + oh) return true;
+  }
+  return false;
+}
+
+function _findFreePosition(px, py, w, h, iconPositions, excludeKey) {
+  const iconSize = 80, iconSpacing = 16, labelHeight = 24;
+  let x = px, y = py;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (!_isPositionOccupied(x, y, w, h, iconPositions, excludeKey)) return { x, y };
+    x += iconSize + iconSpacing;
+    if (x + w > window.innerWidth - 20) { x = 20; y += iconSize + iconSpacing + labelHeight; }
+  }
+  return { x: px, y: py };
+}
+
 function _getInitialIconPosition(key, index, iconPositions) {
   const saved = iconPositions[key];
   if (saved) return { left: `${saved.x}px`, top: `${saved.y}px`, position: 'absolute' };
+
   const iconSize = 80;
   const iconSpacing = 16;
+  const labelHeight = 24;
+  const occupied = new Set();
+  for (const [k, pos] of Object.entries(iconPositions)) {
+    if (k === key) continue;
+    const col = Math.round((pos.x - 20) / (iconSize + iconSpacing));
+    const row = Math.round((pos.y - 20) / (iconSize + iconSpacing + labelHeight));
+    occupied.add(`${col},${row}`);
+  }
+
   const cols = Math.max(1, Math.floor((window.innerWidth - 40) / (iconSize + iconSpacing)));
-  const col = index % cols;
-  const row = Math.floor(index / cols);
+  let col = index % cols;
+  let row = Math.floor(index / cols);
+  if (occupied.has(`${col},${row}`)) {
+    for (let r = row; r < row + 50; r++) {
+      const startC = r === row ? col : 0;
+      for (let c = startC; c < cols; c++) {
+        if (!occupied.has(`${c},${r}`)) { col = c; row = r; break; }
+      }
+      if (!occupied.has(`${col},${row}`)) break;
+    }
+  }
+
   const x = 20 + col * (iconSize + iconSpacing);
-  const y = 20 + row * (iconSize + iconSpacing + 24); // +24 for label height
+  const y = 20 + row * (iconSize + iconSpacing + labelHeight);
   return { position: 'absolute', left: `${x}px`, top: `${y}px` };
 }
 
@@ -1455,6 +1506,8 @@ function renderDesktopIcons() {
     let isShortcut = false;
     let shortcutData = null;
 
+    const key = 'file:' + f.id;
+
     if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
       try {
         shortcutData = JSON.parse(f.content);
@@ -1462,7 +1515,16 @@ function renderDesktopIcons() {
       } catch { /* not a valid shortcut, treat as regular file */ }
     }
 
-    const key = 'file:' + f.id;
+    if (isShortcut && shortcutData) {
+      const devMode = OS.settings.get('devMode');
+      const targetApp = OS.apps?.[shortcutData.target];
+      if (!devMode && targetApp?.devOnly) return;
+
+      const appPosKey = 'app:' + shortcutData.target;
+      if (iconPositions[appPosKey] && !iconPositions[key]) {
+        iconPositions[key] = iconPositions[appPosKey];
+      }
+    }
     const icon = createEl('div', {
       className: 'desktop-icon',
       tabindex: '0',
@@ -1540,3 +1602,76 @@ function renderDesktopIcons() {
     desktop.appendChild(icon);
   });
 }
+
+OS.events.on('settings:changed', async ({ key }) => {
+  if (key !== 'devMode') return;
+
+  const devMode = OS.settings.get('devMode');
+  let iconPositions = OS.settings.get('desktopIconPositions') || {};
+  const devAppIds = new Set();
+  for (const [appId, app] of Object.entries(OS.apps || {})) {
+    if (app.devOnly) devAppIds.add(appId);
+  }
+
+  const devShortcutFileKeys = new Set();
+  try {
+    const desktopFolder = FS.specialFolders.desktop;
+    if (desktopFolder) {
+      const files = FS.listDir(desktopFolder);
+      for (const f of files) {
+        if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+          try {
+            const data = JSON.parse(f.content || '{}');
+            if (data?.type === 'app-shortcut' && devAppIds.has(data.target)) {
+              devShortcutFileKeys.add('file:' + f.id);
+            }
+          } catch { /* skip invalid shortcuts */ }
+        }
+      }
+    }
+  } catch { /* FS not ready yet */ }
+
+  if (!devMode) {
+    const hiddenDevPositions = {};
+    for (const [k, pos] of Object.entries(iconPositions)) {
+      const appId = k.startsWith('app:') ? k.slice(4) : null;
+      if (appId && devAppIds.has(appId)) {
+        hiddenDevPositions[k] = { ...pos };
+        delete iconPositions[k];
+      } else if (devShortcutFileKeys.has(k)) {
+        hiddenDevPositions[k] = { ...pos };
+        delete iconPositions[k];
+      }
+    }
+    OS.settings.set('desktopIconPositions', iconPositions);
+    OS.settings.set('_hiddenDevIconPositions', hiddenDevPositions);
+  } else {
+    const hiddenDevPositions = OS.settings.get('_hiddenDevIconPositions') || {};
+
+    for (const [k, pos] of Object.entries(hiddenDevPositions) || {}) {
+      if (!k.startsWith('app:')) continue;
+      const appId = k.slice(4);
+      for (const [otherKey, otherPos] of Object.entries(iconPositions)) {
+        const otherAppId = otherKey.startsWith('app:') ? otherKey.slice(4) : null;
+        if (otherAppId && devAppIds.has(otherAppId)) continue;
+        const buffer = 4;
+        const ow = 80, oh = 80;
+        if (pos.x + ow - buffer > otherPos.x && pos.x + buffer < otherPos.x + ow &&
+            pos.y + oh - buffer > otherPos.y && pos.y + buffer < otherPos.y + oh) {
+          const newPos = _findFreePosition(otherPos.x, otherPos.y, ow, oh, iconPositions, otherKey);
+          iconPositions[otherKey] = newPos;
+        }
+      }
+    }
+
+    for (const [k, pos] of Object.entries(hiddenDevPositions)) {
+      iconPositions[k] = pos;
+    }
+    OS.settings.set('desktopIconPositions', iconPositions);
+    OS.settings.set('_hiddenDevIconPositions', null);
+  }
+
+  if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+  if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+  if (document.getElementById('launchpad')?.classList.contains('active')) renderLaunchpad();
+});
