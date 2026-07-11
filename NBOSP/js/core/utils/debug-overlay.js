@@ -19,6 +19,8 @@ const DebugOverlay = (() => {
   let _frames    = 0;
   let _fps       = 0;
   let _lastFpsUpdate = 0;
+  let _lastFrameTime = 0;
+  let _frameTimeMs   = 0;
   let _dragState = null;
   let _gpuCache  = null;
 
@@ -267,7 +269,7 @@ const DebugOverlay = (() => {
 
   function _getFrameTime() {
     if (typeof performance !== 'undefined') {
-      return performance.now().toFixed(1) + ' ms';
+      return _frameTimeMs.toFixed(1) + ' ms';
     }
     return 'N/A';
   }
@@ -399,6 +401,8 @@ const DebugOverlay = (() => {
 
     _frames++;
     const now = performance.now();
+    _frameTimeMs = _lastFrameTime ? (now - _lastFrameTime) : 0;
+    _lastFrameTime = now;
     if (now - _lastFpsUpdate >= 500) {
       _fps = Math.round((_frames * 1000) / (now - _lastFpsUpdate));
       _lastFpsUpdate = now;
@@ -478,6 +482,8 @@ const DebugOverlay = (() => {
     _el.style.opacity = '1';
     _lastFpsUpdate = performance.now();
     _frames = 0;
+    _lastFrameTime = 0;
+    _frameTimeMs = 0;
     _longTaskCount = 0;
     _initLongTaskObserver();
     _rafId = requestAnimationFrame(_update);
