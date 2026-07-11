@@ -74,7 +74,7 @@ const Notify = {
           const titleEl = createEl('div', { className: 'toast-title', textContent: notif.title });
           const bodyEl = createEl('div', { className: 'toast-body', textContent: notif.body });
           content.appendChild(titleEl);
-          content.appendChild(bodyEl);
+          if (notif.body) content.appendChild(bodyEl);
 
           // Add action button if action is provided
           if (notif.action && notif.actionLabel) {
