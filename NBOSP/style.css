@@ -5986,7 +5986,7 @@
 
     /* ── TOGGLE SWITCH (macOS style) ── */
     .toggle {
-      width: 40px;
+      width: 44px;
       height: 22px;
       border-radius: 11px;
       background: var(--text-muted);
@@ -6017,7 +6017,7 @@
     }
 
     .toggle.active::after {
-      transform: translateX(18px);
+      transform: translateX(22px);
     }
 
     .toggle:focus-visible {
@@ -6029,7 +6029,7 @@
     }
 
     .toggle.active:active::after {
-      transform: translateX(18px) scale(0.9);
+      transform: translateX(22px) scale(0.9);
     }
 
     /* ── CHECKBOX (macOS style) ── */
