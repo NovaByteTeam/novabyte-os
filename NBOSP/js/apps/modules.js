@@ -44,6 +44,11 @@ registerApp({
       { id: 'debug-overlay', path: 'js/core/utils/debug-overlay.js' },
     ];
 
+    // AbortController for the per-row click listeners below — same pattern
+    // as console.js and inspector.js. state.cleanups.push is the real
+    // teardown hook the window manager honors (confirmed against wm.js).
+    const ac = new AbortController();
+
     modules.forEach(mod => {
       const row = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
       const info = createEl('div');
@@ -52,7 +57,29 @@ registerApp({
       row.appendChild(info);
 
       const btn = createEl('button', { textContent: 'Reload', style: 'padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+
+      // Tracks the pending "reset button text" timeout so a second click
+      // within the 1.5s window can cancel the first one instead of both
+      // firing and stepping on each other's button state.
+      let resetTimeoutId = null;
+      // Plain flag instead of btn.disabled — there's no theme-consistent
+      // :disabled style anywhere in style.css, so setting the attribute
+      // would fall back to the browser's default greyed-out button, which
+      // doesn't match this dark theme. This blocks re-entrancy the same
+      // way without changing how the button looks.
+      let inFlight = false;
+
       btn.addEventListener('click', async () => {
+        // Each successful reload permanently pins a new module namespace
+        // object in memory — that's inherent to importing a fresh blob URL
+        // per reload (see MDN's import() docs on cache-busting via unique
+        // specifiers), not something fixable without removing hot-reload
+        // entirely. Guarding against re-entrancy at least stops a
+        // double-click from needlessly doubling that cost for one click.
+        if (inFlight) return;
+        inFlight = true;
+        if (resetTimeoutId != null) clearTimeout(resetTimeoutId);
+
         try {
           const url = '/' + mod.path + '?t=' + Date.now();
           const res = await fetch(url);
@@ -61,19 +88,29 @@ registerApp({
           const blob = new Blob([code], { type: 'application/javascript' });
           const url2 = URL.createObjectURL(blob);
           await import(url2);
+          // Safe to revoke right after import() resolves — by then the
+          // module's been fetched and its top-level code has already run,
+          // so the blob URL has nothing left to serve.
           URL.revokeObjectURL(url2);
           btn.textContent = '✓';
           btn.style.background = '#3fb950';
-          setTimeout(() => { btn.textContent = 'Reload'; btn.style.background = 'var(--accent)'; }, 1500);
         } catch (e) {
           btn.textContent = '✗';
           btn.style.background = '#f85149';
-          setTimeout(() => { btn.textContent = 'Reload'; btn.style.background = 'var(--accent)'; }, 1500);
         }
-      });
+        resetTimeoutId = setTimeout(() => {
+          btn.textContent = 'Reload';
+          btn.style.background = 'var(--accent)';
+          inFlight = false;
+          resetTimeoutId = null;
+        }, 1500);
+      }, { signal: ac.signal });
+
       row.appendChild(btn);
       list.appendChild(row);
     });
+
+    state.cleanups.push(() => ac.abort());
 
     content.appendChild(list);
   }

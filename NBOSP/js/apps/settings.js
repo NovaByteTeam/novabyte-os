@@ -364,7 +364,16 @@ registerApp({
         if (window.DebugOverlay) {
           next ? window.DebugOverlay.enable() : window.DebugOverlay.disable();
         }
-        Notify.show({ title: next ? 'Developer Mode Enabled' : 'Developer Mode Disabled', body: 'Press F3 to toggle debug overlay', type: 'info', appName: 'Settings' });
+        Notify.show({
+          title: next ? 'Developer Mode Enabled' : 'Developer Mode Disabled',
+          // F3 only does anything while devMode is on (enable() checks this
+          // itself now) — the hint only makes sense on the enable path.
+          // Telling someone to press F3 right after disabling would be
+          // pointing them at a shortcut that's about to silently no-op.
+          body: next ? 'Press F3 to toggle debug overlay' : undefined,
+          type: 'info',
+          appName: 'Settings'
+        });
       });
       devRow.appendChild(devToggle);
       devGroup.appendChild(devRow);

@@ -4,7 +4,9 @@
  * Developer-mode HUD inspired by Minecraft F3.
  * Shows FPS, memory, window count, workspace, and runtime info.
  * Toggle with F3 or Ctrl+Shift+D.
- * Drag the header to reposition; position persists in settings.
+ * Drag the header to reposition; position persists in localStorage
+ * (separate from OS.settings.debugOverlayVisible, which only tracks
+ * whether the overlay is shown at all).
  * Clicks pass through the overlay to windows behind it.
  */
 
@@ -44,8 +46,12 @@ const DebugOverlay = (() => {
     _el.id = 'debug-overlay';
 
     const saved = _loadPos();
-    const top = saved ? saved.y : 8;
-    const left = saved ? saved.x : 8;
+    // Same clamp the drag handler applies during pointermove — without it,
+    // a stale saved position from a larger screen (or a corrupted/tampered
+    // localStorage value) would place the overlay off-screen with no way
+    // to drag it back into view, since you can't drag what you can't see.
+    const top = saved ? Math.max(0, Math.min(saved.y, window.innerHeight - 20)) : 8;
+    const left = saved ? Math.max(0, Math.min(saved.x, window.innerWidth - 60)) : 8;
 
     _el.style.cssText = `
       position: fixed;
@@ -226,7 +232,14 @@ const DebugOverlay = (() => {
     try {
       const canvas = document.createElement('canvas');
       const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-      if (!gl) return 'No WebGL';
+      // Only the success path below used to cache into _gpuCache. Without
+      // WebGL support, this branch would run again on every frame for as
+      // long as the overlay stayed open — recreating a canvas and
+      // re-attempting getContext('webgl') every single time, on exactly
+      // the machines least able to afford that. Caching the negative
+      // result makes this a one-time check like the success path already
+      // is.
+      if (!gl) return _gpuCache = 'No WebGL';
       const ext = gl.getExtension('WEBGL_debug_renderer_info');
       if (ext) {
         const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
@@ -234,7 +247,9 @@ const DebugOverlay = (() => {
       }
       return _gpuCache = gl.getParameter(gl.RENDERER);
     } catch {
-      return 'N/A';
+      // Same reasoning — cache the failure so a machine that throws here
+      // (rather than just lacking WebGL) doesn't retry every frame either.
+      return _gpuCache = 'N/A';
     }
   }
 
@@ -273,7 +288,16 @@ const DebugOverlay = (() => {
       parts.push('sessionStorage: ' + Object.keys(sessionStorage).length);
     } catch {}
     try {
-      parts.push('caches: ' + (caches?.keys ? 'available' : 'none'));
+      // typeof, not a bare reference — caches is restricted to secure
+      // contexts and isn't guaranteed to exist. Optional chaining alone
+      // wouldn't have caught that: `caches?.keys` still throws a
+      // ReferenceError if `caches` itself is undeclared, since ?. only
+      // guards against a value being nullish once the identifier's
+      // already resolved. This line happened to be safe anyway because
+      // it's in its own try/catch, but that's a fragile thing to depend
+      // on — matching the typeof pattern every other check here uses
+      // makes the actual safety mechanism visible instead of implicit.
+      parts.push('caches: ' + (typeof caches !== 'undefined' && caches?.keys ? 'available' : 'none'));
     } catch {}
     return parts.join(' · ') || 'N/A';
   }
@@ -441,6 +465,13 @@ const DebugOverlay = (() => {
 
   function enable() {
     if (_enabled) return;
+    // F3 in system-events.js calls toggle() with no devMode check of its
+    // own — boot.js and the Settings toggle both check devMode before
+    // calling enable(), but F3 didn't, so pressing it would show the
+    // overlay even with Developer Mode off. Gating here instead of only
+    // at each call site means every current and future caller is covered,
+    // not just the ones that remember to check first.
+    if (typeof OS !== 'undefined' && OS.settings && !OS.settings.get('devMode')) return;
     _enabled = true;
     if (typeof OS !== 'undefined' && OS.settings) OS.settings.set('debugOverlayVisible', true);
     _create();

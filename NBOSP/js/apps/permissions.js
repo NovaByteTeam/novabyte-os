@@ -34,13 +34,20 @@ registerApp({
       }
 
       const table = createEl('table', { style: 'width:100%;border-collapse:collapse;font-size:12px;' });
+      // createEl(tag, attrs, children) only takes 3 params — children must
+      // be a single array, not one argument per child. Passing 4 <th>
+      // elements as separate positional arguments (as this did before)
+      // silently drops everything past the 3rd argument, since JS just
+      // ignores extra arguments a function never declared. Only "App" ever
+      // rendered; "Granted", "Denied", and "Pending" were dropped headers
+      // with no visible sign anything was missing.
       table.appendChild(createEl('thead', {},
-        createEl('tr', {},
+        [createEl('tr', {}, [
           createEl('th', { textContent: 'App', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: 'Granted', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: 'Denied', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: 'Pending', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
-        )
+        ])]
       ));
 
       apps.forEach(app => {
@@ -73,8 +80,16 @@ registerApp({
       content.appendChild(ref);
     }
 
-    setTimeout(render, 100);
+    const timeoutId = setTimeout(render, 100);
     const intervalId = setInterval(render, 5000);
-    content.addEventListener('close', () => clearInterval(intervalId));
+    // state.cleanups.push(fn) is the teardown hook the window manager
+    // actually calls on close (confirmed against wm.js) — content never
+    // dispatches a 'close' event anywhere in this codebase, so the old
+    // listener never ran and this interval leaked for the OS session every
+    // time the window closed.
+    state.cleanups.push(() => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+    });
   }
 });

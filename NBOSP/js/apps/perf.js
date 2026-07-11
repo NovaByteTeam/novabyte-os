@@ -166,10 +166,13 @@ registerApp({
 
     rafId = requestAnimationFrame(measureFrame);
 
-    // Best-effort cleanup — see note in inspector.js about the missing
-    // framework-level teardown hook. Without this, the rAF loop and the
-    // PerformanceObserver both keep running after the window closes.
-    content.addEventListener('close', () => {
+    // state.cleanups.push(fn) is the teardown hook the window manager
+    // actually calls on close (confirmed against wm.js) — init()'s return
+    // value is discarded and content never dispatches a 'close' event
+    // anywhere in this codebase, so that listener would never have run and
+    // both the rAF loop and the PerformanceObserver would leak for the life
+    // of the OS session every time this window was closed.
+    state.cleanups.push(() => {
       if (rafId) cancelAnimationFrame(rafId);
       if (longTaskObserver) longTaskObserver.disconnect();
     });

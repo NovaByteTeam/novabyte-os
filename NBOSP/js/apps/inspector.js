@@ -88,14 +88,17 @@ registerApp({
       content.appendChild(winsSection);
     }
 
-    setTimeout(render, 100);
+    const timeoutId = setTimeout(render, 100);
     const intervalId = setInterval(render, 5000);
 
-    // Best-effort cleanup: the app framework doesn't expose a documented
-    // teardown hook (checked — none of the split apps have one), so this
-    // interval is cleared if the window signals close via a 'close' event
-    // on content; otherwise it lives for the life of the OS session, same
-    // as the original devtools.js behavior.
-    content.addEventListener('close', () => clearInterval(intervalId));
+    // Confirmed against wm.js: state.cleanups.push(fn) is the teardown hook
+    // the window manager actually calls on close. init()'s return value is
+    // discarded, and content never fires a 'close' event anywhere in this
+    // codebase — so a content.addEventListener('close', ...) guess here
+    // would never run and the interval would leak for the OS session.
+    state.cleanups.push(() => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+    });
   }
 });

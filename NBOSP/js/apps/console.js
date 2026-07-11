@@ -36,27 +36,59 @@ registerApp({
 
     let hasRun = false;
 
+    // Output was appended to forever with no cap. A long dev session could
+    // grow this string to megabytes, and textContent += on a <pre> replaces
+    // the whole text node each time, so writes get slower as history grows.
+    // Keep a bounded ring buffer of entries and re-render from that instead.
+    const MAX_ENTRIES = 200;
+    const history = [];
+
+    function pushEntry(text) {
+      history.push(text);
+      if (history.length > MAX_ENTRIES) history.shift();
+      output.textContent = history.join('');
+      output.scrollTop = output.scrollHeight;
+    }
+
+    // AbortController lets both listeners below be torn down with one call
+    // instead of tracking each removal by hand. This app previously
+    // registered no cleanup at all, so state.cleanups had nothing to call
+    // when the window closed — see the push at the bottom of this function.
+    const ac = new AbortController();
+
     runBtn.addEventListener('click', () => {
       const code = input.value.trim();
       if (!code) return;
       if (!hasRun) {
-        output.textContent = '';
+        history.length = 0;
         output.style.color = 'var(--text-primary)';
         hasRun = true;
       }
       try {
         const result = eval(code);
-        output.textContent += `\n> ${code}\n${typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)}\n`;
+        pushEntry(`\n> ${code}\n${typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)}\n`);
       } catch (e) {
-        output.textContent += `\n> ${code}\nError: ${e.message}\n`;
+        pushEntry(`\n> ${code}\nError: ${e.message}\n`);
       }
       input.value = '';
-      output.scrollTop = output.scrollHeight;
-    });
+    }, { signal: ac.signal });
 
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') runBtn.click();
-    });
+      // isComposing is true while an IME candidate is still being chosen
+      // (Japanese/Chinese/Korean input, etc). The Enter that confirms the
+      // candidate shouldn't also submit the line — without this check,
+      // confirming a candidate would run half-typed code on that Enter.
+      if (e.key === 'Enter' && !e.isComposing) runBtn.click();
+    }, { signal: ac.signal });
+
+    // state.cleanups.push is the real teardown contract the window manager
+    // honors — init()'s return value is discarded, so returning a cleanup
+    // fn here (as some other apps in this codebase do) would silently do
+    // nothing. This is what actually releases the listeners on close.
+    // wm.js always sets state.cleanups = [] before init() runs, so no
+    // optional chaining needed here — if it were ever missing that'd be
+    // a real bug worth seeing, not something to silently swallow.
+    state.cleanups.push(() => ac.abort());
 
     inputRow.appendChild(input);
     inputRow.appendChild(runBtn);

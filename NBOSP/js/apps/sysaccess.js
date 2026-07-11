@@ -32,6 +32,13 @@ registerApp({
     const tabBar = createEl('div', { className: 'sysaccess-tabs', style: 'display:flex;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);flex-shrink:0;' });
     const panels = {};
 
+    // Shared across every listener registered in this app — tab buttons
+    // below and the network tab's Run Test button. state.cleanups.push is
+    // the teardown hook the window manager actually calls on close
+    // (confirmed against wm.js); nothing in this file was cleaned up
+    // before, so every listener stayed alive past window close.
+    const ac = new AbortController();
+
     let _networkRendered = false;
     let _fsRendered = false;
 
@@ -54,7 +61,7 @@ registerApp({
         panels[tab.id].style.display = 'block';
         if (tab.id === 'network' && !_networkRendered) { renderNetwork(); _networkRendered = true; }
         if (tab.id === 'fs' && !_fsRendered) { renderFS(); _fsRendered = true; }
-      });
+      }, { signal: ac.signal });
       tabBar.appendChild(btn);
 
       const panel = createEl('div', {
@@ -171,7 +178,7 @@ registerApp({
         statusEl.textContent = 'Test complete.';
         runBtn.disabled = false;
         runBtn.textContent = 'Run Test';
-      });
+      }, { signal: ac.signal });
 
       panels.network.appendChild(runBtn);
       panels.network.appendChild(statusEl);
@@ -203,14 +210,9 @@ registerApp({
       panels.fs.appendChild(desc);
 
       const tree = createEl('div', { style: 'font-family:monospace;font-size:12px;' });
-      function escapeHtml(s) {
-        return String(s)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#39;');
-      }
+      // escapeHtml is already global (base-utils.js exposes window.escapeHtml)
+      // and produces identical output to what was duplicated here locally —
+      // no need for a second copy.
       function renderNode(id, depth) {
         const node = FS.files.get(id);
         if (!node) return '';
@@ -240,8 +242,6 @@ registerApp({
       panels.fs.appendChild(tree);
     }
 
-    let _networkTested = false;
-
     function refresh() {
       if (panels.fs.style.display !== 'none' && !_fsRendered) renderFS();
     }
@@ -252,8 +252,19 @@ registerApp({
     // case ("FS not initialized") and the 5s interval below will pick it up,
     // but delaying the first paint slightly reduces how often a user sees
     // that transient state needlessly.
-    setTimeout(refresh, 100);
+    const timeoutId = setTimeout(refresh, 100);
     const intervalId = setInterval(refresh, 5000);
-    content.addEventListener('close', () => clearInterval(intervalId));
+
+    // state.cleanups.push(fn) is the teardown hook the window manager
+    // actually calls on close (confirmed against wm.js) — content never
+    // dispatches a 'close' event anywhere in this codebase, so the old
+    // listener never ran. This also releases the tab button and Run Test
+    // click listeners registered against `ac` earlier in this function,
+    // none of which had any cleanup before.
+    state.cleanups.push(() => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+      ac.abort();
+    });
   }
 });
