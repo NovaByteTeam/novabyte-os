@@ -6,11 +6,12 @@ registerApp({
   category: 'developer',
   devOnly: true,
   autoGrant: true,
-  defaultSize: [600, 500],
-  minSize: [420, 350],
-  // Signs packages with a key typed into a prompt() — this is a
-  // security-sensitive operation, keep it isolated from the read-only
-  // inspection apps and gate it behind settings-level trust.
+  defaultSize: [520, 620],
+  minSize: [420, 420],
+  // Signing/verifying packages is a security-sensitive operation — keep
+  // this isolated from the read-only inspection apps and gate it behind
+  // settings-level trust, same as before. The form fields here are local
+  // to this window only; nothing is persisted or sent anywhere on submit.
   permissions: ['system:info', 'system:settings'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
@@ -25,38 +26,167 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;font-size:13px;';
 
-    const actions = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:16px;' });
+    // All listeners in this app (tab buttons, form submits) are torn down
+    // together via this controller. The original file registered no
+    // cleanup at all — state.cleanups is the real teardown hook the window
+    // manager calls on close (confirmed against wm.js, same pattern used
+    // by every other dev app in this file), so nothing here was ever
+    // released before. That also meant DOM output was appended forever
+    // with no cap on repeated clicks, which this rewrite fixes by writing
+    // into a single persistent result box instead of appending <pre>s.
+    const ac = new AbortController();
+    state.cleanups.push(() => ac.abort());
 
-    const signBtn = createEl('button', { textContent: 'Sign Test Package', style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
-    signBtn.addEventListener('click', async () => {
-      const manifest = prompt('App ID:') || 'com.test.app';
-      const name = prompt('App name:') || 'Test App';
-      const key = prompt('Signing key:') || 'dev-key';
-      const pkg = await AppPackage.createPackage({ id: manifest, name, version: '1.0.0', entry: 'index.html' }, { 'index.html': '<h1>Hello</h1>' });
-      const sig = await AppPackage.signPackage(pkg, key);
-      const info = AppPackage.inspectPackage(pkg);
-      const out = createEl('pre', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;font-size:11px;overflow:auto;' });
-      out.textContent = JSON.stringify({ info, signature: sig?.slice(0, 32) + '...', verified: await AppPackage.verifyPackage(pkg, key) }, null, 2);
-      content.appendChild(out);
+    const TABS = [
+      { id: 'sign', name: 'Sign' },
+      { id: 'verify', name: 'Verify' },
+    ];
+
+    const tabBar = createEl('div', { style: 'display:flex;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);flex-shrink:0;' });
+    const panels = {};
+    const scroll = createEl('div', { style: 'flex:1;overflow:auto;padding:16px;' });
+
+    TABS.forEach((tab, i) => {
+      const btn = createEl('button', {
+        textContent: tab.name,
+        style: 'padding:8px 16px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;border-bottom:2px solid transparent;'
+      });
+      btn.addEventListener('click', () => {
+        tabBar.querySelectorAll('button').forEach(b => {
+          b.style.color = 'var(--text-muted)';
+          b.style.borderBottomColor = 'transparent';
+        });
+        btn.style.color = 'var(--accent)';
+        btn.style.borderBottomColor = 'var(--accent)';
+        Object.values(panels).forEach(p => p.style.display = 'none');
+        panels[tab.id].style.display = 'block';
+      }, { signal: ac.signal });
+      tabBar.appendChild(btn);
+
+      const panel = createEl('div', { style: 'display:none;' });
+      panels[tab.id] = panel;
+      scroll.appendChild(panel);
     });
-    actions.appendChild(signBtn);
 
-    const verifyBtn = createEl('button', { textContent: 'Verify Package', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
-    verifyBtn.addEventListener('click', async () => {
-      const raw = prompt('Paste package JSON:');
-      if (!raw) return;
-      try {
-        const pkg = JSON.parse(raw);
-        const valid = AppPackage.validateManifest(pkg.manifest);
-        const out = createEl('pre', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;font-size:11px;' });
-        out.textContent = JSON.stringify({ manifestValid: valid.valid, errors: valid.errors, hasSignature: !!pkg.signature }, null, 2);
-        content.appendChild(out);
-      } catch { alert('Invalid JSON'); }
-    });
-    actions.appendChild(verifyBtn);
+    content.appendChild(tabBar);
+    content.appendChild(scroll);
 
-    content.appendChild(actions);
+    function field(label, placeholder, value) {
+      const wrap = createEl('div', { style: 'margin-bottom:10px;' });
+      wrap.appendChild(createEl('label', { textContent: label, style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' }));
+      const input = createEl('input', { placeholder, value: value || '', style: 'width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
+      wrap.appendChild(input);
+      return { wrap, input };
+    }
+
+    function resultBox() {
+      return createEl('pre', { style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);font-size:11px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:12px;display:none;' });
+    }
+
+    function showResult(box, ok, obj) {
+      box.style.display = 'block';
+      box.style.borderColor = ok ? '#3fb950' : '#f85149';
+      box.textContent = JSON.stringify(obj, null, 2);
+    }
+
+    // ── Sign tab ──────────────────────────────────────────────────────────
+    (function buildSignTab() {
+      const panel = panels.sign;
+      const idF = field('App ID (reverse-domain, e.g. com.test.app)', 'com.test.app', 'com.test.app');
+      const nameF = field('App name', 'Test App', 'Test App');
+      const versionF = field('Version (x.y.z)', '1.0.0', '1.0.0');
+      const keyF = field('Signing key', 'dev-key', 'dev-key');
+      [idF, nameF, versionF, keyF].forEach(f => panel.appendChild(f.wrap));
+
+      const signBtn = createEl('button', { textContent: 'Create & Sign Package', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+      const box = resultBox();
+
+      signBtn.addEventListener('click', async () => {
+        signBtn.disabled = true;
+        signBtn.textContent = 'Signing…';
+        try {
+          const manifest = { id: idF.input.value.trim(), name: nameF.input.value.trim(), version: versionF.input.value.trim(), entry: 'index.html' };
+          const validation = AppPackage.validateManifest(manifest);
+          if (!validation.valid) {
+            showResult(box, false, { error: 'Manifest invalid', errors: validation.errors });
+            return;
+          }
+          const pkg = await AppPackage.createPackage(manifest, { 'index.html': '<h1>Hello</h1>' });
+          const sig = await AppPackage.signPackage(pkg, keyF.input.value);
+          pkg.signature = sig;
+          const info = AppPackage.inspectPackage(pkg);
+          const verified = await AppPackage.verifyPackage(pkg, keyF.input.value);
+          showResult(box, true, { info, signature: sig, verified, warnings: validation.warnings, fullPackage: pkg });
+        } catch (e) {
+          showResult(box, false, { error: e.message });
+        } finally {
+          signBtn.disabled = false;
+          signBtn.textContent = 'Create & Sign Package';
+        }
+      }, { signal: ac.signal });
+
+      panel.appendChild(signBtn);
+      panel.appendChild(box);
+    })();
+
+    // ── Verify tab ────────────────────────────────────────────────────────
+    (function buildVerifyTab() {
+      const panel = panels.verify;
+      panel.appendChild(createEl('label', { textContent: 'Package JSON', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' }));
+      const textarea = createEl('textarea', {
+        placeholder: 'Paste a package object (e.g. copy "fullPackage" from the Sign tab result)',
+        style: 'width:100%;box-sizing:border-box;height:160px;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;'
+      });
+      panel.appendChild(textarea);
+
+      const keyF = field('Verification key', 'dev-key', 'dev-key');
+      panel.appendChild(keyF.wrap);
+
+      const verifyBtn = createEl('button', { textContent: 'Validate & Verify', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
+      const box = resultBox();
+
+      verifyBtn.addEventListener('click', async () => {
+        const raw = textarea.value.trim();
+        if (!raw) {
+          showResult(box, false, { error: 'Paste package JSON first' });
+          return;
+        }
+        let pkg;
+        try {
+          pkg = JSON.parse(raw);
+        } catch {
+          showResult(box, false, { error: 'Invalid JSON' });
+          return;
+        }
+        try {
+          const validation = AppPackage.validateManifest(pkg.manifest || {});
+          const hasSignature = !!pkg.signature;
+          const verified = hasSignature ? await AppPackage.verifyPackage(pkg, keyF.input.value) : false;
+          showResult(box, validation.valid && verified, {
+            manifestValid: validation.valid,
+            errors: validation.errors,
+            warnings: validation.warnings,
+            hasSignature,
+            signatureVerified: verified,
+          });
+        } catch (e) {
+          showResult(box, false, { error: e.message });
+        }
+      }, { signal: ac.signal });
+
+      panel.appendChild(verifyBtn);
+      panel.appendChild(box);
+    })();
+
+    // Activate the first tab only now — both panels are built and attached
+    // to the live DOM at this point. Doing this during the TABS.forEach
+    // loop above (the original approach) fired the click before
+    // buildSignTab() had added any content and before `scroll` was even
+    // attached to `content`, which is what caused the reported bug: the
+    // Sign tab showed blank on first launch and only rendered correctly
+    // after switching tabs forced a fresh display toggle + reflow.
+    tabBar.querySelector('button').click();
   }
 });

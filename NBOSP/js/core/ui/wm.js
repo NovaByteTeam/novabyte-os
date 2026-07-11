@@ -293,6 +293,17 @@ const WM = window.WM = (() => {
         console.warn(`[WM] ${appId}.init error:`, err);
       }
 
+      // `app` here is the exact object reference registerApp() pushed into
+      // APP_REGISTRY (OS.apps[appId] and the APP_REGISTRY entry are the same
+      // object, not a copy) — so mutating it directly is enough, no separate
+      // lookup-by-id needed. Previously nothing on this path ever touched
+      // launchCount, so every app showed 0 in Inspector regardless of how
+      // many times it had actually been opened. Not to be confused with the
+      // unrelated launchCount tracked by platform/core/app-registry.js,
+      // which is a separate sandboxed-app registry with its own storage.
+      app.launchCount = (app.launchCount || 0) + 1;
+      app.lastLaunched = Date.now();
+
       OS.events.emit('app:opened', { id, appId });
       return state;
     },
@@ -501,6 +512,17 @@ const WM = window.WM = (() => {
     focusWindow(id) {
       const state = OS.windows.get(id);
       if (!state) return;
+      // Every pointerdown anywhere inside a window's content (typing in an
+      // input, clicking a button, etc.) bubbles up and calls this via the
+      // window's own 'pointerdown' -> onFocus listener (see the listener
+      // setup above). Without this guard, an already-focused window still
+      // re-bumps z-index, re-toggles every window's .focused class, and
+      // re-emits 'app:focused' on every single click inside its own
+      // content — which any app reacting to that event (e.g. Inspector's
+      // live re-render) would re-run needlessly on every click, including
+      // clicks on its own buttons. Only actually do the work when focus is
+      // changing to a different window.
+      if (!state.minimized && OS.focusedWindowId === id) return;
       if (state.minimized) wm.restoreWindow(id);
       state.element.style.zIndex = ++OS.windowZCounter;
       OS.focusedWindowId = id;

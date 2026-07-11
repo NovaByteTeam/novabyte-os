@@ -2,12 +2,12 @@ registerApp({
   id: 'permissions',
   name: 'Permissions',
   icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0Ij4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0icHJtLXNoaWVsZCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNmVlN2I3Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA1OTY2OSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0icHJtLWZhY2UiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI2VjZmRmNSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNhN2YzZDAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InBybS1iYWRnZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjODZlZmFjIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzE2YTM0YSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPCEtLSBzaGFkb3cgLS0+CiAgPGVsbGlwc2UgY3g9IjQ4IiBjeT0iOTAiIHJ4PSIzMCIgcnk9IjYiIGZpbGw9IiMwMDAiIG9wYWNpdHk9IjAuMTgiLz4KCiAgPCEtLSBzaGllbGQgYm9keSAtLT4KICA8cGF0aCBkPSJNNDggMTAgTDc2IDIwIFY0NCBDNzYgNjIgNjQgNzYgNDggODQgQzMyIDc2IDIwIDYyIDIwIDQ0IFYyMCBaIiBmaWxsPSJ1cmwoI3BybS1zaGllbGQpIi8+CiAgPCEtLSBpbm5lciBmYWNlIC0tPgogIDxwYXRoIGQ9Ik00OCAxOCBMNjkgMjYgVjQ0IEM2OSA1OCA2MCA2OSA0OCA3NSBDMzYgNjkgMjcgNTggMjcgNDQgVjI2IFoiIGZpbGw9InVybCgjcHJtLWZhY2UpIi8+CgogIDwhLS0ga2V5aG9sZSAtLT4KICA8Y2lyY2xlIGN4PSI0OCIgY3k9IjQwIiByPSI3IiBmaWxsPSIjMDU5NjY5Ii8+CiAgPHBvbHlnb24gcG9pbnRzPSI0NCw0MiA1Miw0MiA0OS41LDU0IDQ2LjUsNTQiIGZpbGw9IiMwNTk2NjkiLz4KCiAgPCEtLSBjaGVjayBiYWRnZSAtLT4KICA8Y2lyY2xlIGN4PSI2OCIgY3k9IjY2IiByPSIxNCIgZmlsbD0idXJsKCNwcm0tYmFkZ2UpIi8+CiAgPHBvbHlsaW5lIHBvaW50cz0iNjEsNjYgNjYsNzEgNzYsNTgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KCiAgPCEtLSBoaWdobGlnaHQgLS0+CiAgPGVsbGlwc2UgY3g9IjQwIiBjeT0iMjQiIHJ4PSIxMiIgcnk9IjUiIGZpbGw9IiNmZmYiIG9wYWNpdHk9IjAuMzUiIHRyYW5zZm9ybT0icm90YXRlKC0yMCA0MCAyNCkiLz4KPC9zdmc+Cg==',
-  description: 'Review granted, denied, and pending permissions across registered apps',
+  description: 'Review, grant, and revoke permissions across registered apps',
   category: 'developer',
   devOnly: true,
   autoGrant: true,
-  defaultSize: [650, 550],
-  minSize: [420, 350],
+  defaultSize: [720, 600],
+  minSize: [480, 400],
   permissions: ['system:apps', 'system:settings'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
@@ -22,71 +22,289 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
+    // grantPermission/revokePermission/resetPermission/getAppPermissions/
+    // getConsentLog/getStats/PERMISSION_CATEGORIES are all confirmed
+    // present on the exported window.AppPermissionManager object (checked
+    // against app-permission-manager.js's own return statement — not
+    // guessed from naming convention). RISK_COLORS is defined in that
+    // file too but never exported, so this app keeps its own copy rather
+    // than reaching into the module's closure.
+    const managerAvailable = typeof AppPermissionManager !== 'undefined';
+    const RISK_COLORS = { low: '#3fb950', medium: '#d29922', high: '#f0883e', critical: '#f85149' };
 
-    function render() {
-      content.innerHTML = '';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;font-size:13px;';
+
+    const ac = new AbortController();
+    state.cleanups.push(() => ac.abort());
+
+    // ── View state ───────────────────────────────────────────────────────
+    // 'list' = all apps with granted/denied/pending counts (the original
+    // view). 'detail' = one app's permissions, one row per permission with
+    // grant/revoke/reset actions. 'log' = the consent log, newest first.
+    let view = 'list';
+    let detailAppId = null;
+
+    const tabBar = createEl('div', { style: 'display:flex;border-bottom:1px solid var(--border-subtle);background:var(--bg-elevated);flex-shrink:0;' });
+    const listTabBtn = createEl('button', { textContent: 'Apps', style: 'padding:8px 16px;background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:13px;border-bottom:2px solid var(--accent);' });
+    const logTabBtn = createEl('button', { textContent: 'Consent Log', style: 'padding:8px 16px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;border-bottom:2px solid transparent;' });
+    listTabBtn.addEventListener('click', () => { view = 'list'; detailAppId = null; syncTabs(); render(); }, { signal: ac.signal });
+    logTabBtn.addEventListener('click', () => { view = 'log'; syncTabs(); render(); }, { signal: ac.signal });
+    tabBar.appendChild(listTabBtn);
+    tabBar.appendChild(logTabBtn);
+    content.appendChild(tabBar);
+
+    function syncTabs() {
+      const active = view === 'log' ? logTabBtn : listTabBtn;
+      [listTabBtn, logTabBtn].forEach(b => {
+        b.style.color = b === active ? 'var(--accent)' : 'var(--text-muted)';
+        b.style.borderBottomColor = b === active ? 'var(--accent)' : 'transparent';
+      });
+    }
+
+    const scroll = createEl('div', { style: 'flex:1;overflow:auto;padding:16px;' });
+    content.appendChild(scroll);
+
+    function riskBadge(permission) {
+      const cat = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES[permission] : null;
+      const risk = cat?.risk ?? 'low';
+      const label = cat?.label ?? permission;
+      return { risk, label, color: RISK_COLORS[risk] || RISK_COLORS.low };
+    }
+
+    // window.AppPermissionsMap (from app-permissions-bootstrap.js) is the
+    // real source of permissions for the 14 built-in apps that never
+    // declare a `permissions` array on their own registerApp() call —
+    // Clock, Calculator, Browser, Calendar, Contacts, etc. That map is
+    // keyed by each app's *internal* id (confirmed against each app file:
+    // Settings -> 'nook', TextEdit -> 'quill', Terminal -> 'shell',
+    // Files -> 'vault', not the display name), split into `normal`
+    // (auto-granted, never prompts) and `dangerous` (prompts via
+    // requestAll, user-revocable) tiers.
+    //
+    // A handful of dev-tier apps (sysaccess, perf) declare their own
+    // `permissions` array AND have a bootstrap-map entry. perf's two
+    // sources agree exactly; sysaccess's don't (its own declared list is
+    // missing 'fs:write', which the bootstrap map's dangerous tier
+    // includes and the wrapper actually enforces on launch) — so rather
+    // than silently pick one source, this unions both and tags entries
+    // that came only from the declared array as tier 'declared' so a
+    // mismatch like that stays visible instead of getting papered over.
+    function getEffectivePermissions(app) {
+      const declared = new Set(app.permissions || []);
+      const bootstrap = window.AppPermissionsMap?.[app.id];
+      const normal = new Set(bootstrap?.normal || []);
+      const dangerous = new Set(bootstrap?.dangerous || []);
+
+      const all = new Set([...declared, ...normal, ...dangerous]);
+      return [...all].map(permission => ({
+        permission,
+        tier: dangerous.has(permission) ? 'dangerous' : normal.has(permission) ? 'normal' : 'declared',
+      }));
+    }
+
+    function renderList() {
+      scroll.innerHTML = '';
       const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
 
       if (!apps.length) {
-        content.appendChild(createEl('div', { textContent: 'No apps registered', style: 'color:var(--text-muted);' }));
+        scroll.appendChild(createEl('div', { textContent: 'No apps registered', style: 'color:var(--text-muted);' }));
         return;
       }
 
+      if (!managerAvailable) {
+        scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable — showing app list only.', style: 'color:#d29922;margin-bottom:12px;font-size:12px;' }));
+      }
+
       const table = createEl('table', { style: 'width:100%;border-collapse:collapse;font-size:12px;' });
-      // createEl(tag, attrs, children) only takes 3 params — children must
-      // be a single array, not one argument per child. Passing 4 <th>
-      // elements as separate positional arguments (as this did before)
-      // silently drops everything past the 3rd argument, since JS just
-      // ignores extra arguments a function never declared. Only "App" ever
-      // rendered; "Granted", "Denied", and "Pending" were dropped headers
-      // with no visible sign anything was missing.
       table.appendChild(createEl('thead', {},
         [createEl('tr', {}, [
           createEl('th', { textContent: 'App', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: 'Granted', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: 'Denied', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
           createEl('th', { textContent: 'Pending', style: 'text-align:left;padding:6px;border-bottom:1px solid var(--border-subtle);color:var(--text-muted);font-weight:600;' }),
+          createEl('th', { textContent: '', style: 'padding:6px;border-bottom:1px solid var(--border-subtle);' }),
         ])]
       ));
 
+      const tbody = createEl('tbody');
       apps.forEach(app => {
-        const perms = app.permissions || [];
-        const managerAvailable = typeof AppPermissionManager !== 'undefined';
+        const perms = getEffectivePermissions(app).map(p => p.permission);
         const granted = managerAvailable ? perms.filter(p => AppPermissionManager.isGranted(p, app.id)).length : 0;
         const denied = managerAvailable ? perms.filter(p => AppPermissionManager.isDenied(p, app.id)).length : 0;
         const pending = managerAvailable ? (perms.length - granted - denied) : 0;
         const unknown = managerAvailable ? 0 : perms.length;
 
-        const row = createEl('tr', { style: 'border-bottom:1px solid var(--border-subtle);' });
+        const row = createEl('tr', { style: 'border-bottom:1px solid var(--border-subtle);cursor:pointer;' });
+        row.addEventListener('click', () => {
+          view = 'detail';
+          detailAppId = app.id;
+          render();
+        }, { signal: ac.signal });
         row.appendChild(createEl('td', { textContent: app.name || app.id, style: 'padding:6px;' }));
         row.appendChild(createEl('td', { textContent: String(granted), style: 'padding:6px;color:#3fb950;' }));
         row.appendChild(createEl('td', { textContent: String(denied), style: 'padding:6px;color:#f85149;' }));
         row.appendChild(createEl('td', { textContent: unknown ? '—' : String(pending), style: 'padding:6px;color:#d29922;', title: unknown ? 'AppPermissionManager unavailable' : '' }));
-        table.appendChild(row);
+        row.appendChild(createEl('td', { textContent: '›', style: 'padding:6px;color:var(--text-muted);text-align:right;' }));
+        tbody.appendChild(row);
       });
+      table.appendChild(tbody);
+      scroll.appendChild(table);
 
-      content.appendChild(table);
-
-      // Permission type reference
+      // Permission type reference — unchanged from before, still useful as
+      // a glossary, now sourced from the same PERMISSION_CATEGORIES used
+      // for risk badges above instead of the flat PERMISSION_TYPES map, so
+      // it shows risk/category context instead of just the raw string.
       const ref = createEl('div', { style: 'margin-top:20px;' });
       ref.appendChild(createEl('h4', { textContent: 'Permission Types', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
-      const types = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager.PERMISSION_TYPES : {};
-      const list = createEl('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px;font-size:11px;font-family:monospace;' });
-      for (const [key, val] of Object.entries(types)) {
-        list.appendChild(createEl('div', { textContent: `${key} → ${val}`, style: 'padding:4px;background:var(--bg-elevated);border-radius:4px;' }));
+      const cats = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES : {};
+      const list = createEl('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px;font-size:11px;font-family:monospace;' });
+      for (const [key, val] of Object.entries(cats)) {
+        const row = createEl('div', { style: `padding:4px 6px;background:var(--bg-elevated);border-radius:4px;border-left:3px solid ${RISK_COLORS[val.risk] || RISK_COLORS.low};` });
+        row.appendChild(createEl('div', { textContent: key, style: 'color:var(--text-primary);' }));
+        row.appendChild(createEl('div', { textContent: `${val.label} · ${val.risk}`, style: 'color:var(--text-muted);font-size:10px;' }));
+        list.appendChild(row);
       }
       ref.appendChild(list);
-      content.appendChild(ref);
+      scroll.appendChild(ref);
+    }
+
+    function renderDetail() {
+      scroll.innerHTML = '';
+      const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
+      const app = apps.find(a => a.id === detailAppId);
+      if (!app) {
+        view = 'list';
+        renderList();
+        return;
+      }
+
+      const back = createEl('button', { textContent: '‹ All apps', style: 'padding:4px 10px;background:transparent;color:var(--accent);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;margin-bottom:12px;' });
+      back.addEventListener('click', () => { view = 'list'; detailAppId = null; render(); }, { signal: ac.signal });
+      scroll.appendChild(back);
+
+      scroll.appendChild(createEl('h3', { textContent: app.name || app.id, style: 'margin:0 0 4px;font-size:15px;' }));
+      scroll.appendChild(createEl('div', { textContent: app.id, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;margin-bottom:16px;' }));
+
+      const effectivePerms = getEffectivePermissions(app);
+      // getAppPermissions(appId) returns only grants that have a recorded
+      // state (granted or denied) — a permission the app declares but that
+      // was never granted/denied yet won't have an entry, so it's looked
+      // up separately here rather than assumed present for every declared
+      // permission.
+      const grantMap = managerAvailable
+        ? new Map(AppPermissionManager.getAppPermissions(app.id).map(g => [g.permission, g]))
+        : new Map();
+
+      if (!effectivePerms.length) {
+        scroll.appendChild(createEl('div', { textContent: 'This app declares no permissions and has no bootstrap-map entry.', style: 'color:var(--text-muted);' }));
+        return;
+      }
+
+      if (!managerAvailable) {
+        scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable — grant/revoke disabled.', style: 'color:#d29922;font-size:12px;' }));
+      }
+
+      effectivePerms.forEach(({ permission, tier }) => {
+        const grant = grantMap.get(permission);
+        const status = grant ? (grant.granted ? 'granted' : 'denied') : 'pending';
+        const statusColor = status === 'granted' ? '#3fb950' : status === 'denied' ? '#f85149' : '#d29922';
+        const { risk, label, color } = riskBadge(permission);
+
+        const row = createEl('div', { style: `padding:10px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);border-left:3px solid ${color};margin-bottom:8px;` });
+
+        const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
+        const left = createEl('div', {});
+        left.appendChild(createEl('div', { textContent: permission, style: 'font-family:monospace;font-size:12px;font-weight:600;' }));
+        left.appendChild(createEl('div', { textContent: `${label} · risk: ${risk} · tier: ${tier}`, style: 'font-size:11px;color:var(--text-muted);' }));
+        header.appendChild(left);
+        header.appendChild(createEl('span', { textContent: status, style: `font-size:11px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px;flex-shrink:0;text-transform:uppercase;` }));
+        row.appendChild(header);
+
+        if (grant) {
+          const meta = createEl('div', { style: 'font-size:10px;color:var(--text-muted);margin-top:6px;font-family:monospace;' });
+          const bits = [`granted: ${grant.grantedAt ? new Date(grant.grantedAt).toLocaleString() : '—'}`];
+          if (grant.lastUsed) bits.push(`last used: ${new Date(grant.lastUsed).toLocaleString()}`);
+          bits.push(grant.permanent ? 'permanent' : `expires: ${grant.expiresAt ? new Date(grant.expiresAt).toLocaleString() : '—'}`);
+          meta.textContent = bits.join(' · ');
+          row.appendChild(meta);
+        }
+
+        if (managerAvailable) {
+          const actions = createEl('div', { style: 'display:flex;gap:6px;margin-top:8px;' });
+
+          // grantPermission() persists a grant with no user-facing dialog
+          // (confirmed: it calls _persistGrant directly, not the
+          // _showPermissionDialog path requestPermission() uses). That's
+          // appropriate for a devOnly tool but is a real bypass of the
+          // normal consent flow, so the button says so rather than reading
+          // like an ordinary toggle.
+          if (status !== 'granted') {
+            const grantBtn = createEl('button', { textContent: 'Grant (no prompt)', style: 'padding:3px 10px;background:#3fb950;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+            grantBtn.addEventListener('click', async () => {
+              grantBtn.disabled = true;
+              await AppPermissionManager.grantPermission(permission, app.id, { reason: 'Granted via Permissions dev tool' });
+              renderDetail();
+            }, { signal: ac.signal });
+            actions.appendChild(grantBtn);
+          }
+
+          if (status !== 'pending') {
+            const resetBtn = createEl('button', { textContent: 'Reset to pending', style: 'padding:3px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+            resetBtn.addEventListener('click', () => {
+              AppPermissionManager.resetPermission(permission, app.id);
+              renderDetail();
+            }, { signal: ac.signal });
+            actions.appendChild(resetBtn);
+          }
+
+          if (status === 'granted') {
+            const revokeBtn = createEl('button', { textContent: 'Revoke', style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
+            revokeBtn.addEventListener('click', () => {
+              AppPermissionManager.revokePermission(permission, app.id);
+              renderDetail();
+            }, { signal: ac.signal });
+            actions.appendChild(revokeBtn);
+          }
+
+          row.appendChild(actions);
+        }
+
+        scroll.appendChild(row);
+      });
+    }
+
+    function renderLog() {
+      scroll.innerHTML = '';
+      if (!managerAvailable) {
+        scroll.appendChild(createEl('div', { textContent: 'AppPermissionManager unavailable.', style: 'color:var(--text-muted);' }));
+        return;
+      }
+      // getConsentLog() appends chronologically (oldest pushed last in
+      // time), so reverse a copy for a newest-first display without
+      // mutating the manager's internal array.
+      const entries = AppPermissionManager.getConsentLog().slice().reverse();
+      if (!entries.length) {
+        scroll.appendChild(createEl('div', { textContent: 'No consent events recorded yet.', style: 'color:var(--text-muted);' }));
+        return;
+      }
+      entries.forEach(e => {
+        const color = e.granted ? '#3fb950' : '#f85149';
+        const row = createEl('div', { style: `padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);border-left:3px solid ${color};margin-bottom:6px;font-size:11px;` });
+        row.appendChild(createEl('div', { textContent: `${e.granted ? 'GRANT' : 'DENY'} · ${e.permission} → ${e.appId}`, style: `font-family:monospace;color:${color};font-weight:600;` }));
+        row.appendChild(createEl('div', { textContent: e.timestamp ? new Date(e.timestamp).toLocaleString() : '', style: 'color:var(--text-muted);margin-top:2px;' }));
+        if (e.reason) row.appendChild(createEl('div', { textContent: `reason: ${e.reason}`, style: 'color:var(--text-muted);margin-top:2px;' }));
+        scroll.appendChild(row);
+      });
+    }
+
+    function render() {
+      if (view === 'detail') renderDetail();
+      else if (view === 'log') renderLog();
+      else renderList();
     }
 
     const timeoutId = setTimeout(render, 100);
     const intervalId = setInterval(render, 5000);
-    // state.cleanups.push(fn) is the teardown hook the window manager
-    // actually calls on close (confirmed against wm.js) — content never
-    // dispatches a 'close' event anywhere in this codebase, so the old
-    // listener never ran and this interval leaked for the OS session every
-    // time the window closed.
     state.cleanups.push(() => {
       clearTimeout(timeoutId);
       clearInterval(intervalId);

@@ -188,12 +188,12 @@ registerApp({
       corsCard.appendChild(createEl('h4', { textContent: 'CORS / Security', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
       const corsRow = createEl('div', { style: 'font-size:12px;' });
       corsRow.appendChild(createEl('span', { textContent: 'CORS_ORIGIN: ', style: 'color:var(--text-muted);' }));
-      // NOTE: `process.env.CORS_ORIGIN` was in the original devtools.js as-is.
-      // `process` is a Node global — this will throw in a real browser unless
-      // this bundle is built with a `process.env` shim/define-plugin that
-      // inlines it at build time. Carried over unchanged; flagging it here
-      // rather than silently "fixing" it since I can't confirm which case
-      // applies without seeing the build config.
+      // process.env.CORS_ORIGIN — confirmed safe here: NBOSP/package.json
+      // shows this app runs under NW.js (nw: ^0.113.0-sdk, `start: nw .`),
+      // which genuinely exposes `process` as a real global in the frontend
+      // context (unlike an actual browser). A previous pass flagged this as
+      // possibly throwing without a build-time shim — that concern doesn't
+      // apply here since there's no browser bundle step involved at all.
       corsRow.appendChild(createEl('span', { textContent: (typeof process !== 'undefined' && process.env?.CORS_ORIGIN) || 'https://localhost:3003 (default)', style: 'color:#3fb950;font-family:monospace;' }));
       corsCard.appendChild(corsRow);
       section.appendChild(corsCard);
@@ -202,6 +202,15 @@ registerApp({
     }
 
     // ── FS tab ────────────────────────────────────────────────────────────
+    // Expand/collapse state persists across renderFS() calls (e.g. the 5s
+    // refresh) so the tree doesn't collapse back to defaults every time it
+    // updates. Keyed by node id, default is collapsed for every folder
+    // except root, which is expanded on first render below.
+    const expanded = new Set();
+    let expandedInitialized = false;
+    let selectedNodeId = null;
+    let fsFilterValue = '';
+
     function renderFS() {
       panels.fs.innerHTML = '';
 
@@ -209,37 +218,153 @@ registerApp({
       desc.textContent = 'Virtual filesystem tree rooted at /. Read-only in dev mode for safety.';
       panels.fs.appendChild(desc);
 
-      const tree = createEl('div', { style: 'font-family:monospace;font-size:12px;' });
-      // escapeHtml is already global (base-utils.js exposes window.escapeHtml)
-      // and produces identical output to what was duplicated here locally —
-      // no need for a second copy.
+      if (!FS.rootId) {
+        panels.fs.appendChild(createEl('div', { textContent: 'FS not initialized', style: 'color:var(--text-muted);' }));
+        return;
+      }
+
+      if (!expandedInitialized) {
+        expanded.add(FS.rootId);
+        expandedInitialized = true;
+      }
+
+      const filterRow = createEl('div', { style: 'margin-bottom:10px;' });
+      const filterInput = createEl('input', { placeholder: 'Filter by name…', value: fsFilterValue, style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+      filterRow.appendChild(filterInput);
+      panels.fs.appendChild(filterRow);
+
+      const layout = createEl('div', { style: 'display:flex;gap:12px;align-items:flex-start;' });
+      const treeWrap = createEl('div', { style: 'font-family:monospace;font-size:12px;flex:1;min-width:0;' });
+      const detailWrap = createEl('div', { style: 'width:220px;flex-shrink:0;' });
+      layout.appendChild(treeWrap);
+      layout.appendChild(detailWrap);
+      panels.fs.appendChild(layout);
+
+      const q = fsFilterValue.trim().toLowerCase();
+
+      // When filtering, a node matches if its own name matches OR any
+      // descendant matches — the latter is what lets a matching file cause
+      // its ancestor folders to render (and auto-expand) even though the
+      // folder names themselves don't match the query. Computed bottom-up
+      // once per render rather than per-node during the walk, since a
+      // naive per-node descendant search would be O(n^2) on a large tree.
+      const subtreeMatches = new Map();
+      function computeMatch(id) {
+        if (subtreeMatches.has(id)) return subtreeMatches.get(id);
+        const node = FS.files.get(id);
+        if (!node) { subtreeMatches.set(id, false); return false; }
+        let match = !q || node.name.toLowerCase().includes(q);
+        const children = FS._childrenByParent.get(id);
+        if (children) {
+          for (const cid of children.keys()) {
+            if (computeMatch(cid)) match = true;
+          }
+        }
+        subtreeMatches.set(id, match);
+        return match;
+      }
+      computeMatch(FS.rootId);
+
+      function fmtBytes(n) {
+        if (n < 1024) return n + ' b';
+        if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+        return (n / 1048576).toFixed(1) + ' MB';
+      }
+
+      function renderDetail() {
+        detailWrap.innerHTML = '';
+        if (!selectedNodeId) {
+          detailWrap.appendChild(createEl('div', { textContent: 'Click a node to inspect it.', style: 'font-size:11px;color:var(--text-muted);padding:8px;' }));
+          return;
+        }
+        const node = FS.files.get(selectedNodeId);
+        if (!node) {
+          detailWrap.appendChild(createEl('div', { textContent: 'Node no longer exists.', style: 'font-size:11px;color:var(--text-muted);padding:8px;' }));
+          return;
+        }
+        const box = createEl('div', { style: 'padding:10px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);font-size:11px;' });
+        const rows = [
+          ['name', node.name],
+          ['type', node.type],
+          ['id', node.id],
+          ['parentId', node.parentId || '(root)'],
+        ];
+        if (node.type === 'file') rows.push(['size', fmtBytes(node.size || 0)]);
+        // created/modified/accessed are confirmed real fields set by
+        // fs.js (Date.now() epoch ms) — not invented for this UI.
+        if (node.created)  rows.push(['created',  new Date(node.created).toLocaleString()]);
+        if (node.modified) rows.push(['modified', new Date(node.modified).toLocaleString()]);
+        if (node.accessed) rows.push(['accessed', new Date(node.accessed).toLocaleString()]);
+        rows.forEach(([label, val]) => {
+          const row = createEl('div', { style: 'margin-bottom:6px;' });
+          row.appendChild(createEl('div', { textContent: label, style: 'color:var(--text-muted);font-size:10px;' }));
+          row.appendChild(createEl('div', { textContent: String(val), style: 'word-break:break-all;' }));
+          box.appendChild(row);
+        });
+        detailWrap.appendChild(box);
+      }
+
       function renderNode(id, depth) {
         const node = FS.files.get(id);
-        if (!node) return '';
-        const indent = '  '.repeat(depth);
-        const icon = node.type === 'folder' ? '📁' : '📄';
-        // node.name is user-controlled (via createFile/createFolder/rename in
-        // fs.js, no sanitization there) so it must be escaped before going
-        // into innerHTML — the original devtools.js FS tab interpolated it
-        // raw, which is a stored-XSS-shaped bug via a crafted filename.
-        const safeName = escapeHtml(node.name);
-        let html = `<div style="padding:2px 4px;cursor:default;">${indent}${icon} ${safeName} <span style="color:var(--text-muted);">${node.type === 'folder' ? '' : (node.size || 0) + 'b'}</span></div>`;
-        if (node.type === 'folder') {
+        if (!node) return;
+        if (!subtreeMatches.get(id)) return;
+
+        const isFolder = node.type === 'folder';
+        const isOpen = isFolder && (q ? true : expanded.has(id)); // auto-expand everything while filtering, so matches are visible without manual expand
+        const row = createEl('div', {
+          style: `padding:2px 4px;cursor:pointer;padding-left:${depth * 16 + 4}px;background:${selectedNodeId === id ? 'var(--bg-hover)' : 'transparent'};border-radius:3px;`
+        });
+
+        const caret = isFolder ? (isOpen ? '▾' : '▸') : ' ';
+        const icon = isFolder ? '📁' : '📄';
+        // textContent, not innerHTML — node.name is user-controlled (via
+        // createFile/createFolder/rename in fs.js, no sanitization there).
+        // A previous pass fixed this same field's stored-XSS-shaped bug by
+        // escaping it before an innerHTML string interpolation; building
+        // real DOM nodes with textContent removes the need for escaping
+        // entirely, since textContent can never be interpreted as markup.
+        row.appendChild(createEl('span', { textContent: caret, style: 'display:inline-block;width:14px;color:var(--text-muted);' }));
+        row.appendChild(createEl('span', { textContent: icon + ' ' }));
+        row.appendChild(createEl('span', { textContent: node.name }));
+        if (!isFolder) {
+          row.appendChild(createEl('span', { textContent: ' ' + fmtBytes(node.size || 0), style: 'color:var(--text-muted);' }));
+        }
+
+        row.addEventListener('click', () => {
+          selectedNodeId = id;
+          if (isFolder && !q) {
+            if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+          }
+          renderFS();
+        }, { signal: ac.signal });
+
+        treeWrap.appendChild(row);
+
+        if (isFolder && isOpen) {
           const children = FS._childrenByParent.get(id);
           if (children) {
-            for (const [cid, child] of children) {
-              html += renderNode(cid, depth + 1);
+            for (const cid of children.keys()) {
+              renderNode(cid, depth + 1);
             }
           }
         }
-        return html;
       }
-      if (FS.rootId) {
-        tree.innerHTML = renderNode(FS.rootId, 0);
-      } else {
-        tree.appendChild(createEl('div', { textContent: 'FS not initialized', style: 'color:var(--text-muted);' }));
-      }
-      panels.fs.appendChild(tree);
+
+      renderNode(FS.rootId, 0);
+      renderDetail();
+
+      filterInput.addEventListener('input', () => {
+        fsFilterValue = filterInput.value;
+        renderFS();
+        // Re-focus and restore cursor position — renderFS() rebuilds the
+        // whole panel including a fresh <input>, which would otherwise
+        // steal focus away on every keystroke.
+        const newInput = panels.fs.querySelector('input');
+        if (newInput) {
+          newInput.focus();
+          newInput.selectionStart = newInput.selectionEnd = newInput.value.length;
+        }
+      }, { signal: ac.signal });
     }
 
     function refresh() {

@@ -6,8 +6,8 @@ registerApp({
   category: 'developer',
   devOnly: true,
   autoGrant: true,
-  defaultSize: [600, 550],
-  minSize: [400, 350],
+  defaultSize: [600, 600],
+  minSize: [420, 380],
   // Fetches arbitrary internal module paths and dynamically imports the
   // response — functionally equivalent to remote code execution against
   // the OS's own module tree. Treat this as high-trust, same tier as
@@ -26,14 +26,21 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
 
-    const desc = createEl('div', { style: 'margin-bottom:12px;color:var(--text-muted);font-size:12px;' });
+    const desc = createEl('div', { style: 'margin-bottom:12px;color:var(--text-muted);font-size:12px;flex-shrink:0;' });
     desc.textContent = 'Reload any JS module without restarting the OS. Useful for rapid iteration.';
     content.appendChild(desc);
 
-    const list = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
-    const modules = [
+    // Defaults kept as a starting point, but the list is now editable and
+    // persisted — the original hardcoded array meant any module outside
+    // this exact set of 8 paths couldn't be hot-reloaded from this app at
+    // all. Scoped storage key, same pattern as devconsole's history (see
+    // console.js) since there's no VFS read/write helper for small app
+    // state — lsSave/localStorage is what calendar.js, contacts.js, etc.
+    // actually use.
+    const STORAGE_KEY = 'nbosp_modules_list';
+    const DEFAULT_MODULES = [
       { id: 'boot', path: 'js/core/core/boot.js' },
       { id: 'wm', path: 'js/core/ui/wm.js' },
       { id: 'fs', path: 'js/core/services/fs.js' },
@@ -44,74 +51,153 @@ registerApp({
       { id: 'debug-overlay', path: 'js/core/utils/debug-overlay.js' },
     ];
 
-    // AbortController for the per-row click listeners below — same pattern
-    // as console.js and inspector.js. state.cleanups.push is the real
-    // teardown hook the window manager honors (confirmed against wm.js).
+    let modules;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      modules = raw ? JSON.parse(raw) : null;
+      if (!Array.isArray(modules) || !modules.length) modules = null;
+    } catch {
+      modules = null;
+    }
+    if (!modules) modules = DEFAULT_MODULES.slice();
+
+    function saveModules() {
+      try {
+        if (typeof lsSave === 'function') lsSave(STORAGE_KEY, modules);
+        else localStorage.setItem(STORAGE_KEY, JSON.stringify(modules));
+      } catch {
+        // Best-effort — same degrade-silently pattern used elsewhere for
+        // storage failures (quota, private mode, etc).
+      }
+    }
+
+    // AbortController for the per-row click listeners below plus the
+    // add-module form and reload-all button — same pattern as console.js
+    // and inspector.js. state.cleanups.push is the real teardown hook the
+    // window manager honors (confirmed against wm.js).
     const ac = new AbortController();
-
-    modules.forEach(mod => {
-      const row = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-      const info = createEl('div');
-      info.appendChild(createEl('div', { textContent: mod.id, style: 'font-weight:600;font-size:13px;' }));
-      info.appendChild(createEl('div', { textContent: mod.path, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;' }));
-      row.appendChild(info);
-
-      const btn = createEl('button', { textContent: 'Reload', style: 'padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
-
-      // Tracks the pending "reset button text" timeout so a second click
-      // within the 1.5s window can cancel the first one instead of both
-      // firing and stepping on each other's button state.
-      let resetTimeoutId = null;
-      // Plain flag instead of btn.disabled — there's no theme-consistent
-      // :disabled style anywhere in style.css, so setting the attribute
-      // would fall back to the browser's default greyed-out button, which
-      // doesn't match this dark theme. This blocks re-entrancy the same
-      // way without changing how the button looks.
-      let inFlight = false;
-
-      btn.addEventListener('click', async () => {
-        // Each successful reload permanently pins a new module namespace
-        // object in memory — that's inherent to importing a fresh blob URL
-        // per reload (see MDN's import() docs on cache-busting via unique
-        // specifiers), not something fixable without removing hot-reload
-        // entirely. Guarding against re-entrancy at least stops a
-        // double-click from needlessly doubling that cost for one click.
-        if (inFlight) return;
-        inFlight = true;
-        if (resetTimeoutId != null) clearTimeout(resetTimeoutId);
-
-        try {
-          const url = '/' + mod.path + '?t=' + Date.now();
-          const res = await fetch(url);
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          const code = await res.text();
-          const blob = new Blob([code], { type: 'application/javascript' });
-          const url2 = URL.createObjectURL(blob);
-          await import(url2);
-          // Safe to revoke right after import() resolves — by then the
-          // module's been fetched and its top-level code has already run,
-          // so the blob URL has nothing left to serve.
-          URL.revokeObjectURL(url2);
-          btn.textContent = '✓';
-          btn.style.background = '#3fb950';
-        } catch (e) {
-          btn.textContent = '✗';
-          btn.style.background = '#f85149';
-        }
-        resetTimeoutId = setTimeout(() => {
-          btn.textContent = 'Reload';
-          btn.style.background = 'var(--accent)';
-          inFlight = false;
-          resetTimeoutId = null;
-        }, 1500);
-      }, { signal: ac.signal });
-
-      row.appendChild(btn);
-      list.appendChild(row);
-    });
-
     state.cleanups.push(() => ac.abort());
 
+    const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;flex-shrink:0;' });
+    const reloadAllBtn = createEl('button', { textContent: 'Reload All', style: 'padding:6px 12px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+    toolbar.appendChild(reloadAllBtn);
+    content.appendChild(toolbar);
+
+    const list = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;overflow:auto;flex:1;' });
     content.appendChild(list);
+
+    const addRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:12px;flex-shrink:0;' });
+    const idInput = createEl('input', { placeholder: 'id (e.g. my-module)', style: 'width:140px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+    const pathInput = createEl('input', { placeholder: 'path (e.g. js/apps/foo.js)', style: 'flex:1;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+    const addBtn = createEl('button', { textContent: 'Add', style: 'padding:6px 14px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+    addRow.appendChild(idInput);
+    addRow.appendChild(pathInput);
+    addRow.appendChild(addBtn);
+    content.appendChild(addRow);
+
+    async function reloadOne(mod, btn) {
+      btn.disabled = true;
+      // No generic :disabled styling exists in style.css (only a
+      // browser-nav-btn-specific rule), so the attribute alone wouldn't
+      // give any visual feedback that the button is mid-reload — set
+      // opacity directly instead.
+      btn.style.opacity = '0.6';
+      const prevText = btn.textContent;
+      const prevBg = btn.style.background;
+      btn.textContent = '…';
+      try {
+        const url = '/' + mod.path + '?t=' + Date.now();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching ' + mod.path);
+        const code = await res.text();
+        const blob = new Blob([code], { type: 'application/javascript' });
+        const blobUrl = URL.createObjectURL(blob);
+        try {
+          await import(blobUrl);
+        } finally {
+          // Safe to revoke right after import() resolves/rejects — by then
+          // the module's been fetched and its top-level code has already
+          // run (or thrown), so the blob URL has nothing left to serve.
+          URL.revokeObjectURL(blobUrl);
+        }
+        btn.textContent = '✓';
+        btn.style.background = '#3fb950';
+        btn.title = '';
+        return { ok: true };
+      } catch (e) {
+        btn.textContent = '✗';
+        btn.style.background = '#f85149';
+        // Surface the actual error instead of just a red X — hovering
+        // shows what broke (bad path, syntax error, import failure, etc),
+        // which the original silently discarded.
+        btn.title = e.message;
+        return { ok: false, error: e.message };
+      } finally {
+        setTimeout(() => {
+          btn.textContent = prevText;
+          btn.style.background = prevBg;
+          btn.style.opacity = '';
+          btn.disabled = false;
+        }, 1500);
+      }
+    }
+
+    function render() {
+      list.innerHTML = '';
+      modules.forEach((mod, idx) => {
+        const row = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);gap:8px;' });
+        const info = createEl('div', { style: 'min-width:0;overflow:hidden;' });
+        info.appendChild(createEl('div', { textContent: mod.id, style: 'font-weight:600;font-size:13px;' }));
+        info.appendChild(createEl('div', { textContent: mod.path, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' }));
+        row.appendChild(info);
+
+        const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
+        const btn = createEl('button', { textContent: 'Reload', style: 'padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
+        btn.addEventListener('click', () => reloadOne(mod, btn), { signal: ac.signal });
+        btns.appendChild(btn);
+
+        const removeBtn = createEl('button', { textContent: '✕', title: 'Remove from list', style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+        removeBtn.addEventListener('click', () => {
+          modules.splice(idx, 1);
+          saveModules();
+          render();
+        }, { signal: ac.signal });
+        btns.appendChild(removeBtn);
+
+        row.appendChild(btns);
+        list.appendChild(row);
+      });
+
+      if (!modules.length) {
+        list.appendChild(createEl('div', { textContent: 'No modules in list. Add one below.', style: 'color:var(--text-muted);padding:8px;' }));
+      }
+    }
+
+    addBtn.addEventListener('click', () => {
+      const id = idInput.value.trim();
+      const path = pathInput.value.trim();
+      if (!id || !path) return;
+      modules.push({ id, path });
+      saveModules();
+      idInput.value = '';
+      pathInput.value = '';
+      render();
+    }, { signal: ac.signal });
+
+    pathInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) addBtn.click();
+    }, { signal: ac.signal });
+
+    reloadAllBtn.addEventListener('click', async () => {
+      reloadAllBtn.disabled = true;
+      const rows = [...list.children];
+      await Promise.all(modules.map((mod, i) => {
+        const btn = rows[i]?.querySelector('button');
+        return btn ? reloadOne(mod, btn) : Promise.resolve();
+      }));
+      reloadAllBtn.disabled = false;
+    }, { signal: ac.signal });
+
+    render();
   }
 });

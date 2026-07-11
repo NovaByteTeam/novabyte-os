@@ -27,12 +27,18 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
 
-    const inputRow = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;' });
-    const input = createEl('input', { placeholder: 'Enter JS to evaluate, e.g. OS.windows.size', style: 'flex:1;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
-    const runBtn = createEl('button', { textContent: 'Run', style: 'padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;' });
-    const output = createEl('pre', { textContent: 'Console ready. Type an expression above and press Enter or Run.\nResults are JSON-stringified; errors are caught and shown inline.\n', style: 'padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);min-height:200px;max-height:400px;overflow:auto;font-size:12px;color:var(--text-muted);' });
+    const inputRow = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;align-items:flex-start;flex-shrink:0;' });
+    // textarea instead of <input> so Shift+Enter can insert a newline for
+    // multi-line snippets (e.g. a small for-loop). Enter alone still runs.
+    const input = createEl('textarea', {
+      placeholder: 'Enter JS to evaluate, e.g. OS.windows.size\nEnter to run · Shift+Enter for newline · ↑/↓ for history',
+      rows: '2',
+      style: 'flex:1;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;min-height:36px;max-height:160px;'
+    });
+    const runBtn = createEl('button', { textContent: 'Run', style: 'padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;flex-shrink:0;' });
+    const output = createEl('pre', { textContent: 'Console ready. Type an expression above and press Enter or Run.\nShift+Enter for a newline, ↑/↓ to recall previous commands.\n', style: 'flex:1;padding:12px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);overflow:auto;font-size:12px;color:var(--text-muted);margin:0;white-space:pre-wrap;word-break:break-word;' });
 
     let hasRun = false;
 
@@ -41,13 +47,75 @@ registerApp({
     // the whole text node each time, so writes get slower as history grows.
     // Keep a bounded ring buffer of entries and re-render from that instead.
     const MAX_ENTRIES = 200;
-    const history = [];
+    const entries = [];
 
     function pushEntry(text) {
-      history.push(text);
-      if (history.length > MAX_ENTRIES) history.shift();
-      output.textContent = history.join('');
+      entries.push(text);
+      if (entries.length > MAX_ENTRIES) entries.shift();
+      output.textContent = entries.join('');
       output.scrollTop = output.scrollHeight;
+    }
+
+    // ── Safe result formatting ──────────────────────────────────────────
+    // JSON.stringify throws on circular references and silently drops
+    // functions/undefined/symbols. Since eval'd code can return literally
+    // anything (DOM nodes, OS.windows Map entries, functions, circular
+    // structures), format defensively instead of letting one bad result
+    // break the whole console.
+    function formatResult(result) {
+      if (result === undefined) return 'undefined';
+      if (result === null) return 'null';
+      const t = typeof result;
+      if (t === 'function') return `[Function: ${result.name || 'anonymous'}]`;
+      if (t !== 'object') return String(result);
+      if (result instanceof Node) {
+        return `[${result.nodeName}${result.id ? '#' + result.id : ''}${result.className ? '.' + String(result.className).trim().replace(/\s+/g, '.') : ''}]`;
+      }
+      if (result instanceof Map) {
+        return `Map(${result.size}) ${formatResult(Object.fromEntries(result))}`;
+      }
+      if (result instanceof Set) {
+        return `Set(${result.size}) ${formatResult([...result])}`;
+      }
+      try {
+        return JSON.stringify(result, null, 2);
+      } catch (e) {
+        // Circular reference or other stringify failure — fall back to a
+        // best-effort inspection instead of losing the result entirely.
+        try {
+          return String(result);
+        } catch {
+          return `[Unserializable ${result.constructor?.name || 'object'}]`;
+        }
+      }
+    }
+
+    // ── Persisted command history (↑/↓ navigation) ──────────────────────
+    // Scoped key to avoid collision with other apps' localStorage usage
+    // (calendar/contacts/etc. all write to their own plain-string keys via
+    // lsSave, confirmed in base-utils.js — there's no enforced namespace,
+    // so this app needs its own distinct key).
+    const HISTORY_KEY = 'nbosp_devconsole_history';
+    const MAX_HISTORY = 100;
+    let cmdHistory = [];
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY);
+      if (raw) cmdHistory = JSON.parse(raw);
+      if (!Array.isArray(cmdHistory)) cmdHistory = [];
+    } catch {
+      cmdHistory = [];
+    }
+    let historyIndex = cmdHistory.length; // one past the end = "not browsing"
+    let draftBeforeHistory = '';
+
+    function saveHistory() {
+      try {
+        if (typeof lsSave === 'function') lsSave(HISTORY_KEY, cmdHistory);
+        else localStorage.setItem(HISTORY_KEY, JSON.stringify(cmdHistory));
+      } catch {
+        // Best-effort — same degrade-silently pattern other apps use for
+        // storage failures (quota, private mode, etc).
+      }
     }
 
     // AbortController lets both listeners below be torn down with one call
@@ -56,29 +124,66 @@ registerApp({
     // when the window closed — see the push at the bottom of this function.
     const ac = new AbortController();
 
-    runBtn.addEventListener('click', () => {
+    function run() {
       const code = input.value.trim();
       if (!code) return;
       if (!hasRun) {
-        history.length = 0;
+        entries.length = 0;
         output.style.color = 'var(--text-primary)';
         hasRun = true;
       }
       try {
         const result = eval(code);
-        pushEntry(`\n> ${code}\n${typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)}\n`);
+        pushEntry(`\n> ${code}\n${formatResult(result)}\n`);
       } catch (e) {
         pushEntry(`\n> ${code}\nError: ${e.message}\n`);
       }
+
+      // Push to history unless it's an exact repeat of the last command —
+      // avoids polluting recall with repeated Enter-spam of the same line.
+      if (cmdHistory[cmdHistory.length - 1] !== code) {
+        cmdHistory.push(code);
+        if (cmdHistory.length > MAX_HISTORY) cmdHistory.shift();
+        saveHistory();
+      }
+      historyIndex = cmdHistory.length;
+      draftBeforeHistory = '';
+
       input.value = '';
-    }, { signal: ac.signal });
+      input.style.height = '';
+    }
+
+    runBtn.addEventListener('click', run, { signal: ac.signal });
 
     input.addEventListener('keydown', (e) => {
       // isComposing is true while an IME candidate is still being chosen
       // (Japanese/Chinese/Korean input, etc). The Enter that confirms the
       // candidate shouldn't also submit the line — without this check,
       // confirming a candidate would run half-typed code on that Enter.
-      if (e.key === 'Enter' && !e.isComposing) runBtn.click();
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        run();
+        return;
+      }
+
+      // Only browse history when the cursor is at the start/end of the
+      // textarea — otherwise ↑/↓ inside a multi-line snippet should move
+      // the cursor between lines like a normal textarea, not hijack it.
+      if (e.key === 'ArrowUp' && input.selectionStart === 0 && input.selectionEnd === 0) {
+        if (cmdHistory.length === 0) return;
+        e.preventDefault();
+        if (historyIndex === cmdHistory.length) draftBeforeHistory = input.value;
+        historyIndex = Math.max(0, historyIndex - 1);
+        input.value = cmdHistory[historyIndex];
+        input.selectionStart = input.selectionEnd = 0;
+      } else if (e.key === 'ArrowDown' && input.selectionStart === input.value.length && input.selectionEnd === input.value.length) {
+        if (historyIndex >= cmdHistory.length) return;
+        e.preventDefault();
+        historyIndex++;
+        input.value = historyIndex === cmdHistory.length ? draftBeforeHistory : cmdHistory[historyIndex];
+        const end = input.value.length;
+        input.selectionStart = input.selectionEnd = end;
+      }
     }, { signal: ac.signal });
 
     // state.cleanups.push is the real teardown contract the window manager

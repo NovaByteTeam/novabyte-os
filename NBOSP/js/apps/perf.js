@@ -24,10 +24,35 @@ registerApp({
 
     content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
 
+    const ac = new AbortController();
+    state.cleanups.push(() => ac.abort());
+
+    const toolbar = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:12px;flex-shrink:0;' });
+    const pauseBtn = createEl('button', { textContent: 'Pause', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+    const resetBtn = createEl('button', { textContent: 'Reset', style: 'padding:6px 14px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:12px;' });
+    toolbar.appendChild(pauseBtn);
+    toolbar.appendChild(resetBtn);
+    content.appendChild(toolbar);
+
+    let paused = false;
+
     const canvas = document.createElement('canvas');
-    canvas.id = 'perf-chart';
-    canvas.style.cssText = 'width:100%;height:200px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
+    canvas.id = 'perf-chart-fps';
+    canvas.style.cssText = 'width:100%;height:120px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
     content.appendChild(canvas);
+    content.appendChild(createEl('div', { textContent: 'FPS', style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
+
+    const memCanvas = document.createElement('canvas');
+    memCanvas.id = 'perf-chart-mem';
+    memCanvas.style.cssText = 'width:100%;height:80px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
+    content.appendChild(memCanvas);
+    content.appendChild(createEl('div', { textContent: 'Memory (MB)', style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
+
+    const domCanvas = document.createElement('canvas');
+    domCanvas.id = 'perf-chart-dom';
+    domCanvas.style.cssText = 'width:100%;height:80px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);';
+    content.appendChild(domCanvas);
+    content.appendChild(createEl('div', { textContent: 'DOM Nodes', style: 'font-size:10px;color:var(--text-muted);margin:2px 0 10px;' }));
 
     const stats = createEl('div', { style: 'margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;' });
     const addStat = (label, valueEl) => {
@@ -51,8 +76,50 @@ registerApp({
 
     content.appendChild(stats);
 
-    // FPS history for sparkline
-    const fpsHistory = new Array(120).fill(0);
+    // Per-window DOM node breakdown. state.content (each window's own
+    // .window-content div) is stored directly on the OS.windows Map entry
+    // — confirmed against wm.js's createWindow, where `content` is set on
+    // the state object at creation (not just held in closure), so this is
+    // reading real, current data rather than reconstructing it. Scoping
+    // querySelectorAll to each window's content div instead of the whole
+    // document tells you *which* window is heavy, which the single global
+    // count never could.
+    const perWindowSection = createEl('div', { style: 'margin-top:16px;' });
+    perWindowSection.appendChild(createEl('h4', { textContent: 'DOM Nodes by Window', style: 'margin:0 0 8px;font-size:13px;color:var(--accent);' }));
+    const perWindowList = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
+    perWindowSection.appendChild(perWindowList);
+    content.appendChild(perWindowSection);
+
+    function renderPerWindow() {
+      perWindowList.innerHTML = '';
+      const wins = typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [];
+      if (!wins.length) {
+        perWindowList.appendChild(createEl('div', { textContent: 'No windows open', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        return;
+      }
+      const rows = wins.map(w => ({
+        appId: w.appId,
+        id: w.id,
+        // w.content may be missing on a malformed/legacy state object —
+        // guard rather than assume every entry in the Map matches the
+        // exact shape createWindow produces.
+        count: w.content ? w.content.querySelectorAll('*').length : null,
+      })).sort((a, b) => (b.count ?? -1) - (a.count ?? -1));
+
+      rows.forEach(r => {
+        const row = createEl('div', { style: 'display:flex;justify-content:space-between;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;font-size:11px;font-family:monospace;' });
+        row.appendChild(createEl('span', { textContent: r.appId || r.id }));
+        row.appendChild(createEl('span', { textContent: r.count === null ? 'n/a' : String(r.count), style: 'color:var(--text-muted);' }));
+        perWindowList.appendChild(row);
+      });
+    }
+
+    // Sparkline history for each tracked metric. Fixed-length ring buffers,
+    // same push/shift pattern the original FPS array used.
+    const HISTORY_LEN = 120;
+    const fpsHistory = new Array(HISTORY_LEN).fill(0);
+    const memHistory = new Array(HISTORY_LEN).fill(0);
+    const domHistory = new Array(HISTORY_LEN).fill(0);
     let lastFrameTime = performance.now();
     let frameCount = 0;
     let rafId = null;
@@ -91,70 +158,97 @@ registerApp({
 
     function measureFrame() {
       const now = performance.now();
+      if (paused) {
+        // Freeze the counters instead of letting frameCount and elapsed
+        // time drift unbounded while paused — otherwise the first tick
+        // after Resume would compute FPS from a multi-second (or
+        // multi-minute) window instead of the intended ~500ms one,
+        // producing a garbage spike on the chart.
+        lastFrameTime = now;
+        frameCount = 0;
+        rafId = requestAnimationFrame(measureFrame);
+        return;
+      }
       frameCount++;
       if (now - lastFrameTime >= 500) {
         const fps = Math.round((frameCount * 1000) / (now - lastFrameTime));
         fpsHistory.push(fps);
         fpsHistory.shift();
+
+        const mb = performance.memory ? performance.memory.usedJSHeapSize / 1048576 : 0;
+        memHistory.push(mb);
+        memHistory.shift();
+
+        const domCount = document.querySelectorAll('*').length;
+        domHistory.push(domCount);
+        domHistory.shift();
+
         frameCount = 0;
         lastFrameTime = now;
-        drawChart();
-        updateStats();
+        drawChart(canvas, fpsHistory, '#00ff00', 60);
+        drawChart(memCanvas, memHistory, '#67e8f9', null);
+        drawChart(domCanvas, domHistory, '#fbbf24', null);
+        updateStats(domCount);
+        renderPerWindow();
       }
       rafId = requestAnimationFrame(measureFrame);
     }
 
-    function drawChart() {
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width = canvas.offsetWidth * 2;
-      const h = canvas.height = canvas.offsetHeight * 2;
+    // Generalized from the original single-purpose FPS drawChart(): same
+    // scale/clear/line/fill logic, parameterized by which canvas, which
+    // history array, the line color, and an optional reference line value
+    // (only FPS has a meaningful fixed reference at 60; memory and DOM
+    // count scale against their own observed max instead).
+    function drawChart(cv, history, color, referenceY) {
+      const ctx = cv.getContext('2d');
+      const w = cv.width = cv.offsetWidth * 2;
+      const h = cv.height = cv.offsetHeight * 2;
       ctx.scale(2, 2);
       const cw = w / 2, ch = h / 2;
       ctx.clearRect(0, 0, cw, ch);
 
-      const max = Math.max(120, ...fpsHistory);
-      const stepX = cw / (fpsHistory.length - 1);
+      const max = Math.max(referenceY || 0, 1, ...history);
+      const stepX = cw / (history.length - 1);
 
-      // 60fps reference line
-      const y60 = ch - (60 / max) * ch;
-      ctx.strokeStyle = 'rgba(0,255,0,0.2)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, y60);
-      ctx.lineTo(cw, y60);
-      ctx.stroke();
+      if (referenceY) {
+        const yRef = ch - (referenceY / max) * ch;
+        ctx.strokeStyle = 'rgba(0,255,0,0.2)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, yRef);
+        ctx.lineTo(cw, yRef);
+        ctx.stroke();
+      }
 
-      // FPS line
-      ctx.strokeStyle = '#0f0';
+      ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      fpsHistory.forEach((fps, i) => {
+      history.forEach((v, i) => {
         const x = i * stepX;
-        const y = ch - (fps / max) * ch;
+        const y = ch - (v / max) * ch;
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
       ctx.stroke();
 
-      // Fill under line
       ctx.lineTo(cw, ch);
       ctx.lineTo(0, ch);
       ctx.closePath();
-      ctx.fillStyle = 'rgba(0,255,0,0.05)';
+      ctx.fillStyle = color.startsWith('#') ? color + '14' : color; // ~8% alpha fill
       ctx.fill();
     }
 
-    function updateStats() {
+    function updateStats(domCount) {
       const latest = fpsHistory[fpsHistory.length - 1] || 0;
       fpsEl.textContent = latest + ' fps';
 
       if (performance.memory) {
-        const mb = performance.memory.usedJSHeapSize / 1048576;
+        const mb = memHistory[memHistory.length - 1] || 0;
         memEl.textContent = mb.toFixed(1) + ' MB';
       } else {
         memEl.textContent = 'N/A';
       }
 
-      domEl.textContent = String(document.querySelectorAll('*').length);
+      domEl.textContent = String(domCount);
 
       if (longTaskSupported) {
         longEl.textContent = longTaskCount > 0 ? longTaskCount + ' (>50ms)' : 'None';
@@ -164,6 +258,23 @@ registerApp({
       }
     }
 
+    pauseBtn.addEventListener('click', () => {
+      paused = !paused;
+      pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+      pauseBtn.style.color = paused ? 'var(--accent)' : 'var(--text-primary)';
+    }, { signal: ac.signal });
+
+    resetBtn.addEventListener('click', () => {
+      fpsHistory.fill(0);
+      memHistory.fill(0);
+      domHistory.fill(0);
+      longTaskCount = 0;
+      drawChart(canvas, fpsHistory, '#00ff00', 60);
+      drawChart(memCanvas, memHistory, '#67e8f9', null);
+      drawChart(domCanvas, domHistory, '#fbbf24', null);
+    }, { signal: ac.signal });
+
+    renderPerWindow();
     rafId = requestAnimationFrame(measureFrame);
 
     // state.cleanups.push(fn) is the teardown hook the window manager
@@ -171,7 +282,9 @@ registerApp({
     // value is discarded and content never dispatches a 'close' event
     // anywhere in this codebase, so that listener would never have run and
     // both the rAF loop and the PerformanceObserver would leak for the life
-    // of the OS session every time this window was closed.
+    // of the OS session every time this window was closed. AbortController
+    // (ac) added for the two new button listeners, same pattern as the
+    // other dev apps in this codebase.
     state.cleanups.push(() => {
       if (rafId) cancelAnimationFrame(rafId);
       if (longTaskObserver) longTaskObserver.disconnect();

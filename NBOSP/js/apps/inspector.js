@@ -22,19 +22,43 @@ registerApp({
       return;
     }
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:auto;padding:16px;font-size:13px;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;padding:16px;font-size:13px;box-sizing:border-box;';
+
+    // AbortController covers the filter input and every per-row
+    // focus/close button rebound on each render(). state.cleanups.push is
+    // the real teardown hook (confirmed against wm.js, same as every other
+    // dev app here) — init()'s return value is discarded.
+    const ac = new AbortController();
+    state.cleanups.push(() => ac.abort());
+
+    const filterRow = createEl('div', { style: 'margin-bottom:12px;flex-shrink:0;' });
+    const filterInput = createEl('input', { placeholder: 'Filter by app id, name, or window id…', style: 'width:100%;box-sizing:border-box;padding:7px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;' });
+    filterRow.appendChild(filterInput);
+    content.appendChild(filterRow);
+
+    const scroll = createEl('div', { style: 'flex:1;overflow:auto;' });
+    content.appendChild(scroll);
 
     function render() {
       const apps = Array.isArray(window.APP_REGISTRY) ? window.APP_REGISTRY : [];
       const wins = typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [];
+      const q = filterInput.value.trim().toLowerCase();
 
-      content.innerHTML = '';
+      // Look up each window's friendly display name (matching what
+      // Registered Apps shows) instead of the raw appId string — 'Clock'
+      // vs 'nbosp-clock' was the same app shown two different ways.
+      const appNameById = new Map(apps.map(a => [a.id, a.name || a.id]));
+
+      const filteredApps = q ? apps.filter(a => (a.id || '').toLowerCase().includes(q) || (a.name || '').toLowerCase().includes(q)) : apps;
+      const filteredWins = q ? wins.filter(w => (w.appId || '').toLowerCase().includes(q) || (w.id || '').toLowerCase().includes(q)) : wins;
+
+      scroll.innerHTML = '';
 
       const appsSection = createEl('div', { style: 'margin-bottom:24px;' });
-      appsSection.appendChild(createEl('h3', { textContent: 'Registered Apps', style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
+      appsSection.appendChild(createEl('h3', { textContent: `Registered Apps (${filteredApps.length})`, style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
       const appsList = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
 
-      apps.forEach(app => {
+      filteredApps.forEach(app => {
         const row = createEl('div', { style: 'padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
         const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;' });
         header.appendChild(createEl('strong', { textContent: app.name || app.id }));
@@ -56,49 +80,112 @@ registerApp({
         appsList.appendChild(row);
       });
 
-      if (!apps.length) {
-        appsList.appendChild(createEl('div', { textContent: 'No apps registered', style: 'color:var(--text-muted);padding:8px;' }));
+      if (!filteredApps.length) {
+        appsList.appendChild(createEl('div', { textContent: apps.length ? 'No apps match filter' : 'No apps registered', style: 'color:var(--text-muted);padding:8px;' }));
       }
       appsSection.appendChild(appsList);
-      content.appendChild(appsSection);
+      scroll.appendChild(appsSection);
 
       // Windows section
       const winsSection = createEl('div');
-      winsSection.appendChild(createEl('h3', { textContent: 'Open Windows', style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
+      winsSection.appendChild(createEl('h3', { textContent: `Open Windows (${filteredWins.length})`, style: 'margin:0 0 8px;font-size:14px;color:var(--accent);' }));
       const winsList = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
 
-      wins.forEach(win => {
+      filteredWins.forEach(win => {
         const row = createEl('div', { style: 'padding:8px;background:var(--bg-elevated);border-radius:6px;border:1px solid var(--border-subtle);' });
-        const header = createEl('div', { style: 'display:flex;justify-content:space-between;' });
-        header.appendChild(createEl('strong', { textContent: win.appId || 'unknown' }));
-        header.appendChild(createEl('span', { textContent: win.id, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;' }));
+        const header = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
+        const titleWrap = createEl('div', { style: 'min-width:0;overflow:hidden;display:flex;align-items:center;gap:8px;' });
+        titleWrap.appendChild(createEl('strong', { textContent: appNameById.get(win.appId) || win.appId || 'unknown' }));
+        titleWrap.appendChild(createEl('span', { textContent: win.appId, style: 'font-size:10px;color:var(--text-muted);opacity:0.7;' }));
+        titleWrap.appendChild(createEl('span', { textContent: win.id, style: 'font-size:11px;color:var(--text-muted);font-family:monospace;' }));
+        if (OS.focusedWindowId === win.id) {
+          titleWrap.appendChild(createEl('span', { textContent: 'focused', style: 'font-size:10px;color:var(--accent);border:1px solid var(--accent);border-radius:3px;padding:1px 5px;' }));
+        }
+        header.appendChild(titleWrap);
+
+        // Click-to-act: WM.focusWindow/closeWindow are real public methods
+        // on the window-manager singleton (confirmed as window.WM in
+        // wm.js — every internal call site uses the same two functions).
+        // No app in this codebase called them before; this is genuinely
+        // new capability, not a rename of something that existed.
+        //
+        // id is read from a data attribute via event.currentTarget inside
+        // the handler, not captured via closure over `win` — this makes it
+        // impossible for the id to go stale regardless of how often/when
+        // render() re-runs relative to when the click actually fires.
+        const btns = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
+        const focusBtn = createEl('button', { textContent: 'Focus', style: 'padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;' });
+        focusBtn.dataset.windowId = win.id;
+        focusBtn.addEventListener('click', (e) => {
+          window.WM?.focusWindow?.(e.currentTarget.dataset.windowId);
+        }, { signal: ac.signal });
+        const closeBtn = createEl('button', { textContent: 'Close', style: 'padding:3px 10px;background:transparent;color:#f85149;border:1px solid #f85149;border-radius:4px;cursor:pointer;font-size:11px;' });
+        closeBtn.dataset.windowId = win.id;
+        closeBtn.addEventListener('click', (e) => {
+          window.WM?.closeWindow?.(e.currentTarget.dataset.windowId);
+        }, { signal: ac.signal });
+        btns.appendChild(focusBtn);
+        btns.appendChild(closeBtn);
+        header.appendChild(btns);
         row.appendChild(header);
+
         // Confirmed against wm.js: x/y/width/height/minimized/maximized are
         // flat on the state object itself (OS.windows.set(id, state)), not
-        // nested under a .state property — win.state was always undefined,
-        // so this line silently printed 0,0 ?x? for every window before.
+        // nested under a .state property.
         row.appendChild(createEl('div', { textContent: `${win.x || 0},${win.y || 0} ${win.width || '?'}x${win.height || '?'}${win.minimized ? ' [min]' : ''}${win.maximized ? ' [max]' : ''}`, style: 'font-size:11px;color:var(--text-muted);margin-top:4px;font-family:monospace;' }));
         winsList.appendChild(row);
       });
 
-      if (!wins.length) {
-        winsList.appendChild(createEl('div', { textContent: 'No windows open', style: 'color:var(--text-muted);padding:8px;' }));
+      if (!filteredWins.length) {
+        winsList.appendChild(createEl('div', { textContent: wins.length ? 'No windows match filter' : 'No windows open', style: 'color:var(--text-muted);padding:8px;' }));
       }
       winsSection.appendChild(winsList);
-      content.appendChild(winsSection);
+      scroll.appendChild(winsSection);
     }
 
-    const timeoutId = setTimeout(render, 100);
-    const intervalId = setInterval(render, 5000);
+    filterInput.addEventListener('input', render, { signal: ac.signal });
 
-    // Confirmed against wm.js: state.cleanups.push(fn) is the teardown hook
-    // the window manager actually calls on close. init()'s return value is
-    // discarded, and content never fires a 'close' event anywhere in this
-    // codebase — so a content.addEventListener('close', ...) guess here
-    // would never run and the interval would leak for the OS session.
+    // Live updates: OS.events fires 'app:opened' / 'app:closed' / 'app:focused'
+    // (confirmed as the complete set of window-lifecycle events emitted
+    // anywhere in wm.js — there's no resize/move/minimize event, so those
+    // still rely on the polling fallback below rather than being instant).
+    //
+    // Root cause found live: wm.js's focusWindow() previously re-emitted
+    // 'app:focused' on every single pointerdown inside a window's own
+    // content, even when that window was already focused — so clicking
+    // ANY button inside Inspector re-triggered a full render() (measured:
+    // 63 DOM mutations in 3s just from normal interaction), destroying and
+    // recreating the very button being clicked before its own click event
+    // could fire. Fixed at the source in wm.js (focusWindow now no-ops
+    // when already focused and not minimized). This local guard is a
+    // second, cheap layer of defense: even if some other future emitter
+    // fires 'app:focused' redundantly, Inspector won't re-render unless
+    // the focused window id actually changed.
+    let lastFocusedId = OS.focusedWindowId;
+    const deferredRender = () => queueMicrotask(render);
+    const onOpened  = deferredRender;
+    const onClosed  = deferredRender;
+    const onFocused = () => {
+      if (OS.focusedWindowId === lastFocusedId) return;
+      lastFocusedId = OS.focusedWindowId;
+      deferredRender();
+    };
+    OS.events.on('app:opened', onOpened);
+    OS.events.on('app:closed', onClosed);
+    OS.events.on('app:focused', onFocused);
+
+    const timeoutId = setTimeout(render, 100);
+    // Reduced from the original 5s: this is now a fallback for state the
+    // event system doesn't cover (minimize/maximize/drag/resize), not the
+    // primary refresh mechanism, so a shorter interval doesn't cost much.
+    const intervalId = setInterval(render, 2000);
+
     state.cleanups.push(() => {
       clearTimeout(timeoutId);
       clearInterval(intervalId);
+      OS.events.off('app:opened', onOpened);
+      OS.events.off('app:closed', onClosed);
+      OS.events.off('app:focused', onFocused);
     });
   }
 });
