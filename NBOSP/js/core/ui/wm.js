@@ -39,6 +39,8 @@
 //  • Dead code removed: the redundant window.WM assignment and the undefined
 //    WindowInstance guard at the original EOF.
 
+console.log('%c[wm.js] TEST RELOAD MARKER — this line is safe to delete', 'color: #0f0; font-weight: bold;');
+
 const WM = window.WM = (() => {
   // ── Work-area cache ────────────────────────────────────────────────────────
   // Invalidated by window resize, taskbar class changes, and taskbar resizes.

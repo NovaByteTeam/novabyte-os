@@ -110,6 +110,16 @@ registerApp({
         const res = await fetch(url);
         if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching ' + mod.path);
         const code = await res.text();
+
+        // Real root cause (confirmed via browser console, not guessed):
+        // this was never a blob-vs-data URL scheme-support issue. The
+        // server's CSP (server/middleware.js, helmet's scriptSrcElem
+        // directive) simply never included blob: or data: — even though
+        // workerSrc and frameSrc both already allowed blob: for their
+        // respective content types, scriptSrcElem was never extended to
+        // match. Fixed at the source by adding blob: to scriptSrcElem;
+        // reverted here to blob: (no base64/percent-encoding overhead)
+        // now that the policy actually permits it.
         const blob = new Blob([code], { type: 'application/javascript' });
         const blobUrl = URL.createObjectURL(blob);
         try {
@@ -120,6 +130,7 @@ registerApp({
           // run (or thrown), so the blob URL has nothing left to serve.
           URL.revokeObjectURL(blobUrl);
         }
+
         btn.textContent = '✓';
         btn.style.background = '#3fb950';
         btn.title = '';

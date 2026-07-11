@@ -236,3 +236,11 @@ const AppPackage = (() => {
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = AppPackage;
+// Same pattern every other core module uses (wm.js -> window.WM,
+// app-permission-manager.js -> window.AppPermissionManager) — without this,
+// AppPackage was only reachable via the CommonJS module.exports line above,
+// which packages.js (a frontend app running in the browser/NW.js window
+// context, not a Node require() context) has no way to reach. Confirmed via
+// index.html: app-package.js was never even <script>-included on the page,
+// so this export alone isn't sufficient on its own — see the index.html fix.
+if (typeof window !== 'undefined') window.AppPackage = AppPackage;
