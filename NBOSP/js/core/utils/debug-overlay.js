@@ -169,10 +169,16 @@ const DebugOverlay = (() => {
     if (typeof OS !== 'undefined' && OS.focusedWindowId) {
       const win = OS.windows?.get(OS.focusedWindowId);
       if (win) {
-        const s = win.state || {};
-        const pos = `${s.x || 0},${s.y || 0}`;
-        const size = `${s.width || '?'}x${s.height || '?'}`;
-        const flags = (s.minimized ? ' [min]' : '') + (s.maximized ? ' [max]' : '') + (s.fullscreen ? ' [fs]' : '');
+        // Window state fields (x/y/width/height/minimized/maximized) are
+        // flat on the object stored by OS.windows.set(id, state) — see
+        // wm.js line 159, and usages like state.minimized / w.state.minimized
+        // (wm.js:879,993, where `w` is the window row and `w.state` is that
+        // same flat object, not a nested sub-state). Reading win.state here
+        // was always undefined, so this line silently printed "0,0 ?x?" for
+        // the focused window regardless of its real geometry.
+        const pos = `${win.x || 0},${win.y || 0}`;
+        const size = `${win.width || '?'}x${win.height || '?'}`;
+        const flags = (win.minimized ? ' [min]' : '') + (win.maximized ? ' [max]' : '') + (win.fullscreen ? ' [fs]' : '');
         return `${pos} ${size}${flags}`;
       }
     }
@@ -325,21 +331,41 @@ const DebugOverlay = (() => {
     return 'N/A';
   }
 
-  function _getLongTasks() {
-    if (typeof PerformanceObserver !== 'undefined') {
-      try {
-        const obs = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) {
-            if (entry.duration > 50) {
-              return 'Long task: ' + entry.duration.toFixed(0) + 'ms';
-            }
-          }
-        });
-        obs.observe({ type: 'longtask', buffered: true });
-        return 'No long tasks >50ms';
-      } catch {}
+  // Long-task tracking state. Previously _getLongTasks() created a brand
+  // new PerformanceObserver on *every* call (it's invoked from _update(),
+  // i.e. every rAF frame) and returned inside the async callback, which
+  // has no effect on the caller — the function always synchronously
+  // returned the hardcoded 'No long tasks >50ms' string regardless of
+  // what actually happened, while leaking a new observer + subscription
+  // every frame that was never disconnected. Also 'longtask' is
+  // deprecated in Chrome in favor of 'long-animation-frame' (see perf.js
+  // for the same fix applied there). This sets up a single observer once
+  // and accumulates a real count.
+  let _longTaskCount = 0;
+  let _longTaskSupported = false;
+  let _longTaskObserver = null;
+
+  function _initLongTaskObserver() {
+    if (_longTaskObserver || typeof PerformanceObserver === 'undefined') return;
+    const supportedTypes = PerformanceObserver.supportedEntryTypes || [];
+    const entryType = supportedTypes.includes('long-animation-frame')
+      ? 'long-animation-frame'
+      : (supportedTypes.includes('longtask') ? 'longtask' : null);
+    if (!entryType) return;
+    try {
+      _longTaskObserver = new PerformanceObserver((list) => {
+        _longTaskCount += list.getEntries().filter(e => e.duration > 50).length;
+      });
+      _longTaskObserver.observe({ type: entryType, buffered: true });
+      _longTaskSupported = true;
+    } catch {
+      _longTaskSupported = false;
     }
-    return 'N/A';
+  }
+
+  function _getLongTasks() {
+    if (!_longTaskSupported) return 'N/A';
+    return _longTaskCount > 0 ? _longTaskCount + ' (>50ms)' : 'No long tasks >50ms';
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -421,6 +447,8 @@ const DebugOverlay = (() => {
     _el.style.opacity = '1';
     _lastFpsUpdate = performance.now();
     _frames = 0;
+    _longTaskCount = 0;
+    _initLongTaskObserver();
     _rafId = requestAnimationFrame(_update);
   }
 
@@ -430,6 +458,11 @@ const DebugOverlay = (() => {
     if (_rafId) {
       cancelAnimationFrame(_rafId);
       _rafId = null;
+    }
+    if (_longTaskObserver) {
+      _longTaskObserver.disconnect();
+      _longTaskObserver = null;
+      _longTaskSupported = false;
     }
     if (_el) {
       _el.style.opacity = '0';
