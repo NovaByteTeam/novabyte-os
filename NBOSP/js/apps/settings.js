@@ -395,14 +395,14 @@ registerApp({
               '• The ability to inspect, alter, or revoke app permissions\n' +
               '• The ability to install, remove, or modify system packages\n\n' +
               'The following internal apps and tools become accessible:\n' +
-              '• Inspector — live inspection of runtime objects and view hierarchy\n' +
-              '• Console — execute arbitrary JavaScript in the system runtime\n' +
-              '• Modules — inspect and interact with loaded system modules\n' +
-              '• Packages — manage and modify installed packages\n' +
-              '• Permissions — full control over granted app permissions\n' +
-              '• Perf — real-time performance monitoring and profiling\n' +
-              '• SysAccess — low-level system and hardware access\n' +
-              '• Debug Overlay — activate with F3 for persistent on-screen diagnostics\n\n' +
+              '• Console — runs arbitrary JavaScript in the full OS context with no sandboxing\n' +
+              '• Inspector — can force-close arbitrary windows and export app state\n' +
+              '• Packages — can install unsigned or unverified packages into the live registry\n' +
+              '• Modules — can dynamically import arbitrary module paths for live code execution\n' +
+              '• Permissions — can bulk-grant or revoke permissions for any app without user consent\n' +
+              '• Perf — exposes detailed runtime performance data, memory usage, and per-window DOM breakdowns\n' +
+              '• SysAccess — can read the virtual filesystem and probe internal network/SSRF configuration\n' +
+              '• Debug Overlay — persistent always-on-top diagnostics overlay exposing GPU, memory, URLs, and OS internals (F3)\n\n' +
               'Developer Mode is intended solely for development, debugging, and system maintenance. Enable it only when you understand the risks. Leave it disabled during normal use.';
             dialog.appendChild(body);
 
