@@ -357,8 +357,84 @@ registerApp({
       const devToggle = createEl('button', {
         className: 'toggle' + (OS.settings.get('devMode') ? ' active' : '')
       });
-      devToggle.addEventListener('click', () => {
+      devToggle.addEventListener('click', async () => {
         const next = !OS.settings.get('devMode');
+        if (next) {
+          const confirmed = await new Promise((resolve) => {
+            const overlay = createEl('div', {
+              style: 'position:fixed;inset:0;z-index:99001;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;animation:fadeIn 150ms ease;'
+            });
+            const dialog = createEl('div', {
+              style: 'background:var(--bg-elevated,#1b1f23);border:1px solid var(--text-danger,#f85149);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(248,81,73,0.25);padding:28px;max-width:520px;width:92%;animation:modalIn 200ms ease-out;'
+            });
+
+            const header = createEl('div', {
+              style: 'display:flex;align-items:center;gap:12px;margin-bottom:16px;'
+            });
+            const icon = createEl('span', {
+              textContent: '⚠️',
+              style: 'font-size:22px;line-height:1;'
+            });
+            const title = createEl('div', {
+              textContent: 'Developer Mode — Security Warning',
+              style: 'font-size:17px;font-weight:700;color:var(--text-danger,#f85149);letter-spacing:0.2px;'
+            });
+            header.appendChild(icon);
+            header.appendChild(title);
+            dialog.appendChild(header);
+
+            const body = createEl('div', {
+              style: 'font-size:14px;color:var(--text-secondary,#aaa);line-height:1.55;margin-bottom:18px;white-space:pre-line;max-height:340px;overflow-y:auto;padding-right:4px;'
+            });
+            body.textContent =
+              'WARNING: Developer Mode lowers the system\'s security posture and grants elevated access to internal components.\n\n' +
+              'When enabled, the following restrictions are relaxed:\n' +
+              '• Unrestricted access to the filesystem, networks, and system APIs\n' +
+              '• Elevated permissions to internal system modules and runtime internals\n' +
+              '• Visibility into running processes, memory, and module state\n' +
+              '• The ability to inspect, alter, or revoke app permissions\n' +
+              '• The ability to install, remove, or modify system packages\n\n' +
+              'The following internal apps and tools become accessible:\n' +
+              '• Inspector — live inspection of runtime objects and view hierarchy\n' +
+              '• Console — execute arbitrary JavaScript in the system runtime\n' +
+              '• Modules — inspect and interact with loaded system modules\n' +
+              '• Packages — manage and modify installed packages\n' +
+              '• Permissions — full control over granted app permissions\n' +
+              '• Perf — real-time performance monitoring and profiling\n' +
+              '• SysAccess — low-level system and hardware access\n' +
+              '• Debug Overlay — activate with F3 for persistent on-screen diagnostics\n\n' +
+              'Developer Mode is intended solely for development, debugging, and system maintenance. Enable it only when you understand the risks. Leave it disabled during normal use.';
+            dialog.appendChild(body);
+
+            const actions = createEl('div', {
+              style: 'display:flex;gap:10px;justify-content:flex-end;'
+            });
+            const cancelBtn = createEl('button', {
+              className: 'btn',
+              textContent: 'Cancel'
+            });
+            const confirmBtn = createEl('button', {
+              className: 'btn btn-danger',
+              textContent: 'Turn On Anyway'
+            });
+            actions.appendChild(cancelBtn);
+            actions.appendChild(confirmBtn);
+            dialog.appendChild(actions);
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            const done = (v) => { overlay.remove(); resolve(v); };
+            overlay.addEventListener('click', (e) => {
+              if (e.target === overlay) done(null);
+              const btn = e.target.closest('button');
+              if (btn && actions.contains(btn)) {
+                done(btn === confirmBtn ? 'confirm' : null);
+              }
+            });
+            confirmBtn.focus();
+          });
+          if (confirmed !== 'confirm') return;
+        }
         OS.settings.set('devMode', next);
         devToggle.classList.toggle('active', next);
         if (window.DebugOverlay) {
@@ -366,10 +442,6 @@ registerApp({
         }
         Notify.show({
           title: next ? 'Developer Mode Enabled' : 'Developer Mode Disabled',
-          // F3 only does anything while devMode is on (enable() checks this
-          // itself now) — the hint only makes sense on the enable path.
-          // Telling someone to press F3 right after disabling would be
-          // pointing them at a shortcut that's about to silently no-op.
           body: next ? 'Press F3 to toggle debug overlay' : undefined,
           type: 'info',
           appName: 'Settings'
