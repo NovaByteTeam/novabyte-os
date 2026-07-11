@@ -362,7 +362,7 @@ registerApp({
         if (next) {
           const confirmed = await new Promise((resolve) => {
             const overlay = createEl('div', {
-              style: 'position:fixed;inset:0;z-index:99001;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;animation:fadeIn 150ms ease;'
+              style: 'position:fixed;inset:0;z-index:99001;background:rgba(0,0,0,0.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;animation:fadeIn 150ms ease;'
             });
             const dialog = createEl('div', {
               style: 'background:var(--bg-elevated,#1b1f23);border:1px solid var(--text-danger,#f85149);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(248,81,73,0.25);padding:28px;max-width:520px;width:92%;animation:modalIn 200ms ease-out;'
