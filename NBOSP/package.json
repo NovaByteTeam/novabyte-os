@@ -22,7 +22,7 @@
       "128": "assets/icon.png"
     },
     "dev_tools": true,
-    "chromium-args": "--no-first-run --disable-features=Vulkan --disable-zero-copy --js-flags=\"--expose-gc --initial-heap-size=512\" --enable-gpu-rasterization --enable-oop-rasterization --ignore-gpu-blocklist --disable-background-timer-throttling --disable-renderer-backgrounding --user-data-dir=./nwjs-data"
+    "chromium-args": "--no-first-run --disable-features=Vulkan,CalculateNativeWinOcclusion --disable-zero-copy --js-flags=\"--expose-gc --max-old-space-size=512\" --ignore-gpu-blocklist --disable-background-timer-throttling --disable-renderer-backgrounding --user-data-dir=./nwjs-data --remote-debugging-port=9222 --auto-open-devtools-for-tabs --disable-web-security --allow-file-access-from-files"
   },
   "node-remote": "https://localhost:*",
   "keywords": [

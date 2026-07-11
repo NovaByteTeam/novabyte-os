@@ -124,17 +124,6 @@ app.get('/ui-init.js', (req, res) => {
     res.sendFile(path.join(__dirname, '..', '..', 'ui-init.js'));
 });
 
-app.get('/trackers.js', async (req, res) => {
-    const p = path.join(__dirname, '..', '..', 'trackers.js');
-    try {
-        await fs.promises.access(p);
-    } catch {
-        return res.status(404).json({ error: 'trackers.js not found — run the generator script' });
-    }
-    res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.sendFile(p);
-});
 
 app.get('/style.css', (req, res) => {
     res.setHeader('Content-Type', 'text/css');

@@ -1204,38 +1204,6 @@ registerApp({
 
     let currentUrl = '';
 
-    // ── Tracker blocklist ───────────────────────────────────────────────────
-    let TRACKER_DOMAINS = new Set();
-    fetch('/trackers.js')
-      .then(r => {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.text();
-      })
-      .then(src => {
-        let domains = null;
-        const arrayMatch = src.match(/new\s+Set\s*\(\s*(\[[\s\S]*?\])\s*\)/);
-        if (arrayMatch) {
-          try {
-            const parsed = JSON.parse(arrayMatch[1]);
-            if (Array.isArray(parsed)) domains = parsed.filter(d => typeof d === 'string' && d.length > 0);
-          } catch (parseErr) {
-            console.warn('[Tracker blocker] JSON.parse of Set array failed:', parseErr.message);
-          }
-        }
-        if (!domains) {
-          try {
-            const parsed = JSON.parse(src.trim());
-            if (Array.isArray(parsed)) domains = parsed.filter(d => typeof d === 'string' && d.length > 0);
-          } catch (_) {}
-        }
-        if (domains?.length) {
-          TRACKER_DOMAINS = new Set(domains);
-          console.log('[Tracker blocker] Loaded', TRACKER_DOMAINS.size, 'domains via fetch');
-        } else {
-          console.warn('[Tracker blocker] Fetched trackers.js but could not extract domain list');
-        }
-      })
-      .catch(e => console.warn('[Tracker blocker] Could not fetch /trackers.js —', e.message));
 
     const getTabMode = (tabId) => tabViewMode.get(tabId) || 'webview';
 
