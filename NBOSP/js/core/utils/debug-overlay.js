@@ -307,10 +307,11 @@ const DebugOverlay = (() => {
   function _getOnlineStatus() {
     if (typeof navigator !== 'undefined') {
       const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      const status = navigator.onLine ? 'online' : 'offline';
       if (conn) {
-        return `${conn.onLine ? 'online' : 'offline'} (${conn.effectiveType || '?'})`;
+        return `${status} (${conn.effectiveType || '?'})`;
       }
-      return navigator.onLine ? 'online' : 'offline';
+      return status;
     }
     return 'N/A';
   }
