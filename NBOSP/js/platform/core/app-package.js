@@ -182,12 +182,29 @@ const AppPackage = (() => {
    * return which entry (if any) vouches for it. This is the primary
    * entry point NBOSP's install/launch flow should use instead of calling
    * verifyPackage with a single key.
+   *
+   * Checks revocation FIRST if a `revocationCheck` function is supplied —
+   * a cryptographically valid signature that has been individually
+   * revoked (see TrustStore.revoke/isRevoked) must still come back
+   * untrusted. Pass `TrustStore.isRevoked` from trust-store.js as
+   * `revocationCheck`; if omitted, revocation is simply not checked (so
+   * existing callers that haven't been updated yet keep working, but you
+   * should pass it in production).
+   *
    * @param {object} pkg
    * @param {Array<{name:string, publicKey:any}>} trustStore
-   * @returns {Promise<{trusted:boolean, signer:string|null}>}
+   * @param {(signature:string)=>boolean} [revocationCheck] - e.g. TrustStore.isRevoked
+   * @returns {Promise<{trusted:boolean, signer:string|null, revoked?:boolean}>}
    */
-  async function verifyAgainstTrustStore(pkg, trustStore) {
+  async function verifyAgainstTrustStore(pkg, trustStore, revocationCheck) {
     if (!pkg || !pkg.signature || !Array.isArray(trustStore)) return { trusted: false, signer: null };
+    if (typeof revocationCheck === 'function' && revocationCheck(pkg.signature)) {
+      // Signature is cryptographically valid territory, but this exact
+      // signed package has been individually pulled — never treat it as
+      // trusted regardless of which trust-store entry would otherwise
+      // vouch for it.
+      return { trusted: false, signer: null, revoked: true };
+    }
     for (const entry of trustStore) {
       try {
         const ok = await verifyPackage(pkg, entry.publicKey);

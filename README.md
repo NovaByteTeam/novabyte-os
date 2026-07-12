@@ -135,7 +135,7 @@ These are the **actual features pulled directly from the source code** — not g
 |🕐 **NBOSP Clock**|Four tabs: analog+digital clock with date display; alarms with custom time, label, and day-of-week repeat (toggle on/off per alarm); countdown timer with H/M/S input, start/pause/reset; and stopwatch. **No world clock, no multiple time zones.**|
 |⚙️ **NBOSP Settings**|Appearance (7 themes: Nova Dark, Nova Light, Nord, Dracula, Catppuccin, Tokyo Night, Gruvbox; accent colour picker; 12/24h clock toggle), System (change username), Storage, Privacy, Desktop, Accessibility, About. **Settings are thin — each section has a handful of toggles, not deep configuration panels.** Unlike the other apps, Settings is actively developed — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving new options and visual updates as NBOSP evolves.|
 |🖩 **NBOSP Calculator**|Standard arithmetic with live expression preview. Supports `+`, `-`, `*`, `/`, `%`, parentheses, and decimal input. Backspace, clear, keyboard support. **No scientific mode, no history, no unit conversion.**|
-|📦 **NBOSP App Manager**|Install `.novaapp` packages from disk. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. **No app store/catalogue, no update management, no package signing verification in the UI.**|
+|📦 **NBOSP App Manager**|Install `.novaapp` packages from disk. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. Verified/Unverified badge on each installed app, based on signature checks against the built-in trust store. **No app store/catalogue, no update management.**|
 
 > [!IMPORTANT]
 > **Starting with 3.0.2, no new features will be added to NBOSP apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings is the only exception** — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving updates.
@@ -716,6 +716,10 @@ If you require full auditability with zero trust assumptions, **NBOSP is your an
 - All versions use **HTTPS** with self-signed certificates locally
 - **CSRF protection** and **rate limiting** are active on all API routes
 - Nova Core Services routes are excluded from CSRF to allow the independent patch pipeline to function
+- `.novaapp` packages are signed (Ed25519) and checked against a built-in trust store (`trust-store.js`) on install; unsigned or unrecognized signatures show an explicit warning dialog rather than installing silently
+  - The "Verified" badge means the package was signed with NovaByte's own private signing key — the only key `trust-store.js` currently trusts. That key is held offline by NovaByte and is not distributed to developers.
+  - Before signing, submitted apps are reviewed manually (permissions, code, local malware/AV scanning) by NovaByte on a local machine that never touches the network — there is no automated review queue or scanning service yet. This is a manual process today, not an enforced pipeline in code.
+  - Anyone can self-sign their own `.novaapp` for local testing with their own keypair; self-signed packages will always show as **Unverified**, since no key but NovaByte's is in the trust store.
 
 If you discover a security vulnerability, please **open a private issue** or contact the maintainer directly rather than filing a public bug report.
 

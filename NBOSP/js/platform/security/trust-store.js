@@ -26,14 +26,29 @@
  * public key exported from whatever offline system actually holds the
  * NovaByte Trusted Signing private key. Nothing here is a working key.
  *
+ * Revocation:
+ *  - A signature can be individually revoked without touching the signing
+ *    key itself or any other package ever signed. Revocation is keyed by
+ *    the exact signature string on the package (pkg.signature), not by
+ *    app id/name/version — those are dev-controlled fields a bad actor
+ *    could reuse or spoof; the signature is a fixed, unforgeable value
+ *    produced once at sign time, so it's the only safe revocation key.
+ *  - Revoking a signature does NOT revoke the signing key. Every other
+ *    package ever signed with that key remains trusted. This is
+ *    deliberately narrow — the whole point is to avoid "one bad app means
+ *    distrust everything NovaByte has ever signed."
+ *  - If the signing key itself is compromised (the actual key leaks),
+ *    revoking individual signatures here is NOT sufficient — that
+ *    scenario requires removing/replacing the trust store entry itself
+ *    (see `list()`/`add()`) and re-signing everything with a new key.
+ *    Revocation here only covers "this one specific app turned out bad,"
+ *    not "the key itself is no longer trustworthy."
+ *
  * @module js/platform/security/trust-store
  */
 
 const TrustStore = (() => {
-  // Placeholder — swap in the real exported JWK public key before shipping.
-  // Generate a real pair with AppPackage.generateSigningKeyPair() on a
-  // secure offline machine; keep privateJwk there forever, publish
-  // publicJwk here.
+  // Official NovaByteOfficial Verification system
   const NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK = {
     kty: 'OKP',
     crv: 'Ed25519',
@@ -51,6 +66,68 @@ const TrustStore = (() => {
     // Additional trusted CAs / partners can be appended here.
   ];
 
+  // ── Revocation list — persisted to disk ──────────────────────────────
+  // Keyed by exact pkg.signature (a hex string). Lives in
+  // revoked-signatures.json, next to this file, so a revocation survives
+  // restarts and is visible to every NBOSP process that loads this
+  // module — not just the one that called revoke(). NW.js gives this
+  // file real `fs`/`path` access even though it's loaded like a browser
+  // script, so this works the same way it would in plain Node.
+  //
+  // NOTE: this is single-machine persistence, not multi-machine sync —
+  // if you ever run multiple NBOSP instances against a shared/synced
+  // copy of this file (the way submission-queue.js shares Drive-synced
+  // submissions.json across dev machines), the same read-modify-write
+  // race caveat from that module applies here too. For a single install
+  // reading its own local file, that's not a concern.
+  let _fs = null;
+  let _path = null;
+  try {
+    // Only succeeds in a Node-capable context (NW.js renderer, Node
+    // itself). In a plain sandboxed browser tab, this throws and we fall
+    // back to in-memory-only behavior below — better to run without
+    // persistence than to crash the whole trust store on load.
+    _fs = require('fs');
+    _path = require('path');
+  } catch (_) { /* no filesystem access available; persistence disabled */ }
+
+  const REVOCATION_FILENAME = 'revoked-signatures.json';
+
+  function _revocationFilePath() {
+    // __dirname is available in NW.js's Node-integrated context, same as
+    // plain Node. Falls back to cwd-relative if somehow unavailable.
+    const dir = typeof __dirname !== 'undefined' ? __dirname : '.';
+    return _path.join(dir, REVOCATION_FILENAME);
+  }
+
+  function _loadRevokedFromDisk() {
+    if (!_fs) return [];
+    try {
+      const raw = _fs.readFileSync(_revocationFilePath(), 'utf8');
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+      if (err.code === 'ENOENT') return []; // no revocations yet — normal on first run
+      // A corrupt file is a real risk worth surfacing, not silently
+      // swallowing — same reasoning as submission-queue.js's _readRaw().
+      console.error(`[TrustStore] revoked-signatures.json exists but couldn't be read/parsed: ${err.message}. Revocation list may be incomplete until this is fixed.`);
+      return [];
+    }
+  }
+
+  function _saveRevokedToDisk(list) {
+    if (!_fs) return; // no persistence available; caller already has the in-memory update
+    try {
+      _fs.writeFileSync(_revocationFilePath(), JSON.stringify(list, null, 2));
+    } catch (err) {
+      console.error(`[TrustStore] Failed to write revoked-signatures.json: ${err.message}. Revocation was applied in memory but will NOT survive a restart until this is fixed.`);
+    }
+  }
+
+  // Loaded once at module init. If persistence isn't available, starts
+  // empty and stays in-memory-only for this session (see revoke() below).
+  const revoked = _loadRevokedFromDisk();
+
   function list() {
     return entries.slice();
   }
@@ -62,7 +139,62 @@ const TrustStore = (() => {
     entries.push(entry);
   }
 
-  return { list, add };
+  /**
+   * Revoke a specific signed package by its exact signature string.
+   * Idempotent — revoking an already-revoked signature just updates the
+   * reason/timestamp rather than adding a duplicate entry. Persists to
+   * revoked-signatures.json immediately if filesystem access is
+   * available; if not (e.g. a sandboxed browser context with no Node
+   * integration), the revocation still applies for THIS process's
+   * lifetime, but will not survive a restart or be visible to other
+   * processes — check the console warning if that happens.
+   * @param {string} signature - the exact pkg.signature hex string
+   * @param {string} [reason]
+   * @returns {object} the revocation record
+   */
+  function revoke(signature, reason) {
+    if (!signature || typeof signature !== 'string') {
+      throw new Error('revoke() requires the exact pkg.signature string of the package being revoked');
+    }
+    const existing = revoked.find((r) => r.signature === signature);
+    let record;
+    if (existing) {
+      existing.reason = reason || existing.reason;
+      existing.revokedAt = Date.now();
+      record = existing;
+    } else {
+      record = { signature, reason: reason || null, revokedAt: Date.now() };
+      revoked.push(record);
+    }
+    if (!_fs) {
+      console.warn('[TrustStore] No filesystem access in this context — revocation applied for this session only and will NOT persist. Run this from an NW.js/Node context with fs access for it to stick.');
+    }
+    _saveRevokedToDisk(revoked);
+    return record;
+  }
+
+  /**
+   * Remove a signature from the revocation list (un-revoke). Rare, but
+   * needed if a revocation was applied by mistake.
+   */
+  function unrevoke(signature) {
+    const idx = revoked.findIndex((r) => r.signature === signature);
+    if (idx === -1) return false;
+    revoked.splice(idx, 1);
+    _saveRevokedToDisk(revoked);
+    return true;
+  }
+
+  function isRevoked(signature) {
+    if (!signature) return false;
+    return revoked.some((r) => r.signature === signature);
+  }
+
+  function listRevoked() {
+    return revoked.slice();
+  }
+
+  return { list, add, revoke, unrevoke, isRevoked, listRevoked };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = TrustStore;

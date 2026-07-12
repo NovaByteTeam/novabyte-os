@@ -863,9 +863,19 @@ registerApp({
             try {
               if (typeof AppPackage !== 'undefined' && typeof AppPackage.verifyAgainstTrustStore === 'function'
                   && typeof TrustStore !== 'undefined') {
-                const result = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list());
+                const revocationCheck = typeof TrustStore.isRevoked === 'function' ? TrustStore.isRevoked : undefined;
+                const result = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list(), revocationCheck);
                 verified = result.trusted;
                 signer = result.signer;
+                if (result.revoked) {
+                  // Cryptographically valid, but this specific signed
+                  // package was individually pulled — surface that
+                  // distinction rather than just showing the generic
+                  // "Unverified" state, since the two mean very different
+                  // things to a user deciding whether to proceed.
+                  signer = null;
+                  console.warn('[AppManager] Package signature is on the revocation list — refusing trust regardless of otherwise-valid signature.');
+                }
               }
             } catch (_) { verified = false; }
 
