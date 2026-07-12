@@ -1,3 +1,4 @@
+// [NBOSP_APP-PACKAGE_TEST_JS] -- from NovaByte OS Platform (NBOSP), not NovaPack Studio
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // AppPackage uses module.exports = AppPackage (CommonJS default export)
@@ -78,24 +79,56 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
     });
   });
 
-  describe('signPackage / verifyPackage', () => {
+  describe('signPackage / verifyPackage (Ed25519)', () => {
+    // NOTE: signing now uses Ed25519 keypairs (JWK or CryptoKey), not a
+    // shared-secret string — a shared secret can't distinguish "signed by a
+    // trusted authority" from "signed by anyone who knows the string", which
+    // is exactly what a trust-store-based verification model needs to fix.
+    const fakePrivateJwk = { kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' };
+    const fakePublicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'x' };
+
     it('signs a package and returns a signature string', async () => {
       const AppPackage = require('../../js/platform/core/app-package.js');
       const pkg = await AppPackage.createPackage(validManifest, {});
-      const sig = await AppPackage.signPackage(pkg, 'test-key');
+      const sig = await AppPackage.signPackage(pkg, fakePrivateJwk);
       expect(typeof sig).toBe('string');
       expect(sig.length).toBeGreaterThan(0);
+    });
+
+    it('verifies a package against a public key', async () => {
+      const AppPackage = require('../../js/platform/core/app-package.js');
+      const pkg = await AppPackage.createPackage(validManifest, {});
+      pkg.signature = await AppPackage.signPackage(pkg, fakePrivateJwk);
+      const ok = await AppPackage.verifyPackage(pkg, fakePublicJwk);
+      expect(ok).toBe(true); // crypto.subtle.verify is mocked to resolve true
     });
 
     it('returns false for null package', async () => {
       const AppPackage = require('../../js/platform/core/app-package.js');
       let result = false;
       try {
-        result = await AppPackage.verifyPackage(null, 'key');
+        result = await AppPackage.verifyPackage(null, fakePublicJwk);
       } catch {
         result = false;
       }
       expect(result).toBe(false);
+    });
+
+    it('rejects a package when the trust store has no matching entries', async () => {
+      // NOTE: not mocking crypto.subtle.verify to fail here — this file's
+      // beforeEach reassigns `globalThis.crypto` to a brand-new object each
+      // test, but app-package.js is loaded via CommonJS require(), and
+      // vi.resetModules() only resets Vitest's ESM registry, not Node's
+      // require.cache. So the module (and the `crypto` reference it
+      // captured) is a singleton shared across every `it()` in this file —
+      // reassigning globalThis.crypto in a later test doesn't reach it.
+      // Testing with an empty trust store avoids relying on the mock at all.
+      const AppPackage = require('../../js/platform/core/app-package.js');
+      const pkg = await AppPackage.createPackage(validManifest, {});
+      pkg.signature = await AppPackage.signPackage(pkg, fakePrivateJwk);
+      const result = await AppPackage.verifyAgainstTrustStore(pkg, []);
+      expect(result.trusted).toBe(false);
+      expect(result.signer).toBe(null);
     });
   });
 

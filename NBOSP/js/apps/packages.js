@@ -1,3 +1,4 @@
+// [NBOSP_PACKAGES_JS] -- from NovaByte OS Platform (NBOSP), not NovaPack Studio
 registerApp({
   id: 'packages',
   name: 'Packages',
@@ -159,8 +160,28 @@ registerApp({
       const nameF = field('App name', 'Test App', 'Test App');
       const versionF = field('Version (x.y.z)', '1.0.0', '1.0.0');
       const entryF = field('Entry file path', 'index.html', 'index.html');
-      const keyF = field('Signing key', 'dev-key', 'dev-key');
-      [idF, nameF, versionF, entryF, keyF].forEach(f => panel.appendChild(f.wrap));
+      [idF, nameF, versionF, entryF].forEach(f => panel.appendChild(f.wrap));
+
+      // Signing now uses a generated ECDSA keypair rather than a typed
+      // shared-secret string — a string you type into a box can't act as a
+      // real signing credential (anyone who saw it could sign anything),
+      // and it can't be checked against NBOSP's trust store, which only
+      // holds public keys. This tab is for local dev/testing self-signed
+      // packages; it will never produce a package that verifies as
+      // "Trusted" on a real install, since nothing here is in the trust
+      // store — that's intentional. Use NovaPack Studio's "Trusted Signing"
+      // flow to get a package actually signed by NovaByte's authority.
+      let devKeyPair = null;
+      const keyNote = createEl('div', { style: 'font-size:11px;color:var(--text-muted);margin:4px 0 10px;' , textContent: 'Generating a local dev signing keypair…' });
+      panel.appendChild(keyNote);
+      (async () => {
+        try {
+          devKeyPair = await AppPackage.generateSigningKeyPair();
+          keyNote.textContent = 'Local dev keypair ready (self-signed only — won\u2019t show as Trusted on real installs).';
+        } catch (e) {
+          keyNote.textContent = 'Could not generate a dev keypair: ' + e.message;
+        }
+      })();
 
       // Files to package — AppPackage.createPackage(manifest, files) takes
       // an arbitrary path->content map (confirmed in app-package.js: it
@@ -233,13 +254,25 @@ registerApp({
             return;
           }
 
+          if (!devKeyPair) {
+            showResult(box, false, { error: 'Dev signing keypair isn\u2019t ready yet — wait a moment and try again.' });
+            return;
+          }
+
           const pkg = await AppPackage.createPackage(manifest, files);
-          const sig = await AppPackage.signPackage(pkg, keyF.input.value);
+          const sig = await AppPackage.signPackage(pkg, devKeyPair.privateKey);
           pkg.signature = sig;
+          pkg.signer = 'local-dev-keypair';
           const info = AppPackage.inspectPackage(pkg);
-          const verified = await AppPackage.verifyPackage(pkg, keyF.input.value);
+          const verified = await AppPackage.verifyPackage(pkg, devKeyPair.publicKey);
           lastSignedPackage = pkg; // handed to Install tab / export via closure below
-          showResult(box, true, { info, signature: sig, verified, warnings: validation.warnings, fullPackage: pkg });
+          // Stash the public key alongside the result so the Verify tab can
+          // check this exact package without needing it pasted in by hand.
+          lastSignedPackage.__devPublicJwk = devKeyPair.publicJwk;
+          showResult(box, true, {
+            info, signature: sig, verified, warnings: validation.warnings, fullPackage: pkg,
+            publicKeyJwk: devKeyPair.publicJwk,
+          });
         } catch (e) {
           showResult(box, false, { error: e.message });
         } finally {
@@ -263,8 +296,12 @@ registerApp({
       });
       panel.appendChild(textarea);
 
-      const keyF = field('Verification key', 'dev-key', 'dev-key');
+      const keyF = field('Public key (paste JWK JSON)', '{"kty":"OKP","crv":"Ed25519",...}', '');
       panel.appendChild(keyF.wrap);
+      panel.appendChild(createEl('div', {
+        style: 'font-size:11px;color:var(--text-muted);margin:-4px 0 8px;',
+        textContent: 'Verification only ever needs a PUBLIC key — a private key should never leave the signer\u2019s machine. Paste the publicKeyJwk shown after signing, or an entry from the trust store.',
+      }));
 
       const verifyBtn = createEl('button', { textContent: 'Validate & Verify', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
       const box = resultBox();
@@ -282,10 +319,19 @@ registerApp({
           showResult(box, false, { error: 'Invalid JSON' });
           return;
         }
+        let publicKeyJwk = null;
+        if (keyF.input.value.trim()) {
+          try {
+            publicKeyJwk = JSON.parse(keyF.input.value.trim());
+          } catch {
+            showResult(box, false, { error: 'Public key must be valid JWK JSON' });
+            return;
+          }
+        }
         try {
           const validation = AppPackage.validateManifest(pkg.manifest || {});
           const hasSignature = !!pkg.signature;
-          const verified = hasSignature ? await AppPackage.verifyPackage(pkg, keyF.input.value) : false;
+          const verified = (hasSignature && publicKeyJwk) ? await AppPackage.verifyPackage(pkg, publicKeyJwk) : false;
           showResult(box, validation.valid && verified, {
             manifestValid: validation.valid,
             errors: validation.errors,
@@ -375,15 +421,23 @@ registerApp({
         textarea.value = JSON.stringify(lastVerifiedPackage, null, 2);
       }, { signal: ac.signal });
 
-      const keyF = field('Verification key', 'dev-key', 'dev-key');
-      panel.appendChild(keyF.wrap);
-
+      // NOTE: installPackage() no longer takes a typed "verification key" —
+      // verification now checks the package's signature against every
+      // public key in TrustStore (the same list NBOSP itself ships), so a
+      // package either matches a trusted signer or it doesn't. There's
+      // nothing to type in here.
       const optRow = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;margin-bottom:10px;font-size:11px;' });
       const skipVerifyLabel = createEl('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;' });
       const skipVerifyCb = createEl('input', { type: 'checkbox' });
       skipVerifyLabel.appendChild(skipVerifyCb);
       skipVerifyLabel.appendChild(createEl('span', { textContent: 'Skip signature verification (installs unsigned/unverified packages — unsafe, dev use only)' }));
       optRow.appendChild(skipVerifyLabel);
+
+      const allowUnverifiedLabel = createEl('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;' });
+      const allowUnverifiedCb = createEl('input', { type: 'checkbox' });
+      allowUnverifiedLabel.appendChild(allowUnverifiedCb);
+      allowUnverifiedLabel.appendChild(createEl('span', { textContent: 'Allow install even if signature doesn\u2019t match a trusted signer' }));
+      optRow.appendChild(allowUnverifiedLabel);
 
       const forceLabel = createEl('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;' });
       const forceCb = createEl('input', { type: 'checkbox' });
@@ -424,7 +478,8 @@ registerApp({
         try {
           const options = {
             skipVerify: skipVerifyCb.checked,
-            verificationKey: keyF.input.value,
+            trustStore: (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [],
+            allowUnverified: allowUnverifiedCb.checked,
             force: forceCb.checked,
             source: 'packages-app',
           };

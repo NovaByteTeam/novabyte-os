@@ -1,3 +1,4 @@
+// [NBOSP_APPMANAGER_JS] -- from NovaByte OS Platform (NBOSP), not NovaPack Studio
 registerApp({
   id: 'app-manager',
   name: 'App Manager',
@@ -163,6 +164,71 @@ registerApp({
       };
     }
 
+    // ── Untrusted-app dialog ──────────────────────────────────────────
+    // Shown whenever a package's signature doesn't match any entry in
+    // TrustStore. Replaces the old hard block that just printed a static
+    // "blocked" message with no way forward — the user should be able to
+    // see *why* it's untrusted and still choose to run it if they want,
+    // the same way browsers let you click through an unknown-publisher
+    // warning rather than refusing outright.
+    function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'background:var(--bg-elevated,#1e1e1e);border:1px solid var(--border,#333);border-radius:12px;max-width:440px;width:90%;padding:24px;color:var(--text,#eee);box-shadow:0 20px 60px rgba(0,0,0,0.4);';
+
+        const safeName = escapeHtml(appData.name || appData.id || 'This app');
+        const safeId = escapeHtml(appData.id || '');
+
+        box.innerHTML = `
+          <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:16px;">
+            <div style="font-size:28px;line-height:1;">\u{1F6E1}\uFE0F</div>
+            <div>
+              <div style="font-size:16px;font-weight:600;margin-bottom:4px;">NovaByte prevented an untrusted app from installing</div>
+              <div style="font-size:13px;color:var(--text-muted,#999);">
+                <b>${safeName}</b>${safeId ? ` (${safeId})` : ''} is not signed by a source NovaByte recognizes.
+                This doesn't necessarily mean it's harmful, but its origin can't be verified.
+              </div>
+            </div>
+          </div>
+          <div id="nb-untrusted-more" style="display:none;font-size:12.5px;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.04));border-radius:8px;padding:12px;margin-bottom:16px;line-height:1.6;">
+            <div><b>Package ID:</b> ${safeId || 'unknown'}</div>
+            <div><b>Version:</b> ${escapeHtml(appData.version || 'unknown')}</div>
+            <div><b>Signature:</b> ${appData.signature ? 'present, but not from a trusted signer' : 'none'}</div>
+            <div style="margin-top:8px;">Only install or run apps you got from a source you trust. A missing or unrecognized signature means NovaByte cannot confirm who published this app or that it hasn't been modified since.</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:10px;">
+            <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:8px 14px;border-radius:7px;font-size:13px;cursor:pointer;">More Info</button>
+            <div style="display:flex;gap:8px;">
+              <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text,#eee);padding:8px 14px;border-radius:7px;font-size:13px;cursor:pointer;">Cancel</button>
+               <button id="nb-untrusted-launch-btn" style="background:var(--text-danger,#f85149);border:none;color:#fff;padding:8px 14px;border-radius:7px;font-size:13px;cursor:pointer;font-weight:600;">Install Anyway</button>
+            </div>
+          </div>
+        `;
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        const cleanup = () => overlay.remove();
+
+        box.querySelector('#nb-untrusted-more-btn').addEventListener('click', () => {
+          const panel = box.querySelector('#nb-untrusted-more');
+          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        });
+        box.querySelector('#nb-untrusted-cancel-btn').addEventListener('click', () => {
+          cleanup();
+          resolve(false);
+        });
+        box.querySelector('#nb-untrusted-launch-btn').addEventListener('click', () => {
+          cleanup();
+          if (typeof onLaunchAnyway === 'function') onLaunchAnyway();
+          resolve(true);
+        });
+      });
+    }
+
     function buildNovaAppConfig(appData) {
       const appId = appData.id;
 
@@ -262,12 +328,31 @@ registerApp({
             // ── SECURITY: Removed require('vm').runInThisContext() — this executes
             //    arbitrary untrusted code in the main context, equivalent to eval().
             //    Obfuscated packages that aren't valid JSON are now rejected outright. ──
-            if (appData.verified === false || appData._wasObfuscated) {
+            if (appData._wasObfuscated) {
                 if (typeof contentEl?.innerHTML === 'string') {
-                    contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">\uD83D\uDD12 App blocked: unverified or obfuscated packages cannot be loaded. Install only apps from trusted sources.</div>';
+                    contentEl.innerHTML = '<div style="padding:24px;color:var(--text-danger);font-family:monospace;">\uD83D\uDD12 App blocked: obfuscated packages cannot be loaded. Install only apps from trusted sources.</div>';
                 }
-                console.warn('[AppManager] Obfuscated/unverified package blocked:', appId);
+                console.warn('[AppManager] Obfuscated package blocked:', appId);
                 return;
+            }
+
+            // Unverified (unsigned, or signed by no one in the trust store)
+            // apps now get a dialog with a real choice instead of a dead
+             // end. `options.userAllowedUnverified` lets the "Install Anyway"
+            // path re-enter init() without looping the dialog forever.
+            if (appData.verified === false && !options?.userAllowedUnverified) {
+                if (typeof contentEl?.innerHTML === 'string') {
+                    contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"></div>';
+                }
+                const proceeded = await showUntrustedAppDialog(appData);
+                if (!proceeded) {
+                    if (typeof contentEl?.innerHTML === 'string') {
+                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
+                    }
+                    return;
+                }
+                // Re-run init with the user's explicit one-time override.
+                return buildNovaAppConfig(appData).init(contentEl, state, { ...options, userAllowedUnverified: true });
             }
 
             if (pkgData && !appData.manifest) {
@@ -517,6 +602,19 @@ registerApp({
       installBtn.addEventListener('click', () => fileInput.click(), listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
+      // ── Verification badge ──────────────────────────────────────────────
+      // Reads app.verified/app.signer, set once at install time from
+      // AppPackage.verifyAgainstTrustStore's result (see processFile). Never
+      // re-derives trust here — this only displays what was already decided.
+      function verifyBadgeHtml(app, { compact } = {}) {
+        const size = compact ? '9px' : '10px';
+        const pad = compact ? '1px 6px' : '2px 7px';
+        if (app.verified) {
+          return `<span title="${escapeHtml('Signed by ' + (app.signer || 'a trusted signer'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,rgba(63,185,80,0.12));padding:${pad};border-radius:5px;white-space:nowrap;">\u2713 Verified</span>`;
+        }
+        return `<span title="Not signed by a trusted signer" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0 Unverified</span>`;
+      }
+
       function renderList() {
         listEl.innerHTML = '';
         const q = searchEl.value.trim().toLowerCase();
@@ -563,7 +661,7 @@ registerApp({
           }
           const meta = createEl('div', { style: 'flex:1;min-width:0;' });
           // SECURITY: Use escapeHtml for user-controlled app.name
-          meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${isDis ? 'var(--text-muted)' : 'var(--text-primary)'};">${escapeHtml(app.name)}</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;">v${escapeHtml(app.version || '1.0.0')}${isDis ? ' \u00B7 disabled' : ''}</div>`;
+          meta.innerHTML = `<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${isDis ? 'var(--text-muted)' : 'var(--text-primary)'};">${escapeHtml(app.name)}</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px;display:flex;align-items:center;gap:5px;">v${escapeHtml(app.version || '1.0.0')}${isDis ? ' \u00B7 disabled' : ''} ${verifyBadgeHtml(app, { compact: true })}</div>`;
           item.append(iconWrap, meta);
 
           item.addEventListener('mouseenter', () => { if (!isSel) item.style.background = 'var(--bg-elevated)'; }, listenerOpts);
@@ -628,7 +726,7 @@ registerApp({
         }
         const hMeta = createEl('div', { style: 'flex:1;min-width:0;' });
         // SECURITY: escapeHtml for app.name and app.author (user-controlled)
-        hMeta.innerHTML = `<div style="font-size:18px;font-weight:700;color:var(--text-primary);">${escapeHtml(app.name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;">v${escapeHtml(app.version || '1.0.0')} \u00B7 ${escapeHtml(app.author || 'Unknown')}</div>`;
+        hMeta.innerHTML = `<div style="font-size:18px;font-weight:700;color:var(--text-primary);">${escapeHtml(app.name)}</div><div style="font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;align-items:center;gap:7px;">v${escapeHtml(app.version || '1.0.0')} \u00B7 ${escapeHtml(app.author || 'Unknown')} ${verifyBadgeHtml(app)}</div>`;
         header.append(hIcon, hMeta);
         detail.appendChild(header);
 
@@ -750,33 +848,34 @@ registerApp({
               throw new Error('Missing required manifest fields (id, name, version).');
             }
 
-            // ── Signature verification ──
+            // ── Signature verification against the trust store ──
+            // SECURITY: The previous implementation's fallback accepted any
+            // package where `signature === sha256(payload)` — that's not a
+            // verification, it's an attacker computing the hash of their own
+            // (arbitrary, unmodified) payload and pasting it into the
+            // signature field, which will always match. It proved nothing
+            // about who published the package. Real verification requires
+            // checking against a public key from a trust store: only the
+            // holder of the matching PRIVATE key could have produced a
+            // signature that validates, so this can't be self-satisfied.
             let verified = false;
+            let signer = null;
             try {
-              if (typeof AppPackage !== 'undefined' && typeof AppPackage.verifyPackage === 'function') {
-                verified = await AppPackage.verifyPackage(pkg, null);
+              if (typeof AppPackage !== 'undefined' && typeof AppPackage.verifyAgainstTrustStore === 'function'
+                  && typeof TrustStore !== 'undefined') {
+                const result = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list());
+                verified = result.trusted;
+                signer = result.signer;
               }
             } catch (_) { verified = false; }
 
             if (!verified) {
-              try {
-                const payload = JSON.stringify({
-                  novabyte_app: pkg.novabyte_app,
-                  manifest: pkg.manifest,
-                  files: pkg.files,
-                  compiled_at: pkg.compiled_at
-                });
-                const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
-                const hashArray = new Uint8Array(hashBuf);
-                // Use ES2026 Uint8Array.toHex() when available, fallback to manual
-                const hashHex = typeof hashArray.toHex === 'function'
-                  ? hashArray.toHex()
-                  : Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('');
-                verified = hashHex === pkg.signature;
-              } catch (_) { verified = false; }
+              const proceeded = await showUntrustedAppDialog(
+                { ...pkg.manifest, signature: pkg.signature },
+                {}
+              );
+              if (!proceeded) return;
             }
-
-            if (!verified && !confirm(`\u26A0 Signature check failed for "${pkg.manifest.name}".\n\nInstall anyway?`)) return;
 
             // ── Handle replacement of existing install ──
             const idx = installedApps.findIndex(a => a.id === pkg.manifest.id);
@@ -827,6 +926,7 @@ registerApp({
               ...pkg.manifest,
               files: pkg.files,
               verified,
+              signer,
               source: 'file',
               installedAt: Date.now()
             };
