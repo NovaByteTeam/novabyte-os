@@ -479,6 +479,7 @@ registerApp({
           const options = {
             skipVerify: skipVerifyCb.checked,
             trustStore: (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [],
+            revocationCheck: (typeof TrustStore !== 'undefined' && TrustStore.isRevoked) ? TrustStore.isRevoked : undefined,
             allowUnverified: allowUnverifiedCb.checked,
             force: forceCb.checked,
             source: 'packages-app',

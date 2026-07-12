@@ -271,7 +271,7 @@ const AppPackage = (() => {
 
     if (!options.skipVerify) {
       const trustStore = options.trustStore || [];
-      const result = await verifyAgainstTrustStore(pkg, trustStore);
+      const result = await verifyAgainstTrustStore(pkg, trustStore, options.revocationCheck);
       verified = result.trusted;
       signer = result.signer;
       if (!verified && !options.allowUnverified) {

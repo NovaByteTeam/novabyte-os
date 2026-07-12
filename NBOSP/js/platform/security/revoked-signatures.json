@@ -1,0 +1,7 @@
+[
+  {
+    "signature": "21711794083592e9a41fa6a3cb3f1eff592af3332138d912be700bc58564e75da05274890ad75c17aef165fa76f75b0cc80cbc55a3b1278ef43b7ebe7a64990f",
+    "reason": "Cause it asks for fs permission, even though it doesnt need it",
+    "revokedAt": 1783867021870
+  }
+]

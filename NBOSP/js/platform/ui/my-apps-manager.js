@@ -178,7 +178,12 @@ const MyAppsManager = (() => {
         throw new Error('Invalid package format');
       }
 
-      const result = AppPackage?.installPackage(pkg, options);
+      const mergedOptions = {
+        trustStore: (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [],
+        revocationCheck: (typeof TrustStore !== 'undefined' && TrustStore.isRevoked) ? TrustStore.isRevoked : undefined,
+        ...options,
+      };
+      const result = AppPackage?.installPackage(pkg, mergedOptions);
       return result;
     } catch (error) {
       console.error('[MyAppsManager] Installation failed:', error);
@@ -200,7 +205,12 @@ const MyAppsManager = (() => {
       }
 
       const pkg = await response.json();
-      const result = AppPackage?.installPackage(pkg, options);
+      const mergedOptions = {
+        trustStore: (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [],
+        revocationCheck: (typeof TrustStore !== 'undefined' && TrustStore.isRevoked) ? TrustStore.isRevoked : undefined,
+        ...options,
+      };
+      const result = AppPackage?.installPackage(pkg, mergedOptions);
       return result;
     } catch (error) {
       console.error('[MyAppsManager] Installation from URL failed:', error);
