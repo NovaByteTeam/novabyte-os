@@ -199,16 +199,105 @@ const AppSandbox = (() => {
   }
 
   // ------------------------------------------------------------------
+  // Notification gateway helpers
+  // ------------------------------------------------------------------
+
+  /**
+   * Strictly whitelist and clamp an app-supplied notification payload before
+   * it ever reaches Notify.show(). This is the actual security boundary:
+   * Notify.show() itself will call `action` if it's a function (trusted
+   * first-party callers rely on that), so nothing but plain, bounded data
+   * may cross from a sandboxed app into that call.
+   */
+  function sanitizeNotificationPayload(payload, appName) {
+    const raw = payload ?? {};
+
+    const title = typeof raw.title === 'string' && raw.title.trim()
+      ? raw.title.slice(0, NOTIF_TITLE_MAX_LEN)
+      : 'Notification';
+    const body = typeof raw.body === 'string'
+      ? raw.body.slice(0, NOTIF_BODY_MAX_LEN)
+      : '';
+    const type = ALLOWED_NOTIF_TYPES.has(raw.type) ? raw.type : 'info';
+    const icon = ALLOWED_NOTIF_ICONS.has(raw.icon) ? raw.icon : null;
+
+    // `action` must never be forwarded as anything but a plain, known string.
+    // A function reference (or any other type) is dropped entirely rather
+    // than coerced, since coercion here is exactly how a sandbox escape
+    // would sneak through.
+    const action = typeof raw.action === 'string' && ALLOWED_NOTIF_ACTIONS.has(raw.action)
+      ? raw.action
+      : null;
+    const actionLabel = action && typeof raw.actionLabel === 'string'
+      ? raw.actionLabel.slice(0, NOTIF_ACTION_LABEL_MAX_LEN)
+      : null;
+
+    return {
+      title,
+      body,
+      type,
+      appName,
+      icon,
+      action,
+      actionLabel,
+      category: 'app',
+    };
+  }
+
+  /**
+   * Sliding-window rate limit: returns true if `appId` is still under
+   * NOTIF_RATE_LIMIT_MAX notifications within the last
+   * NOTIF_RATE_LIMIT_WINDOW_MS, recording this attempt if so. Returns false
+   * (and does not record) if the app is over the limit.
+   */
+  function checkNotificationRateLimit(appId) {
+    const now = Date.now();
+    const windowStart = now - NOTIF_RATE_LIMIT_WINDOW_MS;
+    const timestamps = (notifRateLimitLog.get(appId) ?? []).filter((ts) => ts > windowStart);
+
+    if (timestamps.length >= NOTIF_RATE_LIMIT_MAX) {
+      notifRateLimitLog.set(appId, timestamps);
+      return false;
+    }
+
+    timestamps.push(now);
+    notifRateLimitLog.set(appId, timestamps);
+    return true;
+  }
+
+  // ------------------------------------------------------------------
   // Response helpers
   // ------------------------------------------------------------------
 
   /**
-   * Send a response back to the sandboxed app. Apps are served from our own
-   * origin, so we use window.location.origin as the target origin (never '*').
+   * Send a response back to the sandboxed app.
+   *
+   * NOTE: this does NOT use webview.contentWindow — for a <webview> tag,
+   * contentWindow is unavailable (NW.js/Chromium: <webview> runs in a
+   * separate renderer process, so the embedder has no direct JS reference
+   * to the guest's window the way it would for a same-process <iframe>).
+   * Historically this called `webview.contentWindow.postMessage(...)`,
+   * which threw on every single call for every app — silently, since the
+   * catch below only logs at 'error' level and nothing downstream ever
+   * surfaced it as user-facing. Every app got zero responses to every IPC
+   * call, permanently.
+   *
+   * The correct pattern for <webview> (per the guest/embedder postMessage
+   * contract) is for the OS to reply using the `source` window reference
+   * captured from the *inbound* message event that carried the request —
+   * that's a live, valid reference to the guest's window for as long as
+   * the guest process is alive. setupAPIBridge's messageHandler stashes
+   * this on the webview element (_novaMessageSource) on every incoming
+   * message; we read it back here.
    */
   function respond(webview, type, requestId, result, error = null) {
     try {
-      webview.contentWindow.postMessage(
+      const target = webview._novaMessageSource;
+      if (!target) {
+        log('error', `Failed to respond to ${type}: no message source captured yet for this webview`);
+        return;
+      }
+      target.postMessage(
         { type: `${type}:response`, requestId, result, error },
         window.location.origin
       );
@@ -742,16 +831,10 @@ const AppSandbox = (() => {
     if (typeof Notify === 'undefined' || typeof Notify.show !== 'function') {
       return respondError(webview, 'nova:notifications:show', requestId, 'UNAVAILABLE', 'Notification service not available');
     }
-    Notify.show({
-      title: payload.title || 'Notification',
-      body: payload.body || '',
-      type: payload.type || 'info',
-      appName: app.name,
-      icon: payload.icon || null,
-      action: payload.action || null,
-      actionLabel: payload.actionLabel || null,
-      category: payload.category || 'app',
-    });
+    if (!checkNotificationRateLimit(app.id)) {
+      return respondError(webview, 'nova:notifications:show', requestId, 'RATE_LIMITED', `Max ${NOTIF_RATE_LIMIT_MAX} notifications per minute`);
+    }
+    Notify.show(sanitizeNotificationPayload(payload, app.name));
     return respond(webview, 'nova:notifications:show', requestId, { success: true });
   }
 
@@ -1292,13 +1375,22 @@ const AppSandbox = (() => {
       osVersion: OS.version,
       securityPatch: OS.securityPatch,
     };
+    // Some apps (see the capability shim / createDefaultAppShell) read the
+    // handshake fields directly off the top-level response object rather
+    // than through the generic `result` wrapper, so both shapes are sent.
+    // Routed through respond() — see that function's doc comment for why
+    // this can't use webview.contentWindow.postMessage directly.
+    respond(webview, 'nova:ready', requestId, payload);
     try {
-      webview.contentWindow.postMessage(
-        { type: 'nova:ready:response', requestId, ...payload, result: payload },
-        window.location.origin
-      );
+      const target = webview._novaMessageSource;
+      if (target) {
+        target.postMessage(
+          { type: 'nova:ready:response', requestId, ...payload, result: payload },
+          window.location.origin
+        );
+      }
     } catch (e) {
-      log('error', `Failed to respond to nova:ready:`, e);
+      log('error', `Failed to send legacy-shape nova:ready response:`, e);
     }
   }
 
@@ -1411,12 +1503,38 @@ const AppSandbox = (() => {
   function setupAPIBridge(webview, app, sandboxId) {
     const abortController = new AbortController();
 
+    // Pinned on the first message this handler ever receives (always
+    // nova:ready, sent immediately on load — see createDefaultAppShell /
+    // the capability shim). Every later message must come from the exact
+    // same event.source, which cross-process <webview> guests can't forge:
+    // a different app's guest process yields a different, non-equal source
+    // reference. This replaces the old (broken) contentWindow comparison
+    // without reopening the door to one app's messages being processed
+    // under another app's identity, since messageHandler below is
+    // registered per-sandbox but window 'message' events are dispatched to
+    // every registered listener regardless of which webview sent them.
+    let pinnedSource = null;
+
     const messageHandler = (event) => {
       // Apps are served from our origin, so we reject any other origin
-      // outright. event.source must match this webview's contentWindow to
-      // prevent messages from other frames on the same origin.
+      // outright.
       if (event.origin !== window.location.origin) return;
-      if (event.source !== webview.contentWindow) return;
+
+      // NOTE: we do NOT compare event.source against webview.contentWindow.
+      // For a <webview> tag, contentWindow is unavailable — NW.js/Chromium
+      // runs <webview> guest content in a separate renderer process, so the
+      // embedder has no direct JS reference to the guest's window the way
+      // it would for a same-process <iframe>. That comparison used to
+      // silently drop every single incoming message from every app, since
+      // webview.contentWindow was always undefined and event.source never
+      // equals undefined. See respond(), below, for the matching fix on
+      // the outbound side.
+      if (pinnedSource === null) {
+        pinnedSource = event.source;
+      } else if (event.source !== pinnedSource) {
+        return;
+      }
+      webview._novaMessageSource = event.source;
 
       const { type, payload, requestId } = event.data ?? {};
       if (!type || !type.startsWith(API_PREFIX)) return;
