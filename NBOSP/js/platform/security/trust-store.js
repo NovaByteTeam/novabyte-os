@@ -93,11 +93,22 @@ const TrustStore = (() => {
 
   const REVOCATION_FILENAME = 'revoked-signatures.json';
 
+  // This file relative to the NBOSP app root. Kept explicit rather than
+  // derived from __dirname: this module is loaded as a plain <script src>
+  // tag (see index.html), not require()'d as a CommonJS module, and
+  // __dirname/__filename are only ever defined for modules loaded via
+  // require() — NW.js does not set them for top-level page/script-tag
+  // scope even with Node integration on. `typeof __dirname` doesn't throw
+  // on that undeclared global, so the old code silently fell through to
+  // '.' (i.e. process.cwd()), which is the NBOSP root the server process
+  // was launched from — NOT this file's actual directory. That made
+  // every lookup miss the real revoked-signatures.json (ENOENT, silently
+  // swallowed as "no revocations yet"), so revocations never loaded and
+  // revoked signatures kept showing as verified with no popup.
+  const REVOCATION_RELATIVE_PATH = ['js', 'platform', 'security', REVOCATION_FILENAME];
+
   function _revocationFilePath() {
-    // __dirname is available in NW.js's Node-integrated context, same as
-    // plain Node. Falls back to cwd-relative if somehow unavailable.
-    const dir = typeof __dirname !== 'undefined' ? __dirname : '.';
-    return _path.join(dir, REVOCATION_FILENAME);
+    return _path.join(process.cwd(), ...REVOCATION_RELATIVE_PATH);
   }
 
   function _loadRevokedFromDisk() {
@@ -190,11 +201,22 @@ const TrustStore = (() => {
     return revoked.some((r) => r.signature === signature);
   }
 
+  /**
+   * Look up the full revocation record for a signature (reason,
+   * revokedAt), or null if it isn't revoked. Kept separate from
+   * isRevoked() so existing callers that treat it as a plain boolean
+   * predicate (e.g. verifyAgainstTrustStore) aren't affected.
+   */
+  function getRevocation(signature) {
+    if (!signature) return null;
+    return revoked.find((r) => r.signature === signature) || null;
+  }
+
   function listRevoked() {
     return revoked.slice();
   }
 
-  return { list, add, revoke, unrevoke, isRevoked, listRevoked };
+  return { list, add, revoke, unrevoke, isRevoked, getRevocation, listRevoked };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = TrustStore;

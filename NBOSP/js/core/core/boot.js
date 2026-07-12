@@ -567,6 +567,210 @@ async function boot() {
       }
       registerWithFiles(appData);
     }
+
+    // ── Post-install revocation re-check ──────────────────────────
+    // verifyAgainstTrustStore only ever ran once, at install time. If
+    // NovaByte revokes a signature *after* someone already installed
+    // that app, nothing previously re-checked it — the app just kept
+    // running as "verified" forever, silently. This scan runs on every
+    // boot so a newly-revoked app gets surfaced the next time NBOSP
+    // starts, regardless of whether App Manager is ever opened.
+    scanForRevokedApps(apps).catch(e =>
+      console.error('[BOOT] Revocation scan failed:', e));
+  }
+
+  /**
+   * Check every installed, signed app against TrustStore.isRevoked and
+   * surface a removal dialog for each one currently on the revocation
+   * list — every boot, not just the first time it's discovered. Shown
+   * sequentially, one at a time, after the desktop is up rather than
+   * blocking boot itself.
+   */
+  async function scanForRevokedApps(apps) {
+    if (typeof TrustStore === 'undefined' || typeof TrustStore.isRevoked !== 'function') return;
+
+    // NOTE: deliberately does NOT filter out a.revoked here. revoked is
+    // persisted permanently once flagged (see markAppRevokedInStorage,
+    // used for the App Manager badge), but the dialog itself must keep
+    // firing every boot regardless of that flag — otherwise clicking
+    // Cancel once (which sets revoked=true) would silently make this a
+    // one-time-only warning, which is exactly the quiet-forever behavior
+    // this feature exists to prevent. The only thing that should stop
+    // the dialog from reappearing is the app actually being removed.
+    const revokedApps = apps.filter(a =>
+      a && a.id && a.signature && TrustStore.isRevoked(a.signature));
+
+    if (revokedApps.length === 0) return;
+
+    // Wait for the desktop/boot animation to settle so the dialog
+    // doesn't fight with boot-screen fade-out/lock-screen transitions.
+    await new Promise(r => setTimeout(r, 1200));
+
+    for (const appData of revokedApps) {
+      // Deliberately sequential (await inside loop) — showing several of
+      // these stacked at once would be confusing; one decision at a time.
+      const revocation = typeof TrustStore.getRevocation === 'function'
+        ? TrustStore.getRevocation(appData.signature)
+        : null;
+      const remove = await showRevokedAppRemovalDialog(appData, revocation);
+      if (remove) {
+        await removeRevokedApp(appData.id);
+      } else {
+        // Persist the revoked flag so the rest of the UI (e.g. App
+        // Manager's package details panel) can reflect it accurately,
+        // WITHOUT suppressing this dialog on future boots — the whole
+        // point is this keeps surfacing until the user acts, the same
+        // way a browser keeps warning about a disabled/malicious
+        // extension rather than mentioning it once and going quiet.
+        markAppRevokedInStorage(appData.id);
+      }
+    }
+  }
+
+  function markAppRevokedInStorage(appId) {
+    try {
+      const list = Storage.get(KEYS.INSTALLED_APPS, []);
+      const idx = list.findIndex(a => a.id === appId);
+      if (idx > -1 && !list[idx].revoked) {
+        list[idx] = { ...list[idx], revoked: true };
+        Storage.set(KEYS.INSTALLED_APPS, list);
+      }
+      if (window.NovaAppPackageStore?.saveRegistry && window.NovaAppPackageStore?.loadRegistry) {
+        const reg = NovaAppPackageStore.loadRegistry();
+        const ri = reg.findIndex(a => a.id === appId);
+        if (ri > -1 && !reg[ri].revoked) {
+          reg[ri] = { ...reg[ri], revoked: true };
+          NovaAppPackageStore.saveRegistry(reg);
+        }
+      }
+    } catch (e) {
+      console.warn('[BOOT] Failed to persist revoked flag for', appId, e);
+    }
+  }
+
+  async function removeRevokedApp(appId) {
+    try {
+      delete OS.apps[appId];
+      const ri = APP_REGISTRY.findIndex(a => a.id === appId);
+      if (ri > -1) APP_REGISTRY.splice(ri, 1);
+      if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
+        AppRegistry.unregisterApp(appId);
+      }
+      if (window.NovaAppPackageStore?.removeApp) {
+        await NovaAppPackageStore.removeApp(appId);
+      } else {
+        const list = Storage.get(KEYS.INSTALLED_APPS, []).filter(a => a.id !== appId);
+        Storage.set(KEYS.INSTALLED_APPS, list);
+      }
+      if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+      if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+      console.warn('[BOOT] Removed app with revoked signature:', appId);
+    } catch (e) {
+      console.error('[BOOT] Failed to remove revoked app', appId, e);
+    }
+  }
+
+  /**
+   * Dialog shown when boot discovers an app whose signature has been
+   * revoked SINCE it was installed (as opposed to appmanager.js's
+   * showUntrustedAppDialog, which only ever runs at install time and
+   * offers "Cancel" / "Install Anyway"). This one only ever offers
+   * "Remove" / "Cancel" — there's no "install anyway" equivalent here,
+   * because the app is already installed and running; the only two
+   * outcomes that make sense are taking it out, or acknowledging the
+   * warning and leaving it for now (which will nag again next boot).
+   */
+  function showRevokedAppRemovalDialog(appData, revocation) {
+    return new Promise(resolve => {
+      const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+
+      const backdrop = document.createElement('div');
+      backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);';
+
+      const box = document.createElement('div');
+      box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid var(--border,#333);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04) inset;';
+
+      const safeName = escapeHtml(appData.name || appData.id || 'This app');
+      const safeId = escapeHtml(appData.id || '');
+      const safeVersion = escapeHtml(appData.version || 'unknown');
+      // NovaByte's own reason for revoking is genuinely useful context for
+      // deciding whether to remove — surface it verbatim when set, rather
+      // than only the generic "why re-checks happen at all" explanation.
+      const safeReason = escapeHtml(revocation?.reason || '');
+      const cautionBorderColor = 'rgba(248,81,73,0.35)';
+      const cautionBgColor = 'rgba(248,81,73,0.1)';
+      const cautionDotColor = '#f85149';
+
+      box.innerHTML = `
+        <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
+          <div style="width:44px;height:44px;border-radius:12px;background:var(--bg-inset,rgba(255,255,255,0.04));border:1px solid ${cautionBorderColor};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">An Installed App Was Revoked</div>
+            <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
+              <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} was already installed and trusted, but its signature has since been pulled from NovaByte OS's trust list.
+              This is different from an install-time warning — this app has actually been running on your system since it was first installed.
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;">
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:${cautionBgColor};border:1px solid ${cautionBorderColor};border-radius:8px;">
+            <div style="width:6px;height:6px;border-radius:50%;background:${cautionDotColor};flex-shrink:0;margin-top:7px;box-shadow:0 0 6px ${cautionDotColor};"></div>
+            <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
+              <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">Why this happened</div>
+              A signature is normally only checked when an app is installed. NovaByte OS now also re-checks every installed app's signature each time it starts up, so revocations that happen after install — for example if this package was later found to be harmful, deceptive, or non-compliant — can still be caught.
+            </div>
+          </div>
+
+          <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
+            <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
+              <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
+              <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+              <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Signature</span><span style="font-weight:500;color:var(--text-primary,#eee);">present, but revoked by NovaByte OS since install</span></div>
+              ${safeReason ? `<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Revocation reason</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;">${safeReason}</span></div>` : ''}
+            </div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));font-size:12px;color:var(--text-muted,#999);line-height:1.6;">
+              If you keep this app installed, NovaByte OS will show this warning again the next time it starts, until it's removed. Removing it now uninstalls the app and its data folder.
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+          <button id="nb-revoked-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
+          <button id="nb-revoked-remove-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.4);color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:700;">Remove App</button>
+        </div>
+      `;
+
+      const styleEl = document.createElement('style');
+      styleEl.textContent = `
+        #nb-revoked-cancel-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
+        #nb-revoked-remove-btn:hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.5);box-shadow:0 0 12px rgba(248,81,73,0.15); }
+        #nb-revoked-remove-btn:active, #nb-revoked-cancel-btn:active { transform:scale(0.97); }
+      `;
+      document.head.appendChild(styleEl);
+
+      overlay.appendChild(backdrop);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+
+      const cleanup = () => { overlay.remove(); styleEl.remove(); };
+
+      box.querySelector('#nb-revoked-cancel-btn').addEventListener('click', () => {
+        cleanup();
+        resolve(false);
+      });
+      box.querySelector('#nb-revoked-remove-btn').addEventListener('click', () => {
+        cleanup();
+        resolve(true);
+      });
+      // Deliberately NOT dismissible by clicking the backdrop — this is a
+      // security notice about an app already running on the system, not
+      // a casual install prompt; it should require an explicit choice.
+    });
   }
 
 // ── Global Exports ─────────────────────────────────────────────────

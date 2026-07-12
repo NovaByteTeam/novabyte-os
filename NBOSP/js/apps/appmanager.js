@@ -689,12 +689,24 @@ registerApp({
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
       // ── Verification badge ──────────────────────────────────────────────
-      // Reads app.verified/app.signer, set once at install time from
-      // AppPackage.verifyAgainstTrustStore's result (see processFile). Never
-      // re-derives trust here — this only displays what was already decided.
+      // Reads app.verified/app.signer/app.revoked. verified/signer are set
+      // once at install time from AppPackage.verifyAgainstTrustStore's
+      // result (see processFile) and never re-derived here. revoked,
+      // however, CAN change after install — see boot.js's post-install
+      // revocation scan, which flags app.revoked = true on restart if
+      // NovaByte pulls a signature after the app was already installed.
+      // That scan deliberately does NOT flip app.verified back to false
+      // (verified reflects what was true when installed, revoked reflects
+      // current trust status), so this badge must check revoked FIRST —
+      // otherwise a revoked app keeps showing "✓ Verified" forever, which
+      // would flatly contradict the revocation warning the user already
+      // saw on boot.
       function verifyBadgeHtml(app, { compact } = {}) {
         const size = compact ? '9px' : '10px';
         const pad = compact ? '1px 6px' : '2px 7px';
+        if (app.revoked) {
+          return `<span title="Signature revoked by NovaByte OS — this app is no longer trusted" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u2715 Revoked</span>`;
+        }
         if (app.verified) {
           return `<span title="${escapeHtml('Signed by ' + (app.signer || 'a trusted signer'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,rgba(63,185,80,0.12));padding:${pad};border-radius:5px;white-space:nowrap;">\u2713 Verified</span>`;
         }
@@ -1022,6 +1034,7 @@ registerApp({
             const appData = {
               ...pkg.manifest,
               files: pkg.files,
+              signature: pkg.signature,
               verified,
               signer,
               source: 'file',
