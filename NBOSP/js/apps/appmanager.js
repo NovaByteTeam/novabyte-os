@@ -1,4 +1,3 @@
-// [NBOSP_APPMANAGER_JS] -- from NovaByte OS Platform (NBOSP), not NovaPack Studio
 registerApp({
   id: 'app-manager',
   name: 'App Manager',
@@ -171,51 +170,131 @@ registerApp({
     // see *why* it's untrusted and still choose to run it if they want,
     // the same way browsers let you click through an unknown-publisher
     // warning rather than refusing outright.
+    //
+    // trust-store.js defines three distinct untrusted states:
+    //   1. No signature at all            → unsigned package
+    //   2. Signature from unknown pub      → not in trust store
+    //   3. Revoked signature               → cryptographically valid but individually pulled
+    // This dialog surfaces each state accurately so the user can make an
+    // informed decision rather than seeing a single generic warning.
     function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
       return new Promise(resolve => {
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+
+        const backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
 
         const box = document.createElement('div');
-        box.style.cssText = 'background:var(--bg-elevated,#1e1e1e);border:1px solid var(--border,#333);border-radius:12px;max-width:440px;width:90%;padding:24px;color:var(--text,#eee);box-shadow:0 20px 60px rgba(0,0,0,0.4);';
+        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid var(--border,#333);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
 
         const safeName = escapeHtml(appData.name || appData.id || 'This app');
         const safeId = escapeHtml(appData.id || '');
+        const safeVersion = escapeHtml(appData.version || 'unknown');
+        const isRevoked = !!appData.revoked;
+        const hasSignature = !!appData.signature;
+
+        let title, summary, cautionText, cautionBorderColor, cautionBgColor, cautionDotColor, cautionTitle, iconEmoji;
+
+        if (isRevoked) {
+          iconEmoji = '\uD83D\uDD34';
+          title = 'Revoked Package — Do Not Install';
+          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} carries a signature that has been individually revoked by NovaByte OS.
+            This package was previously verified as signed by a trusted authority, but was subsequently pulled from the trust list — most likely because it was found to be harmful, deceptive, or non-compliant after review.`;
+          cautionTitle = 'Why this is serious';
+          cautionText = 'A revoked signature means NovaByte OS once recognised the publisher, but has since decided this specific package should not be trusted. Other packages from the same publisher may still be trusted, but this one is not. Installing it bypasses an explicit security decision.';
+          cautionBorderColor = 'rgba(248,81,73,0.35)';
+          cautionBgColor = 'rgba(248,81,73,0.1)';
+          cautionDotColor = '#f85149';
+        } else if (hasSignature) {
+          iconEmoji = '\u26A0\uFE0F';
+          title = 'Untrusted App — Unknown Publisher';
+          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} is signed, but the signer is not in NovaByte OS's trust store.
+            This usually means the app is self-signed by an individual developer, or signed by an authority that hasn't been reviewed and added to the system trust list.`;
+          cautionTitle = 'What this means';
+          cautionText = `NovaByte OS cannot confirm the identity of the publisher or guarantee that the package has not been modified since it was signed. This doesn't prove the app is malicious — it just means nobody vetted the publisher on your behalf. Proceed only if you obtained the package directly from a developer or source you personally trust.`;
+          cautionBorderColor = 'rgba(210,153,34,0.3)';
+          cautionBgColor = 'rgba(210,153,34,0.08)';
+          cautionDotColor = '#d29922';
+        } else {
+          iconEmoji = '\u26A0\uFE0F';
+          title = 'Untrusted App — Not Signed';
+          summary = `<b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} is not digitally signed.
+            NovaByte OS cannot verify who created the package, when it was built, or whether it has been altered since distribution.`;
+          cautionTitle = 'What this means';
+          cautionText = 'An unsigned package provides no cryptographic proof of origin. Anyone could have created or modified it. Only proceed if you inspected the package yourself and trust its source completely.';
+          cautionBorderColor = 'rgba(210,153,34,0.25)';
+          cautionBgColor = 'rgba(210,153,34,0.06)';
+          cautionDotColor = '#d29922';
+        }
 
         box.innerHTML = `
-          <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:16px;">
-            <div style="font-size:28px;line-height:1;">\u{1F6E1}\uFE0F</div>
-            <div>
-              <div style="font-size:16px;font-weight:600;margin-bottom:4px;">NovaByte prevented an untrusted app from installing</div>
-              <div style="font-size:13px;color:var(--text-muted,#999);">
-                <b>${safeName}</b>${safeId ? ` (${safeId})` : ''} is not signed by a source NovaByte recognizes.
-                This doesn't necessarily mean it's harmful, but its origin can't be verified.
+          <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:12px;background:var(--bg-inset,rgba(255,255,255,0.04));border:1px solid ${cautionBorderColor};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">${iconEmoji}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">${title}</div>
+              <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">${summary}</div>
+            </div>
+          </div>
+
+          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:${cautionBgColor};border:1px solid ${cautionBorderColor};border-radius:8px;">
+              <div style="width:6px;height:6px;border-radius:50%;background:${cautionDotColor};flex-shrink:0;margin-top:7px;box-shadow:0 0 6px ${cautionDotColor};"></div>
+              <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
+                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">${cautionTitle}</div>
+                ${cautionText}
+              </div>
+            </div>
+
+            <div id="nb-untrusted-more" style="display:none;padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;animation:nb-fade-in 150ms ease-out;">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Signature</span><span style="font-weight:500;color:var(--text-primary,#eee);">${isRevoked ? 'present, but revoked by NovaByte OS' : hasSignature ? 'present, but not from a recognised signer' : 'none — package is not signed'}</span></div>
+                ${isRevoked ? '<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Revocation reason</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;">Removed from trust list by NovaByte OS</span></div>' : ''}
+              </div>
+              <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));font-size:12px;color:var(--text-muted,#999);line-height:1.6;">
+                Only install or run apps obtained from sources you trust. A missing or unrecognised signature means NovaByte OS cannot confirm who published this app or guarantee it has not been modified since distribution.${isRevoked ? ' A revoked signature means NovaByte OS reviewed this package and explicitly decided it should no longer be trusted — installing it overrides that decision.' : ''} If you do not trust the source, cancel this operation and remove the package.
               </div>
             </div>
           </div>
-          <div id="nb-untrusted-more" style="display:none;font-size:12.5px;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.04));border-radius:8px;padding:12px;margin-bottom:16px;line-height:1.6;">
-            <div><b>Package ID:</b> ${safeId || 'unknown'}</div>
-            <div><b>Version:</b> ${escapeHtml(appData.version || 'unknown')}</div>
-            <div><b>Signature:</b> ${appData.signature ? 'present, but not from a trusted signer' : 'none'}</div>
-            <div style="margin-top:8px;">Only install or run apps you got from a source you trust. A missing or unrecognized signature means NovaByte cannot confirm who published this app or that it hasn't been modified since.</div>
-          </div>
-          <div style="display:flex;justify-content:space-between;gap:10px;">
-            <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:8px 14px;border-radius:7px;font-size:13px;cursor:pointer;">More Info</button>
+
+          <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <button id="nb-untrusted-more-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text-muted,#ccc);padding:7px 14px;border-radius:7px;font-size:12px;cursor:pointer;transition:all 0.12s;font-weight:500;">More Info</button>
             <div style="display:flex;gap:8px;">
-              <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border,#444);color:var(--text,#eee);padding:8px 14px;border-radius:7px;font-size:13px;cursor:pointer;">Cancel</button>
-               <button id="nb-untrusted-launch-btn" style="background:var(--text-danger,#f85149);border:none;color:#fff;padding:8px 14px;border-radius:7px;font-size:13px;cursor:pointer;font-weight:600;">Install Anyway</button>
+              <button id="nb-untrusted-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
+              <button id="nb-untrusted-launch-btn" style="display:none;background:rgba(248,81,73,0.15);border:1px solid ${isRevoked ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.3)'};color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:${isRevoked ? 700 : 600};">${isRevoked ? 'Install Despite Revocation' : 'Install Anyway'}</button>
             </div>
           </div>
         `;
 
+        const styleEl = document.createElement('style');
+        styleEl.textContent = `
+          @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+          #nb-untrusted-more-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
+          #nb-untrusted-cancel-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
+          #nb-untrusted-launch-btn:hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.5);box-shadow:0 0 12px rgba(248,81,73,0.15); }
+          #nb-untrusted-launch-btn:active { transform:scale(0.97); }
+        `;
+        document.head.appendChild(styleEl);
+
+        overlay.appendChild(backdrop);
         overlay.appendChild(box);
         document.body.appendChild(overlay);
 
-        const cleanup = () => overlay.remove();
+        const cleanup = () => {
+          overlay.remove();
+          styleEl.remove();
+        };
 
         box.querySelector('#nb-untrusted-more-btn').addEventListener('click', () => {
           const panel = box.querySelector('#nb-untrusted-more');
-          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          const isHidden = panel.style.display === 'none';
+          panel.style.display = isHidden ? 'block' : 'none';
+          box.querySelector('#nb-untrusted-more-btn').textContent = isHidden ? 'Less Info' : 'More Info';
+          box.querySelector('#nb-untrusted-launch-btn').style.display = isHidden ? 'inline-block' : 'none';
         });
         box.querySelector('#nb-untrusted-cancel-btn').addEventListener('click', () => {
           cleanup();
@@ -225,6 +304,13 @@ registerApp({
           cleanup();
           if (typeof onLaunchAnyway === 'function') onLaunchAnyway();
           resolve(true);
+        });
+
+        backdrop.addEventListener('click', (e) => {
+          if (e.target === backdrop) {
+            cleanup();
+            resolve(false);
+          }
         });
       });
     }
@@ -344,7 +430,7 @@ registerApp({
                 if (typeof contentEl?.innerHTML === 'string') {
                     contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"></div>';
                 }
-                const proceeded = await showUntrustedAppDialog(appData);
+                const proceeded = await showUntrustedAppDialog({ ...appData });
                 if (!proceeded) {
                     if (typeof contentEl?.innerHTML === 'string') {
                         contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
@@ -860,11 +946,12 @@ registerApp({
             // signature that validates, so this can't be self-satisfied.
             let verified = false;
             let signer = null;
+            let result = null;
             try {
               if (typeof AppPackage !== 'undefined' && typeof AppPackage.verifyAgainstTrustStore === 'function'
                   && typeof TrustStore !== 'undefined') {
                 const revocationCheck = typeof TrustStore.isRevoked === 'function' ? TrustStore.isRevoked : undefined;
-                const result = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list(), revocationCheck);
+                result = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list(), revocationCheck);
                 verified = result.trusted;
                 signer = result.signer;
                 if (result.revoked) {
@@ -881,7 +968,7 @@ registerApp({
 
             if (!verified) {
               const proceeded = await showUntrustedAppDialog(
-                { ...pkg.manifest, signature: pkg.signature },
+                { ...pkg.manifest, signature: pkg.signature, revoked: result?.revoked },
                 {}
               );
               if (!proceeded) return;
@@ -938,7 +1025,8 @@ registerApp({
               verified,
               signer,
               source: 'file',
-              installedAt: Date.now()
+              installedAt: Date.now(),
+              revoked: result?.revoked || false
             };
             if (PackageStore?.installApp) {
               Object.assign(appData, await PackageStore.installApp(appData));
