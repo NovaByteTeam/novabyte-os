@@ -53,6 +53,35 @@ const AppSandbox = (() => {
   const DEFAULT_WINDOW_HEIGHT = 600;
   const MIN_WINDOW_DIMENSION = 100;
 
+  // -- Notification gateway --
+  // Sandboxed apps never touch Notify.show() directly — everything funnels
+  // through handleNotificationsShow, which enforces the limits below. This is
+  // the actual security boundary: Notify.show() itself will happily execute a
+  // function passed as `action` (trusted first-party callers rely on that),
+  // so an app-facing payload must never pass anything but plain data through.
+  const NOTIF_TITLE_MAX_LEN = 120;
+  const NOTIF_BODY_MAX_LEN = 500;
+  const NOTIF_ACTION_LABEL_MAX_LEN = 40;
+  const ALLOWED_NOTIF_TYPES = new Set(['info', 'success', 'warning', 'error']);
+  // Matches the icon set actually implemented by svgIcon() elsewhere in the
+  // OS; anything else falls back to the default rather than being passed
+  // through to markup/attribute contexts uninspected.
+  const ALLOWED_NOTIF_ICONS = new Set([
+    'archive', 'bell', 'bookmark', 'box', 'clock', 'file', 'folder', 'globe',
+    'image', 'layout', 'lock', 'monitor', 'music', 'package', 'play', 'refresh',
+    'search', 'sound', 'star', 'unlock', 'users', 'x',
+  ]);
+  // Built-in action strings handleable by Notify.showToast()'s action-button
+  // switch statement. Anything else is dropped rather than forwarded, since
+  // an unrecognized string is silently ignored downstream anyway (console.warn)
+  // but there's no reason to let an app probe for future built-ins.
+  const ALLOWED_NOTIF_ACTIONS = new Set(['settings', 'open-settings', 'openSettings']);
+  // Sliding-window rate limit: N notifications per app per window.
+  const NOTIF_RATE_LIMIT_MAX = 10;
+  const NOTIF_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  // appId -> array of timestamps (ms) within the current window.
+  const notifRateLimitLog = new Map();
+
   // ------------------------------------------------------------------
   // Utility helpers
   // ------------------------------------------------------------------
