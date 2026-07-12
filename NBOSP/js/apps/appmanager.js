@@ -237,7 +237,7 @@ registerApp({
             </div>
           </div>
 
-          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;">
+          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
             <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:${cautionBgColor};border:1px solid ${cautionBorderColor};border-radius:8px;">
               <div style="width:6px;height:6px;border-radius:50%;background:${cautionDotColor};flex-shrink:0;margin-top:7px;box-shadow:0 0 6px ${cautionDotColor};"></div>
               <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
