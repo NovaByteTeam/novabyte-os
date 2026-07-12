@@ -893,6 +893,12 @@ const AppSandbox = (() => {
     if (!appId) {
       return respondError(webview, 'nova:app:launch', requestId, 'INVALID_ARGS', 'appId is required');
     }
+    if (!OS.settings.get('devMode')) {
+      const target = OS.apps[appId];
+      if (target?.devOnly) {
+        return respondError(webview, 'nova:app:launch', requestId, 'PERMISSION_DENIED', 'Developer Mode must be enabled to launch this app');
+      }
+    }
     try {
       if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
         return respondError(webview, 'nova:app:launch', requestId, 'UNAVAILABLE', 'Window manager not available');

@@ -175,6 +175,8 @@ const AppRegistry = (() => {
     const app = installedApps.get(appId);
     if (!app) throw new Error(`[AppRegistry] App not found: ${appId}`);
 
+    if (!OS.settings.get('devMode') && app.devOnly) return null;
+
     // FIX [R2]: request missing permissions before proceeding
     const mgr = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
     if (mgr && app.permissions.length > 0) {
