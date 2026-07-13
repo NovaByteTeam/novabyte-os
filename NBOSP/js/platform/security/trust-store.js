@@ -28,28 +28,30 @@
  * badge means for a stock/NovaByte-signed install (see the README's
  * Security section).
  *
- * Swapping it out: if your fork isn't bundling Nova Core Services,
+ * Swapping it out: if your fork isn't licensed for NovaByte Services,
  * this key is yours to replace like any other trust store entry —
  * point it at your own offline signing key and your fork's "Verified"
  * badge will mean packages reviewed and signed by you instead. The
  * key only has to stay as-is (unmodified, unremoved, still checked)
- * if your fork bundles Nova Core Services — see below.
+ * if your fork is NovaByte Services-licensed — see below.
  *
  * This file is part of NBOSP itself (Apache 2.0) — it's bundled in
  * every clone and fork, no separate license needed to have it or fork
  * it as-is.
  *
- * The one condition: if your fork wants Nova Core Services bundled in
- * too (see the README's Licensing section), this check — verifying
- * package signatures against the trust store — has to stay intact:
- * not removed, not bypassed, not turned into a no-op, and the
- * NovaByte key above has to stay the one it verifies against. We
- * won't license Nova Core Services into a fork where this has been
- * altered, because a fork that hands out "Trusted" badges to
- * unreviewed/unsigned packages breaks verification for users and for
- * us. Forking NBOSP without Nova Core Services is unaffected either
- * way — do what you want with your fork, including swapping this key
- * for your own; this condition only bites if you also want NCS.
+ * The one condition: if your fork wants a NovaByte Services license
+ * (see the README's Licensing section — this covers Nova Core
+ * Services, NovaBridge, Sentinel, and the other bundled components),
+ * this check — verifying package signatures against the trust store —
+ * has to stay intact: not removed, not bypassed, not turned into a
+ * no-op, and the NovaByte key above has to stay the one it verifies
+ * against. We won't issue a NovaByte Services license to a fork where
+ * this has been altered, because a fork that hands out "Trusted"
+ * badges to unreviewed/unsigned packages breaks verification for
+ * users and for us. Forking NBOSP without a NovaByte Services license
+ * is unaffected either way — do what you want with your fork,
+ * including swapping this key for your own; this condition only bites
+ * if you also want that license.
  *
  * Revocation:
  *  - A signature can be individually revoked without touching the signing
@@ -75,7 +77,7 @@
 const TrustStore = (() => {
   // Real public key, matching NovaByte's own offline private signing
   // key (see the module-level comment above — swappable for your own
-  // if this fork isn't bundling Nova Core Services).
+  // if this fork isn't NovaByte Services-licensed).
   const NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK = {
     kty: 'OKP',
     crv: 'Ed25519',
