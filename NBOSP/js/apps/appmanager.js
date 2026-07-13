@@ -193,6 +193,11 @@ registerApp({
         const safeVersion = escapeHtml(appData.version || 'unknown');
         const isRevoked = !!appData.revoked;
         const hasSignature = !!appData.signature;
+        const integrityStatus = appData.integrityStatus || 'unavailable';
+        const integrityLabel = integrityStatus === 'ok' ? 'passed — contents match build-time hash'
+          : integrityStatus === 'failed' ? '\u26A0\uFE0F failed — contents do not match build-time hash'
+          : 'not available — package has no integrity hash to check against';
+        const integrityColor = integrityStatus === 'failed' ? '#f85149' : 'var(--text-primary,#eee)';
 
         let title, summary, cautionText, cautionBorderColor, cautionBgColor, cautionDotColor, cautionTitle, iconEmoji;
 
@@ -252,6 +257,7 @@ registerApp({
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
                 <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Signature</span><span style="font-weight:500;color:var(--text-primary,#eee);">${isRevoked ? 'present, but revoked by NovaByte OS' : hasSignature ? 'present, but not from a recognised signer' : 'none — package is not signed'}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:${integrityColor};text-align:right;">${integrityLabel}</span></div>
                 ${isRevoked ? '<div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Revocation reason</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;">Removed from trust list by NovaByte OS</span></div>' : ''}
               </div>
               <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));font-size:12px;color:var(--text-muted,#999);line-height:1.6;">
@@ -303,6 +309,274 @@ registerApp({
         box.querySelector('#nb-untrusted-launch-btn').addEventListener('click', () => {
           cleanup();
           if (typeof onLaunchAnyway === 'function') onLaunchAnyway();
+          resolve(true);
+        });
+
+        backdrop.addEventListener('click', (e) => {
+          if (e.target === backdrop) {
+            cleanup();
+            resolve(false);
+          }
+        });
+      });
+    }
+
+    // ── Tamper-detected dialog ────────────────────────────────────────
+    // Shown when AppPackage.verifyIntegrity() fails — i.e. the package's
+    // contents no longer match the BLAKE3/SHA hash that was embedded at
+    // build time. This is a DIFFERENT risk from showUntrustedAppDialog:
+    // that dialog answers "do we know who signed this?", this one answers
+    // "does the content match what was signed?". A package can be validly
+    // signed by a fully trusted publisher and still fail this check if it
+    // was corrupted or altered after signing — so a trusted signer does
+    // NOT make this warning go away, and the two dialogs are intentionally
+    // not merged.
+    //
+    // Because this indicates the file itself may have been altered
+    // (rather than just "nobody vouched for the publisher"), there is no
+    // one-click "Install Anyway" to match showUntrustedAppDialog's pattern.
+    // Proceeding requires typing a confirmation phrase — friction that's
+    // proportionate to "this specific file may not be what it claims to be."
+    function showTamperDetectedDialog(appData, { mismatchedFiles = [] } = {}) {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+
+        const backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.4);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+
+        const safeName = escapeHtml(appData.name || appData.id || 'This app');
+        const safeId = escapeHtml(appData.id || '');
+        const safeVersion = escapeHtml(appData.version || 'unknown');
+        const fileList = mismatchedFiles.slice(0, 8).map(f => escapeHtml(f)).join(', ')
+          + (mismatchedFiles.length > 8 ? `, and ${mismatchedFiles.length - 8} more` : '');
+
+        box.innerHTML = `
+          <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Tamper Detected — Package Modified</div>
+              <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
+                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} failed its integrity check.
+                The package's contents no longer match the hash that was recorded when it was built. This is true regardless of whether the package is signed by a trusted publisher — a valid signature only proves who signed the <i>original</i> file, not that these are still its unmodified contents.
+              </div>
+            </div>
+          </div>
+
+          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
+              <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+              <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
+                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">Why this is serious</div>
+                A mismatch here usually means the file was altered after it was packaged — by corruption in transit, or by someone modifying it deliberately. NovaByte OS cannot tell which. Installing this package means running code that is provably different from what its integrity hash says it should be.
+              </div>
+            </div>
+
+            <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:#f85149;text-align:right;">\u26A0\uFE0F failed — contents do not match build-time hash</span></div>
+                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">Affected file(s)</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <label for="nb-tamper-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">To install anyway, type <b style="color:var(--text-primary,#ddd);">install tampered</b> below:</label>
+              <input id="nb-tamper-confirm-input" type="text" autocomplete="off" spellcheck="false" style="background:var(--bg-inset,rgba(255,255,255,0.04));border:1px solid var(--border,#444);border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--text-primary,#eee);font-family:inherit;outline:none;" placeholder="install tampered" />
+            </div>
+          </div>
+
+          <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+            <button id="nb-tamper-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
+            <button id="nb-tamper-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">Install Despite Tampering</button>
+          </div>
+        `;
+
+        const styleEl = document.createElement('style');
+        styleEl.textContent = `
+          @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+          #nb-tamper-cancel-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
+          #nb-tamper-install-btn:not(:disabled):hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.5);box-shadow:0 0 12px rgba(248,81,73,0.15); }
+          #nb-tamper-install-btn:not(:disabled):active { transform:scale(0.97); }
+          #nb-tamper-confirm-input:focus { border-color:rgba(248,81,73,0.5); }
+        `;
+        document.head.appendChild(styleEl);
+
+        overlay.appendChild(backdrop);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        const cleanup = () => {
+          overlay.remove();
+          styleEl.remove();
+        };
+
+        const input = box.querySelector('#nb-tamper-confirm-input');
+        const installBtn = box.querySelector('#nb-tamper-install-btn');
+        input.addEventListener('input', () => {
+          const match = input.value.trim().toLowerCase() === 'install tampered';
+          installBtn.disabled = !match;
+          installBtn.style.cursor = match ? 'pointer' : 'not-allowed';
+          installBtn.style.color = match ? '#f85149' : 'rgba(248,81,73,0.5)';
+          installBtn.style.borderColor = match ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.25)';
+        });
+
+        box.querySelector('#nb-tamper-cancel-btn').addEventListener('click', () => {
+          cleanup();
+          resolve(false);
+        });
+        installBtn.addEventListener('click', () => {
+          if (installBtn.disabled) return;
+          cleanup();
+          resolve(true);
+        });
+      });
+    }
+
+    // ── Combined trust + integrity dialog ─────────────────────────────
+    // Used ONLY when BOTH checks fail at once — i.e. exactly the 3 real
+    // combos: unsigned+tampered, untrusted-signer+tampered, revoked+tampered.
+    // (verified+tampered has no trust problem, so it still uses the plain
+    // showTamperDetectedDialog alone — no combo needed there.)
+    // This is a single popup with two distinct labeled sections (trust
+    // issue, then integrity issue) rather than two dialogs chained, and
+    // rather than one blended paragraph — the two questions ("who signed
+    // this?" and "does it match what was signed?") stay visually separate
+    // so neither reads as explaining away the other. Always requires
+    // typing "install tampered" to proceed, same bar as tamper alone,
+    // since tampering is present in every case this dialog covers.
+    function showCombinedTrustIntegrityDialog(appData, { mismatchedFiles = [] } = {}) {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+
+        const backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.4);border-radius:14px;max-width:540px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.55),0 0 0 1px rgba(255,255,255,0.04) inset;animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+
+        const safeName = escapeHtml(appData.name || appData.id || 'This app');
+        const safeId = escapeHtml(appData.id || '');
+        const safeVersion = escapeHtml(appData.version || 'unknown');
+        const isRevoked = !!appData.revoked;
+        const hasSignature = !!appData.signature;
+        const fileList = mismatchedFiles.slice(0, 8).map(f => escapeHtml(f)).join(', ')
+          + (mismatchedFiles.length > 8 ? `, and ${mismatchedFiles.length - 8} more` : '');
+
+        // Same 3-way trust sub-state branch as showUntrustedAppDialog,
+        // reused here for the top section's copy only.
+        let trustTitle, trustSummary, trustSignatureLabel;
+        if (isRevoked) {
+          trustTitle = 'Revoked Signature';
+          trustSummary = `This package's signature was individually revoked by NovaByte OS — it was previously trusted, but has since been pulled from the trust list, most likely because it was found to be harmful, deceptive, or non-compliant after review.`;
+          trustSignatureLabel = 'present, but revoked by NovaByte OS';
+        } else if (hasSignature) {
+          trustTitle = 'Unknown Publisher';
+          trustSummary = `This package is signed, but the signer is not in NovaByte OS's trust store. NovaByte OS cannot confirm the identity of the publisher.`;
+          trustSignatureLabel = 'present, but not from a recognised signer';
+        } else {
+          trustTitle = 'Not Signed';
+          trustSummary = `This package is not digitally signed. NovaByte OS cannot verify who created it or whether it has been altered since distribution.`;
+          trustSignatureLabel = 'none — package is not signed';
+        }
+
+        box.innerHTML = `
+          <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.4);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Two Problems Found — ${escapeHtml(trustTitle)} &amp; Tamper Detected</div>
+              <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
+                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} failed two independent checks: NovaByte OS cannot confirm who published it, <i>and</i> its contents no longer match the hash recorded at build time. These are separate risks — either one alone would be worth pausing on; together, proceed only if you're certain of both the source and the copy you have.
+              </div>
+            </div>
+          </div>
+
+          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;overflow-y:auto;">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">Trust issue — ${escapeHtml(trustTitle)}</div>
+              <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(210,153,34,0.08);border:1px solid rgba(210,153,34,0.3);border-radius:8px;">
+                <div style="width:6px;height:6px;border-radius:50%;background:#d29922;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #d29922;"></div>
+                <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">${trustSummary}</div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);">Integrity issue — Tamper Detected</div>
+              <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
+                <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+                <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
+                  The package's contents no longer match the hash recorded when it was built. This is true regardless of who signed it — a valid signature only proves who signed the <i>original</i> file, not that these are still its unmodified contents.
+                </div>
+              </div>
+            </div>
+
+            <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted,#999);margin-bottom:10px;">Package Details</div>
+              <div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.5;">
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Package ID</span><span style="font-weight:500;color:var(--text-primary,#eee);text-align:right;word-break:break-all;">${safeId || 'unknown'}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Version</span><span style="font-weight:500;color:var(--text-primary,#eee);">${safeVersion}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Signature</span><span style="font-weight:500;color:var(--text-primary,#eee);">${trustSignatureLabel}</span></div>
+                <div style="display:flex;justify-content:space-between;gap:12px;"><span style="color:var(--text-muted,#999);">Integrity</span><span style="font-weight:500;color:#f85149;text-align:right;">\u26A0\uFE0F failed — contents do not match build-time hash</span></div>
+                ${fileList ? `<div style="display:flex;flex-direction:column;gap:4px;"><span style="color:var(--text-muted,#999);">Affected file(s)</span><span style="font-weight:500;color:var(--text-primary,#eee);word-break:break-all;">${fileList}</span></div>` : ''}
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <label for="nb-combo-confirm-input" style="font-size:12px;color:var(--text-muted,#999);">To install anyway, type <b style="color:var(--text-primary,#ddd);">install tampered</b> below:</label>
+              <input id="nb-combo-confirm-input" type="text" autocomplete="off" spellcheck="false" style="background:var(--bg-inset,rgba(255,255,255,0.04));border:1px solid var(--border,#444);border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--text-primary,#eee);font-family:inherit;outline:none;" placeholder="install tampered" />
+            </div>
+          </div>
+
+          <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+            <button id="nb-combo-cancel-btn" style="background:none;border:1px solid var(--border-subtle,rgba(255,255,255,0.15));color:var(--text-primary,#eee);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:500;">Cancel</button>
+            <button id="nb-combo-install-btn" disabled style="background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.25);color:rgba(248,81,73,0.5);padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:not-allowed;transition:all 0.12s;font-weight:700;">Install Despite Both</button>
+          </div>
+        `;
+
+        const styleEl = document.createElement('style');
+        styleEl.textContent = `
+          @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+          #nb-combo-cancel-btn:hover { background:var(--bg-elevated,#2a2a2a);border-color:var(--border,#555); }
+          #nb-combo-install-btn:not(:disabled):hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.5);box-shadow:0 0 12px rgba(248,81,73,0.15); }
+          #nb-combo-install-btn:not(:disabled):active { transform:scale(0.97); }
+          #nb-combo-confirm-input:focus { border-color:rgba(248,81,73,0.5); }
+        `;
+        document.head.appendChild(styleEl);
+
+        overlay.appendChild(backdrop);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        const cleanup = () => {
+          overlay.remove();
+          styleEl.remove();
+        };
+
+        const input = box.querySelector('#nb-combo-confirm-input');
+        const installBtn = box.querySelector('#nb-combo-install-btn');
+        input.addEventListener('input', () => {
+          const match = input.value.trim().toLowerCase() === 'install tampered';
+          installBtn.disabled = !match;
+          installBtn.style.cursor = match ? 'pointer' : 'not-allowed';
+          installBtn.style.color = match ? '#f85149' : 'rgba(248,81,73,0.5)';
+          installBtn.style.borderColor = match ? 'rgba(248,81,73,0.4)' : 'rgba(248,81,73,0.25)';
+        });
+
+        box.querySelector('#nb-combo-cancel-btn').addEventListener('click', () => {
+          cleanup();
+          resolve(false);
+        });
+        installBtn.addEventListener('click', () => {
+          if (installBtn.disabled) return;
+          cleanup();
           resolve(true);
         });
 
@@ -422,15 +696,71 @@ registerApp({
                 return;
             }
 
+            // Re-verify integrity at every launch, not just at install time —
+            // stored files can be altered after install (storage corruption,
+            // a bad sync/restore, manual tampering with installedApps), and
+            // a package that was fine when installed is not guaranteed to
+            // still be fine now. Mirrors the same up-front computation the
+            // install path does, so both dialogs below can reflect the
+            // CURRENT state rather than a stale install-time snapshot.
+            let launchIntegrityStatus = 'unavailable'; // 'ok' | 'failed' | 'unavailable'
+            let launchMismatchedFiles = [];
+            if (appData.integrity && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
+                // Reconstruct the same pkg shape the install path verifies
+                // against (manifest + files + signature + integrity), not a
+                // narrower subset — AppPackage's internals aren't in this
+                // file, so there's no way to confirm it only reads files+integrity.
+                const pkgLike = { manifest: appData, files: appData.files, signature: appData.signature, integrity: appData.integrity };
+                try {
+                    const integrityOk = await AppPackage.verifyIntegrity(pkgLike);
+                    launchIntegrityStatus = integrityOk ? 'ok' : 'failed';
+                } catch (_) { launchIntegrityStatus = 'failed'; }
+
+                if (launchIntegrityStatus === 'failed' && typeof AppPackage.computeIntegrity === 'function') {
+                    try {
+                        const fresh = await AppPackage.computeIntegrity(pkgLike, appData.integrity.method);
+                        launchMismatchedFiles = Object.keys(appData.integrity.fileHashes || {})
+                            .filter(f => fresh.fileHashes?.[f] !== appData.integrity.fileHashes[f]);
+                    } catch (_) { /* best-effort only */ }
+                }
+            }
+
+            // Trust and/or integrity failure gate. Four shapes possible:
+            //  - both pass              -> no dialog, launches straight through
+            //  - trust fails only       -> showUntrustedAppDialog alone
+            //  - integrity fails only   -> showTamperDetectedDialog alone
+            //  - both fail              -> showCombinedTrustIntegrityDialog
+            //    (one popup, not two chained) — this is the only case that
+            //    needs the combined dialog; a trusted-but-tampered app has
+            //    no trust problem to combine, so it still uses tamper alone.
+            const trustFailed = appData.verified === false;
+            const integrityFailed = launchIntegrityStatus === 'failed';
+
+            if (trustFailed && integrityFailed && !options?.userAllowedUnverified && !options?.userAllowedTampered) {
+                if (typeof contentEl?.innerHTML === 'string') {
+                    contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"></div>';
+                }
+                const proceeded = await showCombinedTrustIntegrityDialog(appData, { mismatchedFiles: launchMismatchedFiles });
+                if (!proceeded) {
+                    if (typeof contentEl?.innerHTML === 'string') {
+                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
+                    }
+                    return;
+                }
+                return buildNovaAppConfig(appData).init(contentEl, state, { ...options, userAllowedUnverified: true, userAllowedTampered: true });
+            }
+
             // Unverified (unsigned, or signed by no one in the trust store)
             // apps now get a dialog with a real choice instead of a dead
              // end. `options.userAllowedUnverified` lets the "Install Anyway"
             // path re-enter init() without looping the dialog forever.
-            if (appData.verified === false && !options?.userAllowedUnverified) {
+            // Only reached here if integrity is NOT also failing (the
+            // combo case above already handled that and returned).
+            if (trustFailed && !options?.userAllowedUnverified) {
                 if (typeof contentEl?.innerHTML === 'string') {
                     contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"></div>';
                 }
-                const proceeded = await showUntrustedAppDialog({ ...appData });
+                const proceeded = await showUntrustedAppDialog({ ...appData, integrityStatus: launchIntegrityStatus });
                 if (!proceeded) {
                     if (typeof contentEl?.innerHTML === 'string') {
                         contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
@@ -439,6 +769,28 @@ registerApp({
                 }
                 // Re-run init with the user's explicit one-time override.
                 return buildNovaAppConfig(appData).init(contentEl, state, { ...options, userAllowedUnverified: true });
+            }
+
+            // Tamper block — separate from signature trust, same as the
+            // install path. Only reached here if trust is NOT also failing
+            // (the combo case above already handled that). A trusted
+            // signer does NOT skip this: trust and tamper are independent
+            // axes, so it's possible to see only this dialog (trusted
+            // publisher, corrupted local copy), only the one above
+            // (untrusted publisher, unmodified files), the combined dialog
+            // (both at once), or neither (the common case).
+            if (integrityFailed && !options?.userAllowedTampered) {
+                if (typeof contentEl?.innerHTML === 'string') {
+                    contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;"></div>';
+                }
+                const proceeded = await showTamperDetectedDialog(appData, { mismatchedFiles: launchMismatchedFiles });
+                if (!proceeded) {
+                    if (typeof contentEl?.innerHTML === 'string') {
+                        contentEl.innerHTML = '<div style="padding:24px;color:var(--text-muted);font-family:var(--font-ui,sans-serif);font-size:13px;">Launch cancelled.</div>';
+                    }
+                    return;
+                }
+                return buildNovaAppConfig(appData).init(contentEl, state, { ...options, userAllowedTampered: true });
             }
 
             if (pkgData && !appData.manifest) {
@@ -704,13 +1056,37 @@ registerApp({
       function verifyBadgeHtml(app, { compact } = {}) {
         const size = compact ? '9px' : '10px';
         const pad = compact ? '1px 6px' : '2px 7px';
+        const badges = [];
+        if (app.tampered) {
+          badges.push(`<span title="Files no longer match what was signed — this app may have been modified since install" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0\uFE0F Tampered</span>`);
+        }
         if (app.revoked) {
-          return `<span title="Signature revoked by NovaByte OS — this app is no longer trusted" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u2715 Revoked</span>`;
+          badges.push(`<span title="Signature revoked by NovaByte OS — this app is no longer trusted" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u2715 Revoked</span>`);
         }
-        if (app.verified) {
-          return `<span title="${escapeHtml('Signed by ' + (app.signer || 'a trusted signer'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,rgba(63,185,80,0.12));padding:${pad};border-radius:5px;white-space:nowrap;">\u2713 Verified</span>`;
+        if (app.verified && !app.revoked) {
+          badges.push(`<span title="${escapeHtml('Signed by ' + (app.signer || 'a trusted signer'))}" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-success,#3fb950);background:var(--bg-success-muted,rgba(63,185,80,0.12));padding:${pad};border-radius:5px;white-space:nowrap;">\u2713 Verified</span>`);
+        } else if (!app.revoked) {
+          // Not verified and not revoked (revoked already implies "not a
+          // trusted signer" via its own pill above, so don't also stack
+          // "Unverified" on top of "Revoked" — that'd be saying the same
+          // thing twice). This has to be an explicit check, not a
+          // badges.length===0 fallback: tampered is independent of trust
+          // status, so a tampered+unverified app must show BOTH, and a
+          // length-based fallback would never fire once tampered pushed
+          // something into the array first.
+          badges.push(`<span title="Not signed by a trusted signer" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0 Unverified</span>`);
+        } else {
+          // Revoked, and this WAS verified at install time (app.verified
+          // is still true underneath — see the comment above this
+          // function: revoked deliberately doesn't flip verified back to
+          // false, since verified is a historical record of install-time
+          // trust). But the badge is about CURRENT trust status, not
+          // history, so a revoked signer shows as Unverified here even
+          // though the underlying data still remembers it was once
+          // legitimately signed.
+          badges.push(`<span title="Signature revoked — no longer treated as a trusted signer" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0 Unverified</span>`);
         }
-        return `<span title="Not signed by a trusted signer" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-muted,#999);background:var(--bg-inset,rgba(255,255,255,0.06));padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0 Unverified</span>`;
+        return badges.join(compact ? '' : ' ');
       }
 
       function renderList() {
@@ -956,6 +1332,33 @@ registerApp({
             // checking against a public key from a trust store: only the
             // holder of the matching PRIVATE key could have produced a
             // signature that validates, so this can't be self-satisfied.
+            // ── Integrity check — computed up front, before the trust-store
+            // check, purely so BOTH dialogs below can show it as a package
+            // detail. Trust (who signed it) and integrity (is it unmodified)
+            // are separate axes — a package can fail one without failing the
+            // other — so this result is informational at this point; the
+            // actual "block install" decision for tampering still happens
+            // in its own step further down, with its own harder confirmation.
+            let integrityStatus = 'unavailable'; // 'ok' | 'failed' | 'unavailable'
+            let mismatchedFiles = [];
+            if (pkg.integrity && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
+              try {
+                const integrityOk = await AppPackage.verifyIntegrity(pkg);
+                integrityStatus = integrityOk ? 'ok' : 'failed';
+              } catch (_) { integrityStatus = 'failed'; }
+
+              if (integrityStatus === 'failed') {
+                // verifyIntegrity() only returns a boolean, so recompute
+                // per-file hashes here purely to show the user which
+                // file(s) look altered — this list is informational only.
+                try {
+                  const fresh = await AppPackage.computeIntegrity(pkg, pkg.integrity.method);
+                  mismatchedFiles = Object.keys(pkg.integrity.fileHashes || {})
+                    .filter(f => fresh.fileHashes?.[f] !== pkg.integrity.fileHashes[f]);
+                } catch (_) { /* best-effort only */ }
+              }
+            }
+
             let verified = false;
             let signer = null;
             let result = null;
@@ -978,11 +1381,35 @@ registerApp({
               }
             } catch (_) { verified = false; }
 
-            if (!verified) {
+            // Trust and/or integrity failure gate. Same four shapes as the
+            // launch path, and for the same reason: a combo (both fail)
+            // gets ONE dialog instead of two chained ones; either failing
+            // alone still uses its own existing single dialog unchanged.
+            const trustFailed = !verified;
+            const integrityFailed = integrityStatus === 'failed';
+
+            if (trustFailed && integrityFailed) {
+              const proceeded = await showCombinedTrustIntegrityDialog(
+                { ...pkg.manifest, signature: pkg.signature, revoked: result?.revoked, integrityStatus },
+                { mismatchedFiles }
+              );
+              if (!proceeded) return;
+            } else if (trustFailed) {
               const proceeded = await showUntrustedAppDialog(
-                { ...pkg.manifest, signature: pkg.signature, revoked: result?.revoked },
+                { ...pkg.manifest, signature: pkg.signature, revoked: result?.revoked, integrityStatus },
                 {}
               );
+              if (!proceeded) return;
+            } else if (integrityFailed) {
+              // ── Tamper block — separate from signature trust ──
+              // A valid, trusted signature only proves who signed the
+              // ORIGINAL package; it says nothing about whether these bytes
+              // are still that original. Deliberately not folded into
+              // showUntrustedAppDialog: that dialog answers "do we trust
+              // the publisher?", this one answers "is this still what the
+              // publisher shipped?" — reached here only when trust passed
+              // but bytes were altered afterward (trusted signer, tampered).
+              const proceeded = await showTamperDetectedDialog(pkg.manifest, { mismatchedFiles });
               if (!proceeded) return;
             }
 
@@ -1035,11 +1462,13 @@ registerApp({
               ...pkg.manifest,
               files: pkg.files,
               signature: pkg.signature,
+              integrity: pkg.integrity || null,
               verified,
               signer,
               source: 'file',
               installedAt: Date.now(),
-              revoked: result?.revoked || false
+              revoked: result?.revoked || false,
+              tampered: integrityFailed
             };
             if (PackageStore?.installApp) {
               Object.assign(appData, await PackageStore.installApp(appData));

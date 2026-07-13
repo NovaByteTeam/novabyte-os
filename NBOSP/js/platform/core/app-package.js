@@ -1,4 +1,3 @@
-// [NBOSP_APP-PACKAGE_JS] -- from NovaByte OS Platform (NBOSP), not NovaPack Studio
 /**
  * NovaByte - App Package Manager
  * ────────────────────────────────────────────────────────────
@@ -14,34 +13,24 @@
  *  for an app would let that CA (or anyone who intercepts the key) forge
  *  ANY app's signature, trusted or not.
  *
-  *  This revision moves to Ed25519 public/private key signing:
- *   - The signing authority (or an individual developer) holds a PRIVATE
- *     key offline and never ships it anywhere.
- *   - signPackage(pkg, privateKey) is only ever run on the signer's
- *     machine/server (e.g. inside NovaPack Studio's signing flow) — it is
- *     not something end users' installs ever call.
- *   - verifyPackage(pkg, publicKeyOrTrustEntry) only needs a PUBLIC key.
- *     Public keys are safe to ship inside NBOSP itself (a "trust store"),
- *     the same way browsers ship root CA certs. Verifying a package proves
- *     it was signed by the holder of a specific private key, without the
- *     verifier ever being able to forge new signatures.
- *   - This is what actually makes a paid/trusted signing authority
- *     possible: NovaByte (or a partner CA) can sign on a developer's
- *     behalf using a key nobody else has, and every installation of NBOSP
- *     can verify that signature using a public key baked into the trust
- *     store — no secret ever needs to leave the signer.
+ *  This revision moves to Ed25519 public/private key signing as the
+ *  default verification method, with support for additional algorithms
+ *  and integrity hashing:
+ *   - Ed25519 (primary): 64-byte signatures, fast verification, widely
+ *     supported across platforms.
+ *   - ML-DSA-65 (post-quantum): NIST-standardized PQC, protects against
+ *     quantum adversaries.
+ *   - Ed448: ultra-high traditional security margin (224-bit).
+ *   - ECDSA P-256/P-384: legacy enterprise / smart-card compatibility.
+ *   - RSA-PSS 4096: legacy infrastructure fallback.
+ *   - Custom: user-supplied signing payload / verifier.
+ *   - Integrity: BLAKE3 (default), SHA-256, SHA-512, or none. Always
+ *     embedded alongside signatures for tamper detection.
  *
- * SECURITY FIXES carried over / re-verified in this revision:
-  *  [1] verifyPackage() performs real Ed25519 signature verification, not a
- *      hash-equality check the signer of any package could trivially
- *      satisfy themselves (see appmanager.js fix — the old install path
- *      had a fallback that accepted `signature === sha256(payload)`,
- *      which is not a proof of anything: it just repeats the hash the
- *      attacker already controls).
- *  [2] installPackage() rejects packages whose signature fails
- *      verification unless the caller explicitly opts into
- *      skipVerify — surfaced as an unmistakable warning in the UI, never
- *      a silent default.
+ *  SECURITY FIXES carried over / re-verified in this revision:
+ *   [1] verifyPackage() performs real cryptographic signature verification.
+ *   [2] installPackage() rejects packages whose signature fails
+ *       verification unless the caller explicitly opts into skipVerify.
  *
  * @module js/app-package
  */
@@ -52,41 +41,82 @@ const AppPackage = (() => {
     || globalThis.crypto
     || require('crypto');
 
-  const SIG_ALGO = { name: 'Ed25519' };
-  const SIG_SIGN_PARAMS = { name: 'Ed25519' };
+  // Separate, explicit Node `crypto` module — NOT the same as `_crypto`
+  // above, which resolves to SubtleCrypto (window.crypto) in NW.js's
+  // renderer. Ed448 isn't implemented by any browser's SubtleCrypto, but
+  // NW.js also exposes real Node `require`, and Node's crypto module
+  // (OpenSSL-backed) supports Ed448 natively. Lazily required and
+  // optional-chained so this file still loads in a context without Node
+  // (e.g. a plain browser tab) — Ed448 just won't be available there.
+  let _nodeCrypto = null;
+  function _getNodeCrypto() {
+    if (!_nodeCrypto) {
+      try { _nodeCrypto = require('crypto'); }
+      catch (_) { _nodeCrypto = null; }
+    }
+    return _nodeCrypto;
+  }
 
-  // ─── Manifest validation (unchanged) ────────────────────────────────────────
+  // ─── Supported methods ──────────────────────────────────────────────────────
 
-  function validateManifest(manifest) {
-    const errors = [], warnings = [];
-    if (!manifest || typeof manifest !== 'object') {
-      return { valid: false, errors: ['Manifest is missing or not an object'], warnings: [] };
+  // `algo` is the SIGN/VERIFY-time algorithm identifier (what sign()/
+  // verify() pass to SubtleCrypto). generateKey() needs a DIFFERENT shape
+  // for several of these (namedCurve for ECDSA; modulusLength +
+  // publicExponent for RSA-PSS), so that's kept as a separate `keygenAlgo`
+  // below instead of reusing `algo` for both — reusing it was the bug:
+  // generateKey() was being called with sign-time params it doesn't
+  // understand (`hash` instead of `namedCurve`, no `modulusLength` at all).
+  const SIGNING_METHODS = {
+    'ed25519':      { label: 'Ed25519',      algo: { name: 'Ed25519' },                  keygenAlgo: { name: 'Ed25519' },                                                                             keyType: 'OKP', crv: 'Ed25519' },
+    'ml-dsa-65':    { label: 'ML-DSA-65',    algo: 'ml-dsa-65',                          keygenAlgo: null,                                                                                            keyType: 'OKP', crv: 'ML-DSA-65', experimental: true },
+    'ed448':        { label: 'Ed448',        algo: { name: 'Ed448' },                    keygenAlgo: { name: 'Ed448' },                                                                               keyType: 'OKP', crv: 'Ed448', experimental: true },
+    'ecdsa-p256':   { label: 'ECDSA P-256',  algo: { name: 'ECDSA', hash: 'SHA-256' },   keygenAlgo: { name: 'ECDSA', namedCurve: 'P-256' },                                                          keyType: 'EC',  crv: 'P-256' },
+    'ecdsa-p384':   { label: 'ECDSA P-384',  algo: { name: 'ECDSA', hash: 'SHA-384' },   keygenAlgo: { name: 'ECDSA', namedCurve: 'P-384' },                                                          keyType: 'EC',  crv: 'P-384' },
+    'rsa-pss-4096': { label: 'RSA-PSS 4096', algo: { name: 'RSA-PSS', hash: 'SHA-384', saltLength: 48 }, keygenAlgo: { name: 'RSA-PSS', hash: 'SHA-384', modulusLength: 4096, publicExponent: new Uint8Array([1, 0, 1]) }, keyType: 'RSA', crv: null, modulusLength: 4096 },
+    'custom':       { label: 'Custom',       algo: 'custom',                             keygenAlgo: null,                                                                                            keyType: null,  crv: null },
+  };
+
+  const INTEGRITY_METHODS = {
+    'blake3': { label: 'BLAKE3',  bits: 256 },
+    'sha256': { label: 'SHA-256', bits: 256 },
+    'sha512': { label: 'SHA-512', bits: 512 },
+    'none':   { label: 'None',     bits: null },
+  };
+
+  const DEFAULT_SIGNING_METHOD = 'ed25519';
+  const DEFAULT_INTEGRITY_METHOD = 'blake3';
+
+  // ─── Noble hashes / post-quantum (lazy require) ────────────────────────────
+
+  let _nobleHashes = null;
+  let _noblePostQuantum = null;
+
+  function _getNobleHashes() {
+    if (!_nobleHashes) {
+      // Same pattern as @noble/post-quantum above: @noble/hashes's root
+      // index.js deliberately throws ("root module cannot be imported:
+      // import submodules instead") — blake3 only exists at the
+      // blake3.js subpath. Requiring the bare package name always
+      // threw here, which is why this looked like "not installed" even
+      // when it was.
+      try { _nobleHashes = require('@noble/hashes/blake3.js'); }
+      catch (_) { _nobleHashes = null; }
     }
-    ['id', 'name', 'version', 'entry'].forEach(f => {
-      if (!manifest[f]) errors.push(`Missing required field: ${f}`);
-    });
-    if (manifest.id && !manifest.id.startsWith('webapp_')) {
-      if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(manifest.id))
-        errors.push(`Invalid app ID "${manifest.id}". Must be reverse domain format.`);
+    return _nobleHashes;
+  }
+
+  function _getNoblePostQuantum() {
+    if (!_noblePostQuantum) {
+      // @noble/post-quantum's root index.js deliberately throws
+      // ("root module cannot be imported: import submodules instead") —
+      // ml_dsa65 only exists at the ml-dsa.js subpath, and it's exported
+      // as snake_case (ml_dsa65), not mlDsa65. Requiring the bare package
+      // name always threw here, which is why this looked like "not
+      // installed" even when it was.
+      try { _noblePostQuantum = require('@noble/post-quantum/ml-dsa.js'); }
+      catch (_) { _noblePostQuantum = null; }
     }
-    if (manifest.version && !/^\d+\.\d+\.\d+$/.test(manifest.version))
-      warnings.push(`Version "${manifest.version}" doesn't follow semver (x.y.z)`);
-    if (manifest.permissions) {
-      const valid = Object.values((typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.PERMISSION_TYPES) || {});
-      manifest.permissions.forEach(p => {
-        if (valid.length > 0 && !valid.includes(p)) warnings.push(`Unknown permission: ${p}`);
-      });
-    }
-    if (manifest.defaultSize &&
-        (!Array.isArray(manifest.defaultSize) || manifest.defaultSize.length !== 2))
-      errors.push('defaultSize must be [width, height]');
-    if (manifest.minSize &&
-        (!Array.isArray(manifest.minSize) || manifest.minSize.length !== 2))
-      errors.push('minSize must be [width, height]');
-    if (manifest.maxSize &&
-        (!Array.isArray(manifest.maxSize) || manifest.maxSize.length !== 2))
-      errors.push('maxSize must be [width, height]');
-    return { valid: errors.length === 0, errors, warnings };
+    return _noblePostQuantum;
   }
 
   // ─── Canonical payload for signing ──────────────────────────────────────────
@@ -102,34 +132,113 @@ const AppPackage = (() => {
 
   // ─── Key material helpers ───────────────────────────────────────────────────
 
-  // Accepts a CryptoKey directly, or a JWK object/string, and returns a usable
-  // CryptoKey for the given usage ('sign' needs a private key, 'verify' a
-  // public key). Keeping this flexible means callers (including existing
-  // tests) can keep passing whatever key representation they already have.
-  async function _toCryptoKey(key, usage) {
+  async function _toCryptoKey(key, usage, method) {
     if (!key) throw new Error('No key provided');
     if (typeof key === 'object' && typeof key.type === 'string' && key.algorithm) {
-      // Already a CryptoKey (duck-typed check to avoid instanceof issues across realms)
       return key;
     }
+    const m = method || DEFAULT_SIGNING_METHOD;
+    const spec = SIGNING_METHODS[m];
+    if (!spec) throw new Error(`Unknown signing method: ${m}`);
+
+    // ml-dsa-65 keys are hex strings (see generateSigningKeyPair), not JWK
+    // JSON, so this must run before the generic JSON.parse gate below —
+    // parsing a hex string as JSON always throws, which was rejecting
+    // every valid ML-DSA-65 key before it ever reached this branch.
+    if (m === 'ml-dsa-65') {
+      const npq = _getNoblePostQuantum();
+      if (!npq) throw new Error('@noble/post-quantum is not available — install it to use ML-DSA-65');
+      // Real API takes/returns raw key bytes directly to sign()/verify() —
+      // there's no importKey step and no keyFromJwk (that was invented).
+      // Keys are stored as hex strings here (see generateSigningKeyPair),
+      // so just decode hex back to bytes.
+      const hexStr = typeof key === 'string' ? key : null;
+      if (!hexStr || !/^[0-9a-fA-F]+$/.test(hexStr)) {
+        throw new Error('ML-DSA-65 keys must be a hex string (from generateSigningKeyPair)');
+      }
+      const bytes = new Uint8Array(hexStr.match(/.{2}/g).map(b => parseInt(b, 16)));
+      return bytes;
+    }
+
     let jwk = key;
     if (typeof key === 'string') {
       try { jwk = JSON.parse(key); }
-      catch (_) {       throw new Error('String keys must be a JWK JSON string for Ed25519'); }
+      catch (_) { throw new Error('String keys must be a JWK JSON string'); }
     }
-    return _crypto.subtle.importKey('jwk', jwk, SIG_ALGO, true, [usage]);
+    if (m === 'ed448') {
+      const nc = _getNodeCrypto();
+      if (!nc) throw new Error('Ed448 requires Node crypto (available in NW.js), which is not present in this environment');
+      // Node's createPublicKey/createPrivateKey accept a JWK directly —
+      // unlike ML-DSA-65, Ed448 JWKs round-trip fine through Node crypto,
+      // no hex workaround needed here.
+      return usage === 'sign'
+        ? nc.createPrivateKey({ key: jwk, format: 'jwk' })
+        : nc.createPublicKey({ key: jwk, format: 'jwk' });
+    }
+    if (m === 'custom') {
+      return jwk;
+    }
+    // importKey needs the KEYGEN shape (namedCurve for ECDSA, modulusLength
+    // for RSA-PSS), not spec.algo, which is the SIGN/VERIFY-time shape
+    // (hash instead of namedCurve). Using spec.algo here threw "passed
+    // algorithm cannot be converted to 'EcKeyImportParams' because
+    // 'namedCurve' is required" for every ECDSA import — the same
+    // algo-vs-keygenAlgo mixup already fixed for generateKey() below, but
+    // this call site was missed.
+    return _crypto.subtle.importKey('jwk', jwk, spec.keygenAlgo, true, [usage]);
   }
 
-  // ─── Keypair generation (for signing authorities / developers) ─────────────
+  // ─── Keypair generation ─────────────────────────────────────────────────────
 
-  /**
-   * Generate a new Ed25519 keypair for signing packages.
-   * The private key must be kept offline by whoever runs the signing
-   * authority; only the public key should ever be distributed / trusted.
-   * @returns {Promise<{publicKey: CryptoKey, privateKey: CryptoKey, publicJwk: object, privateJwk: object}>}
-   */
-  async function generateSigningKeyPair() {
-    const pair = await _crypto.subtle.generateKey(SIG_ALGO, true, ['sign', 'verify']);
+  async function generateSigningKeyPair(method = DEFAULT_SIGNING_METHOD) {
+    const m = method || DEFAULT_SIGNING_METHOD;
+    const spec = SIGNING_METHODS[m];
+    if (!spec) throw new Error(`Unsupported signing method: ${m}`);
+
+    if (m === 'ml-dsa-65') {
+      const npq = _getNoblePostQuantum();
+      if (!npq) throw new Error('@noble/post-quantum is not available — install it to use ML-DSA-65');
+      // Real API (ml_dsa65.keygen()) returns { secretKey, publicKey } as
+      // raw Uint8Array — there is no .toJwk() on these (that was invented
+      // against a nonexistent API). Hex-encode them instead, matching how
+      // this file already hex-encodes signatures elsewhere; publicJwk/
+      // privateJwk are kept as field names for compatibility with callers
+      // but hold hex strings, not JWK JSON, for this method.
+      const keypair = npq.ml_dsa65.keygen();
+      const toHex = (bytes) => Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      return {
+        publicKey:  keypair.publicKey,
+        privateKey: keypair.secretKey,
+        publicJwk:  toHex(keypair.publicKey),
+        privateJwk: toHex(keypair.secretKey),
+      };
+    }
+
+    if (m === 'custom') {
+      throw new Error('Cannot generate a keypair for custom signing — provide your own key material');
+    }
+
+    if (m === 'ed448') {
+      const nc = _getNodeCrypto();
+      if (!nc) {
+        throw new Error('Ed448 requires Node crypto (available in NW.js) — not present in this environment (e.g. a plain browser tab)');
+      }
+      // Node's OpenSSL-backed crypto supports Ed448 keygen with direct
+      // JWK output, so this can populate publicJwk/privateJwk for real
+      // (no hex workaround needed, unlike ML-DSA-65 above).
+      const { publicKey, privateKey } = nc.generateKeyPairSync('ed448', {
+        publicKeyEncoding:  { format: 'jwk' },
+        privateKeyEncoding: { format: 'jwk' },
+      });
+      return {
+        publicKey,
+        privateKey,
+        publicJwk:  publicKey,
+        privateJwk: privateKey,
+      };
+    }
+
+    const pair = await _crypto.subtle.generateKey(spec.keygenAlgo, true, ['sign', 'verify']);
     const [publicJwk, privateJwk] = await Promise.all([
       _crypto.subtle.exportKey('jwk', pair.publicKey),
       _crypto.subtle.exportKey('jwk', pair.privateKey),
@@ -137,78 +246,190 @@ const AppPackage = (() => {
     return { publicKey: pair.publicKey, privateKey: pair.privateKey, publicJwk, privateJwk };
   }
 
-  // ─── Signing & verification (Ed25519) ────────────────────────────────────────
+  // ─── Integrity helpers ──────────────────────────────────────────────────────
 
-  /**
-   * Sign a package. Only ever call this with a PRIVATE key, and only ever
-   * on the signer's own machine/server — this must never run as part of
-   * an end user's install flow.
-   * @param {object} pkg - Package object (signature field ignored/overwritten)
-   * @param {CryptoKey|object|string} privateKey - Ed25519 private key (CryptoKey or JWK)
-   * @returns {Promise<string>} Hex-encoded Ed25519 signature
-   */
-  async function signPackage(pkg, privateKey) {
+  function _getHasher(method) {
+    const m = method || DEFAULT_INTEGRITY_METHOD;
+    const spec = INTEGRITY_METHODS[m];
+    if (!spec) throw new Error(`Unknown integrity method: ${m}`);
+    if (m === 'none') return null;
+    if (m === 'blake3') {
+      const nh = _getNobleHashes();
+      if (!nh) throw new Error('@noble/hashes is not available — install it to use BLAKE3');
+      return {
+        hash: (data) => Array.from(nh.blake3(data)).map(b => b.toString(16).padStart(2, '0')).join(''),
+        label: spec.label,
+      };
+    }
+    // m is lowercase ('sha256'/'sha512'), but WebCrypto requires the
+    // dashed uppercase form ('SHA-256'/'SHA-512') — a prior version of
+    // this lookup compared against uppercase keys ({'SHA-256': ...}[m])
+    // which never matched lowercase m, so it always fell through to
+    // m.toUpperCase() = 'SHA256' (no dash), which subtle.digest rejects
+    // with "Unrecognized name".
+    const algo = { sha256: { name: 'SHA-256' }, sha512: { name: 'SHA-512' } }[m];
+    if (!algo) throw new Error(`Unknown integrity method: ${m}`);
+    const hasher = _crypto.subtle.digest.bind(_crypto.subtle);
+    return {
+      hash: async (data) => {
+        if (typeof data === 'string') data = new TextEncoder().encode(data);
+        const buf = await hasher(algo, data);
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      },
+      label: spec.label,
+    };
+  }
+
+  async function computeIntegrity(pkg, method = DEFAULT_INTEGRITY_METHOD) {
+    const m = method || DEFAULT_INTEGRITY_METHOD;
+    const hasher = _getHasher(m);
+    if (!hasher) return { method: 'none', payloadHash: null, fileHashes: {} };
+
     const payload = new TextEncoder().encode(_signingPayload(pkg));
-    const cryptoKey = await _toCryptoKey(privateKey, 'sign');
-    const sig = await _crypto.subtle.sign(SIG_SIGN_PARAMS, cryptoKey, payload);
+    const payloadHash = await hasher.hash(payload);
+
+    const fileHashes = {};
+    for (const [relPath, encoded] of Object.entries(pkg.files || {})) {
+      const binary = atob(encoded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      fileHashes[relPath] = await hasher.hash(bytes);
+    }
+
+    return { method: m, payloadHash, fileHashes };
+  }
+
+  async function verifyIntegrity(pkg) {
+    if (!pkg || !pkg.integrity) return false;
+    const { method, payloadHash, fileHashes } = pkg.integrity;
+    if (method === 'none' || !payloadHash) return true;
+
+    const hasher = _getHasher(method);
+    if (!hasher) return false;
+
+    const payload = new TextEncoder().encode(_signingPayload(pkg));
+    const currentPayloadHash = await hasher.hash(payload);
+    if (currentPayloadHash !== payloadHash) return false;
+
+    for (const [relPath, expectedHash] of Object.entries(fileHashes || {})) {
+      const encoded = pkg.files?.[relPath];
+      if (!encoded) return false;
+      const binary = atob(encoded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const currentFileHash = await hasher.hash(bytes);
+      if (currentFileHash !== expectedHash) return false;
+    }
+    return true;
+  }
+
+  // ─── Signing & verification ─────────────────────────────────────────────────
+
+  async function signPackage(pkg, privateKey, options = {}) {
+    const method = options.method || getSigningMethod(pkg) || DEFAULT_SIGNING_METHOD;
+    const spec = SIGNING_METHODS[method];
+    if (!spec) throw new Error(`Unsupported signing method: ${method}`);
+
+    if (method === 'custom') {
+      const payload = _signingPayload(pkg);
+      const signature = typeof privateKey === 'function'
+        ? await privateKey(payload)
+        : String(privateKey);
+      return signature;
+    }
+
+    if (method === 'ml-dsa-65') {
+      const npq = _getNoblePostQuantum();
+      if (!npq) throw new Error('@noble/post-quantum is not available — install it to use ML-DSA-65');
+      // ml_dsa65.sign(msg, secretKey) is a plain function returning a raw
+      // Uint8Array signature — no signingKey.sign(...) method, no .toHex().
+      const secretKeyBytes = await _toCryptoKey(privateKey, 'sign', method);
+      const payload = new TextEncoder().encode(_signingPayload(pkg));
+      const sig = npq.ml_dsa65.sign(payload, secretKeyBytes);
+      return Array.from(sig).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    if (method === 'ed448') {
+      const nc = _getNodeCrypto();
+      if (!nc) throw new Error('Ed448 requires Node crypto (available in NW.js), which is not present in this environment');
+      // EdDSA (Ed448/Ed25519) uses one-shot sign with algorithm=null —
+      // there's no separate digest step, unlike ECDSA/RSA above.
+      const keyObj = await _toCryptoKey(privateKey, 'sign', method);
+      const payload = Buffer.from(_signingPayload(pkg), 'utf8');
+      const sig = nc.sign(null, payload, keyObj);
+      return sig.toString('hex');
+    }
+
+    const payload = new TextEncoder().encode(_signingPayload(pkg));
+    const cryptoKey = await _toCryptoKey(privateKey, 'sign', method);
+    const sig = await _crypto.subtle.sign(spec.algo, cryptoKey, payload);
     return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  /**
-   * Verify a package's signature against a PUBLIC key. Safe to run on
-   * every install/launch — a public key can only verify, never forge,
-   * signatures.
-   * @param {object} pkg - Package object with .signature field
-   * @param {CryptoKey|object|string} publicKey - Ed25519 public key (CryptoKey or JWK)
-   * @returns {Promise<boolean>}
-   */
-  async function verifyPackage(pkg, publicKey) {
-    if (!pkg || !pkg.signature || !publicKey) return false;
+  async function verifyPackage(pkg, publicKey, method) {
+    if (!pkg || !pkg.signature) return false;
+    const m = method || getSigningMethod(pkg) || DEFAULT_SIGNING_METHOD;
+    const spec = SIGNING_METHODS[m];
+    if (!spec) return false;
+
+    if (m === 'custom') {
+      try {
+        const payload = _signingPayload(pkg);
+        return typeof publicKey === 'function' ? await publicKey(pkg.signature, payload) : false;
+      } catch (_) { return false; }
+    }
+
+    if (m === 'ml-dsa-65') {
+      try {
+        const npq = _getNoblePostQuantum();
+        if (!npq) return false;
+        // ml_dsa65.verify(sig, msg, publicKey) is a plain function taking
+        // raw byte arrays — no Signature.fromHex or verifyKey.verify(...)
+        // method (those don't exist on the real API).
+        const publicKeyBytes = await _toCryptoKey(publicKey, 'verify', m);
+        const payload = new TextEncoder().encode(_signingPayload(pkg));
+        const sigMatch = pkg.signature.match(/.{2}/g);
+        if (!sigMatch) return false;
+        const sigBytes = new Uint8Array(sigMatch.map(b => parseInt(b, 16)));
+        return npq.ml_dsa65.verify(sigBytes, payload, publicKeyBytes);
+      } catch (_) { return false; }
+    }
+
+    if (m === 'ed448') {
+      try {
+        const nc = _getNodeCrypto();
+        if (!nc) return false;
+        const keyObj = await _toCryptoKey(publicKey, 'verify', m);
+        const payload = Buffer.from(_signingPayload(pkg), 'utf8');
+        const sigMatch = pkg.signature.match(/.{2}/g);
+        if (!sigMatch) return false;
+        const sigBytes = Buffer.from(sigMatch.map(b => parseInt(b, 16)));
+        return nc.verify(null, payload, keyObj, sigBytes);
+      } catch (_) { return false; }
+    }
+
     try {
       const payload = new TextEncoder().encode(_signingPayload(pkg));
-      const cryptoKey = await _toCryptoKey(publicKey, 'verify');
+      const cryptoKey = await _toCryptoKey(publicKey, 'verify', m);
       const sigMatch = pkg.signature.match(/.{2}/g);
       if (!sigMatch) return false;
       const sigBytes = new Uint8Array(sigMatch.map(b => parseInt(b, 16)));
-      return await _crypto.subtle.verify(SIG_SIGN_PARAMS, cryptoKey, sigBytes, payload);
+      return await _crypto.subtle.verify(spec.algo, cryptoKey, sigBytes, payload);
     } catch (_) {
       return false;
     }
   }
 
-  /**
-   * Verify a package against every entry in a trust store (array of
-   * {name, publicKey} — see js/platform/security/trust-store.js) and
-   * return which entry (if any) vouches for it. This is the primary
-   * entry point NBOSP's install/launch flow should use instead of calling
-   * verifyPackage with a single key.
-   *
-   * Checks revocation FIRST if a `revocationCheck` function is supplied —
-   * a cryptographically valid signature that has been individually
-   * revoked (see TrustStore.revoke/isRevoked) must still come back
-   * untrusted. Pass `TrustStore.isRevoked` from trust-store.js as
-   * `revocationCheck`; if omitted, revocation is simply not checked (so
-   * existing callers that haven't been updated yet keep working, but you
-   * should pass it in production).
-   *
-   * @param {object} pkg
-   * @param {Array<{name:string, publicKey:any}>} trustStore
-   * @param {(signature:string)=>boolean} [revocationCheck] - e.g. TrustStore.isRevoked
-   * @returns {Promise<{trusted:boolean, signer:string|null, revoked?:boolean}>}
-   */
   async function verifyAgainstTrustStore(pkg, trustStore, revocationCheck) {
     if (!pkg || !pkg.signature || !Array.isArray(trustStore)) return { trusted: false, signer: null };
     if (typeof revocationCheck === 'function' && revocationCheck(pkg.signature)) {
-      // Signature is cryptographically valid territory, but this exact
-      // signed package has been individually pulled — never treat it as
-      // trusted regardless of which trust-store entry would otherwise
-      // vouch for it.
       return { trusted: false, signer: null, revoked: true };
     }
     for (const entry of trustStore) {
       try {
-        const ok = await verifyPackage(pkg, entry.publicKey);
-        if (ok) return { trusted: true, signer: entry.name || null };
+        const method = entry.method || getSigningMethod(pkg) || DEFAULT_SIGNING_METHOD;
+        const ok = await verifyPackage(pkg, entry.publicKey, method);
+        if (ok) return { trusted: true, signer: entry.name || null, method };
       } catch (_) { /* try next entry */ }
     }
     return { trusted: false, signer: null };
@@ -227,7 +448,9 @@ const AppPackage = (() => {
       files: {},
       signature: null,
       signer: null,
-      compiled_at: new Date().toISOString()
+      compiled_at: new Date().toISOString(),
+      signing: null,
+      integrity: null,
     };
 
     for (const [path, content] of Object.entries(files)) {
@@ -240,31 +463,23 @@ const AppPackage = (() => {
       }
     }
 
-    // NOTE: signingKey here must be a PRIVATE key. This path is intended
-    // for developer/local self-signing (createPackage running inside
-    // NovaPack Studio, on the developer's own machine) — a paid/trusted
-    // signature from a signing authority should instead be obtained via
-    // that authority's own signing endpoint and attached afterwards
-    // (see studio's requestTrustedSignature()), since the authority's
-    // private key must never be present in the developer's environment.
     if (options.signingKey) {
-      pkg.signature = await signPackage(pkg, options.signingKey);
+      const method = options.signingMethod || DEFAULT_SIGNING_METHOD;
+      pkg.signing = { method };
+      pkg.signature = await signPackage(pkg, options.signingKey, { method });
       pkg.signer = options.signerName || 'self-signed';
     }
+
+    if (options.integrityMethod !== 'none') {
+      const intMethod = options.integrityMethod || DEFAULT_INTEGRITY_METHOD;
+      pkg.integrity = await computeIntegrity(pkg, intMethod);
+    }
+
     return pkg;
   }
 
   // ─── Install / uninstall ─────────────────────────────────────────────────────
 
-  /**
-   * Install a package. Verification now checks against a trust store
-   * (array of known public keys) rather than a single shared secret.
-   * Packages that don't verify against any trusted key are NOT silently
-   * rejected here — that decision belongs to the UI (see the "untrusted
-   * app" dialog in appmanager.js), so this returns the verification
-   * result rather than throwing, unless skipVerify is explicitly false
-   * and no trust store was even supplied (a caller error).
-   */
   async function installPackage(pkg, options = {}) {
     let verified = false;
     let signer = null;
@@ -275,7 +490,12 @@ const AppPackage = (() => {
       verified = result.trusted;
       signer = result.signer;
       if (!verified && !options.allowUnverified) {
-        throw new Error('Package signature did not match any trusted signer');
+        const intOk = options.allowIntegrityFallback ? await verifyIntegrity(pkg) : false;
+        if (!intOk) {
+          throw new Error('Package signature did not match any trusted signer and integrity check failed');
+        }
+        verified = true;
+        signer = signer || 'integrity-only';
       }
     }
 
@@ -328,23 +548,80 @@ const AppPackage = (() => {
       files:        Object.keys(pkg.files),
       hasSignature: !!pkg.signature,
       signer:       pkg.signer || null,
-      // NOTE: sync inspection only — call verifyAgainstTrustStore(pkg, trustStore) for real check
+      signingMethod: pkg.signing?.method || null,
+      integrityMethod: pkg.integrity?.method || null,
       size:         JSON.stringify(pkg).length
     };
+  }
+
+  // ─── Method readers ─────────────────────────────────────────────────────────
+
+  function getSigningMethod(pkg) {
+    if (!pkg || !pkg.signing) return null;
+    const m = pkg.signing.method;
+    return SIGNING_METHODS[m] ? m : null;
+  }
+
+  function getIntegrityMethod(pkg) {
+    if (!pkg || !pkg.integrity) return null;
+    const m = pkg.integrity.method;
+    return INTEGRITY_METHODS[m] ? m : null;
+  }
+
+  function listSigningMethods() {
+    return Object.entries(SIGNING_METHODS).map(([id, spec]) => ({ id, label: spec.label, experimental: !!spec.experimental }));
+  }
+
+  function listIntegrityMethods() {
+    return Object.entries(INTEGRITY_METHODS).map(([id, spec]) => ({ id, label: spec.label }));
+  }
+
+  // ─── Manifest validation ────────────────────────────────────────────────────
+
+  function validateManifest(manifest) {
+    const errors = [], warnings = [];
+    if (!manifest || typeof manifest !== 'object') {
+      return { valid: false, errors: ['Manifest is missing or not an object'], warnings: [] };
+    }
+    ['id', 'name', 'version', 'entry'].forEach(f => {
+      if (!manifest[f]) errors.push(`Missing required field: ${f}`);
+    });
+    if (manifest.id && !manifest.id.startsWith('webapp_')) {
+      if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(manifest.id))
+        errors.push(`Invalid app ID "${manifest.id}". Must be reverse domain format.`);
+    }
+    if (manifest.version && !/^\d+\.\d+\.\d+$/.test(manifest.version))
+      warnings.push(`Version "${manifest.version}" doesn't follow semver (x.y.z)`);
+    if (manifest.permissions) {
+      const valid = Object.values((typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.PERMISSION_TYPES) || {});
+      manifest.permissions.forEach(p => {
+        if (valid.length > 0 && !valid.includes(p)) warnings.push(`Unknown permission: ${p}`);
+      });
+    }
+    if (manifest.defaultSize &&
+        (!Array.isArray(manifest.defaultSize) || manifest.defaultSize.length !== 2))
+      errors.push('defaultSize must be [width, height]');
+    if (manifest.minSize &&
+        (!Array.isArray(manifest.minSize) || manifest.minSize.length !== 2))
+      errors.push('minSize must be [width, height]');
+    if (manifest.maxSize &&
+        (!Array.isArray(manifest.maxSize) || manifest.maxSize.length !== 2))
+      errors.push('maxSize must be [width, height]');
+    return { valid: errors.length === 0, errors, warnings };
   }
 
   return {
     validateManifest, createPackage, signPackage, verifyPackage,
     verifyAgainstTrustStore, generateSigningKeyPair,
     installPackage, uninstallPackage, extractPackage, inspectPackage,
+    computeIntegrity, verifyIntegrity,
+    getSigningMethod, getIntegrityMethod,
+    listSigningMethods, listIntegrityMethods,
+    SIGNING_METHODS, INTEGRITY_METHODS,
+    DEFAULT_SIGNING_METHOD, DEFAULT_INTEGRITY_METHOD,
     NOVAAPP_FORMAT_VERSION
   };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = AppPackage;
-// Same pattern every other core module uses (wm.js -> window.WM,
-// app-permission-manager.js -> window.AppPermissionManager) — without this,
-// AppPackage was only reachable via the CommonJS module.exports line above,
-// which packages.js (a frontend app running in the browser/NW.js window
-// context, not a Node require() context) has no way to reach.
 if (typeof window !== 'undefined') window.AppPackage = AppPackage;

@@ -154,6 +154,9 @@ registerApp({
     }
 
     // ── Sign tab ──────────────────────────────────────────────────────────
+    // Multi-method signing: Ed25519 (default), ML-DSA-65, Ed448,
+    // ECDSA P-256/P-384, RSA-PSS 4096, or Custom. Integrity is embedded
+    // by default (BLAKE3) for tamper detection even without a signature.
     (function buildSignTab() {
       const panel = panels.sign;
       const idF = field('App ID (reverse-domain, e.g. com.test.app)', 'com.test.app', 'com.test.app');
@@ -162,33 +165,75 @@ registerApp({
       const entryF = field('Entry file path', 'index.html', 'index.html');
       [idF, nameF, versionF, entryF].forEach(f => panel.appendChild(f.wrap));
 
-      // Signing now uses a generated ECDSA keypair rather than a typed
-      // shared-secret string — a string you type into a box can't act as a
-      // real signing credential (anyone who saw it could sign anything),
-      // and it can't be checked against NBOSP's trust store, which only
-      // holds public keys. This tab is for local dev/testing self-signed
-      // packages; it will never produce a package that verifies as
-      // "Trusted" on a real install, since nothing here is in the trust
-      // store — that's intentional. Use NovaPack Studio's "Trusted Signing"
-      // flow to get a package actually signed by NovaByte's authority.
+      const methods = AppPackage.listSigningMethods ? AppPackage.listSigningMethods() : [{ id: 'ed25519', label: 'Ed25519' }];
+      const integrityMethods = AppPackage.listIntegrityMethods ? AppPackage.listIntegrityMethods() : [{ id: 'blake3', label: 'BLAKE3' }, { id: 'sha256', label: 'SHA-256' }, { id: 'sha512', label: 'SHA-512' }, { id: 'none', label: 'None' }];
+
+      const methodRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px;' });
+      methodRow.appendChild(createEl('label', { textContent: 'Signing method:', style: 'font-size:11px;color:var(--text-muted);' }));
+      const methodSelect = createEl('select', { style: 'padding:4px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
+      methods.forEach(m => {
+        const opt = createEl('option', { value: m.id, textContent: m.label + (m.experimental ? ' (experimental)' : ''), selected: m.id === 'ed25519' });
+        methodSelect.appendChild(opt);
+      });
+      methodRow.appendChild(methodSelect);
+      panel.appendChild(methodRow);
+
+      const integrityRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px;' });
+      integrityRow.appendChild(createEl('label', { textContent: 'Integrity:', style: 'font-size:11px;color:var(--text-muted);' }));
+      const integritySelect = createEl('select', { style: 'padding:4px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
+      integrityMethods.forEach(m => {
+        const opt = createEl('option', { value: m.id, textContent: m.label, selected: m.id === 'blake3' });
+        integritySelect.appendChild(opt);
+      });
+      integrityRow.appendChild(integritySelect);
+      panel.appendChild(integrityRow);
+
       let devKeyPair = null;
       const keyNote = createEl('div', { style: 'font-size:11px;color:var(--text-muted);margin:4px 0 10px;' , textContent: 'Generating a local dev signing keypair…' });
       panel.appendChild(keyNote);
-      (async () => {
-        try {
-          devKeyPair = await AppPackage.generateSigningKeyPair();
-          keyNote.textContent = 'Local dev keypair ready (self-signed only — won\u2019t show as Trusted on real installs).';
-        } catch (e) {
-          keyNote.textContent = 'Could not generate a dev keypair: ' + e.message;
-        }
-      })();
 
-      // Files to package — AppPackage.createPackage(manifest, files) takes
-      // an arbitrary path->content map (confirmed in app-package.js: it
-      // base64-encodes each value via btoa/unescape/encodeURIComponent).
-      // The original code only ever sent one hardcoded placeholder file,
-      // meaning no real app could ever actually be packaged through this
-      // UI. Rows are path+content pairs; at least one row always exists.
+      const customKeyWrap = createEl('div', { style: 'margin-bottom:10px;' });
+      customKeyWrap.classList.add('hidden');
+      const customKeyLabel = createEl('label', { textContent: 'Custom signing key / payload', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' });
+      const customKeyArea = createEl('textarea', { placeholder: 'Paste custom key material or signing payload here', style: 'width:100%;box-sizing:border-box;height:60px;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;' });
+      customKeyWrap.appendChild(customKeyLabel);
+      customKeyWrap.appendChild(customKeyArea);
+      panel.appendChild(customKeyWrap);
+
+      const pubKeyWrap = createEl('div', { style: 'margin-bottom:10px;' });
+      pubKeyWrap.classList.add('hidden');
+      const pubKeyLabel = createEl('div', { textContent: 'Generated public key (safe to share) — not used for trust automatically:', style: 'font-size:11px;color:var(--text-muted);margin-bottom:4px;' });
+      const pubKeyArea = createEl('textarea', { readonly: true, rows: 3, style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+      pubKeyWrap.appendChild(pubKeyLabel);
+      pubKeyWrap.appendChild(pubKeyArea);
+      panel.appendChild(pubKeyWrap);
+
+      async function refreshKeypair() {
+        const method = methodSelect.value;
+        pubKeyWrap.classList.add('hidden');
+        customKeyWrap.classList.add('hidden');
+        if (method === 'custom') {
+          keyNote.textContent = 'Custom mode: paste your key/payload below. No keypair is generated.';
+          customKeyWrap.classList.remove('hidden');
+          devKeyPair = null;
+          return;
+        }
+        keyNote.textContent = 'Generating keypair…';
+        try {
+          devKeyPair = await AppPackage.generateSigningKeyPair(method);
+          pubKeyArea.value = JSON.stringify(devKeyPair.publicJwk, null, 2);
+          pubKeyWrap.classList.remove('hidden');
+          keyNote.textContent = `Local dev keypair ready (${method}) — self-signed only, won't show as Trusted on real installs.`;
+        } catch (e) {
+          keyNote.textContent = 'Could not generate keypair: ' + e.message;
+          devKeyPair = null;
+        }
+      }
+
+      methodSelect.addEventListener('change', refreshKeypair);
+      (async () => { await refreshKeypair(); })();
+
+      // Files to package
       panel.appendChild(createEl('label', { textContent: 'Files', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;margin-top:4px;' }));
       const filesWrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:8px;margin-bottom:10px;' });
       panel.appendChild(filesWrap);
@@ -199,8 +244,6 @@ registerApp({
         const pathInput = createEl('input', { placeholder: 'path (e.g. index.html)', value: path || '', style: 'flex:1;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
         const removeBtn = createEl('button', { textContent: '✕', title: 'Remove file', style: 'padding:4px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
         removeBtn.addEventListener('click', () => {
-          // Always leave at least one row — createPackage with an empty
-          // files map is a degenerate package with nothing to install.
           if (filesWrap.children.length > 1) row.remove();
         }, { signal: ac.signal });
         pathLine.appendChild(pathInput);
@@ -237,7 +280,7 @@ registerApp({
           [...filesWrap.querySelectorAll('[data-role="file-row"]')].forEach(row => {
             const p = row.querySelector('input').value.trim();
             const c = row.querySelector('textarea').value;
-            if (!p) return; // skip blank rows silently rather than erroring on an empty "+ Add File" click
+            if (!p) return;
             if (files.hasOwnProperty(p)) dupPaths.push(p);
             files[p] = c;
           });
@@ -254,24 +297,50 @@ registerApp({
             return;
           }
 
-          if (!devKeyPair) {
-            showResult(box, false, { error: 'Dev signing keypair isn\u2019t ready yet — wait a moment and try again.' });
+          const signingMethod = methodSelect.value;
+          const integrityMethod = integritySelect.value;
+          const createOpts = { integrityMethod };
+          let privateKey = null;
+          if (signingMethod === 'custom') {
+            privateKey = customKeyArea.value.trim();
+            if (!privateKey) {
+              showResult(box, false, { error: 'Custom mode requires key/payload in the textarea below' });
+              return;
+            }
+            createOpts.signingKey = privateKey;
+            createOpts.signingMethod = 'custom';
+            createOpts.signerName = 'custom';
+          } else if (devKeyPair) {
+            createOpts.signingKey = devKeyPair.privateKey;
+            createOpts.signingMethod = signingMethod;
+            createOpts.signerName = 'local-dev-' + signingMethod;
+          } else {
+            showResult(box, false, { error: 'Signing keypair isn\'t ready yet — wait a moment and try again.' });
             return;
           }
 
-          const pkg = await AppPackage.createPackage(manifest, files);
-          const sig = await AppPackage.signPackage(pkg, devKeyPair.privateKey);
-          pkg.signature = sig;
-          pkg.signer = 'local-dev-keypair';
+          const pkg = await AppPackage.createPackage(manifest, files, createOpts);
           const info = AppPackage.inspectPackage(pkg);
-          const verified = await AppPackage.verifyPackage(pkg, devKeyPair.publicKey);
-          lastSignedPackage = pkg; // handed to Install tab / export via closure below
-          // Stash the public key alongside the result so the Verify tab can
-          // check this exact package without needing it pasted in by hand.
-          lastSignedPackage.__devPublicJwk = devKeyPair.publicJwk;
+          let verified = false;
+          let verifyDetail = 'no-signature';
+          if (pkg.signature && pkg.signing) {
+            if (signingMethod === 'custom') {
+              verifyDetail = 'custom (not auto-verifiable)';
+            } else if (devKeyPair) {
+              verified = await AppPackage.verifyPackage(pkg, devKeyPair.publicKey, signingMethod);
+              verifyDetail = verified ? 'verified' : 'failed';
+            }
+          }
+          const intOk = await AppPackage.verifyIntegrity(pkg);
+          lastSignedPackage = pkg;
+          lastSignedPackage.__devPublicJwk = devKeyPair?.publicJwk || null;
           showResult(box, true, {
-            info, signature: sig, verified, warnings: validation.warnings, fullPackage: pkg,
-            publicKeyJwk: devKeyPair.publicJwk,
+            info, verified, verifyDetail, integrityVerified: intOk,
+            signingMethod: pkg.signing?.method || null,
+            integrityMethod: pkg.integrity?.method || null,
+            warnings: validation.warnings,
+            fullPackage: pkg,
+            publicKeyJwk: devKeyPair?.publicJwk || null,
           });
         } catch (e) {
           showResult(box, false, { error: e.message });
@@ -296,12 +365,23 @@ registerApp({
       });
       panel.appendChild(textarea);
 
-      const keyF = field('Public key (paste JWK JSON)', '{"kty":"OKP","crv":"Ed25519",...}', '');
+      const keyF = field('Public key (paste JWK JSON, or leave blank for integrity-only check)', '{"kty":"OKP","crv":"Ed25519",...}', '');
       panel.appendChild(keyF.wrap);
       panel.appendChild(createEl('div', {
         style: 'font-size:11px;color:var(--text-muted);margin:-4px 0 8px;',
-        textContent: 'Verification only ever needs a PUBLIC key — a private key should never leave the signer\u2019s machine. Paste the publicKeyJwk shown after signing, or an entry from the trust store.',
+        textContent: 'Verification needs a PUBLIC key for the signing method the package uses. Leave blank to verify via embedded integrity hashes only.',
       }));
+
+      const methodRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:8px;' });
+      methodRow.appendChild(createEl('label', { textContent: 'Signing method:', style: 'font-size:11px;color:var(--text-muted);' }));
+      const methodSelect = createEl('select', { style: 'padding:4px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
+      const methods = AppPackage.listSigningMethods ? AppPackage.listSigningMethods() : [{ id: 'ed25519', label: 'Ed25519' }];
+      methods.forEach(m => {
+        const opt = createEl('option', { value: m.id, textContent: m.label + (m.experimental ? ' (experimental)' : ''), selected: m.id === 'ed25519' });
+        methodSelect.appendChild(opt);
+      });
+      methodRow.appendChild(methodSelect);
+      panel.appendChild(methodRow);
 
       const verifyBtn = createEl('button', { textContent: 'Validate & Verify', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px;' });
       const box = resultBox();
@@ -320,6 +400,7 @@ registerApp({
           return;
         }
         let publicKeyJwk = null;
+        let signingMethod = methodSelect.value;
         if (keyF.input.value.trim()) {
           try {
             publicKeyJwk = JSON.parse(keyF.input.value.trim());
@@ -331,13 +412,27 @@ registerApp({
         try {
           const validation = AppPackage.validateManifest(pkg.manifest || {});
           const hasSignature = !!pkg.signature;
-          const verified = (hasSignature && publicKeyJwk) ? await AppPackage.verifyPackage(pkg, publicKeyJwk) : false;
-          showResult(box, validation.valid && verified, {
+          let signatureVerified = false;
+          let verifyError = null;
+          if (hasSignature && publicKeyJwk) {
+            try {
+              signatureVerified = await AppPackage.verifyPackage(pkg, publicKeyJwk, signingMethod);
+            } catch (e) {
+              verifyError = e.message;
+            }
+          }
+          const intOk = await AppPackage.verifyIntegrity(pkg);
+          const effectiveVerified = signatureVerified || (!hasSignature && intOk);
+          showResult(box, validation.valid && effectiveVerified, {
             manifestValid: validation.valid,
             errors: validation.errors,
             warnings: validation.warnings,
             hasSignature,
-            signatureVerified: verified,
+            signingMethod: pkg.signing?.method || signingMethod || null,
+            integrityMethod: pkg.integrity?.method || null,
+            signatureVerified,
+            integrityVerified: intOk,
+            verifyError,
           });
 
           // File preview — AppPackage.extractPackage decodes pkg.files
@@ -481,6 +576,7 @@ registerApp({
             trustStore: (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [],
             revocationCheck: (typeof TrustStore !== 'undefined' && TrustStore.isRevoked) ? TrustStore.isRevoked : undefined,
             allowUnverified: allowUnverifiedCb.checked,
+            allowIntegrityFallback: allowUnverifiedCb.checked,
             force: forceCb.checked,
             source: 'packages-app',
           };

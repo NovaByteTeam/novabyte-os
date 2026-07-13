@@ -32,6 +32,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@noble/ciphers": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "@noble/post-quantum": "^0.6.1",
     "@peculiar/x509": "^2.0.0",
     "better-sqlite3": "^12.11.1",
     "better-sqlite3-session-store": "^0.1.0",
