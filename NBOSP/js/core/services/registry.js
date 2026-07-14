@@ -40,6 +40,92 @@ const APP_REGISTRY = [];
         else APP_REGISTRY.push(config);
       }
 
+      /* ── Shared web app launch/removal — single source of truth ──
+       * There used to be two independent "launch a web app" implementations
+       * (appmanager.js and system-events.js) plus two more code paths that
+       * opened a web app window without building one at all (desktop
+       * shortcut double-click, taskbar pin click). Only the appmanager.js
+       * version worked, because WM.createWindow() only renders content for
+       * an app if OS.apps[id].init() is defined — the other paths built (or
+       * tried to build) the <webview> by hand after the fact, which either
+       * never ran again on a later open, or never ran at all. Centralizing
+       * on one helper that always sets .init() means every entry point
+       * (Open buttons, launchpad click, desktop dblclick, taskbar click,
+       * taskbar pin-without-launch) renders correctly.
+       */
+      function buildWebAppEntry(waData) {
+        return {
+          name: waData.name,
+          icon: waData.icon,
+          defaultSize: [900, 640],
+          minSize: [400, 300],
+          init(c) {
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;';
+            const urlBar = document.createElement('div');
+            urlBar.style.cssText = 'background:rgba(0,0,0,0.22);border-bottom:1px solid rgba(255,255,255,0.07);padding:5px 12px;font-size:11px;color:rgba(255,255,255,0.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace;flex-shrink:0;';
+            try {
+              urlBar.textContent = '\uD83D\uDD12 ' + new URL(waData.url).host;
+            } catch {
+              urlBar.textContent = 'External Web App';
+            }
+            const iframe = document.createElement('webview');
+            iframe.style.cssText = 'flex:1;border:none;background:#fff;';
+            iframe.src = waData.url;
+            wrapper.append(urlBar, iframe);
+            c.style.padding = '0';
+            c.appendChild(wrapper);
+          }
+        };
+      }
+
+      // Ensures OS.apps['webapp_'+id] exists (building it from the persisted
+      // WebAppManager record if needed — e.g. after a reload, or when a web
+      // app was pinned to the taskbar/desktop without ever being launched)
+      // and opens a window for it. Returns the window, or null if the web
+      // app no longer exists in WebAppManager (e.g. it was removed).
+      function openWebApp(waId) {
+        const waData = WebAppManager.getApp(waId);
+        if (!waData) return null;
+        const appId = 'webapp_' + waId;
+        OS.apps[appId] = buildWebAppEntry(waData);
+        WebAppManager.launchApp(waId);
+        return WM.createWindow(appId);
+      }
+
+      // Fully removes a web app: persisted record, taskbar pin, in-memory
+      // OS.apps entry, and any desktop .lnk shortcut pointing at it. Reused
+      // by the Web Apps tab's Remove button, the launchpad right-click
+      // "Remove Web App" item, and the desktop shortcut's right-click
+      // "Remove Web App" item, so all three clean up identically instead of
+      // each doing (or forgetting to do) part of the job.
+      async function removeWebApp(waId) {
+        const appId = 'webapp_' + waId;
+        WebAppManager.removeApp(waId);
+        delete OS.apps[appId];
+        OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== appId));
+        try {
+          const desktopFolder = FS.specialFolders?.desktop;
+          if (desktopFolder) {
+            const files = FS.listDir(desktopFolder);
+            for (const f of files) {
+              if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+                try {
+                  const data = JSON.parse(f.content || '{}');
+                  if (data?.type === 'app-shortcut' && data?.target === appId) {
+                    await FS.permanentDelete(f.id);
+                  }
+                } catch { /* skip invalid shortcuts */ }
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[WebApp] Failed to clean up desktop shortcut for', waId, err);
+        }
+        if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+        if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+      }
+
       // ── Global URL opener — routes all links to com.nbosp.browser ──────
       OS.openUrl = function (url) {
         if (!url) return;
@@ -106,6 +192,9 @@ const APP_REGISTRY = [];
 window.APP_REGISTRY = APP_REGISTRY;
 window.WebAppManager = WebAppManager;
 window.registerApp = registerApp;
+window.buildWebAppEntry = buildWebAppEntry;
+window.openWebApp = openWebApp;
+window.removeWebApp = removeWebApp;
 
 
 

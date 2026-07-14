@@ -949,9 +949,34 @@ const WM = window.WM = (() => {
       const frag = document.createDocumentFragment();
 
       for (const appId of orderedIds) {
-        const app     = OS.apps[appId];
+        let app       = OS.apps[appId];
         const windows = appWindows.get(appId) ?? [];
         const isPinned = pinnedAppsSet.has(appId);
+
+        // Pinned web apps only get an OS.apps entry once launched (see
+        // openWebApp() in registry.js). OS.apps is in-memory and never
+        // persisted, so a web app pinned in a previous session — or pinned
+        // without ever being opened — has no entry here and would
+        // otherwise be silently skipped by the `if (!app) continue;` below,
+        // dropping its taskbar icon entirely. Rebuild it from WebAppManager,
+        // the persisted source of truth, before giving up on it.
+        //
+        // IMPORTANT: this must use buildWebAppEntry(), not a hand-rolled
+        // {name, icon, defaultSize, minSize} object. WM.createWindow() only
+        // renders content by calling app.init() — a plain object with no
+        // .init produces a real window (so it doesn't get skipped) but with
+        // permanently empty content, which is why clicking a taskbar icon
+        // that was rehydrated here used to open a blank/glass-only window
+        // even though double-clicking the same app's desktop shortcut (which
+        // goes through openWebApp()) rendered it correctly.
+        if (!app && appId.startsWith('webapp_') && typeof WebAppManager !== 'undefined' && typeof buildWebAppEntry === 'function') {
+          const waId = appId.slice('webapp_'.length);
+          const waData = WebAppManager.getApp(waId);
+          if (waData) {
+            app = OS.apps[appId] = buildWebAppEntry(waData);
+          }
+        }
+
         if (!app) continue;
 
         const hasWindows         = windows.length > 0;
@@ -974,7 +999,17 @@ const WM = window.WM = (() => {
 
         const clickHandler = () => {
           if (!hasWindows) {
-            wm.createWindow(appId);
+            // Web apps need openWebApp() (registry.js) so OS.apps[appId]
+            // is (re)built with a real init() before the window opens —
+            // see the rehydration comment above. Plain createWindow(appId)
+            // only works here if updateTaskbar() already ran the rehydration
+            // this render pass; routing explicitly avoids depending on that
+            // ordering.
+            if (appId.startsWith('webapp_') && typeof openWebApp === 'function') {
+              openWebApp(appId.slice('webapp_'.length));
+            } else {
+              wm.createWindow(appId);
+            }
           } else if (hasMultipleWindows) {
             showWindowPreview(btn, appId, windows);
           } else {
@@ -1007,7 +1042,16 @@ const WM = window.WM = (() => {
             });
             menuItems.push({ separator: true });
           } else {
-            menuItems.push({ label: 'Open', icon: 'play', action: () => wm.createWindow(appId) });
+            menuItems.push({
+              label: 'Open', icon: 'play',
+              action: () => {
+                if (appId.startsWith('webapp_') && typeof openWebApp === 'function') {
+                  openWebApp(appId.slice('webapp_'.length));
+                } else {
+                  wm.createWindow(appId);
+                }
+              }
+            });
             menuItems.push({ separator: true });
           }
           menuItems.push({

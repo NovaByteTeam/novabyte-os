@@ -1050,7 +1050,7 @@ registerApp({
 
       // ── Sidebar ────────────────────────────────────────────────
       const sidebar = createEl('div', {
-        style: 'width:240px;min-width:180px;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;'
+        style: 'width:300px;min-width:260px;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;'
       });
 
       // Toolbar: search + install
@@ -1611,7 +1611,7 @@ registerApp({
 
       // ── Sidebar ──────────────────────────────────────────────────
       const sidebar = createEl('div', {
-        style: 'width:240px;min-width:180px;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;'
+        style: 'width:300px;min-width:260px;display:flex;flex-direction:column;border-right:1px solid var(--border-subtle);background:var(--bg-sunken);flex-shrink:0;'
       });
 
       const toolbar = createEl('div', { style: 'padding:9px;display:flex;gap:6px;border-bottom:1px solid var(--border-subtle);' });
@@ -1636,30 +1636,17 @@ registerApp({
       let selectedWebId = null;
 
       function launchWebApp(wa) {
+        // Delegates to the shared helper in registry.js so every launch
+        // path (this Open button, launchpad, desktop shortcut, taskbar)
+        // builds the window identically. See registry.js openWebApp().
+        if (typeof window.openWebApp === 'function') {
+          window.openWebApp(wa.id);
+          return;
+        }
+        // Fallback if registry.js hasn't loaded for some reason.
         const tempId = 'webapp_' + wa.id;
-        const wW = 900;
-        const wH = 640;
-
-        if (!OS.apps[tempId]) {
-          OS.apps[tempId] = {
-            name: wa.name,
-            icon: wa.icon,
-            defaultSize: [wW, wH],
-            minSize: [400, 300],
-            init(c) {
-              const wrapper = document.createElement('div');
-              wrapper.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;';
-              const urlBar = document.createElement('div');
-              urlBar.style.cssText = 'background:rgba(0,0,0,0.22);border-bottom:1px solid rgba(255,255,255,0.07);padding:5px 12px;font-size:11px;color:rgba(255,255,255,0.4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace;flex-shrink:0;';
-              urlBar.textContent = '\uD83D\uDD12 ' + extractHost(wa.url);
-              const iframe = document.createElement('webview');
-              iframe.style.cssText = 'flex:1;border:none;background:#fff;';
-              iframe.src = wa.url;
-              wrapper.append(urlBar, iframe);
-              c.style.padding = '0';
-              c.appendChild(wrapper);
-            }
-          };
+        if (!OS.apps[tempId] && typeof window.buildWebAppEntry === 'function') {
+          OS.apps[tempId] = window.buildWebAppEntry(wa);
         }
         WM.createWindow(tempId);
       }
@@ -1824,9 +1811,16 @@ registerApp({
         }
 
         mkBtn('Open', 'external-link', 'background:var(--accent);border:1px solid transparent;color:#fff;', () => launchWebApp(wa));
-        mkBtn('Remove', 'trash', 'background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);color:#f85149;', () => {
+        mkBtn('Remove', 'trash', 'background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);color:#f85149;', async () => {
           if (!confirm(`Remove "${wa.name}"?`)) return;
-          if (wam) wam.removeApp(wa.id);
+          // removeWebApp (registry.js) also unpins from taskbar and deletes
+          // any desktop .lnk shortcut — not just the WebAppManager record —
+          // so nothing is left behind with a dead reference.
+          if (typeof window.removeWebApp === 'function') {
+            await window.removeWebApp(wa.id);
+          } else if (wam) {
+            wam.removeApp(wa.id);
+          }
           selectedWebId = null;
           renderList();
           renderDetail();

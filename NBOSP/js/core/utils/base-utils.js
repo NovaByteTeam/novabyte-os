@@ -691,6 +691,15 @@
   //
   // All <img> output uses data-hide-on-error instead of an inline onerror
   // handler so the file is CSP-compliant (script-src without 'unsafe-inline').
+  // Matches a string that is (mostly) emoji rather than an icon-set key name
+  // like 'settings' or 'browser'. Icon keys are always plain ASCII letters/
+  // hyphens, so any string containing emoji/pictographic codepoints is
+  // unambiguously an emoji icon, not a lookup key.
+  const EMOJI_RE = /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F]/u;
+  function isEmoji(str) {
+    return EMOJI_RE.test(str);
+  }
+
   function svgIcon(name, size) {
     const safeSize = coerceIconSize(size);
 
@@ -705,6 +714,18 @@
       return '<img src="' + safeSrc + '" width="' + safeSize + '" height="' + safeSize +
         '" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;"' +
         ' draggable="false" alt="" aria-hidden="true" data-hide-on-error>';
+    }
+
+    // Web apps (WebAppManager) store their icon as a plain emoji character
+    // (e.g. the '🌐' default) rather than a UI_ICONS key or icons8 name.
+    // Without this check that string falls through to the icons8 <img>
+    // branch below, requests a nonexistent '/assets/icons8-🌐-94.png', 404s,
+    // and gets hidden by data-hide-on-error — leaving pinned web apps with
+    // no icon on the desktop/taskbar. Render emoji as text instead.
+    if (typeof name === 'string' && isEmoji(name)) {
+      return '<span style="display:inline-flex;align-items:center;justify-content:center;' +
+        'width:' + safeSize + 'px;height:' + safeSize + 'px;font-size:' + Math.round(safeSize * 0.82) +
+        'px;line-height:1;" aria-hidden="true">' + name + '</span>';
     }
 
     const cacheKey = name + '|' + safeSize;

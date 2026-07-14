@@ -1027,9 +1027,11 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
   _iconDragControllers.push(ac);
 
   let isDragging = false;
+  let dragStarted = false; // true only once movement has crossed DRAG_THRESHOLD
   let startX = 0, startY = 0, initialX = 0, initialY = 0;
   let originalX = 0, originalY = 0;
   let overTaskbar = false;
+  const DRAG_THRESHOLD = 4; // px — below this, mousedown+mouseup is a click, not a drag
 
   function getAppId() {
     return key.startsWith('app:') ? key.slice(4) : icon.dataset.shortcutTarget;
@@ -1071,6 +1073,7 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
   icon.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     isDragging = true;
+    dragStarted = false;
     startX = e.clientX;
     startY = e.clientY;
     const rect = icon.getBoundingClientRect();
@@ -1078,16 +1081,35 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
     initialY = rect.top;
     originalX = rect.left - desktopEl.getBoundingClientRect().left;
     originalY = rect.top - desktopEl.getBoundingClientRect().top;
-    icon.style.zIndex = '99999';
-    icon.style.transition = 'none';
-    icon.classList.add('dragging');
-    document.body.appendChild(icon);
+    // NOTE: reparenting to document.body and bumping z-index/dragging state
+    // now happens lazily in mousemove, once DRAG_THRESHOLD is crossed — not
+    // here. Doing it unconditionally on every mousedown meant a plain click
+    // (mousedown immediately followed by mouseup at ~the same spot) still
+    // ran the full "drop" path below: it reparented the icon out of the
+    // desktop container, rewrote its stored position via
+    // OS.settings.set('desktopIconPositions', ...), and re-appended it —
+    // which fires the settings-change listener that re-renders the whole
+    // desktop, and can visibly nudge the icon if the reparent-triggered
+    // reflow changes its measured rect even slightly. A single click should
+    // only select the icon.
   });
 
   document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
+
+    if (!dragStarted) {
+      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+      // Threshold crossed — this is now a real drag. Do the reparent/style
+      // work that used to happen unconditionally on mousedown.
+      dragStarted = true;
+      icon.style.zIndex = '99999';
+      icon.style.transition = 'none';
+      icon.classList.add('dragging');
+      document.body.appendChild(icon);
+    }
+
     const newX = initialX + dx;
     const newY = initialY + dy;
 
@@ -1098,15 +1120,22 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
     if (canPin) {
       icon.style.position = 'fixed';
       icon.style.left = `${newX}px`;
-      icon.style.top = `${newY}px`;
 
       const taskbar = document.getElementById('taskbar');
+      let over = false;
       if (taskbar) {
         const tbRect = taskbar.getBoundingClientRect();
         const cx = e.clientX;
         const cy = e.clientY;
-        const over = cx > tbRect.left && cx < tbRect.right && cy > tbRect.top && cy < tbRect.bottom;
+        over = cx > tbRect.left && cx < tbRect.right && cy > tbRect.top && cy < tbRect.bottom;
         setTaskbarHover(over);
+      }
+
+      if (over) {
+        icon.style.top = `${newY}px`;
+      } else {
+        const maxY = taskbar ? taskbar.getBoundingClientRect().top - icon.offsetHeight : window.innerHeight;
+        icon.style.top = `${Math.min(newY, maxY)}px`;
       }
     } else {
       const taskbar = document.getElementById('taskbar');
@@ -1121,6 +1150,15 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
   document.addEventListener('mouseup', () => {
     if (!isDragging) return;
     isDragging = false;
+
+    if (!dragStarted) {
+      // Never crossed the threshold — this was a click, not a drag. Icon
+      // was never reparented or restyled, so there's nothing to undo and
+      // nothing to write back to desktopIconPositions.
+      return;
+    }
+    dragStarted = false;
+
     icon.style.zIndex = '';
     icon.style.transition = '';
     icon.classList.remove('dragging');
@@ -1149,65 +1187,157 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
     } else {
       const rect = icon.getBoundingClientRect();
       const desktopRect = desktopEl.getBoundingClientRect();
-      x = rect.left - desktopRect.left;
-      y = rect.top - desktopRect.top;
-      const w = icon.offsetWidth  || 80;
-      const h = icon.offsetHeight || 80;
-      const occupied = _isPositionOccupied(x, y, w, h, iconPositions, key);
-      if (occupied) {
-        const snapped = _findFreePosition(x, y, w, h, iconPositions, key);
-        x = snapped.x;
-        y = snapped.y;
+      const rawX = rect.left - desktopRect.left;
+      const rawY = rect.top - desktopRect.top;
+      const target = _pixelToCell(rawX, rawY, desktopEl);
+
+      const occupantKey = _cellKeyOccupant(iconPositions, target.col, target.row, key);
+      if (occupantKey) {
+        // Windows-style swap: dropping this icon on another one's cell
+        // trades their positions instead of shoving this icon off to the
+        // next open slot. The occupant re-renders in its new cell on the
+        // next renderDesktopIcons() pass (triggered by the settings write
+        // below); this icon takes the cell being dropped on.
+        const occupantCell = _posToCell(iconPositions[key]) || _pixelToCell(originalX, originalY, desktopEl);
+        iconPositions[occupantKey] = { col: occupantCell.col, row: occupantCell.row };
       }
+
+      const cell = target;
+      const pixel = _cellToPixel(cell.col, cell.row);
+      x = pixel.x; y = pixel.y;
+      iconPositions[key] = { col: cell.col, row: cell.row };
+      icon.style.position = 'absolute';
+      icon.style.left = `${x}px`;
+      icon.style.top = `${y}px`;
+      OS.settings.set('desktopIconPositions', iconPositions);
+      desktopEl.appendChild(icon);
+      if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+      return;
     }
     icon.style.position = 'absolute';
     icon.style.left = `${x}px`;
     icon.style.top = `${y}px`;
-    iconPositions[key] = { x, y };
-    OS.settings.set('desktopIconPositions', iconPositions);
     desktopEl.appendChild(icon);
   }, { signal });
 }
 
-// FIX: hoisted — was recreated on every renderDesktopIcons() call
-function _isPositionOccupied(px, py, w, h, iconPositions, excludeKey) {
-  const buffer = 4;
+// ── Desktop icon grid ────────────────────────────────────────────────
+// Icons used to store raw {x, y} pixel positions with a "push to nearest
+// free spot on overlap" resolver. That's why dragging felt inconsistent —
+// two icons a few pixels apart were both "valid" positions, so drops
+// landed in slightly different spots depending on exactly where the mouse
+// was released, and stored positions from a wider window didn't line up
+// with a grid at a narrower one. Everything below now snaps to a fixed
+// cell grid (col, row) — same layout model Windows/macOS use — so every
+// valid position is one of a fixed set of cells, not "anywhere that
+// doesn't overlap."
+const DESKTOP_GRID = {
+  cellW: 88,   // icon slot width, including horizontal spacing
+  cellH: 104,  // icon slot height, including vertical spacing + label
+  marginX: 12,
+  marginY: 12,
+};
+
+function _gridCols(desktopEl) {
+  const width = desktopEl ? desktopEl.getBoundingClientRect().width : window.innerWidth;
+  return Math.max(1, Math.floor((width - DESKTOP_GRID.marginX * 2) / DESKTOP_GRID.cellW));
+}
+
+function _gridRows(desktopEl) {
+  // Must be measured in the same coordinate space as the drop position
+  // (desktop-relative, from desktopEl's own rect), not viewport-relative.
+  // Mixing the two — comparing a desktop-relative Y against a viewport-
+  // relative taskbar top — was why drops always computed a row near the
+  // bottom of the *desktop's* box regardless of where the cursor actually
+  // was: the desktop area sits below the window titlebar, so its own
+  // height is shorter than (and offset from) the viewport height the old
+  // code was measuring against.
+  const el = desktopEl || document.getElementById('desktop');
+  const height = el ? el.getBoundingClientRect().height : window.innerHeight;
+  return Math.max(1, Math.floor((height - DESKTOP_GRID.marginY * 2) / DESKTOP_GRID.cellH));
+}
+
+function _cellToPixel(col, row) {
+  return {
+    x: DESKTOP_GRID.marginX + col * DESKTOP_GRID.cellW,
+    y: DESKTOP_GRID.marginY + row * DESKTOP_GRID.cellH,
+  };
+}
+
+// Converts a raw pixel drop point (e.g. cursor position from a drag) to
+// the nearest grid cell, clamped to stay within the visible desktop area.
+// Takes desktopEl so column count is measured against the actual desktop
+// container width, not window.innerWidth — mirrors the fix already applied
+// to _gridRows. Without this, _gridCols() fell back to window.innerWidth
+// (wider than the real desktop area, e.g. NBOSP-app-in-webapp), so `cols`
+// came out too high and the right-edge clamp never engaged early enough,
+// letting icons get dragged/dropped past the actual visible right edge.
+function _pixelToCell(x, y, desktopEl) {
+  const el = desktopEl || document.getElementById('desktop');
+  const cols = _gridCols(el);
+  const rows = _gridRows(el);
+  const col = Math.min(cols - 1, Math.max(0, Math.round((x - DESKTOP_GRID.marginX) / DESKTOP_GRID.cellW)));
+  const row = Math.min(rows - 1, Math.max(0, Math.round((y - DESKTOP_GRID.marginY) / DESKTOP_GRID.cellH)));
+  return { col, row };
+}
+
+// Legacy positions were stored as pixel {x, y}. Grid positions are stored
+// as {col, row}. This tells them apart so old saved layouts still resolve
+// to a reasonable cell on first load instead of breaking.
+function _posToCell(pos) {
+  if (pos && typeof pos.col === 'number' && typeof pos.row === 'number') return { col: pos.col, row: pos.row };
+  if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') return _pixelToCell(pos.x, pos.y);
+  return null;
+}
+
+function _cellKeyOccupant(iconPositions, col, row, excludeKey) {
   for (const [k, pos] of Object.entries(iconPositions)) {
     if (k === excludeKey) continue;
-    const ow = 80, oh = 80;
-    if (px + w - buffer > pos.x && px + buffer < pos.x + ow &&
-        py + h - buffer > pos.y && py + buffer < pos.y + oh) return true;
+    const cell = _posToCell(pos);
+    if (cell && cell.col === col && cell.row === row) return k;
   }
-  return false;
+  return null;
 }
 
-function _findFreePosition(px, py, w, h, iconPositions, excludeKey) {
-  const iconSize = 80, iconSpacing = 16, labelHeight = 24;
-  let x = px, y = py;
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (!_isPositionOccupied(x, y, w, h, iconPositions, excludeKey)) return { x, y };
-    x += iconSize + iconSpacing;
-    if (x + w > window.innerWidth - 20) { x = 20; y += iconSize + iconSpacing + labelHeight; }
+// Finds the nearest unoccupied cell to (col, row), searching outward in
+// rings so a drop near a full cell lands close by rather than jumping to
+// the first empty slot in reading order.
+function _findFreeCell(col, row, iconPositions, excludeKey, desktopEl) {
+  const el = desktopEl || document.getElementById('desktop');
+  const cols = _gridCols(el);
+  const rows = _gridRows(el);
+  const clamp = (c, r) => ({ col: Math.min(cols - 1, Math.max(0, c)), row: Math.min(rows - 1, Math.max(0, r)) });
+  if (!_cellKeyOccupant(iconPositions, col, row, excludeKey)) return clamp(col, row);
+  for (let radius = 1; radius < Math.max(cols, rows) + 1; radius++) {
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        if (Math.max(Math.abs(dr), Math.abs(dc)) !== radius) continue; // ring only
+        const c = col + dc, r = row + dr;
+        if (c < 0 || r < 0 || c >= cols || r >= rows) continue;
+        if (!_cellKeyOccupant(iconPositions, c, r, excludeKey)) return { col: c, row: r };
+      }
+    }
   }
-  return { x: px, y: py };
+  return clamp(col, row); // grid is full — overlap rather than escape the desktop
 }
 
-function _getInitialIconPosition(key, index, iconPositions) {
+
+function _getInitialIconPosition(key, index, iconPositions, desktopEl) {
   const saved = iconPositions[key];
-  if (saved) return { left: `${saved.x}px`, top: `${saved.y}px`, position: 'absolute' };
+  if (saved) {
+    const cell = _posToCell(saved);
+    const { x, y } = _cellToPixel(cell.col, cell.row);
+    return { left: `${x}px`, top: `${y}px`, position: 'absolute' };
+  }
 
-  const iconSize = 80;
-  const iconSpacing = 16;
-  const labelHeight = 24;
+  const cols = _gridCols(desktopEl || document.getElementById('desktop'));
   const occupied = new Set();
   for (const [k, pos] of Object.entries(iconPositions)) {
     if (k === key) continue;
-    const col = Math.round((pos.x - 20) / (iconSize + iconSpacing));
-    const row = Math.round((pos.y - 20) / (iconSize + iconSpacing + labelHeight));
-    occupied.add(`${col},${row}`);
+    const cell = _posToCell(pos);
+    if (cell) occupied.add(`${cell.col},${cell.row}`);
   }
 
-  const cols = Math.max(1, Math.floor((window.innerWidth - 40) / (iconSize + iconSpacing)));
   let col = index % cols;
   let row = Math.floor(index / cols);
   if (occupied.has(`${col},${row}`)) {
@@ -1220,8 +1350,7 @@ function _getInitialIconPosition(key, index, iconPositions) {
     }
   }
 
-  const x = 20 + col * (iconSize + iconSpacing);
-  const y = 20 + row * (iconSize + iconSpacing + labelHeight);
+  const { x, y } = _cellToPixel(col, row);
   return { position: 'absolute', left: `${x}px`, top: `${y}px` };
 }
 
@@ -1258,9 +1387,9 @@ async function _handleDesktopDrop(e, desktopEl) {
           }
           await FS.createFile(desktopFolderId, shortcutName, shortcutContent, 'application/x-app-shortcut');
           const desktopRect = desktopEl.getBoundingClientRect();
-          const x = Math.max(0, Math.min(e.clientX - desktopRect.left, desktopRect.width - 80));
-          const y = Math.max(0, Math.min(e.clientY - desktopRect.top, desktopRect.height - 100));
-          iconPositions['app:' + payload.appId] = { x, y };
+          const dropCell = _pixelToCell(e.clientX - desktopRect.left, e.clientY - desktopRect.top, desktopEl);
+          const freeCell = _findFreeCell(dropCell.col, dropCell.row, iconPositions, 'app:' + payload.appId, desktopEl);
+          iconPositions['app:' + payload.appId] = { col: freeCell.col, row: freeCell.row };
           OS.settings.set('desktopIconPositions', iconPositions);
           renderDesktopIcons();
           Notify.show({ title: 'Shortcut Created', body: `${payload.appName} shortcut added to desktop`, type: 'success', appName: 'Desktop' });
@@ -1523,7 +1652,7 @@ function renderDesktopIcons() {
       tabindex: '0',
       'aria-label': app.name,
       role: 'button',
-      style: _getInitialIconPosition(key, idx, iconPositions)
+      style: _getInitialIconPosition(key, idx, iconPositions, desktop)
     });
     const img = createEl('div', { className: 'desktop-icon-img' });
     img.innerHTML = svgIcon(app.icon, 40);
@@ -1663,7 +1792,7 @@ function renderDesktopIcons() {
       tabindex: '0',
       'aria-label': f.name,
       role: 'button',
-      style: _getInitialIconPosition(key, defaultApps.length + idx, iconPositions),
+      style: _getInitialIconPosition(key, defaultApps.length + idx, iconPositions, desktop),
       'data-shortcut-target': isShortcut && shortcutData ? shortcutData.target : ''
     });
     const img = createEl('div', { className: 'desktop-icon-img' });
@@ -1692,7 +1821,18 @@ function renderDesktopIcons() {
 
     icon.addEventListener('dblclick', () => {
       if (isShortcut && shortcutData) {
-        WM.createWindow(shortcutData.target);
+        // Web app shortcuts need openWebApp() (registry.js), which sets
+        // OS.apps[id].init() before creating the window — WM.createWindow()
+        // alone only renders content for apps that already define .init(),
+        // and a web app shortcut's target has never had one set at this
+        // point unless the app happened to be launched earlier this session
+        // from somewhere that did (only appmanager.js's Open button did).
+        // Without this, double-clicking the shortcut opened a blank window.
+        if (typeof shortcutData.target === 'string' && shortcutData.target.startsWith('webapp_') && typeof window.openWebApp === 'function') {
+          window.openWebApp(shortcutData.target.slice('webapp_'.length));
+        } else {
+          WM.createWindow(shortcutData.target);
+        }
       } else if (f.type === 'folder') {
         WM.createWindow('vault', { folderId: f.id });
       } else {
@@ -1711,7 +1851,11 @@ function renderDesktopIcons() {
           label: 'Open', icon: 'play',
           action: () => {
             if (isShortcut && shortcutData) {
-              WM.createWindow(shortcutData.target);
+              if (typeof shortcutData.target === 'string' && shortcutData.target.startsWith('webapp_') && typeof window.openWebApp === 'function') {
+                window.openWebApp(shortcutData.target.slice('webapp_'.length));
+              } else {
+                WM.createWindow(shortcutData.target);
+              }
             } else if (f.type === 'folder') {
               WM.createWindow('vault', { folderId: f.id });
             } else {
@@ -1787,7 +1931,32 @@ function renderDesktopIcons() {
           try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
         })();
         const isUserApp = storedApps.some(a => a.id === shortcutData.target);
-        if (isUserApp) {
+        const isWebApp = typeof shortcutData.target === 'string' && shortcutData.target.startsWith('webapp_');
+        if (isWebApp) {
+          // Web app shortcuts aren't in nova_installed_apps (that's only
+          // native/package apps), so they were previously falling through
+          // both branches below with no removal option at all — the
+          // shortcut, taskbar pin, and WebAppManager record all had to be
+          // cleaned up by hand, in three different places, none of which
+          // existed on the desktop. Reuse the same removeWebApp() helper as
+          // the Web Apps tab and launchpad so all three stay in sync.
+          menuItems.push({
+            label: 'Remove Web App', icon: 'trash', danger: true,
+            action: async () => {
+              const appName = f.name.replace(/\.lnk$/i, '');
+              if (!confirm(`Remove "${appName}"?`)) return;
+              const waId = shortcutData.target.slice('webapp_'.length);
+              if (typeof window.removeWebApp === 'function') {
+                await window.removeWebApp(waId);
+              }
+              delete iconPositions['file:' + f.id];
+              delete iconPositions['app:' + shortcutData.target];
+              OS.settings.set('desktopIconPositions', iconPositions);
+              renderDesktopIcons();
+              Notify.show({ title: 'Removed', body: `${appName} has been removed.`, type: 'success', appName: 'Desktop' });
+            }
+          });
+        } else if (isUserApp) {
           menuItems.push({
             label: 'Uninstall', icon: 'trash', danger: true,
             action: async () => {
@@ -1896,16 +2065,15 @@ OS.events.on('settings:changed', async ({ key }) => {
 
     for (const [k, pos] of Object.entries(hiddenDevPositions) || {}) {
       if (!k.startsWith('app:')) continue;
-      const appId = k.slice(4);
+      const cell = _posToCell(pos);
+      if (!cell) continue;
       for (const [otherKey, otherPos] of Object.entries(iconPositions)) {
         const otherAppId = otherKey.startsWith('app:') ? otherKey.slice(4) : null;
         if (otherAppId && devAppIds.has(otherAppId)) continue;
-        const buffer = 4;
-        const ow = 80, oh = 80;
-        if (pos.x + ow - buffer > otherPos.x && pos.x + buffer < otherPos.x + ow &&
-            pos.y + oh - buffer > otherPos.y && pos.y + buffer < otherPos.y + oh) {
-          const newPos = _findFreePosition(otherPos.x, otherPos.y, ow, oh, iconPositions, otherKey);
-          iconPositions[otherKey] = newPos;
+        const otherCell = _posToCell(otherPos);
+        if (otherCell && otherCell.col === cell.col && otherCell.row === cell.row) {
+          const newCell = _findFreeCell(otherCell.col, otherCell.row, iconPositions, otherKey);
+          iconPositions[otherKey] = { col: newCell.col, row: newCell.row };
         }
       }
     }

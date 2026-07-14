@@ -369,73 +369,21 @@ function renderLaunchpad() {
 
         // #6: extracted launch logic so context-menu "Open" can call it directly
         // without going through item.click() which would double-fire toggleLaunchpad()
+        //
+        // Delegates to openWebApp() (registry.js), which sets OS.apps[id].init()
+        // so the webview actually renders. This used to build the <webview>
+        // by hand and append it to windowElement.content right after
+        // createWindow() returned — which meant a window opened this way
+        // rendered fine the first time, but reopening it later via the
+        // taskbar or a desktop shortcut (which just call WM.createWindow()
+        // with no iframe-building step) produced a blank window, since only
+        // this one call site ever built the content.
         function launchWebApp() {
           toggleLaunchpad();
           try {
-            const appData = WebAppManager.getApp(webApp.id);
-            if (!appData) throw new Error('Web app not found');
-            WebAppManager.launchApp(webApp.id);
-
-            const tempAppId = 'webapp_' + webApp.id;
-            if (!OS.apps[tempAppId]) {
-              OS.apps[tempAppId] = {
-                name: appData.name, icon: appData.icon,
-                defaultSize: [800, 600], minSize: [400, 300]
-              };
-            }
-            const windowElement = WM.createWindow(tempAppId);
-
-            const iframeContainer = document.createElement('div');
-            iframeContainer.style.cssText =
-              'width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative;';
-
-            const loader = document.createElement('div');
-            loader.style.cssText =
-              'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:rgba(255,255,255,0.7);z-index:1000;';
-            // #16: avoid loader.innerHTML for dynamic content — use DOM
-            const loaderIcon = document.createElement('div');
-            loaderIcon.style.cssText = 'font-size:24px;margin-bottom:12px;';
-            loaderIcon.textContent = '⏳';
-            const loaderText = document.createElement('div');
-            loaderText.textContent = 'Loading...';
-            loader.appendChild(loaderIcon);
-            loader.appendChild(loaderText);
-
-            const hideLoader = () => { loader.style.display = 'none'; };
-
-            const iframe = document.createElement('webview');
-            iframe.style.cssText = 'flex:1;border:none;background:white;overflow:hidden;';
-            iframe.addEventListener('did-finish-load', hideLoader);
-            iframe.addEventListener('did-stop-loading', hideLoader);
-            iframe.addEventListener('did-fail-load', () => {
-              hideLoader();
-              loader.style.display = 'flex';
-              loader.innerHTML = '';
-              const errIcon = document.createElement('div');
-              errIcon.style.cssText = 'font-size:20px;margin-bottom:12px;';
-              errIcon.textContent = '❌';
-              const errText = document.createElement('div');
-              errText.textContent = 'Failed to load';
-              loader.appendChild(errIcon);
-              loader.appendChild(errText);
-            });
-            setTimeout(hideLoader, 5000);
-            iframe.src = appData.url;
-
-            const urlBar = document.createElement('div');
-            urlBar.style.cssText =
-              'background:rgba(255,255,255,0.08);border-bottom:1px solid rgba(255,255,255,0.1);padding:8px 16px;font-size:11px;color:rgba(255,255,255,0.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace;';
-            try {
-              const urlObj = new URL(appData.url);
-              urlBar.textContent = `🔒 ${urlObj.host}`;
-            } catch {
-              urlBar.textContent = 'External Web App';
-            }
-
-            iframeContainer.appendChild(urlBar);
-            iframeContainer.appendChild(loader);
-            iframeContainer.appendChild(iframe);
-            if (windowElement?.content) windowElement.content.appendChild(iframeContainer);
+            if (typeof window.openWebApp !== 'function') throw new Error('Web app launcher unavailable');
+            const windowElement = window.openWebApp(webApp.id);
+            if (!windowElement) throw new Error('Web app not found');
           } catch (error) {
             Notify.show({
               title: 'Error', body: `Failed to launch app: ${error.message}`,
@@ -481,8 +429,16 @@ function renderLaunchpad() {
             { separator: true },
             {
               label: 'Remove Web App', icon: 'trash', danger: true,
-              action: () => {
-                WebAppManager.removeApp(webApp.id);
+              action: async () => {
+                // removeWebApp (registry.js) also unpins from the taskbar
+                // and deletes any desktop .lnk shortcut, not just the
+                // WebAppManager record — matches the Web Apps tab's Remove
+                // button and the desktop shortcut's own Remove Web App item.
+                if (typeof window.removeWebApp === 'function') {
+                  await window.removeWebApp(webApp.id);
+                } else {
+                  WebAppManager.removeApp(webApp.id);
+                }
                 renderLaunchpad();
                 Notify.show({ title: 'Removed', body: `"${webApp.name}" has been removed`, type: 'success', appName: 'Launchpad' });
               }
