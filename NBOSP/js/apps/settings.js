@@ -397,7 +397,7 @@ registerApp({
               'The following internal apps and tools become accessible:\n' +
               '• Console — runs arbitrary JavaScript in the full OS context with no sandboxing\n' +
               '• Inspector — can force-close arbitrary windows and export app state\n' +
-              '• Packages — can install unsigned or unverified packages into the live registry\n' +
+              '• Packages — can install unsigned or unverified packages into the live registry, and can add a locally-generated signing key to this device\u2019s trust store for the current session (only affects installs on this machine; never affects other clones, forks, or devices)\n' +
               '• Modules — can dynamically import arbitrary module paths for live code execution\n' +
               '• Permissions — can bulk-grant or revoke permissions for any app without user consent\n' +
               '• Perf — exposes detailed runtime performance data, memory usage, and per-window DOM breakdowns\n' +

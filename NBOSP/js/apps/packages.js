@@ -105,7 +105,7 @@ registerApp({
     // change after a re-sign or re-verify; returns null when there's
     // nothing to export yet, which both handlers treat as a no-op rather
     // than exporting "undefined".
-    function exportButtons(getPkg, filenamePrefix) {
+    function exportButtons(getPkg, filenamePrefix, suffix = '.novaapp.json') {
       const row = createEl('div', { style: 'display:flex;gap:8px;margin-top:8px;' });
       const copyBtn = createEl('button', { textContent: 'Copy', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       const downloadBtn = createEl('button', { textContent: 'Download', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
@@ -138,7 +138,7 @@ registerApp({
         // of unknown prop names isn't something to assume either way here.
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${filenamePrefix}-${id}.novaapp.json`;
+        a.download = `${filenamePrefix}-${id}${suffix}`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -206,6 +206,42 @@ registerApp({
       const pubKeyArea = createEl('textarea', { readonly: true, rows: 3, style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
       pubKeyWrap.appendChild(pubKeyLabel);
       pubKeyWrap.appendChild(pubKeyArea);
+
+      // Local-only, human-clicked trust action. This never runs automatically
+      // and is never invoked from inside a package's own code — it's a
+      // devMode-gated button in this app, same trust model as Console.
+      // Clicking it adds THIS key to THIS clone's in-memory TrustStore for
+      // the rest of the current session only (see trust-store.js: add() is
+      // not persisted to disk here, so a restart clears it). It never
+      // touches any other clone/fork/machine — packages signed with this
+      // key still show as Unverified everywhere else, as they should.
+      const trustLocalBtn = createEl('button', {
+        textContent: 'Trust this key locally (this session)',
+        style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;margin-top:6px;'
+      });
+      const trustLocalNote = createEl('div', { style: 'font-size:10px;color:var(--text-muted);margin-top:4px;' });
+      trustLocalBtn.addEventListener('click', () => {
+        if (!devKeyPair || typeof TrustStore === 'undefined' || !TrustStore.add) {
+          trustLocalNote.textContent = 'TrustStore is not available in this context.';
+          return;
+        }
+        TrustStore.add({
+          name: 'Local dev key (session)',
+          id: `local-dev-${Date.now()}`,
+          publicKey: devKeyPair.publicJwk,
+          description: 'Added locally via Packages app. Not persisted, not shared, cleared on restart.',
+        });
+        trustLocalNote.textContent = 'Added to this clone\u2019s TrustStore for the rest of the session. Packages you sign with this key will now verify as Trusted here only — this has no effect on any other clone, fork, or machine.';
+        trustLocalBtn.disabled = true;
+        trustLocalBtn.textContent = 'Trusted locally ✓';
+      }, { signal: ac.signal });
+      pubKeyWrap.appendChild(trustLocalBtn);
+      pubKeyWrap.appendChild(trustLocalNote);
+      // Reuse the same Copy/Download row used for packages, so a dev can
+      // hand this public key to a teammate, who adds it via the same
+      // "Trust this key locally" flow on their own machine — never
+      // auto-applied on their end, always their own click.
+      pubKeyWrap.appendChild(exportButtons(() => devKeyPair?.publicJwk || null, 'signer-pubkey', '.json'));
       panel.appendChild(pubKeyWrap);
 
       async function refreshKeypair() {
@@ -256,9 +292,47 @@ registerApp({
       }
       addFileRow('index.html', '<h1>Hello</h1>');
 
-      const addFileBtn = createEl('button', { textContent: '+ Add File', style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;margin-bottom:10px;' });
+      const fileBtnRow = createEl('div', { style: 'display:flex;gap:8px;margin-bottom:10px;' });
+      const addFileBtn = createEl('button', { textContent: '+ Add File', style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
       addFileBtn.addEventListener('click', () => addFileRow('', ''), { signal: ac.signal });
-      panel.appendChild(addFileBtn);
+      fileBtnRow.appendChild(addFileBtn);
+
+      // Multi-file import — reads real files from disk via <input type=file
+      // multiple>, so a dev packaging more than one or two files doesn't
+      // have to hand-create a row and paste content for each. Uses
+      // webkitRelativePath when present (folder picker) to preserve
+      // subfolder structure, falling back to file.name for a flat
+      // multi-select. Text files only, matching what the file-row
+      // textareas can hold; binary files aren't representable here.
+      const importInput = createEl('input', { type: 'file', multiple: true, style: 'display:none;' });
+      const importBtn = createEl('button', { textContent: '📁 Import Files…', style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      importBtn.addEventListener('click', () => importInput.click(), { signal: ac.signal });
+      importInput.addEventListener('change', async () => {
+        const fileList = [...importInput.files];
+        if (!fileList.length) return;
+        // Clear the single default placeholder row ('index.html') only if
+        // it's still untouched, so importing doesn't silently discard a
+        // file a dev already started editing by hand.
+        const existingRows = [...filesWrap.querySelectorAll('[data-role="file-row"]')];
+        if (existingRows.length === 1) {
+          const p = existingRows[0].querySelector('input').value.trim();
+          const c = existingRows[0].querySelector('textarea').value;
+          if (p === 'index.html' && c === '<h1>Hello</h1>') existingRows[0].remove();
+        }
+        for (const file of fileList) {
+          try {
+            const text = await file.text();
+            const relPath = file.webkitRelativePath || file.name;
+            addFileRow(relPath, text);
+          } catch (e) {
+            addFileRow(file.name, `/* Could not read file: ${e.message} */`);
+          }
+        }
+        importInput.value = '';
+      }, { signal: ac.signal });
+      fileBtnRow.appendChild(importBtn);
+      fileBtnRow.appendChild(importInput);
+      panel.appendChild(fileBtnRow);
 
       const signBtn = createEl('button', { textContent: 'Create & Sign Package', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });
       const box = resultBox();
@@ -358,6 +432,79 @@ registerApp({
     // ── Verify tab ────────────────────────────────────────────────────────
     (function buildVerifyTab() {
       const panel = panels.verify;
+
+      // Local trust/revocation overview. Read-only list of what THIS clone's
+      // TrustStore currently holds this session, plus a way to revoke a
+      // specific signature (see trust-store.js revoke()/unrevoke() — keyed
+      // by exact signature string, not app id/name, since those are
+      // dev-controlled and spoofable). This panel only ever reads/writes
+      // this session's local TrustStore; it has no effect on any other
+      // clone or fork.
+      const trustPanel = createEl('div', { style: 'margin-bottom:14px;padding:10px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;' });
+      const trustHeader = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;' });
+      trustHeader.appendChild(createEl('div', { textContent: 'Locally trusted signers (this session)', style: 'font-size:11px;color:var(--text-muted);font-weight:600;' }));
+      const refreshTrustBtn = createEl('button', { textContent: '↻ Refresh', style: 'padding:3px 8px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:10px;' });
+      trustHeader.appendChild(refreshTrustBtn);
+      trustPanel.appendChild(trustHeader);
+      const trustList = createEl('div', { style: 'font-size:11px;font-family:monospace;color:var(--text-primary);display:flex;flex-direction:column;gap:4px;' });
+      trustPanel.appendChild(trustList);
+
+      function renderTrustList() {
+        trustList.innerHTML = '';
+        const entries = (typeof TrustStore !== 'undefined' && TrustStore.list) ? TrustStore.list() : [];
+        if (!entries.length) {
+          trustList.appendChild(createEl('div', { textContent: '(none)', style: 'color:var(--text-muted);' }));
+          return;
+        }
+        entries.forEach(e => {
+          const row = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
+          row.appendChild(createEl('span', { textContent: `${e.name || e.id}`, title: JSON.stringify(e.publicKey) }));
+          row.appendChild(createEl('span', { textContent: e.id === 'novabyte-trusted-signing-v1' ? '(built-in)' : '', style: 'color:var(--text-muted);font-size:10px;' }));
+          trustList.appendChild(row);
+        });
+      }
+      refreshTrustBtn.addEventListener('click', renderTrustList, { signal: ac.signal });
+      renderTrustList();
+      panel.appendChild(trustPanel);
+
+      // Revocation: revoke/unrevoke a specific package's signature by its
+      // exact pkg.signature string (see trust-store.js — signature is the
+      // only safe key here; id/name/version are dev-controlled fields a
+      // bad actor could reuse). This does NOT touch the signer's key —
+      // every other package signed with that key remains trusted, which
+      // is the intended narrow scope (see revoke() doc comment).
+      const revokePanel = createEl('div', { style: 'margin-bottom:14px;padding:10px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;' });
+      revokePanel.appendChild(createEl('div', { textContent: 'Revoke a package signature', style: 'font-size:11px;color:var(--text-muted);font-weight:600;margin-bottom:6px;' }));
+      const sigInput = createEl('input', { placeholder: 'Exact pkg.signature value to revoke', style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;margin-bottom:6px;' });
+      const reasonInput = createEl('input', { placeholder: 'Reason (optional)', style: 'width:100%;box-sizing:border-box;padding:6px 8px;background:var(--bg-default);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;margin-bottom:6px;' });
+      revokePanel.appendChild(sigInput);
+      revokePanel.appendChild(reasonInput);
+      const revokeRow = createEl('div', { style: 'display:flex;gap:8px;align-items:center;' });
+      const revokeBtn = createEl('button', { textContent: 'Revoke', style: 'padding:5px 10px;background:transparent;color:#f85149;border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const unrevokeBtn = createEl('button', { textContent: 'Unrevoke', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
+      const revokeNote = createEl('span', { style: 'font-size:10px;color:var(--text-muted);' });
+      revokeBtn.addEventListener('click', () => {
+        const sig = sigInput.value.trim();
+        if (!sig) { revokeNote.textContent = 'Paste a signature first.'; return; }
+        try {
+          TrustStore.revoke(sig, reasonInput.value.trim() || null);
+          revokeNote.textContent = 'Revoked. Persisted to revoked-signatures.json.';
+        } catch (e) {
+          revokeNote.textContent = 'Error: ' + e.message;
+        }
+      }, { signal: ac.signal });
+      unrevokeBtn.addEventListener('click', () => {
+        const sig = sigInput.value.trim();
+        if (!sig) { revokeNote.textContent = 'Paste a signature first.'; return; }
+        const ok = TrustStore.unrevoke ? TrustStore.unrevoke(sig) : false;
+        revokeNote.textContent = ok ? 'Unrevoked.' : 'That signature wasn\u2019t on the revocation list.';
+      }, { signal: ac.signal });
+      revokeRow.appendChild(revokeBtn);
+      revokeRow.appendChild(unrevokeBtn);
+      revokeRow.appendChild(revokeNote);
+      revokePanel.appendChild(revokeRow);
+      panel.appendChild(revokePanel);
+
       panel.appendChild(createEl('label', { textContent: 'Package JSON', style: 'display:block;font-size:11px;color:var(--text-muted);margin-bottom:4px;' }));
       const textarea = createEl('textarea', {
         placeholder: 'Paste a package object (e.g. copy "fullPackage" from the Sign tab result)',

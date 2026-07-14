@@ -439,6 +439,8 @@ registerApp({
       });
     }
 
+    
+
     // ── Combined trust + integrity dialog ─────────────────────────────
     // Used ONLY when BOTH checks fail at once — i.e. exactly the 3 real
     // combos: unsigned+tampered, untrusted-signer+tampered, revoked+tampered.
