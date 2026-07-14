@@ -97,6 +97,8 @@ Download the `.zip`, extract it, and run the executable. No installation is requ
 The `NBOSP/` folder in this repo is the **free, open base of NovaByte**.
 
 > **Who is NBOSP for?** Developers and people who want to run NovaByte daily — those who just want pure stock software. No bloat, no fluff, no extras. Just a minimal, super fast, and clean OS that gets out of your way.
+>
+> **Important for that second group:** as an exception, expect to be missing a lot of features compared to v3. The base is very heavily developer and engineer focused, so commits to NBOSP will often add things aimed at developers and engineers that you might not want, use, or even find annoying as a daily-driver user.
 
 > [!WARNING]
 > **NBOSP is a foundation, not a finished product. Read this before you download.**
