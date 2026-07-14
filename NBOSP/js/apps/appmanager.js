@@ -949,6 +949,49 @@ registerApp({
     let installedApps = await getStoredApps();
     installedApps.forEach(a => registerNovaApp(a));
 
+    let lastInstalledSignature = computeInstalledSignature();
+
+    function computeInstalledSignature() {
+      try {
+        const list = PackageStore?.loadRegistry
+          ? PackageStore.loadRegistry()
+          : JSON.parse(localStorage.getItem(APPS_KEY) || '[]');
+        return list.map(a => a.id + ':' + (a.version || '')).sort().join('|');
+      } catch {
+        return '';
+      }
+    }
+
+    async function syncInstalledApps() {
+      const sig = computeInstalledSignature();
+      if (sig === lastInstalledSignature) return;
+      lastInstalledSignature = sig;
+
+      const fresh = await getStoredApps();
+      const oldById = new Map(installedApps.map(a => [a.id, a]));
+      const newById = new Map(fresh.map(a => [a.id, a]));
+
+      for (const app of fresh) {
+        const prev = oldById.get(app.id);
+        if (!prev || prev.version !== app.version) {
+          registerNovaApp(app);
+        }
+      }
+
+      installedApps = fresh;
+      if (selectedPkgId && !newById.has(selectedPkgId)) {
+        selectedPkgId = null;
+      }
+      if (typeof renderList === 'function') renderList();
+      if (typeof renderDetail === 'function') renderDetail();
+    }
+
+    window.addEventListener('storage', e => {
+      if (e.key === APPS_KEY) syncInstalledApps();
+    });
+
+    setInterval(syncInstalledApps, 2000);
+
     // ── Shared state ───────────────────────────────────────────────
     let activeTab = 'packages';
     let selectedPkgId = null;

@@ -75,6 +75,62 @@ const WM = window.WM = (() => {
         });
         new ResizeObserver(_clearWACache).observe(tb);
       }
+
+      // Accept app-icon drags from desktop / launchpad onto the taskbar.
+      const taskbarApps = document.getElementById('taskbar-apps');
+      const taskbar = document.getElementById('taskbar');
+      if (taskbarApps && taskbar) {
+        taskbarApps.addEventListener('dragenter', (e) => {
+          const json = e.dataTransfer?.types?.includes('application/json');
+          if (json) {
+            e.preventDefault();
+            taskbar.classList.add('drag-over');
+          }
+        });
+        taskbarApps.addEventListener('dragover', (e) => {
+          const json = e.dataTransfer?.types?.includes('application/json');
+          if (json) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'link';
+            taskbar.classList.add('drag-over');
+          }
+        });
+        taskbarApps.addEventListener('dragleave', (e) => {
+          if (!taskbarApps.contains(e.relatedTarget)) {
+            taskbar.classList.remove('drag-over');
+          }
+        });
+        taskbarApps.addEventListener('drop', (e) => {
+          taskbar.classList.remove('drag-over');
+          const raw = e.dataTransfer?.getData('application/json');
+          if (!raw) return;
+          try {
+            const payload = JSON.parse(raw);
+            if (payload?.type === 'app-shortcut' && payload?.appId) {
+              e.preventDefault();
+              const pins = OS.settings.get('pinnedApps') || [];
+              if (pins.includes(payload.appId)) {
+                Notify.show({
+                  title:   'Already Pinned',
+                  body:    `${payload.appName || payload.appId} is already pinned to taskbar`,
+                  type:    'info',
+                  appName: 'Taskbar',
+                });
+                return;
+              }
+              pins.push(payload.appId);
+              OS.settings.set('pinnedApps', pins);
+              wm.updateTaskbar();
+              Notify.show({
+                title:   'Pinned to Taskbar',
+                body:    `${payload.appName || payload.appId} pinned to taskbar`,
+                type:    'success',
+                appName: 'Taskbar',
+              });
+            }
+          } catch { /* ignore invalid payload */ }
+        });
+      }
     },
 
     createWindow(appId, options) {
@@ -959,15 +1015,21 @@ const WM = window.WM = (() => {
             icon:   'pin',
             action: () => {
               const pins = OS.settings.get('pinnedApps') ?? [];
-              const next = isPinned ? pins.filter(p => p !== appId) : [...pins, appId];
-              OS.settings.set('pinnedApps', next);
-              wm.updateTaskbar();
-              Notify.show({
-                title:   isPinned ? 'Unpinned' : 'Pinned',
-                body:    `${app.name} ${isPinned ? 'removed from' : 'pinned to'} taskbar`,
-                type:    'success',
-                appName: 'Taskbar',
-              });
+              if (isPinned) {
+                const next = pins.filter(p => p !== appId);
+                OS.settings.set('pinnedApps', next);
+                wm.updateTaskbar();
+                Notify.show({ title: 'Unpinned', body: `${app.name} removed from taskbar`, type: 'success', appName: 'Taskbar' });
+              } else {
+                if (pins.includes(appId)) {
+                  Notify.show({ title: 'Already Pinned', body: `${app.name} is already pinned to taskbar`, type: 'info', appName: 'Taskbar' });
+                  return;
+                }
+                const next = [...pins, appId];
+                OS.settings.set('pinnedApps', next);
+                wm.updateTaskbar();
+                Notify.show({ title: 'Pinned', body: `${app.name} pinned to taskbar`, type: 'success', appName: 'Taskbar' });
+              }
             },
           });
           ContextMenu.show(e.clientX, e.clientY, menuItems);

@@ -492,7 +492,11 @@ const AppPackage = (() => {
       if (!verified && !options.allowUnverified) {
         const intOk = options.allowIntegrityFallback ? await verifyIntegrity(pkg) : false;
         if (!intOk) {
-          throw new Error('Package signature did not match any trusted signer and integrity check failed');
+          const msg = 'Package signature did not match any trusted signer and integrity check failed';
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'Packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'signature' } });
+          }
+          throw new Error(msg);
         }
         verified = true;
         signer = signer || 'integrity-only';
@@ -500,11 +504,21 @@ const AppPackage = (() => {
     }
 
     const validation = validateManifest(pkg.manifest);
-    if (!validation.valid) throw new Error(`Invalid manifest: ${validation.errors.join(', ')}`);
+    if (!validation.valid) {
+      const msg = `Invalid manifest: ${validation.errors.join(', ')}`;
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'Packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'manifest' } });
+      }
+      throw new Error(msg);
+    }
 
     const existing = (typeof AppRegistry !== 'undefined') && AppRegistry?.getApp(pkg.manifest.id);
     if (existing && !options.force) {
-      throw new Error(`App ${pkg.manifest.id} is already installed. Use force option to overwrite.`);
+      const msg = `App ${pkg.manifest.id} is already installed. Use force option to overwrite.`;
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'Packages', severity: 'error', message: msg, data: { appId: pkg.manifest.id, reason: 'duplicate' } });
+      }
+      throw new Error(msg);
     }
 
     const appConfig = {
@@ -518,11 +532,28 @@ const AppPackage = (() => {
     };
 
     const registered = (typeof AppRegistry !== 'undefined') && AppRegistry?.registerApp(appConfig);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({
+        app: 'Packages',
+        severity: validation.warnings.length ? 'warn' : 'info',
+        message: `Installed ${pkg.manifest.id}${verified ? '' : ' (unverified)'}`,
+        data: { appId: pkg.manifest.id, verified, signer, source: appConfig.source, warnings: validation.warnings },
+      });
+    }
     return { success: true, app: registered, verified, signer, warnings: validation.warnings };
   }
 
   function uninstallPackage(appId) {
-    return (typeof AppRegistry !== 'undefined' && AppRegistry?.unregisterApp(appId)) || false;
+    const result = (typeof AppRegistry !== 'undefined' && AppRegistry?.unregisterApp(appId)) || false;
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({
+        app: 'Packages',
+        severity: result ? 'info' : 'warn',
+        message: result ? `Uninstalled ${appId}` : `Uninstall failed for ${appId} (not found)`,
+        data: { appId, action: 'uninstall' },
+      });
+    }
+    return result;
   }
 
   function extractPackage(pkg) {

@@ -171,7 +171,8 @@
   const ICON_SPECIAL = Object.freeze({
     'shuffle': 'shuffle-96',
     'repeat': 'repeat-button-96',
-    'pause': 'pause-96'
+    'pause': 'pause-96',
+    'rename': 'rename-96'
   });
 
   // Cache of already-rendered icon HTML keyed by `${name}|${size}`. The output

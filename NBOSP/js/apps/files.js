@@ -685,7 +685,7 @@
       }
       items.push({ separator: true });
       items.push({
-        label: 'Rename', icon: 'file-text', shortcut: 'F2',
+         label: 'Rename', icon: 'rename', shortcut: 'F2',
         action: () => this.startRename(f),
       });
       items.push({

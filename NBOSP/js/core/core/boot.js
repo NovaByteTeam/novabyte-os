@@ -141,7 +141,7 @@ const Boot = {
     let _prefsFileId = null; // cached after first successful lookup
     OS.settings.set = function settingSet(key, value) {
       _orig(key, value);
-      const folderId = AppDirs.getVFSDir('com.nbosp.settings', 'shared_prefs');
+      const folderId = window.AppDirs?.getVFSDir?.('com.nbosp.settings', 'shared_prefs');
       if (!folderId) return;
       const content = JSON.stringify(OS.settings._cache, null, 2);
       if (_prefsFileId) {
@@ -185,8 +185,8 @@ const Boot = {
     });
 
     await FS.init();
-    await AppDirs.bootstrap();
-    await OPFS.init();
+    await window.AppDirs?.bootstrap?.();
+    await window.OPFS?.init?.();
 
     window.__NB_RUNTIME.ready = true;
     Boot._patchSettingsSet();
@@ -472,7 +472,9 @@ async function boot() {
     ? (fn) => requestIdleCallback(fn, { timeout: 3000 })
     : (fn) => setTimeout(fn, 0);
   scheduleIdle(() => {
-    loadInstalledNovaApps().catch(e => console.error('[BOOT] Failed to load installed Nova apps:', e));
+    loadInstalledNovaApps().catch(e => console.error('[BOOT] Failed to load installed Nova apps:', e)).finally(() => {
+      if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
+    });
   });
 
   // 9. Finalize ────────────────────────────────────────────────────
@@ -560,7 +562,7 @@ async function boot() {
 
     for (let i = 0; i < apps.length; i++) {
       const appData = apps[i];
-      if (OS.apps[appData.id]) continue;
+      if (OS.apps[appData.id] && APP_REGISTRY.some(a => a.id === appData.id)) continue;
       if (!appData.files) {
         console.warn('[BOOT] Installed package files missing for', appData.id);
         continue;

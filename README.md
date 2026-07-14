@@ -137,8 +137,23 @@ These are the **actual features pulled directly from the source code** — not g
 |🖩 **NBOSP Calculator**|Standard arithmetic with live expression preview. Supports `+`, `-`, `*`, `/`, `%`, parentheses, and decimal input. Backspace, clear, keyboard support. **No scientific mode, no history, no unit conversion.**|
 |📦 **NBOSP App Manager**|Install `.novaapp` packages from disk. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. Verified/Unverified badge on each installed app, based on signature checks against the built-in trust store. **No app store/catalogue, no update management.**|
 
+#### Developer Apps (require Developer Mode)
+
+These apps are hidden unless Developer Mode is enabled in Settings. They are not part of the standard NBOSP experience.
+
+|App|What it actually does|
+|:--|:--------------------|
+|🖥️ **NBOSP Console**|Evaluate arbitrary JavaScript in the full OS context with no sandboxing. Live REPL with input history. **Extremely dangerous in the wrong hands — this is not a toy.**|
+|🔍 **NBOSP Inspector**|Inspect registered apps and open windows. View app state, force-close arbitrary windows, export app state. **Can terminate any app without confirmation.**|
+|📦 **NBOSP Packages**|Sign and verify `.novaapp` packages. Inspect package manifests, signatures, and permissions. **Can install unsigned or unverified packages and add locally-generated keys to the trust store for the current session.**|
+|📊 **NBOSP Perf Monitor**|Live FPS, memory usage, DOM node count, and long-task tracking. Per-window DOM breakdowns. **For debugging performance regressions only.**|
+|🔐 **NBOSP Permissions**|Review, grant, and revoke permissions across all registered apps. Bulk operations supported. **Can grant or revoke any permission for any app without user consent.**|
+|🧩 **NBOSP Modules**|Hot-reload OS JS modules without restarting NovaByte OS. Live module inspection and dynamic import. **Can execute arbitrary module paths at runtime.**|
+|🌐 **NBOSP System Access**|Inspect network proxy/SSRF configuration and browse the virtual filesystem. **Can read internal VFS paths and probe network settings.**|
+|📋 **NBOSP Events**|Unified event timeline showing console output, permission events, and package events in one filtered view. Search, severity filter, export. **For debugging OS-level activity only.**|
+
 > [!IMPORTANT]
-> **Starting with 3.0.2, no new features will be added to NBOSP apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings is the only exception** — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving updates.
+> **Starting with 3.0.2, no new features will be added to standard NBOSP user apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings and all Developer Apps are exceptions** — Settings controls the visual identity and OS-level behaviour of the entire UI, and the Developer Apps are core to NBOSP's purpose as a developer-focused platform. Both will continue receiving new features, UI refreshes, and improvements as NBOSP evolves.
 
 > **Want the full-featured NovaByte OS?** Download the compiled v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest). NBOSP is just the foundation — the base code you build on.
 
@@ -502,6 +517,11 @@ novabyte-os/
 │  ├── style.css          # Global styles
 │  ├── ui-init.js          # UI initialization hooks
 │  ├── client.js          # Minimal ~11-line entry point stub
+│  ├── vitest.config.js   # Vitest test configuration
+│  ├── test/              # Vitest test suite
+│  │  ├── setup.js
+│  │  ├── client/         # Client-side tests
+│  │  └── server/         # Server-side tests
 │  ├── server/           # Backend modules
 │  │  ├── core/          # Core server modules (nested)
 │  │  │  ├── index.js       # Main Express entry point (330 lines)
@@ -543,6 +563,7 @@ novabyte-os/
 │  │  │  │  ├── fs.js      # Virtual filesystem API
 │  │  │  │  ├── notifications.js # Notification system
 │  │  │  │  ├── registry.js   # Core app registry
+│  │  │  │  ├── event-log.js  # Central event logging
 │  │  │  │  └── workers.js    # Multi-threaded worker management
 │  │  │  ├── ui/         # UI primitives
 │  │  │  │  ├── desktop.js    # Desktop shell
@@ -550,15 +571,20 @@ novabyte-os/
 │  │  │  │  ├── modals.js    # Modal dialog system
 │  │  │  │  └── wm.js      # Window manager
 │  │  │  └── utils/        # Shared utilities
-│  │  │    └── base-utils.js  # Base utility functions
+│  │  │    ├── base-utils.js  # Base utility functions
+│  │  │    └── debug-overlay.js # Runtime diagnostics overlay
 │  │  ├── platform/        # Platform framework modules (nested by concern)
 │  │  │  ├── security/      # Security modules
 │  │  │  │  ├── frame-security.js   # NW.js frame security validation
 │  │  │  │  ├── app-sandbox.js     # App sandbox enforcement
-│  │  │  │  └── app-permission-manager.js # Permission system
+│  │  │  │  ├── app-permission-manager.js # Permission system
+│  │  │  │  ├── app-permissions-bootstrap.js # Permission bootstrap
+│  │  │  │  ├── trust-store.js    # Built-in trust store for .novaapp signatures
+│  │  │  │  └── revoked-signatures.json # Revoked signature blocklist
 │  │  │  ├── core/        # Core platform modules
 │  │  │  │  ├── app-registry.js    # Full app registry
-│  │  │  │  └── app-package.js     # App package management
+│  │  │  │  ├── app-package.js     # App package management
+│  │  │  │  └── nova-app-package-store.js # Installed .novaapp store
 │  │  │  ├── ui/         # Platform UI modules
 │  │  │  │  ├── my-apps-manager.js   # User app management
 │  │  │  │  └── web-app-manager.js   # Web app management
@@ -596,12 +622,12 @@ novabyte-os/
 NBOSP uses a fully decoupled modular architecture. The original monolithic `app.js` (14,000+ lines), `server.js` (~1,450 lines), and `client.js` (400+ lines) have been split into **57 modular files** across clearly separated layers:
 
 | Layer | Location | Count |
-|---|---|---|
+|:---|:---|:---|
 | Backend modules | `server/` | 7 files |
 | Launcher modules | `scripts/` | 7 files |
-| Frontend core | `js/core/` (sub-folders: `core/`, `events/`, `services/`, `ui/`, `utils/`) | 13 files |
-| Frontend platform | `js/platform/` | 8 files |
-| Standalone apps | `js/apps/` | 15 files |
+| Frontend core | `js/core/` (sub-folders: `core/`, `events/`, `services/`, `ui/`, `utils/`) | 15 files |
+| Frontend platform | `js/platform/` | 12 files |
+| Standalone apps | `js/apps/` | 23 files |
 | Security / Email | `security/`, `email/` | 9 files |
 
 To maintain cross-script communication across individual files without monolithic bundling:

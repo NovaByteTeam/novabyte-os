@@ -402,6 +402,7 @@ registerApp({
               '• Permissions — can bulk-grant or revoke permissions for any app without user consent\n' +
               '• Perf — exposes detailed runtime performance data, memory usage, and per-window DOM breakdowns\n' +
               '• SysAccess — can read the virtual filesystem and probe internal network/SSRF configuration\n' +
+              '• Events — unified event timeline exposing console output, permission events, and package events for debugging OS-level activity\n' +
               '• Debug Overlay — persistent always-on-top diagnostics overlay exposing GPU, memory, URLs, and OS internals (F3)\n\n' +
               'Developer Mode is intended solely for development, debugging, and system maintenance. Enable it only when you understand the risks. Leave it disabled during normal use.';
             dialog.appendChild(body);

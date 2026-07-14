@@ -1028,6 +1028,45 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
 
   let isDragging = false;
   let startX = 0, startY = 0, initialX = 0, initialY = 0;
+  let originalX = 0, originalY = 0;
+  let overTaskbar = false;
+
+  function getAppId() {
+    return key.startsWith('app:') ? key.slice(4) : icon.dataset.shortcutTarget;
+  }
+
+  function addPlusBadge() {
+    if (icon.querySelector('.pin-plus-badge')) return;
+    const badge = document.createElement('div');
+    badge.className = 'pin-plus-badge';
+    badge.textContent = '+';
+    icon.appendChild(badge);
+  }
+
+  function removePlusBadge() {
+    const badge = icon.querySelector('.pin-plus-badge');
+    if (badge) badge.remove();
+  }
+
+  function setTaskbarHover(active) {
+    if (active === overTaskbar) return;
+    overTaskbar = active;
+    const taskbar = document.getElementById('taskbar');
+    const label = icon.querySelector('.desktop-icon-label');
+    if (active) {
+      icon.style.transform = 'scale(0.75)';
+      icon.style.opacity = '0.9';
+      addPlusBadge();
+      taskbar?.classList.add('drag-over');
+      if (label) label.style.display = 'none';
+    } else {
+      icon.style.transform = '';
+      icon.style.opacity = '';
+      removePlusBadge();
+      taskbar?.classList.remove('drag-over');
+      if (label) label.style.display = '';
+    }
+  }
 
   icon.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
@@ -1035,24 +1074,48 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
     startX = e.clientX;
     startY = e.clientY;
     const rect = icon.getBoundingClientRect();
-    const desktopRect = desktopEl.getBoundingClientRect();
-    initialX = rect.left - desktopRect.left;
-    initialY = rect.top - desktopRect.top;
-    icon.style.zIndex = '1000';
+    initialX = rect.left;
+    initialY = rect.top;
+    originalX = rect.left - desktopEl.getBoundingClientRect().left;
+    originalY = rect.top - desktopEl.getBoundingClientRect().top;
+    icon.style.zIndex = '99999';
     icon.style.transition = 'none';
+    icon.classList.add('dragging');
+    document.body.appendChild(icon);
   });
 
-  // FIX: { signal } option — AbortController.abort() removes these document listeners cleanly
   document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    const desktopRect = desktopEl.getBoundingClientRect();
-    const newX = Math.max(0, Math.min(initialX + dx, desktopRect.width - icon.offsetWidth));
-    const newY = Math.max(0, Math.min(initialY + dy, desktopRect.height - icon.offsetHeight));
-    icon.style.position = 'absolute';
-    icon.style.left = `${newX}px`;
-    icon.style.top = `${newY}px`;
+    const newX = initialX + dx;
+    const newY = initialY + dy;
+
+    const isAppIcon = key.startsWith('app:');
+    const shortcutTarget = icon.dataset.shortcutTarget;
+    const canPin = isAppIcon || shortcutTarget;
+
+    if (canPin) {
+      icon.style.position = 'fixed';
+      icon.style.left = `${newX}px`;
+      icon.style.top = `${newY}px`;
+
+      const taskbar = document.getElementById('taskbar');
+      if (taskbar) {
+        const tbRect = taskbar.getBoundingClientRect();
+        const cx = e.clientX;
+        const cy = e.clientY;
+        const over = cx > tbRect.left && cx < tbRect.right && cy > tbRect.top && cy < tbRect.bottom;
+        setTaskbarHover(over);
+      }
+    } else {
+      const taskbar = document.getElementById('taskbar');
+      const maxY = taskbar ? taskbar.getBoundingClientRect().top - icon.offsetHeight : window.innerHeight;
+      const clampedY = Math.min(newY, maxY);
+      icon.style.position = 'fixed';
+      icon.style.left = `${newX}px`;
+      icon.style.top = `${clampedY}px`;
+    }
   }, { signal });
 
   document.addEventListener('mouseup', () => {
@@ -1060,22 +1123,49 @@ function _makeIconDraggable(icon, desktopEl, key, iconPositions) {
     isDragging = false;
     icon.style.zIndex = '';
     icon.style.transition = '';
-    const rect = icon.getBoundingClientRect();
-    const desktopRect = desktopEl.getBoundingClientRect();
-    let x = rect.left - desktopRect.left;
-    let y = rect.top - desktopRect.top;
-    const w = icon.offsetWidth  || 80;
-    const h = icon.offsetHeight || 80;
-    const occupied = _isPositionOccupied(x, y, w, h, iconPositions, key);
-    if (occupied) {
-      const snapped = _findFreePosition(x, y, w, h, iconPositions, key);
-      x = snapped.x;
-      y = snapped.y;
-      icon.style.left = `${x}px`;
-      icon.style.top  = `${y}px`;
+    icon.classList.remove('dragging');
+
+    const pinnedNow = overTaskbar;
+    const appId = getAppId();
+    setTaskbarHover(false);
+
+    if (pinnedNow && appId) {
+      const pins = OS.settings.get('pinnedApps') || [];
+      if (!pins.includes(appId)) {
+        pins.push(appId);
+        OS.settings.set('pinnedApps', pins);
+        if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+        const app = OS.apps[appId];
+        Notify.show({ title: 'Pinned to Taskbar', body: `${app?.name || appId} pinned to taskbar`, type: 'success', appName: 'Desktop' });
+      } else {
+        Notify.show({ title: 'Already Pinned', body: `${OS.apps[appId]?.name || appId} is already pinned to taskbar`, type: 'info', appName: 'Desktop' });
+      }
     }
+
+    let x, y;
+    if (pinnedNow) {
+      x = originalX;
+      y = originalY;
+    } else {
+      const rect = icon.getBoundingClientRect();
+      const desktopRect = desktopEl.getBoundingClientRect();
+      x = rect.left - desktopRect.left;
+      y = rect.top - desktopRect.top;
+      const w = icon.offsetWidth  || 80;
+      const h = icon.offsetHeight || 80;
+      const occupied = _isPositionOccupied(x, y, w, h, iconPositions, key);
+      if (occupied) {
+        const snapped = _findFreePosition(x, y, w, h, iconPositions, key);
+        x = snapped.x;
+        y = snapped.y;
+      }
+    }
+    icon.style.position = 'absolute';
+    icon.style.left = `${x}px`;
+    icon.style.top = `${y}px`;
     iconPositions[key] = { x, y };
     OS.settings.set('desktopIconPositions', iconPositions);
+    desktopEl.appendChild(icon);
   }, { signal });
 }
 
@@ -1158,6 +1248,14 @@ async function _handleDesktopDrop(e, desktopEl) {
         });
         const desktopFolderId = FS.specialFolders.desktop;
         try {
+          const desktopFiles = FS.listDir(desktopFolderId);
+          const alreadyExists = desktopFiles.some(f =>
+            f.name === shortcutName && f.mimeType === 'application/x-app-shortcut'
+          );
+          if (alreadyExists) {
+            Notify.show({ title: 'Already Pinned', body: `${payload.appName} shortcut already exists on desktop`, type: 'info', appName: 'Desktop' });
+            return;
+          }
           await FS.createFile(desktopFolderId, shortcutName, shortcutContent, 'application/x-app-shortcut');
           const desktopRect = desktopEl.getBoundingClientRect();
           const x = Math.max(0, Math.min(e.clientX - desktopRect.left, desktopRect.width - 80));
@@ -1188,6 +1286,18 @@ async function _handleDesktopDrop(e, desktopEl) {
     // notification — fixes the race where filesAdded was always 0 in the original setTimeout.
     // FIX: binary files (images, audio, PDF, etc.) are read with readAsDataURL, not TextDecoder,
     // so they are stored intact instead of being corrupted.
+    // FIX: extract just the base64 payload from the data URL before storing — the VFS stores
+    // raw content strings, and apps like Music/Gallery expect base64 strings they can decode,
+    // not the full data:...;base64,... wrapper.
+    function extractBase64FromDataUrl(dataUrl) {
+      if (typeof dataUrl !== 'string') return dataUrl;
+      const comma = dataUrl.indexOf(',');
+      if (comma > -1 && dataUrl.slice(comma - 7, comma).toLowerCase() === ';base64') {
+        return dataUrl.slice(comma + 1);
+      }
+      return dataUrl;
+    }
+
     const TEXT_TYPES = new Set(['text/', 'application/json', 'application/xml', 'application/javascript', 'application/xhtml+xml']);
     const TEXT_EXTS = /\.(txt|md|json|xml|csv|js|ts|css|html|htm|svg|yaml|yml|toml|ini|sh|py|rb|java|c|cpp|h|rs)$/i;
 
@@ -1222,8 +1332,9 @@ async function _handleDesktopDrop(e, desktopEl) {
               return;
             }
           } else {
-            // Binary: store as data URL so the VFS preserves the bytes intact
-            content = reader.result;
+            // Binary: store as base64 string so the VFS preserves the bytes intact
+            // and apps can decode it with Uint8Array.fromBase64 / atob.
+            content = extractBase64FromDataUrl(reader.result);
           }
 
           const mimeType = file.type || 'application/octet-stream';
@@ -1355,12 +1466,13 @@ function renderDesktopIcons() {
 
     const _showTbIndicator = () => {
       const rect = taskbar.getBoundingClientRect();
-      // Sit flush against the top edge of the taskbar, extending upward
       _tbIndicator.style.top = rect.top + 'px';
       _tbIndicator.style.transform = 'translateY(-100%)';
       _tbIndicator.style.display = 'block';
     };
-    const _hideTbIndicator = () => { _tbIndicator.style.display = 'none'; };
+    const _hideTbIndicator = () => {
+      _tbIndicator.style.display = 'none';
+    };
 
     taskbar.addEventListener('dragenter', (e) => {
       e.preventDefault();
@@ -1442,14 +1554,21 @@ function renderDesktopIcons() {
           icon: 'pin',
           action: () => {
             const pins = OS.settings.get('pinnedApps') || [];
-            const next = isPinned ? pins.filter(id => id !== app.id) : [...pins, app.id];
-            OS.settings.set('pinnedApps', next);
-            WM.updateTaskbar();
-            Notify.show({
-              title: isPinned ? 'Unpinned' : 'Pinned',
-              body: `${app.name} ${isPinned ? 'removed from' : 'pinned to'} taskbar`,
-              type: 'success', appName: 'Desktop'
-            });
+            if (isPinned) {
+              const next = pins.filter(id => id !== app.id);
+              OS.settings.set('pinnedApps', next);
+              WM.updateTaskbar();
+              Notify.show({ title: 'Unpinned', body: `${app.name} removed from taskbar`, type: 'success', appName: 'Desktop' });
+            } else {
+              if (pins.includes(app.id)) {
+                Notify.show({ title: 'Already Pinned', body: `${app.name} is already pinned to taskbar`, type: 'info', appName: 'Desktop' });
+                return;
+              }
+              const next = [...pins, app.id];
+              OS.settings.set('pinnedApps', next);
+              WM.updateTaskbar();
+              Notify.show({ title: 'Pinned', body: `${app.name} pinned to taskbar`, type: 'success', appName: 'Desktop' });
+            }
           }
         }
       ];
@@ -1466,9 +1585,23 @@ function renderDesktopIcons() {
                 const updated = stored.filter(a => a.id !== app.id);
                 localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
               }
+              if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
+                AppRegistry.unregisterApp(app.id);
+              }
               delete OS.apps[app.id];
               const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
               if (ri > -1) APP_REGISTRY.splice(ri, 1);
+              OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== app.id));
+              try {
+                const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+                const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== app.id);
+                localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
+              } catch { /* quota */ }
+              try {
+                const bootApps = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
+                const updated = bootApps.filter(id => id !== app.id);
+                localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
+              } catch { /* quota */ }
               try {
                 const desktopFolder = FS.specialFolders?.desktop;
                 if (desktopFolder) {
@@ -1530,7 +1663,8 @@ function renderDesktopIcons() {
       tabindex: '0',
       'aria-label': f.name,
       role: 'button',
-      style: _getInitialIconPosition(key, defaultApps.length + idx, iconPositions)
+      style: _getInitialIconPosition(key, defaultApps.length + idx, iconPositions),
+      'data-shortcut-target': isShortcut && shortcutData ? shortcutData.target : ''
     });
     const img = createEl('div', { className: 'desktop-icon-img' });
 
@@ -1573,12 +1707,70 @@ function renderDesktopIcons() {
       e.preventDefault();
       const viewOnly = OS.settings.get('filesViewOnly');
       const menuItems = [
-        { label: 'Open', icon: 'play', action: () => openFileWithDefaultApp(f) }
+        {
+          label: 'Open', icon: 'play',
+          action: () => {
+            if (isShortcut && shortcutData) {
+              WM.createWindow(shortcutData.target);
+            } else if (f.type === 'folder') {
+              WM.createWindow('vault', { folderId: f.id });
+            } else {
+              openFileWithDefaultApp(f);
+            }
+          }
+        }
       ];
+      if (isShortcut && shortcutData) {
+        menuItems.push(
+          {
+            label: 'Unpin from Desktop', icon: 'pin',
+            action: async () => {
+              try {
+                const fileKey = 'file:' + f.id;
+                delete iconPositions[fileKey];
+                OS.settings.set('desktopIconPositions', iconPositions);
+                await FS.permanentDelete(f.id);
+                renderDesktopIcons();
+                Notify.show({ title: 'Unpinned', body: `${f.name.replace(/\.lnk$/i, '')} removed from desktop`, type: 'success', appName: 'Desktop' });
+              } catch (err) {
+                Notify.show({ title: 'Error', body: `Failed to remove shortcut: ${err.message}`, type: 'error', appName: 'Desktop' });
+              }
+            }
+          },
+          { separator: true }
+        );
+        const targetApp = OS.apps?.[shortcutData.target];
+        if (targetApp) {
+          const pins = OS.settings.get('pinnedApps') || [];
+          const isPinned = pins.includes(shortcutData.target);
+          menuItems.push({
+            label: isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
+            icon: 'pin',
+            action: () => {
+              const pins = OS.settings.get('pinnedApps') || [];
+              if (isPinned) {
+                const next = pins.filter(id => id !== shortcutData.target);
+                OS.settings.set('pinnedApps', next);
+                WM.updateTaskbar();
+                Notify.show({ title: 'Unpinned', body: `${targetApp.name} removed from taskbar`, type: 'success', appName: 'Desktop' });
+              } else {
+                if (pins.includes(shortcutData.target)) {
+                  Notify.show({ title: 'Already Pinned', body: `${targetApp.name} is already pinned to taskbar`, type: 'info', appName: 'Desktop' });
+                  return;
+                }
+                const next = [...pins, shortcutData.target];
+                OS.settings.set('pinnedApps', next);
+                WM.updateTaskbar();
+                Notify.show({ title: 'Pinned', body: `${targetApp.name} pinned to taskbar`, type: 'success', appName: 'Desktop' });
+              }
+            }
+          }, { separator: true });
+        }
+      }
       if (!viewOnly) {
         menuItems.push(
           {
-            label: 'Rename', icon: 'edit',
+             label: 'Rename', icon: 'rename',
             action: async () => {
               const name = await showPrompt('Rename', f.name);
               if (name && name !== f.name) {
@@ -1587,7 +1779,61 @@ function renderDesktopIcons() {
               }
             }
           },
-          { separator: true },
+          { separator: true }
+        );
+      }
+      if (isShortcut && shortcutData) {
+        const storedApps = (() => {
+          try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
+        })();
+        const isUserApp = storedApps.some(a => a.id === shortcutData.target);
+        if (isUserApp) {
+          menuItems.push({
+            label: 'Uninstall', icon: 'trash', danger: true,
+            action: async () => {
+              const appId = shortcutData.target;
+              const appName = f.name.replace(/\.lnk$/i, '');
+              if (!confirm(`Uninstall "${appName}"?\n\nThis cannot be undone.`)) return;
+              try {
+                if (window.NovaAppPackageStore?.removeApp) {
+                  await NovaAppPackageStore.removeApp(appId);
+                } else {
+                  const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+                  const updated = stored.filter(a => a.id !== appId);
+                  localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
+                }
+                if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
+                  AppRegistry.unregisterApp(appId);
+                }
+                delete OS.apps[appId];
+                const ri = APP_REGISTRY.findIndex(a => a.id === appId);
+                if (ri > -1) APP_REGISTRY.splice(ri, 1);
+                OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== appId));
+                try {
+                  const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+                  const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== appId);
+                  localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
+                } catch { /* quota */ }
+                try {
+                  const bootApps = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
+                  const updated = bootApps.filter(id => id !== appId);
+                  localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
+                } catch { /* quota */ }
+                await FS.permanentDelete(f.id);
+                delete iconPositions['file:' + f.id];
+                delete iconPositions['app:' + appId];
+                OS.settings.set('desktopIconPositions', iconPositions);
+                renderDesktopIcons();
+                WM.updateTaskbar();
+                Notify.show({ title: 'Uninstalled', body: `${appName} has been removed.`, type: 'success', appName: 'Desktop' });
+              } catch (err) {
+                Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Desktop' });
+              }
+            }
+          });
+        }
+      } else if (!viewOnly) {
+        menuItems.push(
           {
             label: 'Move to Trash', icon: 'trash', danger: true,
             action: async () => {

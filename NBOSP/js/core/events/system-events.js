@@ -51,6 +51,25 @@ const _THREAT_PATTERNS = Object.freeze([
   { regex: /eval\s*\(\s*decodeURIComponent/i,  name: 'uri-decode-eval', severity: 'critical' },
 ]);
 
+// ── Desktop shortcut helper ────────────────────────────────────────────────────
+function _hasDesktopShortcut(appId) {
+  try {
+    const desktopFolder = FS.specialFolders?.desktop;
+    if (!desktopFolder) return false;
+    const files = FS.listDir(desktopFolder);
+    for (const f of files) {
+      if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+        try {
+          if (JSON.parse(f.content || '{}')?.target === appId) return true;
+        } catch { /* skip invalid shortcuts */ }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // LAUNCHPAD
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -59,12 +78,23 @@ document.getElementById('start-btn').addEventListener('click', toggleLaunchpad);
 
 function toggleLaunchpad() {
   const launchpad = document.getElementById('launchpad');
+  const isClosing = launchpad.classList.contains('active');
   launchpad.classList.toggle('active');
   if (launchpad.classList.contains('active')) {
     renderLaunchpad();
     const searchEl = document.getElementById('launchpad-search');
     searchEl.value = '';
-    searchEl.focus();
+    setTimeout(() => {
+      searchEl.focus();
+      searchEl.select();
+    }, 50);
+  } else if (isClosing) {
+    const marks = launchpad.querySelectorAll('.launchpad-name mark');
+    marks.forEach(mark => {
+      const parent = mark.parentNode;
+      if (parent) parent.replaceChild(document.createTextNode(mark.textContent), mark);
+      parent?.normalize?.();
+    });
   }
 }
 
@@ -120,17 +150,87 @@ function renderLaunchpad() {
             icon: 'pin',
             action: () => {
               const pins = OS.settings.get('pinnedApps') || [];
-              const next = isPinned ? pins.filter(id => id !== app.id) : [...pins, app.id];
-              OS.settings.set('pinnedApps', next);
-              WM.updateTaskbar();
-              Notify.show({
-                title: isPinned ? 'Unpinned' : 'Pinned',
-                body: `${app.name} ${isPinned ? 'removed from' : 'added to'} taskbar`,
-                type: 'success', appName: 'Launchpad'
-              });
+              if (isPinned) {
+                const next = pins.filter(id => id !== app.id);
+                OS.settings.set('pinnedApps', next);
+                WM.updateTaskbar();
+                Notify.show({ title: 'Unpinned', body: `${app.name} removed from taskbar`, type: 'success', appName: 'Launchpad' });
+              } else {
+                if (pins.includes(app.id)) {
+                  Notify.show({ title: 'Already Pinned', body: `${app.name} is already pinned to taskbar`, type: 'info', appName: 'Launchpad' });
+                  return;
+                }
+                const next = [...pins, app.id];
+                OS.settings.set('pinnedApps', next);
+                WM.updateTaskbar();
+                Notify.show({ title: 'Pinned', body: `${app.name} pinned to taskbar`, type: 'success', appName: 'Launchpad' });
+              }
             }
           }
         ];
+
+        const hasShortcut = _hasDesktopShortcut(app.id);
+        if (hasShortcut) {
+          menuItems.push({ separator: true }, {
+            label: 'Unpin from Desktop', icon: 'pin',
+            action: async () => {
+              try {
+                const desktopFolder = FS.specialFolders?.desktop;
+                if (desktopFolder) {
+                  const files = FS.listDir(desktopFolder);
+                  let removed = 0;
+                  const iconPositions = OS.settings.get('desktopIconPositions') || {};
+                  for (const f of files) {
+                    if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+                      try {
+                        const data = JSON.parse(f.content || '{}');
+                        if (data?.type === 'app-shortcut' && data?.target === app.id) {
+                          await FS.permanentDelete(f.id);
+                          delete iconPositions['file:' + f.id];
+                          removed++;
+                        }
+                      } catch { /* skip invalid shortcuts */ }
+                    }
+                  }
+                  OS.settings.set('desktopIconPositions', iconPositions);
+                  renderDesktopIcons();
+                  WM.updateTaskbar();
+                  Notify.show({
+                    title: 'Unpinned from Desktop',
+                    body: removed > 0
+                      ? `Removed ${removed} desktop shortcut${removed > 1 ? 's' : ''} for ${app.name}`
+                      : `No desktop shortcuts found for ${app.name}`,
+                    type: 'success', appName: 'Launchpad'
+                  });
+                }
+              } catch (err) {
+                Notify.show({ title: 'Error', body: `Failed to unpin from desktop: ${err.message}`, type: 'error', appName: 'Launchpad' });
+              }
+            }
+          });
+        } else {
+          menuItems.push({ separator: true }, {
+            label: 'Pin to Desktop', icon: 'pin',
+            action: async () => {
+              try {
+                const desktopFolder = FS.specialFolders?.desktop;
+                if (desktopFolder) {
+                  const shortcutName = app.name + '.lnk';
+                  const shortcutContent = JSON.stringify({
+                    target: app.id,
+                    type: 'app-shortcut',
+                    icon: app.icon
+                  });
+                  await FS.createFile(desktopFolder, shortcutName, shortcutContent, 'application/x-app-shortcut');
+                  renderDesktopIcons();
+                  Notify.show({ title: 'Pinned to Desktop', body: `${app.name} shortcut added to desktop`, type: 'success', appName: 'Launchpad' });
+                }
+              } catch (err) {
+                Notify.show({ title: 'Error', body: `Failed to pin to desktop: ${err.message}`, type: 'error', appName: 'Launchpad' });
+              }
+            }
+          });
+        }
 
         if (isUserApp) {
           menuItems.push({ separator: true }, {
@@ -148,11 +248,44 @@ function renderLaunchpad() {
                     JSON.stringify(stored.filter(a => a.id !== app.id))
                   );
                 }
+                if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
+                  AppRegistry.unregisterApp(app.id);
+                }
                 delete OS.apps[app.id];
                 const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
                 if (ri > -1) APP_REGISTRY.splice(ri, 1);
+                OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== app.id));
+                try {
+                  const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+                  const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== app.id);
+                  localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
+                } catch { /* quota */ }
+                try {
+                  const bootApps = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
+                  const updated = bootApps.filter(id => id !== app.id);
+                  localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
+                } catch { /* quota */ }
+                try {
+                  const desktopFolder = FS.specialFolders?.desktop;
+                  if (desktopFolder) {
+                    const files = FS.listDir(desktopFolder);
+                    for (const f of files) {
+                      if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+                        try {
+                          const data = JSON.parse(f.content || '{}');
+                          if (data?.type === 'app-shortcut' && data?.target === app.id) {
+                            await FS.permanentDelete(f.id);
+                          }
+                        } catch { /* skip invalid shortcuts */ }
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.warn('[Launchpad] Failed to clean up shortcuts for', app.id, err);
+                }
                 renderDesktopIcons();
                 WM.updateTaskbar();
+                if (document.getElementById('launchpad')?.classList.contains('active')) renderLaunchpad();
                 Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Launchpad' });
               } catch (err) {
                 Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Launchpad' });
@@ -327,15 +460,22 @@ function renderLaunchpad() {
               label: waIsPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
               icon: 'pin',
               action: () => {
-                const p    = OS.settings.get('pinnedApps') || [];
-                const next = waIsPinned ? p.filter(id => id !== waId) : [...p, waId];
-                OS.settings.set('pinnedApps', next);
-                if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
-                Notify.show({
-                  title: waIsPinned ? 'Unpinned' : 'Pinned',
-                  body: `${webApp.name} ${waIsPinned ? 'unpinned from' : 'pinned to'} taskbar`,
-                  type: 'success', appName: 'Launchpad'
-                });
+                const p = OS.settings.get('pinnedApps') || [];
+                if (waIsPinned) {
+                  const next = p.filter(id => id !== waId);
+                  OS.settings.set('pinnedApps', next);
+                  if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+                  Notify.show({ title: 'Unpinned', body: `${webApp.name} unpinned from taskbar`, type: 'success', appName: 'Launchpad' });
+                } else {
+                  if (p.includes(waId)) {
+                    Notify.show({ title: 'Already Pinned', body: `${webApp.name} is already pinned to taskbar`, type: 'info', appName: 'Launchpad' });
+                    return;
+                  }
+                  const next = [...p, waId];
+                  OS.settings.set('pinnedApps', next);
+                  if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+                  Notify.show({ title: 'Pinned', body: `${webApp.name} pinned to taskbar`, type: 'success', appName: 'Launchpad' });
+                }
               }
             },
             { separator: true },
@@ -434,23 +574,30 @@ function renderLaunchpad() {
 
 // ── Launchpad search ──────────────────────────────────────────────────────────
 document.getElementById('launchpad-search').addEventListener('input', debounce((e) => {
-  // #18: use e.target.value directly — `this` is unreliable inside debounce closures
   const q = e.target.value.toLowerCase().trim();
-
-  // #14: single querySelectorAll — reuse `items` for both filtering and count
   const items = document.querySelectorAll('.launchpad-item');
   let visibleCount = 0;
+  let firstMatch = null;
 
   items.forEach(item => {
-    const name  = item.querySelector('.launchpad-name')?.textContent.toLowerCase() ?? '';
+    const nameEl = item.querySelector('.launchpad-name');
+    const name  = (nameEl?.textContent || '').toLowerCase();
     const label = (item.getAttribute('aria-label') || '').toLowerCase();
-    const match = name.includes(q) || label.includes(q);
+    const match = q === '' || name.includes(q) || label.includes(q);
     item.style.display = match ? '' : 'none';
-    if (match) visibleCount++;
+    if (match) {
+      visibleCount++;
+      if (!firstMatch) firstMatch = item;
+      if (nameEl && q) {
+        const original = nameEl.textContent;
+        const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        nameEl.innerHTML = original.replace(new RegExp(`(${escaped})`, 'gi'), '<mark style="background:var(--accent);color:#fff;border-radius:2px;padding:0 2px;">$1</mark>');
+      } else if (nameEl) {
+        nameEl.textContent = nameEl.textContent;
+      }
+    }
   });
 
-  // #8: count visible items from the already-fetched NodeList
-  // The old [style=""] selector never matched items that had animation styles set.
   let noResultsMsg = document.getElementById('launchpad-no-results');
   if (q && visibleCount === 0 && items.length > 0) {
     if (!noResultsMsg) {
@@ -467,6 +614,20 @@ document.getElementById('launchpad-search').addEventListener('input', debounce((
     noResultsMsg.style.display = 'none';
   }
 }, 150));
+
+document.getElementById('launchpad-search').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const q = e.target.value.toLowerCase().trim();
+  const items = Array.from(document.querySelectorAll('.launchpad-item')).filter(item => item.style.display !== 'none');
+  if (!items.length) return;
+  if (!q) return;
+  const target = items.find(item => {
+    const name = item.querySelector('.launchpad-name')?.textContent?.toLowerCase() ?? '';
+    const label = (item.getAttribute('aria-label') || '').toLowerCase();
+    return name === q || label === q;
+  });
+  if (target) target.click();
+});
 
 // Close launchpad on backdrop click
 document.getElementById('launchpad').addEventListener('click', (e) => {

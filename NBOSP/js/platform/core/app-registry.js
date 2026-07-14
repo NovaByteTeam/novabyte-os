@@ -72,7 +72,24 @@ const AppRegistry = (() => {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const apps = JSON.parse(raw);
-      for (const app of apps) installedApps.set(app.id, app);
+      for (const app of apps) {
+        installedApps.set(app.id, app);
+        if (typeof OS !== 'undefined' && OS?.apps && !OS.apps[app.id]) {
+          OS.apps[app.id] = {
+            id: app.id, name: app.name, icon: app.icon, description: app.description,
+            defaultSize: app.defaultSize || [800, 600], minSize: app.minSize || [400, 300],
+            maxSize: app.maxSize ?? null,
+            resizable: app.resizable !== false, frame: app.frame !== false,
+            alwaysOnTop: app.alwaysOnTop || false, fullscreenable: app.fullscreenable !== false,
+            startMinimized: app.startMinimized || false, transparent: app.transparent || false,
+            devOnly: app.devOnly || false,
+            autoGrant: app.autoGrant || false,
+            init: (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
+            onDrop: app.onDrop ?? undefined,
+            onClose: app.onClose ?? undefined,
+          };
+        }
+      }
       console.log(`[AppRegistry] Loaded ${installedApps.size} app(s)`);
     } catch (e) {
       if (e.name === 'SecurityError') {

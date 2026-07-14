@@ -325,6 +325,9 @@ const AppPermissionManager = (() => {
     saveToStorage();
     consentLog.push({ ...grant, timestamp: new Date().toISOString() });
     console.log(`[AppPermissionManager] Granted ${permission} → ${appId}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'Permissions', severity: 'info', message: `Granted ${permission} → ${appId}`, data: { appId, permission, action: 'grant' } });
+    }
   }
 
   function _persistDenial(permission, appId) {
@@ -343,6 +346,9 @@ const AppPermissionManager = (() => {
     permissionGrants.set(key, grant);
     saveToStorage();
     console.log(`[AppPermissionManager] Denied ${permission} → ${appId}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'Permissions', severity: 'warn', message: `Denied ${permission} → ${appId}`, data: { appId, permission, action: 'deny' } });
+    }
   }
 
   async function grantPermission(permission, appId, options = {}) {
@@ -353,14 +359,21 @@ const AppPermissionManager = (() => {
     permissionGrants.delete(`${appId}:${permission}`);
     saveToStorage();
     console.log(`[AppPermissionManager] Revoked ${permission} ← ${appId}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'Permissions', severity: 'info', message: `Revoked ${permission} ← ${appId}`, data: { appId, permission, action: 'revoke' } });
+    }
   }
 
   function revokeAllPermissions(appId) {
+    let count = 0;
     for (const key of [...permissionGrants.keys()]) {
-      if (key.startsWith(`${appId}:`)) permissionGrants.delete(key);
+      if (key.startsWith(`${appId}:`)) { permissionGrants.delete(key); count++; }
     }
     saveToStorage();
     console.log(`[AppPermissionManager] Revoked all permissions for ${appId}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'Permissions', severity: 'info', message: `Revoked all ${count} permission(s) for ${appId}`, data: { appId, count, action: 'revoke-all' } });
+    }
   }
 
   // ── Queries ────────────────────────────────────────────────────────────────
