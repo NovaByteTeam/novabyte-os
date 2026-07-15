@@ -22,6 +22,8 @@ const SUGGEST_ENGINES_DIRECT = {
 };
 
 // Normalise every engine's response format to a plain string[].
+const ServerEventLog = require('./core/server-event-log');
+
 function parseSuggestions(engine, json) {
     try {
         if (engine === 'bing') {
@@ -507,9 +509,21 @@ function setupAppNetworkProxy(app) {
             return res.status(400).json({ error: 'Only http and https URLs are supported' });
         }
         if (_isPrivateHost(urlObj.hostname)) {
+            ServerEventLog.log({
+                app: 'AppNetworkProxy',
+                severity: 'warn',
+                message: `Blocked proxy request to private host: ${urlObj.hostname}`,
+                data: { hostname: urlObj.hostname, reason: 'private_host' },
+            });
             return res.status(403).json({ error: 'Internal URLs are not permitted' });
         }
         if (await _dnsCheckPrivate(urlObj.hostname)) {
+            ServerEventLog.log({
+                app: 'AppNetworkProxy',
+                severity: 'warn',
+                message: `Blocked proxy request to private host (DNS-resolved): ${urlObj.hostname}`,
+                data: { hostname: urlObj.hostname, reason: 'dns_private' },
+            });
             return res.status(403).json({ error: 'Internal URLs are not permitted' });
         }
 
@@ -545,6 +559,12 @@ function setupAppNetworkProxy(app) {
 
         for (let hop = 0; hop <= MAX_PROXY_REDIRECTS; hop++) {
             if (visitedUrls.has(currentUrl)) {
+                ServerEventLog.log({
+                    app: 'AppNetworkProxy',
+                    severity: 'warn',
+                    message: `Redirect loop detected proxying ${urlObj.hostname}`,
+                    data: { hostname: urlObj.hostname },
+                });
                 return res.status(400).json({ error: 'Redirect loop detected' });
             }
             visitedUrls.add(currentUrl);
@@ -574,6 +594,12 @@ function setupAppNetworkProxy(app) {
                 });
             } catch (err) {
                 clearTimeout(timer);
+                ServerEventLog.log({
+                    app: 'AppNetworkProxy',
+                    severity: 'error',
+                    message: `Network error proxying ${urlObj.hostname}: ${err.message}`,
+                    data: { hostname: urlObj.hostname, error: err.message },
+                });
                 return res.status(502).json({ error: `Network error: ${err.message}` });
             } finally {
                 clearTimeout(timer);

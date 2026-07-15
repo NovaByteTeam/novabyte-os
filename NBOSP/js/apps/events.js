@@ -8,7 +8,7 @@ registerApp({
   autoGrant: true,
   defaultSize: [700, 520],
   minSize: [420, 320],
-  permissions: ['system:info', 'system:settings'],
+  permissions: ['system:info', 'system:settings', 'fs:write'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
@@ -86,6 +86,18 @@ registerApp({
       timeRangeSelect.appendChild(createEl('option', { value, textContent: label }));
     }
 
+    const sortSelect = createEl('select', {
+      style: 'padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;'
+    });
+    for (const [value, label] of [
+      ['newest', 'Newest first'],
+      ['oldest', 'Oldest first'],
+      ['severity', 'Severity'],
+      ['app', 'A-Z'],
+    ]) {
+      sortSelect.appendChild(createEl('option', { value, textContent: label }));
+    }
+
     const savedViewSelect = createEl('select', {
       style: 'padding:5px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;'
     });
@@ -103,6 +115,7 @@ registerApp({
     toolbar.appendChild(categorySelect);
     toolbar.appendChild(severitySelect);
     toolbar.appendChild(timeRangeSelect);
+    toolbar.appendChild(sortSelect);
     toolbar.appendChild(savedViewSelect);
     toolbar.appendChild(saveViewBtn);
     toolbar.appendChild(manageViewsBtn);
@@ -146,6 +159,7 @@ registerApp({
     let categoryFilter = '';
     let severityFilter = '';
     let timeRange = 'all';
+    let sortOrder = 'newest';
     let knownApps = new Set();
     let selectedEventId = null;
     let eventDetailEl = null;
@@ -158,16 +172,18 @@ registerApp({
       categoryFilter = saved.categoryFilter || '';
       severityFilter = saved.severityFilter || '';
       timeRange = saved.timeRange || 'all';
+      sortOrder = saved.sortOrder || 'newest';
       searchInput.value = searchQuery;
       appSelect.value = appFilter;
       categorySelect.value = categoryFilter;
       severitySelect.value = severityFilter;
       timeRangeSelect.value = timeRange;
+      sortSelect.value = sortOrder;
     } catch { /* corrupt/missing — just start with defaults */ }
 
     function saveFilters() {
       try {
-        localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ searchQuery, appFilter, categoryFilter, severityFilter, timeRange }));
+        localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ searchQuery, appFilter, categoryFilter, severityFilter, timeRange, sortOrder }));
       } catch { /* storage unavailable — filters just won't persist, not fatal */ }
     }
 
@@ -300,6 +316,28 @@ registerApp({
       return true;
     }
 
+    const SEVERITY_RANK = { error: 0, warn: 1, info: 2 };
+
+    function sortEntries(entries) {
+      const sorted = entries.slice();
+      switch (sortOrder) {
+        case 'oldest':
+          sorted.sort((a, b) => a.timestamp - b.timestamp);
+          break;
+        case 'severity':
+          sorted.sort((a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9) || b.timestamp - a.timestamp);
+          break;
+        case 'app':
+          sorted.sort((a, b) => (a.app || '').localeCompare(b.app || '') || b.timestamp - a.timestamp);
+          break;
+        case 'newest':
+        default:
+          sorted.sort((a, b) => b.timestamp - a.timestamp);
+          break;
+      }
+      return sorted;
+    }
+
     // Two entries are considered "correlated" if they share the same
     // data.appId and land within this many ms of each other. This groups
     // e.g. a launch → permission-check → window-opened burst from one
@@ -307,8 +345,8 @@ registerApp({
     const CORRELATION_WINDOW_MS = 1500;
 
     function buildGroups(filtered) {
-      // filtered is newest-first. Walk it and cluster adjacent entries
-      // that share an appId and are close in time.
+      // Walk filtered entries and cluster adjacent ones that share an appId
+      // and are close in time. Sort order is preserved within each cluster.
       const groups = [];
       let current = null;
       for (const e of filtered) {
@@ -396,7 +434,7 @@ registerApp({
     function render() {
       const all = EventLog.getAll();
       refreshAppOptions(all);
-      const filtered = all.filter(matches);
+      const filtered = sortEntries(all.filter(matches));
       lastFiltered = filtered;
 
       // Rate indicator only tracks genuinely new entries since the last
@@ -463,6 +501,7 @@ registerApp({
     categorySelect.addEventListener('change', () => { categoryFilter = categorySelect.value; saveFilters(); render(); }, { signal: ac.signal });
     severitySelect.addEventListener('change', () => { severityFilter = severitySelect.value; saveFilters(); render(); }, { signal: ac.signal });
     timeRangeSelect.addEventListener('change', () => { timeRange = timeRangeSelect.value; saveFilters(); render(); }, { signal: ac.signal });
+    sortSelect.addEventListener('change', () => { sortOrder = sortSelect.value; saveFilters(); render(); }, { signal: ac.signal });
 
     pauseBtn.addEventListener('click', () => {
       paused = !paused;
@@ -506,7 +545,7 @@ registerApp({
       const view = {
         id: 'view_' + Date.now(),
         name,
-        searchQuery, appFilter, categoryFilter, severityFilter, timeRange,
+        searchQuery, appFilter, categoryFilter, severityFilter, timeRange, sortOrder,
         createdAt: Date.now(),
       };
       savedViews.push(view);
@@ -525,11 +564,13 @@ registerApp({
       categoryFilter = view.categoryFilter || '';
       severityFilter = view.severityFilter || '';
       timeRange = view.timeRange || 'all';
+      sortOrder = view.sortOrder || 'newest';
       searchInput.value = searchQuery;
       appSelect.value = appFilter;
       categorySelect.value = categoryFilter;
       severitySelect.value = severityFilter;
       timeRangeSelect.value = timeRange;
+      sortSelect.value = sortOrder;
       saveFilters();
       render();
     }, { signal: ac.signal });

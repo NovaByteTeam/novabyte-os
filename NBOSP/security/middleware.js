@@ -5,10 +5,22 @@
  */
 
 const crypto = require('crypto');
+const ServerEventLog = require('../server/core/server-event-log');
 
-// auditService stub — logs security events to console.
-// Replace with a real audit logger if needed.
-const auditService = { log: (e) => console.log('[Audit]', JSON.stringify(e)) };
+// auditService — every call site here passes a consistent
+// { action, resource, success, ipAddress?, userId?, metadata? } shape.
+// Forward it into ServerEventLog (which the Events app timeline reads via
+// SSE) rather than just console.log-ing it into the void.
+const auditService = {
+    log: (e) => {
+        ServerEventLog.log({
+            app: 'SecurityMiddleware',
+            severity: e.success === false ? 'warn' : 'info',
+            message: `${e.resource || e.action || 'security_event'}${e.success === false ? ' — denied' : ''}`,
+            data: e,
+        });
+    }
+};
 
 // Configuration
 let config = {

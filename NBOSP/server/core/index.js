@@ -15,6 +15,7 @@ const { setupMiddleware } = require('../middleware');
 const { mountRoutes } = require('../routes');
 const { setupFaviconRoutes } = require('../favicons');
 const { setupSuggestProxy, setupEmailImageProxy, setupFrameCheckProxy, setupAppNetworkProxy } = require('../proxies');
+const { setupEventsRoutes } = require('./events-routes');
 
 // Global error handlers
 process.on('uncaughtException', (error) => {
@@ -87,6 +88,7 @@ setupSuggestProxy(app);
 setupEmailImageProxy(app);
 setupFrameCheckProxy(app);
 setupAppNetworkProxy(app);
+setupEventsRoutes(app);
 
 // 5. Manifest and version endpoints
 app.get('/manifest.json', (req, res) => {

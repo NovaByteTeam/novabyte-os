@@ -11,6 +11,7 @@ const imapClient = require('./protocols/imapClient');
 const pop3Client = require('./protocols/pop3Client');
 const ewsClient = require('./protocols/ewsClient');
 const { msgShape, rewriteEmailImages, sanitizeEmailHtml } = require('./helpers');
+const ServerEventLog = require('../server/core/server-event-log');
 
 // Optional dependencies
 let nodemailer, ImapFlow, POP3Client, PostalMime;
@@ -140,9 +141,22 @@ router.post('/connect', async (req, res) => {
       }
     }
 
+    ServerEventLog.log({
+      app: 'EmailController',
+      severity: 'info',
+      message: `Connected ${type} account (${host})`,
+      data: { type, host, user },
+    });
+
     res.json({ ok: true, type, user, host, folders });
   } catch (err) {
     console.error('[Email] connect:', err.message);
+    ServerEventLog.log({
+      app: 'EmailController',
+      severity: 'error',
+      message: `Connect failed (${type || 'unknown'} ${host || ''}): ${err.message}`,
+      data: { type, host, user, error: err.message },
+    });
     res.status(400).json({ error: err.message || 'Connection failed' });
   }
 });
@@ -212,7 +226,13 @@ router.post('/disconnect', (req, res) => {
   if (req.session?.id) {
     sessionCredentials.delete(req.session.id);
   }
-  
+
+  ServerEventLog.log({
+    app: 'EmailController',
+    severity: 'info',
+    message: 'Disconnected email account',
+  });
+
   res.json({ ok: true });
 });
 
@@ -258,8 +278,24 @@ router.post('/send', requireCreds, async (req, res) => {
       from: user, to, cc: cc || undefined, bcc: bcc || undefined, subject,
       text: text || body || '', html: html || undefined
     });
+    // Deliberately not logging recipients/subject/body — this is a dev
+    // debug timeline, not somewhere mail contents should end up.
+    ServerEventLog.log({
+      app: 'EmailController',
+      severity: 'info',
+      message: 'Sent message via SMTP',
+      data: { smtpHost, recipientCount: [to, cc, bcc].filter(Boolean).length },
+    });
     res.json({ ok: true, messageId: info.messageId });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    ServerEventLog.log({
+      app: 'EmailController',
+      severity: 'error',
+      message: `Send failed: ${err.message}`,
+      data: { smtpHost },
+    });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /**

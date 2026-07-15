@@ -8,15 +8,29 @@ const router = express.Router();
 
 // Import services
 const securityMiddleware = require('./middleware');
+const ServerEventLog = require('../server/core/server-event-log');
 
-// No-op audit service stub (v3 audit logging service was stripped)
 // In-memory failed login attempt tracking for rate limiting (SEC3)
 const failedLoginAttempts = new Map(); // ip -> { count, lastAttempt, lockedUntil }
 
+// auditService.log now forwards into ServerEventLog so the entries these
+// routes were already producing (login attempts, suspicious activity,
+// settings changes) actually show up somewhere — the v3 audit store this
+// was originally built against was stripped, leaving `log` a no-op.
+// query/getStatistics/etc. stay stubs: those read back from that same
+// stripped v3 store and have no equivalent here yet; ServerEventLog is a
+// live ring buffer for the Events app timeline, not a queryable audit DB.
 const auditService = {
     query: (filters) => [],
     getStatistics: () => ({}),
-    log: (entry) => { /* no-op */ },
+    log: (entry) => {
+        ServerEventLog.log({
+            app: 'SecurityRoutes',
+            severity: entry.success === false ? 'warn' : 'info',
+            message: `${entry.resource || entry.action || 'security_event'}${entry.success === false ? ' — failed' : ''}`,
+            data: entry,
+        });
+    },
     getFailedLoginAttempts: (ipAddress) => {
         const record = failedLoginAttempts.get(ipAddress);
         if (!record) return [];

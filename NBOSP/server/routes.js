@@ -1,10 +1,12 @@
 const securityRoutes = require('../security/routes');
 const emailRoutes = require('../email/index');
+const { setupEventsRoutes } = require('./core/events-routes');
 
 function mountRoutes(app) {
     // Mount core features
     app.use('/api/security', securityRoutes);
     app.use('/api/email', emailRoutes);
+    setupEventsRoutes(app);
 }
 
 module.exports = { mountRoutes };
