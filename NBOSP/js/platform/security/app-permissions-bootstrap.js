@@ -152,6 +152,10 @@
       normal   : ['system:info', 'system:apps', 'system:settings', 'fs:write'],
       dangerous: [],
     },
+    events: {
+      normal   : ['system:info', 'system:settings', 'fs:write'],
+      dangerous: [],
+    },
   });
 
   // ── Helpers ───────────────────────────────────────────────────────────────

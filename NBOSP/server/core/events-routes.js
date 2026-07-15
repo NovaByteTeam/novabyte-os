@@ -21,18 +21,18 @@ function setupEventsRoutes(app) {
     res.setHeader('X-Accel-Buffering', 'no');
 
     for (const entry of ServerEventLog.getAll()) {
-      if (res.writableEnded || res.headersSent) break;
+      if (res.writableEnded) break;
       res.write(`data: ${JSON.stringify(entry)}\n\n`);
     }
 
     const unsubscribe = ServerEventLog.subscribe((entry) => {
-      if (!res.writableEnded && !res.headersSent) {
+      if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify(entry)}\n\n`);
       }
     });
 
     const heartbeat = setInterval(() => {
-      if (!res.writableEnded && !res.headersSent) {
+      if (!res.writableEnded) {
         res.write(': heartbeat\n\n');
       }
     }, 25000);
