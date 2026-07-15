@@ -2,7 +2,7 @@ registerApp({
   id: 'perf',
   name: 'Perf Monitor',
   icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0Ij4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0icHJmLXJpbSIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNjdlOGY5Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzA4OTFiMiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0icHJmLWZhY2UiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzE2NGU2MyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwODMzNDQiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InByZi1uZWVkbGUiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI2ZjYTVhNSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNkYzI2MjYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDwhLS0gc2hhZG93IC0tPgogIDxlbGxpcHNlIGN4PSI0OCIgY3k9IjkwIiByeD0iMzAiIHJ5PSI2IiBmaWxsPSIjMDAwIiBvcGFjaXR5PSIwLjE4Ii8+CgogIDwhLS0gb3V0ZXIgcmltIC0tPgogIDxjaXJjbGUgY3g9IjQ4IiBjeT0iNDgiIHI9IjM0IiBmaWxsPSJ1cmwoI3ByZi1yaW0pIi8+CiAgPCEtLSBkaWFsIGZhY2UgLS0+CiAgPGNpcmNsZSBjeD0iNDgiIGN5PSI0OCIgcj0iMjciIGZpbGw9InVybCgjcHJmLWZhY2UpIi8+CgogIDwhLS0gdGljayBtYXJrcyAtLT4KICA8bGluZSB4MT0iNDgiIHkxPSIyNCIgeDI9IjQ4IiB5Mj0iMjkiIHN0cm9rZT0iIzY3ZThmOSIgc3Ryb2tlLXdpZHRoPSIyLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDxsaW5lIHgxPSIyNiIgeTE9IjQ4IiB4Mj0iMzEiIHkyPSI0OCIgc3Ryb2tlPSIjNjdlOGY5IiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGxpbmUgeDE9IjcwIiB5MT0iNDgiIHgyPSI2NSIgeTI9IjQ4IiBzdHJva2U9IiM2N2U4ZjkiIHN0cm9rZS13aWR0aD0iMi41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8bGluZSB4MT0iMzEuNSIgeTE9IjMxLjUiIHgyPSIzNSIgeTI9IjM1IiBzdHJva2U9IiM2N2U4ZjkiIHN0cm9rZS13aWR0aD0iMi41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8bGluZSB4MT0iNjQuNSIgeTE9IjMxLjUiIHgyPSI2MSIgeTI9IjM1IiBzdHJva2U9IiM2N2U4ZjkiIHN0cm9rZS13aWR0aD0iMi41IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KCiAgPCEtLSBuZWVkbGUsIHBvaW50aW5nIHRvIHVwcGVyLXJpZ2h0IChoaWdoIHBlcmYpIC0tPgogIDxwb2x5Z29uIHBvaW50cz0iNDgsNDggNjYsMzIgNjEsMzgiIGZpbGw9InVybCgjcHJmLW5lZWRsZSkiLz4KICA8Y2lyY2xlIGN4PSI0OCIgY3k9IjQ4IiByPSI1IiBmaWxsPSIjZjFmNWY5Ii8+CgogIDwhLS0gaGlnaGxpZ2h0IC0tPgogIDxlbGxpcHNlIGN4PSIzOCIgY3k9IjMyIiByeD0iMTAiIHJ5PSI0IiBmaWxsPSIjZmZmIiBvcGFjaXR5PSIwLjMiIHRyYW5zZm9ybT0icm90YXRlKC0yNSAzOCAzMikiLz4KPC9zdmc+Cg==',
-  description: 'Live FPS, memory, DOM node count, and long task tracking',
+  description: 'Live FPS, memory, DOM node count, long task, and network tracking',
   category: 'developer',
   devOnly: true,
   autoGrant: true,
@@ -162,6 +162,282 @@ registerApp({
         longTaskList.appendChild(row);
       });
     }
+
+    // Network log. Two feeds land in the same list:
+    //  - 'os'      : window.fetch / XMLHttpRequest calls from same-document
+    //                apps (Email, Search, App Manager, etc), patched below.
+    //                These have real durations, since we time them ourselves.
+    //  - 'browser' : Browser app's <webview> tabs, which run in a separate
+    //                NW.js/Chromium process this document can't patch into.
+    //                browser.js pushes these via window.NetworkLog (see
+    //                browser.js's onCompleted/onErrorOccurred listeners) —
+    //                no duration, since NW.js's webRequest API doesn't
+    //                expose a per-request start time, and no response
+    //                bodies, which needs CDP Network.getResponseBody and
+    //                isn't wired up anywhere in this codebase. Rows are
+    //                tagged by source so this limitation is visible in the
+    //                UI rather than silently missing data.
+    const NETLOG_CAP = 300;
+    const netLog = []; // newest first: { source, method, url, status, duration, error, label, time }
+    let netFilterSource = 'all'; // 'all' | 'os' | 'browser'
+    let netSearch = '';
+
+    const networkSection = createEl('div', { style: 'margin-top:16px;' });
+    const netHeader = createEl('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;' });
+    netHeader.appendChild(createEl('h4', { textContent: 'Network', style: 'margin:0;font-size:13px;color:var(--accent);flex-shrink:0;' }));
+    const netSourceSelect = createEl('select', { style: 'padding:3px 6px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-size:11px;' });
+    [['all', 'All sources'], ['os', 'OS apps'], ['browser', 'Browser tabs']].forEach(([val, label]) => {
+      netSourceSelect.appendChild(createEl('option', { value: val, textContent: label }));
+    });
+    const netSearchInput = createEl('input', { placeholder: 'Filter by URL…', style: 'flex:1;min-width:100px;padding:3px 8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:11px;' });
+    const netClearBtn = createEl('button', { textContent: 'Clear', style: 'padding:3px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
+    netHeader.appendChild(netSourceSelect);
+    netHeader.appendChild(netSearchInput);
+    netHeader.appendChild(netClearBtn);
+    networkSection.appendChild(netHeader);
+
+    const netList = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto;' });
+    networkSection.appendChild(netList);
+    content.appendChild(networkSection);
+
+    function renderNetworkLog() {
+      netList.innerHTML = '';
+      const q = netSearch.trim().toLowerCase();
+      const visible = netLog.filter(e =>
+        (netFilterSource === 'all' || e.source === netFilterSource) &&
+        (!q || e.url.toLowerCase().includes(q))
+      );
+      if (!visible.length) {
+        netList.appendChild(createEl('div', { textContent: netLog.length ? 'No requests match the current filter' : 'No requests recorded yet', style: 'color:var(--text-muted);font-size:11px;padding:4px;' }));
+        return;
+      }
+      visible.forEach(entry => {
+        const row = createEl('div', { style: 'display:flex;flex-direction:column;gap:1px;padding:4px 8px;background:var(--bg-elevated);border-radius:4px;font-size:11px;font-family:monospace;' });
+        const topLine = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
+        const methodBadge = createEl('span', { textContent: entry.method || '?', style: 'flex-shrink:0;color:var(--text-muted);width:42px;' });
+        const urlEl = createEl('span', { textContent: entry.url, style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;color:var(--text-primary);' });
+        const statusColor = entry.error ? '#f85149' : (entry.status >= 400 ? '#f85149' : (entry.status >= 300 ? '#fbbf24' : '#3fb950'));
+        const statusEl = createEl('span', { textContent: entry.error ? 'ERR' : (entry.status ?? '—'), style: 'flex-shrink:0;color:' + statusColor + ';width:32px;text-align:right;' });
+        topLine.appendChild(methodBadge);
+        topLine.appendChild(urlEl);
+        topLine.appendChild(statusEl);
+        row.appendChild(topLine);
+
+        const metaLine = createEl('div', { style: 'font-size:10px;color:var(--text-muted);display:flex;gap:8px;' });
+        metaLine.appendChild(createEl('span', { textContent: entry.source === 'browser' ? `browser · ${entry.label}` : `os · ${entry.label}` }));
+        // Duration is only meaningful for OS-level entries (see comment
+        // above the netLog declaration) — omit it entirely for browser
+        // entries rather than showing a fabricated or misleading number.
+        if (entry.duration != null) metaLine.appendChild(createEl('span', { textContent: entry.duration + 'ms' }));
+        if (entry.error) metaLine.appendChild(createEl('span', { textContent: entry.error, style: 'color:#f85149;' }));
+
+        // Only OS-level entries can ever have a body — Browser-tab entries
+        // always have body === undefined/null and bodySkipped left unset,
+        // so they simply never render this affordance rather than showing
+        // a "no body" state that would look like a bug for every row.
+        if (entry.body != null) {
+          const bodyToggle = createEl('span', { textContent: '▸ body', style: 'cursor:pointer;color:var(--accent);' });
+          metaLine.appendChild(bodyToggle);
+          row.appendChild(metaLine);
+
+          let bodyPre = null;
+          bodyToggle.addEventListener('click', () => {
+            if (bodyPre) {
+              bodyPre.remove();
+              bodyPre = null;
+              bodyToggle.textContent = '▸ body';
+              return;
+            }
+            bodyPre = createEl('pre', {
+              textContent: entry.body,
+              style: 'margin:4px 0 0;padding:6px;background:var(--bg-default);border-radius:4px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:10px;'
+            });
+            row.appendChild(bodyPre);
+            bodyToggle.textContent = '▾ body';
+          }, { signal: ac.signal });
+        } else {
+          if (entry.bodySkipped && entry.source === 'os') {
+            metaLine.appendChild(createEl('span', { textContent: 'body not captured' + (entry.contentType ? ` (${entry.contentType.split(';')[0]})` : ''), style: 'color:var(--text-muted);' }));
+          }
+          row.appendChild(metaLine);
+        }
+
+        netList.appendChild(row);
+      });
+    }
+
+    function pushNetEntry(entry) {
+      netLog.unshift(entry);
+      if (netLog.length > NETLOG_CAP) netLog.length = NETLOG_CAP;
+      renderNetworkLog();
+    }
+
+    netSourceSelect.addEventListener('change', () => {
+      netFilterSource = netSourceSelect.value;
+      renderNetworkLog();
+    }, { signal: ac.signal });
+
+    netSearchInput.addEventListener('input', () => {
+      netSearch = netSearchInput.value;
+      renderNetworkLog();
+    }, { signal: ac.signal });
+
+    netClearBtn.addEventListener('click', () => {
+      netLog.length = 0;
+      window.NetworkLog?.clear();
+      renderNetworkLog();
+    }, { signal: ac.signal });
+
+    // Pull in whatever Browser tabs already logged before this window
+    // opened (window.NetworkLog.entries persists independent of this
+    // window's lifetime), then subscribe to future pushes.
+    (window.NetworkLog?.getAll() || []).forEach(e => {
+      netLog.push({
+        source: 'browser',
+        method: e.method,
+        url: e.url,
+        status: e.statusCode,
+        duration: null,
+        error: e.error,
+        label: e.tabTitle,
+        time: e.time,
+      });
+    });
+    netLog.sort((a, b) => (b.time || 0) - (a.time || 0));
+
+    const _prevNetworkLogRenderFn = window.NetworkLog?._renderFn;
+    if (window.NetworkLog) {
+      window.NetworkLog._renderFn = () => {
+        // Only mirror the newest browser entry in — window.NetworkLog is
+        // the source of truth for browser-side data, this app's netLog is
+        // just a merged view for display. Re-reading getAll() each push
+        // would re-render everything; instead take just the newest entry.
+        const latest = window.NetworkLog.entries[0];
+        if (latest) {
+          pushNetEntry({
+            source: 'browser',
+            method: latest.method,
+            url: latest.url,
+            status: latest.statusCode,
+            duration: null,
+            error: latest.error,
+            label: latest.tabTitle,
+            time: latest.time,
+          });
+        }
+      };
+    }
+
+    // OS-level fetch/XHR patch. Scoped to this window's lifetime — restored
+    // in the cleanup below — since patching globals for the life of the OS
+    // session (rather than just while Perf Monitor is open) would add
+    // overhead to every app's network calls even when nobody's watching.
+    const _origFetch = window.fetch;
+    const _origXHROpen = XMLHttpRequest.prototype.open;
+    const _origXHRSend = XMLHttpRequest.prototype.send;
+
+    // Response bodies are captured for OS-level requests only (Browser-tab
+    // traffic can't offer this at all — see the netLog comment above).
+    // Capped hard: some app could fetch a multi-MB file or an image, and
+    // storing that in memory for every request this session would be its
+    // own performance problem in a tool meant to diagnose performance
+    // problems. Binary/non-text content types are skipped entirely rather
+    // than stored as a garbled string — a body field of `null` with
+    // bodySkipped:true tells the UI why, instead of showing mojibake.
+    const BODY_CAPTURE_MAX_BYTES = 20000;
+    const BODY_CAPTURE_TEXT_TYPES = /^(text\/|application\/(json|xml|javascript|x-www-form-urlencoded))/i;
+
+    function labelForFetch() {
+      const w = (typeof OS !== 'undefined' && OS.windows && OS.focusedWindowId)
+        ? OS.windows.get(OS.focusedWindowId)
+        : null;
+      return w?.appId || 'unknown app';
+    }
+
+    if (typeof _origFetch === 'function') {
+      window.fetch = function (...args) {
+        const start = performance.now();
+        const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || String(args[0]));
+        const method = (args[1]?.method || 'GET').toUpperCase();
+        const label = labelForFetch();
+        return _origFetch.apply(this, args).then(res => {
+          const contentType = res.headers.get('content-type') || '';
+          const isTextish = BODY_CAPTURE_TEXT_TYPES.test(contentType);
+          const finish = (body, bodySkipped) => pushNetEntry({
+            source: 'os', method, url, status: res.status,
+            duration: Math.round(performance.now() - start),
+            error: null, label, time: Date.now(),
+            body, bodySkipped, contentType,
+          });
+          if (!isTextish) {
+            // clone() isn't even needed here since we're not reading this
+            // branch's body at all, but calling clone() unconditionally
+            // before the type check would make every response (including
+            // huge binary ones) briefly double-buffer for no reason.
+            finish(null, true);
+            return res;
+          }
+          // clone() so reading the body here doesn't consume the stream
+          // the calling app still needs to read itself — .text() on the
+          // original response would leave nothing for the app's own
+          // .then(res => res.json()) etc.
+          res.clone().text().then(text => {
+            const truncated = text.length > BODY_CAPTURE_MAX_BYTES;
+            finish(truncated ? text.slice(0, BODY_CAPTURE_MAX_BYTES) + '\n…(truncated)' : text, false);
+          }).catch(() => finish(null, true));
+          return res;
+        }).catch(err => {
+          pushNetEntry({ source: 'os', method, url, status: null, duration: Math.round(performance.now() - start), error: err?.message || 'network error', label, time: Date.now(), body: null, bodySkipped: true });
+          throw err;
+        });
+      };
+    }
+
+    // XHR needs open+send patched together since the method/URL are only
+    // known at open() time but the timing/result only resolves at send()'s
+    // eventual load/error — stash what open() learned on the instance and
+    // read it back in send()'s listeners.
+    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+      this._nbPerfMethod = (method || 'GET').toUpperCase();
+      this._nbPerfUrl = url;
+      return _origXHROpen.call(this, method, url, ...rest);
+    };
+    XMLHttpRequest.prototype.send = function (...args) {
+      const start = performance.now();
+      const label = labelForFetch();
+      this.addEventListener('loadend', () => {
+        const contentType = this.getResponseHeader('content-type') || '';
+        const isTextish = BODY_CAPTURE_TEXT_TYPES.test(contentType);
+        // responseText throws if responseType is e.g. 'blob' or
+        // 'arraybuffer' — those are exactly the cases isTextish should
+        // already exclude via content-type, but an app could still set a
+        // binary responseType against a server that mislabels its
+        // content-type, so this stays defensive rather than trusting the
+        // header alone.
+        let body = null, bodySkipped = true;
+        if (isTextish) {
+          try {
+            const text = this.responseText;
+            bodySkipped = false;
+            body = text.length > BODY_CAPTURE_MAX_BYTES ? text.slice(0, BODY_CAPTURE_MAX_BYTES) + '\n…(truncated)' : text;
+          } catch { /* non-text responseType — leave bodySkipped true */ }
+        }
+        pushNetEntry({
+          source: 'os',
+          method: this._nbPerfMethod,
+          url: this._nbPerfUrl,
+          status: this.status || null,
+          duration: Math.round(performance.now() - start),
+          error: this.status === 0 ? 'network error' : null,
+          label,
+          time: Date.now(),
+          body,
+          bodySkipped,
+          contentType,
+        });
+      });
+      return _origXHRSend.apply(this, args);
+    };
 
     // Sparkline history for each tracked metric. Fixed-length ring buffers,
     // same push/shift pattern the original FPS array used.
@@ -422,6 +698,7 @@ registerApp({
           domNodes: domHistory,
         },
         longTaskLog,
+        networkLog: netLog,
         perWindowDomNodes: (typeof OS !== 'undefined' && OS.windows ? [...OS.windows.values()] : [])
           .map(w => ({ appId: w.appId, id: w.id, domNodes: w.content ? w.content.querySelectorAll('*').length : null })),
       };
@@ -439,6 +716,7 @@ registerApp({
 
     renderPerWindow();
     renderLongTaskLog();
+    renderNetworkLog();
     rafId = requestAnimationFrame(measureFrame);
 
     // state.cleanups.push(fn) is the teardown hook the window manager
@@ -449,9 +727,22 @@ registerApp({
     // of the OS session every time this window was closed. AbortController
     // (ac) added for the two new button listeners, same pattern as the
     // other dev apps in this codebase.
+    //
+    // window.fetch / XMLHttpRequest.prototype.open+send are restored to
+    // their originals here too — they were patched globally when this
+    // window opened (see above), so every app's network calls would stay
+    // wrapped forever, including after Perf Monitor closes, if this
+    // didn't run. window.NetworkLog._renderFn is restored to whatever it
+    // was before (normally null) rather than just set to null, in case a
+    // second Perf Monitor window is ever opened concurrently and its
+    // cleanup would otherwise stomp on this one's hook order.
     state.cleanups.push(() => {
       if (rafId) cancelAnimationFrame(rafId);
       if (longTaskObserver) longTaskObserver.disconnect();
+      window.fetch = _origFetch;
+      XMLHttpRequest.prototype.open = _origXHROpen;
+      XMLHttpRequest.prototype.send = _origXHRSend;
+      if (window.NetworkLog) window.NetworkLog._renderFn = _prevNetworkLogRenderFn;
     });
   }
 });

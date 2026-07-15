@@ -1,3 +1,39 @@
+// Shared network activity log, read by Perf Monitor's Network tab.
+//
+// Defined here at true top level (script-eval time), not inside init(),
+// unlike window.Downloads in gallery.js — that pattern only creates the
+// global once Gallery's window has actually been opened once, which is
+// fine for Downloads (browser.js only calls it after a download already
+// happened, well after Browser opened) but wrong for this log: Perf
+// Monitor could be opened before Browser, or Browser traffic could fire
+// before Perf Monitor ever opens, and neither app controls the other's
+// load order. A top-level definition means window.NetworkLog exists the
+// moment this script evaluates, regardless of which windows open when.
+//
+// Guarded with `window.NetworkLog ||` so re-including this script (or a
+// future core-relocation of this same object) doesn't clobber entries
+// already pushed.
+window.NetworkLog = window.NetworkLog || {
+  entries: [],
+  MAX_ENTRIES: 500, // ring buffer — a busy session could otherwise grow unbounded
+  _renderFn: null,  // set by Perf Monitor while its Network tab is visible
+
+  push(entry) {
+    this.entries.unshift(entry);
+    if (this.entries.length > this.MAX_ENTRIES) this.entries.length = this.MAX_ENTRIES;
+    this._renderFn?.();
+  },
+
+  getAll() {
+    return this.entries;
+  },
+
+  clear() {
+    this.entries.length = 0;
+    this._renderFn?.();
+  },
+};
+
 registerApp({
   id: 'browser', name: 'Browser', icon: 'globe',
   description: 'Web Browser',
@@ -1295,6 +1331,15 @@ registerApp({
       wv.setAttribute('enableremotemodule', 'false');
       wv.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
       wv.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointerEvents:none;z-index:0;top:0;left:0;';
+      // wv.request listeners (added below in _attachRequestListeners) run
+      // through NW.js's webRequest event system, which — unlike normal DOM
+      // addEventListener callbacks — does not reliably retain a closure
+      // over this function's local `tabId` parameter (confirmed: the
+      // pre-existing onBeforeRequest listener already avoided referencing
+      // any outer local for the same reason). Stashing it directly on the
+      // element sidesteps that: the element itself is what the listener
+      // closure captures, and property reads on it always work.
+      wv._nbTabId = tabId;
 
       wv.addEventListener('loadcommit', e => {
         if (e.isTopLevel && e.url) syncUrlForTab(e.url, tabId, 'loadcommit');
@@ -1987,6 +2032,61 @@ registerApp({
           );
         } catch (e) { /* wv.request not ready yet */ }
         // (Removed the dead no-op listener that always returned { cancel: false }.)
+
+        // Feed Perf Monitor's Network tab. wv.request lives per-<webview>
+        // (a genuinely separate NW.js/Chromium process from this document),
+        // so this is the only point in the codebase with visibility into
+        // Browser tab traffic — perf.js cannot reach it directly and reads
+        // from window.NetworkLog instead, same pattern as gallery.js's
+        // window.Downloads. onCompleted/onErrorOccurred give method, URL,
+        // status, type and timing — NOT response bodies; that requires
+        // CDP Network.getResponseBody, which nothing here wires up, so
+        // Browser-tab rows in the log intentionally never carry a body.
+        try {
+          wv.request.onCompleted.addListener(
+            (details) => {
+              const _tabId = wv._nbTabId;
+              const tab = tabs.find(t => t.id === _tabId);
+              window.NetworkLog?.push({
+                source: 'browser',
+                tabId: _tabId,
+                tabTitle: tab?.title || 'Tab ' + _tabId,
+                method: details.method,
+                url: details.url,
+                type: details.type,
+                statusCode: details.statusCode,
+                error: null,
+                // fromCache/timeStamp are what NW.js's webRequest actually
+                // provides; there is no per-request start time exposed on
+                // this event, so duration can't be computed honestly here —
+                // unlike the OS-level fetch/XHR patch in perf.js, which
+                // times its own requests directly.
+                fromCache: !!details.fromCache,
+                time: details.timeStamp || Date.now(),
+              });
+            },
+            { urls: ['<all_urls>'] }
+          );
+          wv.request.onErrorOccurred.addListener(
+            (details) => {
+              const _tabId = wv._nbTabId;
+              const tab = tabs.find(t => t.id === _tabId);
+              window.NetworkLog?.push({
+                source: 'browser',
+                tabId: _tabId,
+                tabTitle: tab?.title || 'Tab ' + _tabId,
+                method: details.method,
+                url: details.url,
+                type: details.type,
+                statusCode: null,
+                error: details.error || 'unknown error',
+                fromCache: false,
+                time: details.timeStamp || Date.now(),
+              });
+            },
+            { urls: ['<all_urls>'] }
+          );
+        } catch (e) { /* wv.request not ready yet */ }
       }
       wv.addEventListener('contentload', _attachRequestListeners);
       wv.addEventListener('loadcommit', _attachRequestListeners);
