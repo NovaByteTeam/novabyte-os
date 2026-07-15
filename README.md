@@ -529,7 +529,9 @@ novabyte-os/
 │  │  │  ├── index.js       # Main Express entry point (330 lines)
 │  │  │  ├── middleware.js    # Helmet CSP, CORS, rate limiting, CSRF, sessions (250 lines)
 │  │  │  ├── ssl.js        # HTTPS/HTTP server factory with graceful fallback (50 lines)
-│  │  │  └── env.js        # Environment validation with fallback secrets (50 lines)
+│  │  │  ├── env.js        # Environment validation with fallback secrets (50 lines)
+│  │  │  ├── events-routes.js # SSE endpoint exposing ServerEventLog to the client
+│  │  │  └── server-event-log.js # Server-side event log (SSRF blocks, proxy errors)
 │  │  ├── routes.js        # Sub-router composition and mounting
 │  │  ├── favicons.js       # Favicon proxy with SSRF protection, DB caching (400 lines)
 │  │  └── proxies.js        # Email image proxy (500 lines)
@@ -566,6 +568,7 @@ novabyte-os/
 │  │  │  │  ├── notifications.js # Notification system
 │  │  │  │  ├── registry.js   # Core app registry
 │  │  │  │  ├── event-log.js  # Central event logging
+│  │  │  │  ├── server-events-bridge.js # Streams server-side events into the client event log
 │  │  │  │  └── workers.js    # Multi-threaded worker management
 │  │  │  ├── ui/         # UI primitives
 │  │  │  │  ├── desktop.js    # Desktop shell
@@ -607,7 +610,15 @@ novabyte-os/
 │  │    ├── search.js      # System-wide search
 │  │    ├── settings.js     # Settings panel
 │  │    ├── textedit.js     # Text editor
-│  │    └── appmanager.js    # App manager/installer
+│  │    ├── appmanager.js    # App manager/installer
+│  │    ├── console.js      # [Dev Mode] JS REPL in the full OS context
+│  │    ├── events.js       # [Dev Mode] Unified event timeline
+│  │    ├── inspector.js     # [Dev Mode] Registered apps & window inspector
+│  │    ├── modules.js      # [Dev Mode] Hot-reload OS JS modules
+│  │    ├── packages.js     # [Dev Mode] Sign/verify .novaapp packages
+│  │    ├── perf.js        # [Dev Mode] FPS, memory, DOM performance monitor
+│  │    ├── permissions.js    # [Dev Mode] Grant/revoke app permissions
+│  │    └── sysaccess.js     # [Dev Mode] Network proxy & VFS inspector
 │  ├── data/
 │  │  └── favicons.db       # Persistent SQLite favicon cache
 │  ├── assets/
