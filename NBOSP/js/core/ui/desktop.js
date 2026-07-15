@@ -1439,6 +1439,9 @@ async function _handleDesktopDrop(e, desktopEl) {
       if (extCheck.blocked) {
         Notify.show({ title: '🚫 File Blocked - Executable Type', body: `"${file.name}": ${extCheck.reason}`, type: 'error', appName: 'System' });
         console.warn('[Security] Blocked on extension:', { file: file.name, reason: extCheck.reason });
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'Desktop', category: 'security', severity: 'warn', message: `Blocked file "${file.name}": ${extCheck.reason}`, data: { file: file.name, reason: extCheck.reason } });
+        }
         resolve(false);
         return;
       }
@@ -1457,6 +1460,9 @@ async function _handleDesktopDrop(e, desktopEl) {
               const threatList = scanResult.patterns.join(', ');
               Notify.show({ title: '⚠️ Malicious File Blocked', body: `"${file.name}" contains threats: ${threatList}`, type: 'error', appName: 'System' });
               console.warn('[Security] Malicious file blocked:', { file: file.name, threats: scanResult.threats, patterns: scanResult.patterns });
+              if (typeof EventLog !== 'undefined') {
+                EventLog.log({ app: 'Desktop', category: 'security', severity: 'error', message: `Blocked malicious file "${file.name}": ${threatList}`, data: { file: file.name, threats: scanResult.threats } });
+              }
               resolve(false);
               return;
             }
@@ -1916,9 +1922,9 @@ function renderDesktopIcons() {
           {
              label: 'Rename', icon: 'rename',
             action: async () => {
-              const name = await showPrompt('Rename', f.name);
-              if (name && name !== f.name) {
-                await FS.rename(f.id, name);
+              const name = await showPrompt('Rename', f.name.replace(/\.lnk$/i, ''));
+              if (name && name !== f.name.replace(/\.lnk$/i, '')) {
+                await FS.rename(f.id, name.endsWith('.lnk') ? name : name + '.lnk');
                 renderDesktopIcons();
               }
             }

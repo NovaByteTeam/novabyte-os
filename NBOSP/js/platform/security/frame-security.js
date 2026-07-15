@@ -386,6 +386,15 @@
     });
 
     if (verbose) console.log('[FrameSecurity] Audit Report:', audit);
+    if (typeof EventLog !== 'undefined' && audit.issues.length > 0) {
+      EventLog.log({
+        app: 'FrameSecurity',
+        category: 'security',
+        severity: 'warn',
+        message: `Frame audit found ${audit.issues.length} issue(s) across ${audit.total} iframe(s)`,
+        data: { total: audit.total, nodeFrames: audit.nodeFrames, issues: audit.issues },
+      });
+    }
     return audit;
   }
 
@@ -435,6 +444,16 @@
       }
     });
 
+    if (typeof EventLog !== 'undefined' && (summary.securified.length > 0 || summary.errors.length > 0)) {
+      EventLog.log({
+        app: 'FrameSecurity',
+        category: 'security',
+        severity: summary.errors.length > 0 ? 'error' : 'info',
+        message: `Securified ${summary.securified.length}/${summary.total} iframe(s)${summary.errors.length ? `, ${summary.errors.length} error(s)` : ''}`,
+        data: summary,
+      });
+    }
+
     return summary;
   }
 
@@ -477,6 +496,15 @@
       safeId(iframe),
     );
     recordIssue(iframe, v);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({
+        app: 'FrameSecurity',
+        category: 'security',
+        severity: 'warn',
+        message: `Iframe security issue (${v.frameType}): ${v.issues.join(', ')} — ${safeId(iframe)}`,
+        data: { frameType: v.frameType, issues: v.issues, iframe: safeId(iframe) },
+      });
+    }
 
     if (!_autoSecurify) return;
     if (_excludePred(iframe)) {
@@ -493,6 +521,15 @@
         safeId(iframe),
         '(mode=' + _securifyMode + ')',
       );
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({
+          app: 'FrameSecurity',
+          category: 'security',
+          severity: 'info',
+          message: `Auto-securified iframe ${safeId(iframe)} (mode=${_securifyMode})`,
+          data: { iframe: safeId(iframe), mode: _securifyMode },
+        });
+      }
       // Re-validate so the post-fix state is reflected in the recent
       // issues buffer. If securify didn't fully fix it (shouldn't
       // happen, but be defensive), the new issue is recorded too.
@@ -504,6 +541,15 @@
           safeId(iframe),
         );
         recordIssue(iframe, post);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({
+            app: 'FrameSecurity',
+            category: 'security',
+            severity: 'error',
+            message: `Iframe still invalid after securify: ${post.issues.join(', ')} — ${safeId(iframe)}`,
+            data: { issues: post.issues, iframe: safeId(iframe) },
+          });
+        }
       }
     } catch (err) {
       console.error(
@@ -511,6 +557,15 @@
         safeId(iframe),
         err,
       );
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({
+          app: 'FrameSecurity',
+          category: 'security',
+          severity: 'error',
+          message: `Auto-securify failed for ${safeId(iframe)}: ${err?.message || err}`,
+          data: { iframe: safeId(iframe) },
+        });
+      }
     }
   }
 

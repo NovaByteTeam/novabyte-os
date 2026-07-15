@@ -295,10 +295,11 @@ self.onmessage = async (e) => {
 };
 `;
 
-      function createWorker(code) {
+      function createWorker(code, name) {
         const blob = new Blob([code], { type: 'application/javascript' });
         const url = URL.createObjectURL(blob);
         const worker = new Worker(url);
+        const workerName = name || 'worker';
         let _id = 0;
         const pending = new Map();
         worker.onmessage = (e) => {
@@ -310,15 +311,34 @@ self.onmessage = async (e) => {
             else p.resolve(result);
           }
         };
+        worker.onerror = (e) => {
+          console.error(`[Workers] Uncaught error in ${workerName} worker:`, e.message);
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'Workers', category: 'system', severity: 'error', message: `Uncaught error in ${workerName} worker: ${e.message}`, data: { worker: workerName } });
+          }
+        };
         return {
           call(method, ...args) {
             const id = ++_id;
             return new Promise((resolve, reject) => {
-              pending.set(id, { resolve, reject });
+              pending.set(id, {
+                resolve,
+                reject: (err) => {
+                  if (typeof EventLog !== 'undefined') {
+                    EventLog.log({ app: 'Workers', category: 'system', severity: 'error', message: `${workerName}.${method} failed: ${err?.message || err}`, data: { worker: workerName, method } });
+                  }
+                  reject(err);
+                },
+              });
               worker.postMessage({ id, method, args });
             });
           },
-          terminate() { worker.terminate(); }
+          terminate() {
+            worker.terminate();
+            if (typeof EventLog !== 'undefined') {
+              EventLog.log({ app: 'Workers', category: 'system', severity: 'info', message: `Terminated ${workerName} worker`, data: { worker: workerName } });
+            }
+          }
         };
       }
 

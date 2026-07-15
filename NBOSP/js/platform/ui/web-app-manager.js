@@ -289,6 +289,9 @@ function readFromStorage() {
     if (isStorageSecurityError(error)) {
       state.storagePersistentFailure = true;
       log.warn('localStorage read denied:', error);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'warn', message: 'localStorage read denied — starting with empty web app list' });
+      }
       return { version: SCHEMA_VERSION, apps: [] };
     }
     throw new StorageError('Failed to read web apps from storage', { cause: error });
@@ -301,6 +304,9 @@ function readFromStorage() {
   } catch (error) {
     // Corrupt JSON is unrecoverable; reset to empty list rather than crash.
     log.error('Stored web apps JSON is corrupt; resetting to empty list:', error);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'error', message: `Stored web apps data was corrupt — reset to empty list: ${error?.message || error}` });
+    }
     return { version: SCHEMA_VERSION, apps: [] };
   }
 }
@@ -364,10 +370,19 @@ function flushSave() {
     if (error instanceof StorageError) {
       if (error.persistent) {
         log.warn('Persistent storage failure; remaining in-memory only');
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'warn', message: 'Persistent storage failure — web apps will not survive restart' });
+        }
       } else if (/quota/i.test(error.message)) {
         log.error('Storage quota exceeded; latest changes were not persisted');
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'error', message: 'Storage quota exceeded — latest web app changes were not persisted' });
+        }
       } else {
         log.error('Failed to persist web apps:', error);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'error', message: `Failed to persist web apps: ${error?.message || error}` });
+        }
       }
     } else {
       // Programmer error — re-throw so it surfaces in dev tools.
@@ -593,10 +608,16 @@ function addApp(app) {
       log.info(`Set DuckDuckGo favicon for ${newApp.name}: ${newApp.icon}`);
     } catch (err) {
       log.warn(`Favicon setup failed for ${newApp.name}:`, err);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'warn', message: `Favicon setup failed for ${newApp.name}: ${err?.message || err}`, data: { appId: newApp.id } });
+      }
     }
   }
 
   log.info(`Added web app: ${newApp.name}`);
+  if (typeof EventLog !== 'undefined') {
+    EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'info', message: `Added web app: ${newApp.name}`, data: { appId: newApp.id, url: newApp.url } });
+  }
   return freezeApp(newApp);
 }
 
@@ -619,6 +640,9 @@ function removeApp(appId) {
   emitEvent(EVENT_REMOVE, removed);
 
   log.info(`Removed web app: ${removed.name}`);
+  if (typeof EventLog !== 'undefined') {
+    EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'info', message: `Removed web app: ${removed.name}`, data: { appId } });
+  }
   return true;
 }
 
@@ -668,6 +692,9 @@ function launchApp(appId) {
   scheduleSave();
 
   log.info(`Launch recorded for: ${app.name}`);
+  if (typeof EventLog !== 'undefined') {
+    EventLog.log({ app: 'WebAppManager', category: 'apps', severity: 'info', message: `Launched web app: ${app.name}`, data: { appId, launchCount: app.launchCount } });
+  }
   return freezeApp(app);
 }
 

@@ -151,6 +151,9 @@ const TrustStore = (() => {
       // A corrupt file is a real risk worth surfacing, not silently
       // swallowing — same reasoning as submission-queue.js's _readRaw().
       console.error(`[TrustStore] revoked-signatures.json exists but couldn't be read/parsed: ${err.message}. Revocation list may be incomplete until this is fixed.`);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'TrustStore', category: 'security', severity: 'error', message: `Revocation list corrupt/unreadable: ${err.message}. List may be incomplete.` });
+      }
       return [];
     }
   }
@@ -161,6 +164,9 @@ const TrustStore = (() => {
       _fs.writeFileSync(_revocationFilePath(), JSON.stringify(list, null, 2));
     } catch (err) {
       console.error(`[TrustStore] Failed to write revoked-signatures.json: ${err.message}. Revocation was applied in memory but will NOT survive a restart until this is fixed.`);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'TrustStore', category: 'security', severity: 'error', message: `Failed to persist revocation list: ${err.message}. In-memory only, will not survive restart.` });
+      }
     }
   }
 
@@ -177,6 +183,9 @@ const TrustStore = (() => {
       throw new Error('Trust store entries need at least {name, publicKey}');
     }
     entries.push(entry);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: `Added trusted signing authority: ${entry.name}`, data: { name: entry.name, id: entry.id } });
+    }
   }
 
   /**
@@ -208,8 +217,14 @@ const TrustStore = (() => {
     }
     if (!_fs) {
       console.warn('[TrustStore] No filesystem access in this context — revocation applied for this session only and will NOT persist. Run this from an NW.js/Node context with fs access for it to stick.');
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: 'Revocation applied in-memory only (no fs access) — will not persist across restart' });
+      }
     }
     _saveRevokedToDisk(revoked);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: `Revoked signature${reason ? ': ' + reason : ''}`, data: { signature, reason: reason || null } });
+    }
     return record;
   }
 
@@ -222,6 +237,9 @@ const TrustStore = (() => {
     if (idx === -1) return false;
     revoked.splice(idx, 1);
     _saveRevokedToDisk(revoked);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: 'Un-revoked a previously revoked signature', data: { signature } });
+    }
     return true;
   }
 

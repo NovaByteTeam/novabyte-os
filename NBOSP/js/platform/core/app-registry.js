@@ -57,7 +57,12 @@ const AppRegistry = (() => {
       if (typeof localStorage === 'undefined' || !localStorage) return;
       localStorage.setItem(STORAGE_KEY, JSON.stringify([...installedApps.values()]));
     } catch (e) {
-      if (e.name !== 'SecurityError') console.error('[AppRegistry] save failed:', e);
+      if (e.name !== 'SecurityError') {
+        console.error('[AppRegistry] save failed:', e);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'error', message: `Registry save failed: ${e?.message || e}` });
+        }
+      }
     }
   }
 
@@ -67,6 +72,9 @@ const AppRegistry = (() => {
     try {
       if (typeof localStorage === 'undefined' || !localStorage) {
         console.warn('[AppRegistry] localStorage unavailable — in-memory only');
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: 'localStorage unavailable — running in-memory only' });
+        }
         return;
       }
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -91,11 +99,20 @@ const AppRegistry = (() => {
         }
       }
       console.log(`[AppRegistry] Loaded ${installedApps.size} app(s)`);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Loaded ${installedApps.size} app(s) from storage`, data: { count: installedApps.size } });
+      }
     } catch (e) {
       if (e.name === 'SecurityError') {
         console.warn('[AppRegistry] localStorage denied (sandboxed) — in-memory only');
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: 'localStorage denied (sandboxed) — running in-memory only' });
+        }
       } else {
         console.error('[AppRegistry] initialize failed:', e);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'error', message: `Initialize failed: ${e?.message || e}` });
+        }
       }
       installedApps = new Map();
     }
@@ -118,6 +135,9 @@ const AppRegistry = (() => {
     const unknown = allPerms.filter(p => !KNOWN_PERMISSIONS.has(p));
     if (unknown.length > 0) {
       console.warn('[AppRegistry] Rejecting unknown permission(s) for', appConfig.id + ':', unknown.join(', '));
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Rejected unknown permission(s) for ${appConfig.id}: ${unknown.join(', ')}`, data: { appId: appConfig.id, unknown } });
+      }
       appConfig.permissions = (appConfig.permissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
       appConfig.optionalPermissions = (appConfig.optionalPermissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
     }
@@ -152,6 +172,9 @@ const AppRegistry = (() => {
     installedApps.set(app.id, app);
     _saveToStorage();
     console.log(`[AppRegistry] Registered: ${app.name} (${app.id}) v${app.version}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Registered ${app.name} (${app.id}) v${app.version}`, data: { appId: app.id, version: app.version, verified: app.verified } });
+    }
     for (const cb of _onInstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return app;
   }
@@ -163,6 +186,9 @@ const AppRegistry = (() => {
     installedApps.delete(appId);
     _saveToStorage();
     console.log(`[AppRegistry] Unregistered: ${appId}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Unregistered ${appId}`, data: { appId } });
+    }
     for (const cb of _onUninstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return true;
   }
@@ -179,6 +205,9 @@ const AppRegistry = (() => {
       const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
       if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
         console.warn('[AppRegistry] Launch blocked — disabled app:', appId);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Launch blocked — ${appId} is disabled`, data: { appId } });
+        }
         try {
           const name = OS?.apps?.[appId]?.name || appId;
           if (typeof Notify !== 'undefined' && Notify.show) {
@@ -207,6 +236,9 @@ const AppRegistry = (() => {
           const allGranted = await mgr.requestAll(missing, appId, app.name);
           if (!allGranted) {
             console.warn(`[AppRegistry] Launch aborted — permissions denied for ${appId}`);
+            if (typeof EventLog !== 'undefined') {
+              EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Launch aborted — permissions denied for ${appId}`, data: { appId, missing } });
+            }
             return null;
           }
         }
@@ -222,6 +254,9 @@ const AppRegistry = (() => {
     if (mgr?.recordAppUse) mgr.recordAppUse(appId);
 
     console.log(`[AppRegistry] Launching: ${app.name} (${appId})`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Launching ${app.name} (${appId})`, data: { appId, launchCount: app.launchCount } });
+    }
 
     if (typeof AppSandbox !== 'undefined') {
       return AppSandbox.launch(app, content, state, options);

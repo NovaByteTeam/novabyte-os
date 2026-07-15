@@ -349,6 +349,9 @@ const WM = window.WM = (() => {
         if (app.init) app.init(content, state, options);
       } catch (err) {
         console.warn(`[WM] ${appId}.init error:`, err);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'WM', category: 'window', severity: 'error', message: `${appId}.init threw: ${err?.message || err}`, data: { windowId: id, appId } });
+        }
       }
 
       // `app` here is the exact object reference registerApp() pushed into
@@ -363,6 +366,9 @@ const WM = window.WM = (() => {
       app.lastLaunched = Date.now();
 
       OS.events.emit('app:opened', { id, appId });
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'WM', category: 'window', severity: 'info', message: `Opened window for ${appId}`, data: { windowId: id, appId } });
+      }
       return state;
     },
 
@@ -404,6 +410,9 @@ const WM = window.WM = (() => {
 
         wm.updateTaskbar();
         OS.events.emit('app:closed', { id, appId: state.appId });
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'WM', category: 'window', severity: 'info', message: `Closed window for ${state.appId}`, data: { windowId: id, appId: state.appId } });
+        }
       };
 
       const fallback = setTimeout(finishClose, 250);
@@ -417,6 +426,9 @@ const WM = window.WM = (() => {
       state.element.classList.add('minimizing');
       if (OS.focusedWindowId === id) OS.focusedWindowId = null;
       wm.updateTaskbar();
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'WM', category: 'window', severity: 'info', message: `Minimized window for ${state.appId}`, data: { windowId: id, appId: state.appId } });
+      }
       // Store timer so restoreWindow can cancel it before it hides the element
       state._minimizeTimer = setTimeout(() => {
         state._minimizeTimer = null;
@@ -589,6 +601,9 @@ const WM = window.WM = (() => {
       }
       wm.updateTaskbar();
       OS.events.emit('app:focused', { id, appId: state.appId });
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'WM', category: 'window', severity: 'info', message: `Focused window for ${state.appId}`, data: { windowId: id, appId: state.appId } });
+      }
 
       const win            = state.element;
       const alreadyFocused = document.activeElement;
@@ -1022,38 +1037,17 @@ const WM = window.WM = (() => {
         const contextMenuHandler = (e) => {
           e.preventDefault();
           const menuItems = [];
-          if (hasMultipleWindows) {
-            for (const [index, w] of windows.entries()) {
-              const winTitle = w.state.title ?? `Window ${index + 1}`;
-              menuItems.push({
-                label:  winTitle,
-                icon:   OS.focusedWindowId === w.id ? 'check' : 'square',
-                action: () => wm.focusWindow(w.id),
-              });
-            }
-            menuItems.push({ separator: true });
-          }
-          if (hasWindows) {
-            menuItems.push({
-              label:  hasMultipleWindows ? 'Close All Windows' : 'Close Window',
-              icon:   'x',
-              danger: true,
-              action: () => { for (const w of windows) wm.closeWindow(w.id); },
-            });
-            menuItems.push({ separator: true });
-          } else {
-            menuItems.push({
-              label: 'Open', icon: 'play',
-              action: () => {
-                if (appId.startsWith('webapp_') && typeof openWebApp === 'function') {
-                  openWebApp(appId.slice('webapp_'.length));
-                } else {
-                  wm.createWindow(appId);
-                }
+          menuItems.push({
+            label: 'Open', icon: 'play',
+            action: () => {
+              if (appId.startsWith('webapp_') && typeof openWebApp === 'function') {
+                openWebApp(appId.slice('webapp_'.length));
+              } else {
+                wm.createWindow(appId);
               }
-            });
-            menuItems.push({ separator: true });
-          }
+            }
+          });
+          menuItems.push({ separator: true });
           menuItems.push({
             label:  isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
             icon:   'pin',
@@ -1076,6 +1070,15 @@ const WM = window.WM = (() => {
               }
             },
           });
+          if (hasWindows) {
+            menuItems.push({ separator: true });
+            menuItems.push({
+              label: 'Close Window',
+              icon:   'x',
+              danger: true,
+              action: () => { for (const w of windows) wm.closeWindow(w.id); },
+            });
+          }
           ContextMenu.show(e.clientX, e.clientY, menuItems);
         };
 

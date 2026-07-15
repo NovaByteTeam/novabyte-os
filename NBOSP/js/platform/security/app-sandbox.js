@@ -306,7 +306,23 @@ const AppSandbox = (() => {
     }
   }
 
+  // Error codes worth surfacing in the Events app. NOT_FOUND / UNAVAILABLE are
+  // routine and would just add noise; PERMISSION_DENIED, RATE_LIMITED, and
+  // anything else (unrecognized codes lean toward "new/unexpected", so they're
+  // included by default) are the ones a dev actually wants to see happen live.
+  const IPC_ERROR_LOG_SKIP = new Set(['NOT_FOUND', 'UNAVAILABLE']);
+
   function respondError(webview, type, requestId, code, message) {
+    if (typeof EventLog !== 'undefined' && !IPC_ERROR_LOG_SKIP.has(code)) {
+      const appId = webview?.dataset?.appId || 'unknown';
+      EventLog.log({
+        app: 'AppSandbox',
+        category: 'security',
+        severity: code === 'PERMISSION_DENIED' || code === 'RATE_LIMITED' ? 'warn' : 'error',
+        message: `${appId}: ${type} → ${code}${message ? ' — ' + message : ''}`,
+        data: { appId, type, code },
+      });
+    }
     respond(webview, type, requestId, null, { code, message });
   }
 
@@ -1419,6 +1435,15 @@ const AppSandbox = (() => {
 
   async function handleAuditEval({ app, payload }) {
     log('warn', `${app.name} called eval():`, payload?.preview);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({
+        app: 'AppSandbox',
+        category: 'security',
+        severity: 'warn',
+        message: `${app.name} called eval()`,
+        data: { appId: app.id, preview: payload?.preview },
+      });
+    }
   }
 
   // ------------------------------------------------------------------
@@ -1588,6 +1613,9 @@ const AppSandbox = (() => {
     // blocked URL, etc.). Surface it so we can see why apps fail to load.
     webview.addEventListener('loadabort', (event) => {
       log('error', `Load aborted in ${app.name}:`, event.reason);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'AppSandbox', category: 'apps', severity: 'error', message: `Load aborted in ${app.name}: ${event.reason}`, data: { appId: app.id } });
+      }
     });
 
     // consolemessage proxies console output from the webview's separate
@@ -1905,6 +1933,9 @@ const AppSandbox = (() => {
       const classified = resolveAndClassifyUrl(app.url);
       if (!classified.valid) {
         log('error', `Invalid webapp URL for ${app.name}: ${classified.error}`);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'error', message: `Rejected invalid webapp URL for ${app.name}: ${classified.error}`, data: { appId: app.id, url: app.url } });
+        }
         showErrorPage(webview, app, `Invalid URL: ${classified.error}`);
         return;
       }
@@ -1931,6 +1962,9 @@ const AppSandbox = (() => {
         webview.src = window.location.origin + baseUrl + '/' + app.entry;
       } catch (error) {
         log('error', `Failed to load app content for ${app.name}:`, error);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppSandbox', category: 'apps', severity: 'error', message: `Failed to load content for ${app.name}: ${error?.message || error}`, data: { appId: app.id } });
+        }
         showErrorPage(webview, app, 'Failed to load app content');
       }
     } else {
@@ -2212,6 +2246,9 @@ const AppSandbox = (() => {
     setupPermissionRequestGate(webview, app);
 
     log('debug', `Created webview sandbox for ${app.name} (${sandboxId})`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `Created sandbox for ${app.name}`, data: { appId: app.id, sandboxId } });
+    }
 
     return webview;
   }
@@ -2282,6 +2319,9 @@ const AppSandbox = (() => {
 
     activeSandboxes.delete(sandboxId);
     log('debug', `Destroyed sandbox: ${sandboxId}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `Destroyed sandbox ${sandboxId}`, data: { appId: sandbox.appId, sandboxId } });
+    }
 
     return true;
   }

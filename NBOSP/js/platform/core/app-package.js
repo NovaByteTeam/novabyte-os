@@ -494,7 +494,7 @@ const AppPackage = (() => {
         if (!intOk) {
           const msg = 'Package signature did not match any trusted signer and integrity check failed';
           if (typeof EventLog !== 'undefined') {
-            EventLog.log({ app: 'Packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'signature' } });
+            EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'signature' } });
           }
           throw new Error(msg);
         }
@@ -507,7 +507,7 @@ const AppPackage = (() => {
     if (!validation.valid) {
       const msg = `Invalid manifest: ${validation.errors.join(', ')}`;
       if (typeof EventLog !== 'undefined') {
-        EventLog.log({ app: 'Packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'manifest' } });
+            EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'manifest' } });
       }
       throw new Error(msg);
     }
@@ -516,7 +516,7 @@ const AppPackage = (() => {
     if (existing && !options.force) {
       const msg = `App ${pkg.manifest.id} is already installed. Use force option to overwrite.`;
       if (typeof EventLog !== 'undefined') {
-        EventLog.log({ app: 'Packages', severity: 'error', message: msg, data: { appId: pkg.manifest.id, reason: 'duplicate' } });
+          EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: msg, data: { appId: pkg.manifest.id, reason: 'duplicate' } });
       }
       throw new Error(msg);
     }
@@ -535,6 +535,7 @@ const AppPackage = (() => {
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'Packages',
+        category: 'packages',
         severity: validation.warnings.length ? 'warn' : 'info',
         message: `Installed ${pkg.manifest.id}${verified ? '' : ' (unverified)'}`,
         data: { appId: pkg.manifest.id, verified, signer, source: appConfig.source, warnings: validation.warnings },
@@ -548,6 +549,7 @@ const AppPackage = (() => {
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'Packages',
+        category: 'packages',
         severity: result ? 'info' : 'warn',
         message: result ? `Uninstalled ${appId}` : `Uninstall failed for ${appId} (not found)`,
         data: { appId, action: 'uninstall' },

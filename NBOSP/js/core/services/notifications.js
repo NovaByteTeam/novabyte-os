@@ -1,4 +1,3 @@
-
 const Notify = {
         _storageKey: 'novaOS_notifications',
         _loaded: false,
@@ -64,6 +63,10 @@ const Notify = {
           Notify.persist();
 
           if (!OS.dnd) Notify.showToast(notif);
+
+          if (notif.type === 'error' && typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `[${notif.appName}] ${notif.title}${notif.body ? ': ' + notif.body : ''}`, data: { appName: notif.appName, title: notif.title } });
+          }
         },
 
         showToast(notif) {
@@ -100,10 +103,16 @@ const Notify = {
                       break;
                     default:
                       console.warn('[Notify] Unknown built-in action:', notif.action);
+                      if (typeof EventLog !== 'undefined') {
+                        EventLog.log({ app: 'Notify', category: 'system', severity: 'warn', message: `Unknown built-in toast action: ${notif.action}`, data: { action: notif.action, appName: notif.appName } });
+                      }
                   }
                 }
               } catch (err) {
                 console.error('[Notify] Action error:', err);
+                if (typeof EventLog !== 'undefined') {
+                  EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `Toast action failed: ${err?.message || err}`, data: { appName: notif.appName } });
+                }
                 alert('Error: ' + err.message);
               }
             });
@@ -184,6 +193,43 @@ const Notify = {
             Notify.updateBadge();
             updateNotificationBadge();
             Notify.renderPanel();
+
+            // Sample background behind the panel to decide text color
+            try {
+              const rect = panel.getBoundingClientRect();
+              const samplePoints = [];
+              const step = 30;
+              for (let sx = rect.left + 10; sx < rect.right - 10; sx += step) {
+                for (let sy = rect.top + 10; sy < rect.bottom - 10; sy += step) {
+                  samplePoints.push({ x: sx, y: sy });
+                }
+              }
+              if (samplePoints.length > 0) {
+                let lightSample = false;
+                for (const pt of samplePoints) {
+                  const el = document.elementFromPoint(pt.x, pt.y);
+                  if (!el) continue;
+                  const bg = getComputedStyle(el).backgroundColor;
+                  const m = bg.match(/\d+/g);
+                  if (!m || m.length < 3) continue;
+                  const r = parseInt(m[0], 10);
+                  const g = parseInt(m[1], 10);
+                  const b = parseInt(m[2], 10);
+                  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+                  if (luminance > 160) {
+                    lightSample = true;
+                    break;
+                  }
+                }
+                if (lightSample) {
+                  panel.classList.add('light-bg');
+                } else {
+                  panel.classList.remove('light-bg');
+                }
+              }
+            } catch (e) {
+              // If sampling fails, keep default dark text
+            }
           }
         }
       };

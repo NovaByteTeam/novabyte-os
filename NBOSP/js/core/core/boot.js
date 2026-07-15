@@ -171,9 +171,9 @@ const Boot = {
    * @param {boolean} isSafeMode
    */
   async initSubsystems(isSafeMode) {
-    OS.workers.fs     = createWorker(FS_WORKER_CODE);
-    OS.workers.search = createWorker(SEARCH_WORKER_CODE);
-    OS.workers.crypto = createWorker(CRYPTO_WORKER_CODE);
+    OS.workers.fs     = createWorker(FS_WORKER_CODE, 'fs');
+    OS.workers.search = createWorker(SEARCH_WORKER_CODE, 'search');
+    OS.workers.crypto = createWorker(CRYPTO_WORKER_CODE, 'crypto');
 
     // fs must init before the rest depend on it
     await OS.workers.fs.call('init');

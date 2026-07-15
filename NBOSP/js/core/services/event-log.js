@@ -53,9 +53,16 @@ const EventLog = {
     }
   },
 
+  // Known categories, in the order they should appear in filter UIs. 'category'
+  // is a coarse subsystem grouping (distinct from 'app', which is the specific
+  // module/appId string) so the Events app can offer a small, stable filter
+  // list instead of one entry per app name.
+  _CATEGORIES: ['window', 'filesystem', 'security', 'permissions', 'packages', 'network', 'apps', 'server', 'system'],
+
   // Structured entry point. Call sites with real data (appId, permission,
   // etc.) should use this directly rather than relying on console parsing.
   //   EventLog.log({ app: 'AppPermissionManager', severity: 'info',
+  //                  category: 'permissions',
   //                  message: 'Denied fs:write → com.example.app',
   //                  data: { appId, permission } })
   log(opts) {
@@ -64,6 +71,7 @@ const EventLog = {
       id: (typeof generateId === 'function') ? generateId() : String(Date.now()) + Math.random().toString(36).slice(2),
       timestamp: Date.now(),
       app: opts.app || 'system',
+      category: opts.category || 'system', // coarse grouping, see _CATEGORIES
       severity: opts.severity || 'info', // 'info' | 'warn' | 'error'
       message: opts.message || '',
       data: opts.data || null,
@@ -75,6 +83,21 @@ const EventLog = {
       try { fn(entry); } catch (e) { /* one bad subscriber shouldn't break the rest */ }
     }
     return entry;
+  },
+
+  // Entry point for events arriving from outside the browser runtime (the
+  // Node-side server process — security routes, email, proxies). These can't
+  // call EventLog.log() directly since they don't share this window, so the
+  // SSE bridge client (see server-events-bridge.js) forwards them here.
+  // Always tagged category:'server' regardless of what the sender passed,
+  // so the origin is visually unambiguous in the Events app even if a
+  // future sender gets the category wrong.
+  ingestRemote(opts) {
+    return EventLog.log({ ...opts, category: 'server' });
+  },
+
+  getCategories() {
+    return EventLog._CATEGORIES.slice();
   },
 
   getAll() {

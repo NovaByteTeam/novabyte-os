@@ -326,7 +326,7 @@ const AppPermissionManager = (() => {
     consentLog.push({ ...grant, timestamp: new Date().toISOString() });
     console.log(`[AppPermissionManager] Granted ${permission} → ${appId}`);
     if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'Permissions', severity: 'info', message: `Granted ${permission} → ${appId}`, data: { appId, permission, action: 'grant' } });
+      EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'info', message: `Granted ${permission} → ${appId}`, data: { appId, permission, action: 'grant' } });
     }
   }
 
@@ -347,7 +347,7 @@ const AppPermissionManager = (() => {
     saveToStorage();
     console.log(`[AppPermissionManager] Denied ${permission} → ${appId}`);
     if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'Permissions', severity: 'warn', message: `Denied ${permission} → ${appId}`, data: { appId, permission, action: 'deny' } });
+      EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'warn', message: `Denied ${permission} → ${appId}`, data: { appId, permission, action: 'deny' } });
     }
   }
 
@@ -360,7 +360,7 @@ const AppPermissionManager = (() => {
     saveToStorage();
     console.log(`[AppPermissionManager] Revoked ${permission} ← ${appId}`);
     if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'Permissions', severity: 'info', message: `Revoked ${permission} ← ${appId}`, data: { appId, permission, action: 'revoke' } });
+      EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'info', message: `Revoked ${permission} ← ${appId}`, data: { appId, permission, action: 'revoke' } });
     }
   }
 
@@ -372,7 +372,7 @@ const AppPermissionManager = (() => {
     saveToStorage();
     console.log(`[AppPermissionManager] Revoked all permissions for ${appId}`);
     if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'Permissions', severity: 'info', message: `Revoked all ${count} permission(s) for ${appId}`, data: { appId, count, action: 'revoke-all' } });
+      EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'info', message: `Revoked all ${count} permission(s) for ${appId}`, data: { appId, count, action: 'revoke-all' } });
     }
   }
 

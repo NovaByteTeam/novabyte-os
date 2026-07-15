@@ -45,6 +45,9 @@ const FS = {
       this.updateSearchIndex();
     } catch (e) {
       console.warn('[FS] createDefaultFS failed, retrying once:', e);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'FS', category: 'filesystem', severity: 'error', message: `FS init failed, retrying: ${e?.message || e}` });
+      }
       await this.createDefaultFS();
     }
   },
@@ -179,6 +182,9 @@ const FS = {
     await OS.workers.fs.call('putFiles', [node]);
     this.updateSearchIndex();
     OS.events.emit('fs:created', node);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'FS', category: 'filesystem', severity: 'info', message: `Created file ${name}`, data: { id: node.id, parentId, mimeType: node.mimeType } });
+    }
     return node;
   },
 
@@ -195,6 +201,9 @@ const FS = {
     this._indexFile(node);
     await OS.workers.fs.call('putFiles', [node]);
     OS.events.emit('fs:created', node);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'FS', category: 'filesystem', severity: 'info', message: `Created folder ${name}`, data: { id: node.id, parentId } });
+    }
     return node;
   },
 
@@ -208,16 +217,23 @@ const FS = {
     await OS.workers.fs.call('putFiles', [node]); 
     this.updateSearchIndex();
     OS.events.emit('fs:updated', node);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'FS', category: 'filesystem', severity: 'info', message: `Wrote content to ${node.name}`, data: { id, size: node.size } });
+    }
     return node;
   },
 
   async rename(id, newName) {
     const node = this.files.get(id);
     if (!node) return null;
+    const oldName = node.name;
     node.name = newName;
     node.modified = Date.now();
     await OS.workers.fs.call('putFiles', [node]);
     OS.events.emit('fs:updated', node);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'FS', category: 'filesystem', severity: 'info', message: `Renamed ${oldName} → ${newName}`, data: { id, oldName, newName } });
+    }
     return node;
   },
 
@@ -230,6 +246,9 @@ const FS = {
     this._indexFile(node);
     await OS.workers.fs.call('putFiles', [node]);
     OS.events.emit('fs:moved', node);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'FS', category: 'filesystem', severity: 'info', message: `Moved ${node.name}`, data: { id, newParentId } });
+    }
     return node;
   },
 
@@ -243,6 +262,9 @@ const FS = {
     this._indexFile(node);
     await OS.workers.fs.call('putFiles', [node]);
     OS.events.emit('fs:deleted', node);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'FS', category: 'filesystem', severity: 'warn', message: `Moved ${node.name} to Trash`, data: { id } });
+    }
   },
 
   async permanentDelete(id) {
@@ -261,6 +283,9 @@ const FS = {
     this.files.delete(id);
     await OS.workers.fs.call('deleteFile', id);
     OS.events.emit('fs:deleted', { id });
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'FS', category: 'filesystem', severity: 'warn', message: `Permanently deleted ${node.name}`, data: { id, type: node.type } });
+    }
   },
 
   async emptyTrash() {

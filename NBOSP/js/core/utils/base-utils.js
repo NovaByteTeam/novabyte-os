@@ -780,5 +780,33 @@
     window.lsSave = lsSave;
     window.createEl = createEl;
     window.svgIcon = svgIcon;
+
+    window.detectLightBackground = function(x, y) {
+      try {
+        const el = document.elementFromPoint(x, y);
+        if (!el) return false;
+        if (el.tagName === 'WEBVIEW' || el.closest('webview')) return true;
+        if (el.closest('canvas')) return true;
+        const bg = getComputedStyle(el).backgroundColor;
+        const m = bg.match(/\d+/g);
+        if (!m || m.length < 3) return false;
+        const r = parseInt(m[0], 10);
+        const g = parseInt(m[1], 10);
+        const b = parseInt(m[2], 10);
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        return luminance > 160;
+      } catch (e) {
+        return false;
+      }
+    };
+
+    window.applyContrastClass = function(element, x, y) {
+      if (!element) return;
+      if (window.detectLightBackground(x, y)) {
+        element.classList.add('light-bg');
+      } else {
+        element.classList.remove('light-bg');
+      }
+    };
   }
 })();

@@ -1,4 +1,3 @@
-
 /**
  * NovaByte - My Apps Manager
  * ────────────────────────────────────────────────────────────
@@ -82,6 +81,9 @@ const MyAppsManager = (() => {
       return app;
     } catch (error) {
       console.error('[MyAppsManager] Failed to add app:', error);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'MyAppsManager', category: 'apps', severity: 'error', message: `Failed to add app: ${error?.message || error}` });
+      }
       throw error;
     }
   }
@@ -96,6 +98,9 @@ const MyAppsManager = (() => {
       return AppRegistry?.unregisterApp(appId) || false;
     } catch (error) {
       console.error('[MyAppsManager] Failed to remove app:', error);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'MyAppsManager', category: 'apps', severity: 'error', message: `Failed to remove app ${appId}: ${error?.message || error}`, data: { appId } });
+      }
       return false;
     }
   }
@@ -150,6 +155,9 @@ const MyAppsManager = (() => {
       return { app };
     } catch (error) {
       console.error('[MyAppsManager] Failed to launch app:', error);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'MyAppsManager', category: 'apps', severity: 'error', message: `Failed to launch ${appId}: ${error?.message || error}`, data: { appId } });
+      }
       throw error;
     }
   }
@@ -187,6 +195,9 @@ const MyAppsManager = (() => {
       return result;
     } catch (error) {
       console.error('[MyAppsManager] Installation failed:', error);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'MyAppsManager', category: 'apps', severity: 'error', message: `Install from file failed: ${error?.message || error}` });
+      }
       throw error;
     }
   }
@@ -214,6 +225,9 @@ const MyAppsManager = (() => {
       return result;
     } catch (error) {
       console.error('[MyAppsManager] Installation from URL failed:', error);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'MyAppsManager', category: 'apps', severity: 'error', message: `Install from URL failed: ${error?.message || error}`, data: { url } });
+      }
       throw error;
     }
   }

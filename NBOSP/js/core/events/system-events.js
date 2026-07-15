@@ -282,6 +282,9 @@ function renderLaunchpad() {
                   }
                 } catch (err) {
                   console.warn('[Launchpad] Failed to clean up shortcuts for', app.id, err);
+                  if (typeof EventLog !== 'undefined') {
+                    EventLog.log({ app: 'Launchpad', category: 'apps', severity: 'warn', message: `Failed to clean up desktop shortcuts for ${app.id}: ${err?.message || err}`, data: { appId: app.id } });
+                  }
                 }
                 renderDesktopIcons();
                 WM.updateTaskbar();
@@ -715,8 +718,26 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
 
   volumeSlider.addEventListener('click',  (e) => { e.stopPropagation(); });
   volumeSlider.addEventListener('input',  () => {
-    OS.volume = parseInt(volumeSlider.value, 10);
-    volumeValue.textContent = OS.volume + '%';
+    const newVolume = parseInt(volumeSlider.value, 10);
+    OS.volume = newVolume;
+    volumeValue.textContent = newVolume + '%';
+    try { OS.events.emit('os:volumeChanged', { volume: newVolume }); } catch {}
+
+    for (const [id, state] of (OS.windows || [])) {
+      if (state.appId === 'browser') {
+        const webviews = state.element?.querySelectorAll?.('webview');
+        if (webviews) {
+          for (const webview of webviews) {
+            if (typeof webview.executeJavaScript === 'function') {
+              webview.executeJavaScript(
+                `(function(){const v=${(newVolume / 100).toFixed(2)};` +
+                `document.querySelectorAll('audio,video').forEach(function(el){el.volume=v;});})();`
+              ).catch(function(){});
+            }
+          }
+        }
+      }
+    }
   });
 
   volumePopup.addEventListener('click', (e) => { e.stopPropagation(); });
@@ -916,8 +937,14 @@ async function captureScreenshot(mode) {
     URL.revokeObjectURL(url);
 
     Notify.show({ title: 'Screenshot Saved', body: 'Screenshot captured successfully', type: 'success', appName: 'System' });
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'System', category: 'system', severity: 'info', message: `Screenshot captured (${mode})`, data: { mode } });
+    }
   } catch {
     Notify.show({ title: 'Screenshot Failed', body: 'Could not capture screenshot', type: 'error', appName: 'System' });
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'System', category: 'system', severity: 'error', message: `Screenshot capture failed (${mode})`, data: { mode } });
+    }
   } finally {
     // #11: always stop tracks — screen-capture indicator is never left dangling
     stream?.getTracks().forEach(t => t.stop());
@@ -943,6 +970,9 @@ function switchWorkspace(direction) {
     const newWs = { id: Date.now(), name: `Workspace ${OS.workspaces.length + 1}` };
     OS.workspaces.push(newWs);
     OS.currentWorkspace = newWs.id;
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'System', category: 'window', severity: 'info', message: `Created ${newWs.name}`, data: { workspaceId: newWs.id } });
+    }
   }
 }
 
@@ -1012,6 +1042,9 @@ function lockScreen() {
   OS.isLocked = true;
   document.getElementById('lock-screen').classList.add('active');
   renderLockScreen();
+  if (typeof EventLog !== 'undefined') {
+    EventLog.log({ app: 'System', category: 'security', severity: 'info', message: 'Screen locked' });
+  }
 }
 
 function renderLockScreen() {
@@ -1096,6 +1129,9 @@ let enteredPin = '';
 
 function unlockFromLockScreen() {
   OS.isLocked = false;
+  if (typeof EventLog !== 'undefined') {
+    EventLog.log({ app: 'System', category: 'security', severity: 'info', message: 'Screen unlocked' });
+  }
 
   // #4: cancel the wipe countdown — biometric auth must be able to abort it.
   // The old code stored countdownInterval in a block-local var inside verifyPin(),
@@ -1150,6 +1186,9 @@ async function verifyPin() {
     statusEl.textContent = `Locked out. Try again in ${remaining}s`;
     enteredPin = '';
     updatePinDots();
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'System', category: 'security', severity: 'warn', message: `PIN attempt blocked — lockout active (${remaining}s remaining)` });
+    }
     return;
   }
 
@@ -1164,6 +1203,9 @@ async function verifyPin() {
     OS.wrongPinCount++;
     enteredPin = '';
     updatePinDots();
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'System', category: 'security', severity: 'warn', message: `Incorrect PIN entered (attempt ${OS.wrongPinCount})`, data: { wrongPinCount: OS.wrongPinCount } });
+    }
 
     const THRESHOLD    = 3;
     const DURATION_MS  = 30_000;
@@ -1173,6 +1215,9 @@ async function verifyPin() {
       const label = sec >= 60 ? `${Math.round(sec / 60)}min` : `${sec}s`;
       statusEl.textContent  = `Too many attempts. ${label} lockout.`;
       OS.lockoutUntil       = Date.now() + DURATION_MS;
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'System', category: 'security', severity: 'warn', message: `Lockout triggered (${label}) after ${OS.wrongPinCount} failed PIN attempts`, data: { wrongPinCount: OS.wrongPinCount, durationMs: DURATION_MS } });
+      }
       setTimeout(() => { OS.wrongPinCount = 0; OS.lockoutUntil = 0; statusEl.textContent = ''; }, DURATION_MS);
 
     } else if (OS.wrongPinCount >= THRESHOLD * 2 && OS.wrongPinCount < 10) {
@@ -1181,10 +1226,16 @@ async function verifyPin() {
       const label   = sec >= 60 ? `${Math.round(sec / 60)}min` : `${sec}s`;
       statusEl.textContent = `Too many attempts. ${label} lockout.`;
       OS.lockoutUntil      = Date.now() + longDur;
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'System', category: 'security', severity: 'warn', message: `Extended lockout triggered (${label}) after ${OS.wrongPinCount} failed PIN attempts`, data: { wrongPinCount: OS.wrongPinCount, durationMs: longDur } });
+      }
       setTimeout(() => { OS.wrongPinCount = 0; OS.lockoutUntil = 0; statusEl.textContent = ''; }, longDur);
 
     } else if (OS.wrongPinCount >= 10) {
       statusEl.textContent = 'Security alert! Data will be wiped.';
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'System', category: 'security', severity: 'error', message: `Security wipe countdown started after ${OS.wrongPinCount} failed PIN attempts`, data: { wrongPinCount: OS.wrongPinCount } });
+      }
       let countdown = 10;
       // #4: store at module scope so unlockFromLockScreen() can cancel it
       _wipeCountdownId = setInterval(() => {
@@ -1195,6 +1246,9 @@ async function verifyPin() {
           _wipeCountdownId = 0;
           localStorage.clear();
           sessionStorage.clear();
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'System', category: 'security', severity: 'error', message: 'Security wipe executed — all local data cleared' });
+          }
           Notify.show({
             title: 'Security Wipe',
             body: 'All data has been wiped due to too many failed attempts.',
@@ -1292,6 +1346,10 @@ function triggerRecovery(reason) {
   attempts.push({ ts: Date.now(), reason: reason || 'unknown', ua: navigator.userAgent.slice(0, 80) });
   if (attempts.length > 10) attempts.shift();
   localStorage.setItem(KEY, JSON.stringify(attempts));
+
+  if (typeof EventLog !== 'undefined') {
+    EventLog.log({ app: 'System', category: 'system', severity: 'error', message: `Boot failure detected: ${reason || 'unknown'} (attempt ${attempts.length})`, data: { reason, attemptCount: attempts.length } });
+  }
 
   if (attempts.length >= 2) { showRecoveryScreen(attempts); return true; }
   return false;
