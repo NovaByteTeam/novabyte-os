@@ -211,7 +211,20 @@ function sanitizeTagAttrs(tagName, rawTag) {
       const v = attrVal.replace(/&amp;/gi, '&').trim();
       const proto = v.split(':')[0].toLowerCase();
       if (proto === 'javascript' || proto === 'data' || proto === 'vbscript') continue;
-      safe.push(`${attrName}="${escapeAttr(attrVal)}"`);
+      // data: URLs (inline images) are inert — pass through as-is.
+      if (proto === 'data') { safe.push(`${attrName}="${escapeAttr(attrVal)}"`); continue; }
+      // Remote http(s) URLs must NEVER be handed to the renderer directly —
+      // that lets attacker-controlled <img src> reach internal/private
+      // addresses (SSRF) with zero user interaction. Route through the
+      // server-side proxy, which re-validates the destination (and every
+      // redirect hop) before fetching. See NBOSP/server/proxies.js:
+      // setupEmailImageProxy.
+      if (proto === 'http' || proto === 'https') {
+        const proxied = '/api/email-image?url=' + encodeURIComponent(v);
+        safe.push(`${attrName}="${escapeAttr(proxied)}"`);
+        continue;
+      }
+      // Unrecognized protocol — drop rather than pass through blind.
       continue;
     }
 

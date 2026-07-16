@@ -412,7 +412,124 @@ function setupAppNetworkProxy(app) {
 }
 // ── End App Network Proxy ──────────────────────────────────────────────────
 
+// ── Email Image Proxy (security-only) ───────────────────────────────────────
+// Fetches a single email-embedded image server-side so the renderer never
+// issues the request directly. This exists ONLY to prevent SSRF via
+// attacker-controlled <img src> URLs in email HTML — it does NOT cache
+// responses or attempt to defeat sender tracking pixels. Every hop (initial
+// URL and any redirect target) is re-validated with the same
+// _isPrivateHost / _dnsCheckPrivate checks used by the other proxies above.
+
+const EMAIL_IMG_TIMEOUT  = 5000;
+const EMAIL_IMG_SIZE_CAP = 5 * 1024 * 1024; // 5 MB
+const EMAIL_IMG_MAX_REDIRECTS = 5;
+
+async function _validateEmailImgHop(rawUrl) {
+    let urlObj;
+    try { urlObj = new URL(rawUrl); } catch { return null; }
+    if (!['http:', 'https:'].includes(urlObj.protocol)) return null;
+    if (urlObj.username || urlObj.password) return null;
+    if (_isPrivateHost(urlObj.hostname)) return null;
+    if (await _dnsCheckPrivate(urlObj.hostname)) return null;
+    return urlObj;
+}
+
+async function _fetchEmailImage(initialUrl) {
+    let currentUrl = initialUrl;
+    const visited = new Set();
+
+    for (let hop = 0; hop <= EMAIL_IMG_MAX_REDIRECTS; hop++) {
+        if (visited.has(currentUrl)) return null; // redirect loop
+        visited.add(currentUrl);
+
+        // Re-validate on every hop — a URL can pass the check, then redirect
+        // to a private/internal address (classic SSRF-via-redirect bypass).
+        const urlObj = await _validateEmailImgHop(currentUrl);
+        if (!urlObj) return null;
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), EMAIL_IMG_TIMEOUT);
+
+        let resp;
+        try {
+            resp = await fetch(currentUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
+                redirect: 'manual', // never let fetch auto-follow — we must validate each hop ourselves
+                signal: controller.signal,
+            });
+        } catch {
+            return null;
+        } finally {
+            clearTimeout(timer);
+        }
+
+        if (resp.status >= 300 && resp.status < 400) {
+            const loc = resp.headers.get('location');
+            if (!loc) return null;
+            try { currentUrl = new URL(loc, currentUrl).toString(); } catch { return null; }
+            continue;
+        }
+
+        if (!resp.ok) return null;
+
+        const contentType = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        if (!contentType.startsWith('image/')) return null;
+
+        const reader = resp.body.getReader();
+        const chunks = [];
+        let total = 0;
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.length;
+            if (total > EMAIL_IMG_SIZE_CAP) { reader.cancel(); return null; }
+            chunks.push(value);
+        }
+
+        const buf = Buffer.concat(chunks.map(c => Buffer.from(c)));
+        if (buf.length < 1) return null;
+        return { buf, mime: contentType };
+    }
+
+    return null; // too many redirects
+}
+
+const emailImgLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 500, // a single HTML email can have 50+ images; allow rapid inbox browsing
+    message: { error: 'Too many image requests, slow down.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// 1×1 transparent PNG returned on any validation/fetch failure — never leak
+// *why* a fetch failed (avoids confirming internal-network topology to a
+// sender probing which addresses are reachable).
+const EMAIL_IMG_FALLBACK = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64'
+);
+
+function setupEmailImageProxy(app) {
+    app.get('/api/email-image', emailImgLimiter, requireSession, async (req, res) => {
+        const raw = req.query.url;
+        if (!raw || typeof raw !== 'string') {
+            return res.status(400).json({ error: 'url parameter is required' });
+        }
+
+        const result = await _fetchEmailImage(raw);
+        const buf  = result ? result.buf  : EMAIL_IMG_FALLBACK;
+        const mime = result ? result.mime : 'image/png';
+
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Cache-Control', 'no-store'); // no caching layer — security-only proxy
+        res.send(buf);
+    });
+}
+// ── End Email Image Proxy ───────────────────────────────────────────────────
+
 module.exports = {
     setupFrameCheckProxy,
     setupAppNetworkProxy,
+    setupEmailImageProxy,
 };

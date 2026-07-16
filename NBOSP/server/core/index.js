@@ -14,7 +14,7 @@ const { configureSSL } = require('./ssl');
 const { setupMiddleware } = require('../middleware');
 const { mountRoutes } = require('../routes');
 const { setupFaviconRoutes } = require('../favicons');
-const { setupFrameCheckProxy, setupAppNetworkProxy } = require('../proxies');
+const { setupFrameCheckProxy, setupAppNetworkProxy, setupEmailImageProxy } = require('../proxies');
 const { setupEventsRoutes } = require('./events-routes');
 
 // Global error handlers
@@ -86,6 +86,7 @@ app.use('/css', express.static(path.join(__dirname, '..', '..', 'css'), cacheOpt
 setupFaviconRoutes(app);
 setupFrameCheckProxy(app);
 setupAppNetworkProxy(app);
+setupEmailImageProxy(app);
 setupEventsRoutes(app);
 
 // 5. Manifest and version endpoints
