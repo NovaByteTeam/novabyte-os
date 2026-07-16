@@ -827,15 +827,43 @@ if (desktopEl) {
       {
         label: 'New File', icon: 'file', action: async () => {
           const name = await showPrompt('New File Name', 'untitled.txt');
-          if (name) { await FS.createFile(FS.specialFolders.desktop, name, '', 'text/plain'); renderDesktopIcons(); }
+          if (name) {
+            const finalName = FS.uniqueName(FS.specialFolders.desktop, name);
+            await FS.createFile(FS.specialFolders.desktop, finalName, '', 'text/plain');
+            renderDesktopIcons();
+          }
         }
       },
       {
         label: 'New Folder', icon: 'folder', action: async () => {
           const name = await showPrompt('New Folder Name', 'New Folder');
-          if (name) { await FS.createFolder(FS.specialFolders.desktop, name); renderDesktopIcons(); }
+          if (name) {
+            const finalName = FS.uniqueName(FS.specialFolders.desktop, name);
+            await FS.createFolder(FS.specialFolders.desktop, finalName);
+            renderDesktopIcons();
+          }
         }
       },
+      ...(OS.clipboard?.fileId ? [
+        { separator: true },
+        {
+          label: 'Paste', icon: 'paste', action: async () => {
+            if (OS.settings?.get?.('disableClipboardPaste')) {
+              Notify.show({ title: 'Paste disabled', body: 'Paste disabled.', type: 'error', appName: 'Desktop' });
+              return;
+            }
+            try {
+              const clip = OS.clipboard;
+              await FS.pasteInto(clip, FS.specialFolders.desktop);
+              if (clip.type === 'cut') OS.clipboard = null;
+              renderDesktopIcons();
+            } catch (err) {
+              console.error('[Desktop] paste failed:', err);
+              Notify.show({ title: 'Paste failed', body: err?.message || 'Unknown error', type: 'error', appName: 'Desktop' });
+            }
+          }
+        }
+      ] : []),
       { separator: true },
       { label: 'Open Terminal', icon: 'terminal', action: () => WM.createWindow('shell') },
       { label: 'Open Settings', icon: 'settings', action: () => WM.createWindow('nook') },

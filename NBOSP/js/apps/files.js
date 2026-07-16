@@ -59,6 +59,13 @@
     return !ILLEGAL_NAME_RE.test(trimmed);
   }
 
+  // Thin wrapper kept for call-site readability; the actual logic lives on
+  // FS (js/core/services/fs.js) so it can be shared with non-Files-app
+  // callers like the desktop's empty-area "New File"/"New Folder" menu.
+  function uniqueNameFor(destParentId, name, excludeId) {
+    return FS.uniqueName(destParentId, name, excludeId);
+  }
+
   function mimeToTypeLabel(mimeType) {
     if (!mimeType) return 'FILE';
     const sub = mimeType.split('/')[1];
@@ -892,8 +899,9 @@
         return;
       }
       try {
-        if (isFile) await FS.createFile(this.nav.cwd, name, '', 'text/plain');
-        else await FS.createFolder(this.nav.cwd, name);
+        const finalName = uniqueNameFor(this.nav.cwd, name);
+        if (isFile) await FS.createFile(this.nav.cwd, finalName, '', 'text/plain');
+        else await FS.createFolder(this.nav.cwd, finalName);
         this.renderFiles();
         if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
       } catch (err) {
@@ -909,26 +917,11 @@
       }
       const clip = OS.clipboard;
       if (!clip?.fileId) return;
-      const src = FS.files.get(clip.fileId);
-      if (!src) return;
       try {
+        await FS.pasteInto(clip, this.nav.cwd);
         if (clip.type === 'cut') {
-          // Move: persist first, roll back on failure so in-memory state
-          // matches storage.
-          const originalParentId = src.parentId;
-          src.parentId = this.nav.cwd;
-          try {
-            FS.files.set(src.id, src);
-            await OS.workers.fs.call('putFiles', [src]);
-          } catch (err) {
-            src.parentId = originalParentId;
-            FS.files.set(src.id, src);
-            throw err;
-          }
           OS.clipboard = null;
           this.clipboardOp = null;
-        } else {
-          await FS.createFile(this.nav.cwd, src.name, src.content, src.mimeType);
         }
         this.renderFiles();
         if (typeof renderDesktopIcons === 'function') renderDesktopIcons();

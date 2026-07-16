@@ -566,6 +566,7 @@ novabyte-os/
 │  │  │  ├── services/      # Core OS services
 │  │  │  │  ├── fs.js      # Virtual filesystem API
 │  │  │  │  ├── notifications.js # Notification system
+│  │  │  │  ├── calendar-notifier.js # Polls saved calendar events and fires upcoming-event reminders
 │  │  │  │  ├── registry.js   # Core app registry
 │  │  │  │  ├── event-log.js  # Central event logging
 │  │  │  │  ├── server-events-bridge.js # Streams server-side events into the client event log
