@@ -5886,6 +5886,73 @@
       background: rgba(10, 10, 10, 0.80) !important;
     }
 
+    /* ── Remove Transparency mode ──────────────────────────────────────────
+       Unlike .no-glass (High Contrast, which dims but keeps ~50-80% alpha),
+       this pushes every glass/translucent surface to fully solid (alpha 1)
+       and strips all blur, so nothing behind a window/menu/toast shows
+       through. Overriding the custom properties at the root covers every
+       selector that consumes --bg-elevated/--window-bg/etc (~20+ surfaces)
+       instead of chasing each one individually. */
+    .no-transparency {
+      --bg-elevated: #0e121c;
+      --bg-overlay: #141a28;
+      --bg-sunken: #030508;
+      --window-bg: #0a0e16;
+      --taskbar-bg: #060a12;
+      --bg-sidebar: #04060c;
+      --bg-hover: #262a33;
+      --glass-bg: #0a0e16;
+      --lg-bg: #1c1c1c;
+      --accent-muted: #1c3352;
+      --window-blur: none;
+      --lg-blur: none;
+    }
+
+    .no-transparency *,
+    .no-transparency *::before,
+    .no-transparency *::after {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+
+    .no-transparency .window,
+    .no-transparency .app-window,
+    .no-transparency #taskbar,
+    .no-transparency .taskbar,
+    .no-transparency .context-menu,
+    .no-transparency .notification-toast,
+    .no-transparency .modal-dialog,
+    .no-transparency .modal-overlay {
+      background-color: var(--bg-elevated) !important;
+      opacity: 1 !important;
+    }
+
+    /* Windows (and similar) paint their actual glass via a ::before pseudo-
+       element at z-index:-1, not the element's own background — killing
+       backdrop-filter on it alone leaves an unblurred, still-see-through
+       tint behind. Force it solid too. Taskbar and the notification panel
+       use the identical pattern. */
+    .no-transparency .app-window::before,
+    .no-transparency #taskbar::before,
+    .no-transparency #notification-panel::before {
+      background: var(--bg-elevated) !important;
+      filter: none !important;
+    }
+
+    /* Launchpad and its icons set their own standalone rgba backgrounds
+       rather than consuming --bg-elevated, so the root var swap above
+       doesn't reach them. */
+    .no-transparency #launchpad,
+    .no-transparency .launchpad-icon,
+    .no-transparency .context-menu {
+      background: var(--bg-elevated) !important;
+    }
+
+    .no-transparency #taskbar,
+    .no-transparency .taskbar {
+      background-color: var(--taskbar-bg) !important;
+    }
+
     .nook-toggle-row {
       display: flex;
       align-items: center;

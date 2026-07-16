@@ -1409,6 +1409,29 @@ registerApp({
       motionGroup.appendChild(motionRow);
       mainContent.appendChild(motionGroup);
 
+      // Transparency
+      const transparencyGroup = createEl('div', { className: 'nook-group' });
+      transparencyGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Transparency' }));
+      const transparencyRow = createEl('div', { className: 'nook-toggle-row' });
+      transparencyRow.appendChild(createEl('span', { textContent: 'Remove Transparency' }));
+      const transparencyToggle = createEl('button', {
+        className: 'toggle' + (OS.settings.get('removeTransparency') ? ' active' : '')
+      });
+      transparencyToggle.addEventListener('click', () => {
+        const next = !OS.settings.get('removeTransparency');
+        OS.settings.set('removeTransparency', next);
+        document.documentElement.classList.toggle('no-transparency', next);
+        transparencyToggle.classList.toggle('active', next);
+      });
+      transparencyRow.appendChild(transparencyToggle);
+      transparencyGroup.appendChild(transparencyRow);
+      mainContent.appendChild(transparencyGroup);
+      const transparencyHint = createEl('p', {
+        textContent: 'Makes windows, menus, and panels fully solid — removes blur and see-through backgrounds everywhere.',
+        style: { color: 'var(--text-secondary)', fontSize: '12px', marginTop: '-8px', marginBottom: '20px' }
+      });
+      mainContent.appendChild(transparencyHint);
+
       // Icon Size
       const iconSizeGroup = createEl('div', { className: 'nook-group' });
       iconSizeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Icon Size' }));
@@ -1718,33 +1741,95 @@ registerApp({
       const exportActions = createEl('div', { className: 'nook-data-actions' });
 
       const exportBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Export All Data (JSON)' });
-      exportBtn.addEventListener('click', () => {
-        const data = {
-          settings:   { ...(OS.settings._cache || {}) },
-          version:    OS.version,
-          exportDate: new Date().toISOString()
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url  = URL.createObjectURL(blob);
-        const a    = createEl('a', { href: url, download: 'novabyte-export.json' });
-        a.click();
-        URL.revokeObjectURL(url);
-        Notify.show({ title: 'Data Exported', body: 'All data has been exported', type: 'success', appName: 'Nook' });
+      exportBtn.addEventListener('click', async () => {
+        exportBtn.disabled = true;
+        const prevLabel = exportBtn.textContent;
+        exportBtn.textContent = 'Exporting…';
+        try {
+          // Pull every real data domain, not just the in-memory settings cache.
+          // Note: calendar events live in localStorage (calendar.js writes them
+          // directly, bypassing the fs worker), so they're picked up below.
+          const [settings, files] = await Promise.all([
+            OS.workers.fs.call('getAllSettings').catch(() => ({ ...(OS.settings._cache || {}) })),
+            OS.workers.fs.call('getAllFiles').catch(() => [])
+          ]);
+
+          // localStorage holds per-app data (installed apps, contacts, bookmarks,
+          // downloads, permissions, etc.) with no shared key prefix, so we sweep
+          // it wholesale — this is a dedicated app window, not a shared browser origin.
+          const localStorageData = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            localStorageData[key] = localStorage.getItem(key);
+          }
+
+          const data = {
+            settings,
+            files,
+            localStorage: localStorageData,
+            version:    OS.version,
+            exportDate: new Date().toISOString()
+          };
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const url  = URL.createObjectURL(blob);
+          const a    = createEl('a', { href: url, download: 'novabyte-export.json' });
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          Notify.show({ title: 'Data Exported', body: 'All data has been exported', type: 'success', appName: 'Nook' });
+        } catch (e) {
+          Notify.show({ title: 'Export Failed', body: e && e.message ? e.message : 'Could not export data', type: 'error', appName: 'Nook' });
+        } finally {
+          exportBtn.disabled = false;
+          exportBtn.textContent = prevLabel;
+        }
       });
       exportActions.appendChild(exportBtn);
 
       const importBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Import Data' });
       importBtn.addEventListener('click', () => {
-        const input = createEl('input', { type: 'file', accept: '.json', id: 'settings-import-input', name: 'settings-import' });
+        const input = createEl('input', { type: 'file', accept: '.json', id: 'settings-import-input', name: 'settings-import', style: 'display:none' });
+        document.body.appendChild(input);
         input.addEventListener('change', async () => {
           const file = input.files[0];
+          input.remove();
           if (!file) return;
           try {
             const text = await file.text();
             const data = JSON.parse(text);
+
+            const writes = [];
             if (data.settings && typeof data.settings === 'object') {
-              for (const [k, v] of Object.entries(data.settings)) OS.settings.set(k, v);
-              Notify.show({ title: 'Data Imported', body: 'Settings have been imported', type: 'success', appName: 'Nook' });
+              for (const [k, v] of Object.entries(data.settings)) {
+                OS.settings._cache[k] = v; // keep in-memory cache in sync immediately
+                writes.push(OS.workers.fs.call('putSetting', k, v));
+              }
+            }
+            if (Array.isArray(data.files) && data.files.length) {
+              writes.push(OS.workers.fs.call('putFiles', data.files));
+            }
+
+            // Wait for every fs-backed write to actually land before reporting
+            // success — this is the part that was previously fire-and-forget
+            // and silently failed with no error surfaced to the user.
+            const results = await Promise.allSettled(writes);
+            const failed = results.some(r => r.status === 'rejected');
+
+            if (data.localStorage && typeof data.localStorage === 'object') {
+              for (const [k, v] of Object.entries(data.localStorage)) {
+                try { localStorage.setItem(k, v); } catch { /* quota or blocked key, skip */ }
+              }
+            }
+
+            if (data.settings && typeof data.settings === 'object') {
+              OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
+            }
+
+            if (failed) {
+              Notify.show({ title: 'Import Incomplete', body: 'Some data could not be saved. Try again.', type: 'error', appName: 'Nook' });
+            } else {
+              Notify.show({ title: 'Data Imported', body: 'All data has been imported. Restart to apply fully.', type: 'success', appName: 'Nook' });
             }
           } catch {
             Notify.show({ title: 'Import Failed', body: 'Invalid JSON file', type: 'error', appName: 'Nook' });

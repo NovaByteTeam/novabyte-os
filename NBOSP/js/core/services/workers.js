@@ -8,7 +8,6 @@ const DB_VERSION = 1;
 const STORE_FILES = 'files';
 const STORE_SETTINGS = 'settings';
 const STORE_NOTIFICATIONS = 'notifications';
-const STORE_EVENTS = 'calendar_events';
 
 let db = null;
 
@@ -42,7 +41,7 @@ function openDB() {
         }
       };
       // Pre-create the expected stores
-      [STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS, STORE_EVENTS].forEach(n => { _stores[n] = {}; });
+      [STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS].forEach(n => { _stores[n] = {}; });
       resolve(db);
       return;
     }
@@ -57,9 +56,6 @@ function openDB() {
       if (!d.objectStoreNames.contains(STORE_NOTIFICATIONS)) {
         const ns = d.createObjectStore(STORE_NOTIFICATIONS, { keyPath: 'id' });
         ns.createIndex('timestamp', 'timestamp');
-      }
-      if (!d.objectStoreNames.contains(STORE_EVENTS)) {
-        d.createObjectStore(STORE_EVENTS, { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => { db = e.target.result; resolve(db); };
@@ -132,37 +128,6 @@ async function getAllSettings() {
   });
 }
 
-async function saveEvents(events) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE_EVENTS, 'readwrite');
-    const store = tx.objectStore(STORE_EVENTS);
-    for (const e of events) store.put(e);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function getAllEvents() {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE_EVENTS, 'readonly');
-    const req = tx.objectStore(STORE_EVENTS).getAll();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function deleteEvent(id) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE_EVENTS, 'readwrite');
-    tx.objectStore(STORE_EVENTS).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
 self.onmessage = async (e) => {
   const { id, method, args } = e.data;
   try {
@@ -175,9 +140,6 @@ self.onmessage = async (e) => {
       case 'getSetting': result = await getSetting(args[0]); break;
       case 'putSetting': await putSetting(args[0], args[1]); result = true; break;
       case 'getAllSettings': result = await getAllSettings(); break;
-      case 'saveEvents': await saveEvents(args[0]); result = true; break;
-      case 'getAllEvents': result = await getAllEvents(); break;
-      case 'deleteEvent': await deleteEvent(args[0]); result = true; break;
       default: throw new Error('Unknown method: ' + method);
     }
     self.postMessage({ id, result });
@@ -267,25 +229,6 @@ self.onmessage = async (e) => {
     switch (method) {
       case 'sha256': result = await sha256(args[0]); break;
       case 'pbkdf2': result = await pbkdf2Hash(args[0], args[1]); break;
-      default: result = null;
-    }
-    self.postMessage({ id, result });
-  } catch (err) {
-    self.postMessage({ id, error: err.message });
-  }
-};
-`;
-
-      const CALENDAR_WORKER_CODE = `
-'use strict';
-
-self.onmessage = async (e) => {
-  const { id, method, args } = e.data;
-  try {
-    let result;
-    switch (method) {
-      case 'getEvents': result = JSON.parse(localStorage.getItem('events') || '[]'); break;
-      case 'saveEvents': localStorage.setItem('events', JSON.stringify(args[0])); result = true; break;
       default: result = null;
     }
     self.postMessage({ id, result });

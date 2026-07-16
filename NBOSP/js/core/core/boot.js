@@ -264,6 +264,7 @@ const Boot = {
   applyAccessibility(sGet) {
     const { rootClasses } = Boot._dom;
     if (sGet('highContrast')) rootClasses.add('no-glass');
+    if (sGet('removeTransparency')) rootClasses.add('no-transparency');
     if (sGet('reduceMotion')) {
       rootClasses.add('reduce-motion');
       const wpEl = document.getElementById('wallpaper');
