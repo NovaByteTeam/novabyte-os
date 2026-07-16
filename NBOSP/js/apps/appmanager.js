@@ -1462,7 +1462,12 @@ registerApp({
             // ── Handle replacement of existing install ──
             const idx = installedApps.findIndex(a => a.id === pkg.manifest.id);
             if (idx > -1) {
-              if (!confirm(`"${pkg.manifest.name}" is already installed (v${installedApps[idx].version}).\n\nReplace with v${pkg.manifest.version}?`)) return;
+              const replaceResult = await showModal(
+                'App Already Installed',
+                `"${pkg.manifest.name}" is already installed (v${installedApps[idx].version}). Replace with v${pkg.manifest.version}?`,
+                [{ label: 'Cancel' }, { label: 'Replace', value: 'confirm', primary: true }]
+              );
+              if (replaceResult !== 'confirm') return;
               delete OS.apps[pkg.manifest.id];
               const ri = APP_REGISTRY.findIndex(a => a.id === pkg.manifest.id);
               if (ri > -1) APP_REGISTRY.splice(ri, 1);
@@ -1537,7 +1542,13 @@ registerApp({
 
       async function doUninstall(appId) {
         const app = installedApps.find(a => a.id === appId);
-        if (!app || !confirm(`Uninstall "${app.name}" v${app.version}?\n\nThis cannot be undone.`)) return;
+        if (!app) return;
+        const uninstallResult = await showModal(
+          'Uninstall App',
+          `Uninstall "${app.name}" v${app.version}? This cannot be undone.`,
+          [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+        );
+        if (uninstallResult !== 'confirm') return;
 
         pushLog({ action: 'uninstall', appId: app.id, label: `${app.name} v${app.version} uninstalled` });
         try {
@@ -1813,7 +1824,12 @@ registerApp({
 
         mkBtn('Open', 'external-link', 'background:var(--accent);border:1px solid transparent;color:#fff;', () => launchWebApp(wa));
         mkBtn('Remove', 'trash', 'background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.25);color:#f85149;', async () => {
-          if (!confirm(`Remove "${wa.name}"?`)) return;
+          const removeResult = await showModal(
+            'Remove Web App',
+            `Remove "${wa.name}"?`,
+            [{ label: 'Cancel' }, { label: 'Remove', value: 'confirm', danger: true }]
+          );
+          if (removeResult !== 'confirm') return;
           // removeWebApp (registry.js) also unpins from taskbar and deletes
           // any desktop .lnk shortcut — not just the WebAppManager record —
           // so nothing is left behind with a dead reference.

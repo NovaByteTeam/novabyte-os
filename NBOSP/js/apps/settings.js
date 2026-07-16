@@ -335,16 +335,18 @@ registerApp({
       const recoveryRow = createEl('div', { className: 'nook-row' });
       recoveryRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Recovery Environment' }));
       const recoveryBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Boot to Recovery', style: { background: '#6c5ce7' } });
-      recoveryBtn.addEventListener('click', () => {
-        const confirmed = confirm('Boot to Recovery Environment?\n\nThis will restart and show the recovery options screen.');
-        if (!confirmed) return;
-        // Set manual recovery flag so recovery screen knows this is intentional
+      recoveryBtn.addEventListener('click', async () => {
+        const confirmed = await showModal(
+          'Boot to Recovery Environment',
+          'This will restart and show the recovery options screen.',
+          [{ label: 'Cancel' }, { label: 'Boot to Recovery', value: 'confirm', primary: true }]
+        );
+        if (confirmed !== 'confirm') return;
+        // Set manual recovery flag so recovery screen knows this is intentional.
+        // (init.js's manual-recovery branch only checks this flag and always
+        // clears nova_boot_attempts itself, so we don't need to write fake
+        // boot-attempt entries here — they'd just get deleted immediately.)
         localStorage.setItem('nova_manual_recovery', '1');
-        // Set enough boot attempts to trigger recovery (threshold is 2) but mark as intentional
-        localStorage.setItem('nova_boot_attempts', JSON.stringify([
-          { ts: Date.now() - 1000, reason: 'manual_recovery_intentional', ua: navigator.userAgent.slice(0, 80) },
-          { ts: Date.now(),         reason: 'manual_recovery_intentional', ua: navigator.userAgent.slice(0, 80) }
-        ]));
         localStorage.removeItem('nova_safe_mode');
         location.reload();
       });
@@ -1932,8 +1934,6 @@ registerApp({
         clickTimeout = setTimeout(() => { clickCount = 0; clickTimeout = null; }, 1500);
       });
       swRows.appendChild(novaVersionRow);
-
-      swRows.appendChild(mkRow('Region',       OS.settings.get('region') || 'en-US'));
       swRows.appendChild(mkRow('Source Date',  '2026-07-16'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });

@@ -113,7 +113,7 @@ const Notify = {
                 if (typeof EventLog !== 'undefined') {
                   EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `Toast action failed: ${err?.message || err}`, data: { appName: notif.appName } });
                 }
-                alert('Error: ' + err.message);
+                Notify.show({ title: 'Action Failed', body: err?.message || 'An unknown error occurred.', type: 'error', appName: notif.appName || 'System' });
               }
             });
             content.appendChild(actionBtn);

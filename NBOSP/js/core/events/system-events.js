@@ -237,7 +237,12 @@ function renderLaunchpad() {
             label: 'Uninstall', icon: 'trash', danger: true,
             action: async () => {
               toggleLaunchpad();
-              if (!confirm(`Uninstall "${app.name}"?\n\nThis cannot be undone.`)) return;
+              const uninstallResult = await showModal(
+                'Uninstall App',
+                `Uninstall "${app.name}"? This cannot be undone.`,
+                [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+              );
+              if (uninstallResult !== 'confirm') return;
               try {
                 if (window.NovaAppPackageStore?.removeApp) {
                   await NovaAppPackageStore.removeApp(app.id);
@@ -1554,7 +1559,7 @@ function triggerRecovery(reason) {
     EventLog.log({ app: 'System', category: 'system', severity: 'error', message: `Boot failure detected: ${reason || 'unknown'} (attempt ${attempts.length})`, data: { reason, attemptCount: attempts.length } });
   }
 
-  if (attempts.length >= 2) { showRecoveryScreen(attempts); return true; }
+  if (attempts.length >= 2) { showRecoveryScreen(attempts, false); return true; }
   return false;
 }
 
@@ -1573,7 +1578,7 @@ window.addEventListener('error', (e) => {
   }
 });
 
-function showRecoveryScreen(priorAttempts) {
+function showRecoveryScreen(priorAttempts, isManual) {
   const bootScreen = document.getElementById('boot-screen');
   if (bootScreen) bootScreen.style.display = 'none';
 
@@ -1596,7 +1601,7 @@ function showRecoveryScreen(priorAttempts) {
         </div>
       </div>
       <div class="rba-title">NovaByte</div>
-      <div class="rba-subtitle">⚠ Recovery Mode v2.0</div>
+      <div class="rba-subtitle">⚠ Recovery Mode</div>
       <div class="rba-log" id="rba-log"></div>
       <div class="rba-bar-wrap"><div class="rba-bar" id="rba-bar"></div></div>
       <div class="rba-status" id="rba-status">Initializing recovery environment…</div>
@@ -1608,9 +1613,16 @@ function showRecoveryScreen(priorAttempts) {
   const rbaStatus = document.getElementById('rba-status');
   let step = 0;
 
-  const steps = [
+  const steps = isManual ? [
+    { msg: '[ RECOVERY MODE ]',                            cls: 'info', pct: 8,   label: 'Loading recovery kernel…'   },
+    { msg: '✓ Recovery environment loaded',          cls: 'ok',   pct: 22,  label: 'Mounting storage…'          },
+    { msg: '✓ localStorage integrity check…',             cls: 'ok',   pct: 38,  label: 'Checking data…'             },
+    { msg: 'Entering recovery — requested manually',       cls: 'info', pct: 60,  label: 'Preparing interface…'       },
+    { msg: '✓ Recovery UI ready',                         cls: 'ok',   pct: 88,  label: 'Almost ready…'              },
+    { msg: '✓ Handoff to Recovery Environment',           cls: 'info', pct: 100, label: 'Done.'                      },
+  ] : [
     { msg: '[ RECOVERY MODE TRIGGERED ]',                 cls: 'warn', pct: 8,   label: 'Loading recovery kernel…'   },
-    { msg: '✓ Recovery environment v2.0 loaded',          cls: 'ok',   pct: 22,  label: 'Mounting storage…'          },
+    { msg: '✓ Recovery environment loaded',          cls: 'ok',   pct: 22,  label: 'Mounting storage…'          },
     { msg: '✓ localStorage integrity check…',             cls: 'ok',   pct: 38,  label: 'Checking data…'             },
     { msg: '⚠ Boot failure detected — entering recovery', cls: 'warn', pct: 60,  label: 'Preparing interface…'       },
     { msg: '✓ Recovery UI ready',                         cls: 'ok',   pct: 88,  label: 'Almost ready…'              },
@@ -1622,7 +1634,7 @@ function showRecoveryScreen(priorAttempts) {
       setTimeout(() => {
         anim.classList.add('fade-out');
         setTimeout(() => { anim.remove(); }, 650);
-        _doShowRecoveryScreen(priorAttempts);
+        _doShowRecoveryScreen(priorAttempts, isManual);
       }, 300);
       return;
     }
@@ -1639,7 +1651,7 @@ function showRecoveryScreen(priorAttempts) {
   setTimeout(runStep, 180);
 }
 
-function _doShowRecoveryScreen(priorAttempts) {
+function _doShowRecoveryScreen(priorAttempts, isManual) {
   // #20: The original wireRecoveryControls() used the bare name `screen` which
   // resolved to window.screen (the global Screen object, not a DOM element).
   // We now look up the element here and pass it explicitly.
@@ -1647,13 +1659,12 @@ function _doShowRecoveryScreen(priorAttempts) {
   if (!recoveryScreenEl) return;
   recoveryScreenEl.classList.add('active');
 
-  const isManual =
-    localStorage.getItem('nova_manual_recovery') === '1' ||
-    localStorage.getItem('nova_show_recovery')   === '1';
-  if (isManual) {
-    localStorage.removeItem('nova_manual_recovery');
-    localStorage.removeItem('nova_show_recovery');
-  }
+  // isManual is passed in explicitly from showRecoveryScreen(), since by the
+  // time this runs, boot.js has already cleared nova_manual_recovery and
+  // nova_show_recovery (it clears them before calling showRecoveryScreen at
+  // all) — re-reading those flags here always returned false, which is why
+  // the manual-recovery banner/log treatment was never actually applying.
+  isManual = !!isManual;
 
   const attemptCountEl = document.getElementById('rec-attempt-count');
   const attemptAlertEl = document.querySelector('.recovery-alert');

@@ -195,7 +195,7 @@
             '</div>',
             '</div>',
             '<div class="rba-title">NovaByte</div>',
-            '<div class="rba-subtitle">\u26a0 Recovery Mode v2.0</div>',
+            '<div class="rba-subtitle">\u26a0 Recovery Mode</div>',
             '<div class="rba-log" id="rba-log"></div>',
             '<div class="rba-bar-wrap"><div class="rba-bar" id="rba-bar"></div></div>',
             '<div class="rba-status" id="rba-status">Initializing recovery environment\u2026</div>',
@@ -209,7 +209,7 @@
           var step = 0;
           var steps = [
             { msg: '[ RECOVERY MODE TRIGGERED ]', cls: 'warn', pct: 8, label: 'Loading recovery kernel\u2026' },
-            { msg: '\u2713 Recovery environment v2.0 loaded', cls: 'ok', pct: 22, label: 'Mounting storage\u2026' },
+            { msg: '\u2713 Recovery environment loaded', cls: 'ok', pct: 22, label: 'Mounting storage\u2026' },
             { msg: '\u2713 localStorage integrity check\u2026', cls: 'ok', pct: 38, label: 'Checking data\u2026' },
             { msg: '\u26a0 Boot failure detected \u2014 entering recovery', cls: 'warn', pct: 60, label: 'Preparing interface\u2026' },
             { msg: '\u2713 Recovery UI ready', cls: 'ok', pct: 88, label: 'Almost ready\u2026' },
@@ -559,7 +559,6 @@
         recLog('Continuing to NovaByte...', 'info');
         localStorage.removeItem(BOOT_ATTEMPT_KEY);
         localStorage.removeItem(RECOVERY_FORCE_KEY);
-        document.getElementById('recovery-screen').classList.remove('active');
         setTimeout(() => location.reload(), 800);
 
       } else if (action === 'safemode') {

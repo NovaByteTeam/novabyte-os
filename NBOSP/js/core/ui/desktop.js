@@ -1742,7 +1742,12 @@ function renderDesktopIcons() {
         items.push({ separator: true }, {
           label: 'Uninstall', icon: 'trash', danger: true,
           action: async () => {
-            if (!confirm(`Uninstall "${app.name}"?\n\nThis cannot be undone.`)) return;
+            const uninstallResult = await showModal(
+              'Uninstall App',
+              `Uninstall "${app.name}"? This cannot be undone.`,
+              [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+            );
+            if (uninstallResult !== 'confirm') return;
             try {
               if (window.NovaAppPackageStore?.removeApp) {
                 await NovaAppPackageStore.removeApp(app.id);
@@ -1981,7 +1986,12 @@ function renderDesktopIcons() {
             label: 'Remove Web App', icon: 'trash', danger: true,
             action: async () => {
               const appName = f.name.replace(/\.lnk$/i, '');
-              if (!confirm(`Remove "${appName}"?`)) return;
+              const removeResult = await showModal(
+                'Remove Web App',
+                `Remove "${appName}"?`,
+                [{ label: 'Cancel' }, { label: 'Remove', value: 'confirm', danger: true }]
+              );
+              if (removeResult !== 'confirm') return;
               const waId = shortcutData.target.slice('webapp_'.length);
               if (typeof window.removeWebApp === 'function') {
                 await window.removeWebApp(waId);
@@ -1999,7 +2009,12 @@ function renderDesktopIcons() {
             action: async () => {
               const appId = shortcutData.target;
               const appName = f.name.replace(/\.lnk$/i, '');
-              if (!confirm(`Uninstall "${appName}"?\n\nThis cannot be undone.`)) return;
+              const uninstallResult = await showModal(
+                'Uninstall App',
+                `Uninstall "${appName}"? This cannot be undone.`,
+                [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+              );
+              if (uninstallResult !== 'confirm') return;
               try {
                 if (window.NovaAppPackageStore?.removeApp) {
                   await NovaAppPackageStore.removeApp(appId);

@@ -404,7 +404,7 @@ async function boot() {
   const isManualRecovery = Storage.checkFlag(KEYS.MANUAL_REC) || Storage.checkFlag(KEYS.SHOW_REC);
   if (isManualRecovery || forceRecovery) {
     Storage.removeAll(KEYS.MANUAL_REC, KEYS.SHOW_REC, KEYS.FORCE);
-    showRecoveryScreen(forceRecovery ? Storage.get(KEYS.ATTEMPTS, []) : []);
+    showRecoveryScreen(forceRecovery ? Storage.get(KEYS.ATTEMPTS, []) : [], isManualRecovery && !forceRecovery);
     watchdog.complete();
     return;
   }
@@ -414,7 +414,7 @@ async function boot() {
   const isSafeMode    = Storage.checkFlag(KEYS.SAFE_MODE);
 
   if (priorAttempts.length >= BOOT_THRESHOLD && !isSafeMode) {
-    showRecoveryScreen(priorAttempts);
+    showRecoveryScreen(priorAttempts, false);
     watchdog.complete();
     return;
   }

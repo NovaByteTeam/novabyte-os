@@ -488,9 +488,14 @@ const MyAppsManager = (() => {
     });
 
     container.querySelectorAll('.uninstall-app-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         const appId = e.target.dataset.appId;
-        if (confirm(`Uninstall ${MyAppsManager.getApp(appId)?.name}?`)) {
+        const uninstallResult = await showModal(
+          'Uninstall App',
+          `Uninstall ${MyAppsManager.getApp(appId)?.name}?`,
+          [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+        );
+        if (uninstallResult === 'confirm') {
           MyAppsManager.removeApp(appId);
           MyAppsManager.showAppList(container);
         }
@@ -609,8 +614,13 @@ const MyAppsManager = (() => {
       MyAppsManager.launchApp(appId);
     });
 
-    container.querySelector('#uninstallAppBtn').addEventListener('click', () => {
-      if (confirm(`Uninstall ${app.name}?`)) {
+    container.querySelector('#uninstallAppBtn').addEventListener('click', async () => {
+      const uninstallResult = await showModal(
+        'Uninstall App',
+        `Uninstall ${app.name}?`,
+        [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
+      );
+      if (uninstallResult === 'confirm') {
         MyAppsManager.removeApp(appId);
         MyAppsManager.showAppList(container);
       }
