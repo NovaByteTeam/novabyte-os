@@ -18,6 +18,7 @@ registerApp({
       { id: 'accessibility', name: 'Accessibility', icon: 'eye'       },
       { id: 'desktop',       name: 'Desktop',       icon: 'layers'    },
       { id: 'system',        name: 'System',        icon: 'processor' },
+      { id: 'date-and-region', name: 'Date and Region', icon: 'calendar' },
       { id: 'storage',       name: 'Storage',       icon: 'database'  },
       { id: 'privacy',       name: 'Privacy',       icon: 'lock'      },
       { id: 'apps',          name: 'Apps',          icon: 'package'   },
@@ -128,6 +129,7 @@ registerApp({
         case 'appearance':    renderAppearance();    break;
         case 'accessibility': renderAccessibility(); break;
         case 'system':        renderSystem();        break;
+        case 'date-and-region': renderDateAndRegion(); break;
         case 'storage':       renderStorage();       break;
         case 'shortcuts':     renderShortcuts();     break;
         case 'privacy':       renderPrivacy();       break;
@@ -452,6 +454,672 @@ registerApp({
       devRow.appendChild(devToggle);
       devGroup.appendChild(devRow);
       mainContent.appendChild(devGroup);
+    }
+
+    // ── Date and Region ────────────────────────────────────────────────────
+    function renderDateAndRegion() {
+      mainContent.appendChild(createEl('h2', { textContent: 'Date and Region', style: { marginBottom: '20px' } }));
+
+      let i18n = null;
+      try { i18n = require('i18next'); } catch (e) { /* optional */ }
+
+      const REGIONS = [
+        { code: 'af-NA', name: 'Afrika (Namibië)' }, { code: 'sq-AL', name: 'Albania' },
+        { code: 'ar-SA', name: 'Arab Saudi' }, { code: 'hy-AM', name: 'Hayastán' },
+        { code: 'eu-ES', name: 'Euskadi' }, { code: 'be-BY', name: 'Беларусь' },
+        { code: 'bn-BD', name: 'বাংলাদেশ' }, { code: 'bs-BA', name: 'Bosna i Hercegovina' },
+        { code: 'bg-BG', name: 'България' }, { code: 'ca-ES', name: 'Català' },
+        { code: 'zh-CN', name: '中国' }, { code: 'zh-TW', name: '台灣' }, { code: 'zh-HK', name: '香港' },
+        { code: 'hr-HR', name: 'Hrvatska' }, { code: 'cs-CZ', name: 'Česká republika' },
+        { code: 'da-DK', name: 'Danmark' }, { code: 'nl-NL', name: 'Nederland' },
+        { code: 'en-AU', name: 'Australia' }, { code: 'en-CA', name: 'Canada' },
+        { code: 'en-GB', name: 'United Kingdom' }, { code: 'en-US', name: 'United States' },
+        { code: 'et-EE', name: 'Eesti' }, { code: 'fi-FI', name: 'Suomi' },
+        { code: 'fr-BE', name: 'Belgique' }, { code: 'fr-CA', name: 'Canada' },
+        { code: 'fr-FR', name: 'France' }, { code: 'gl-ES', name: 'Galicia' },
+        { code: 'ka-GE', name: 'საქართველო' }, { code: 'de-AT', name: 'Österreich' },
+        { code: 'de-DE', name: 'Deutschland' }, { code: 'de-CH', name: 'Schweiz' },
+        { code: 'el-GR', name: 'Ελλάδα' }, { code: 'gu-IN', name: 'ભારત' },
+        { code: 'he-IL', name: 'ישראל' }, { code: 'hi-IN', name: 'भारत' },
+        { code: 'hu-HU', name: 'Magyarország' }, { code: 'is-IS', name: 'Ísland' },
+        { code: 'id-ID', name: 'Indonesia' }, { code: 'ga-IE', name: 'Éire' },
+        { code: 'it-IT', name: 'Italia' }, { code: 'ja-JP', name: '日本' },
+        { code: 'kn-IN', name: 'ಭಾರತ' }, { code: 'kk-KZ', name: 'Қазақстан' },
+        { code: 'km-KH', name: 'កម្ពុជា' }, { code: 'ko-KR', name: '대한민국' },
+        { code: 'ku-TR', name: 'Türkiye' }, { code: 'ky-KG', name: 'Кыргызстан' },
+        { code: 'lo-LA', name: 'ປະເທດລາວ' }, { code: 'lv-LV', name: 'Latvija' },
+        { code: 'lt-LT', name: 'Lietuva' }, { code: 'lb-LU', name: 'Lëtzebuerg' },
+        { code: 'mk-MK', name: 'Македонија' }, { code: 'ms-MY', name: 'Malaysia' },
+        { code: 'ml-IN', name: 'ഇന്ത്യ' }, { code: 'mt-MT', name: 'Malta' },
+        { code: 'mr-IN', name: 'भारत' }, { code: 'mn-MN', name: 'Монгол' },
+        { code: 'my-MM', name: 'မြန်မာ' }, { code: 'ne-NP', name: 'नेपाल' },
+        { code: 'nb-NO', name: 'Norge' }, { code: 'fa-IR', name: 'ایران' },
+        { code: 'pl-PL', name: 'Polska' }, { code: 'pt-BR', name: 'Brasil' },
+        { code: 'pt-PT', name: 'Portugal' }, { code: 'pa-IN', name: 'ਭਾਰਤ' },
+        { code: 'ro-RO', name: 'România' }, { code: 'ru-RU', name: 'Россия' },
+        { code: 'sr-RS', name: 'Србија' }, { code: 'sk-SK', name: 'Slovensko' },
+        { code: 'sl-SI', name: 'Slovenija' }, { code: 'es-ES', name: 'España' },
+        { code: 'es-MX', name: 'México' }, { code: 'sw-KE', name: 'Kenya' },
+        { code: 'sv-SE', name: 'Sverige' }, { code: 'ta-IN', name: 'இந்தியா' },
+        { code: 'te-IN', name: 'భారత్' }, { code: 'th-TH', name: 'ไทย' },
+        { code: 'tr-TR', name: 'Türkiye' }, { code: 'uk-UA', name: 'Україна' },
+        { code: 'ur-PK', name: 'پاکستان' }, { code: 'uz-UZ', name: "O'zbekiston" },
+        { code: 'vi-VN', name: 'Việt Nam' }, { code: 'cy-GB', name: 'Cymru' },
+        { code: 'ha-NG', name: 'Nigera' }, { code: 'ig-NG', name: 'Nigeria' },
+        { code: 'yo-NG', name: 'Nigeria' }, { code: 'zu-ZA', name: 'South Africa' },
+        { code: 'xh-ZA', name: 'South Africa' }, { code: 'mg-MG', name: 'Madagascar' },
+        { code: 'fil-PH', name: 'Pilipinas' }, { code: 'am-ET', name: 'ኢትዮጵያ' },
+        { code: 'bn-IN', name: 'ভারত' }, { code: 'si-LK', name: 'ශ්‍රී ලංකා' },
+        { code: 'km-KH', name: 'កម្ពុជា' }, { code: 'my-MM', name: 'မြန်မာ' },
+        { code: 'ka-GE', name: 'საქართველო' }, { code: 'hy-AM', name: 'Հայաստան' },
+        { code: 'az-AZ', name: 'Azərbaycan' }, { code: 'kk-KZ', name: 'Қазақстан' },
+        { code: 'ky-KG', name: 'Кыргызстан' }, { code: 'tg-TJ', name: 'Тоҷикистон' },
+        { code: 'tk-TM', name: 'Türkmenistan' }, { code: 'mn-MN', name: 'Монгол' },
+        { code: 'ja-JP', name: '日本' }, { code: 'ko-KP', name: '조선민주주의인민공화국' },
+        { code: 'ko-KR', name: '대한민국' }, { code: 'zh-CN', name: '中国' },
+        { code: 'zh-TW', name: '台灣' }, { code: 'zh-HK', name: '香港' },
+        { code: 'vi-VN', name: 'Việt Nam' }, { code: 'lo-LA', name: 'ປະເທດລາວ' },
+        { code: 'km-KH', name: 'កម្ពុជា' }, { code: 'my-MM', name: 'မြန်မာ' },
+        { code: 'th-TH', name: 'ไทย' }, { code: 'bn-BD', name: 'বাংলাদেশ' },
+        { code: 'ne-NP', name: 'नेपाल' }, { code: 'si-LK', name: 'ශ්‍රී ලංකා' },
+        { code: 'dv-MV', name: 'ދިވެހިރާއްޖެ' }, { code: 'fa-AF', name: 'افغانستان' },
+        { code: 'fa-IR', name: 'ایران' }, { code: 'ur-PK', name: 'پاکستان' },
+        { code: 'ps-AF', name: 'افغانستان' }, { code: 'ku-TR', name: 'Türkiye' },
+        { code: 'ckb-IQ', name: 'Iraq' }, { code: 'yi-IL', name: 'ישראל' },
+        { code: 'am-ET', name: 'ኢትዮጵያ' }, { code: 'ti-ER', name: 'Eritrea' },
+        { code: 'so-SO', name: 'Soomaaliya' }, { code: 'sw-KE', name: 'Kenya' },
+        { code: 'sw-TZ', name: 'Tanzania' }, { code: 'zu-ZA', name: 'South Africa' },
+        { code: 'xh-ZA', name: 'South Africa' }, { code: 'af-ZA', name: 'South Africa' },
+        { code: 'st-ZA', name: 'South Africa' }, { code: 'tn-BW', name: 'Botswana' },
+        { code: 'mg-MG', name: 'Madagascar' }, { code: 'mt-MT', name: 'Malta' },
+        { code: 'is-IS', name: 'Ísland' }, { code: 'fo-FO', name: 'Føroyar' },
+        { code: 'se-NO', name: 'Norgga' }, { code: 'sm-WS', name: 'Sāmoa' },
+        { code: 'to-TO', name: 'Tonga' }, { code: 'fj-FJ', name: 'Fiji' },
+        { code: 'ty-PF', name: 'Polynésie française' }, { code: 'mi-NZ', name: 'Aotearoa' },
+        { code: 'qu-PE', name: 'Perú' }, { code: 'gn-PY', name: 'Paraguái' },
+        { code: 'ay-BO', name: 'Bolivia' }, { code: 'qu-BO', name: 'Bolivia' },
+        { code: 'cy-GB', name: 'Cymru' }, { code: 'gd-GB', name: 'Alba' },
+        { code: 'kw-GB', name: 'Kernow' }, { code: 'gv-IM', name: 'Ellan Vannin' },
+        { code: 'br-FR', name: 'Breizh' }, { code: 'oc-FR', name: 'Occitània' },
+        { code: 'co-FR', name: 'Corsica' }, { code: 'eu-ES', name: 'Euskadi' },
+        { code: 'ca-ES', name: 'Català' }, { code: 'gl-ES', name: 'Galicia' },
+        { code: 'ast-ES', name: 'Asturies' }, { code: 'an-ES', name: 'Aragón' },
+        { code: 'lad-IL', name: 'Israel' }, { code: 'yi-IL', name: 'ישראל' },
+        { code: 'he-IL', name: 'ישראל' }, { code: 'ar-IL', name: 'إسرائيل' },
+        { code: 'en-IL', name: 'Israel' }, { code: 'fr-DZ', name: 'Algérie' },
+        { code: 'ar-MA', name: 'المغرب' }, { code: 'ar-TN', name: 'تونس' },
+        { code: 'ar-DZ', name: 'الجزائر' }, { code: 'ar-LY', name: 'ليبيا' },
+        { code: 'ar-EG', name: 'مصر' }, { code: 'ar-SD', name: 'السودان' },
+        { code: 'ar-SO', name: 'الصومال' }, { code: 'ar-DJ', name: 'جيبوتي' },
+        { code: 'ar-KW', name: 'الكويت' }, { code: 'ar-BH', name: 'البحرين' },
+        { code: 'ar-QA', name: 'قطر' }, { code: 'ar-AE', name: 'الإمارات' },
+        { code: 'ar-OM', name: 'عُمان' }, { code: 'ar-YE', name: 'اليمن' },
+        { code: 'ar-JO', name: 'الأردن' }, { code: 'ar-LB', name: 'لبنان' },
+        { code: 'ar-SY', name: 'سوريا' }, { code: 'ar-IQ', name: 'العراق' },
+        { code: 'fa-IR', name: 'ایران' }, { code: 'ur-PK', name: 'پاکستان' },
+        { code: 'ur-IN', name: 'بھارت' }, { code: 'bn-IN', name: 'ভারত' },
+        { code: 'bn-BD', name: 'বাংলাদেশ' }, { code: 'pa-IN', name: 'ਭਾਰਤ' },
+        { code: 'gu-IN', name: 'ભારત' }, { code: 'mr-IN', name: 'भारत' },
+        { code: 'ta-IN', name: 'இந்தியா' }, { code: 'te-IN', name: 'భారత్' },
+        { code: 'kn-IN', name: 'ಭಾರತ' }, { code: 'ml-IN', name: 'ഇന്ത്യ' },
+        { code: 'si-LK', name: 'ශ්‍රී ලංකා' }, { code: 'my-MM', name: 'မြန်မာ' },
+        { code: 'ne-NP', name: 'नेपाल' }, { code: 'bo-CN', name: '中国' },
+        { code: 'mn-MN', name: 'Монгол' }, { code: 'ru-RU', name: 'Россия' },
+        { code: 'ru-KZ', name: 'Қазақстан' }, { code: 'ru-KG', name: 'Кыргызстан' },
+        { code: 'ru-TJ', name: 'Тоҷикистон' }, { code: 'ru-TM', name: 'Türkmenistan' },
+        { code: 'ru-UZ', name: "O'zbekiston" }, { code: 'ru-UA', name: 'Україна' },
+        { code: 'ru-BY', name: 'Беларусь' }, { code: 'ru-MD', name: 'Moldova' },
+        { code: 'ru-AM', name: 'Հայաստան' }, { code: 'ru-GE', name: 'საქართველო' },
+        { code: 'ru-AZ', name: 'Azərbaycan' }, { code: 'et-EE', name: 'Eesti' },
+        { code: 'lv-LV', name: 'Latvija' }, { code: 'lt-LT', name: 'Lietuva' },
+        { code: 'pl-PL', name: 'Polska' }, { code: 'cs-CZ', name: 'Česká republika' },
+        { code: 'sk-SK', name: 'Slovensko' }, { code: 'hu-HU', name: 'Magyarország' },
+        { code: 'ro-RO', name: 'România' }, { code: 'bg-BG', name: 'България' },
+        { code: 'hr-HR', name: 'Hrvatska' }, { code: 'sr-RS', name: 'Србија' },
+        { code: 'mk-MK', name: 'Македонија' }, { code: 'sl-SI', name: 'Slovenija' },
+        { code: 'al-AL', name: 'Shqipëria' }, { code: 'mk-MK', name: 'Македонија' },
+        { code: 'gr-GR', name: 'Ελλάδα' }, { code: 'cy-CY', name: 'Κύπρος' },
+        { code: 'tr-CY', name: 'Kıbrıs' }, { code: 'tr-TR', name: 'Türkiye' },
+        { code: 'az-AZ', name: 'Azərbaycan' }, { code: 'ge-GE', name: 'საქართველო' },
+        { code: 'am-AM', name: 'Հայաստան' }, { code: 'kw-IE', name: 'Éire' },
+        { code: 'ga-IE', name: 'Éire' }, { code: 'en-IE', name: 'Ireland' },
+        { code: 'cy-GB', name: 'Cymru' }, { code: 'en-GB', name: 'United Kingdom' },
+        { code: 'en-SC', name: 'Seychelles' }, { code: 'en-MT', name: 'Malta' },
+        { code: 'mt-MT', name: 'Malta' }, { code: 'en-ZA', name: 'South Africa' },
+        { code: 'af-ZA', name: 'South Africa' }, { code: 'zu-ZA', name: 'South Africa' },
+        { code: 'xh-ZA', name: 'South Africa' }, { code: 'st-ZA', name: 'South Africa' },
+        { code: 'tn-BW', name: 'Botswana' }, { code: 'en-BW', name: 'Botswana' },
+        { code: 'en-NG', name: 'Nigeria' }, { code: 'en-KE', name: 'Kenya' },
+        { code: 'sw-KE', name: 'Kenya' }, { code: 'en-GH', name: 'Ghana' },
+        { code: 'fr-SN', name: 'Sénégal' }, { code: 'fr-CI', name: "Côte d'Ivoire" },
+        { code: 'fr-CM', name: 'Cameroun' }, { code: 'fr-CD', name: 'RDC' },
+        { code: 'fr-CG', name: 'Congo' }, { code: 'fr-GA', name: 'Gabon' },
+        { code: 'fr-TD', name: 'Tchad' }, { code: 'fr-CF', name: 'RCA' },
+        { code: 'fr-CM', name: 'Cameroun' }, { code: 'fr-MG', name: 'Madagascar' },
+        { code: 'fr-MU', name: 'Maurice' }, { code: 'fr-SC', name: 'Seychelles' },
+        { code: 'fr-RE', name: 'Réunion' }, { code: 'fr-PF', name: 'Polynésie française' },
+        { code: 'fr-NC', name: 'Nouvelle-Calédonie' }, { code: 'fr-WF', name: 'Wallis et Futuna' },
+        { code: 'pt-AO', name: 'Angola' }, { code: 'pt-MZ', name: 'Moçambique' },
+        { code: 'pt-GW', name: 'Guiné-Bissau' }, { code: 'pt-CV', name: 'Cabo Verde' },
+        { code: 'pt-ST', name: 'São Tomé e Príncipe' }, { code: 'pt-TL', name: 'Timor-Leste' },
+        { code: 'es-CU', name: 'Cuba' }, { code: 'es-DO', name: 'República Dominicana' },
+        { code: 'es-PR', name: 'Puerto Rico' }, { code: 'es-HN', name: 'Honduras' },
+        { code: 'es-GT', name: 'Guatemala' }, { code: 'es-SV', name: 'El Salvador' },
+        { code: 'es-NI', name: 'Nicaragua' }, { code: 'es-CR', name: 'Costa Rica' },
+        { code: 'es-PA', name: 'Panamá' }, { code: 'es-CO', name: 'Colombia' },
+        { code: 'es-VE', name: 'Venezuela' }, { code: 'es-EC', name: 'Ecuador' },
+        { code: 'es-PE', name: 'Perú' }, { code: 'es-BO', name: 'Bolivia' },
+        { code: 'es-PY', name: 'Paraguay' }, { code: 'es-UY', name: 'Uruguay' },
+        { code: 'es-AR', name: 'Argentina' }, { code: 'es-CL', name: 'Chile' },
+        { code: 'es-BR', name: 'Brasil' }, { code: 'en-BR', name: 'Brasil' },
+        { code: 'es-PH', name: 'Pilipinas' }, { code: 'en-PH', name: 'Pilipinas' },
+        { code: 'id-ID', name: 'Indonesia' }, { code: 'ms-MY', name: 'Malaysia' },
+        { code: 'ms-BN', name: 'Brunei' }, { code: 'th-TH', name: 'ไทย' },
+        { code: 'lo-LA', name: 'ປະເທດລາວ' }, { code: 'km-KH', name: 'កម្ពុជា' },
+        { code: 'vi-VN', name: 'Việt Nam' }, { code: 'zh-VN', name: 'Việt Nam' },
+        { code: 'zh-CN', name: '中国' }, { code: 'zh-SG', name: '新加坡' },
+        { code: 'zh-MO', name: '澳門' }, { code: 'zh-HK', name: '香港' },
+        { code: 'zh-TW', name: '台灣' }, { code: 'ja-JP', name: '日本' },
+        { code: 'ko-KR', name: '대한민국' }, { code: 'ko-KP', name: '조선민주주의인민공화국' },
+        { code: 'mn-MN', name: 'Монгол' }, { code: 'ru-RU', name: 'Россия' },
+        { code: 'kk-KZ', name: 'Қазақстан' }, { code: 'ky-KG', name: 'Кыргызстан' },
+        { code: 'uz-UZ', name: "O'zbekiston" }, { code: 'tj-TJ', name: 'Тоҷикистон' },
+        { code: 'tm-TM', name: 'Türkmenistan' }, { code: 'af-AF', name: 'افغانستان' },
+        { code: 'ne-NP', name: 'नेपाल' }, { code: 'bn-BD', name: 'বাংলাদেশ' },
+        { code: 'bn-IN', name: 'ভারত' }, { code: 'si-LK', name: 'ශ්‍රී ලංකා' },
+        { code: 'dv-MV', name: 'ދިވެހިރާއްޖެ' }, { code: 'ur-IN', name: 'بھارت' },
+        { code: 'pa-IN', name: 'ਭਾਰਤ' }, { code: 'gu-IN', name: 'ભારત' },
+        { code: 'mr-IN', name: 'भारत' }, { code: 'ta-IN', name: 'இந்தியா' },
+        { code: 'te-IN', name: 'భారత్' }, { code: 'kn-IN', name: 'ಭಾರತ' },
+        { code: 'ml-IN', name: 'ഇന്ത്യ' }, { code: 'or-IN', name: 'ଭାରତ' },
+        { code: 'as-IN', name: 'ভাৰত' }, { code: 'mai-IN', name: 'भारत' },
+        { code: 'sa-IN', name: 'भारतम्' }, { code: 'en-IN', name: 'भारत' },
+        { code: 'fr-IN', name: 'भारत' }, { code: 'pt-IN', name: 'भारत' },
+        { code: 'ar-IN', name: 'भारत' }, { code: 'ur-PK', name: 'پاکستان' },
+        { code: 'ps-AF', name: 'افغانستان' }, { code: 'fa-AF', name: 'افغانستان' },
+        { code: 'tk-TM', name: 'Türkmenistan' }, { code: 'uz-AF', name: 'افغانستان' },
+        { code: 'kk-KZ', name: 'Қазақстан' }, { code: 'ru-KZ', name: 'Қазақстан' },
+        { code: 'ky-KG', name: 'Кыргызстан' }, { code: 'ru-KG', name: 'Кыргызстан' },
+        { code: 'tg-TJ', name: 'Тоҷикистон' }, { code: 'ru-TJ', name: 'Тоҷикистон' },
+        { code: 'az-AZ', name: 'Azərbaycan' }, { code: 'ru-AZ', name: 'Azərbaycan' },
+        { code: 'hy-AM', name: 'Հայաստան' }, { code: 'ru-AM', name: 'Հայաստան' },
+        { code: 'ka-GE', name: 'საქართველო' }, { code: 'ru-GE', name: 'საქართველო' },
+        { code: 'ab-GE', name: 'Аҧсуа' }, { code: 'os-GE', name: 'Гуырдзи' },
+        { code: 'ru-BY', name: 'Беларусь' }, { code: 'be-BY', name: 'Беларусь' },
+        { code: 'ru-UA', name: 'Україна' }, { code: 'uk-UA', name: 'Україна' },
+        { code: 'ru-MD', name: 'Moldova' }, { code: 'ro-MD', name: 'Moldova' },
+        { code: 'bg-BG', name: 'България' }, { code: 'tr-BG', name: 'Bulgaria' },
+        { code: 'ro-RO', name: 'România' }, { code: 'hu-RO', name: 'România' },
+        { code: 'hu-HU', name: 'Magyarország' }, { code: 'de-HU', name: 'Ungarn' },
+        { code: 'sk-SK', name: 'Slovensko' }, { code: 'hu-SK', name: 'Slovensko' },
+        { code: 'cs-CZ', name: 'Česká republika' }, { code: 'sk-CZ', name: 'Česká republika' },
+        { code: 'pl-CZ', name: 'Česká republika' }, { code: 'de-CZ', name: 'Tschechien' },
+        { code: 'pl-PL', name: 'Polska' }, { code: 'de-PL', name: 'Polen' },
+        { code: 'ru-PL', name: 'Polska' }, { code: 'lt-PL', name: 'Lenkija' },
+        { code: 'de-DE', name: 'Deutschland' }, { code: 'fr-DE', name: 'Allemagne' },
+        { code: 'en-DE', name: 'Germany' }, { code: 'ru-DE', name: 'Германия' },
+        { code: 'tr-DE', name: 'Almanya' }, { code: 'ar-DE', name: 'ألمانيا' },
+        { code: 'pl-DE', name: 'Niemcy' }, { code: 'nl-DE', name: 'Duitsland' },
+        { code: 'da-DE', name: 'Tyskland' }, { code: 'sv-DE', name: 'Tyskland' },
+        { code: 'no-DE', name: 'Tyskland' }, { code: 'fi-DE', name: 'Saksa' },
+        { code: 'de-AT', name: 'Österreich' }, { code: 'de-CH', name: 'Schweiz' },
+        { code: 'fr-CH', name: 'Suisse' }, { code: 'it-CH', name: 'Svizzera' },
+        { code: 'rm-CH', name: 'Svizra' }, { code: 'en-CH', name: 'Switzerland' },
+        { code: 'fr-LU', name: 'Luxembourg' }, { code: 'de-LU', name: 'Luxemburg' },
+        { code: 'lb-LU', name: 'Lëtzebuerg' }, { code: 'pt-LU', name: 'Luxemburgo' },
+        { code: 'fr-BE', name: 'Belgique' }, { code: 'nl-BE', name: 'België' },
+        { code: 'de-BE', name: 'Belgien' }, { code: 'wa-BE', name: 'Beldjike' },
+        { code: 'fr-NL', name: 'Pays-Bas' }, { code: 'nl-NL', name: 'Nederland' },
+        { code: 'fy-NL', name: 'Nederlân' }, { code: 'en-NL', name: 'Netherlands' },
+        { code: 'en-GB', name: 'United Kingdom' }, { code: 'cy-GB', name: 'Cymru' },
+        { code: 'gd-GB', name: 'Alba' }, { code: 'kw-GB', name: 'Kernow' },
+        { code: 'gv-IM', name: 'Ellan Vannin' }, { code: 'en-IE', name: 'Ireland' },
+        { code: 'ga-IE', name: 'Éire' }, { code: 'en-US', name: 'United States' },
+        { code: 'en-CA', name: 'Canada' }, { code: 'fr-CA', name: 'Canada' },
+        { code: 'en-AU', name: 'Australia' }, { code: 'en-NZ', name: 'New Zealand' },
+        { code: 'mi-NZ', name: 'Aotearoa' }, { code: 'en-ZA', name: 'South Africa' },
+        { code: 'en-BW', name: 'Botswana' }, { code: 'en-NG', name: 'Nigeria' },
+        { code: 'en-KE', name: 'Kenya' }, { code: 'en-GH', name: 'Ghana' },
+        { code: 'en-SC', name: 'Seychelles' }, { code: 'en-MT', name: 'Malta' },
+        { code: 'en-PH', name: 'Pilipinas' }, { code: 'en-IN', name: 'भारत' },
+        { code: 'en-PK', name: 'پاکستان' }, { code: 'en-BD', name: 'বাংলাদেশ' },
+        { code: 'en-LK', name: 'ශ්‍රී ලංකා' }, { code: 'en-MM', name: 'မြန်မာ' },
+        { code: 'en-NP', name: 'नेपाल' }, { code: 'en-FJ', name: 'Fiji' },
+        { code: 'en-WS', name: 'Sāmoa' }, { code: 'en-TO', name: 'Tonga' },
+        { code: 'en-VU', name: 'Vanuatu' }, { code: 'en-SB', name: 'Solomon Islands' },
+        { code: 'en-PG', name: 'Papua New Guinea' }, { code: 'en-KI', name: 'Kiribati' },
+        { code: 'en-TV', name: 'Tuvalu' }, { code: 'en-NR', name: 'Nauru' },
+        { code: 'en-PW', name: 'Palau' }, { code: 'en-MH', name: 'Marshall Islands' },
+        { code: 'en-FM', name: 'Micronesia' }, { code: 'en-KY', name: 'Cayman Islands' },
+        { code: 'en-BM', name: 'Bermuda' }, { code: 'en-JM', name: 'Jamaica' },
+        { code: 'en-BB', name: 'Barbados' }, { code: 'en-TT', name: 'Trinidad and Tobago' },
+        { code: 'en-GD', name: 'Grenada' }, { code: 'en-LC', name: 'Saint Lucia' },
+        { code: 'en-VC', name: 'Saint Vincent' }, { code: 'en-AG', name: 'Antigua and Barbuda' },
+        { code: 'en-DM', name: 'Dominica' }, { code: 'en-KN', name: 'Saint Kitts and Nevis' },
+        { code: 'en-BS', name: 'Bahamas' }, { code: 'en-BZ', name: 'Belize' },
+        { code: 'en-GY', name: 'Guyana' }, { code: 'en-SR', name: 'Suriname' },
+        { code: 'nl-SR', name: 'Suriname' }, { code: 'fr-GY', name: 'Guyane' },
+        { code: 'en-MU', name: 'Mauritius' }, { code: 'fr-MU', name: 'Maurice' },
+        { code: 'en-SE', name: 'Sweden' }, { code: 'sv-SE', name: 'Sverige' },
+        { code: 'en-NO', name: 'Norway' }, { code: 'no-NO', name: 'Norge' },
+        { code: 'nb-NO', name: 'Norge' }, { code: 'nn-NO', name: 'Noreg' },
+        { code: 'se-NO', name: 'Norgga' }, { code: 'en-FI', name: 'Finland' },
+        { code: 'fi-FI', name: 'Suomi' }, { code: 'sv-FI', name: 'Finland' },
+        { code: 'en-DK', name: 'Denmark' }, { code: 'da-DK', name: 'Danmark' },
+        { code: 'en-IS', name: 'Iceland' }, { code: 'is-IS', name: 'Ísland' },
+        { code: 'en-GL', name: 'Greenland' }, { code: 'kl-GL', name: 'Kalaallit Nunaat' },
+        { code: 'da-GL', name: 'Grønland' }, { code: 'en-FO', name: 'Faroe Islands' },
+        { code: 'fo-FO', name: 'Føroyar' }, { code: 'en-AX', name: 'Åland Islands' },
+        { code: 'sv-AX', name: 'Åland' }, { code: 'en-JE', name: 'Jersey' },
+        { code: 'fr-JE', name: 'Jersey' }, { code: 'en-GG', name: 'Guernsey' },
+        { code: 'fr-GG', name: 'Guernesey' }, { code: 'en-IM', name: 'Isle of Man' },
+        { code: 'gv-IM', name: 'Ellan Vannin' }, { code: 'en-CY', name: 'Cyprus' },
+        { code: 'el-CY', name: 'Κύπρος' }, { code: 'tr-CY', name: 'Kıbrıs' },
+        { code: 'en-MT', name: 'Malta' }, { code: 'mt-MT', name: 'Malta' },
+        { code: 'en-BH', name: 'Bahrain' }, { code: 'ar-BH', name: 'البحرين' },
+        { code: 'en-QA', name: 'Qatar' }, { code: 'ar-QA', name: 'قطر' },
+        { code: 'en-AE', name: 'United Arab Emirates' }, { code: 'ar-AE', name: 'الإمارات' },
+        { code: 'en-OM', name: 'Oman' }, { code: 'ar-OM', name: 'عُمان' },
+        { code: 'en-KW', name: 'Kuwait' }, { code: 'ar-KW', name: 'الكويت' },
+        { code: 'en-SA', name: 'Saudi Arabia' }, { code: 'ar-SA', name: 'المملكة العربية السعودية' },
+        { code: 'en-JO', name: 'Jordan' }, { code: 'ar-JO', name: 'الأردن' },
+        { code: 'en-LB', name: 'Lebanon' }, { code: 'ar-LB', name: 'لبنان' },
+        { code: 'en-SY', name: 'Syria' }, { code: 'ar-SY', name: 'سوريا' },
+        { code: 'en-IQ', name: 'Iraq' }, { code: 'ar-IQ', name: 'العراق' },
+        { code: 'ku-IQ', name: 'Iraq' }, { code: 'en-YE', name: 'Yemen' },
+        { code: 'ar-YE', name: 'اليمن' }, { code: 'en-EG', name: 'Egypt' },
+        { code: 'ar-EG', name: 'مصر' }, { code: 'en-SD', name: 'Sudan' },
+        { code: 'ar-SD', name: 'السودان' }, { code: 'en-SS', name: 'South Sudan' },
+        { code: 'en-ER', name: 'Eritrea' }, { code: 'ti-ER', name: 'Eritrea' },
+        { code: 'ar-ER', name: 'إريتريا' }, { code: 'en-DJ', name: 'Djibouti' },
+        { code: 'fr-DJ', name: 'Djibouti' }, { code: 'ar-DJ', name: 'جيبوتي' },
+        { code: 'en-SO', name: 'Somalia' }, { code: 'so-SO', name: 'Soomaaliya' },
+        { code: 'ar-SO', name: 'الصومال' }, { code: 'en-ET', name: 'Ethiopia' },
+        { code: 'am-ET', name: 'ኢትዮጵያ' }, { code: 'om-ET', name: 'Oromiyaa' },
+        { code: 'so-ET', name: 'Soomaaliya' }, { code: 'en-KE', name: 'Kenya' },
+        { code: 'sw-KE', name: 'Kenya' }, { code: 'en-TZ', name: 'Tanzania' },
+        { code: 'sw-TZ', name: 'Tanzania' }, { code: 'en-UG', name: 'Uganda' },
+        { code: 'sw-UG', name: 'Uganda' }, { code: 'en-RW', name: 'Rwanda' },
+        { code: 'fr-RW', name: 'Rwanda' }, { code: 'en-BI', name: 'Burundi' },
+        { code: 'fr-BI', name: 'Burundi' }, { code: 'en-MZ', name: 'Mozambique' },
+        { code: 'pt-MZ', name: 'Moçambique' }, { code: 'en-ZW', name: 'Zimbabwe' },
+        { code: 'en-ZM', name: 'Zambia' }, { code: 'en-MW', name: 'Malawi' },
+        { code: 'en-CD', name: 'DRC' }, { code: 'fr-CD', name: 'RDC' },
+        { code: 'en-CG', name: 'Congo' }, { code: 'fr-CG', name: 'Congo' },
+        { code: 'en-GA', name: 'Gabon' }, { code: 'fr-GA', name: 'Gabon' },
+        { code: 'en-CM', name: 'Cameroon' }, { code: 'fr-CM', name: 'Cameroun' },
+        { code: 'en-NG', name: 'Nigeria' }, { code: 'en-GH', name: 'Ghana' },
+        { code: 'en-SL', name: 'Sierra Leone' }, { code: 'en-GM', name: 'Gambia' },
+        { code: 'en-LR', name: 'Liberia' }, { code: 'en-CI', name: "Côte d'Ivoire" },
+        { code: 'fr-CI', name: "Côte d'Ivoire" }, { code: 'en-SN', name: 'Senegal' },
+        { code: 'fr-SN', name: 'Sénégal' }, { code: 'en-MR', name: 'Mauritania' },
+        { code: 'ar-MR', name: 'موريتانيا' }, { code: 'fr-ML', name: 'Mali' },
+        { code: 'en-ML', name: 'Mali' }, { code: 'fr-BF', name: 'Burkina Faso' },
+        { code: 'en-BF', name: 'Burkina Faso' }, { code: 'fr-NE', name: 'Niger' },
+        { code: 'en-NE', name: 'Niger' }, { code: 'fr-TD', name: 'Tchad' },
+        { code: 'ar-TD', name: 'تشاد' }, { code: 'en-SD', name: 'Sudan' },
+        { code: 'ar-SD', name: 'السودان' }, { code: 'en-ET', name: 'Ethiopia' },
+        { code: 'am-ET', name: 'ኢትዮጵያ' }, { code: 'en-SO', name: 'Somalia' },
+        { code: 'so-SO', name: 'Soomaaliya' }, { code: 'en-DJ', name: 'Djibouti' },
+        { code: 'fr-DJ', name: 'Djibouti' }, { code: 'en-ER', name: 'Eritrea' },
+        { code: 'ti-ER', name: 'Eritrea' }, { code: 'en-SS', name: 'South Sudan' },
+        { code: 'ar-SS', name: 'South Sudan' }, { code: 'en-LY', name: 'Libya' },
+        { code: 'ar-LY', name: 'ليبيا' }, { code: 'en-TN', name: 'Tunisia' },
+        { code: 'ar-TN', name: 'تونس' }, { code: 'en-DZ', name: 'Algeria' },
+        { code: 'ar-DZ', name: 'الجزائر' }, { code: 'en-MA', name: 'Morocco' },
+        { code: 'ar-MA', name: 'المغرب' }, { code: 'fr-MA', name: 'Maroc' },
+        { code: 'en-EG', name: 'Egypt' }, { code: 'ar-EG', name: 'مصر' },
+        { code: 'en-IL', name: 'Israel' }, { code: 'he-IL', name: 'ישראל' },
+        { code: 'ar-IL', name: 'إسرائيل' }, { code: 'en-PS', name: 'Palestine' },
+        { code: 'ar-PS', name: 'فلسطين' }, { code: 'en-SA', name: 'Saudi Arabia' },
+        { code: 'ar-SA', name: 'المملكة العربية السعودية' }, { code: 'en-BH', name: 'Bahrain' },
+        { code: 'ar-BH', name: 'البحرين' }, { code: 'en-QA', name: 'Qatar' },
+        { code: 'ar-QA', name: 'قطر' }, { code: 'en-KW', name: 'Kuwait' },
+        { code: 'ar-KW', name: 'الكويت' }, { code: 'en-AE', name: 'United Arab Emirates' },
+        { code: 'ar-AE', name: 'الإمارات' }, { code: 'en-OM', name: 'Oman' },
+        { code: 'ar-OM', name: 'عُمان' }, { code: 'en-YE', name: 'Yemen' },
+        { code: 'ar-YE', name: 'اليمن' }, { code: 'en-JO', name: 'Jordan' },
+        { code: 'ar-JO', name: 'الأردن' }, { code: 'en-LB', name: 'Lebanon' },
+        { code: 'ar-LB', name: 'لبنان' }, { code: 'en-SY', name: 'Syria' },
+        { code: 'ar-SY', name: 'سوريا' }, { code: 'en-IQ', name: 'Iraq' },
+        { code: 'ar-IQ', name: 'العراق' }, { code: 'ku-IQ', name: 'Iraq' },
+        { code: 'en-IR', name: 'Iran' }, { code: 'fa-IR', name: 'ایران' },
+        { code: 'en-AF', name: 'Afghanistan' }, { code: 'fa-AF', name: 'افغانستان' },
+        { code: 'ps-AF', name: 'افغانستان' }, { code: 'en-PK', name: 'Pakistan' },
+        { code: 'ur-PK', name: 'پاکستان' }, { code: 'en-IN', name: 'India' },
+        { code: 'hi-IN', name: 'भारत' }, { code: 'en-BD', name: 'Bangladesh' },
+        { code: 'bn-BD', name: 'বাংলাদেশ' }, { code: 'en-LK', name: 'Sri Lanka' },
+        { code: 'si-LK', name: 'ශ්‍රී ලංකා' }, { code: 'en-MM', name: 'Myanmar' },
+        { code: 'my-MM', name: 'မြန်မာ' }, { code: 'en-NP', name: 'Nepal' },
+        { code: 'ne-NP', name: 'नेपाल' }, { code: 'en-BT', name: 'Bhutan' },
+        { code: 'dz-BT', name: 'འབྲུག་ཡུལ' }, { code: 'en-MV', name: 'Maldives' },
+        { code: 'dv-MV', name: 'ދިވެހިރާއްޖެ' }, { code: 'en-PK', name: 'Pakistan' },
+        { code: 'ur-PK', name: 'پاکستان' }, { code: 'en-AF', name: 'Afghanistan' },
+        { code: 'fa-AF', name: 'افغانستان' }, { code: 'ps-AF', name: 'افغانستان' },
+        { code: 'en-TJ', name: 'Tajikistan' }, { code: 'tg-TJ', name: 'Тоҷикистон' },
+        { code: 'ru-TJ', name: 'Тоҷикистон' }, { code: 'en-KG', name: 'Kyrgyzstan' },
+        { code: 'ky-KG', name: 'Кыргызстан' }, { code: 'ru-KG', name: 'Кыргызстан' },
+        { code: 'en-KZ', name: 'Kazakhstan' }, { code: 'kk-KZ', name: 'Қазақстан' },
+        { code: 'ru-KZ', name: 'Қазақстан' }, { code: 'en-UZ', name: 'Uzbekistan' },
+        { code: 'uz-UZ', name: "O'zbekiston" }, { code: 'ru-UZ', name: "O'zbekiston" },
+        { code: 'en-TM', name: 'Turkmenistan' }, { code: 'tk-TM', name: 'Türkmenistan' },
+        { code: 'ru-TM', name: 'Türkmenistan' }, { code: 'en-MN', name: 'Mongolia' },
+        { code: 'mn-MN', name: 'Монгол' }, { code: 'ru-MN', name: 'Монгол' },
+        { code: 'zh-MN', name: '蒙古' }, { code: 'en-CN', name: '中国' },
+        { code: 'zh-CN', name: '中国' }, { code: 'en-HK', name: '香港' },
+        { code: 'zh-HK', name: '香港' }, { code: 'en-MO', name: '澳門' },
+        { code: 'zh-MO', name: '澳門' }, { code: 'en-TW', name: '台灣' },
+        { code: 'zh-TW', name: '台灣' }, { code: 'en-JP', name: '日本' },
+        { code: 'ja-JP', name: '日本' }, { code: 'en-KP', name: '북한' },
+        { code: 'ko-KP', name: '조선민주주의인민공화국' }, { code: 'en-KR', name: '대한민국' },
+        { code: 'ko-KR', name: '대한민국' }, { code: 'en-MN', name: 'Mongolia' },
+        { code: 'mn-MN', name: 'Монгол' }
+      ];
+
+      const savedRegion = OS.settings.get('region') || navigator.language || 'en-US';
+      const currentRegion = REGIONS.find(r => r.code === savedRegion) ? savedRegion : 'en-US';
+
+      const TIMEZONES = [
+        'Pacific/Midway','Pacific/Niue','Pacific/Honolulu','Pacific/Rarotonga','Pacific/Tahiti',
+        'Pacific/Marquesas','Pacific/Gambier','America/Anchorage','America/Los_Angeles',
+        'America/Tijuana','America/Vancouver','America/Phoenix','America/Denver',
+        'America/Costa_Rica','America/Chicago','America/Mexico_City','America/Regina',
+        'America/Bogota','America/New_York','America/Toronto','America/Caracas',
+        'America/Santiago','America/St_Johns','America/Sao_Paulo','America/Argentina/Buenos_Aires',
+        'America/Noronha','Atlantic/South_Georgia','Atlantic/Azores','Atlantic/Cape_Verde',
+        'Europe/London','Europe/Lisbon','Europe/Dublin','Europe/Edinburgh','Europe/Belfast',
+        'Europe/Madrid','Europe/Paris','Europe/Brussels','Europe/Amsterdam','Europe/Rome',
+        'Europe/Berlin','Europe/Vienna','Europe/Zurich','Europe/Stockholm','Europe/Oslo',
+        'Europe/Copenhagen','Europe/Helsinki','Europe/Warsaw','Europe/Prague','Europe/Budapest',
+        'Europe/Athens','Europe/Bucharest','Europe/Kyiv','Europe/Sofia','Europe/Belgrade',
+        'Europe/Zagreb','Europe/Tallinn','Europe/Riga','Europe/Vilnius','Europe/Chisinau',
+        'Europe/Istanbul','Europe/Minsk','Europe/Kaliningrad','Europe/Moscow','Europe/Volgograd',
+        'Europe/Astrakhan','Europe/Saratov','Europe/Ulyanovsk','Europe/Kazan','Europe/Yekaterinburg',
+        'Asia/Tehran','Asia/Dubai','Asia/Muscat','Asia/Baku','Asia/Tbilisi','Asia/Yerevan',
+        'Asia/Kabul','Asia/Karachi','Asia/Kolkata','Asia/Kathmandu','Asia/Dhaka','Asia/Colombo',
+        'Asia/Rangoon','Asia/Bangkok','Asia/Jakarta','Asia/Shanghai','Asia/Hong_Kong',
+        'Asia/Taipei','Asia/Manila','Asia/Kuala_Lumpur','Asia/Singapore','Asia/Ho_Chi_Minh',
+        'Asia/Phnom_Penh','Asia/Vientiane','Asia/Yangon','Asia/Ulaanbaatar','Asia/Pyongyang',
+        'Asia/Seoul','Asia/Tokyo','Asia/Osaka','Asia/Beijing','Asia/Chongqing','Asia/Urumqi',
+        'Asia/Kashgar','Asia/Harbin','Asia/Macao','Asia/Makassar','Asia/Dili','Asia/Jayapura',
+        'Asia/Sakhalin','Asia/Vladivostok','Asia/Anadyr','Asia/Kamchatka','Asia/Magadan',
+        'Asia/Yakutsk','Asia/Irkutsk','Asia/Krasnoyarsk','Asia/Novokuznetsk','Asia/Novosibirsk',
+        'Asia/Omsk','Asia/Barnaul','Asia/Tomsk','Asia/Bangkok','Asia/Phnom_Penh','Asia/Vientiane',
+        'Asia/Calcutta','Asia/Colombo','Asia/Katmandu','Asia/Kolkata','Asia/Dacca','Asia/Dhaka',
+        'Asia/Thimphu','Asia/Thimbu','Asia/Kabul','Asia/Tehran','Asia/Baghdad','Asia/Bahrain',
+        'Asia/Kuwait','Asia/Qatar','Asia/Riyadh','Asia/Aden','Asia/Dubai','Asia/Muscat',
+        'Asia/Tbilisi','Asia/Yerevan','Asia/Baku','Asia/Dubai','Asia/Muscat','Asia/Kabul',
+        'Asia/Karachi','Asia/Kolkata','Asia/Kathmandu','Asia/Dhaka','Asia/Colombo','Asia/Rangoon',
+        'Asia/Bangkok','Asia/Jakarta','Asia/Shanghai','Asia/Hong_Kong','Asia/Taipei',
+        'Asia/Manila','Asia/Kuala_Lumpur','Asia/Singapore','Asia/Ho_Chi_Minh','Asia/Phnom_Penh',
+        'Asia/Vientiane','Asia/Yangon','Asia/Ulaanbaatar','Asia/Pyongyang','Asia/Seoul',
+        'Asia/Tokyo','Asia/Osaka','Asia/Beijing','Asia/Chongqing','Asia/Urumqi','Asia/Kashgar',
+        'Asia/Harbin','Asia/Macao','Asia/Makassar','Asia/Dili','Asia/Jayapura','Asia/Sakhalin',
+        'Asia/Vladivostok','Asia/Anadyr','Asia/Kamchatka','Asia/Magadan','Asia/Yakutsk',
+        'Asia/Irkutsk','Asia/Krasnoyarsk','Asia/Novokuznetsk','Asia/Novosibirsk','Asia/Omsk',
+        'Asia/Barnaul','Asia/Tomsk','Australia/Perth','Australia/Eucla','Australia/Adelaide',
+        'Australia/Darwin','Australia/Brisbane','Australia/Sydney','Australia/Melbourne',
+        'Australia/Hobart','Australia/Currie','Australia/Lord_Howe','Australia/Lindeman',
+        'Pacific/Guam','Pacific/Port_Moresby','Pacific/Tarawa','Pacific/Majuro','Pacific/Kwajalein',
+        'Pacific/Chuuk','Pacific/Pohnpei','Pacific/Kosrae','Pacific/Norfolk','Pacific/Noumea',
+        'Pacific/Auckland','Pacific/Fiji','Pacific/Tongatapu','Pacific/Kiritimati','Pacific/Tahiti',
+        'Pacific/Marquesas','Pacific/Gambier','Pacific/Rarotonga','Pacific/Niue','Pacific/Midway',
+        'Pacific/Honolulu','Pacific/Johnston','Pacific/Rarotonga','Pacific/Tahiti','Pacific/Marquesas',
+        'Pacific/Gambier','Pacific/Pago_Pago','Pacific/Apia','Pacific/Midway','Pacific/Niue',
+        'Pacific/Honolulu','Pacific/Johnston','Pacific/Rarotonga','Pacific/Tahiti','Pacific/Marquesas',
+        'Pacific/Gambier','Pacific/Pago_Pago','Pacific/Apia','Pacific/Norfolk','Pacific/Noumea',
+        'Pacific/Auckland','Pacific/Fiji','Pacific/Tongatapu','Pacific/Kiritimati','Pacific/Guadalcanal',
+        'Pacific/Pohnpei','Pacific/Chuuk','Pacific/Kosrae','Pacific/Majuro','Pacific/Kwajalein',
+        'Pacific/Port_Moresby','Pacific/Tarawa','Pacific/Guam','Pacific/Saipan','Pacific/Palau',
+        'Pacific/Yap','Pacific/Truk','Pacific/Ponape','Pacific/Kosrae','Pacific/Majuro',
+        'Pacific/Kwajalein','Pacific/Johnston','Pacific/Midway','Pacific/Niue','Pacific/Honolulu',
+        'Pacific/Rarotonga','Pacific/Tahiti','Pacific/Marquesas','Pacific/Gambier','Pacific/Pago_Pago',
+        'Pacific/Apia','Pacific/Norfolk','Pacific/Noumea','Pacific/Auckland','Pacific/Fiji',
+        'Pacific/Tongatapu','Pacific/Kiritimati','Pacific/Guadalcanal','Indian/Maldives',
+        'Indian/Mauritius','Indian/Reunion','Indian/Mahe','Indian/Kerguelen','Indian/Cocos',
+        'Indian/Christmas','Indian/Chagos','Antarctica/McMurdo','Antarctica/South_Pole',
+        'Antarctica/Rothera','Antarctica/Palmer','Antarctica/Syowa','Antarctica/Mawson',
+        'Antarctica/Davis','Antarctica/Vostok','Antarctica/Troll','Antarctica/Casey',
+        'Antarctica/DumontDUrville','Antarctica/Macquarie','Australia/Perth','Australia/Eucla',
+        'Australia/Adelaide','Australia/Darwin','Australia/Brisbane','Australia/Sydney',
+        'Australia/Melbourne','Australia/Hobart','Australia/Currie','Australia/Lord_Howe'
+      ];
+
+      const savedTimezone = OS.settings.get('timezone') || (typeof Intl !== 'undefined' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
+      const currentTimezone = TIMEZONES.includes(savedTimezone) ? savedTimezone : (typeof Intl !== 'undefined' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
+
+      const regionToTimezone = {
+        'en-US': 'America/New_York','en-GB': 'Europe/London','en-AU': 'Australia/Sydney',
+        'en-CA': 'America/Toronto','fr-FR': 'Europe/Paris','fr-CA': 'America/Montreal',
+        'de-DE': 'Europe/Berlin','de-AT': 'Europe/Vienna','de-CH': 'Europe/Zurich',
+        'es-ES': 'Europe/Madrid','es-MX': 'America/Mexico_City','pt-BR': 'America/Sao_Paulo',
+        'ja-JP': 'Asia/Tokyo','zh-CN': 'Asia/Shanghai','zh-TW': 'Asia/Taipei',
+        'ko-KR': 'Asia/Seoul','ru-RU': 'Europe/Moscow','it-IT': 'Europe/Rome',
+        'nl-NL': 'Europe/Amsterdam','pl-PL': 'Europe/Warsaw','tr-TR': 'Europe/Istanbul',
+        'ar-SA': 'Asia/Riyadh','he-IL': 'Asia/Jerusalem','hi-IN': 'Asia/Kolkata',
+        'th-TH': 'Asia/Bangkok','vi-VN': 'Asia/Ho_Chi_Minh','id-ID': 'Asia/Jakarta',
+        'ms-MY': 'Asia/Kuala_Lumpur','en-IN': 'Asia/Kolkata','en-PK': 'Asia/Karachi',
+        'en-BD': 'Asia/Dhaka','en-LK': 'Asia/Colombo','en-MM': 'Asia/Yangon',
+        'en-NP': 'Asia/Kathmandu','en-PH': 'Asia/Manila','en-ID': 'Asia/Jakarta',
+        'en-MY': 'Asia/Kuala_Lumpur','en-SG': 'Asia/Singapore','en-HK': 'Asia/Hong_Kong',
+        'en-MO': 'Asia/Macao','en-TW': 'Asia/Taipei','en-JP': 'Asia/Tokyo',
+        'en-KR': 'Asia/Seoul','en-KP': 'Asia/Pyongyang','en-NZ': 'Pacific/Auckland',
+        'en-ZA': 'Africa/Johannesburg','en-IE': 'Europe/Dublin','en-IL': 'Asia/Jerusalem',
+        'ar-EG': 'Africa/Cairo','ar-AE': 'Asia/Dubai','ar-QA': 'Asia/Qatar',
+        'ar-KW': 'Asia/Kuwait','ar-BH': 'Asia/Bahrain','ar-OM': 'Asia/Muscat',
+        'ar-YE': 'Asia/Aden','ar-JO': 'Asia/Amman','ar-LB': 'Asia/Beirut',
+        'ar-SY': 'Asia/Damascus','ar-IQ': 'Asia/Baghdad','ar-IL': 'Asia/Jerusalem',
+        'ar-PS': 'Asia/Gaza','ar-SA': 'Asia/Riyadh','ar-MA': 'Africa/Casablanca',
+        'ar-DZ': 'Africa/Algiers','ar-TN': 'Africa/Tunis','ar-LY': 'Africa/Tripoli',
+        'ar-SD': 'Africa/Khartoum','ar-SO': 'Africa/Mogadishu','ar-DJ': 'Africa/Djibouti',
+        'ar-ER': 'Africa/Asmara','ar-ET': 'Africa/Addis_Ababa','ar-KE': 'Africa/Nairobi',
+        'ar-TZ': 'Africa/Dar_es_Salaam','ar-UG': 'Africa/Kampala','ar-RW': 'Africa/Kigali',
+        'ar-BI': 'Africa/Bujumbura','ar-MZ': 'Africa/Maputo','ar-ZW': 'Africa/Harare',
+        'ar-ZM': 'Africa/Lusaka','ar-MW': 'Africa/Blantyre','ar-CD': 'Africa/Kinshasa',
+        'ar-CG': 'Africa/Brazzaville','ar-GA': 'Africa/Libreville','ar-CM': 'Africa/Douala',
+        'ar-NG': 'Africa/Lagos','ar-GH': 'Africa/Accra','ar-SL': 'Africa/Freetown',
+        'ar-GM': 'Africa/Banjul','ar-LR': 'Africa/Monrovia','ar-CI': 'Africa/Abidjan',
+        'ar-SN': 'Africa/Dakar','ar-MR': 'Africa/Nouakchott','ar-ML': 'Africa/Bamako',
+        'ar-BF': 'Africa/Ouagadougou','ar-NE': 'Africa/Niamey','ar-TD': 'Africa/Ndjamena',
+        'ar-SS': 'Africa/Juba','fa-IR': 'Asia/Tehran','fa-AF': 'Asia/Kabul',
+        'ps-AF': 'Asia/Kabul','tk-TM': 'Asia/Ashgabat','uz-UZ': 'Asia/Tashkent',
+        'kk-KZ': 'Asia/Almaty','ky-KG': 'Asia/Bishkek','tg-TJ': 'Asia/Dushanbe',
+        'ru-RU': 'Europe/Moscow','ru-KZ': 'Asia/Almaty','ru-KG': 'Asia/Bishkek',
+        'ru-TJ': 'Asia/Dushanbe','ru-TM': 'Asia/Ashgabat','ru-UZ': 'Asia/Tashkent',
+        'ru-UA': 'Europe/Kyiv','ru-BY': 'Europe/Minsk','ru-MD': 'Europe/Chisinau',
+        'ru-AM': 'Asia/Yerevan','ru-GE': 'Asia/Tbilisi','ru-AZ': 'Asia/Baku',
+        'hy-AM': 'Asia/Yerevan','ka-GE': 'Asia/Tbilisi','az-AZ': 'Asia/Baku',
+        'et-EE': 'Europe/Tallinn','lv-LV': 'Europe/Riga','lt-LT': 'Europe/Vilnius',
+        'pl-PL': 'Europe/Warsaw','cs-CZ': 'Europe/Prague','sk-SK': 'Europe/Bratislava',
+        'hu-HU': 'Europe/Budapest','ro-RO': 'Europe/Bucharest','bg-BG': 'Europe/Sofia',
+        'hr-HR': 'Europe/Zagreb','sr-RS': 'Europe/Belgrade','mk-MK': 'Europe/Skopje',
+        'sl-SI': 'Europe/Ljubljana','al-AL': 'Europe/Tirana','gr-GR': 'Europe/Athens',
+        'cy-CY': 'Asia/Nicosia','tr-CY': 'Asia/Nicosia','mt-MT': 'Europe/Malta',
+        'is-IS': 'Atlantic/Reykjavik','fo-FO': 'Atlantic/Faroe','gl-ES': 'Atlantic/Canary',
+        'pt-PT': 'Europe/Lisbon','en-GB': 'Europe/London','ga-IE': 'Europe/Dublin',
+        'cy-GB': 'Europe/London','gd-GB': 'Europe/London','kw-GB': 'Europe/London',
+        'gv-IM': 'Europe/Isle_of_Man','en-JE': 'Europe/Jersey','en-GG': 'Europe/Guernsey',
+        'en-IM': 'Europe/Isle_of_Man','en-CY': 'Asia/Nicosia','el-CY': 'Asia/Nicosia',
+        'tr-CY': 'Asia/Nicosia','en-MT': 'Europe/Malta','mt-MT': 'Europe/Malta',
+        'en-BH': 'Asia/Bahrain','ar-BH': 'Asia/Bahrain','en-QA': 'Asia/Qatar',
+        'ar-QA': 'Asia/Qatar','en-AE': 'Asia/Dubai','ar-AE': 'Asia/Dubai',
+        'en-OM': 'Asia/Muscat','ar-OM': 'Asia/Muscat','en-KW': 'Asia/Kuwait',
+        'ar-KW': 'Asia/Kuwait','en-SA': 'Asia/Riyadh','ar-SA': 'Asia/Riyadh',
+        'en-JO': 'Asia/Amman','ar-JO': 'Asia/Amman','en-LB': 'Asia/Beirut',
+        'ar-LB': 'Asia/Beirut','en-SY': 'Asia/Damascus','ar-SY': 'Asia/Damascus',
+        'en-IQ': 'Asia/Baghdad','ar-IQ': 'Asia/Baghdad','en-YE': 'Asia/Aden',
+        'ar-YE': 'Asia/Aden','en-EG': 'Africa/Cairo','ar-EG': 'Africa/Cairo',
+        'en-SD': 'Africa/Khartoum','ar-SD': 'Africa/Khartoum','en-SS': 'Africa/Juba',
+        'ar-SS': 'Africa/Juba','en-ER': 'Africa/Asmara','ar-ER': 'Africa/Asmara',
+        'en-DJ': 'Africa/Djibouti','ar-DJ': 'Africa/Djibouti','en-SO': 'Africa/Mogadishu',
+        'ar-SO': 'Africa/Mogadishu','en-ET': 'Africa/Addis_Ababa','am-ET': 'Africa/Addis_Ababa',
+        'en-KE': 'Africa/Nairobi','sw-KE': 'Africa/Nairobi','en-TZ': 'Africa/Dar_es_Salaam',
+        'sw-TZ': 'Africa/Dar_es_Salaam','en-UG': 'Africa/Kampala','sw-UG': 'Africa/Kampala',
+        'en-RW': 'Africa/Kigali','fr-RW': 'Africa/Kigali','en-BI': 'Africa/Bujumbura',
+        'fr-BI': 'Africa/Bujumbura','en-MZ': 'Africa/Maputo','pt-MZ': 'Africa/Maputo',
+        'en-ZW': 'Africa/Harare','en-ZM': 'Africa/Lusaka','en-MW': 'Africa/Blantyre',
+        'en-CD': 'Africa/Kinshasa','fr-CD': 'Africa/Kinshasa','en-CG': 'Africa/Brazzaville',
+        'fr-CG': 'Africa/Brazzaville','en-GA': 'Africa/Libreville','fr-GA': 'Africa/Libreville',
+        'en-CM': 'Africa/Douala','fr-CM': 'Africa/Douala','en-NG': 'Africa/Lagos',
+        'en-GH': 'Africa/Accra','en-SL': 'Africa/Freetown','en-GM': 'Africa/Banjul',
+        'en-LR': 'Africa/Monrovia','en-CI': 'Africa/Abidjan','fr-CI': 'Africa/Abidjan',
+        'en-SN': 'Africa/Dakar','fr-SN': 'Africa/Dakar','en-MR': 'Africa/Nouakchott',
+        'ar-MR': 'Africa/Nouakchott','fr-ML': 'Africa/Bamako','en-ML': 'Africa/Bamako',
+        'fr-BF': 'Africa/Ouagadougou','en-BF': 'Africa/Ouagadougou','fr-NE': 'Africa/Niamey',
+        'en-NE': 'Africa/Niamey','fr-TD': 'Africa/Ndjamena','ar-TD': 'Africa/Ndjamena',
+        'en-LY': 'Africa/Tripoli','ar-LY': 'Africa/Tripoli','en-TN': 'Africa/Tunis',
+        'ar-TN': 'Africa/Tunis','en-DZ': 'Africa/Algiers','ar-DZ': 'Africa/Algiers',
+        'en-MA': 'Africa/Casablanca','ar-MA': 'Africa/Casablanca','fr-MA': 'Africa/Casablanca',
+        'en-EG': 'Africa/Cairo','ar-EG': 'Africa/Cairo','en-IL': 'Asia/Jerusalem',
+        'he-IL': 'Asia/Jerusalem','ar-IL': 'Asia/Jerusalem','en-PS': 'Asia/Gaza',
+        'ar-PS': 'Asia/Gaza','en-SA': 'Asia/Riyadh','ar-SA': 'Asia/Riyadh',
+        'en-BH': 'Asia/Bahrain','ar-BH': 'Asia/Bahrain','en-QA': 'Asia/Qatar',
+        'ar-QA': 'Asia/Qatar','en-KW': 'Asia/Kuwait','ar-KW': 'Asia/Kuwait',
+        'en-AE': 'Asia/Dubai','ar-AE': 'Asia/Dubai','en-OM': 'Asia/Muscat',
+        'ar-OM': 'Asia/Muscat','en-AF': 'Asia/Kabul','fa-AF': 'Asia/Kabul',
+        'ps-AF': 'Asia/Kabul','en-PK': 'Asia/Karachi','ur-PK': 'Asia/Karachi',
+        'en-IN': 'Asia/Kolkata','hi-IN': 'Asia/Kolkata','en-BD': 'Asia/Dhaka',
+        'bn-BD': 'Asia/Dhaka','en-LK': 'Asia/Colombo','si-LK': 'Asia/Colombo',
+        'en-MM': 'Asia/Yangon','my-MM': 'Asia/Yangon','en-NP': 'Asia/Kathmandu',
+        'ne-NP': 'Asia/Kathmandu','en-BT': 'Asia/Thimphu','dz-BT': 'Asia/Thimphu',
+        'en-MV': 'Indian/Maldives','dv-MV': 'Indian/Maldives','en-PH': 'Asia/Manila',
+        'fil-PH': 'Asia/Manila','en-ID': 'Asia/Jakarta','id-ID': 'Asia/Jakarta',
+        'en-MY': 'Asia/Kuala_Lumpur','ms-MY': 'Asia/Kuala_Lumpur','en-SG': 'Asia/Singapore',
+        'en-HK': 'Asia/Hong_Kong','zh-HK': 'Asia/Hong_Kong','en-MO': 'Asia/Macao',
+        'zh-MO': 'Asia/Macao','en-TW': 'Asia/Taipei','zh-TW': 'Asia/Taipei',
+        'en-JP': 'Asia/Tokyo','ja-JP': 'Asia/Tokyo','en-KP': 'Asia/Pyongyang',
+        'ko-KP': 'Asia/Pyongyang','en-KR': 'Asia/Seoul','ko-KR': 'Asia/Seoul',
+        'en-MN': 'Asia/Ulaanbaatar','mn-MN': 'Asia/Ulaanbaatar','zh-CN': 'Asia/Shanghai',
+        'zh-MN': 'Asia/Shanghai','en-CN': 'Asia/Shanghai','bo-CN': 'Asia/Shanghai',
+        'en-AU': 'Australia/Sydney','en-NZ': 'Pacific/Auckland','mi-NZ': 'Pacific/Auckland',
+        'en-FJ': 'Pacific/Fiji','en-WS': 'Pacific/Apia','en-TO': 'Pacific/Tongatapu',
+        'en-VU': 'Pacific/Efate','en-SB': 'Pacific/Guadalcanal','en-PG': 'Pacific/Port_Moresby',
+        'en-KI': 'Pacific/Tarawa','en-TV': 'Pacific/Funafuti','en-NR': 'Pacific/Nauru',
+        'en-PW': 'Pacific/Palau','en-MH': 'Pacific/Majuro','en-FM': 'Pacific/Chuuk',
+        'en-KY': 'America/New_York','en-BM': 'Atlantic/Bermuda','en-JM': 'America/Jamaica',
+        'en-BB': 'America/Barbados','en-TT': 'America/Port_of_Spain','en-GD': 'America/Grenada',
+        'en-LC': 'America/St_Lucia','en-VC': 'America/St_Vincent','en-AG': 'America/Antigua',
+        'en-DM': 'America/Dominica','en-KN': 'America/St_Kitts','en-BS': 'America/Nassau',
+        'en-BZ': 'America/Belize','en-GY': 'America/Guyana','en-SR': 'America/Paramaribo',
+        'en-MU': 'Indian/Mauritius','fr-MU': 'Indian/Mauritius','en-SC': 'Indian/Mahe',
+        'en-SE': 'Europe/Stockholm','sv-SE': 'Europe/Stockholm','en-NO': 'Europe/Oslo',
+        'no-NO': 'Europe/Oslo','nb-NO': 'Europe/Oslo','nn-NO': 'Europe/Oslo',
+        'se-NO': 'Europe/Oslo','en-FI': 'Europe/Helsinki','fi-FI': 'Europe/Helsinki',
+        'sv-FI': 'Europe/Helsinki','en-DK': 'Europe/Copenhagen','da-DK': 'Europe/Copenhagen',
+        'en-IS': 'Atlantic/Reykjavik','is-IS': 'Atlantic/Reykjavik','en-GL': 'America/Godthab',
+        'kl-GL': 'America/Godthab','da-GL': 'America/Godthab','en-FO': 'Atlantic/Faroe',
+        'fo-FO': 'Atlantic/Faroe','en-AX': 'Europe/Helsinki','sv-AX': 'Europe/Helsinki',
+        'en-JE': 'Europe/Jersey','fr-JE': 'Europe/Jersey','en-GG': 'Europe/Guernsey',
+        'fr-GG': 'Europe/Guernsey','en-IM': 'Europe/Isle_of_Man','gv-IM': 'Europe/Isle_of_Man'
+      };
+
+      const regionGroup = createEl('div', { className: 'nook-group' });
+      regionGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Region' }));
+
+      const regionRow = createEl('div', { className: 'nook-row' });
+      regionRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Date & Currency Format' }));
+
+      const regionSelect = document.createElement('select');
+      regionSelect.className = 'input';
+      for (const r of REGIONS) {
+        const opt = document.createElement('option');
+        opt.value = r.code;
+        opt.textContent = r.name;
+        if (r.code === currentRegion) opt.selected = true;
+        regionSelect.appendChild(opt);
+      }
+      regionRow.appendChild(regionSelect);
+      regionGroup.appendChild(regionRow);
+      mainContent.appendChild(regionGroup);
+
+      const timezoneSelect = document.createElement('select');
+      timezoneSelect.className = 'input';
+      for (const tz of TIMEZONES) {
+        const opt = document.createElement('option');
+        opt.value = tz;
+        opt.textContent = tz;
+        if (tz === currentTimezone) opt.selected = true;
+        timezoneSelect.appendChild(opt);
+      }
+      timezoneSelect.addEventListener('change', () => {
+        OS.settings.set('timezone', timezoneSelect.value);
+        renderContent();
+      });
+
+      const timezoneGroup = createEl('div', { className: 'nook-group' });
+      timezoneGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Timezone' }));
+      const timezoneRow = createEl('div', { className: 'nook-row' });
+      timezoneRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Current Timezone' }));
+      timezoneRow.appendChild(timezoneSelect);
+      timezoneGroup.appendChild(timezoneRow);
+      mainContent.appendChild(timezoneGroup);
+
+      regionSelect.addEventListener('change', async () => {
+        const selected = regionSelect.value;
+        OS.settings.set('region', selected);
+        const mappedTz = regionToTimezone[selected];
+        if (mappedTz && TIMEZONES.includes(mappedTz)) {
+          OS.settings.set('timezone', mappedTz);
+          timezoneSelect.value = mappedTz;
+        }
+        if (i18n) {
+          try { await i18n.changeLanguage(selected); } catch (err) { console.warn('[Settings] i18next changeLanguage failed:', err); }
+        }
+        try { document.documentElement.lang = selected; } catch {}
+        renderContent();
+      });
+
+      const kbGroup = createEl('div', { className: 'nook-group' });
+      kbGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Keyboard Layout' }));
+
+      const kbRow = createEl('div', { className: 'nook-row' });
+      kbRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Detected Layout' }));
+      const kbValue = createEl('span', { style: 'color:var(--text-primary);font-weight:500;', textContent: 'Detecting...' });
+      kbRow.appendChild(kbValue);
+      kbGroup.appendChild(kbRow);
+      mainContent.appendChild(kbGroup);
+
+      const previewGroup = createEl('div', { className: 'nook-group' });
+      previewGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Live Preview' }));
+      const previewRow = createEl('div', { style: 'padding:12px 0;font-size:12.5px;color:var(--text-secondary);', id: 'region-preview' });
+      previewGroup.appendChild(previewRow);
+      mainContent.appendChild(previewGroup);
+
+      function getEffectiveLocale() {
+        if (i18n && typeof i18n.language === 'string' && i18n.language) return i18n.language;
+        return OS.settings.get('region') || navigator.language || 'en-US';
+      }
+
+      function updatePreview(region, timezone) {
+        const previewEl = document.getElementById('region-preview');
+        if (!previewEl) return;
+        const now = new Date();
+        const locale = getEffectiveLocale();
+        const tz = timezone || OS.settings.get('timezone');
+        const opts = { dateStyle: 'full', timeStyle: 'long' };
+        if (tz) opts.timeZone = tz;
+        const dateStr = new Intl.DateTimeFormat(locale, opts).format(now);
+        const currencyStr = new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(1234.56);
+        previewEl.innerHTML = '<div style="margin-bottom:8px;"><strong>Date & Time:</strong> ' + dateStr + '</div>' +
+                              '<div><strong>Currency:</strong> ' + currencyStr + '</div>';
+      }
+
+      if (navigator.keyboard && typeof navigator.keyboard.getLayoutMap === 'function') {
+        navigator.keyboard.getLayoutMap().then(map => {
+          const a = map.get('KeyA');
+          const q = map.get('KeyQ');
+          let layout = 'Unknown';
+          if (a === 'a' && q === 'q') layout = 'QWERTY';
+          else if (a === 'q' && q === 'a') layout = 'AZERTY';
+          else if (a === 'a' && q === 'w') layout = 'QWERTZ';
+          else if (a) layout = 'Custom (' + a + ')';
+          kbValue.textContent = layout;
+        }).catch(() => { kbValue.textContent = 'Not available'; });
+      } else {
+        kbValue.textContent = 'Not supported';
+      }
+
+      updatePreview(currentRegion);
     }
 
     // ── Storage ─────────────────────────────────────────────────────────────
@@ -1265,8 +1933,8 @@ registerApp({
       });
       swRows.appendChild(novaVersionRow);
 
-      swRows.appendChild(mkRow('Build Channel', 'Stable'));
-      swRows.appendChild(mkRow('Release Date',  '2026-07-04'));
+      swRows.appendChild(mkRow('Region',       OS.settings.get('region') || 'en-US'));
+      swRows.appendChild(mkRow('Source Date',  '2026-07-16'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
       const secRowLeft  = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
@@ -1295,11 +1963,11 @@ registerApp({
       // ── Environment ─────────────────────────────────────────────────────────
       const { wrap: envWrap, rows: envRows } = mkSection('Environment', '\uD83C\uDF10');
       let tz = 'Unknown';
-      try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
+      try { tz = OS.settings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
       [
         ['Browser',         detectBrowser(),                                                                          false],
         ['Platform',        navigator.platform,                                                                        false],
-        ['Language',        navigator.language,                                                                        false],
+        ['Region',          OS.settings.get('region') || navigator.language,                                          false],
         ['Timezone',        tz,                                                                                        false],
         ['Do Not Track',    navigator.doNotTrack === '1' ? 'Enabled \u2713' : 'Not set',                             false],
         ['Cookies',         navigator.cookieEnabled ? 'Enabled \u2713' : 'Disabled',                                 false],
@@ -1317,7 +1985,7 @@ registerApp({
       const copyBtn = createEl('button', { className: 'btn btn-sm', textContent: '\uD83D\uDCCB Copy System Info' });
       copyBtn.addEventListener('click', () => {
         let tzCopy = 'Unknown';
-        try { tzCopy = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
+        try { tzCopy = OS.settings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
         const lines = [
           'NovaByte v' + OS.version,
           'Security Update: 2026-07-04',
@@ -1325,7 +1993,7 @@ registerApp({
           'Platform: '  + navigator.platform,
           'Screen: '    + screen.width + '\u00D7' + screen.height,
           'CPU Cores: ' + (navigator.hardwareConcurrency || 'Unknown'),
-          'Language: '  + navigator.language,
+          'Region: '    + (OS.settings.get('region') || navigator.language),
           'Timezone: '  + tzCopy,
         ];
         navigator.clipboard.writeText(lines.join('\n'));
@@ -1346,6 +2014,7 @@ registerApp({
     if (typeof OS !== 'undefined' && OS.events && typeof OS.events.on === 'function') {
       OS.events.on('settings:changed', ({ key }) => {
         if (key === 'devMode' && currentSection === 'apps') renderContent();
+        if (key === 'region' && currentSection === 'about') renderContent();
       });
     }
   }

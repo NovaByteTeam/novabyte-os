@@ -58,13 +58,31 @@ registerApp({
       return `${(b / 1_048_576).toFixed(1)} MB`;
     };
 
-    // FIX #13: create DateTimeFormat instance once; reused on every call.
-    const _dtf = new Intl.DateTimeFormat([], {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    });
+    // FIX #13: create DateTimeFormat instance once per locale/timezone; reused on every call.
+    let _dtfCache = null;
+    let _dtfCacheKey = null;
+    const getFmtDate = () => {
+      const locale = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
+        ? OS.settings.get('region') || navigator.language
+        : navigator.language;
+      const tz = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
+        ? OS.settings.get('timezone')
+        : undefined;
+      const cacheKey = locale + '|' + (tz || '');
+      if (_dtfCacheKey === cacheKey && _dtfCache) return _dtfCache;
+      try {
+        const opts = { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+        if (tz) opts.timeZone = tz;
+        _dtfCache = new Intl.DateTimeFormat(locale, opts);
+      } catch {
+        _dtfCache = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      }
+      _dtfCacheKey = cacheKey;
+      return _dtfCache;
+    };
     const fmtDate = (ts) => {
       if (!ts) return '';
-      try { return _dtf.format(new Date(+ts)); } catch { return ''; }
+      try { return getFmtDate().format(new Date(+ts)); } catch { return ''; }
     };
 
     // ── Status style map ───────────────────────────────────────────────────────

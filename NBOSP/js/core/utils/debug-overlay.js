@@ -317,6 +317,9 @@ const DebugOverlay = (() => {
   }
 
   function _getLanguage() {
+    if (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function') {
+      return OS.settings.get('region') || 'N/A';
+    }
     if (typeof navigator !== 'undefined') {
       return navigator.language || 'N/A';
     }

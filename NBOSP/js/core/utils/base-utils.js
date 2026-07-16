@@ -466,32 +466,63 @@
   }
 
   // Format a Date as HH:MM (24h) or H:MM AM/PM (12h), honouring the
-  // clockFormat setting from the global OS object when present.
+  // clockFormat and timezone settings from the global OS object when present.
   function formatTime(date) {
     if (!isValidDate(date)) {
       throw new TypeError('formatTime: expected a valid Date');
     }
-    const h = date.getHours();
-    const m = date.getMinutes();
     const use24 = (typeof OS !== 'undefined')
       && OS
       && OS.settings
       && typeof OS.settings.get === 'function'
       && OS.settings.get('clockFormat') === '24h';
-    if (use24) {
-      return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+
+    try {
+      const tz = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
+        ? OS.settings.get('timezone')
+        : undefined;
+      const opts = { hour: 'numeric', minute: '2-digit', hour12: !use24 };
+      if (tz) opts.timeZone = tz;
+      const parts = new Intl.DateTimeFormat((typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function') ? OS.settings.get('region') || navigator.language : navigator.language, opts).formatToParts(date);
+      const hourPart = parts.find(p => p.type === 'hour');
+      const minutePart = parts.find(p => p.type === 'minute');
+      const dayPeriodPart = parts.find(p => p.type === 'dayPeriod');
+      if (!hourPart || !minutePart) throw new Error('missing parts');
+      if (use24) {
+        return String(hourPart.value).padStart(2, '0') + ':' + minutePart.value;
+      }
+      return hourPart.value + ':' + minutePart.value + (dayPeriodPart ? ' ' + dayPeriodPart.value : '');
+    } catch {
+      const h = date.getHours();
+      const m = date.getMinutes();
+      if (use24) {
+        return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+      }
+      const h12 = h % 12 || 12;
+      const ampm = h < 12 ? 'AM' : 'PM';
+      return h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
     }
-    const h12 = h % 12 || 12;
-    const ampm = h < 12 ? 'AM' : 'PM';
-    return h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
   }
 
-  // Format a Date as "Wed 5 Jun".
+  // Format a Date as locale-aware "short weekday short day short month",
+  // honouring the stored region and timezone when available.
   function formatDate(date) {
     if (!isValidDate(date)) {
       throw new TypeError('formatDate: expected a valid Date');
     }
-    return DAY_NAMES[date.getDay()] + ' ' + date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
+    try {
+      const locale = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
+        ? OS.settings.get('region') || navigator.language
+        : navigator.language;
+      const tz = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
+        ? OS.settings.get('timezone')
+        : undefined;
+      const opts = { weekday: 'short', day: 'numeric', month: 'short' };
+      if (tz) opts.timeZone = tz;
+      return new Intl.DateTimeFormat(locale, opts).format(date);
+    } catch {
+      return DAY_NAMES[date.getDay()] + ' ' + date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
+    }
   }
 
   // Debounce fn by ms milliseconds. The returned function exposes .cancel()

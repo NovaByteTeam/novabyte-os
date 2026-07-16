@@ -127,6 +127,10 @@ const OS = {
       proxyUrl: '',
       username: 'user',
       pinnedApps: [],
+      region: 'en-US',
+      timezone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+        : 'UTC',
     },
     
     applySafeModeDefaults() {
