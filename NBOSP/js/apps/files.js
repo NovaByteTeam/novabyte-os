@@ -504,6 +504,21 @@
       this.updateSelectionVisuals();
     }
 
+    // Resolve the icon to show for a file. App-shortcut .lnk files store the
+    // pinned app's icon in their JSON content (see desktop.js), so use that
+    // instead of FS.getMimeIcon(), which has no case for
+    // 'application/x-app-shortcut' and would otherwise fall back to the
+    // generic file icon for every shortcut.
+    resolveFileIcon(f) {
+      if (f.name?.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
+        try {
+          const data = JSON.parse(f.content);
+          if (data?.type === 'app-shortcut' && data.icon) return data.icon;
+        } catch { /* not a valid shortcut, fall through to mime icon */ }
+      }
+      return FS.getMimeIcon(f.mimeType, f.name);
+    }
+
     // Icon view
     renderFileList(files) {
       this.filesGrid.replaceChildren();
@@ -527,7 +542,7 @@
         item._fileNode = f;
 
         const iconDiv = createEl('div', { className: 'vault-file-icon', style: 'position:relative;' });
-        iconDiv.innerHTML = svgIcon(f.type === 'folder' ? 'folder' : FS.getMimeIcon(f.mimeType, f.name), 36);
+        iconDiv.innerHTML = svgIcon(f.type === 'folder' ? 'folder' : this.resolveFileIcon(f), 36);
         const tag = f.tags?.[0];
         if (tag) {
           const token = TAG_COLOR_TOKEN[tag] || 'text-warning';
@@ -559,7 +574,7 @@
 
         const nameCell = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:6px 12px;min-width:0;' });
         const ic = createEl('span', { style: 'flex-shrink:0;color:var(--text-muted);' });
-        ic.innerHTML = svgIcon(f.type === 'folder' ? 'folder' : FS.getMimeIcon(f.mimeType, f.name), 16);
+        ic.innerHTML = svgIcon(f.type === 'folder' ? 'folder' : this.resolveFileIcon(f), 16);
         const nm = createEl('span', {
           className: 'vault-list-row-name',
           style: 'font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
