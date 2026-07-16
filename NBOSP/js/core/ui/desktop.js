@@ -575,6 +575,9 @@ const AppDirs = {
     'nbosp-contacts': 'com.nbosp.contacts',
     'nbosp-search': 'com.nbosp.search',
     'nbosp-music': 'com.nbosp.music',
+    'devconsole': 'com.nbosp.devconsole',
+    'events': 'com.nbosp.events',
+    'permissions': 'com.nbosp.permissions',
   },
 
   // Resolved directory handles cache — avoids repeated getDirectoryHandle calls
@@ -710,6 +713,9 @@ const AppDirs = {
       'com.nbosp.contacts':    { name: 'Contacts',    version: '1.0.0', description: 'Contacts' },
       'com.nbosp.search':      { name: 'Search',      version: '1.0.0', description: 'System Search' },
       'com.nbosp.music':       { name: 'Music',       version: '1.0.0', description: 'Music Player' },
+      'com.nbosp.devconsole':  { name: 'Console',     version: '1.0.0', description: 'Developer Console' },
+      'com.nbosp.events':      { name: 'Events',      version: '1.0.0', description: 'Event Log' },
+      'com.nbosp.permissions': { name: 'Permissions', version: '1.0.0', description: 'App Permissions' },
     };
 
     try {
@@ -907,14 +913,39 @@ const AppDirs = {
   },
 
   LS_MAP: {
-    'calendar_events_v2':    { pkg: 'com.nbosp.calendar',   subdir: 'databases',    file: 'events.json' },
-    'nbosp_clock_v1':        { pkg: 'com.nbosp.clock',      subdir: 'databases',    file: 'alarms.json' },
-    'nbosp_email_accts_v2':  { pkg: 'com.nbosp.email',      subdir: 'databases',    file: 'accounts.json' },
-    'nbosp_email_drafts_v1': { pkg: 'com.nbosp.email',      subdir: 'databases',    file: 'drafts.json' },
-    'nova_downloads':         { pkg: 'com.nbosp.downloads',  subdir: 'databases',    file: 'history.json' },
-    'nova_contacts':          { pkg: 'com.nbosp.contacts',   subdir: 'databases',    file: 'contacts.json' },
-    'nova_music_prefs':       { pkg: 'com.nbosp.music',      subdir: 'shared_prefs', file: 'prefs.json' },
-    'nova_installed_apps':    { pkg: 'com.nbosp.appmanager', subdir: 'databases',    file: 'packages.json' },
+    'calendar_events_v2':    { pkg: 'com.nbosp.calendar',    subdir: 'databases',    file: 'events.json' },
+    'nbosp_clock_v1':        { pkg: 'com.nbosp.clock',       subdir: 'databases',    file: 'alarms.json' },
+    'nbosp_email_accts_v2':  { pkg: 'com.nbosp.email',       subdir: 'databases',    file: 'accounts.json' },
+    'nbosp_email_drafts_v1': { pkg: 'com.nbosp.email',       subdir: 'databases',    file: 'drafts.json' },
+    'nova_downloads':         { pkg: 'com.nbosp.downloads',   subdir: 'databases',    file: 'history.json' },
+    'nova_contacts':          { pkg: 'com.nbosp.contacts',    subdir: 'databases',    file: 'contacts.json' },
+    'nova_music_prefs':       { pkg: 'com.nbosp.music',       subdir: 'shared_prefs', file: 'prefs.json' },
+    'nova_installed_apps':    { pkg: 'com.nbosp.appmanager',  subdir: 'databases',    file: 'packages.json' },
+
+    // App Manager — install log, disabled-apps list, boot-apps list
+    'nova_appmanager_log':    { pkg: 'com.nbosp.appmanager',  subdir: 'databases',    file: 'install-log.json' },
+    'nova_disabled_apps':     { pkg: 'com.nbosp.appmanager',  subdir: 'shared_prefs', file: 'disabled-apps.json' },
+    'nova_boot_apps':         { pkg: 'com.nbosp.appmanager',  subdir: 'shared_prefs', file: 'boot-apps.json' },
+
+    // Browser — settings, bookmarks, history
+    'nbosp_browser_settings': { pkg: 'com.nbosp.browser',     subdir: 'shared_prefs', file: 'settings.json' },
+    'nbosp_browser_bookmarks':{ pkg: 'com.nbosp.browser',     subdir: 'databases',    file: 'bookmarks.json' },
+    'nbosp_browser_history':  { pkg: 'com.nbosp.browser',     subdir: 'databases',    file: 'history.json' },
+
+    // Events (system log viewer) — filters, saved views, alert rules, sessions
+    'nova_events_app_filters':{ pkg: 'com.nbosp.events',      subdir: 'shared_prefs', file: 'filters.json' },
+    'nova_events_views':      { pkg: 'com.nbosp.events',      subdir: 'databases',    file: 'saved-views.json' },
+    'nova_events_alerts':     { pkg: 'com.nbosp.events',      subdir: 'databases',    file: 'alert-rules.json' },
+    'nova_events_sessions':   { pkg: 'com.nbosp.events',      subdir: 'databases',    file: 'sessions.json' },
+
+    // Developer Console — command history
+    'nbosp_devconsole_history': { pkg: 'com.nbosp.devconsole', subdir: 'databases',   file: 'history.json' },
+
+    // Permissions — event-log read cutoff
+    'nbosp_permissions_log_cutoff': { pkg: 'com.nbosp.permissions', subdir: 'shared_prefs', file: 'log-cutoff.json' },
+
+    // Settings — custom keyboard shortcuts
+    'novabyte-shortcuts':     { pkg: 'com.nbosp.settings',    subdir: 'shared_prefs', file: 'shortcuts.json' },
   },
 
   getVFSDir(appIdOrPkg, subdir) {

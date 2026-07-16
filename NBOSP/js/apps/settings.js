@@ -1,5 +1,6 @@
 registerApp({
   id: 'nook', name: 'Settings', icon: 'settings',
+  version: '3.0.2',
   description: 'System Settings',
   defaultSize: [700, 500], minSize: [500, 400],
   init(content, state, options) {

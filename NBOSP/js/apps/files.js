@@ -242,7 +242,16 @@
         'aria-label': 'Search files',
       });
 
-      toolbar.append(this.backBtn, this.upBtn, pathBarWrap, this.searchInput);
+      // Empty Trash: only shown while browsing the Trash folder itself.
+      this.emptyTrashBtn = createEl('button', {
+        className: 'browser-nav-btn',
+        title: 'Empty Trash',
+        'aria-label': 'Empty Trash',
+        style: 'display:none;',
+      });
+      this.emptyTrashBtn.innerHTML = svgIcon('trash', 16);
+
+      toolbar.append(this.backBtn, this.upBtn, pathBarWrap, this.searchInput, this.emptyTrashBtn);
       root.appendChild(toolbar);
 
       // Files area: icon view + list view (only one visible at a time)
@@ -289,6 +298,7 @@
     wireToolbar() {
       this.backBtn.addEventListener('click', () => this.goBack(), { signal: this.signal });
       this.upBtn.addEventListener('click', () => this.goUp(), { signal: this.signal });
+      this.emptyTrashBtn.addEventListener('click', () => this.emptyTrash(), { signal: this.signal });
 
       this.pathBar.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -683,6 +693,10 @@
       }
       this.currentFilesCache = this.sortFiles(files);
 
+      const inTrash = this.nav.cwd === FS.specialFolders.trash;
+      this.emptyTrashBtn.style.display = inTrash ? '' : 'none';
+      if (inTrash) this.emptyTrashBtn.disabled = FS.listDir(this.nav.cwd).length === 0;
+
       this.filesGrid.style.display = this.viewMode === 'icon' ? 'grid' : 'none';
       this.listView.style.display = this.viewMode === 'list' ? 'flex' : 'none';
 
@@ -856,6 +870,31 @@
       }
     }
 
+    // Empty Trash: permanently deletes everything currently in the Trash
+    // folder. Only reachable via the toolbar button, which is only shown
+    // while the Trash folder itself is open.
+    async emptyTrash() {
+      if (isViewOnly()) {
+        notifyBlocked('Delete disabled.');
+        return;
+      }
+      const ok = await showModal(
+        'Empty Trash',
+        'All items in Trash will be permanently deleted. This cannot be undone.',
+        [{ label: 'Cancel' }, { label: 'Empty Trash', style: 'danger' }]
+      );
+      if (ok !== 'Empty Trash') return;
+      try {
+        await FS.emptyTrash();
+        this.selectedIds.clear();
+        this.renderFiles();
+        if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+      } catch (err) {
+        console.error('[Files] empty trash failed:', err);
+        notifyError('Empty Trash failed', err);
+      }
+    }
+
     // Move the current selection (plus the optional context-clicked file) to
     // trash. Sequential await avoids races against the trash worker; if any
     // item fails we abort and surface the error.
@@ -1011,6 +1050,7 @@
   registerApp({
     id: 'vault',
     name: 'Files',
+    version: '3.0.2',
     icon: 'folder-open',
     description: 'File Manager',
     defaultSize: [780, 520],

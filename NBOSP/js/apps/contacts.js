@@ -1,5 +1,6 @@
 registerApp({
   id: 'nbosp-contacts', name: 'Contacts', icon: 'users',
+  version: '3.0.2',
   description: 'Contact Book',
   defaultSize: [640, 500], minSize: [440, 320],
 

@@ -1,5 +1,6 @@
 registerApp({
   id: 'calendar-app', name: 'Calendar', icon: 'calendar',
+  version: '3.0.2',
   description: 'Calendar & Scheduling',
   defaultSize: [860, 580], minSize: [600, 440],
 

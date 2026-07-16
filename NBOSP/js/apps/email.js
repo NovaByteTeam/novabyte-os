@@ -1,5 +1,6 @@
 registerApp({
         id: 'nbosp-email', name: 'Email', icon: 'mail',
+        version: '3.0.2',
         description: 'IMAP · POP3 · Exchange',
         defaultSize: [860, 580], minSize: [600, 420],
         init(content, state, options) {

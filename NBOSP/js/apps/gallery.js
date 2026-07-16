@@ -1,5 +1,6 @@
 registerApp({
   id: 'nbosp-gallery', name: 'Gallery', icon: 'image',
+  version: '3.0.2',
   description: 'Image Viewer',
   defaultSize: [840, 580], minSize: [500, 360],
   init(content, state) {

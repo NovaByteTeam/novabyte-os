@@ -1,6 +1,7 @@
 registerApp({
   id: 'calculator',
   name: 'Calculator',
+  version: '3.0.2',
   icon: 'calculator',
   description: 'High-efficiency, character-code driven arithmetic engine',
   defaultSize: [320, 440],

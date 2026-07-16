@@ -51,6 +51,7 @@
 
 registerApp({
   id: 'quill', name: 'TextEdit', icon: 'pen-tool',
+  version: '3.0.2',
   description: 'Text Editor',
   defaultSize: [680, 500], minSize: [360, 260],
 

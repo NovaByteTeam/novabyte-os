@@ -1,5 +1,6 @@
 registerApp({
   id: 'nbosp-downloads', name: 'Downloads', icon: 'download',
+  version: '3.0.2',
   description: 'Download Manager',
   defaultSize: [580, 460], minSize: [400, 300],
 

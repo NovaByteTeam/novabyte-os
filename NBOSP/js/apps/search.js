@@ -1,6 +1,7 @@
 registerApp({
   id: 'nbosp-search',
   name: 'Search',
+  version: '3.0.2',
   icon: 'search',
   description: 'System Search',
   defaultSize: [640, 500],

@@ -1219,6 +1219,7 @@ function selectAllInOutput(tab) {
 registerApp({
   id: 'shell',
   name: 'Terminal',
+  version: '3.0.2',
   icon: 'terminal',
   description: 'Terminal',
   defaultSize: [700, 460],

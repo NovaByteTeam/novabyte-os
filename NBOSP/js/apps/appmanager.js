@@ -1,6 +1,7 @@
 registerApp({
   id: 'app-manager',
   name: 'App Manager',
+  version: '3.0.2',
   icon: 'package',
   description: 'Install, manage, and customise .novaapp packages and web apps',
   defaultSize: [980, 640],

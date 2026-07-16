@@ -36,6 +36,7 @@ window.NetworkLog = window.NetworkLog || {
 
 registerApp({
   id: 'browser', name: 'Browser', icon: 'globe',
+  version: '3.0.2',
   description: 'Web Browser',
   defaultSize: [900, 600], minSize: [500, 350],
 

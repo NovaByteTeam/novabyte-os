@@ -1,6 +1,7 @@
 registerApp({
   id: 'nbosp-clock',
   name: 'Clock',
+  version: '3.0.2',
   icon: 'alarm-clock',
   description: 'Alarm · Clock · Timer · Stopwatch',
   defaultSize: [400, 600],

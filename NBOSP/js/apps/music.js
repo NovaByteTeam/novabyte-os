@@ -146,6 +146,7 @@
   registerApp({
     id: 'nbosp-music',
     name: 'Music',
+    version: '3.0.2',
     icon: 'music',
     description: 'Music Player',
     defaultSize: [520, 520],
