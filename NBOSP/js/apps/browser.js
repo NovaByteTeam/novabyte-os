@@ -163,7 +163,7 @@ registerApp({
 
       let result = favicon;
       // Already a proxy URL — use as-is
-      if (favicon.startsWith('/api/favicon') || favicon.startsWith('/api/email-image')) {
+      if (favicon.startsWith('/api/favicon')) {
         _faviconCache.set(cacheKey, favicon);
         return favicon;
       }
@@ -2881,19 +2881,6 @@ registerApp({
       omniDrop.style.display = 'block';
     }
 
-    async function fetchSuggestions(q, signal) {
-      const eng = getSetting('searchEngine', 'brave');
-      try {
-        const r = await fetch(
-          `/api/suggest?engine=${encodeURIComponent(eng)}&q=${encodeURIComponent(q)}`,
-          { signal }
-        );
-        if (!r.ok) return [];
-        const j = await r.json();
-        return j.suggestions || [];
-      } catch { return []; }
-    }
-
     async function omniQuery(raw) {
       const q = raw.trim();
       if (!q) { omniClose(); return; }
@@ -2915,27 +2902,6 @@ registerApp({
 
       if (gen !== omniGen) return; // a newer query / close superseded us
       omniRender([...bkItems, ...hxItems]);
-
-      // Skip remote fetch for single-char queries — results are noise
-      if (q.length < 2) return;
-
-      // Abort any in-flight request before starting a new one
-      if (omniController) omniController.abort();
-      omniController = new AbortController();
-
-      const suggestions = await fetchSuggestions(q, omniController.signal);
-
-      // Stale check AFTER the await: abort() rejects the fetch, but a result
-      // could still resolve just before a newer query fires. The generation
-      // guard is the only reliable way to drop it.
-      if (gen !== omniGen) return;
-
-      const sugItems = suggestions
-        .filter(s => !bkItems.some(b => b.label === s) && !hxItems.some(h => h.label === s))
-        .map(s => ({ type: 'suggest', label: s, url: null }));
-
-      if (gen !== omniGen) return; // final guard before paint
-      omniRender([...bkItems, ...hxItems, ...sugItems]);
     }
 
     // ── URL bar events ──────────────────────────────────────────────────────

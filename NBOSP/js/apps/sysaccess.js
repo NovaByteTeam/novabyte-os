@@ -100,7 +100,7 @@ registerApp({
 
       // Proxy status — these are server-side Express routes (proxies.js,
       // module.exports, req/res/next signatures), not browser globals.
-      // The original devtools.js checked `typeof setupSuggestProxy` etc.
+      // The original devtools.js checked `typeof setupFrameCheckProxy` etc.
       // from the browser, which can never see a Node-side function — that
       // always printed N/A regardless of whether the routes were actually
       // mounted. There's no dedicated status endpoint to query, so instead
@@ -113,8 +113,6 @@ registerApp({
       section.appendChild(proxyCard);
 
       const proxyProbes = [
-        { label: 'Suggest Proxy',      url: '/api/suggest' },
-        { label: 'Email Image Proxy',  url: '/api/email-image' },
         { label: 'Frame Check Proxy',  url: '/api/frame-check' },
         { label: 'App Network Proxy',  url: '/api/proxy', method: 'POST' },
       ];

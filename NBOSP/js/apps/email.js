@@ -728,7 +728,7 @@ registerApp({
             const bodyEl = createEl('div', { className: 'em-reader-body' });
             if (full.html) {
               // The server sanitises full.html in GET /message before returning it
-              // (rewriteEmailImages + rewriteEmailLinks + sanitizeEmailHtml).
+              // (sanitizeEmailHtml).
               // Set srcdoc directly — no token round-trip, no NW.js iframe-src issues.
               const iframe = createEl('iframe', {
                 sandbox: 'allow-popups allow-popups-to-escape-sandbox',

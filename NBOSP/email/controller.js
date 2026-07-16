@@ -10,7 +10,7 @@ const { encryptCreds, decryptCreds, sessionCredentials, restoreCredsFromSession,
 const imapClient = require('./protocols/imapClient');
 const pop3Client = require('./protocols/pop3Client');
 const ewsClient = require('./protocols/ewsClient');
-const { msgShape, rewriteEmailImages, sanitizeEmailHtml } = require('./helpers');
+const { msgShape, sanitizeEmailHtml } = require('./helpers');
 const ServerEventLog = require('../server/core/server-event-log');
 
 // Optional dependencies
@@ -209,7 +209,7 @@ router.get('/message', requireCreds, async (req, res) => {
     else if (c.type === 'pop3') msg = await pop3Client.pop3Message(c, uid, msgShape);
     else msg = await ewsClient.ewsMessage(c, uid, msgShape);
     if (msg.html) {
-      msg.html = sanitizeEmailHtml(rewriteEmailImages(msg.html));
+      msg.html = sanitizeEmailHtml(msg.html);
     }
     res.json(msg);
   } catch (err) {
@@ -329,7 +329,7 @@ router.post('/preview', requireCreds, (req, res) => {
 
   cleanPreviewCache();
   const token = crypto.randomBytes(24).toString('hex');
-  const safeHtml = sanitizeEmailHtml(rewriteEmailImages(html));
+  const safeHtml = sanitizeEmailHtml(html);
   previewCache.set(token, { html: safeHtml, ts: Date.now() });
 
   if (req.session) {

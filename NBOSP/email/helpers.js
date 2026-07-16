@@ -76,314 +76,6 @@ function msgShape(parsed) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared URL helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Parse a URL string; return null (never throw) on invalid input. */
-function safeParseUrl(str) {
-  if (!str || typeof str !== 'string') return null;
-  try { return new URL(str); } catch (_) { return null; }
-}
-
-/**
- * Iteratively decode a percent-encoded string up to maxPasses times.
- * Stops as soon as a pass produces no change or a valid http/https URL is obtained.
- * Handles double- and triple-encoded destinations (%2568ttp%253A%252F%252F...).
- */
-function tryDecodeUrl(raw, maxPasses = 3) {
-  let prev = raw;
-  for (let i = 0; i < maxPasses; i++) {
-    let decoded;
-    try { decoded = decodeURIComponent(prev); } catch (_) { break; }
-    if (decoded === prev) break;
-    const u = safeParseUrl(decoded);
-    if (u && (u.protocol === 'http:' || u.protocol === 'https:')) return decoded;
-    prev = decoded;
-  }
-  return prev;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// IMAGE PROXY — rewriteEmailImages
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Build the proxy URL for a remote image src.
- * Pre-validates scheme (http/https only) — rejects javascript:, data:, file:, etc.
- * Strips tracking params before encoding.
- */
-function proxyEmailImageUrl(src) {
-  try {
-    const u = new URL(src);
-    // Only proxy http/https — never proxy javascript:, data:, file:, etc.
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return src;
-    return '/api/email-image?url=' + encodeURIComponent(src);
-  } catch (_) { return src; }
-}
-
-// Regex to extract image src from tag — allows src="...", src='...', srcset, etc.
-// This regex captures the src or srcset value in group 3 or 4.
-const IMG_SRC_PATTERN = /\b(src|srcset)\s*=\s*(['"])((?:(?!\2).)*)\2/gi;
-
-// For <style> tags, extract and rewrite url() references
-const STYLE_URL_PATTERN = /url\s*\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
-
-function rewriteEmailImages(html) {
-  if (!html || typeof html !== 'string') return html;
-
-  // 1. Rewrite <img src="..."> and other img-like tags
-  html = html.replace(IMG_SRC_PATTERN, (match, attr, quote, url) => {
-    const cleaned = proxyEmailImageUrl(url);
-    return `${attr}=${quote}${cleaned}${quote}`;
-  });
-
-  // 2. Rewrite <style> url() references
-  html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, (styleBlock) => {
-    return styleBlock.replace(STYLE_URL_PATTERN, (match, quote, url) => {
-      const quoteChar = quote || '';
-      const cleaned = proxyEmailImageUrl(url);
-      return `url(${quoteChar}${cleaned}${quoteChar})`;
-    });
-  });
-
-  // 3. Rewrite inline style="background-image: url(...)"
-  html = html.replace(/style\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (match, quote, styleVal) => {
-    const cleaned = styleVal.replace(STYLE_URL_PATTERN, (m, q, url) => {
-      const quoteChar = q || '';
-      const proxied = proxyEmailImageUrl(url);
-      return `url(${quoteChar}${proxied}${quoteChar})`;
-    });
-    return `style=${quote}${cleaned}${quote}`;
-  });
-
-  // 4. Rewrite <td background="...">
-  html = html.replace(/\bbackground\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (match, quote, url) => {
-    const cleaned = proxyEmailImageUrl(url);
-    return `background=${quote}${cleaned}${quote}`;
-  });
-
-  // 5. Rewrite SVG image/@href and @xlink:href
-  // <image href="..." /> or <image xlink:href="..." />
-  html = html.replace(/<image\b[^>]*>/gi, (imgTag) => {
-    let result = imgTag;
-    // href
-    result = result.replace(/\bhref\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (m, quote, url) => {
-      const cleaned = proxyEmailImageUrl(url);
-      return `href=${quote}${cleaned}${quote}`;
-    });
-    // xlink:href
-    result = result.replace(/\bxlink:href\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (m, quote, url) => {
-      const cleaned = proxyEmailImageUrl(url);
-      return `xlink:href=${quote}${cleaned}${quote}`;
-    });
-    return result;
-  });
-
-  // 6. Rewrite SVG <feImage>
-  html = html.replace(/<feImage\b[^>]*>/gi, (imgTag) => {
-    let result = imgTag;
-    result = result.replace(/\bhref\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (m, quote, url) => {
-      const cleaned = proxyEmailImageUrl(url);
-      return `href=${quote}${cleaned}${quote}`;
-    });
-    result = result.replace(/\bxlink:href\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (m, quote, url) => {
-      const cleaned = proxyEmailImageUrl(url);
-      return `xlink:href=${quote}${cleaned}${quote}`;
-    });
-    return result;
-  });
-
-  // 7. Rewrite SVG <use> (references to symbols/defs)
-  html = html.replace(/<use\b[^>]*>/gi, (useTag) => {
-    let result = useTag;
-    result = result.replace(/\bhref\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (m, quote, url) => {
-      const cleaned = proxyEmailImageUrl(url);
-      return `href=${quote}${cleaned}${quote}`;
-    });
-    result = result.replace(/\bxlink:href\s*=\s*(['"])((?:(?!\1).)*)\1/gi, (m, quote, url) => {
-      const cleaned = proxyEmailImageUrl(url);
-      return `xlink:href=${quote}${cleaned}${quote}`;
-    });
-    return result;
-  });
-
-  return html;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LINK PROXY — rewriteEmailLinks
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Map of known ESP/email service redirect domains to query param names
-// that typically contain the real destination URL
-const TRACKING_REDIRECTS = new Map([
-  ['click.mailgun.org', null],
-  ['click.sendgrid.net', null],
-  ['r.sendgrid.net', null],
-  ['sendgrid.com', null],
-  ['sendgrid.info', null],
-  ['sendgrid.net', null],
-  ['mg.sendgrid.com', null],
-  ['click.constantcontact.com', null],
-  ['track.hubspot.com', 'u'],
-  ['mail.hubspot.com', 'u'],
-  ['click2.mailchimp.com', 'u'],
-  ['list-manage.com', null],
-  ['links.constantcontact.com', null],
-  ['links.mkt.salesforce.com', ['lpId', 'url']],
-  ['email2.salesforce.com', null],
-  ['click.mailmark.microsoft.com', null],
-  ['send.mailmark.microsoft.com', null],
-  ['amc.ysm.microsoft.com', null],
-  ['amp.thebrighttag.com', 'redirect_url'],
-  ['track.brevo.com', 'bta_tp'],
-  ['click.brevo.com', 'url'],
-  ['track.marketo.com', 'u'],
-  ['go.marketo.com', 'u'],
-  ['go.recordedfuture.com', 'url'],
-  ['go.okta.com', 'url'],
-  ['go.adobe.com', 'url'],
-  ['links.adobe.com', 'url'],
-  ['mail.activehosted.com', 'u'],
-  ['track.gatherprospects.com', 'url'],
-  ['links.getresponse.com', 'u'],
-  ['links.klaviyo.com', 'url'],
-  ['links.mkt.ontraport.com', 'redirectTo'],
-  ['click.drip.com', 'url'],
-  ['track.beehive.ai', 'goto'],
-  ['mkt.de.invitebox.com', 'goto'],
-  ['mkt.infusionsoft.com', 'goto'],
-  ['mkt.selligent.com', 'url'],
-  ['engage.ab.com', 'u'],
-  ['go.marketingcloud.salesforce.com', 'u'],
-  ['na88.salesforce.com', 'url'],
-  ['na88.marketing.salesforce.com', 'url'],
-  ['track.responsys.net', 'url'],
-  ['d.responseurl.com', 'url'],
-  ['track.nps.responsys.net', 'url'],
-  ['track.smtpbucket.com', 'url'],
-  ['m1.email.samsung.com', null],
-  ['m2.email.samsung.com', null],
-  ['t1.email.samsung.com', null],
-  ['t2.email.samsung.com', null],
-  ['t3.email.samsung.com', null],
-  ['t4.email.samsung.com', null],
-  ['t5.email.samsung.com', null],
-  ['t6.m1.email.samsung.com', null],
-  ['uk.email.samsung.com', null],
-  ['m1.email.samsung.com', null],
-]);
-
-// Generic subdomain prefixes that identify click-tracker domains
-const TRACKING_REDIRECT_PREFIXES = ['click.', 'track.', 'links.', 'trk.', 'go.email.', 'email.'];
-
-/**
- * Try to extract a real destination URL from a redirect.
- * Tries query params first, then base64-encoded path segments (Marketo/Pardot).
- * Handles single, double, and triple percent-encoding layers.
- * Returns the first valid http/https URL found, or null.
- */
-function extractRedirectDest(u, paramSpec) {
-  // 1. Query param extraction
-  const names = Array.isArray(paramSpec) ? paramSpec : (paramSpec ? [paramSpec] : []);
-  for (const name of names) {
-    const raw = u.searchParams.get(name);
-    if (!raw) continue;
-    const decoded = tryDecodeUrl(raw);
-    const dest = safeParseUrl(decoded);
-    if (dest && (dest.protocol === 'http:' || dest.protocol === 'https:')) return decoded;
-  }
-
-  // 2. Base64-encoded path segment (Marketo /r/<base64>, some Pardot variants)
-  const segments = u.pathname.split('/').filter(Boolean);
-  for (const seg of segments) {
-    if (seg.length < 20 || seg.includes('.')) continue;
-    try {
-      const decoded = Buffer.from(seg, 'base64').toString('utf8');
-      const dest = safeParseUrl(decoded);
-      if (dest && (dest.protocol === 'http:' || dest.protocol === 'https:')) return decoded;
-    } catch (_) { /* not valid base64 */ }
-  }
-
-  return null;
-}
-
-/**
- * Match hostname against TRACKING_REDIRECTS and generic prefixes.
- */
-function matchTrackingRedirectDomain(hostname) {
-  hostname = hostname.toLowerCase().replace(/^www\./, '');
-
-  // Exact / subdomain match against known ESP entries
-  for (const [domain, paramSpec] of TRACKING_REDIRECTS) {
-    if (hostname === domain || hostname.endsWith('.' + domain)) {
-      return { key: domain, paramSpec };
-    }
-  }
-
-  // Generic prefix match
-  for (const prefix of TRACKING_REDIRECT_PREFIXES) {
-    if (hostname.startsWith(prefix) && hostname.includes('.', prefix.length)) {
-      return { key: hostname, paramSpec: null };
-    }
-  }
-
-  return null;
-}
-
-/**
- * Rewrite a single href value. Returns the cleaned URL string.
- */
-function rewriteEmailLink(href) {
-  const decoded = href.replace(/&amp;/gi, '&');
-  const preDecoded = tryDecodeUrl(decoded);
-
-  const u = safeParseUrl(preDecoded);
-  if (!u) return href;
-
-  const proto = u.protocol.toLowerCase();
-  if (proto === 'javascript:' || proto === 'data:' || proto === 'vbscript:') return '#';
-
-  if (proto !== 'http:' && proto !== 'https:') return href;
-
-  const hostname = u.hostname.toLowerCase().replace(/^www\./, '');
-
-  const match = matchTrackingRedirectDomain(hostname);
-  if (match) {
-    const destStr = extractRedirectDest(u, match.paramSpec);
-
-    if (destStr) {
-      const destU = safeParseUrl(destStr);
-      if (destU) {
-        const destProto = destU.protocol.toLowerCase();
-        if (destProto === 'javascript:' || destProto === 'data:' || destProto === 'vbscript:') return '#';
-
-        const destHost = destU.hostname.toLowerCase().replace(/^www\./, '');
-        { // redirect tracking removed
-          return destU.toString();
-        }
-      }
-    }
-
-    return u.toString();
-  }
-
-  return href;
-}
-
-function rewriteEmailLinks(html) {
-  if (!html || typeof html !== 'string') return html;
-
-  return html.replace(
-    /(<a\b[^>]*?\bhref\s*=\s*)(['"])(https?:\/\/[^'">\s]+|javascript:[^'">\s]*|data:[^'">\s]*)\2/gi,
-    (_, pre, q, href) => {
-      const clean = rewriteEmailLink(href);
-      return `${pre}${q}${clean}${q}`;
-    }
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // EMAIL HTML SANITISER
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -424,7 +116,12 @@ const DANGEROUS_CSS_ATRULES = /@import\b|@font-face\b/gi;
 
 function escapeTextContent(text) {
   return text
-    .replace(/&/g, '&amp;')
+    // Only escape a bare '&' — one that isn't already the start of a valid
+    // HTML entity reference (&#123;, &#x1F;, &name;). Blindly escaping every
+    // '&' double-encodes entities that were already valid in the source
+    // email (e.g. &#x27; → &amp;#x27;), which the browser then renders as
+    // literal text ("&#x27;") instead of decoding to the intended character.
+    .replace(/&(?!#[0-9]+;|#x[0-9a-fA-F]+;|[a-zA-Z][a-zA-Z0-9]*;)/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
@@ -560,6 +257,7 @@ function sanitizeEmailHtml(html) {
   let out = '';
   let pos = 0;
   const dropStack = [];
+  const unknownTagSubStack = [];
 
   while (pos < html.length) {
     const tagStart = html.indexOf('<', pos);
@@ -572,6 +270,21 @@ function sanitizeEmailHtml(html) {
       out += escapeTextContent(html.slice(pos, tagStart));
     }
 
+    // HTML comments (including MSO conditional comments like
+    // <!--[if gte mso 9]><xml>...<![endif]-->, which are extremely common
+    // boilerplate in commercial email templates) can contain '>' characters
+    // well before their real terminator. Treating the next '>' as the tag's
+    // end — the generic path below — would only skip the "<!--[if ...]>"
+    // opening fragment and then parse the comment's *contents* (<xml>,
+    // <o:PixelsPerInch>, etc.) as if they were real tags, dropping the tags
+    // but keeping their inner text (e.g. a bare "96" from PixelsPerInch>96<).
+    // Comments must be consumed in full, up to the actual '-->'.
+    if (html.startsWith('<!--', tagStart)) {
+      const commentEnd = html.indexOf('-->', tagStart + 4);
+      pos = commentEnd < 0 ? html.length : commentEnd + 3;
+      continue;
+    }
+
     let tagEnd = html.indexOf('>', tagStart);
     if (tagEnd < 0) {
       if (dropStack.length === 0) out += escapeTextContent(html.slice(tagStart));
@@ -581,7 +294,6 @@ function sanitizeEmailHtml(html) {
     const rawTag = html.slice(tagStart, tagEnd + 1);
     pos = tagEnd + 1;
 
-    if (rawTag.startsWith('<!--')) continue;
     if (/^<!doctype/i.test(rawTag)) continue;
     if (rawTag.startsWith('<?')) continue;
 
@@ -589,6 +301,9 @@ function sanitizeEmailHtml(html) {
       const tagName = rawTag.slice(2).replace(/[\s>\/]/g, '').toLowerCase();
       if (dropStack.length > 0 && dropStack[dropStack.length - 1] === tagName) {
         dropStack.pop();
+      } else if (unknownTagSubStack.length > 0 && unknownTagSubStack[unknownTagSubStack.length - 1] === tagName) {
+        unknownTagSubStack.pop();
+        if (dropStack.length === 0) out += '</span>';
       } else if (dropStack.length === 0 && ALLOWED_TAGS.has(tagName)) {
         out += `</${tagName}>`;
       }
@@ -631,7 +346,23 @@ function sanitizeEmailHtml(html) {
       continue;
     }
 
-    if (!ALLOWED_TAGS.has(tagName)) continue;
+    if (!ALLOWED_TAGS.has(tagName)) {
+      // An unrecognised tag (custom ESP element, vendor markup, etc.) is not
+      // itself safe to render, but if it carries a style/class attribute it
+      // may be the *only* thing hiding its own text content (e.g. a hidden
+      // preheader wrapped in a non-standard tag). Dropping the tag outright
+      // would keep the text but throw away the very attributes hiding it,
+      // turning invisible preview-text padding into visible stray text.
+      // Substitute with a neutral <span> carrying the sanitized attrs so any
+      // hiding CSS still applies, instead of unmasking the content.
+      const hasStyleOrClass = /\b(style|class)\s*=/i.test(rawTag);
+      if (hasStyleOrClass && !isSelfClosing) {
+        const cleanAttrs = sanitizeTagAttrs('span', rawTag.replace(/^<[a-zA-Z0-9:_-]+/, '<span'));
+        if (dropStack.length === 0) out += `<span${cleanAttrs}>`;
+        unknownTagSubStack.push(tagName);
+      }
+      continue;
+    }
 
     const cleanAttrs = sanitizeTagAttrs(tagName, rawTag);
     const selfClose = isSelfClosing ? ' /' : '';
@@ -643,7 +374,5 @@ function sanitizeEmailHtml(html) {
 
 module.exports = {
   msgShape,
-  rewriteEmailImages,
-  rewriteEmailLinks,
   sanitizeEmailHtml,
 };

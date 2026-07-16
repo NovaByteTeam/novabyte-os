@@ -95,11 +95,8 @@ function setupMiddleware(app) {
             if (req.path.startsWith('/public/')) return true;
             if (req.path.startsWith('/assets/')) return true;
             if (req.path === '/favicon.ico') return true;
-            // These have their own dedicated limiters and fire many times per email/page load
-            if (req.path === '/api/email-image') return true;
+            // Has its own dedicated limiter and fires many times per page load
             if (req.path === '/api/favicon') return true;
-            // Suggest fires on every keystroke; has its own suggestLimiter (120/min)
-            if (req.path === '/api/suggest') return true;
             return false;
         }
     });

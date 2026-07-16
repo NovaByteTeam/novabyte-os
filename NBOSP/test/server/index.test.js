@@ -54,8 +54,6 @@ vi.mock('../../server/favicons.js', () => ({
 }));
 
 vi.mock('../../server/proxies.js', () => ({
-  setupSuggestProxy: vi.fn(),
-  setupEmailImageProxy: vi.fn(),
   setupFrameCheckProxy: vi.fn(),
   setupAppNetworkProxy: vi.fn(),
 }));

@@ -136,16 +136,6 @@ function ipThrottleMiddleware(req, res, next) {
     if (req.path.startsWith('/api/email/')) {
         return next();
     }
-    // Email image proxy — localhost-only, fires once per inline image per email;
-    // a single HTML email can have 20+ images, easily blowing past 30/min
-    if (req.path.startsWith('/api/email-image')) {
-        return next();
-    }
-    // Search suggest proxy — fires on every keystroke (debounced to ~120ms);
-    // has its own dedicated suggestLimiter (120/min) in server.js
-    if (req.path.startsWith('/api/suggest')) {
-        return next();
-    }
     // Favicon proxy — has its own dedicated faviconLimiter in server.js
     if (req.path.startsWith('/api/favicon')) {
         return next();
