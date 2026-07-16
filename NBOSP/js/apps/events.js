@@ -532,16 +532,16 @@ registerApp({
     }, { signal: ac.signal });
 
     // ── Saved views ─────────────────────────────────────────────────────
-    function promptViewName(existing) {
-      const name = prompt(existing ? 'Rename view:' : 'Name this view:', existing ? existing.name : '');
+    async function promptViewName(existing) {
+      const name = await showPrompt(existing ? 'Rename view:' : 'Name this view:', existing ? existing.name : '');
       if (name === null) return null;
       const trimmed = name.trim();
       if (!trimmed) return null;
       return trimmed;
     }
 
-    saveViewBtn.addEventListener('click', () => {
-      const name = promptViewName(null);
+    saveViewBtn.addEventListener('click', async () => {
+      const name = await promptViewName(null);
       if (!name) return;
       const view = {
         id: 'view_' + Date.now(),
@@ -576,53 +576,124 @@ registerApp({
       render();
     }, { signal: ac.signal });
 
-    manageViewsBtn.addEventListener('click', () => {
-      if (!savedViews.length) { alert('No saved views yet.'); return; }
-      const options = savedViews.map((v, i) => `${i + 1}. ${v.name}`).join('\n') + '\n\nEnter number to rename, "d <number>" to delete, or cancel to close.';
-      const input = prompt(options);
-      if (input === null) return;
-      const trimmed = input.trim();
-      if (!trimmed) return;
-      if (trimmed.startsWith('d ')) {
-        const idx = parseInt(trimmed.slice(2), 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= savedViews.length) { alert('Invalid number.'); return; }
-        const removed = savedViews.splice(idx, 1)[0];
-        saveViews();
-        refreshViewOptions();
-        if (savedViewSelect.value === removed.id) savedViewSelect.value = '';
-        alert(`Deleted "${removed.name}".`);
-      } else {
-        const idx = parseInt(trimmed, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= savedViews.length) { alert('Invalid number.'); return; }
-        const newName = promptViewName(savedViews[idx]);
-        if (newName) { savedViews[idx].name = newName; saveViews(); refreshViewOptions(); }
+    async function openManageViewsModal() {
+      if (!savedViews.length) { await showModal('Manage views', 'No saved views yet.'); return; }
+
+      const body = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;' });
+      for (const v of savedViews) {
+        const row = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:4px 6px;border:1px solid var(--border-subtle);border-radius:4px;' });
+        row.appendChild(createEl('span', { style: 'flex:1;font-size:12px;', textContent: v.name }));
+        const renameBtn = createEl('button', { className: 'btn', textContent: 'Rename', style: 'font-size:11px;padding:3px 8px;' });
+        const deleteBtn = createEl('button', { className: 'btn btn-danger', textContent: 'Delete', style: 'font-size:11px;padding:3px 8px;' });
+        renameBtn.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          const newName = await promptViewName(v);
+          if (newName) { v.name = newName; saveViews(); refreshViewOptions(); row.firstChild.textContent = newName; }
+        });
+        deleteBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          savedViews = savedViews.filter(sv => sv.id !== v.id);
+          saveViews();
+          refreshViewOptions();
+          if (savedViewSelect.value === v.id) savedViewSelect.value = '';
+          row.remove();
+        });
+        row.appendChild(renameBtn);
+        row.appendChild(deleteBtn);
+        body.appendChild(row);
       }
-    }, { signal: ac.signal });
+
+      await showModal('Manage views', body, [{ label: 'Close', primary: true }]);
+    }
+
+    manageViewsBtn.addEventListener('click', () => { openManageViewsModal(); }, { signal: ac.signal });
 
     // ── Alert rules (quick inline) ──────────────────────────────────────
     const alertsBtn = createEl('button', { textContent: '⚡ Alerts', title: 'Manage alert rules', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
     toolbar.appendChild(alertsBtn);
 
-    alertsBtn.addEventListener('click', () => {
-      const existing = alertRules.map((r, i) => `${i + 1}. ${r.enabled ? '✓' : '✗'} [${r.severity || 'any'}] ${r.app || '*'}/${r.category || '*'} "${r.contains || ''}"`).join('\n') || '(none)';
-      const input = prompt(`Alert rules (enter "a <severity> <app> <category> <text>" to add, "t <number>" to toggle, "r <number>" to remove):\n\n${existing}`);
-      if (input === null) return;
-      const t = input.trim();
-      if (!t) return;
-      if (t.startsWith('a ')) {
-        const parts = t.slice(2).split(/\s+/);
-        const rule = { id: 'alert_' + Date.now(), name: parts[0] || 'Unnamed', severity: parts[1] || null, app: parts[2] || null, category: parts[3] || null, contains: parts.slice(4).join(' ') || null, enabled: true, lastFiredAt: null };
+    async function openAlertsModal() {
+      const body = createEl('div', { style: 'display:flex;flex-direction:column;gap:10px;' });
+
+      const list = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto;' });
+      function renderRuleList() {
+        list.innerHTML = '';
+        if (!alertRules.length) {
+          list.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);', textContent: 'No alert rules yet.' }));
+          return;
+        }
+        for (const r of alertRules) {
+          const row = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:4px 6px;border:1px solid var(--border-subtle);border-radius:4px;font-size:11px;' });
+          row.appendChild(createEl('span', {
+            style: 'flex:1;font-family:monospace;color:' + (r.enabled ? 'var(--text-primary)' : 'var(--text-muted)'),
+            textContent: `[${r.severity || 'any'}] ${r.app || '*'}/${r.category || '*'} "${r.contains || ''}"`
+          }));
+          const toggleBtn = createEl('button', { className: 'btn', textContent: r.enabled ? 'Enabled' : 'Disabled', style: 'font-size:11px;padding:3px 8px;' });
+          const removeBtn = createEl('button', { className: 'btn btn-danger', textContent: 'Remove', style: 'font-size:11px;padding:3px 8px;' });
+          toggleBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            r.enabled = !r.enabled;
+            saveAlerts();
+            renderRuleList();
+          });
+          removeBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            alertRules = alertRules.filter(ar => ar.id !== r.id);
+            saveAlerts();
+            renderRuleList();
+          });
+          row.appendChild(toggleBtn);
+          row.appendChild(removeBtn);
+          list.appendChild(row);
+        }
+      }
+      renderRuleList();
+      body.appendChild(list);
+
+      body.appendChild(createEl('div', { style: 'border-top:1px solid var(--border-subtle);margin-top:2px;padding-top:8px;font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;', textContent: 'Add rule' }));
+
+      const form = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
+      const nameInput = createEl('input', { placeholder: 'Rule name', className: 'input', style: 'width:100%;box-sizing:border-box;font-size:11px;' });
+      const fieldsRow = createEl('div', { style: 'display:flex;gap:6px;' });
+      const sevInput = createEl('select', { className: 'input', style: 'flex:1;font-size:11px;' });
+      for (const [value, label] of [['', 'Any severity'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]) {
+        sevInput.appendChild(createEl('option', { value, textContent: label }));
+      }
+      const appInput = createEl('input', { placeholder: 'App (blank = any)', className: 'input', style: 'flex:1;font-size:11px;' });
+      const categoryInput = createEl('input', { placeholder: 'Category (blank = any)', className: 'input', style: 'flex:1;font-size:11px;' });
+      fieldsRow.appendChild(sevInput);
+      fieldsRow.appendChild(appInput);
+      fieldsRow.appendChild(categoryInput);
+      const containsInput = createEl('input', { placeholder: 'Message contains (optional)', className: 'input', style: 'width:100%;box-sizing:border-box;font-size:11px;' });
+      const addBtn = createEl('button', { className: 'btn btn-primary', textContent: '+ Add rule', style: 'align-self:flex-start;font-size:11px;padding:5px 10px;' });
+
+      addBtn.addEventListener('click', () => {
+        const rule = {
+          id: 'alert_' + Date.now(),
+          name: nameInput.value.trim() || 'Unnamed',
+          severity: sevInput.value || null,
+          app: appInput.value.trim() || null,
+          category: categoryInput.value.trim() || null,
+          contains: containsInput.value.trim() || null,
+          enabled: true,
+          lastFiredAt: null,
+        };
         alertRules.push(rule);
         saveAlerts();
-        alert(`Alert rule added: ${rule.name}`);
-      } else if (t.startsWith('t ')) {
-        const idx = parseInt(t.slice(2), 10) - 1;
-        if (!isNaN(idx) && idx >= 0 && idx < alertRules.length) { alertRules[idx].enabled = !alertRules[idx].enabled; saveAlerts(); }
-      } else if (t.startsWith('r ')) {
-        const idx = parseInt(t.slice(2), 10) - 1;
-        if (!isNaN(idx) && idx >= 0 && idx < alertRules.length) { const removed = alertRules.splice(idx, 1)[0]; saveAlerts(); alert(`Removed: ${removed.name}`); }
-      }
-    }, { signal: ac.signal });
+        renderRuleList();
+        nameInput.value = ''; sevInput.value = ''; appInput.value = ''; categoryInput.value = ''; containsInput.value = '';
+      });
+
+      form.appendChild(nameInput);
+      form.appendChild(fieldsRow);
+      form.appendChild(containsInput);
+      form.appendChild(addBtn);
+      body.appendChild(form);
+
+      await showModal('Alert rules', body, [{ label: 'Close', primary: true }]);
+    }
+
+    alertsBtn.addEventListener('click', () => { openAlertsModal(); }, { signal: ac.signal });
 
     // ── Session tracking ────────────────────────────────────────────────
     function recordSessionStart() {
@@ -642,29 +713,68 @@ registerApp({
     const compareBtn = createEl('button', { textContent: '⇔ Compare', title: 'Compare current session with a previous one', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;flex-shrink:0;' });
     toolbar.appendChild(compareBtn);
 
-    compareBtn.addEventListener('click', () => {
+    function renderDiffColumn(label, entries) {
+      const col = createEl('div', { style: 'flex:1;min-width:0;' });
+      col.appendChild(createEl('div', { style: 'font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;', textContent: `${label} (${entries.length})` }));
+      const box = createEl('div', { style: 'max-height:200px;overflow:auto;border:1px solid var(--border-subtle);border-radius:4px;padding:6px;font-family:monospace;font-size:10px;display:flex;flex-direction:column;gap:2px;' });
+      if (!entries.length) {
+        box.appendChild(createEl('div', { style: 'color:var(--text-muted);', textContent: '(none)' }));
+      } else {
+        for (const e of entries.slice(0, 20)) {
+          box.appendChild(createEl('div', {
+            style: `color:${SEVERITY_COLOR[e.severity] || SEVERITY_COLOR.info};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`,
+            title: `${formatTime(e.timestamp)} [${e.severity.toUpperCase()}] [${e.app}] ${e.message}`,
+            textContent: `${formatTime(e.timestamp)} [${e.app}] ${e.message}`
+          }));
+        }
+      }
+      col.appendChild(box);
+      return col;
+    }
+
+    async function openCompareModal() {
       let sessions = [];
       try { sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]'); } catch {}
-      if (sessions.length < 2) { alert('Need at least 2 sessions recorded to compare.'); return; }
-      const listStr = sessions.map((s, i) => `${i + 1}. ${s.id}  (${new Date(s.startedAt).toLocaleString()})`).join('\n');
-      const input = prompt(`Select session to compare with current (enter number):\n\n${listStr}`);
-      if (input === null) return;
-      const idx = parseInt(input.trim(), 10) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= sessions.length) { alert('Invalid selection.'); return; }
-      const other = sessions[idx];
-      const otherEvents = EventLog.getAll().filter(e => {
-        const sessionTime = new Date(other.id.replace('session_', '')).getTime();
-        return e.timestamp >= sessionTime && e.timestamp < sessionTime + 24 * 60 * 60 * 1000;
-      });
-      const currentEvents = EventLog.getAll().filter(e => {
-        const sessionTime = new Date(currentSessionId.replace('session_', '')).getTime();
-        return e.timestamp >= sessionTime && e.timestamp < sessionTime + 24 * 60 * 60 * 1000;
-      });
-      const onlyInOther = otherEvents.filter(e => !currentEvents.some(c => c.id === e.id));
-      const onlyInCurrent = currentEvents.filter(e => !otherEvents.some(o => o.id === e.id));
-      const diff = `=== Session Diff ===\nCurrent: ${currentSessionId}\nOther:   ${other.id}\n\nEvents only in current: ${onlyInCurrent.length}\nEvents only in other:   ${onlyInOther.length}\n\n--- New in current (first 20) ---\n${onlyInCurrent.slice(0, 20).map(e => `${formatTime(e.timestamp)} [${e.severity.toUpperCase()}] [${e.app}] ${e.message}`).join('\n') || '(none)'}\n\n--- New in other (first 20) ---\n${onlyInOther.slice(0, 20).map(e => `${formatTime(e.timestamp)} [${e.severity.toUpperCase()}] [${e.app}] ${e.message}`).join('\n') || '(none)'}`;
-      alert(diff);
-    }, { signal: ac.signal });
+      if (sessions.length < 2) { await showModal('Compare sessions', 'Need at least 2 sessions recorded to compare.'); return; }
+
+      const picker = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto;' });
+      const otherSessions = sessions.filter(s => s.id !== currentSessionId);
+      for (const s of otherSessions) {
+        const row = createEl('button', {
+          className: 'btn',
+          style: 'text-align:left;font-size:11px;padding:6px 8px;',
+          textContent: `${s.id}  (${new Date(s.startedAt).toLocaleString()})`
+        });
+        row.addEventListener('click', () => showDiff(s));
+        picker.appendChild(row);
+      }
+
+      async function showDiff(other) {
+        const otherEvents = EventLog.getAll().filter(e => {
+          const sessionTime = new Date(other.id.replace('session_', '')).getTime();
+          return e.timestamp >= sessionTime && e.timestamp < sessionTime + 24 * 60 * 60 * 1000;
+        });
+        const currentEvents = EventLog.getAll().filter(e => {
+          const sessionTime = new Date(currentSessionId.replace('session_', '')).getTime();
+          return e.timestamp >= sessionTime && e.timestamp < sessionTime + 24 * 60 * 60 * 1000;
+        });
+        const onlyInOther = otherEvents.filter(e => !currentEvents.some(c => c.id === e.id));
+        const onlyInCurrent = currentEvents.filter(e => !otherEvents.some(o => o.id === e.id));
+
+        const diffBody = createEl('div', { style: 'display:flex;flex-direction:column;gap:8px;' });
+        diffBody.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);', textContent: `Current: ${currentSessionId}  vs  Other: ${other.id}` }));
+        const cols = createEl('div', { style: 'display:flex;gap:10px;' });
+        cols.appendChild(renderDiffColumn('New in current', onlyInCurrent));
+        cols.appendChild(renderDiffColumn('New in other', onlyInOther));
+        diffBody.appendChild(cols);
+
+        await showModal('Session diff', diffBody, [{ label: 'Close', primary: true }]);
+      }
+
+      await showModal('Compare sessions', picker, [{ label: 'Cancel' }]);
+    }
+
+    compareBtn.addEventListener('click', () => { openCompareModal(); }, { signal: ac.signal });
 
     render();
   }
