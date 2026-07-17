@@ -120,10 +120,10 @@ const AppRegistry = (() => {
 
   // ── Registration ───────────────────────────────────────────────────────────
 
-  function registerApp(appConfig) {
+  function registerApp(appConfig, options = {}) {
     if (!appConfig?.id || !appConfig?.name) throw new Error('[AppRegistry] App must have id and name');
 
-    if (installedApps.has(appConfig.id)) {
+    if (installedApps.has(appConfig.id) && !options.force) {
       return installedApps.get(appConfig.id);
     }
 
@@ -175,6 +175,19 @@ const AppRegistry = (() => {
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Registered ${app.name} (${app.id}) v${app.version}`, data: { appId: app.id, version: app.version, verified: app.verified } });
     }
+
+    // AppRegistry.registerApp() only ever touched installedApps + OS.apps.
+    // The launchpad (and taskbar) render from the separate APP_REGISTRY
+    // array maintained by the global window.registerApp() in registry.js —
+    // installs never reached it, so a package could report success and
+    // still never show up anywhere in the UI. Route through the same
+    // global registrar here so both registries stay in sync, same as
+    // every statically-loaded app already does on boot.
+    if (typeof window !== 'undefined' && typeof window.registerApp === 'function' && OS?.apps?.[app.id]) {
+      window.registerApp(OS.apps[app.id]);
+      if (typeof renderLaunchpad === 'function') renderLaunchpad();
+    }
+
     for (const cb of _onInstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return app;
   }
@@ -189,6 +202,15 @@ const AppRegistry = (() => {
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Unregistered ${appId}`, data: { appId } });
     }
+
+    // Mirror the registerApp() sync above — remove the stale entry from
+    // APP_REGISTRY too, or an uninstalled app keeps showing in the launchpad.
+    if (typeof window !== 'undefined' && Array.isArray(window.APP_REGISTRY)) {
+      const idx = window.APP_REGISTRY.findIndex(a => a.id === appId);
+      if (idx !== -1) window.APP_REGISTRY.splice(idx, 1);
+      if (typeof renderLaunchpad === 'function') renderLaunchpad();
+    }
+
     for (const cb of _onUninstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return true;
   }

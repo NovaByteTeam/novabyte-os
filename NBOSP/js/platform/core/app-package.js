@@ -531,7 +531,7 @@ const AppPackage = (() => {
       installedDate: new Date().toISOString()
     };
 
-    const registered = (typeof AppRegistry !== 'undefined') && AppRegistry?.registerApp(appConfig);
+    const registered = (typeof AppRegistry !== 'undefined') && AppRegistry?.registerApp(appConfig, { force: !!options.force });
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'Packages',
