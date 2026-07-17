@@ -93,7 +93,20 @@ const OS = {
     
     get(key) { 
       // Direct bracket verification avoids the prototype traversal cost of the 'in' keyword
-      return this._cache[key] !== undefined ? this._cache[key] : this.defaults[key]; 
+      const val = this._cache[key] !== undefined ? this._cache[key] : this.defaults[key];
+      // FIX: return a deep clone, never the live cached reference. Callers
+      // (e.g. desktop icon drag/swap) mutate the returned object in place
+      // and then pass that same object to set(). Since set() just assigns
+      // this._cache[key] = value, handing back a live reference makes that
+      // assignment a no-op — the mutation already happened directly on the
+      // cache before set() (and its persist call + settings:changed event)
+      // ever ran, causing one write of a two-step swap to be lost/raced.
+      // Cloning here guarantees every get() is a fresh, independently
+      // mutable snapshot, so set() always assigns a genuinely new object.
+      if (val !== null && typeof val === 'object') {
+        try { return structuredClone(val); } catch { return JSON.parse(JSON.stringify(val)); }
+      }
+      return val;
     },
     
     set(key, value) {
