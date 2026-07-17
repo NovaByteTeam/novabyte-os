@@ -1,6 +1,22 @@
 const rateLimit = require('express-rate-limit');
 const dns = require('dns');
+const fs = require('fs');
+const path = require('path');
 const ServerEventLog = require('./core/server-event-log');
+
+// TEMPORARY DEBUG LOGGING — remove once the net:external / proxy issue is
+// diagnosed. ServerEventLog is intentionally in-memory only (see
+// server-event-log.js), so this appends the same detail to a plain file
+// for post-mortem inspection across restarts.
+const DEBUG_LOG_PATH = path.join(__dirname, '..', '..', 'server.log');
+function debugLog(label, details) {
+    try {
+        const line = `[${new Date().toISOString()}] ${label} ${JSON.stringify(details)}\n`;
+        fs.appendFileSync(DEBUG_LOG_PATH, line);
+    } catch (e) {
+        // best-effort only — never let debug logging break the request
+    }
+}
 
 // ── Frame-Embed Check Proxy ────────────────────────────────────────────────
 // Resolves whether a URL can be embedded in an <iframe> by inspecting the
@@ -244,19 +260,26 @@ const appProxyLimiter = rateLimit({
 function setupAppNetworkProxy(app) {
     app.post('/api/proxy', appProxyLimiter, requireSession, async (req, res) => {
         const { url: rawUrl, method: rawMethod, headers: reqHeaders, body: reqBody } = req.body ?? {};
+        debugLog('PROXY_REQUEST_IN', { rawUrl, rawMethod });
 
         // Validate URL
         if (!rawUrl || typeof rawUrl !== 'string') {
+            debugLog('PROXY_REJECT_NO_URL', { rawUrl });
             return res.status(400).json({ error: 'url is required' });
         }
         let urlObj;
         try { urlObj = new URL(rawUrl); }
-        catch (_) { return res.status(400).json({ error: 'Invalid URL' }); }
+        catch (_) {
+            debugLog('PROXY_REJECT_INVALID_URL', { rawUrl });
+            return res.status(400).json({ error: 'Invalid URL' });
+        }
 
         if (!['http:', 'https:'].includes(urlObj.protocol)) {
+            debugLog('PROXY_REJECT_PROTOCOL', { rawUrl, protocol: urlObj.protocol });
             return res.status(400).json({ error: 'Only http and https URLs are supported' });
         }
         if (_isPrivateHost(urlObj.hostname)) {
+            debugLog('PROXY_REJECT_PRIVATE_HOST', { hostname: urlObj.hostname });
             ServerEventLog.log({
                 app: 'AppNetworkProxy',
                 severity: 'warn',
@@ -266,6 +289,7 @@ function setupAppNetworkProxy(app) {
             return res.status(403).json({ error: 'Internal URLs are not permitted' });
         }
         if (await _dnsCheckPrivate(urlObj.hostname)) {
+            debugLog('PROXY_REJECT_DNS_PRIVATE', { hostname: urlObj.hostname });
             ServerEventLog.log({
                 app: 'AppNetworkProxy',
                 severity: 'warn',
@@ -342,6 +366,14 @@ function setupAppNetworkProxy(app) {
                 });
             } catch (err) {
                 clearTimeout(timer);
+                debugLog('PROXY_FETCH_THREW', {
+                    hostname: urlObj.hostname,
+                    currentUrl,
+                    message: err.message,
+                    code: err.code || (err.cause && err.cause.code) || null,
+                    causeMessage: err.cause && err.cause.message,
+                    stack: err.stack,
+                });
                 ServerEventLog.log({
                     app: 'AppNetworkProxy',
                     severity: 'error',
@@ -366,8 +398,10 @@ function setupAppNetworkProxy(app) {
         }
 
         if (!resp) {
+            debugLog('PROXY_TOO_MANY_REDIRECTS', { hostname: urlObj.hostname });
             return res.status(502).json({ error: 'Too many redirects' });
         }
+        debugLog('PROXY_FETCH_OK', { hostname: urlObj.hostname, status: resp.status });
 
         // Read response body with size cap
         const chunks = [];

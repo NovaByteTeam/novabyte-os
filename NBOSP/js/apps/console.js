@@ -153,7 +153,17 @@ registerApp({
     // to the real console methods so DevTools users see it too — this is
     // additive capture, not a silent redirect.
     const REAL_CONSOLE = { log: console.log, warn: console.warn, error: console.error, info: console.info };
-    function withCapturedConsole(fn) {
+    // NOTE: this must be async. If fn() returns a promise (e.g. the user's
+    // eval'd code is an async IIFE), the old synchronous version restored
+    // the real console.* methods in `finally` the instant fn() returned —
+    // which happens immediately, before any of that promise's *own*
+    // console.log calls actually run on the microtask queue. Those calls
+    // still hit the real console (nothing throws), but by then `captured`
+    // has already been read out empty by the caller, so the in-app Console
+    // silently shows no output even though the code succeeded. Awaiting a
+    // thenable result here keeps capture active until the async code is
+    // actually done running.
+    async function withCapturedConsole(fn) {
       const captured = [];
       const wrap = (level) => (...args) => {
         captured.push({ level, text: args.map(a => {
@@ -167,7 +177,10 @@ registerApp({
       console.error = wrap('error');
       console.info = wrap('info');
       try {
-        const result = fn();
+        let result = fn();
+        if (result && typeof result.then === 'function') {
+          result = await result;
+        }
         return { result, captured };
       } finally {
         console.log = REAL_CONSOLE.log;
@@ -209,7 +222,7 @@ registerApp({
     // there. Kept this section marker so the surrounding code's original
     // structure/order is still easy to follow.
 
-    function run() {
+    async function run() {
       const code = input.value.trim();
       if (!code) return;
       if (!hasRun) {
@@ -218,7 +231,7 @@ registerApp({
         hasRun = true;
       }
       try {
-        const { result, captured } = withCapturedConsole(() => eval(code));
+        const { result, captured } = await withCapturedConsole(() => eval(code));
         let out = `\n> ${code}\n`;
         if (captured.length) {
           out += captured.map(c => `${c.level === 'error' ? '✗' : c.level === 'warn' ? '⚠' : '·'} ${c.text}`).join('\n') + '\n';

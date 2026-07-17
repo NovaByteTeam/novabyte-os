@@ -297,11 +297,17 @@ const AppSandbox = (() => {
         log('error', `Failed to respond to ${type}: no message source captured yet for this webview`);
         return;
       }
+      console.log('[NOVA_DEBUG] respond() about to postMessage', {
+        type: `${type}:response`, requestId, targetType: typeof target,
+        targetClosed: target && target.closed, origin: window.location.origin,
+      });
       target.postMessage(
         { type: `${type}:response`, requestId, result, error },
         window.location.origin
       );
+      console.log('[NOVA_DEBUG] respond() postMessage call completed without throwing');
     } catch (e) {
+      console.log('[NOVA_DEBUG] respond() postMessage THREW', e);
       log('error', `Failed to respond to ${type}:`, e);
     }
   }
