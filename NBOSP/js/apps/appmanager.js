@@ -1752,6 +1752,104 @@ registerApp({
           const { w: wUrl, inp: urlInp } = mkField('URL *', 'url', 'https://example.com', 'web-app-url-input', 'web-app-url');
           const { w: wName, inp: nameInp } = mkField('Name *', 'text', 'My App', 'web-app-name-input', 'web-app-name');
 
+          // ── Custom icon (optional) ──────────────────────────────
+          // Icons are stored inline as a data: URL string (see
+          // WebAppManager.LIMITS.MAX_ICON_LENGTH — currently 2048 chars),
+          // so any uploaded image must be downscaled + compressed to fit.
+          // If the user skips this, addApp() falls back to a DuckDuckGo
+          // favicon lookup automatically.
+          let customIconDataUrl = null; // set once a valid image is processed
+
+          const wIcon = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;' });
+          const iconLabel = createEl('label', {
+            style: 'font-size:11px;font-weight:600;color:var(--text-muted);',
+            textContent: 'Icon (optional)'
+          });
+          const iconRow = createEl('div', { style: 'display:flex;align-items:center;gap:10px;' });
+
+          const iconPreview = createEl('div', {
+            style: 'width:40px;height:40px;border-radius:10px;background:var(--bg-sunken);border:1px solid var(--border-default);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;'
+          });
+          iconPreview.innerHTML = svgIcon('globe', 16);
+
+          const iconFileInp = createEl('input', {
+            type: 'file', accept: 'image/*', id: 'web-app-icon-input', name: 'web-app-icon',
+            style: 'display:none;'
+          });
+          const iconPickBtn = createEl('button', {
+            style: 'padding:7px 10px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);cursor:pointer;font-size:12px;'
+          });
+          iconPickBtn.textContent = 'Choose image\u2026';
+          const iconClearBtn = createEl('button', {
+            style: 'padding:7px 10px;background:transparent;border:none;color:var(--text-muted);cursor:pointer;font-size:12px;display:none;'
+          });
+          iconClearBtn.textContent = 'Remove';
+
+          const iconErrEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });
+
+          // Downscale + compress an uploaded image into a small square data
+          // URL that fits under MAX_ICON_LENGTH. Tries a shrinking sequence
+          // of sizes/qualities since source images vary wildly in detail.
+          function processIconFile(file) {
+            iconErrEl.textContent = '';
+            if (!file.type.startsWith('image/')) {
+              iconErrEl.textContent = 'Please choose an image file.';
+              return;
+            }
+            const MAX_ICON_LEN = 2048; // mirrors WebAppManager.LIMITS.MAX_ICON_LENGTH
+            const img = new Image();
+            const objectUrl = URL.createObjectURL(file);
+            img.onload = () => {
+              URL.revokeObjectURL(objectUrl);
+              const attempts = [
+                [64, 0.7], [48, 0.7], [40, 0.6], [32, 0.6], [24, 0.5]
+              ];
+              let result = null;
+              for (const [size, quality] of attempts) {
+                const canvas = document.createElement('canvas');
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                // Cover-fit the source image into the square canvas.
+                const scale = Math.max(size / img.width, size / img.height);
+                const dw = img.width * scale, dh = img.height * scale;
+                ctx.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+                const dataUrl = canvas.toDataURL('image/jpeg', quality);
+                if (dataUrl.length <= MAX_ICON_LEN) { result = dataUrl; break; }
+              }
+              if (!result) {
+                iconErrEl.textContent = 'Image is too complex to fit as an icon. Try a simpler image.';
+                return;
+              }
+              customIconDataUrl = result;
+              iconPreview.innerHTML = '';
+              const previewImg = createEl('img', { src: result, style: 'width:100%;height:100%;object-fit:cover;', draggable: 'false' });
+              iconPreview.appendChild(previewImg);
+              iconClearBtn.style.display = '';
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(objectUrl);
+              iconErrEl.textContent = 'Could not read that image.';
+            };
+            img.src = objectUrl;
+          }
+
+          iconPickBtn.addEventListener('click', () => iconFileInp.click(), listenerOpts);
+          iconFileInp.addEventListener('change', () => {
+            const file = iconFileInp.files && iconFileInp.files[0];
+            if (file) processIconFile(file);
+          }, listenerOpts);
+          iconClearBtn.addEventListener('click', () => {
+            customIconDataUrl = null;
+            iconFileInp.value = '';
+            iconErrEl.textContent = '';
+            iconPreview.innerHTML = svgIcon('globe', 16);
+            iconClearBtn.style.display = 'none';
+          }, listenerOpts);
+
+          iconRow.append(iconPreview, iconPickBtn, iconClearBtn, iconFileInp);
+          wIcon.append(iconLabel, iconRow, iconErrEl);
+
           const errEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });
           const saveBtn = createEl('button', {
             style: 'padding:10px;background:var(--accent);color:#fff;border:none;border-radius:9px;cursor:pointer;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px;'
@@ -1766,7 +1864,7 @@ registerApp({
             try { new URL(url); } catch { errEl.textContent = 'Please enter a valid URL.'; return; }
             if (!name) { errEl.textContent = 'Name is required.'; return; }
 
-            const addedApp = wam ? wam.addApp({ name, url }) : null;
+            const addedApp = wam ? wam.addApp({ name, url, icon: customIconDataUrl || undefined }) : null;
             if (addedApp) {
               Notify.show({ title: 'App Added', body: `"${name}" is now available.`, type: 'success', appName: 'App Manager' });
               selectedWebId = addedApp.id;
@@ -1775,7 +1873,7 @@ registerApp({
             }
           }, listenerOpts);
 
-          cbody.append(wUrl, wName, errEl, saveBtn);
+          cbody.append(wUrl, wName, wIcon, errEl, saveBtn);
           card.appendChild(cbody);
           wrap.appendChild(card);
           right.appendChild(wrap);
