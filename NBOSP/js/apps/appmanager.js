@@ -598,7 +598,7 @@ registerApp({
       return {
         id: appId,
         name: appData.name,
-        icon: appData.icon || 'box',
+        icon: appData.icon || '/assets/no_app_icon.svg',
         description: appData.description || '',
         defaultSize: appData.defaultSize || [800, 560],
         minSize: appData.minSize || [400, 300],
@@ -800,7 +800,7 @@ registerApp({
               appData.manifest = pkgData;
               appData.name = appData.name || pkgData.name || appData.id;
               appData.description = appData.description || pkgData.description || '';
-              appData.icon = appData.icon || pkgData.icon || 'box';
+              appData.icon = appData.icon || pkgData.icon || '/assets/no_app_icon.svg';
               appData.defaultSize = appData.defaultSize || pkgData.defaultSize || [800, 560];
               appData.minSize = appData.minSize || pkgData.minSize || [400, 300];
             }
@@ -1174,10 +1174,10 @@ registerApp({
           const iconSrc = resolveIcon(app);
           if (iconSrc) {
             const _img = createEl('img', { src: iconSrc, draggable: 'false', style: 'width:100%;height:100%;object-fit:cover;border-radius:8px;pointer-events:none;' });
-            _img.onerror = () => { iconWrap.innerHTML = svgIcon('box', 17); };
+            _img.onerror = () => { iconWrap.innerHTML = svgIcon('/assets/no_app_icon.svg', 17); };
             iconWrap.appendChild(_img);
           } else {
-            iconWrap.innerHTML = svgIcon(app.icon || 'box', 17);
+            iconWrap.innerHTML = svgIcon(app.icon || '/assets/no_app_icon.svg', 17);
           }
           const meta = createEl('div', { style: 'flex:1;min-width:0;' });
           // SECURITY: Use escapeHtml for user-controlled app.name
@@ -1239,10 +1239,10 @@ registerApp({
         const iconSrc = resolveIcon(app);
         if (iconSrc) {
           const _img = createEl('img', { src: iconSrc, draggable: 'false', style: 'width:100%;height:100%;object-fit:cover;border-radius:13px;pointer-events:none;' });
-          _img.onerror = () => { hIcon.innerHTML = svgIcon('box', 28); };
+          _img.onerror = () => { hIcon.innerHTML = svgIcon('/assets/no_app_icon.svg', 28); };
           hIcon.appendChild(_img);
         } else {
-          hIcon.innerHTML = svgIcon(app.icon || 'box', 28);
+          hIcon.innerHTML = svgIcon(app.icon || '/assets/no_app_icon.svg', 28);
         }
         const hMeta = createEl('div', { style: 'flex:1;min-width:0;' });
         // SECURITY: escapeHtml for app.name and app.author (user-controlled)
@@ -1555,6 +1555,35 @@ registerApp({
           if (PackageStore?.removeApp) await PackageStore.removeApp(appId, { updateRegistry: false });
         } catch (e) {
           console.warn('[AppManager] Failed to remove stored package files for', appId, e);
+        }
+        try {
+          if (typeof AppDirs !== 'undefined') {
+            if (OPFS.available && OPFS.root) {
+              try { await OPFS.deletePath('data/' + appId, true); } catch { /* ignore */ }
+              try { await OPFS.deletePath('data/data/' + appId, true); } catch { /* ignore */ }
+              delete AppDirs._handles?.[appId];
+              delete AppDirs.vfsFolders?.[appId];
+            }
+            if (typeof FS !== 'undefined' && FS.specialFolders?.data) {
+              try {
+                const files = FS.listDir(FS.specialFolders.data);
+                const match = files.find(f => f.name === appId && f.type === 'folder');
+                if (match) {
+                  try {
+                    await FS.permanentDelete(match.id);
+                  } catch (e) {
+                    console.warn('[AppManager] permanentDelete failed for', appId, e);
+                    const children = FS.listDir(match.id);
+                    for (const child of children) {
+                      try { await FS.permanentDelete(child.id); } catch { /* ignore */ }
+                    }
+                  }
+                }
+              } catch { /* ignore */ }
+            }
+          }
+        } catch (e) {
+          console.warn('[AppManager] Failed to clear app data for', appId, e);
         }
         installedApps = installedApps.filter(a => a.id !== appId);
         saveStoredApps(installedApps);

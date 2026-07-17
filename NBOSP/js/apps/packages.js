@@ -729,7 +729,85 @@ registerApp({
             source: 'packages-app',
           };
           const result = await AppPackage.installPackage(pkg, options);
-          showResult(box, true, result);
+          if (!result?.success || !result.app) {
+            showResult(box, false, { error: 'Install failed: ' + (result?.error || 'unknown') });
+            return;
+          }
+
+          const PackageStore = window.NovaAppPackageStore || null;
+          const appData = {
+            id: pkg.manifest.id,
+            name: pkg.manifest.name,
+            version: pkg.manifest.version,
+            entry: pkg.manifest.entry,
+            icon: pkg.manifest.icon,
+            description: pkg.manifest.description || '',
+            category: pkg.manifest.category || 'other',
+            permissions: pkg.manifest.permissions || [],
+            optionalPermissions: pkg.manifest.optionalPermissions || [],
+            files: pkg.files || {},
+            signature: pkg.signature,
+            verified: result.verified,
+            signer: result.signer,
+            source: 'packages-app',
+            installedDate: new Date().toISOString(),
+          };
+
+          if (PackageStore?.installApp) {
+            try {
+              const meta = await PackageStore.installApp(appData);
+              const list = PackageStore.loadRegistry ? PackageStore.loadRegistry() : [];
+              const idx = list.findIndex(a => a.id === appData.id);
+              const entry = { ...(idx > -1 ? list[idx] : {}), ...meta, ...appData, id: appData.id };
+              if (idx > -1) list[idx] = entry; else list.push(entry);
+              PackageStore.saveRegistry(list);
+            } catch (e) {
+              console.warn('[Packages] Failed to persist installed app files:', e);
+            }
+          }
+
+          const registered = result.app || OS.apps[appData.id];
+          const resolvedIcon = appData.icon || registered?.icon || '/assets/no_app_icon.svg';
+
+          if (appData.icon && !/^data:|^https?:\/\//i.test(appData.icon) && appData.files[appData.icon]) {
+            const encoded = appData.files[appData.icon];
+            const ext = (appData.icon.split('.').pop() || '').toLowerCase();
+            const mime = ext === 'svg' ? 'image/svg+xml'
+              : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+              : ext === 'gif' ? 'image/gif'
+              : ext === 'webp' ? 'image/webp'
+              : ext === 'ico' ? 'image/x-icon'
+              : 'image/png';
+            appData.icon = `data:${mime};base64,${encoded}`;
+          }
+
+          const cfg = {
+            id: appData.id,
+            name: appData.name,
+            icon: appData.icon,
+            description: appData.description,
+            version: appData.version,
+            entry: appData.entry,
+            defaultSize: [800, 600],
+            minSize: [400, 300],
+            maxSize: null,
+            resizable: true,
+            frame: true,
+            sandbox: { allowSameOrigin: false, allowScripts: true, allowForms: true, allowPopups: false },
+            categories: [appData.category || 'other'],
+            permissions: appData.permissions,
+            optionalPermissions: appData.optionalPermissions,
+            init: (content, state, options) => AppRegistry.launchApp(appData.id, content, state, options),
+          };
+          OS.apps[appData.id] = cfg;
+          const ri = APP_REGISTRY.findIndex(a => a.id === appData.id);
+          if (ri > -1) APP_REGISTRY[ri] = cfg; else APP_REGISTRY.push(cfg);
+
+          showResult(box, true, { ...result, persisted: true, message: `${appData.name} v${appData.version} installed and registered.` });
+          if (typeof renderLaunchpad === 'function') renderLaunchpad();
+          if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+          if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+          Notify.show({ title: 'App Installed', body: `${appData.name} v${appData.version} installed successfully.`, type: 'success', appName: 'Packages' });
         } catch (e) {
           showResult(box, false, { error: e.message });
         } finally {

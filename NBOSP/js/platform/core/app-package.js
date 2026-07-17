@@ -532,6 +532,34 @@ const AppPackage = (() => {
     };
 
     const registered = (typeof AppRegistry !== 'undefined') && AppRegistry?.registerApp(appConfig, { force: !!options.force });
+
+    if (registered && typeof window.NovaAppPackageStore !== 'undefined' && window.NovaAppPackageStore.installApp) {
+      try {
+        await window.NovaAppPackageStore.installApp({
+          id: appConfig.id,
+          name: appConfig.name,
+          version: appConfig.version,
+          entry: appConfig.entry,
+          icon: appConfig.icon,
+          description: appConfig.description || '',
+          category: appConfig.category || 'other',
+          permissions: appConfig.permissions || [],
+          optionalPermissions: appConfig.optionalPermissions || [],
+          files: appConfig.files || {},
+          signature: appConfig.signature,
+          verified,
+          signer,
+          source: appConfig.source,
+          installedDate: appConfig.installedDate,
+          manifest: pkg.manifest,
+          signing: pkg.signing,
+          integrity: pkg.integrity,
+        });
+      } catch (e) {
+        console.warn('[AppPackage] Failed to persist installed app to NovaAppPackageStore:', e);
+      }
+    }
+
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'Packages',

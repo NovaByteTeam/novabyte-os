@@ -143,7 +143,7 @@ const AppRegistry = (() => {
     }
 
     const app = {
-      icon: 'app-window', description: '', version: '1.0.0', author: 'Unknown',
+      icon: '/assets/no_app_icon.svg', description: '', version: '1.0.0', author: 'Unknown',
       type: 'webapp', entry: 'index.html', permissions: [], optionalPermissions: [],
       defaultSize: [800, 600], minSize: [400, 300], maxSize: null,
       resizable: true, frame: true, sandbox: { allowSameOrigin: false, allowScripts: true, allowForms: true, allowPopups: false },

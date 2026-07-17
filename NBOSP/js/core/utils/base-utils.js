@@ -747,6 +747,12 @@
         ' draggable="false" alt="" aria-hidden="true" data-hide-on-error>';
     }
 
+    if (typeof name === 'string' && name.startsWith('/assets/')) {
+      return '<img src="' + name + '" width="' + safeSize + '" height="' + safeSize +
+        '" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;"' +
+        ' draggable="false" alt="" aria-hidden="true">';
+    }
+
     // Web apps (WebAppManager) store their icon as a plain emoji character
     // (e.g. the '🌐' default) rather than a UI_ICONS key or icons8 name.
     // Without this check that string falls through to the icons8 <img>

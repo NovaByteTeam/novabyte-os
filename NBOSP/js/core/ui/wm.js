@@ -1003,7 +1003,7 @@ const WM = window.WM = (() => {
           'aria-label': app.name + (hasMultipleWindows ? ` (${windows.length} windows)` : ''),
         });
 
-        btn.innerHTML = svgIcon(app.icon, 20);
+        btn.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 20);
         btn.appendChild(createEl('span', { className: 'indicator' }));
         if (hasMultipleWindows) {
           btn.appendChild(createEl('span', {

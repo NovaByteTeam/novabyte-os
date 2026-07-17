@@ -1692,7 +1692,7 @@ function renderDesktopIcons() {
       style: _getInitialIconPosition(key, idx, iconPositions, desktop)
     });
     const img = createEl('div', { className: 'desktop-icon-img' });
-    img.innerHTML = svgIcon(app.icon, 40);
+    img.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 40);
     const label = createEl('div', { className: 'desktop-icon-label', textContent: app.name });
     icon.appendChild(img);
     icon.appendChild(label);
@@ -1840,7 +1840,8 @@ function renderDesktopIcons() {
     const img = createEl('div', { className: 'desktop-icon-img' });
 
     if (isShortcut && shortcutData) {
-      img.innerHTML = svgIcon(shortcutData.icon, 40);
+      const isWebShortcut = shortcutData.target && shortcutData.target.startsWith('webapp_');
+      img.innerHTML = svgIcon(isWebShortcut ? shortcutData.icon : (shortcutData.icon || '/assets/no_app_icon.svg'), 40);
       const arrow = createEl('div', {
         style: 'position:absolute;bottom:0;right:0;width:16px;height:16px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:white;font-weight:bold;'
       });

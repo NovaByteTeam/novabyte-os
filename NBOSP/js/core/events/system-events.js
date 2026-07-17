@@ -126,7 +126,7 @@ function renderLaunchpad() {
         draggable: 'true'
       });
       const icon = createEl('div', { className: 'launchpad-icon' });
-      icon.innerHTML = svgIcon(app.icon, 28);
+      icon.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 28);
       item.appendChild(icon);
       item.appendChild(createEl('div', { className: 'launchpad-name', textContent: app.name }));
 
@@ -1207,7 +1207,7 @@ function showAppSwitcher() {
     if (!app) return;
     const item = createEl('div', { className: 'app-switcher-item' + (i === 0 ? ' active' : '') });
     const icon = createEl('div', { className: 'app-switcher-icon' });
-    icon.innerHTML = svgIcon(app.icon, 32);
+    icon.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 32);
     item.appendChild(icon);
     item.appendChild(createEl('div', { className: 'app-switcher-name', textContent: app.name }));
     list.appendChild(item);
