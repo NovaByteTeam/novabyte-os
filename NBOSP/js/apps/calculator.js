@@ -278,8 +278,6 @@ registerApp({
         case '%': case '.': case '0': case '1': case '2': case '3':
         case '4': case '5': case '6': case '7': case '8': case '9':
           e.preventDefault(); append(k); break;
-        case '÷': e.preventDefault(); append('÷'); break;
-        case '×': e.preventDefault(); append('×'); break;
         case '−': e.preventDefault(); append('-'); break;
         case 'Enter': case '=': e.preventDefault(); equals(); break;
         case 'Backspace': e.preventDefault(); backspace(); break;
