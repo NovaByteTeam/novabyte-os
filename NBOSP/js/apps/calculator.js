@@ -33,7 +33,7 @@ registerApp({
         this.#skip();
 
         if (this.#i < this.#len) throw new SyntaxError();
-        // NaN check: v !== v; Infinity/-Infinity check explicit
+        // NaN check: v !== v; Infinity/-Infinity check (also catches ÷0)
         if (v !== v || v === Infinity || v === -Infinity) throw new RangeError();
         return v;
       }
