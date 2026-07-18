@@ -280,6 +280,21 @@ const WM = window.WM = (() => {
         const { files } = e.dataTransfer;
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
+
+          if (window.Scanner) {
+            let verdict;
+            try {
+              verdict = await window.Scanner.scan(file);
+            } catch (err) {
+              console.warn('[WM] Scanner error:', err);
+              verdict = { safe: false, reason: `Could not verify "${file.name}" — dropped in a safe state and skipped.` };
+            }
+            if (!verdict.safe) {
+              Notify.show({ title: 'File Blocked', body: verdict.reason, type: 'error', appName: 'Security' });
+              continue;
+            }
+          }
+
           if (app.onDrop) {
             try {
               await app.onDrop(file, state);

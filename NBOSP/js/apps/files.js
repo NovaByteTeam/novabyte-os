@@ -1065,6 +1065,19 @@
         Notify.show({ title: 'Error', body: 'Invalid file dropped.', type: 'error', appName: 'Files' });
         return;
       }
+      if (window.Scanner) {
+        let verdict;
+        try {
+          verdict = await window.Scanner.scan(file);
+        } catch (err) {
+          console.warn('[Files] Scanner error:', err);
+          verdict = { safe: false, reason: `Could not verify "${file.name}" — dropped in a safe state and skipped.` };
+        }
+        if (!verdict.safe) {
+          Notify.show({ title: 'File Blocked', body: verdict.reason, type: 'error', appName: 'Security' });
+          return;
+        }
+      }
       try {
         const fileId = generateId();
         const buffer = await file.arrayBuffer();

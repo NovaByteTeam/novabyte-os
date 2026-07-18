@@ -565,6 +565,7 @@ novabyte-os/
 │  │  │  │  └── system-events.js # Global event bus
 │  │  │  ├── services/      # Core OS services
 │  │  │  │  ├── fs.js      # Virtual filesystem API
+│  │  │  │  ├── scanner.js   # Heuristic malicious-file scanner (drag-and-drop, .novaapp installs)
 │  │  │  │  ├── notifications.js # Notification system
 │  │  │  │  ├── calendar-notifier.js # Polls saved calendar events and fires upcoming-event reminders
 │  │  │  │  ├── registry.js   # Core app registry

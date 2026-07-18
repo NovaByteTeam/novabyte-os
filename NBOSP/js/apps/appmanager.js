@@ -6,6 +6,28 @@ registerApp({
   description: 'Install, manage, and customise .novaapp packages and web apps',
   defaultSize: [980, 640],
   minSize: [720, 480],
+  // Routes a dropped file straight into the install flow, no matter which
+  // tab/view is currently showing. Without this, only the empty-state drop
+  // zone inside renderDetail() could catch a drop — anywhere else in the
+  // window, the window manager's generic content-level drop handler would
+  // take over instead (since no onDrop meant "no app-specific handling"),
+  // silently writing the .novaapp file into the Files vault and opening it
+  // there rather than installing it.
+  async onDrop(file, state) {
+    if (!file || typeof file.name !== 'string') return;
+    if (!file.name.endsWith('.novaapp')) {
+      Notify.show({ title: 'Invalid File', body: 'Please select a valid .novaapp package.', type: 'error', appName: 'App Manager' });
+      return;
+    }
+    const processFile = state?.content?._novaAppProcessFile;
+    if (typeof processFile === 'function') {
+      processFile(file);
+    } else {
+      // App Manager window isn't fully initialized yet (rare timing edge,
+      // e.g. dropping mid-boot) — fail loudly rather than silently no-op.
+      Notify.show({ title: 'Not Ready', body: 'App Manager is still loading — try the drop again in a moment.', type: 'error', appName: 'App Manager' });
+    }
+  },
   async init(content) {
     // ── NovaByte runtime guard — refuses to launch without AppDirs ──
     if (!window.AppDirs?.getVFSDir('com.nbosp.appmanager', 'files')) {
@@ -440,7 +462,90 @@ registerApp({
       });
     }
 
-    
+    // ── Malicious file dialog ──────────────────────────────────────────
+    // Shown when Scanner.scanText() flags a file inside a .novaapp package
+    // during install. Deliberately NOT the same shape as the trust/tamper
+    // dialogs above: those are "proceed at your own risk" gates with a
+    // type-to-confirm override, because a valid-but-untrusted signature or
+    // a hash mismatch is ambiguous — it could be a legitimate publishing
+    // mistake. A Scanner hit is not ambiguous in the same way: it means a
+    // file inside the package matched a known-bad pattern (disguised
+    // executable, embedded script in a rendered file, obfuscated code,
+    // packed binary masquerading as text). There's no legitimate reason
+    // for that to be present, so this dialog only acknowledges and cancels
+    // — no path to install anyway.
+    function showMaliciousFileDialog(appData, { fileName, reason } = {}) {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+
+        const backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.5);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 40px rgba(248,81,73,0.08);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+
+        const safeName = escapeHtml(appData?.name || appData?.id || 'This app');
+        const safeId = escapeHtml(appData?.id || '');
+        const safeFile = escapeHtml(fileName || 'a file in this package');
+        const safeReason = escapeHtml(reason || 'It matched a pattern associated with malicious files.');
+
+        box.innerHTML = `
+          <div style="padding:20px 24px 16px;background:linear-gradient(180deg,rgba(248,81,73,0.12),transparent);border-bottom:1px solid rgba(248,81,73,0.25);display:flex;align-items:flex-start;gap:14px;">
+            <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDD34</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:700;color:#f85149;margin-bottom:5px;letter-spacing:-0.01em;">Malicious File</div>
+              <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
+                <b>${safeName}</b>${safeId ? ` <span style="color:var(--text-muted,#888);">(${safeId})</span>` : ''} was blocked before install. This application may cause damage to your device, steal data, or behave in ways you didn't authorize — installation cannot continue.
+              </div>
+            </div>
+          </div>
+
+          <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
+            <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.35);border-radius:8px;">
+              <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+              <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
+                <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">What was found</div>
+                <span style="color:var(--text-primary,#eee);font-weight:500;">${safeFile}</span> — ${safeReason}
+              </div>
+            </div>
+
+            <div style="padding:14px;background:var(--bg-inset,rgba(255,255,255,0.03));border:1px solid var(--border-subtle,rgba(255,255,255,0.06));border-radius:8px;">
+              <div style="font-size:12.5px;color:var(--text-secondary,#bbb);line-height:1.55;">
+                This scan is a heuristic check, not a full antivirus — it looks for known red flags like disguised executables, hidden scripts inside files that shouldn't have any, and obfuscated or packed code. A block here means something concrete tripped that check. If you trust the source and believe this is a false positive, get an updated package from the publisher rather than forcing this one through — NovaByte OS won't install a file that fails this check.
+              </div>
+            </div>
+          </div>
+
+          <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+            <button id="nb-malware-ok-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.5);color:#f85149;padding:7px 18px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:700;">Cancel Install</button>
+          </div>
+        `;
+
+        const styleEl = document.createElement('style');
+        styleEl.textContent = `
+          @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+          #nb-malware-ok-btn:hover { background:rgba(248,81,73,0.28);border-color:rgba(248,81,73,0.7);box-shadow:0 0 14px rgba(248,81,73,0.2); }
+          #nb-malware-ok-btn:active { transform:scale(0.97); }
+        `;
+        document.head.appendChild(styleEl);
+
+        overlay.appendChild(backdrop);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        const cleanup = () => {
+          overlay.remove();
+          styleEl.remove();
+        };
+
+        box.querySelector('#nb-malware-ok-btn').addEventListener('click', () => {
+          cleanup();
+          resolve();
+        });
+      });
+    }
 
     // ── Combined trust + integrity dialog ─────────────────────────────
     // Used ONLY when BOTH checks fail at once — i.e. exactly the 3 real
@@ -1216,10 +1321,16 @@ registerApp({
             dropBox.style.background = '';
           }, listenerOpts);
           drop.addEventListener('drop', e => {
+            // Intentionally NOT calling processFile here, and NOT stopping
+            // propagation: this zone only owns the visual highlight reset.
+            // The actual install is handled once, centrally, by the
+            // registerApp-level onDrop hook (via wm.js's content listener),
+            // so every .novaapp drop — whether it lands here or anywhere
+            // else in the window — goes through the same Scanner check
+            // before install, with no risk of firing processFile twice.
             e.preventDefault();
             dropBox.style.borderColor = 'var(--border-default)';
             dropBox.style.background = '';
-            if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
           }, listenerOpts);
 
           detail.appendChild(drop);
@@ -1366,6 +1477,30 @@ registerApp({
 
             if (!pkg.manifest?.id || !pkg.manifest?.name || !pkg.manifest?.version) {
               throw new Error('Missing required manifest fields (id, name, version).');
+            }
+
+            // ── Malware/heuristic scan ──
+            // Runs before trust/integrity checks: a valid signature or
+            // matching hash says nothing about whether the *contents* are
+            // safe to run, only who signed them / whether they've changed
+            // since. Scan every file entry in the package, not just the
+            // manifest's declared entry point — a payload could be stashed
+            // in any bundled file.
+            if (window.Scanner?.scanBase64 && pkg.files && typeof pkg.files === 'object') {
+              for (const [relPath, rawB64] of Object.entries(pkg.files)) {
+                if (typeof rawB64 !== 'string') continue;
+                let verdict;
+                try {
+                  verdict = await window.Scanner.scanBase64(relPath, rawB64);
+                } catch (err) {
+                  console.warn('[AppManager] Scanner error on', relPath, err);
+                  continue;
+                }
+                if (!verdict.safe) {
+                  await showMaliciousFileDialog(pkg.manifest, { fileName: relPath, reason: verdict.reason });
+                  return;
+                }
+              }
             }
 
             // ── Signature verification against the trust store ──
@@ -1540,6 +1675,14 @@ registerApp({
         reader.readAsText(file);
       }
 
+      // Exposed so the registerApp-level onDrop hook (below, outside this
+      // closure) can route a dropped .novaapp straight into the install
+      // flow, regardless of which tab/view is currently showing — the
+      // in-page drop zone above only exists in the empty "no app selected"
+      // state, so without this a drop anywhere else in the window would
+      // fall through to the window manager's generic fallback instead.
+      content._novaAppProcessFile = processFile;
+
       async function doUninstall(appId) {
         const app = installedApps.find(a => a.id === appId);
         if (!app) return;
@@ -1629,9 +1772,16 @@ registerApp({
       searchEl.addEventListener('input', debounce(renderList, 150), listenerOpts);
       root.addEventListener('dragover', e => e.preventDefault(), listenerOpts);
       root.addEventListener('drop', e => {
+        // Intentionally NOT calling processFile here, and NOT stopping
+        // propagation — see the matching comment on the empty-state drop
+        // zone in renderDetail(). This listener predates that one and was
+        // the actual cause of files getting processed twice (once here,
+        // once via the registerApp-level onDrop that fires when the event
+        // bubbles to wm.js's content listener): both ran processFile
+        // independently, so a single drop showed the install/warning
+        // dialog twice. Now there's exactly one path — this just prevents
+        // the browser's default "navigate to dropped file" behavior.
         e.preventDefault();
-        const f = e.dataTransfer.files[0];
-        if (f) processFile(f);
       }, listenerOpts);
 
       root.append(sidebar, detail);
