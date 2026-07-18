@@ -699,6 +699,7 @@ registerApp({
 
     function buildNovaAppConfig(appData) {
       const appId = appData.id;
+      console.log('[AppManager][DIAG] launch appId=', JSON.stringify(appId), 'partition=', 'persist:app_' + appId);
 
       return {
         id: appId,
@@ -943,20 +944,27 @@ registerApp({
               if (regRes.ok) {
                 const regData = await regRes.json();
                 console.log('[AppManager] serve registered, baseUrl:', regData.baseUrl);
+                // IMPORTANT: partition must be set on the <webview> BEFORE src.
+                // Chromium's guest_view (shared by both Electron and NW.js
+                // webviews) provisions the guest process's storage partition
+                // at first-navigation time. If src is present when the
+                // element is created/attached and partition is applied a
+                // moment later in the same attribute pass, the guest can
+                // already be resolving navigation against the default
+                // ephemeral/unpartitioned session — so the attribute exists
+                // in the DOM (looks correct on inspection) but never
+                // actually took effect, and storage keeps resetting every
+                // launch despite this code looking right. Setting partition
+                // first, then src as a separate step, avoids that race.
                 const webview = createEl('webview', {
-                  src: window.location.origin + regData.baseUrl + '/' + entryKey,
-                  // Without an explicit partition, Electron gives every
-                  // <webview> its own fresh, in-memory, non-persistent
-                  // session — localStorage/IndexedDB/__novaPrivateStore
-                  // written during one launch vanish the instant this
-                  // element is destroyed (window closed / app relaunched).
                   // "persist:" + a stable per-app key reuses the same
                   // on-disk partition every launch, so app-local storage
-                  // actually persists like a real installed app. Keyed by
-                  // appId (not sandboxId, which is intentionally unique
-                  // per launch via Date.now() and would defeat this
-                  // entirely) so every launch of the same app lands in the
-                  // same partition.
+                  // (localStorage/IndexedDB/__novaPrivateStore) actually
+                  // persists like a real installed app. Keyed by appId
+                  // (not sandboxId, which is intentionally unique per
+                  // launch via Date.now() and would defeat this entirely)
+                  // so every launch of the same app lands in the same
+                  // partition.
                   partition: 'persist:app_' + appId,
                   style: 'width:100%;height:100%;border:none;display:block;'
                 });
@@ -967,6 +975,15 @@ registerApp({
 
                 contentEl.style.padding = '0';
                 contentEl.appendChild(webview);
+                // src set AFTER DOM attachment — matches browser.js's
+                // getOrCreateWebview/navigate pattern (the one place in
+                // this codebase where webview partitioning is confirmed to
+                // actually persist). NW.js's <webview> custom element only
+                // seems to fully back its guest process once connected to
+                // the document; setting src pre-append can start
+                // navigation against an unpartitioned session even with
+                // partition already present as an attribute.
+                webview.src = window.location.origin + regData.baseUrl + '/' + entryKey;
 
                 webview.addEventListener('load', () => {
                   if (pkgData) {
@@ -1015,14 +1032,15 @@ registerApp({
 
             const blob = new Blob([wrappedHtml], { type: 'text/html' });
             blobUrl = URL.createObjectURL(blob);
+            // partition must be set before src — see the register-success
+            // branch above for why (guest storage session is provisioned
+            // at first navigation, not on later attribute updates).
             const webview = createEl('webview', {
-              src: blobUrl,
-              // Setting the same persistent partition as the primary path
-              // (see the register-success branch above) for consistency,
-              // but be aware this fallback likely still won't actually
-              // persist storage: blob: URLs get a fresh unique origin
-              // every single createObjectURL() call, and localStorage is
-              // partitioned by origin first — the webview partition
+              // Same persistent partition as the primary path for
+              // consistency, but be aware this fallback likely still won't
+              // actually persist storage: blob: URLs get a fresh unique
+              // origin every single createObjectURL() call, and localStorage
+              // is partitioned by origin first — the webview partition
               // controls which disk-backed session cookies/storage live
               // in, but only helps if the origin asking for that storage
               // is itself stable across launches, which a blob: URL isn't.
@@ -1040,6 +1058,8 @@ registerApp({
 
             contentEl.style.padding = '0';
             contentEl.appendChild(webview);
+            // src set after DOM attachment — see primary path above.
+            webview.src = blobUrl;
 
             // ── Revoke blob URL after load to free memory ──
             webview.addEventListener('load', () => {

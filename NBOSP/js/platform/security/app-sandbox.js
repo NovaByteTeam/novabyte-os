@@ -2194,12 +2194,22 @@ const AppSandbox = (() => {
     webview.setAttribute('nodeintegration', 'false');
     webview.setAttribute('nodeintegrationsubframes', 'false');
 
-    // Isolated storage partition per sandbox instance. The 'persist:' prefix
-    // means storage survives webview destruction (expected for apps). Each
-    // app instance gets its own partition — cross-app storage access is
-    // impossible.
+    // Sandbox tracking id — unique per launch (Date.now()), used only to key
+    // activeSandboxes/eventSubscriptions/etc. so concurrent or repeated
+    // launches of the same app don't collide with each other.
     const sandboxId = `sandbox_${app.id}_${Date.now()}`;
-    webview.setAttribute('partition', `persist:${sandboxId}`);
+
+    // Isolated storage partition, keyed by app.id ONLY (not sandboxId).
+    // The 'persist:' prefix makes a given partition NAME durable across
+    // that partition's own lifetime — it does nothing to unify two
+    // different partition names. Using sandboxId here (as before) meant
+    // every launch computed a new Date.now()-suffixed name, so each
+    // launch got its own fresh, empty partition despite the 'persist:'
+    // prefix — storage never actually survived a relaunch. Keying by
+    // app.id alone means every launch of the same app resolves to the
+    // same on-disk partition.
+    const partitionId = `app_${app.id}`;
+    webview.setAttribute('partition', `persist:${partitionId}`);
 
     const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id);
     if (sandboxAttr) {
