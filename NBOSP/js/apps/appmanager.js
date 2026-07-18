@@ -1800,30 +1800,8 @@ registerApp({
           console.warn('[AppManager] Failed to clear storage partition for', appId, e);
         }
         try {
-          if (typeof AppDirs !== 'undefined') {
-            if (OPFS.available && OPFS.root) {
-              try { await OPFS.deletePath('data/' + appId, true); } catch { /* ignore */ }
-              try { await OPFS.deletePath('data/data/' + appId, true); } catch { /* ignore */ }
-              delete AppDirs._handles?.[appId];
-              delete AppDirs.vfsFolders?.[appId];
-            }
-            if (typeof FS !== 'undefined' && FS.specialFolders?.data) {
-              try {
-                const files = FS.listDir(FS.specialFolders.data);
-                const match = files.find(f => f.name === appId && f.type === 'folder');
-                if (match) {
-                  try {
-                    await FS.permanentDelete(match.id);
-                  } catch (e) {
-                    console.warn('[AppManager] permanentDelete failed for', appId, e);
-                    const children = FS.listDir(match.id);
-                    for (const child of children) {
-                      try { await FS.permanentDelete(child.id); } catch { /* ignore */ }
-                    }
-                  }
-                }
-              } catch { /* ignore */ }
-            }
+          if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
+            await AppDirs.removeAppData(appId);
           }
         } catch (e) {
           console.warn('[AppManager] Failed to clear app data for', appId, e);

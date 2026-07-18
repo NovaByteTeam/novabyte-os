@@ -267,6 +267,13 @@ function renderLaunchpad() {
                 } catch (err) {
                   console.warn('[Launchpad] Failed to clear storage partition for', app.id, err);
                 }
+                try {
+                  if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
+                    await AppDirs.removeAppData(app.id);
+                  }
+                } catch (err) {
+                  console.warn('[Launchpad] Failed to clear app data for', app.id, err);
+                }
                 if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
                   AppRegistry.unregisterApp(app.id);
                 }

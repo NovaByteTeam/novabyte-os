@@ -2379,20 +2379,56 @@ const AppSandbox = (() => {
    * @returns {Promise<void>} resolves once the partition is cleared
    *   (or after a timeout, so callers can't hang forever on this).
    */
-  function clearAppPartition(appId) {
+  async function clearAppPartition(appId) {
+    if (!appId) return;
+
+    // clearData() only actually reaches a partition's real storage once a
+    // webview on that partition has completed a genuine same-origin
+    // navigation — about:blank never establishes a session against this
+    // partition, so clearData silently no-ops against it (confirmed by
+    // testing: a throwaway webview parked at about:blank always failed
+    // to clear real app data, while the identical webview navigated to
+    // the app's real served origin worked). So we register a minimal
+    // blank page through the same /api/apps/serve/register mechanism
+    // real app launches use (see loadAppContent above), giving the
+    // webview a real same-origin page inside the correct partition
+    // before calling clearData.
+    let baseUrl;
+    try {
+      const sandboxId = `sandbox_clr_${appId.replace(/[^\w.-]/g, '_')}_${Date.now()}`;
+      const files = { 'index.html': btoa('<!doctype html><html><body></body></html>') };
+      const regRes = await fetch('/api/apps/serve/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sandboxId, files }),
+      });
+      if (!regRes.ok) throw new Error(`register failed: ${regRes.status}`);
+      ({ baseUrl } = await regRes.json());
+    } catch {
+      // Registration failed — fall back to about:blank rather than
+      // hard-failing; clearData will likely no-op, but this keeps the
+      // caller's Promise resolving instead of hanging or throwing.
+      baseUrl = null;
+    }
+
     return new Promise(resolve => {
-      if (!appId) { resolve(); return; }
       const wv = document.createElement('webview');
       wv.setAttribute('partition', `persist:app_${appId}`);
       wv.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
-      const clearTypes = { appcache: true, cookies: true, filesystem: true, indexedDB: true, localStorage: true, webSQL: true, serviceWorkers: true, cachestorage: true };
+      // Correct key set for this NW.js build's <webview> clearData(), confirmed
+      // by testing against real data: 'filesystem' must be 'fileSystems'
+      // (capitalized S), and 'serviceWorkers'/'cacheStorage' are rejected
+      // outright on this build ("Unexpected property") — the webview tag's
+      // ClearDataTypeSet here is a narrower, older subset than the full
+      // chrome.browsingData schema.
+      const clearTypes = { appcache: true, cache: true, cookies: true, fileSystems: true, indexedDB: true, localStorage: true, webSQL: true };
       const cleanup = () => { try { wv.remove(); } catch { } resolve(); };
       wv.addEventListener('loadstop', () => {
         try { wv.clearData({}, clearTypes, cleanup); } catch { cleanup(); }
       });
       wv.addEventListener('loadabort', cleanup);
       document.body.appendChild(wv);
-      wv.src = 'about:blank';
+      wv.src = baseUrl ? (window.location.origin + baseUrl + '/index.html') : 'about:blank';
       setTimeout(cleanup, 4000);
     });
   }

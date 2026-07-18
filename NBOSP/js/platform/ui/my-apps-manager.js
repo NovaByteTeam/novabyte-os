@@ -109,6 +109,13 @@ const MyAppsManager = (() => {
       } catch (err) {
         console.warn('[MyAppsManager] Failed to clear storage partition for', appId, err);
       }
+      try {
+        if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
+          await AppDirs.removeAppData(appId);
+        }
+      } catch (err) {
+        console.warn('[MyAppsManager] Failed to clear app data for', appId, err);
+      }
       return AppRegistry?.unregisterApp(appId) || false;
     } catch (error) {
       console.error('[MyAppsManager] Failed to remove app:', error);

@@ -893,6 +893,41 @@ const AppDirs = {
     }
   },
 
+  // Single source of truth for uninstall-time app data cleanup — deletes
+  // the app's /data/<appId> VFS folder (resolved via FS.getByPath, since
+  // FS.specialFolders never has a 'data' entry — only desktop/documents/
+  // downloads/music/pictures/videos/trash are registered there) plus the
+  // OPFS-backed folder and any cached handles. All uninstall call sites
+  // (App Manager, desktop right-click x2, Launchpad, My Apps panel)
+  // should call this instead of each re-implementing (or skipping) it.
+  async removeAppData(appId) {
+    if (!appId) return;
+    if (typeof OPFS !== 'undefined' && OPFS.available && OPFS.root) {
+      try { await OPFS.deletePath('data/' + appId, true); } catch { /* ignore */ }
+    }
+    delete this._handles?.[appId];
+    delete this.vfsFolders?.[appId];
+    if (typeof FS === 'undefined') return;
+    try {
+      const dataNode = FS.getByPath('/data');
+      if (!dataNode) return;
+      const files = FS.listDir(dataNode.id);
+      const match = files.find(f => f.name === appId && f.type === 'folder');
+      if (!match) return;
+      try {
+        await FS.permanentDelete(match.id);
+      } catch (e) {
+        console.warn('[AppDirs] permanentDelete failed for', appId, e);
+        const children = FS.listDir(match.id);
+        for (const child of children) {
+          try { await FS.permanentDelete(child.id); } catch { /* ignore */ }
+        }
+      }
+    } catch (e) {
+      console.warn('[AppDirs] removeAppData failed for', appId, e);
+    }
+  },
+
   async setPrefs(appIdOrPkg, data) {
     const appDir = await this.getAppDir(appIdOrPkg);
     if (!appDir) return false;
@@ -1770,6 +1805,13 @@ function renderDesktopIcons() {
               } catch (err) {
                 console.warn('[Desktop] Failed to clear storage partition for', app.id, err);
               }
+              try {
+                if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
+                  await AppDirs.removeAppData(app.id);
+                }
+              } catch (err) {
+                console.warn('[Desktop] Failed to clear app data for', app.id, err);
+              }
               if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
                 AppRegistry.unregisterApp(app.id);
               }
@@ -2058,6 +2100,13 @@ function renderDesktopIcons() {
                   }
                 } catch (err) {
                   console.warn('[Desktop] Failed to clear storage partition for', appId, err);
+                }
+                try {
+                  if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
+                    await AppDirs.removeAppData(appId);
+                  }
+                } catch (err) {
+                  console.warn('[Desktop] Failed to clear app data for', appId, err);
                 }
                 if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
                   AppRegistry.unregisterApp(appId);
