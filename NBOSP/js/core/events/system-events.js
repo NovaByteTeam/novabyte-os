@@ -244,6 +244,13 @@ function renderLaunchpad() {
               );
               if (uninstallResult !== 'confirm') return;
               try {
+                if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+                  const openWindowIds = [];
+                  for (const [wid, wstate] of OS.windows) {
+                    if (wstate.appId === app.id) openWindowIds.push(wid);
+                  }
+                  for (const wid of openWindowIds) WM.closeWindow(wid);
+                }
                 if (window.NovaAppPackageStore?.removeApp) {
                   await NovaAppPackageStore.removeApp(app.id);
                 } else {

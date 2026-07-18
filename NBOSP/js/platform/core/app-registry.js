@@ -195,6 +195,19 @@ const AppRegistry = (() => {
   function unregisterApp(appId) {
     const app = installedApps.get(appId);
     if (!app) return false;
+
+    // Every uninstall surface (App Manager, desktop right-click,
+    // MyAppsManager) funnels through here — close any window still open
+    // for this app before its registry entry, files, and permissions are
+    // deleted out from under it.
+    if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+      const openWindowIds = [];
+      for (const [wid, wstate] of OS.windows) {
+        if (wstate.appId === appId) openWindowIds.push(wid);
+      }
+      for (const wid of openWindowIds) WM.closeWindow(wid);
+    }
+
     if (typeof OS !== 'undefined' && OS?.apps) delete OS.apps[appId];
     installedApps.delete(appId);
     _saveToStorage();

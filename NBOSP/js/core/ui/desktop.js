@@ -1749,6 +1749,13 @@ function renderDesktopIcons() {
             );
             if (uninstallResult !== 'confirm') return;
             try {
+              if (typeof WM !== 'undefined' && WM.closeWindow) {
+                const openWindowIds = [];
+                for (const [wid, wstate] of OS.windows) {
+                  if (wstate.appId === app.id) openWindowIds.push(wid);
+                }
+                for (const wid of openWindowIds) WM.closeWindow(wid);
+              }
               if (window.NovaAppPackageStore?.removeApp) {
                 await NovaAppPackageStore.removeApp(app.id);
               } else {
@@ -2017,6 +2024,13 @@ function renderDesktopIcons() {
               );
               if (uninstallResult !== 'confirm') return;
               try {
+                if (typeof WM !== 'undefined' && WM.closeWindow) {
+                  const openWindowIds = [];
+                  for (const [wid, wstate] of OS.windows) {
+                    if (wstate.appId === appId) openWindowIds.push(wid);
+                  }
+                  for (const wid of openWindowIds) WM.closeWindow(wid);
+                }
                 if (window.NovaAppPackageStore?.removeApp) {
                   await NovaAppPackageStore.removeApp(appId);
                 } else {

@@ -714,6 +714,11 @@ registerApp({
         files: appData.files || {},
         sandbox: appData.sandbox || { allowScripts: true, allowForms: true, allowPopups: false },
         type: appData.type || 'package',
+        resizable: appData.resizable !== false,
+        transparent: !!appData.transparent,
+        alwaysOnTop: !!appData.alwaysOnTop,
+        startMinimized: !!appData.startMinimized,
+        frame: appData.frame !== false,
 
         async init(contentEl, state, options) {
           try { await window.AppDirs?.ensureAppDataFolder?.(appId); } catch (_e) { /* best-effort */ }
@@ -1694,6 +1699,18 @@ registerApp({
         if (uninstallResult !== 'confirm') return;
 
         pushLog({ action: 'uninstall', appId: app.id, label: `${app.name} v${app.version} uninstalled` });
+
+        // Close any open windows for this app before removing it — otherwise
+        // the window is left running against an app whose registry entry,
+        // files, and permissions are about to be deleted out from under it.
+        if (typeof WM !== 'undefined' && WM.closeWindow) {
+          const openWindowIds = [];
+          for (const [wid, wstate] of OS.windows) {
+            if (wstate.appId === appId) openWindowIds.push(wid);
+          }
+          for (const wid of openWindowIds) WM.closeWindow(wid);
+        }
+
         try {
           if (PackageStore?.removeApp) await PackageStore.removeApp(appId, { updateRegistry: false });
         } catch (e) {

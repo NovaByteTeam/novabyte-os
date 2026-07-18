@@ -609,7 +609,14 @@ const WM = window.WM = (() => {
       // changing to a different window.
       if (!state.minimized && OS.focusedWindowId === id) return;
       if (state.minimized) wm.restoreWindow(id);
-      state.element.style.zIndex = ++OS.windowZCounter;
+      const app = OS.apps?.[state.appId];
+      if (app?.alwaysOnTop) {
+        // Stay above the normal stacking range, but keep relative ordering
+        // among multiple always-on-top windows using the same counter.
+        state.element.style.zIndex = String(9999 + (++OS.windowZCounter));
+      } else {
+        state.element.style.zIndex = ++OS.windowZCounter;
+      }
       OS.focusedWindowId = id;
       for (const [wid, w] of OS.windows) {
         w.element.classList.toggle('focused', wid === id);

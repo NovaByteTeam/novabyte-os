@@ -95,6 +95,13 @@ const MyAppsManager = (() => {
    */
   function removeApp(appId) {
     try {
+      if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+        const openWindowIds = [];
+        for (const [wid, wstate] of OS.windows) {
+          if (wstate.appId === appId) openWindowIds.push(wid);
+        }
+        for (const wid of openWindowIds) WM.closeWindow(wid);
+      }
       return AppRegistry?.unregisterApp(appId) || false;
     } catch (error) {
       console.error('[MyAppsManager] Failed to remove app:', error);

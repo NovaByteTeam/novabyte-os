@@ -56,10 +56,84 @@
     { re: /<script\b/i,                      label: 'embedded <script> tag' },
     { re: /\son\w+\s*=\s*["']/i,             label: 'inline event handler (on*=)' },
     { re: /javascript:/i,                    label: 'javascript: URI' },
-    { re: /<iframe\b/i,                      label: 'embedded <iframe>' },
+    { re: /<iframe\b/i,                      label: 'embedded <iframe>' }, // HTML gets a narrower iframe check below; this stays blanket for svg/md/xml/txt
     { re: /<object\b|<embed\b/i,             label: 'embedded <object>/<embed>' },
     { re: /data:text\/html/i,                label: 'data: HTML payload' },
   ];
+
+  // .novaapp's own template pipeline (NovaByte Studio) always emits
+  // index.html with <script src="app.js"></script> — a reference to a
+  // sibling file, not inline code. Blanket-flagging any <script tag in
+  // HTML (below, for svg/md/xml/txt) makes every standard .novaapp build
+  // untrustable. HTML gets its own narrower rule instead: local
+  // <script src="..."> references are fine, but inline <script>...</script>
+  // content, and everything else in ACTIVE_CONTENT_PATTERNS (on*=,
+  // javascript:, iframe, object/embed, data:text/html), still blocks.
+  //
+  // "Local" means a relative path with no scheme and no traversal out of
+  // the package — not http(s)://, not //host-relative, not ../.. — so an
+  // externally-hosted or path-escaping script src is still rejected.
+  const SCRIPT_TAG_RE = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+
+  function isLocalRelativeSrc(src) {
+    if (!src) return false;
+    const trimmed = src.trim();
+    if (trimmed === '') return false;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return false; // any scheme (http:, javascript:, data:, etc)
+    if (trimmed.startsWith('//')) return false;              // protocol-relative
+    if (trimmed.startsWith('/')) return false;                // absolute path, outside package root
+    if (trimmed.split(/[/\\]/).includes('..')) return false;  // traversal
+    return true;
+  }
+
+  // HTML-specific active-content check: same non-script patterns as
+  // ACTIVE_CONTENT_PATTERNS, but <script> is only a hit if it's inline
+  // (has body content) or its src isn't a safe local relative path.
+  const IFRAME_TAG_RE = /<iframe\b([^>]*)>/gi;
+
+  // A sandboxed iframe with a validated local-or-https src is a legitimate
+  // .novaapp pattern (the "Web App Wrapper" template). The one combination
+  // that defeats the sandbox's isolation is allow-same-origin together
+  // with allow-scripts — that lets framed content script its way back out
+  // to the parent's origin. Anything without a sandbox attribute, or with
+  // that specific combo, still blocks.
+  function isSafeSandboxedIframe(attrs) {
+    const sandboxMatch = /\bsandbox\s*=\s*["']([^"']*)["']/i.exec(attrs);
+    if (!sandboxMatch) return false; // unsandboxed iframe: never safe
+    const tokens = sandboxMatch[1].toLowerCase().split(/\s+/).filter(Boolean);
+    if (tokens.includes('allow-same-origin') && tokens.includes('allow-scripts')) return false;
+    const srcMatch = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(attrs);
+    if (!srcMatch) return true; // no src at all — inert
+    const src = srcMatch[1].trim();
+    if (isLocalRelativeSrc(src)) return true;
+    return /^https:\/\//i.test(src); // https external origin ok inside a real sandbox
+  }
+
+  function findHtmlActiveContentHit(text) {
+    for (const pat of ACTIVE_CONTENT_PATTERNS) {
+      if (pat.label === 'embedded <script> tag') continue; // handled separately below
+      if (pat.label === 'embedded <iframe>') continue;      // handled separately below
+      if (pat.re.test(text)) return pat.label;
+    }
+
+    IFRAME_TAG_RE.lastIndex = 0;
+    let iframeMatch;
+    while ((iframeMatch = IFRAME_TAG_RE.exec(text))) {
+      if (!isSafeSandboxedIframe(iframeMatch[1])) return 'an unsandboxed or unsafe <iframe>';
+    }
+
+    SCRIPT_TAG_RE.lastIndex = 0;
+    let match;
+    while ((match = SCRIPT_TAG_RE.exec(text))) {
+      const [, attrs, body] = match;
+      if (body.trim() !== '') return 'inline <script>...</script> content';
+      const srcMatch = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(attrs);
+      if (!srcMatch || !isLocalRelativeSrc(srcMatch[1])) {
+        return 'a <script> tag with a non-local or unsafe src';
+      }
+    }
+    return null;
+  }
 
   // Obfuscation smells for anything that will be treated as executable
   // script content (either by extension, or because it tripped an
@@ -164,7 +238,23 @@
       // .js/.mjs/.css/.json are expected to contain code, so the markup
       // "active content" patterns (script tags, on*=, iframes) don't apply
       // to them — only the obfuscation + entropy checks do.
-      if (RENDERED_TEXT_EXTENSIONS.has(ext) || ext === '') {
+      //
+      // HTML/XHTML get a narrower check: local <script src="..."> refs are
+      // the normal .novaapp shape (index.html -> app.js) and are allowed;
+      // inline script bodies and everything else (on*=, javascript:,
+      // iframe, object/embed, data:html) still block. SVG/MD/XML/TXT have
+      // no legitimate reason to carry any <script> at all, so they keep
+      // the original blanket rule.
+      const isHtmlLike = ext === 'html' || ext === 'htm' || ext === 'xhtml';
+      if (isHtmlLike) {
+        const htmlHit = findHtmlActiveContentHit(text);
+        if (htmlHit) {
+          return {
+            safe: false,
+            reason: `"${name}" contains ${htmlHit}, which isn't allowed.`,
+          };
+        }
+      } else if (RENDERED_TEXT_EXTENSIONS.has(ext) || ext === '') {
         let activeHit = null;
         for (const pat of ACTIVE_CONTENT_PATTERNS) {
           if (pat.re.test(text)) { activeHit = pat.label; break; }

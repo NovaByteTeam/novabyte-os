@@ -102,6 +102,18 @@ const APP_REGISTRY = [];
       async function removeWebApp(waId) {
         const appId = 'webapp_' + waId;
         WebAppManager.removeApp(waId);
+
+        // Close any window still open for this web app before its OS.apps
+        // entry and pin/shortcut state are deleted out from under it — same
+        // gap as unregisterApp() had for .novaapp packages.
+        if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+          const openWindowIds = [];
+          for (const [wid, wstate] of OS.windows) {
+            if (wstate.appId === appId) openWindowIds.push(wid);
+          }
+          for (const wid of openWindowIds) WM.closeWindow(wid);
+        }
+
         delete OS.apps[appId];
         OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== appId));
         try {
