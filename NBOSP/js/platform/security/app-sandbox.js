@@ -1524,13 +1524,12 @@ const AppSandbox = (() => {
     if (!rawKey) {
       return respondError(webview, 'nova:storage:get', requestId, 'INVALID_ARGS', 'Invalid storage key');
     }
-    const key = STORAGE_KEY_PREFIX + app.id + '_' + rawKey;
     try {
-      const value = localStorage.getItem(key);
+      const value = await storageGet(app.id, rawKey);
       return respond(webview, 'nova:storage:get', requestId, { success: true, value });
     } catch (e) {
-      // localStorage can throw in private browsing or when storage is disabled.
-      // Treat as "no value" rather than crashing the IPC call.
+      // IndexedDB can throw if disabled/unavailable (e.g. private browsing
+      // in some browsers). Treat as "no value" rather than crashing the IPC call.
       return respond(webview, 'nova:storage:get', requestId, { success: true, value: null });
     }
   }
@@ -1540,18 +1539,20 @@ const AppSandbox = (() => {
     if (!rawKey) {
       return respondError(webview, 'nova:storage:set', requestId, 'INVALID_ARGS', 'Invalid storage key');
     }
-    // Enforce a per-value size cap so a single call can't exhaust the host's
-    // localStorage quota and break other apps on the same origin.
+    // Enforce a per-value size cap, and storageSet enforces the per-app quota
+    // against real existing usage in the DB (not just a per-call check).
     const value = payload?.value ?? '';
     const valueBytes = new TextEncoder().encode(String(value)).length;
     if (valueBytes > STORAGE_VALUE_MAX_BYTES) {
       return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', `Value exceeds ${STORAGE_VALUE_MAX_BYTES} byte limit`);
     }
-    const key = STORAGE_KEY_PREFIX + app.id + '_' + rawKey;
     try {
-      localStorage.setItem(key, value);
+      await storageSet(app.id, rawKey, value, valueBytes);
       return respond(webview, 'nova:storage:set', requestId, { success: true });
     } catch (e) {
+      if (e && e.code === 'STORAGE_FULL') {
+        return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', 'Per-app storage quota exceeded');
+      }
       return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', 'Failed to write to storage');
     }
   }
@@ -1561,9 +1562,8 @@ const AppSandbox = (() => {
     if (!rawKey) {
       return respondError(webview, 'nova:storage:delete', requestId, 'INVALID_ARGS', 'Invalid storage key');
     }
-    const key = STORAGE_KEY_PREFIX + app.id + '_' + rawKey;
     try {
-      localStorage.removeItem(key);
+      await storageDelete(app.id, rawKey);
       return respond(webview, 'nova:storage:delete', requestId, { success: true });
     } catch (e) {
       return respondError(webview, 'nova:storage:delete', requestId, 'ERROR', e.message);
@@ -1572,15 +1572,7 @@ const AppSandbox = (() => {
 
   async function handleStorageClear({ requestId, app, webview }) {
     try {
-      const prefix = STORAGE_KEY_PREFIX + app.id + '_';
-      // Collect first, mutate second — mutating during iteration would skip
-      // entries because localStorage's indices shift on removal.
-      const toRemove = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(prefix)) toRemove.push(k);
-      }
-      for (const k of toRemove) localStorage.removeItem(k);
+      await storageClear(app.id);
       return respond(webview, 'nova:storage:clear', requestId, { success: true });
     } catch (e) {
       return respondError(webview, 'nova:storage:clear', requestId, 'ERROR', e.message);
@@ -1589,12 +1581,7 @@ const AppSandbox = (() => {
 
   async function handleStorageKeys({ requestId, app, webview }) {
     try {
-      const prefix = STORAGE_KEY_PREFIX + app.id + '_';
-      const keys = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(prefix)) keys.push(k.slice(prefix.length));
-      }
+      const keys = await storageKeys(app.id);
       return respond(webview, 'nova:storage:keys', requestId, { success: true, keys });
     } catch (e) {
       return respondError(webview, 'nova:storage:keys', requestId, 'ERROR', e.message);
