@@ -272,42 +272,44 @@ const AppSandbox = (() => {
   /**
    * Send a response back to the sandboxed app.
    *
-   * NOTE: this does NOT use webview.contentWindow — for a <webview> tag,
-   * contentWindow is unavailable (NW.js/Chromium: <webview> runs in a
-   * separate renderer process, so the embedder has no direct JS reference
-   * to the guest's window the way it would for a same-process <iframe>).
-   * Historically this called `webview.contentWindow.postMessage(...)`,
-   * which threw on every single call for every app — silently, since the
-   * catch below only logs at 'error' level and nothing downstream ever
-   * surfaced it as user-facing. Every app got zero responses to every IPC
-   * call, permanently.
+   * <webview> guests have no parent/embedder window reference at all
+   * (window.parent === window for a <webview> guest — confirmed
+   * empirically, and matches spec: a window with no parent has
+   * parent === itself). postMessage from the host to some captured
+   * "source" reference was never reachable, because no such reference is
+   * ever set — the guest can't postMessage to the host either, for the
+   * same reason (see setupAPIBridge, which now reads guest->host messages
+   * via the webview's 'consolemessage' DOM event instead).
    *
-   * The correct pattern for <webview> (per the guest/embedder postMessage
-   * contract) is for the OS to reply using the `source` window reference
-   * captured from the *inbound* message event that carried the request —
-   * that's a live, valid reference to the guest's window for as long as
-   * the guest process is alive. setupAPIBridge's messageHandler stashes
-   * this on the webview element (_novaMessageSource) on every incoming
-   * message; we read it back here.
+   * For host->guest, webview.executeScript({mainWorld:true}, ...) is a
+   * real, confirmed-working NW.js API already used elsewhere in this
+   * codebase (see browser.js's URL/title polling and context-menu
+   * injection). This pushes the response directly into a well-known
+   * array on the guest's real window (window.__novaInbox), which the
+   * guest's shim poller drains.
+   *
+   * Data is passed as base64-encoded JSON rather than interpolated
+   * directly into the injected code string. JSON.stringify does not
+   * escape backticks or `${...}`, so an app-supplied value living inside
+   * `result` (e.g. an echoed filename) could otherwise break out of the
+   * template literal below and run arbitrary code in the guest's own
+   * context. Base64's alphabet (A-Za-z0-9+/=) can't contain any of those
+   * characters, so splicing it in needs no further escaping.
    */
   function respond(webview, type, requestId, result, error = null) {
     try {
-      const target = webview._novaMessageSource;
-      if (!target) {
-        log('error', `Failed to respond to ${type}: no message source captured yet for this webview`);
-        return;
-      }
-      console.log('[NOVA_DEBUG] respond() about to postMessage', {
-        type: `${type}:response`, requestId, targetType: typeof target,
-        targetClosed: target && target.closed, origin: window.location.origin,
+      const json = JSON.stringify({ type: `${type}:response`, requestId, result, error });
+      const b64 = Buffer.from(json, 'utf8').toString('base64');
+      const code = '(function(){try{'
+        + 'window.__novaInbox=window.__novaInbox||[];'
+        + 'window.__novaInbox.push(JSON.parse(atob("' + b64 + '")));'
+        + '}catch(e){}})();';
+      webview.executeScript({ code, mainWorld: true }, (err) => {
+        if (err) {
+          log('error', `Failed to respond to ${type} (executeScript error):`, err);
+        }
       });
-      target.postMessage(
-        { type: `${type}:response`, requestId, result, error },
-        window.location.origin
-      );
-      console.log('[NOVA_DEBUG] respond() postMessage call completed without throwing');
     } catch (e) {
-      console.log('[NOVA_DEBUG] respond() postMessage THREW', e);
       log('error', `Failed to respond to ${type}:`, e);
     }
   }
@@ -1048,8 +1050,17 @@ const AppSandbox = (() => {
     return base.slice(0, 255); // filesystem-safe length cap
   }
 
+  // NOTE (unresolved, worth testing for specifically): input.click() below
+  // runs in the top-level host window, which never received the user's
+  // actual click — that happened inside the <webview> guest, and the
+  // console.log-based IPC transport carries no user-activation state
+  // across that boundary the way includeUserActivation on postMessage
+  // was meant to (that mechanism is gone now, since postMessage never
+  // reached the host anyway). If the save dialog still doesn't appear
+  // after this fix, Chromium silently blocking the synthetic click due to
+  // missing user activation in the host frame is the next thing to check
+  // — that would be a different, real problem, not a leftover transport bug.
   async function handleDownload({ payload, requestId, app, webview }) {
-    console.log('[NOVA_DOWNLOAD_DEBUG] handleDownload called', { filename: payload?.filename, hasData: !!payload?.base64Data });
     const { filename, mimeType, base64Data } = payload ?? {};
     if (typeof base64Data !== 'string' || !base64Data) {
       return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', 'base64Data is required');
@@ -1065,7 +1076,6 @@ const AppSandbox = (() => {
     }
 
     const safeName = sanitizeDownloadFilename(filename);
-    console.log('[NOVA_DOWNLOAD_DEBUG] about to create nwsaveas input', { safeName, bufferLen: buffer.length, activation: typeof navigator !== 'undefined' && navigator.userActivation ? navigator.userActivation.isActive : 'no navigator.userActivation' });
 
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -1077,7 +1087,6 @@ const AppSandbox = (() => {
       const cleanup = () => { input.remove(); };
 
       input.addEventListener('change', () => {
-        console.log('[NOVA_DOWNLOAD_DEBUG] change event fired', { value: input.value });
         const savePath = input.value;
         cleanup();
         if (!savePath) {
@@ -1105,15 +1114,12 @@ const AppSandbox = (() => {
 
       // 'cancel' fires if the user dismisses the dialog without choosing a path.
       input.addEventListener('cancel', () => {
-        console.log('[NOVA_DOWNLOAD_DEBUG] cancel event fired');
         cleanup();
         respond(webview, 'nova:download', requestId, { success: false, cancelled: true });
         resolve();
       }, { once: true });
 
-      console.log('[NOVA_DOWNLOAD_DEBUG] calling input.click() now');
       input.click();
-      console.log('[NOVA_DOWNLOAD_DEBUG] input.click() returned (sync call complete, dialog is async)');
     });
   }
 
@@ -1502,21 +1508,11 @@ const AppSandbox = (() => {
     };
     // Some apps (see the capability shim / createDefaultAppShell) read the
     // handshake fields directly off the top-level response object rather
-    // than through the generic `result` wrapper, so both shapes are sent.
-    // Routed through respond() — see that function's doc comment for why
-    // this can't use webview.contentWindow.postMessage directly.
+    // than through the generic `result` wrapper. The guest-side shim's
+    // inbox poller (see CAPABILITY_SHIM below) merges `result` fields onto
+    // the top level of what it hands back to app code, so a single
+    // respond() call covers both shapes — no separate legacy send needed.
     respond(webview, 'nova:ready', requestId, payload);
-    try {
-      const target = webview._novaMessageSource;
-      if (target) {
-        target.postMessage(
-          { type: 'nova:ready:response', requestId, ...payload, result: payload },
-          window.location.origin
-        );
-      }
-    } catch (e) {
-      log('error', `Failed to send legacy-shape nova:ready response:`, e);
-    }
   }
 
   // -- File dialogs --
@@ -1629,62 +1625,74 @@ const AppSandbox = (() => {
   // API bridge setup
   // ------------------------------------------------------------------
 
+  // Marker prefix for guest->host IPC messages sent over console.log. Kept
+  // deliberately weird/specific so an ordinary page's own console output
+  // (or a malicious app trying to guess it) can't accidentally collide.
+  // This is the same mechanism NB Browser already uses for its right-click
+  // context menu (see browser.js's _CTX_MARKER + 'consolemessage' listener)
+  // — a real, confirmed-working <webview> DOM event for guest->host data on
+  // this exact NW.js build, unlike window.parent.postMessage which never
+  // reaches the host at all (window.parent === window for a <webview>
+  // guest; there is no cross-process parent reference to send to).
+  const IPC_MARKER = '__NOVA_IPC__:';
+
   /**
-   * Wire up the postMessage bridge for a sandbox. Uses an AbortController so
-   * the message listener is removed cleanly when the sandbox is destroyed —
-   * this avoids the "window listener leak" pattern where each sandbox leaves
-   * a permanent listener on window.
+   * Wire up the API bridge for a sandbox.
+   *
+   * Guest -> host: the guest's shim calls console.log(IPC_MARKER + JSON)
+   * instead of window.parent.postMessage. The host listens on the
+   * webview's own 'consolemessage' DOM event (fired for every console.*
+   * call inside that specific guest — this is scoped per-webview-element,
+   * not a global listener, so there's no cross-app source-pinning problem
+   * to solve at all: only messages from *this* webview ever reach this
+   * handler).
+   *
+   * Host -> guest: unchanged in shape, still via webview.executeScript
+   * (see respond()), since that direction already works.
+   *
+   * Every message off the wire is treated as untrusted input from
+   * app-controlled content and validated before it's allowed to reach
+   * handleAPICall:
+   *   - must parse as JSON matching the exact expected shape
+   *   - `type` must be an exact, known key in API_HANDLERS (an allowlist,
+   *     not just "starts with the right prefix" — a made-up type is
+   *     rejected outright rather than silently reaching a handler)
+   *   - `requestId` must be a non-empty string
+   *   - payload validation is then left to each individual handler, same
+   *     as before (handleDownload's base64/size checks, etc.)
    */
   function setupAPIBridge(webview, app, sandboxId) {
     const abortController = new AbortController();
 
-    // Pinned on the first message this handler ever receives (always
-    // nova:ready, sent immediately on load — see createDefaultAppShell /
-    // the capability shim). Every later message must come from the exact
-    // same event.source, which cross-process <webview> guests can't forge:
-    // a different app's guest process yields a different, non-equal source
-    // reference. This replaces the old (broken) contentWindow comparison
-    // without reopening the door to one app's messages being processed
-    // under another app's identity, since messageHandler below is
-    // registered per-sandbox but window 'message' events are dispatched to
-    // every registered listener regardless of which webview sent them.
-    let pinnedSource = null;
+    const consoleHandler = (event) => {
+      const msg = event?.message;
+      if (typeof msg !== 'string' || !msg.startsWith(IPC_MARKER)) return;
 
-    const messageHandler = (event) => {
-      // Apps are served from our origin, so we reject any other origin
-      // outright.
-      if (event.origin !== window.location.origin) {
-        console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: origin mismatch, dropping', { eventOrigin: event.origin, expected: window.location.origin, dataType: event.data?.type });
+      let data;
+      try {
+        data = JSON.parse(msg.slice(IPC_MARKER.length));
+      } catch (e) {
+        return; // malformed payload — drop silently, nothing to act on
+      }
+      if (!data || typeof data !== 'object') return;
+
+      const { type, payload, requestId } = data;
+      if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(API_HANDLERS, type)) {
+        log('warn', `Rejected IPC message with unknown/disallowed type from ${app?.id || 'unknown app'}: ${String(type)}`);
         return;
       }
-      console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: origin OK', { dataType: event.data?.type });
-
-      // NOTE: we do NOT compare event.source against webview.contentWindow.
-      // For a <webview> tag, contentWindow is unavailable — NW.js/Chromium
-      // runs <webview> guest content in a separate renderer process, so the
-      // embedder has no direct JS reference to the guest's window the way
-      // it would for a same-process <iframe>. That comparison used to
-      // silently drop every single incoming message from every app, since
-      // webview.contentWindow was always undefined and event.source never
-      // equals undefined. See respond(), below, for the matching fix on
-      // the outbound side.
-      if (pinnedSource === null) {
-        pinnedSource = event.source;
-        console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: pinnedSource set for first time');
-      } else if (event.source !== pinnedSource) {
-        console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: source mismatch, dropping', { dataType: event.data?.type });
-        return;
-      }
-      webview._novaMessageSource = event.source;
-
-      const { type, payload, requestId } = event.data ?? {};
-      if (!type || !type.startsWith(API_PREFIX)) return;
+      if (typeof requestId !== 'string' || !requestId) return;
 
       const sandbox = activeSandboxes.get(sandboxId);
       handleAPICall(type, payload, requestId, app, webview, sandbox);
     };
 
-    window.addEventListener('message', messageHandler, { signal: abortController.signal });
+    webview.addEventListener('consolemessage', consoleHandler);
+    // consolemessage isn't AbortController-compatible (no `signal` option
+    // for webview DOM events), so teardown removes it explicitly below.
+    abortController.signal.addEventListener('abort', () => {
+      webview.removeEventListener('consolemessage', consoleHandler);
+    });
 
     const sandbox = activeSandboxes.get(sandboxId);
     if (sandbox) {
@@ -1801,9 +1809,10 @@ const AppSandbox = (() => {
   const CAPABILITY_SHIM = `<script>
 (function() {
   'use strict';
-  var PARENT_ORIGIN = window.location.origin;
   var REQUEST_TIMEOUT_MS = 30000;
   var pendingRequests = new Map();
+  // Must exactly match IPC_MARKER in app-sandbox.js's setupAPIBridge.
+  var IPC_MARKER = '__NOVA_IPC__:';
 
   function generateId() {
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -1814,6 +1823,15 @@ const AppSandbox = (() => {
 
   // Send a nova: IPC message and resolve on response. Rejects on timeout or
   // when the host returns an error.
+  //
+  // NOTE: this does NOT use window.parent.postMessage. For a <webview>
+  // guest, window.parent === window (confirmed empirically) — there is no
+  // cross-process reference to the host at all, so postMessage from here
+  // can only ever loop back to this same page. The one channel that
+  // actually reaches the host is console.log: the host listens on this
+  // specific <webview> element's 'consolemessage' DOM event (the same
+  // mechanism NB Browser already uses for its right-click context menu),
+  // so a tagged console.log is a real, working guest->host send.
   function ipc(type, payload) {
     return new Promise(function(resolve, reject) {
       var id = generateId();
@@ -1824,18 +1842,80 @@ const AppSandbox = (() => {
         }
       }, REQUEST_TIMEOUT_MS);
       pendingRequests.set(id, { resolve: resolve, reject: reject, timer: timer });
-      // includeUserActivation: without this, the click that triggered this
-      // IPC call (e.g. clicking "Export") never crosses the webview->host
-      // frame boundary, even though Chromium normally propagates activation
-      // across postMessage. That silently breaks any host-side code relying
-      // on activation, like the synthetic input.click() for nwsaveas in
-      // handleDownload — no error, the save dialog just never opens.
-      window.parent.postMessage(
-        { type: type, requestId: id, payload: payload },
-        { targetOrigin: PARENT_ORIGIN, includeUserActivation: true }
-      );
+      try {
+        console.log(IPC_MARKER + JSON.stringify({ type: type, requestId: id, payload: payload }));
+      } catch (e) {
+        clearTimeout(timer);
+        pendingRequests.delete(id);
+        reject(e);
+      }
     });
   }
+
+  // Responses arrive via window.__novaInbox, pushed to by the host using
+  // executeScript (see respond() in app-sandbox.js). Poll it on a plain
+  // same-context interval — no IPC needed for this direction, since it's
+  // just reading a variable in our own page.
+  setInterval(function() {
+    var inbox = window.__novaInbox;
+    if (!inbox || !inbox.length) return;
+    var drained = inbox.splice(0, inbox.length);
+    for (var i = 0; i < drained.length; i++) {
+      var msg = drained[i];
+      if (!msg || typeof msg.type !== 'string') continue;
+
+      // Pushed events (unprompted, no requestId round-trip) — dispatched
+      // to onEvent listeners registered for this event name.
+      if (msg.type === 'nova:events:event:response' && msg.result && msg.result.event) {
+        var listeners = eventListeners[msg.result.event] || [];
+        for (var j = 0; j < listeners.length; j++) {
+          try { listeners[j](msg.result.data); } catch (_) {}
+        }
+        continue;
+      }
+
+      if (typeof msg.requestId !== 'string') continue;
+      var entry = pendingRequests.get(msg.requestId);
+      if (!entry) continue;
+      pendingRequests.delete(msg.requestId);
+      clearTimeout(entry.timer);
+      if (msg.error) {
+        entry.reject(Object.assign(new Error(msg.error.message || 'IPC error'), msg.error));
+        continue;
+      }
+
+      // Merge result fields onto the top level too, since some app code
+      // (see createDefaultAppShell) reads handshake fields directly off
+      // the response rather than through a result wrapper.
+      var out = Object.assign({}, msg.result, { result: msg.result, type: msg.type });
+      entry.resolve(out);
+
+      // Ready-handshake fix: surface permissions on window for
+      // late-loading scripts, and re-render the calendar once DOM is
+      // ready, same as the old dedicated 'nova:ready:response' handler
+      // used to do before nova:ready went through the normal ipc() path.
+      if (msg.type === 'nova:ready:response' && msg.result) {
+        try {
+          window.__novaPermResponse = {
+            permissions: msg.result.permissions || [],
+            optionalPermissions: msg.result.optionalPermissions || [],
+          };
+        } catch (_) {}
+        var renderFn = null;
+        try { renderFn = (typeof renderCalendar === 'function') ? renderCalendar : null; } catch (_) {}
+        if (renderFn) {
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function _rr() {
+              document.removeEventListener('DOMContentLoaded', _rr);
+              try { renderFn(); } catch (_) {}
+            });
+          } else {
+            try { renderFn(); } catch (_) {}
+          }
+        }
+      }
+    }
+  }, 50);
 
   // ── Download interceptor ───────────────────────────────────────────
   // <webview> tags can't hand a blob: URL to the host — blob URLs are
@@ -1894,49 +1974,19 @@ const AppSandbox = (() => {
   };
   // ── End download interceptor ───────────────────────────────────────
 
-  // Single message listener handles all IPC responses and pushed events.
-  window.addEventListener('message', function(event) {
-    if (event.origin !== PARENT_ORIGIN) return;
-    var data = event.data;
+  // Response handling for ipc() calls now happens in the __novaInbox
+  // poller set up above, right next to ipc() itself. That poller also
+  // runs the ready-handshake fix (surfacing permissions on window,
+  // re-rendering the calendar once DOM is ready) whenever a
+  // 'nova:ready:response' arrives, since nova:ready now goes through the
+  // same ipc()/inbox path as every other call rather than a separate
+  // postMessage handshake — see CAPABILITY_SHIM's init call below.
 
-    // ── Fix: app-side ready handshake bypasses ipc() ──────────────────
-    // The app sends window.parent.postMessage({ type: 'nova:ready', appId: ... }, '*')
-    // directly instead of going through ipc('nova:ready'), so there is no entry
-    // in pendingRequests. Catch the parent's 'nova:ready:response' here,
-    // surface the permissions on window for late-loading scripts, and re-render
-    // the calendar once the DOM is actually ready.
-    if (data && data.type === 'nova:ready:response' && data.result) {
-      var __novaReadyPerms = (data.result.permissions || []);
-      var __novaReadyOptional = (data.result.optionalPermissions || []);
-      try { window.__novaPermResponse = { permissions: __novaReadyPerms, optionalPermissions: __novaReadyOptional }; } catch (_) {}
-      var __renderFn = null;
-      try { __renderFn = (typeof renderCalendar === 'function') ? renderCalendar : null; } catch (_) {}
-      if (__renderFn) {
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', function _rr() {
-            document.removeEventListener('DOMContentLoaded', _rr);
-            try { __renderFn(); } catch (_) {}
-          });
-        } else {
-          try { __renderFn(); } catch (_) {}
-        }
-      }
-    }
-    // ── End ready-handshake fix ────────────────────────────────────────
-
-    if (!data || !data.requestId) return;
-    var entry = pendingRequests.get(data.requestId);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    pendingRequests.delete(data.requestId);
-    if (data.error) {
-      var err = new TypeError(data.error.message || String(data.error));
-      err.code = data.error.code;
-      entry.reject(err);
-    } else {
-      entry.resolve(data.result);
-    }
-  });
+  // Registered onEvent callbacks, checked by the inbox poller whenever a
+  // pushed 'nova:events:event' notification arrives (the host pushes
+  // these unprompted, not in response to a specific ipc() call, so they
+  // need their own dispatch rather than the requestId-keyed one above).
+  var eventListeners = {}; // eventName -> [callback, ...]
 
   // Public API for apps that want to use the bridge directly.
   window.nova = {
@@ -1945,16 +1995,20 @@ const AppSandbox = (() => {
       return ipc('nova:request-permission', { permission: permission, reason: reason });
     },
     onEvent: function(eventName, callback) {
-      window.addEventListener('message', function(event) {
-        if (event.origin !== PARENT_ORIGIN) return;
-        var d = event.data;
-        if (d && d.type === 'nova:events:event:response' && d.result && d.result.event === eventName) {
-          callback(d.result.data);
-        }
-      });
+      if (!eventListeners[eventName]) eventListeners[eventName] = [];
+      eventListeners[eventName].push(callback);
       return ipc('nova:events:subscribe', { event: eventName });
     }
   };
+
+  // Self-triggered handshake — every app gets this automatically on load,
+  // rather than needing to remember to call it. Runs the same
+  // ready-handshake side effects (permissions surfaced on window,
+  // calendar re-render) via the __novaInbox poller above once the
+  // response arrives.
+  ipc('nova:ready', {}).catch(function(e) {
+    console.error('nova:ready handshake failed:', e);
+  });
 
   // Override fetch — route through the IPC bridge.
   var originalFetch = window.fetch;
@@ -2049,15 +2103,20 @@ const AppSandbox = (() => {
   }
   window.XMLHttpRequest = NovaXHR;
 
+  // Fire-and-forget send: same console.log marker channel as ipc(), but
+  // with no pendingRequests entry since nothing here waits on a reply.
+  function ipcFireAndForget(type, payload) {
+    try {
+      console.log(IPC_MARKER + JSON.stringify({ type: type, requestId: generateId(), payload: payload }));
+    } catch (e) { /* best-effort */ }
+  }
+
   // Audit eval calls — log to host but still execute (per the audit:eval
   // contract: "Log it — don't block"). CSP allows unsafe-eval by design.
   var originalEval = window.eval;
   window.eval = function(code) {
-    try {
-      var preview = String(code).slice(0, 200);
-      // Fire-and-forget — no requestId needed since we don't wait for a reply.
-      window.parent.postMessage({ type: 'nova:audit:eval', requestId: generateId(), payload: { preview: preview } }, PARENT_ORIGIN);
-    } catch (e) { /* audit is best-effort */ }
+    var preview = String(code).slice(0, 200);
+    ipcFireAndForget('nova:audit:eval', { preview: preview });
     return originalEval.call(this, code);
   };
 
@@ -2068,11 +2127,7 @@ const AppSandbox = (() => {
     navigator.sendBeacon = function(url, data) {
       try {
         var body = typeof data === 'string' ? data : (data && data.toString ? data.toString() : '');
-        window.parent.postMessage({
-          type: 'nova:net:fetch',
-          requestId: generateId(),
-          payload: { url: url, method: 'POST', headers: {}, body: body }
-        }, PARENT_ORIGIN);
+        ipcFireAndForget('nova:net:fetch', { url: url, method: 'POST', headers: {}, body: body });
         return true;
       } catch (e) {
         return false;
@@ -2219,15 +2274,20 @@ const AppSandbox = (() => {
           </div>
         </div>
         <script>
-          window.addEventListener('message', (event) => {
-            if (event.origin !== window.location.origin) return;
-            if (event.data.type && event.data.type.startsWith('nova:')) {
-              document.getElementById('apiStatus').textContent = 'API Bridge: Connected ✓';
-            }
-          });
+          // CAPABILITY_SHIM (injected into <head> above) already provides
+          // window.nova.ipc — use the real bridge rather than a bare
+          // postMessage, which never reaches the host for a <webview>
+          // guest (window.parent === window here; see app-sandbox.js).
           setTimeout(() => {
-            window.parent.postMessage({ type: 'nova:ready', appId: ${safeAppId} },
-              window.location.origin);
+            if (window.nova && window.nova.ipc) {
+              window.nova.ipc('nova:ready', { appId: ${safeAppId} }).then(() => {
+                var el = document.getElementById('apiStatus');
+                if (el) el.textContent = 'API Bridge: Connected ✓';
+              }).catch(() => {
+                var el = document.getElementById('apiStatus');
+                if (el) el.textContent = 'API Bridge: Connection failed';
+              });
+            }
           }, 100);
         </script>
       </body>

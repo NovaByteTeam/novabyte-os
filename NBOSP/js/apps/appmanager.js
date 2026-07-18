@@ -577,25 +577,30 @@
           console.log('[AM.init]', appId, 'AppSandbox?', typeof AppSandbox, 'FrameSecurity?', typeof FrameSecurity);
 
           // ── Permission gate (parent-side, before iframe loads) ──
+          // Matches the pattern already used for built-in apps (see
+          // app-permissions-bootstrap.js's _wrapAppInit): prompt for any
+          // missing permission so the user's decision gets recorded, but
+          // never block the app from launching on a denial. A denied
+          // permission just means that specific capability fails
+          // gracefully at call time — every host-side handler already
+          // checks AppPermissionManager.isGranted() before acting and
+          // returns PERMISSION_DENIED if not, so there's nothing left
+          // for this gate to protect by refusing to launch at all.
+          //
+          // This previously called requestAll() and refused to launch the
+          // app if any permission — required or optional — came back
+          // denied, which meant denying even one optional permission
+          // (e.g. notifications) made the entire app unusable rather than
+          // just disabling that one feature.
           const requiredPerms = appData.permissions || [];
           const optionalPerms = appData.optionalPermissions || [];
           const allDangerous = [...requiredPerms, ...optionalPerms];
 
           if (allDangerous.length > 0 && typeof AppPermissionManager !== 'undefined') {
             const mgr = AppPermissionManager;
-            // Only skip permissions that are already granted.
-            // Denied permissions are intentionally NOT filtered here — requestPermission()
-            // returns false for them immediately without re-prompting, which causes
-            // requestAll() to return false, which blocks the app launch correctly.
-            // Previously filtering out isDenied() here meant apps silently launched
-            // with external network permission denied, then failed at fetch time.
-            const missing = allDangerous.filter(p => !mgr.isGranted(p, appId));
+            const missing = allDangerous.filter(p => !mgr.isGranted(p, appId) && !(mgr.isDenied && mgr.isDenied(p, appId)));
             if (missing.length > 0) {
-              const ok = await mgr.requestAll(missing, appId, appData.name || appId);
-              if (!ok) {
-                contentEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:var(--font-ui,sans-serif);color:var(--text-muted);font-size:13px;text-align:center;padding:24px;">\uD83D\uDD12<br><br>This app requires additional permissions to run.<br>Grant them in Settings \u2192 Apps and try again.</div>';
-                return null;
-              }
+              await mgr.requestAll(missing, appId, appData.name || appId);
             }
           }
 
