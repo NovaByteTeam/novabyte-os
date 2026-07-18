@@ -631,6 +631,15 @@ document.getElementById('notif-mark-all').addEventListener('click', () => {
   Notify.renderPanel();
 });
 
+// Separate from Clear All — this keeps notification history but marks
+// everything as read. Notify.markAllRead() already does the mark, persist,
+// badge update, and re-render; it just doesn't touch this file's own tray
+// badge (updateNotificationBadge), so we call that here too.
+document.getElementById('notif-mark-read').addEventListener('click', () => {
+  Notify.markAllRead();
+  updateNotificationBadge();
+});
+
 // ── Notification badge ────────────────────────────────────────────────────────
 function updateNotificationBadge() {
   // #19: null-check — badge element may not exist in all layout variants

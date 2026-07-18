@@ -3240,6 +3240,12 @@
       font-weight: 600;
     }
 
+    .notif-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
     .notif-list {
       flex: 1;
       overflow-y: auto;

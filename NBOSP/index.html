@@ -669,12 +669,17 @@
     <h3>
      Notifications
     </h3>
-    <button aria-label="Close notifications" class="btn btn-sm notif-close" id="notif-close" name="notif-close">
-     ×
-    </button>
-    <button aria-label="Clear all notifications" class="btn btn-sm" id="notif-mark-all" name="notif-mark-all">
-     Clear All
-    </button>
+    <div class="notif-header-actions">
+     <button aria-label="Mark all notifications as read" class="btn btn-sm" id="notif-mark-read" name="notif-mark-read">
+      Mark All Read
+     </button>
+     <button aria-label="Clear all notifications" class="btn btn-sm" id="notif-mark-all" name="notif-mark-all">
+      Clear All
+     </button>
+     <button aria-label="Close notifications" class="btn btn-sm notif-close" id="notif-close" name="notif-close">
+      ×
+     </button>
+    </div>
    </div>
    <div aria-live="polite" class="notif-list" id="notif-list">
    </div>
