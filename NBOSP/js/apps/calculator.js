@@ -15,8 +15,7 @@ registerApp({
       return;
     }
 
-    // 0 = IDLE, 1 = EVALUATED
-    let bitState = 0;
+    let isEvaluated = false;
     let expr = '';
 
     // ── Allocation-Light Character-Code Parser ───────────────────────────────
@@ -172,20 +171,20 @@ registerApp({
 
     const append = (v) => {
       const c = v.charCodeAt(0);
-      if (bitState === 1 && ((c >= 48 && c <= 57) || c === 46)) expr = '';
-      bitState = 0;
+      if (isEvaluated && ((c >= 48 && c <= 57) || c === 46)) expr = '';
+      isEvaluated = false;
       expr    += v;
       update();
     };
 
     const clearAll = () => {
       expr     = '';
-      bitState = 0;
+      isEvaluated = false;
       update();
     };
 
     const backspace = () => {
-      bitState = 0;
+      isEvaluated = false;
       expr     = expr.slice(0, -1);
       update();
     };
@@ -195,7 +194,7 @@ registerApp({
       try {
         const out = parser.evaluate(expr);
         expr     = String(out);
-        bitState = 1;
+        isEvaluated = true;
         display.value = expr;
         scrollEnd();
         setResult(expr);
