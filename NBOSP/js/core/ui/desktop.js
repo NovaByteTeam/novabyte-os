@@ -1848,7 +1848,13 @@ function renderDesktopIcons() {
 
     if (isShortcut && shortcutData) {
       const isWebShortcut = shortcutData.target && shortcutData.target.startsWith('webapp_');
-      img.innerHTML = svgIcon(isWebShortcut ? shortcutData.icon : (shortcutData.icon || '/assets/no_app_icon.svg'), 40);
+      // Prefer the live icon from OS.apps over the snapshot baked into the
+      // .lnk file at pin-time — the target app's icon can change (e.g. a
+      // replace/reinstall with new artwork) without anything ever updating
+      // this file, since it's stored on disk and only ever written once.
+      const liveIcon = targetApp?.icon;
+      const iconToUse = isWebShortcut ? (liveIcon || shortcutData.icon) : (liveIcon || shortcutData.icon || '/assets/no_app_icon.svg');
+      img.innerHTML = svgIcon(iconToUse, 40);
       const arrow = createEl('div', {
         style: 'position:absolute;bottom:0;right:0;width:16px;height:16px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:white;font-weight:bold;'
       });

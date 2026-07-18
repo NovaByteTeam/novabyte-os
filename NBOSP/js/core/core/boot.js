@@ -475,6 +475,17 @@ async function boot() {
   scheduleIdle(() => {
     loadInstalledNovaApps().catch(e => console.error('[BOOT] Failed to load installed Nova apps:', e)).finally(() => {
       if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
+      // loadInstalledNovaApps() is fire-and-forget from an idle callback and
+      // races the fixed 800ms boot-finalize delay below — hydrateApps() does
+      // async per-file OPFS reads per installed app and can easily lose that
+      // race, especially right after an install/replace when OPFS state just
+      // changed. Desktop icons and the launchpad had nothing re-render them
+      // once this actually finished (only the taskbar did above), so a
+      // freshly-installed/replaced app's icon and content stayed stale until
+      // something unrelated (e.g. opening App Manager) happened to redraw
+      // them later against already-fresh OS.apps/APP_REGISTRY data.
+      if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+      if (typeof renderLaunchpad === 'function') renderLaunchpad();
     });
   });
 
@@ -522,33 +533,31 @@ async function boot() {
   function registerWithFiles(appData) {
     if (!appData?.id || !appData.files) return;
 
-    let icon = appData.icon || 'box';
-    if (icon && !/^data:|^https?:\/\//i.test(icon) && appData.files?.[icon]) {
-      const encoded = appData.files[icon];
-      const ext = (icon.split('.').pop() || '').toLowerCase();
-      const mime = ext === 'svg' ? 'image/svg+xml'
-        : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-        : ext === 'gif' ? 'image/gif'
-        : ext === 'webp' ? 'image/webp'
-        : ext === 'ico' ? 'image/x-icon'
-        : 'image/png';
-      icon = `data:${mime};base64,${encoded}`;
-    }
-
-    const appMeta = {
-      ...appData,
-      icon,
-      permissions: appData.permissions || [],
-      optionalPermissions: appData.optionalPermissions || [],
-    };
-
     try {
-      const app = AppRegistry.registerApp(appMeta);
-      if (app && !APP_REGISTRY.some(a => a.id === appMeta.id)) {
-        APP_REGISTRY.push(app);
+      if (typeof window.buildNovaAppConfig !== 'function') {
+        // appmanager.js loads before boot.js in index.html, so this should
+        // never actually happen — but if script order ever changes, fail
+        // loudly instead of silently falling back to the old incomplete
+        // registration path (which is exactly how this bug shipped once).
+        console.error('[BOOT] window.buildNovaAppConfig unavailable — cannot register', appData.id, 'with full launch config. Check that appmanager.js loads before boot.js.');
+        return;
       }
+
+      const cfg = window.buildNovaAppConfig(appData);
+      OS.apps[appData.id] = cfg;
+      const ri = APP_REGISTRY.findIndex(a => a.id === appData.id);
+      if (ri > -1) APP_REGISTRY[ri] = cfg;
+      else APP_REGISTRY.push(cfg);
+
+      // Deliberately NOT calling AppRegistry.registerApp() here — it
+      // unconditionally rebuilds and overwrites OS.apps[id] with its own
+      // config (no files/entry), which would immediately clobber the
+      // correct cfg set above. PackageStore's registry (nova_installed_apps)
+      // is already the real persisted source of truth for installed apps;
+      // AppRegistry's separate cache isn't load-bearing for this path.
+
       if (window.AppDirs && typeof window.AppDirs.ensureAppDataFolder === 'function') {
-        window.AppDirs.ensureAppDataFolder(appMeta.id).catch(() => {});
+        window.AppDirs.ensureAppDataFolder(appData.id).catch(() => {});
       }
     } catch (e) {
       console.warn('[BOOT] Failed to register installed app', appData.id, e);

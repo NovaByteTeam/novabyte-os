@@ -82,7 +82,11 @@ const AppRegistry = (() => {
       const apps = JSON.parse(raw);
       for (const app of apps) {
         installedApps.set(app.id, app);
-        if (typeof OS !== 'undefined' && OS?.apps && !OS.apps[app.id]) {
+        if (typeof OS !== 'undefined' && OS?.apps) {
+          // Always rebuild from the persisted record, even if a static
+          // OS.apps[app.id] already exists — otherwise a restored install
+          // that shares an id with a pre-registered app can never win here,
+          // and (see below) never reaches APP_REGISTRY either.
           OS.apps[app.id] = {
             id: app.id, name: app.name, icon: app.icon, description: app.description,
             defaultSize: app.defaultSize || [800, 600], minSize: app.minSize || [400, 300],
@@ -96,8 +100,21 @@ const AppRegistry = (() => {
             onDrop: app.onDrop ?? undefined,
             onClose: app.onClose ?? undefined,
           };
+          // registerApp() (js/core/services/registry.js) is the only thing
+          // that writes into APP_REGISTRY, which is what the launchpad and
+          // taskbar actually iterate — see the comment in registerApp() in
+          // this file. initialize() rebuilt OS.apps by hand above and never
+          // called it, so every restored app vanished from APP_REGISTRY on
+          // reload even though OS.apps (and thus direct launches) was fine.
+          // This is almost certainly the "old UI comes back after refresh"
+          // bug: the render layer was reading a registry that boot never
+          // repopulated.
+          if (typeof window !== 'undefined' && typeof window.registerApp === 'function') {
+            window.registerApp(OS.apps[app.id]);
+          }
         }
       }
+      if (typeof renderLaunchpad === 'function') renderLaunchpad();
       console.log(`[AppRegistry] Loaded ${installedApps.size} app(s)`);
       if (typeof EventLog !== 'undefined') {
         EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Loaded ${installedApps.size} app(s) from storage`, data: { count: installedApps.size } });

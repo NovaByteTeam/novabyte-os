@@ -1,57 +1,21 @@
-registerApp({
-  id: 'app-manager',
-  name: 'App Manager',
-  version: '3.0.2',
-  icon: 'package',
-  description: 'Install, manage, and customise .novaapp packages and web apps',
-  defaultSize: [980, 640],
-  minSize: [720, 480],
-  // Routes a dropped file straight into the install flow, no matter which
-  // tab/view is currently showing. Without this, only the empty-state drop
-  // zone inside renderDetail() could catch a drop — anywhere else in the
-  // window, the window manager's generic content-level drop handler would
-  // take over instead (since no onDrop meant "no app-specific handling"),
-  // silently writing the .novaapp file into the Files vault and opening it
-  // there rather than installing it.
-  async onDrop(file, state) {
-    if (!file || typeof file.name !== 'string') return;
-    if (!file.name.endsWith('.novaapp')) {
-      Notify.show({ title: 'Invalid File', body: 'Please select a valid .novaapp package.', type: 'error', appName: 'App Manager' });
-      return;
-    }
-    const processFile = state?.content?._novaAppProcessFile;
-    if (typeof processFile === 'function') {
-      processFile(file);
-    } else {
-      // App Manager window isn't fully initialized yet (rare timing edge,
-      // e.g. dropping mid-boot) — fail loudly rather than silently no-op.
-      Notify.show({ title: 'Not Ready', body: 'App Manager is still loading — try the drop again in a moment.', type: 'error', appName: 'App Manager' });
-    }
-  },
-  async init(content) {
-    // ── NovaByte runtime guard — refuses to launch without AppDirs ──
-    if (!window.AppDirs?.getVFSDir('com.nbosp.appmanager', 'files')) {
-      content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">\u26A0\uFE0F</div><div style="font-size:14px;text-align:center"><b>com.nbosp.appmanager</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
-      return;
-    }
-
-    const APPS_KEY = 'nova_installed_apps';
-    const LOG_KEY = 'nova_appmanager_log';
-
-    // ── AbortController for clean teardown of all listeners ──
-    const ac = new AbortController();
-    const listenerOpts = { signal: ac.signal };
-
-    // ── Helpers ────────────────────────────────────────────────────
-    const PackageStore = window.NovaAppPackageStore || null;
-
-    // Builds the CSP injected into sandboxed app HTML. Only the webapp
-    // template needs frame-src — everything else gets none, since no other
-    // template embeds external content. We validate appData.url rather than
-    // trusting it outright: it's written by the app's own creator (or by
-    // hand-editing manifest.json), not vetted, so a malformed or javascript:
-    // value here must not end up unescaped inside an HTML attribute.
+// ── Shared Nova app launch config (hoisted to module scope) ──────────────
+// buildNovaAppConfig() and its helpers used to live entirely inside
+// init(content) below, meaning they only existed once a user actually
+// opened the App Manager window. boot.js needs the exact same rendering
+// logic (files/entry wiring, permission gating, trust/tamper checks,
+// sandboxed webview launch) to correctly re-register previously-installed
+// apps at boot time — before App Manager has ever been opened. Hoisting
+// these to the top level and exposing buildNovaAppConfig on window lets
+// boot.js reuse the real implementation instead of a second, incomplete
+// hand-rolled one that was missing files/entry/init entirely.
+//
+// The one thing that doesn't hoist as-is is the AbortController: the
+// original version closed over a single `ac` created once per App-Manager-
+// window-open and shared across every launch from that window. Each call
+// to buildNovaAppConfig() now creates its own AbortController scoped to
+// that one launch instead — every call already gets its own webview and
+// listeners, so a per-launch controller is more correct than the old
+// per-window one, not a shortcut.
     function buildSandboxCSP(appData) {
       const base = "default-src 'self' blob: data: 'unsafe-inline' 'unsafe-eval'; " +
         "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'; " +
@@ -79,127 +43,12 @@ registerApp({
       const escaped = (base + frameSrc).replace(/"/g, '&quot;');
       return '<meta http-equiv="Content-Security-Policy" content="' + escaped + '">\n';
     }
-
-    function resolveIcon(app) {
-      if (!app?.icon || typeof app.icon !== 'string') return null;
-      if (/^data:|^https?:\/\//i.test(app.icon)) return app.icon;
-      const files = app.files || app._files || {};
-      const encoded = files[app.icon];
-      if (encoded && typeof encoded === 'string') {
-        const ext = (app.icon.split('.').pop() || '').toLowerCase();
-        const mime = ext === 'svg' ? 'image/svg+xml'
-          : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-          : ext === 'gif' ? 'image/gif'
-          : ext === 'webp' ? 'image/webp'
-          : ext === 'ico' ? 'image/x-icon'
-          : 'image/png';
-        return `data:${mime};base64,${encoded}`;
-      }
-      return null;
-    }
-
-    async function getStoredApps() {
-      try {
-        const list = PackageStore?.loadRegistry
-          ? PackageStore.loadRegistry()
-          : JSON.parse(localStorage.getItem(APPS_KEY) || '[]');
-        return PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
-      } catch (e) {
-        console.warn('[AppManager] Failed to load installed packages:', e);
-        return [];
-      }
-    }
-
-    function saveStoredApps(list) {
-      try {
-        if (PackageStore?.saveRegistry) {
-          PackageStore.saveRegistry(list);
-        } else {
-          localStorage.setItem(APPS_KEY, JSON.stringify(list));
-        }
-      } catch (e) {
-        if (e.name === 'QuotaExceededError' || e.code === 22) {
-          console.warn('[AppManager] localStorage quota exceeded while saving app metadata.');
-        } else {
-          console.warn('[AppManager] Failed to save installed app metadata:', e);
-        }
-      }
-    }
-
-    function getLog() {
-      try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }
-      catch { return []; }
-    }
-
-    function pushLog(entry) {
-      const log = getLog();
-      log.unshift({ ...entry, ts: Date.now() });
-      if (log.length > 200) log.length = 200;
-      try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
-      catch { /* quota — discard oldest silently */ }
-    }
-
-    function getPinned() { return OS.settings.get('pinnedApps') || []; }
-    function getDisabled() {
-      try {
-        const raw = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
-        return raw.map(x => typeof x === 'string' ? x : x?.id).filter(Boolean);
-      }
-      catch { return []; }
-    }
-    function setDisabled(list) {
-      try { localStorage.setItem('nova_disabled_apps', JSON.stringify(list)); }
-      catch { /* quota */ }
-    }
-    function getBootApps() {
-      try { return JSON.parse(localStorage.getItem('nova_boot_apps') || '[]'); }
-      catch { return []; }
-    }
-    function setBootApps(list) {
-      try { localStorage.setItem('nova_boot_apps', JSON.stringify(list)); }
-      catch { /* quota */ }
-    }
-
     // ── Text sanitisation: avoid innerHTML with user-controlled strings ──
     function escapeHtml(str) {
       const el = document.createElement('span');
       el.textContent = str;
       return el.innerHTML;
     }
-
-    // ── URL host extraction (cached per URL string) ──
-    const hostCache = new Map();
-    function extractHost(urlStr) {
-      if (hostCache.has(urlStr)) return hostCache.get(urlStr);
-      let host = urlStr;
-      try { host = new URL(urlStr).host; } catch { /* not a valid URL */ }
-      hostCache.set(urlStr, host);
-      return host;
-    }
-
-    // ── Debounced search input ──
-    function debounce(fn, ms) {
-      let timer = 0;
-      return function (...args) {
-        clearTimeout(timer);
-        timer = setTimeout(() => fn.apply(this, args), ms);
-      };
-    }
-
-    // ── Untrusted-app dialog ──────────────────────────────────────────
-    // Shown whenever a package's signature doesn't match any entry in
-    // TrustStore. Replaces the old hard block that just printed a static
-    // "blocked" message with no way forward — the user should be able to
-    // see *why* it's untrusted and still choose to run it if they want,
-    // the same way browsers let you click through an unknown-publisher
-    // warning rather than refusing outright.
-    //
-    // trust-store.js defines three distinct untrusted states:
-    //   1. No signature at all            → unsigned package
-    //   2. Signature from unknown pub      → not in trust store
-    //   3. Revoked signature               → cryptographically valid but individually pulled
-    // This dialog surfaces each state accurately so the user can make an
-    // informed decision rather than seeing a single generic warning.
     function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
       return new Promise(resolve => {
         const overlay = document.createElement('div');
@@ -696,7 +545,6 @@ registerApp({
         });
       });
     }
-
     function buildNovaAppConfig(appData) {
       const appId = appData.id;
       console.log('[AppManager][DIAG] launch appId=', JSON.stringify(appId), 'partition=', 'persist:app_' + appId);
@@ -722,6 +570,9 @@ registerApp({
         frame: appData.frame !== false,
 
         async init(contentEl, state, options) {
+          // Scoped to this one launch — see the header comment above for
+          // why this replaced the old per-window `ac` from init(content).
+          const ac = new AbortController();
           try { await window.AppDirs?.ensureAppDataFolder?.(appId); } catch (_e) { /* best-effort */ }
           console.log('[AM.init]', appId, 'AppSandbox?', typeof AppSandbox, 'FrameSecurity?', typeof FrameSecurity);
 
@@ -1078,6 +929,182 @@ registerApp({
         }
       };
     }
+
+    // Exposed so boot.js can reuse the exact same launch logic when
+    // re-registering previously-installed apps at boot time, instead of a
+    // separate incomplete implementation that never carried files/entry
+    // through. See the header comment above for the full story.
+    window.buildNovaAppConfig = buildNovaAppConfig;
+registerApp({
+  id: 'app-manager',
+  name: 'App Manager',
+  version: '3.0.2',
+  icon: 'package',
+  description: 'Install, manage, and customise .novaapp packages and web apps',
+  defaultSize: [980, 640],
+  minSize: [720, 480],
+  // Routes a dropped file straight into the install flow, no matter which
+  // tab/view is currently showing. Without this, only the empty-state drop
+  // zone inside renderDetail() could catch a drop — anywhere else in the
+  // window, the window manager's generic content-level drop handler would
+  // take over instead (since no onDrop meant "no app-specific handling"),
+  // silently writing the .novaapp file into the Files vault and opening it
+  // there rather than installing it.
+  async onDrop(file, state) {
+    if (!file || typeof file.name !== 'string') return;
+    if (!file.name.endsWith('.novaapp')) {
+      Notify.show({ title: 'Invalid File', body: 'Please select a valid .novaapp package.', type: 'error', appName: 'App Manager' });
+      return;
+    }
+    const processFile = state?.content?._novaAppProcessFile;
+    if (typeof processFile === 'function') {
+      processFile(file);
+    } else {
+      // App Manager window isn't fully initialized yet (rare timing edge,
+      // e.g. dropping mid-boot) — fail loudly rather than silently no-op.
+      Notify.show({ title: 'Not Ready', body: 'App Manager is still loading — try the drop again in a moment.', type: 'error', appName: 'App Manager' });
+    }
+  },
+  async init(content) {
+    // ── NovaByte runtime guard — refuses to launch without AppDirs ──
+    if (!window.AppDirs?.getVFSDir('com.nbosp.appmanager', 'files')) {
+      content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
+      content.innerHTML = '<div style="font-size:32px">\u26A0\uFE0F</div><div style="font-size:14px;text-align:center"><b>com.nbosp.appmanager</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      return;
+    }
+
+    const APPS_KEY = 'nova_installed_apps';
+    const LOG_KEY = 'nova_appmanager_log';
+
+    // ── AbortController for clean teardown of all listeners ──
+    const ac = new AbortController();
+    const listenerOpts = { signal: ac.signal };
+
+    // ── Helpers ────────────────────────────────────────────────────
+    const PackageStore = window.NovaAppPackageStore || null;
+
+    // Builds the CSP injected into sandboxed app HTML. Only the webapp
+    // template needs frame-src — everything else gets none, since no other
+    // template embeds external content. We validate appData.url rather than
+    // trusting it outright: it's written by the app's own creator (or by
+    // hand-editing manifest.json), not vetted, so a malformed or javascript:
+    // value here must not end up unescaped inside an HTML attribute.
+
+    function resolveIcon(app) {
+      if (!app?.icon || typeof app.icon !== 'string') return null;
+      if (/^data:|^https?:\/\//i.test(app.icon)) return app.icon;
+      const files = app.files || app._files || {};
+      const encoded = files[app.icon];
+      if (encoded && typeof encoded === 'string') {
+        const ext = (app.icon.split('.').pop() || '').toLowerCase();
+        const mime = ext === 'svg' ? 'image/svg+xml'
+          : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+          : ext === 'gif' ? 'image/gif'
+          : ext === 'webp' ? 'image/webp'
+          : ext === 'ico' ? 'image/x-icon'
+          : 'image/png';
+        return `data:${mime};base64,${encoded}`;
+      }
+      return null;
+    }
+
+    async function getStoredApps() {
+      try {
+        const list = PackageStore?.loadRegistry
+          ? PackageStore.loadRegistry()
+          : JSON.parse(localStorage.getItem(APPS_KEY) || '[]');
+        return PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
+      } catch (e) {
+        console.warn('[AppManager] Failed to load installed packages:', e);
+        return [];
+      }
+    }
+
+    function saveStoredApps(list) {
+      try {
+        if (PackageStore?.saveRegistry) {
+          PackageStore.saveRegistry(list);
+        } else {
+          localStorage.setItem(APPS_KEY, JSON.stringify(list));
+        }
+      } catch (e) {
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+          console.warn('[AppManager] localStorage quota exceeded while saving app metadata.');
+        } else {
+          console.warn('[AppManager] Failed to save installed app metadata:', e);
+        }
+      }
+    }
+
+    function getLog() {
+      try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }
+      catch { return []; }
+    }
+
+    function pushLog(entry) {
+      const log = getLog();
+      log.unshift({ ...entry, ts: Date.now() });
+      if (log.length > 200) log.length = 200;
+      try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+      catch { /* quota — discard oldest silently */ }
+    }
+
+    function getPinned() { return OS.settings.get('pinnedApps') || []; }
+    function getDisabled() {
+      try {
+        const raw = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+        return raw.map(x => typeof x === 'string' ? x : x?.id).filter(Boolean);
+      }
+      catch { return []; }
+    }
+    function setDisabled(list) {
+      try { localStorage.setItem('nova_disabled_apps', JSON.stringify(list)); }
+      catch { /* quota */ }
+    }
+    function getBootApps() {
+      try { return JSON.parse(localStorage.getItem('nova_boot_apps') || '[]'); }
+      catch { return []; }
+    }
+    function setBootApps(list) {
+      try { localStorage.setItem('nova_boot_apps', JSON.stringify(list)); }
+      catch { /* quota */ }
+    }
+
+
+    // ── URL host extraction (cached per URL string) ──
+    const hostCache = new Map();
+    function extractHost(urlStr) {
+      if (hostCache.has(urlStr)) return hostCache.get(urlStr);
+      let host = urlStr;
+      try { host = new URL(urlStr).host; } catch { /* not a valid URL */ }
+      hostCache.set(urlStr, host);
+      return host;
+    }
+
+    // ── Debounced search input ──
+    function debounce(fn, ms) {
+      let timer = 0;
+      return function (...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), ms);
+      };
+    }
+
+    // ── Untrusted-app dialog ──────────────────────────────────────────
+    // Shown whenever a package's signature doesn't match any entry in
+    // TrustStore. Replaces the old hard block that just printed a static
+    // "blocked" message with no way forward — the user should be able to
+    // see *why* it's untrusted and still choose to run it if they want,
+    // the same way browsers let you click through an unknown-publisher
+    // warning rather than refusing outright.
+    //
+    // trust-store.js defines three distinct untrusted states:
+    //   1. No signature at all            → unsigned package
+    //   2. Signature from unknown pub      → not in trust store
+    //   3. Revoked signature               → cryptographically valid but individually pulled
+    // This dialog surfaces each state accurately so the user can make an
+    // informed decision rather than seeing a single generic warning.
+
 
     function registerNovaApp(appData) {
       if (!appData?.files) {
@@ -1719,6 +1746,8 @@ registerApp({
              try { await window.AppDirs?.ensureAppDataFolder?.(appData.id); } catch (_e) { /* best-effort */ }
             renderList();
             renderDetail();
+            if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+            if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
             Notify.show({ title: 'App Installed', body: `${appData.name} v${appData.version} installed successfully.`, type: 'success', appName: 'App Manager' });
           } catch (err) {
             Notify.show({ title: 'Install Failed', body: String(err.message || err), type: 'error', appName: 'App Manager' });
