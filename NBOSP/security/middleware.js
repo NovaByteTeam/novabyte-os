@@ -329,6 +329,14 @@ function inputSanitization(req, res, next) {
     // Optional: skip backups too (they can contain raw file data)
     if (req.path.startsWith('/api/backups/')) return next();
 
+    // App network proxy — forwards req.body.body verbatim to a caller-specified
+    // external URL. This isn't HTML novabyte-os ever renders, so HTML-escaping
+    // it here doesn't prevent anything; it corrupts JSON bodies in transit
+    // (quotes -> &quot;, ampersands -> &amp;), which breaks the target API's
+    // own JSON parsing (e.g. "invalid character '&' looking for beginning of
+    // value"). The proxy route itself still validates URL/method/host.
+    if (req.path === '/api/proxy') return next();
+
     if (req.body && typeof req.body === 'object') {
         req.body = sanitizeObject(req.body);
     }

@@ -300,13 +300,22 @@ const AppSandbox = (() => {
     try {
       const json = JSON.stringify({ type: `${type}:response`, requestId, result, error });
       const b64 = Buffer.from(json, 'utf8').toString('base64');
+      // The injected code returns true on success / false on a caught parse
+      // error, so the executeScript callback's results array actually means
+      // something — unlike before, where it was being misread as an (err)
+      // argument (executeScript's callback is (results), not (err); the
+      // injected push statement returns undefined either way, so that
+      // logged a false "Failed to respond" error on every single call,
+      // success included).
       const code = '(function(){try{'
         + 'window.__novaInbox=window.__novaInbox||[];'
         + 'window.__novaInbox.push(JSON.parse(atob("' + b64 + '")));'
-        + '}catch(e){}})();';
-      webview.executeScript({ code, mainWorld: true }, (err) => {
-        if (err) {
-          log('error', `Failed to respond to ${type} (executeScript error):`, err);
+        + 'return true;'
+        + '}catch(e){return false;}})();';
+      webview.executeScript({ code, mainWorld: true }, (results) => {
+        const delivered = Array.isArray(results) ? results[0] : results;
+        if (delivered !== true) {
+          log('error', `Failed to respond to ${type} (guest-side delivery failed or webview unavailable)`);
         }
       });
     } catch (e) {
@@ -1245,9 +1254,13 @@ const AppSandbox = (() => {
         // from this document would be subject to the target server's CORS
         // policy (most external APIs don't allow browser-origin requests),
         // so we hand the request to /api/proxy, which makes it server-to-server.
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
         const proxyRes = await fetch('/api/proxy', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfToken,
+          },
           body: JSON.stringify({
             url: classified.url,
             method: safeMethod,
@@ -1676,15 +1689,35 @@ const AppSandbox = (() => {
       }
       if (!data || typeof data !== 'object') return;
 
-      const { type, payload, requestId } = data;
+      // Note: only {type, requestId} travel over the visible console
+      // channel now. The actual payload (which may contain secrets — API
+      // keys, auth headers, file bytes) never does; it's pulled back out
+      // of the guest's in-memory stash via executeScript below, a
+      // host-initiated read that doesn't land in the visible log stream
+      // the way console.log broadcasts do.
+      const { type, requestId } = data;
       if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(API_HANDLERS, type)) {
         log('warn', `Rejected IPC message with unknown/disallowed type from ${app?.id || 'unknown app'}: ${String(type)}`);
         return;
       }
       if (typeof requestId !== 'string' || !requestId) return;
 
-      const sandbox = activeSandboxes.get(sandboxId);
-      handleAPICall(type, payload, requestId, app, webview, sandbox);
+      const idLiteral = JSON.stringify(requestId);
+      webview.executeScript({
+        mainWorld: true,
+        code: `(function(){ var m = window.__novaOutboxPull || {}; var p = m[${idLiteral}]; delete m[${idLiteral}]; return JSON.stringify(p === undefined ? null : p); })()`,
+      }, (results) => {
+        let payload = null;
+        try {
+          const raw = Array.isArray(results) ? results[0] : results;
+          payload = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          log('warn', `Failed to retrieve IPC payload for ${type} from ${app?.id || 'unknown app'}: ${e.message}`);
+          return;
+        }
+        const sandbox = activeSandboxes.get(sandboxId);
+        handleAPICall(type, payload, requestId, app, webview, sandbox);
+      });
     };
 
     webview.addEventListener('consolemessage', consoleHandler);
@@ -1832,21 +1865,38 @@ const AppSandbox = (() => {
   // specific <webview> element's 'consolemessage' DOM event (the same
   // mechanism NB Browser already uses for its right-click context menu),
   // so a tagged console.log is a real, working guest->host send.
+  // Payloads (which may contain API keys, auth headers, file bytes, etc.)
+  // are never put into the console.log string itself — DevTools/consolemessage
+  // is a genuinely visible channel by construction, and anything logged in
+  // cleartext is exposed to anyone with the console open, independent of any
+  // redaction applied elsewhere. Instead the guest stashes the payload in
+  // this in-memory map (never logged) and sends only {type, requestId} over
+  // console — the host then pulls the actual payload back out via
+  // executeScript (window.__novaOutboxPull), which is a host-initiated read,
+  // not a guest-broadcast write, so it never lands in the visible log stream.
+  window.__novaOutboxPull = window.__novaOutboxPull || {};
+  var pendingPayloads = window.__novaOutboxPull;
+
   function ipc(type, payload) {
     return new Promise(function(resolve, reject) {
       var id = generateId();
       var timer = setTimeout(function() {
         if (pendingRequests.has(id)) {
           pendingRequests.delete(id);
+          delete pendingPayloads[id];
           reject(new TypeError('IPC request timed out: ' + type));
         }
       }, REQUEST_TIMEOUT_MS);
       pendingRequests.set(id, { resolve: resolve, reject: reject, timer: timer });
       try {
-        console.log(IPC_MARKER + JSON.stringify({ type: type, requestId: id, payload: payload }));
+        pendingPayloads[id] = payload;
+        // Only the type and requestId ever appear in the visible console
+        // stream — no headers, body, URLs, or other app-supplied data.
+        console.log(IPC_MARKER + JSON.stringify({ type: type, requestId: id }));
       } catch (e) {
         clearTimeout(timer);
         pendingRequests.delete(id);
+        delete pendingPayloads[id];
         reject(e);
       }
     });
@@ -2107,7 +2157,9 @@ const AppSandbox = (() => {
   // with no pendingRequests entry since nothing here waits on a reply.
   function ipcFireAndForget(type, payload) {
     try {
-      console.log(IPC_MARKER + JSON.stringify({ type: type, requestId: generateId(), payload: payload }));
+      var id = generateId();
+      pendingPayloads[id] = payload;
+      console.log(IPC_MARKER + JSON.stringify({ type: type, requestId: id }));
     } catch (e) { /* best-effort */ }
   }
 
