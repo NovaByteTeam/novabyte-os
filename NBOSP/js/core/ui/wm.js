@@ -389,13 +389,15 @@ const WM = window.WM = (() => {
 
     closeWindow(id) {
       const state = OS.windows.get(id);
-      if (!state) return;
+      if (!state) return Promise.resolve();
 
       state.element.classList.add('closing');
 
       // Use animationend for accurate timing; fall back after 250 ms in case
       // no animation fires (reduced-motion, missing keyframe, etc.).
       let closed = false;
+      let resolveClosed;
+      const closedPromise = new Promise(res => { resolveClosed = res; });
       const finishClose = () => {
         if (closed) return;
         closed = true;
@@ -428,10 +430,12 @@ const WM = window.WM = (() => {
         if (typeof EventLog !== 'undefined') {
           EventLog.log({ app: 'WM', category: 'window', severity: 'info', message: `Closed window for ${state.appId}`, data: { windowId: id, appId: state.appId } });
         }
+        resolveClosed();
       };
 
       const fallback = setTimeout(finishClose, 250);
       state.element.addEventListener('animationend', finishClose, { once: true });
+      return closedPromise;
     },
 
     minimizeWindow(id) {

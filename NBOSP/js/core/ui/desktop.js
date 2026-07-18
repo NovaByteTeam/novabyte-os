@@ -1754,7 +1754,7 @@ function renderDesktopIcons() {
                 for (const [wid, wstate] of OS.windows) {
                   if (wstate.appId === app.id) openWindowIds.push(wid);
                 }
-                for (const wid of openWindowIds) WM.closeWindow(wid);
+                await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
               }
               if (window.NovaAppPackageStore?.removeApp) {
                 await NovaAppPackageStore.removeApp(app.id);
@@ -1762,6 +1762,13 @@ function renderDesktopIcons() {
                 const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
                 const updated = stored.filter(a => a.id !== app.id);
                 localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
+              }
+              try {
+                if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
+                  await AppSandbox.clearAppPartition(app.id);
+                }
+              } catch (err) {
+                console.warn('[Desktop] Failed to clear storage partition for', app.id, err);
               }
               if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
                 AppRegistry.unregisterApp(app.id);
@@ -2036,7 +2043,7 @@ function renderDesktopIcons() {
                   for (const [wid, wstate] of OS.windows) {
                     if (wstate.appId === appId) openWindowIds.push(wid);
                   }
-                  for (const wid of openWindowIds) WM.closeWindow(wid);
+                  await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
                 }
                 if (window.NovaAppPackageStore?.removeApp) {
                   await NovaAppPackageStore.removeApp(appId);
@@ -2044,6 +2051,13 @@ function renderDesktopIcons() {
                   const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
                   const updated = stored.filter(a => a.id !== appId);
                   localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
+                }
+                try {
+                  if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
+                    await AppSandbox.clearAppPartition(appId);
+                  }
+                } catch (err) {
+                  console.warn('[Desktop] Failed to clear storage partition for', appId, err);
                 }
                 if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
                   AppRegistry.unregisterApp(appId);

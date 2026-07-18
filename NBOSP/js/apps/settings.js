@@ -1355,6 +1355,16 @@ registerApp({
           try {
             if (typeof OPFS !== 'undefined' && OPFS.clear) await OPFS.clear();
           } catch { /* OPFS unavailable */ }
+          // Each installed .novaapp runs in its own isolated webview storage
+          // partition (persist:app_<id> — see app-sandbox.js createSandbox()).
+          // That's separate from localStorage/IndexedDB/OPFS above, so it
+          // survives unless cleared per app, per partition.
+          try {
+            const appIds = (typeof OS !== 'undefined' && OS.apps) ? Object.keys(OS.apps) : [];
+            if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartitions) {
+              await AppSandbox.clearAppPartitions(appIds);
+            }
+          } catch { /* app partition wipe best-effort */ }
           location.reload();
         }
       });

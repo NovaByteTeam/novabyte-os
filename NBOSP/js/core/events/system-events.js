@@ -249,7 +249,7 @@ function renderLaunchpad() {
                   for (const [wid, wstate] of OS.windows) {
                     if (wstate.appId === app.id) openWindowIds.push(wid);
                   }
-                  for (const wid of openWindowIds) WM.closeWindow(wid);
+                  await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
                 }
                 if (window.NovaAppPackageStore?.removeApp) {
                   await NovaAppPackageStore.removeApp(app.id);
@@ -259,6 +259,13 @@ function renderLaunchpad() {
                     'nova_installed_apps',
                     JSON.stringify(stored.filter(a => a.id !== app.id))
                   );
+                }
+                try {
+                  if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
+                    await AppSandbox.clearAppPartition(app.id);
+                  }
+                } catch (err) {
+                  console.warn('[Launchpad] Failed to clear storage partition for', app.id, err);
                 }
                 if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
                   AppRegistry.unregisterApp(app.id);

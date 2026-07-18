@@ -1784,13 +1784,20 @@ registerApp({
           for (const [wid, wstate] of OS.windows) {
             if (wstate.appId === appId) openWindowIds.push(wid);
           }
-          for (const wid of openWindowIds) WM.closeWindow(wid);
+          await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
         }
 
         try {
           if (PackageStore?.removeApp) await PackageStore.removeApp(appId, { updateRegistry: false });
         } catch (e) {
           console.warn('[AppManager] Failed to remove stored package files for', appId, e);
+        }
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
+            await AppSandbox.clearAppPartition(appId);
+          }
+        } catch (e) {
+          console.warn('[AppManager] Failed to clear storage partition for', appId, e);
         }
         try {
           if (typeof AppDirs !== 'undefined') {

@@ -2359,6 +2359,54 @@ const AppSandbox = (() => {
     return Array.from(activeSandboxes.values());
   }
 
+  /**
+   * Clear the on-disk storage partition for a given app id
+   * (persist:app_<appId> — see createSandbox() above). This is a
+   * separate Chromium storage partition from the host window's
+   * localStorage/IndexedDB/OPFS, and from the app's FS/OPFS data
+   * folder cleaned up elsewhere — none of those touch this partition.
+   *
+   * Callers that fully remove an app's data (uninstall, "wipe all
+   * data", factory reset) must call this too, or the app's cookies,
+   * IndexedDB, cache, etc. from its own webview silently survive on
+   * disk under a partition nothing else references anymore.
+   *
+   * Safe to call even if the app was never launched (partition simply
+   * doesn't exist yet, and gets created+immediately-cleared, which is
+   * harmless).
+   *
+   * @param {string} appId
+   * @returns {Promise<void>} resolves once the partition is cleared
+   *   (or after a timeout, so callers can't hang forever on this).
+   */
+  function clearAppPartition(appId) {
+    return new Promise(resolve => {
+      if (!appId) { resolve(); return; }
+      const wv = document.createElement('webview');
+      wv.setAttribute('partition', `persist:app_${appId}`);
+      wv.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
+      const clearTypes = { appcache: true, cookies: true, filesystem: true, indexedDB: true, localStorage: true, webSQL: true, serviceWorkers: true, cachestorage: true };
+      const cleanup = () => { try { wv.remove(); } catch { } resolve(); };
+      wv.addEventListener('loadstop', () => {
+        try { wv.clearData({}, clearTypes, cleanup); } catch { cleanup(); }
+      });
+      wv.addEventListener('loadabort', cleanup);
+      document.body.appendChild(wv);
+      wv.src = 'about:blank';
+      setTimeout(cleanup, 4000);
+    });
+  }
+
+  /**
+   * Clear storage partitions for multiple apps in parallel. Used by
+   * bulk operations (wipe all data, factory reset).
+   * @param {string[]} appIds
+   * @returns {Promise<void>}
+   */
+  function clearAppPartitions(appIds) {
+    return Promise.all((appIds || []).map(clearAppPartition)).then(() => {});
+  }
+
   // ------------------------------------------------------------------
   // Public API
   // ------------------------------------------------------------------
@@ -2369,6 +2417,8 @@ const AppSandbox = (() => {
     destroy,
     getSandbox,
     getAllSandboxes,
+    clearAppPartition,
+    clearAppPartitions,
 
     // Internal exports for testing and advanced consumers. Not covered by
     // stability guarantees — do not depend on these in production code.

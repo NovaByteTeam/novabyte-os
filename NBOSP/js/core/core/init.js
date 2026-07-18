@@ -698,7 +698,18 @@
             }
           } catch { }
         };
-        (async () => { await deleteDbs(); await clearOPFS(); location.reload(); })();
+        // .novaapp data lives in per-app webview storage partitions
+        // (persist:app_<id> — see app-sandbox.js createSandbox()), separate
+        // from localStorage/IndexedDB/OPFS and untouched above.
+        const clearAppPartitions = async () => {
+          try {
+            const appIds = (typeof OS !== 'undefined' && OS.apps) ? Object.keys(OS.apps) : [];
+            if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartitions) {
+              await AppSandbox.clearAppPartitions(appIds);
+            }
+          } catch { }
+        };
+        (async () => { await deleteDbs(); await clearOPFS(); await clearAppPartitions(); location.reload(); })();
 
       }
     };

@@ -93,14 +93,21 @@ const MyAppsManager = (() => {
    * @param {string} appId - App ID
    * @returns {boolean} Success
    */
-  function removeApp(appId) {
+  async function removeApp(appId) {
     try {
       if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
         const openWindowIds = [];
         for (const [wid, wstate] of OS.windows) {
           if (wstate.appId === appId) openWindowIds.push(wid);
         }
-        for (const wid of openWindowIds) WM.closeWindow(wid);
+        await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
+      }
+      try {
+        if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
+          await AppSandbox.clearAppPartition(appId);
+        }
+      } catch (err) {
+        console.warn('[MyAppsManager] Failed to clear storage partition for', appId, err);
       }
       return AppRegistry?.unregisterApp(appId) || false;
     } catch (error) {
@@ -503,7 +510,7 @@ const MyAppsManager = (() => {
           [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
         );
         if (uninstallResult === 'confirm') {
-          MyAppsManager.removeApp(appId);
+          await MyAppsManager.removeApp(appId);
           MyAppsManager.showAppList(container);
         }
       });
@@ -628,7 +635,7 @@ const MyAppsManager = (() => {
         [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
       );
       if (uninstallResult === 'confirm') {
-        MyAppsManager.removeApp(appId);
+        await MyAppsManager.removeApp(appId);
         MyAppsManager.showAppList(container);
       }
     });
