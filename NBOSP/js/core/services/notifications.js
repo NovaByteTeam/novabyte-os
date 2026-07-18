@@ -42,6 +42,15 @@ const Notify = {
     Notify.renderPanel();
   },
 
+  clearAll() {
+    OS.notifications = [];
+    OS.notifUnread = 0;
+    Notify.persist();
+    Notify.updateBadge();
+    updateNotificationBadge();
+    Notify.renderPanel();
+  },
+
   show(opts) {
     Notify.loadPersisted();
     const { title, body, type, appName, category, icon, action, actionLabel } = opts;
@@ -73,6 +82,46 @@ const Notify = {
     }
   },
 
+  // Runs a notification's `action`. Function actions are called directly;
+  // string actions go through the built-in allowlist (kept in sync with
+  // ALLOWED_NOTIF_ACTIONS in app-sandbox.js). Shared by the toast and the
+  // persistent panel so both surfaces behave the same way on click.
+  runAction(notif) {
+    try {
+      if (typeof notif.action === 'function') {
+        notif.action();
+        return;
+      }
+      if (typeof notif.action === 'string') {
+        switch (notif.action) {
+          case 'settings':
+          case 'open-settings':
+          case 'openSettings':
+            if (typeof WM !== 'undefined' && typeof WM.createWindow === 'function') {
+              WM.createWindow('nook');
+            } else {
+              console.warn('[Notify] Cannot open settings — WM.createWindow unavailable');
+              if (typeof EventLog !== 'undefined') {
+                EventLog.log({ app: 'Notify', category: 'system', severity: 'warn', message: 'Open settings action failed — WM unavailable', data: { action: notif.action, appName: notif.appName } });
+              }
+            }
+            break;
+          default:
+            console.warn('[Notify] Unknown built-in action:', notif.action);
+            if (typeof EventLog !== 'undefined') {
+              EventLog.log({ app: 'Notify', category: 'system', severity: 'warn', message: `Unknown built-in action: ${notif.action}`, data: { action: notif.action, appName: notif.appName } });
+            }
+        }
+      }
+    } catch (err) {
+      console.error('[Notify] Action error:', err);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `Action failed: ${err?.message || err}`, data: { appName: notif.appName } });
+      }
+      Notify.show({ title: 'Action Failed', body: err?.message || 'An unknown error occurred.', type: 'error', appName: notif.appName || 'System' });
+    }
+  },
+
   showToast(notif) {
     const container = document.getElementById('toast-container');
     // The container should always be in the page shell, but bail out
@@ -100,39 +149,8 @@ const Notify = {
       actionBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         clearTimeout(timer);
-        try {
-          removeToast();
-          if (typeof notif.action === 'function') {
-            notif.action();
-          } else if (typeof notif.action === 'string') {
-            // Built-in actions that sandboxed apps are allowed to request
-            // (see the allowlist in app-sandbox.js). 'settings' and its
-            // aliases are accepted there but there's no settings surface
-            // wired up on this build yet, so we log it and move on instead
-            // of pretending the click did something.
-            switch (notif.action) {
-              case 'settings':
-              case 'open-settings':
-              case 'openSettings':
-                console.warn('[Notify] "Open settings" action requested but no settings UI is wired up yet:', notif.action);
-                if (typeof EventLog !== 'undefined') {
-                  EventLog.log({ app: 'Notify', category: 'system', severity: 'warn', message: `Settings action requested with no settings UI available: ${notif.action}`, data: { action: notif.action, appName: notif.appName } });
-                }
-                break;
-              default:
-                console.warn('[Notify] Unknown built-in action:', notif.action);
-                if (typeof EventLog !== 'undefined') {
-                  EventLog.log({ app: 'Notify', category: 'system', severity: 'warn', message: `Unknown built-in toast action: ${notif.action}`, data: { action: notif.action, appName: notif.appName } });
-                }
-            }
-          }
-        } catch (err) {
-          console.error('[Notify] Action error:', err);
-          if (typeof EventLog !== 'undefined') {
-            EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `Toast action failed: ${err?.message || err}`, data: { appName: notif.appName } });
-          }
-          Notify.show({ title: 'Action Failed', body: err?.message || 'An unknown error occurred.', type: 'error', appName: notif.appName || 'System' });
-        }
+        removeToast();
+        Notify.runAction(notif);
       });
       content.appendChild(actionBtn);
     }
@@ -199,6 +217,20 @@ const Notify = {
       content.appendChild(createEl('div', { className: 'notif-item-time', textContent: timeStr }));
       item.appendChild(icon);
       item.appendChild(content);
+
+      if (n.action && n.actionLabel) {
+        const actionBtn = createEl('button', { className: 'notif-item-action' });
+        actionBtn.textContent = n.actionLabel;
+        actionBtn.style.cssText = 'margin-left:auto;flex-shrink:0;padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;background:rgba(88,166,255,0.2);color:#58a6ff;border:1px solid rgba(88,166,255,0.4);cursor:pointer;transition:all 0.15s;';
+        actionBtn.onmouseenter = () => { actionBtn.style.background = 'rgba(88,166,255,0.35)'; };
+        actionBtn.onmouseleave = () => { actionBtn.style.background = 'rgba(88,166,255,0.2)'; };
+        actionBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          Notify.runAction(n);
+        });
+        item.appendChild(actionBtn);
+      }
+
       frag.appendChild(item);
     }
     list.appendChild(frag);
