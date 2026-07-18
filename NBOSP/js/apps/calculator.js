@@ -87,33 +87,34 @@ registerApp({
         return decimals > 0 ? v / Math.pow(10, decimals) : v;
       }
 
-      #primary() {
-        if (this.#eat(43)) return  this.#primary(); // '+'
-        if (this.#eat(45)) return -this.#primary(); // '-'
+      #primary(depth = 0) {
+        if (depth > 1000) throw new SyntaxError();
+        if (this.#eat(43)) return  this.#primary(depth + 1); // '+'
+        if (this.#eat(45)) return -this.#primary(depth + 1); // '-'
         if (this.#eat(40)) {                        // '('
-          const v = this.#addSub();
+          const v = this.#addSub(depth);
           if (!this.#eat(41)) throw new SyntaxError(); // ')'
           return v;
         }
         return this.#num();
       }
 
-      #mulDiv() {
-        let v = this.#primary();
+      #mulDiv(depth = 0) {
+        let v = this.#primary(depth);
         while (this.#i < this.#len) {
-          if      (this.#eat(215)) v *= this.#primary(); // '×'
-          else if (this.#eat(247)) v /= this.#primary(); // '÷'
-          else if (this.#eat(37))  v %= this.#primary(); // '%'
+          if      (this.#eat(215)) v *= this.#primary(depth); // '×'
+          else if (this.#eat(247)) v /= this.#primary(depth); // '÷'
+          else if (this.#eat(37))  v %= this.#primary(depth); // '%'
           else break;
         }
         return v;
       }
 
-      #addSub() {
-        let v = this.#mulDiv();
+      #addSub(depth = 0) {
+        let v = this.#mulDiv(depth);
         while (this.#i < this.#len) {
-          if      (this.#eat(43)) v += this.#mulDiv(); // '+'
-          else if (this.#eat(45)) v -= this.#mulDiv(); // '-'
+          if      (this.#eat(43)) v += this.#mulDiv(depth); // '+'
+          else if (this.#eat(45)) v -= this.#mulDiv(depth); // '-'
           else break;
         }
         return v;
