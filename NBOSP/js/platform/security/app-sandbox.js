@@ -1015,6 +1015,103 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:clipboard:write', requestId, { success: true });
   }
 
+  // -- Downloads --
+  //
+  // <webview> guests can't reach the host's real filesystem or trigger a
+  // native save dialog directly (they're intentionally non-Node frames —
+  // see nodeintegration=false above). The capability shim in a guest
+  // intercepts <a download> clicks on blob: URLs, reads the blob bytes,
+  // and ships them here as base64. This handler is what actually shows
+  // the native "Save As" dialog and writes the bytes to disk — it only
+  // runs in the top-level shell window, which IS a Node frame, so
+  // nwsaveas and Node's fs module both work here.
+  //
+  // No standing permission is required for this — the native save
+  // dialog itself is the control: the app can propose a filename and
+  // bytes, but the user always sees and confirms the real destination
+  // before anything touches disk. That mirrors how a normal browser
+  // download works, and is a deliberate departure from the fs:write
+  // pattern above, which writes into novabyte-os's own virtual FS
+  // without a per-write prompt.
+  const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024; // 100MB — generous for a
+  // vault export or similar; guards against a runaway/misbehaving app
+  // trying to stream something enormous through the IPC bridge.
+
+  function sanitizeDownloadFilename(name) {
+    const fallback = 'download';
+    if (!name || typeof name !== 'string') return fallback;
+    // Strip any path components — this is a filename, not a path. Also
+    // strip null bytes and other control characters some OSes mishandle.
+    let base = name.replace(/[\\/]/g, '_').replace(/[\x00-\x1f]/g, '').trim();
+    base = base.replace(/^\.+/, ''); // no leading dots (hidden files / '..' games)
+    if (!base) return fallback;
+    return base.slice(0, 255); // filesystem-safe length cap
+  }
+
+  async function handleDownload({ payload, requestId, app, webview }) {
+    const { filename, mimeType, base64Data } = payload ?? {};
+    if (typeof base64Data !== 'string' || !base64Data) {
+      return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', 'base64Data is required');
+    }
+    let buffer;
+    try {
+      buffer = Buffer.from(base64Data, 'base64');
+    } catch (e) {
+      return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', 'base64Data is not valid base64');
+    }
+    if (buffer.length > MAX_DOWNLOAD_BYTES) {
+      return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', `Download exceeds ${MAX_DOWNLOAD_BYTES} byte limit`);
+    }
+
+    const safeName = sanitizeDownloadFilename(filename);
+
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.setAttribute('nwsaveas', safeName);
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      const cleanup = () => { input.remove(); };
+
+      input.addEventListener('change', () => {
+        const savePath = input.value;
+        cleanup();
+        if (!savePath) {
+          respond(webview, 'nova:download', requestId, { success: false, cancelled: true });
+          return resolve();
+        }
+        require('fs').writeFile(savePath, buffer, (err) => {
+          if (err) {
+            respondError(webview, 'nova:download', requestId, 'IO_ERROR', err.message || 'Failed to write file');
+          } else {
+            if (typeof EventLog !== 'undefined') {
+              EventLog.log({
+                app: 'AppSandbox',
+                category: 'downloads',
+                severity: 'info',
+                message: `${app?.id || 'unknown'}: saved download "${safeName}" (${buffer.length} bytes)`,
+                data: { appId: app?.id, filename: safeName, size: buffer.length, mimeType: mimeType || null },
+              });
+            }
+            respond(webview, 'nova:download', requestId, { success: true });
+          }
+          resolve();
+        });
+      }, { once: true });
+
+      // 'cancel' fires if the user dismisses the dialog without choosing a path.
+      input.addEventListener('cancel', () => {
+        cleanup();
+        respond(webview, 'nova:download', requestId, { success: false, cancelled: true });
+        resolve();
+      }, { once: true });
+
+      input.click();
+    });
+  }
+
+
   // -- App lifecycle --
 
   async function handleAppLaunch({ payload, requestId, app, webview }) {
@@ -1718,6 +1815,55 @@ const AppSandbox = (() => {
     });
   }
 
+  // ── Download interceptor ───────────────────────────────────────────
+  // <webview> tags can't hand a blob: URL to the host — blob URLs are
+  // memory-backed and scoped to the browsing context that created them,
+  // so window.parent has no way to dereference one even if it has the
+  // string. What CAN cross the boundary is the blob's actual bytes.
+  //
+  // We override the native click() on <a download> elements pointing at
+  // blob: URLs: read the blob back out with fetch() (same-context, so
+  // this works), base64-encode it, and ship the bytes to the host over
+  // the existing IPC bridge. The host does the real save-as. Apps using
+  // the standard createObjectURL + <a download> + click() pattern need
+  // no changes — this is transparent.
+  var nativeAnchorClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function() {
+    var href = this.href || '';
+    var filename = this.download;
+    if (filename && href.indexOf('blob:') === 0) {
+      var anchor = this;
+      fetch(href)
+        .then(function(res) { return res.blob(); })
+        .then(function(blob) {
+          var reader = new FileReader();
+          reader.onload = function() {
+            // reader.result is a data URL: "data:<mime>;base64,<data>"
+            var result = String(reader.result || '');
+            var commaIdx = result.indexOf(',');
+            var base64Data = commaIdx >= 0 ? result.slice(commaIdx + 1) : '';
+            ipc('nova:download', {
+              filename: filename,
+              mimeType: blob.type || 'application/octet-stream',
+              base64Data: base64Data
+            }).catch(function(err) {
+              console.error('Vaultcraft shim: download failed', err);
+            });
+          };
+          reader.onerror = function() {
+            console.error('Vaultcraft shim: failed to read blob for download');
+          };
+          reader.readAsDataURL(blob);
+        })
+        .catch(function(err) {
+          console.error('Vaultcraft shim: failed to fetch blob for download', err);
+        });
+      return; // suppress the native click — it would just navigate/no-op
+    }
+    return nativeAnchorClick.call(this);
+  };
+  // ── End download interceptor ───────────────────────────────────────
+
   // Single message listener handles all IPC responses and pushed events.
   window.addEventListener('message', function(event) {
     if (event.origin !== PARENT_ORIGIN) return;
@@ -2169,8 +2315,18 @@ const AppSandbox = (() => {
     if (has('allowPopupsToEscapeSandbox', 'allow-popups-to-escape-sandbox')) tokens.push('allow-popups-to-escape-sandbox');
     if (has('allowModals', 'allow-modals')) tokens.push('allow-modals');
 
+    // allow-downloads: without this token, Chromium silently drops any
+    // download triggered inside the webview (blob URL + <a download>,
+    // navigation to a Content-Disposition: attachment response, etc).
+    // It's a per-click, user-gesture-gated action — the OS-native save
+    // dialog is the actual security boundary, not this token — so it's
+    // safe to include in the default set alongside the other baseline
+    // interaction tokens rather than gating it behind a manifest
+    // permission the user has to grant separately.
     if (tokens.length === 0) {
-      tokens.push('allow-scripts', 'allow-forms', 'allow-popups', 'allow-modals');
+      tokens.push('allow-scripts', 'allow-forms', 'allow-popups', 'allow-modals', 'allow-downloads');
+    } else if (!tokens.includes('allow-downloads')) {
+      tokens.push('allow-downloads');
     }
 
     log('debug', `sandbox attrs for ${appId || 'unknown'}: ${tokens.join(' ')}`);
