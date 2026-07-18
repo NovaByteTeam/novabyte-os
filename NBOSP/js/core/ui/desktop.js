@@ -1826,9 +1826,10 @@ function renderDesktopIcons() {
       } catch { /* not a valid shortcut, treat as regular file */ }
     }
 
+    let targetApp = null;
     if (isShortcut && shortcutData) {
       const devMode = OS.settings.get('devMode');
-      const targetApp = OS.apps?.[shortcutData.target];
+      targetApp = OS.apps?.[shortcutData.target];
       if (!devMode && targetApp?.devOnly) return;
 
       const appPosKey = 'app:' + shortcutData.target;
