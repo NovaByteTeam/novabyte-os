@@ -209,7 +209,7 @@ const AppSandbox = (() => {
    * first-party callers rely on that), so nothing but plain, bounded data
    * may cross from a sandboxed app into that call.
    */
-  function sanitizeNotificationPayload(payload, appName) {
+  function sanitizeNotificationPayload(payload, appName, appId) {
     const raw = payload ?? {};
 
     const title = typeof raw.title === 'string' && raw.title.trim()
@@ -237,6 +237,7 @@ const AppSandbox = (() => {
       body,
       type,
       appName,
+      appId,
       icon,
       action,
       actionLabel,
@@ -867,7 +868,7 @@ const AppSandbox = (() => {
     if (!checkNotificationRateLimit(app.id)) {
       return respondError(webview, 'nova:notifications:show', requestId, 'RATE_LIMITED', `Max ${NOTIF_RATE_LIMIT_MAX} notifications per minute`);
     }
-    Notify.show(sanitizeNotificationPayload(payload, app.name));
+    Notify.show(sanitizeNotificationPayload(payload, app.name, app.id));
     return respond(webview, 'nova:notifications:show', requestId, { success: true });
   }
 
@@ -875,10 +876,10 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
       return respondError(webview, 'nova:notifications:clear', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
     }
-    if (typeof Notify === 'undefined' || typeof Notify.clearAll !== 'function') {
+    if (typeof Notify === 'undefined' || typeof Notify.clearForApp !== 'function') {
       return respondError(webview, 'nova:notifications:clear', requestId, 'UNAVAILABLE', 'Notification service not available');
     }
-    Notify.clearAll();
+    Notify.clearForApp(app.id);
     return respond(webview, 'nova:notifications:clear', requestId, { success: true });
   }
 

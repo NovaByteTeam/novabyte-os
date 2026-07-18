@@ -42,6 +42,24 @@ const Notify = {
     Notify.renderPanel();
   },
 
+  // Clears only notifications tagged with the given appId — used by the
+  // nova:notifications:clear IPC handler so a sandboxed app can clear its
+  // own notifications without touching other apps' or the system's.
+  clearForApp(appId) {
+    if (!appId) return;
+    const before = OS.notifications.length;
+    OS.notifications = OS.notifications.filter(n => n && n.appId !== appId);
+    if (OS.notifications.length === before) return;
+    OS.notifUnread = OS.notifications.filter(n => !n.read).length;
+    Notify.persist();
+    Notify.updateBadge();
+    updateNotificationBadge();
+    Notify.renderPanel();
+  },
+
+  // Clears every notification regardless of source. Not exposed over the
+  // app IPC bridge — only for first-party system UI (e.g. a "Clear all"
+  // button the user presses directly in the notification panel).
   clearAll() {
     OS.notifications = [];
     OS.notifUnread = 0;
@@ -53,13 +71,14 @@ const Notify = {
 
   show(opts) {
     Notify.loadPersisted();
-    const { title, body, type, appName, category, icon, action, actionLabel } = opts;
+    const { title, body, type, appName, appId, category, icon, action, actionLabel } = opts;
     const notif = {
       id: generateId(),
       title: title || '',
       body: body || '',
       type: type || 'info',
       appName: appName || 'System',
+      appId: appId || null,
       category: category || 'system',
       icon: icon || 'bell',
       timestamp: Date.now(),
