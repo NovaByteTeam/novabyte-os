@@ -22,7 +22,7 @@
         "style-src 'self' 'unsafe-inline' blob: data:; " +
         "img-src 'self' blob: data: https:; " +
         "font-src 'self' blob: data:; " +
-        "connect-src 'self' http://localhost:* https://localhost:*";
+        "connect-src 'self' blob: http://localhost:* https://localhost:*";
 
       let frameSrc = '';
       if (appData?.url) {

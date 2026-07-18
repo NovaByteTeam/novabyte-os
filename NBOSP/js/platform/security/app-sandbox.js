@@ -1049,6 +1049,7 @@ const AppSandbox = (() => {
   }
 
   async function handleDownload({ payload, requestId, app, webview }) {
+    console.log('[NOVA_DOWNLOAD_DEBUG] handleDownload called', { filename: payload?.filename, hasData: !!payload?.base64Data });
     const { filename, mimeType, base64Data } = payload ?? {};
     if (typeof base64Data !== 'string' || !base64Data) {
       return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', 'base64Data is required');
@@ -1064,6 +1065,7 @@ const AppSandbox = (() => {
     }
 
     const safeName = sanitizeDownloadFilename(filename);
+    console.log('[NOVA_DOWNLOAD_DEBUG] about to create nwsaveas input', { safeName, bufferLen: buffer.length, activation: typeof navigator !== 'undefined' && navigator.userActivation ? navigator.userActivation.isActive : 'no navigator.userActivation' });
 
     return new Promise((resolve) => {
       const input = document.createElement('input');
@@ -1075,6 +1077,7 @@ const AppSandbox = (() => {
       const cleanup = () => { input.remove(); };
 
       input.addEventListener('change', () => {
+        console.log('[NOVA_DOWNLOAD_DEBUG] change event fired', { value: input.value });
         const savePath = input.value;
         cleanup();
         if (!savePath) {
@@ -1102,12 +1105,15 @@ const AppSandbox = (() => {
 
       // 'cancel' fires if the user dismisses the dialog without choosing a path.
       input.addEventListener('cancel', () => {
+        console.log('[NOVA_DOWNLOAD_DEBUG] cancel event fired');
         cleanup();
         respond(webview, 'nova:download', requestId, { success: false, cancelled: true });
         resolve();
       }, { once: true });
 
+      console.log('[NOVA_DOWNLOAD_DEBUG] calling input.click() now');
       input.click();
+      console.log('[NOVA_DOWNLOAD_DEBUG] input.click() returned (sync call complete, dialog is async)');
     });
   }
 
@@ -1598,6 +1604,7 @@ const AppSandbox = (() => {
     'nova:dialog:open': handleDialogOpen,
     'nova:dialog:save': handleDialogSave,
     'nova:audit:eval': handleAuditEval,
+    'nova:download': handleDownload,
   };
 
   /**
@@ -1646,7 +1653,11 @@ const AppSandbox = (() => {
     const messageHandler = (event) => {
       // Apps are served from our origin, so we reject any other origin
       // outright.
-      if (event.origin !== window.location.origin) return;
+      if (event.origin !== window.location.origin) {
+        console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: origin mismatch, dropping', { eventOrigin: event.origin, expected: window.location.origin, dataType: event.data?.type });
+        return;
+      }
+      console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: origin OK', { dataType: event.data?.type });
 
       // NOTE: we do NOT compare event.source against webview.contentWindow.
       // For a <webview> tag, contentWindow is unavailable — NW.js/Chromium
@@ -1659,7 +1670,9 @@ const AppSandbox = (() => {
       // the outbound side.
       if (pinnedSource === null) {
         pinnedSource = event.source;
+        console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: pinnedSource set for first time');
       } else if (event.source !== pinnedSource) {
+        console.log('[NOVA_DOWNLOAD_DEBUG] messageHandler: source mismatch, dropping', { dataType: event.data?.type });
         return;
       }
       webview._novaMessageSource = event.source;
@@ -1811,7 +1824,16 @@ const AppSandbox = (() => {
         }
       }, REQUEST_TIMEOUT_MS);
       pendingRequests.set(id, { resolve: resolve, reject: reject, timer: timer });
-      window.parent.postMessage({ type: type, requestId: id, payload: payload }, PARENT_ORIGIN);
+      // includeUserActivation: without this, the click that triggered this
+      // IPC call (e.g. clicking "Export") never crosses the webview->host
+      // frame boundary, even though Chromium normally propagates activation
+      // across postMessage. That silently breaks any host-side code relying
+      // on activation, like the synthetic input.click() for nwsaveas in
+      // handleDownload — no error, the save dialog just never opens.
+      window.parent.postMessage(
+        { type: type, requestId: id, payload: payload },
+        { targetOrigin: PARENT_ORIGIN, includeUserActivation: true }
+      );
     });
   }
 
@@ -1828,12 +1850,20 @@ const AppSandbox = (() => {
   // the standard createObjectURL + <a download> + click() pattern need
   // no changes — this is transparent.
   var nativeAnchorClick = HTMLAnchorElement.prototype.click;
+  // Captured here, before the network-permission override further down
+  // replaces window.fetch with a version that routes everything through
+  // nova:net:fetch. blob: URLs aren't network requests — routing them
+  // through that bridge sends the literal string "blob:..." to the host
+  // as if it were a fetchable resource, which always fails. This
+  // interceptor needs the real, unpatched fetch to read blob bytes
+  // in-context, so grab it now while it's still native.
+  var nativeFetchForDownloads = window.fetch.bind(window);
   HTMLAnchorElement.prototype.click = function() {
     var href = this.href || '';
     var filename = this.download;
     if (filename && href.indexOf('blob:') === 0) {
       var anchor = this;
-      fetch(href)
+      nativeFetchForDownloads(href)
         .then(function(res) { return res.blob(); })
         .then(function(blob) {
           var reader = new FileReader();
@@ -1847,16 +1877,16 @@ const AppSandbox = (() => {
               mimeType: blob.type || 'application/octet-stream',
               base64Data: base64Data
             }).catch(function(err) {
-              console.error('Vaultcraft shim: download failed', err);
+              console.error('Download interceptor: download failed', err);
             });
           };
           reader.onerror = function() {
-            console.error('Vaultcraft shim: failed to read blob for download');
+            console.error('Download interceptor: failed to read blob for download');
           };
           reader.readAsDataURL(blob);
         })
         .catch(function(err) {
-          console.error('Vaultcraft shim: failed to fetch blob for download', err);
+          console.error('Download interceptor: failed to fetch blob for download', err);
         });
       return; // suppress the native click — it would just navigate/no-op
     }
@@ -2056,7 +2086,7 @@ const AppSandbox = (() => {
   // need this) and eval (the audit hook catches abuse), but blocks all direct
   // network access via connect-src 'none' — forcing network through the IPC
   // bridge where permissions are enforced.
-  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' http://localhost:* https://localhost:*">';
+  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob: http://localhost:* https://localhost:*">';
 
   /**
    * Prepend the capability shim as the very first script in the app's HTML.
