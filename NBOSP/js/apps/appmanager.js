@@ -945,6 +945,19 @@ registerApp({
                 console.log('[AppManager] serve registered, baseUrl:', regData.baseUrl);
                 const webview = createEl('webview', {
                   src: window.location.origin + regData.baseUrl + '/' + entryKey,
+                  // Without an explicit partition, Electron gives every
+                  // <webview> its own fresh, in-memory, non-persistent
+                  // session — localStorage/IndexedDB/__novaPrivateStore
+                  // written during one launch vanish the instant this
+                  // element is destroyed (window closed / app relaunched).
+                  // "persist:" + a stable per-app key reuses the same
+                  // on-disk partition every launch, so app-local storage
+                  // actually persists like a real installed app. Keyed by
+                  // appId (not sandboxId, which is intentionally unique
+                  // per launch via Date.now() and would defeat this
+                  // entirely) so every launch of the same app lands in the
+                  // same partition.
+                  partition: 'persist:app_' + appId,
                   style: 'width:100%;height:100%;border:none;display:block;'
                 });
 
@@ -1004,6 +1017,20 @@ registerApp({
             blobUrl = URL.createObjectURL(blob);
             const webview = createEl('webview', {
               src: blobUrl,
+              // Setting the same persistent partition as the primary path
+              // (see the register-success branch above) for consistency,
+              // but be aware this fallback likely still won't actually
+              // persist storage: blob: URLs get a fresh unique origin
+              // every single createObjectURL() call, and localStorage is
+              // partitioned by origin first — the webview partition
+              // controls which disk-backed session cookies/storage live
+              // in, but only helps if the origin asking for that storage
+              // is itself stable across launches, which a blob: URL isn't.
+              // This path only runs when /api/apps/serve/register fails,
+              // so it's a degraded fallback, not the persistence fix —
+              // if apps are landing here regularly, that failure itself
+              // is the bug to chase next.
+              partition: 'persist:app_' + appId,
               style: 'width:100%;height:100%;border:none;display:block;'
             });
 

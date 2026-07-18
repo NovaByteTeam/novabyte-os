@@ -45,18 +45,34 @@
   // Gallery, Browser preview, Email attachments-preview, etc). These are
   // allowed, but get scanned for embedded active content since an SVG or
   // HTML file can carry a script payload just like a .js file can.
+  //
+  // .txt is deliberately NOT in here even though it's user-facing content:
+  // plain-text viewers render it as literal characters, never as markup —
+  // there's no parser in the loop that would ever turn "<script>" typed in
+  // a .txt file into a live element. Scanning it with markup patterns only
+  // produces false positives on ordinary text ("javascript: the language",
+  // a tutorial documenting onclick=, etc). If it ever becomes previewable
+  // as HTML somewhere, move it back in.
   const RENDERED_TEXT_EXTENSIONS = new Set([
-    'svg', 'html', 'htm', 'xhtml', 'xml', 'md', 'txt',
+    'svg', 'html', 'htm', 'xhtml', 'xml', 'md',
   ]);
 
+  // Renderers that parse embedded raw HTML out of otherwise-plain markup
+  // (most Markdown renderers do this, XML with embedded HTML islands can
+  // too) get the same narrower, attribute-aware treatment as real HTML —
+  // a script tag or on*= handler inside these is just as live as it is in
+  // an .html file, so it can't get the blanket SVG-style treatment either.
+  const HTML_AWARE_EXTENSIONS = new Set(['html', 'htm', 'xhtml', 'md']);
+
   // Patterns indicating embedded script / active content inside a file
-  // that's nominally "just markup" or "just text". Kept intentionally
-  // small — this is a tripwire, not a parser.
+  // that's nominally "just markup" (SVG/XML — no legitimate reason to ever
+  // carry any of this). Kept intentionally small — this is a tripwire, not
+  // a parser.
   const ACTIVE_CONTENT_PATTERNS = [
     { re: /<script\b/i,                      label: 'embedded <script> tag' },
     { re: /\son\w+\s*=\s*["']/i,             label: 'inline event handler (on*=)' },
     { re: /javascript:/i,                    label: 'javascript: URI' },
-    { re: /<iframe\b/i,                      label: 'embedded <iframe>' }, // HTML gets a narrower iframe check below; this stays blanket for svg/md/xml/txt
+    { re: /<iframe\b/i,                      label: 'embedded <iframe>' }, // HTML-aware extensions get a narrower iframe check below; this stays blanket for svg/xml
     { re: /<object\b|<embed\b/i,             label: 'embedded <object>/<embed>' },
     { re: /data:text\/html/i,                label: 'data: HTML payload' },
   ];
@@ -109,11 +125,38 @@
     return /^https:\/\//i.test(src); // https external origin ok inside a real sandbox
   }
 
-  function findHtmlActiveContentHit(text) {
+  // javascript: and on*= are only actually dangerous when they sit inside
+  // a real tag's attributes — <a href="javascript:...">, <img onerror=...>.
+  // For .md, the surrounding content is ordinary prose (a tutorial saying
+  // "the onclick= attribute" or "javascript: the language" is completely
+  // normal technical writing), so scanning the whole text blindly for
+  // these words produces false positives that scanning the whole text
+  // blindly for <script>/<iframe> does not. Match them only when actually
+  // inside a tag's attribute list. .html is stricter: a real HTML file's
+  // *source* has no legitimate reason to contain "javascript:" or an on*=
+  // pattern outside a tag at all — hand-authored markup doesn't casually
+  // mention them as words the way a tutorial does — so it keeps the
+  // original blanket check for those two.
+  const HTML_TAG_RE = /<[a-z][a-z0-9-]*\b[^>]*>/gi;
+
+  function findHtmlActiveContentHit(text, { scopeAttrChecksToTags } = {}) {
     for (const pat of ACTIVE_CONTENT_PATTERNS) {
       if (pat.label === 'embedded <script> tag') continue; // handled separately below
       if (pat.label === 'embedded <iframe>') continue;      // handled separately below
+      if (scopeAttrChecksToTags && (pat.label === 'javascript: URI' || pat.label === 'inline event handler (on*=)')) {
+        continue; // handled via the tag-scoped pass below instead
+      }
       if (pat.re.test(text)) return pat.label;
+    }
+
+    if (scopeAttrChecksToTags) {
+      HTML_TAG_RE.lastIndex = 0;
+      let tagMatch;
+      while ((tagMatch = HTML_TAG_RE.exec(text))) {
+        const tag = tagMatch[0];
+        if (/javascript:/i.test(tag)) return 'javascript: URI';
+        if (/\son\w+\s*=\s*["']/i.test(tag)) return 'inline event handler (on*=)';
+      }
     }
 
     IFRAME_TAG_RE.lastIndex = 0;
@@ -143,8 +186,23 @@
     { re: /new\s+Function\s*\(/i,                            label: 'new Function(...) construction' },
     { re: /(?:\\x[0-9a-f]{2}){8,}/i,                          label: 'long \\xHH escape chain' },
     { re: /(?:%[0-9a-f]{2}){8,}/i,                            label: 'long percent-encoded chain' },
-    { re: /atob\s*\(|Buffer\.from\([^)]*base64/i,             label: 'base64 decode call' },
-    { re: /fromCharCode\s*\(/i,                               label: 'String.fromCharCode(...) chain' },
+    // Bare atob(...)/Buffer.from(..., 'base64') is normal in any app doing
+    // crypto, binary payloads, or image data — flagging it outright makes
+    // this rule fire on totally legitimate code (e.g. decoding an AES-GCM
+    // ciphertext back to bytes). What's actually dangerous is base64 used
+    // to *smuggle code past this scanner*, i.e. decode-then-execute in the
+    // same chain: eval(atob(...)), new Function(atob(...)), etc. Gate on
+    // that combination instead of the decode call alone.
+    { re: /\b(?:eval|Function)\s*\([^)]*(?:atob\s*\(|Buffer\.from\([^)]*base64)/i, label: 'base64-decoded code passed to eval/Function' },
+    // Same issue as the base64 rule above: String.fromCharCode(...) alone
+    // is the standard way to turn bytes into a string (e.g. before btoa())
+    // and shows up in any code doing binary/base64 conversion — it's not
+    // itself evidence of anything. The actual malicious pattern is using
+    // fromCharCode to assemble a string of *code* character-by-character
+    // specifically to dodge string-literal scanning, then handing that
+    // string to something that executes or injects it. Gate on that.
+    { re: /\b(?:eval|Function|document\.write(?:ln)?)\s*\([^)]*fromCharCode\s*\(/i, label: 'String.fromCharCode(...) chain passed to eval/Function/document.write' },
+    { re: /\.innerHTML\s*=\s*[^;]*fromCharCode\s*\(/i,        label: 'String.fromCharCode(...) chain assigned to innerHTML' },
   ];
 
   const MAX_SCAN_BYTES = 512 * 1024;      // only need the head of the file to fingerprint it
@@ -230,24 +288,28 @@
     }
 
     const looksTextish = RENDERED_TEXT_EXTENSIONS.has(ext) || ext === '' ||
-      ext === 'js' || ext === 'mjs' || ext === 'css' || ext === 'json';
+      ext === 'js' || ext === 'mjs' || ext === 'css' || ext === 'json' || ext === 'txt';
     if (looksTextish && bytes.length <= MAX_TEXT_SCAN_BYTES) {
       const sampleBytes = bytes.subarray(0, Math.min(bytes.length, MAX_TEXT_SCAN_BYTES));
       const text = decodeAsText(sampleBytes);
 
       // .js/.mjs/.css/.json are expected to contain code, so the markup
       // "active content" patterns (script tags, on*=, iframes) don't apply
-      // to them — only the obfuscation + entropy checks do.
+      // to them — only the obfuscation + entropy checks do. Same for .txt:
+      // plain-text viewers never parse it as markup, so those patterns
+      // would only produce false positives on ordinary prose.
       //
-      // HTML/XHTML get a narrower check: local <script src="..."> refs are
-      // the normal .novaapp shape (index.html -> app.js) and are allowed;
-      // inline script bodies and everything else (on*=, javascript:,
-      // iframe, object/embed, data:html) still block. SVG/MD/XML/TXT have
-      // no legitimate reason to carry any <script> at all, so they keep
-      // the original blanket rule.
-      const isHtmlLike = ext === 'html' || ext === 'htm' || ext === 'xhtml';
+      // HTML/XHTML/MD get a narrower check: local <script src="..."> refs
+      // are the normal .novaapp shape (index.html -> app.js) and are
+      // allowed; inline script bodies and everything else (on*=,
+      // javascript:, iframe, object/embed, data:html) still block. MD is
+      // included here (not just html/htm/xhtml) because most Markdown
+      // renderers pass raw embedded HTML through live, same as a browser
+      // would. SVG/XML have no legitimate reason to carry any <script> at
+      // all, so they keep the original blanket rule.
+      const isHtmlLike = HTML_AWARE_EXTENSIONS.has(ext);
       if (isHtmlLike) {
-        const htmlHit = findHtmlActiveContentHit(text);
+        const htmlHit = findHtmlActiveContentHit(text, { scopeAttrChecksToTags: ext === 'md' });
         if (htmlHit) {
           return {
             safe: false,
