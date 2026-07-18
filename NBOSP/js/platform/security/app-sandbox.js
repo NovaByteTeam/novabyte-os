@@ -34,11 +34,11 @@ const AppSandbox = (() => {
   // ------------------------------------------------------------------
 
   const API_PREFIX = 'nova:';
-  const STORAGE_KEY_PREFIX = 'nova_storage_';
   // Allow word chars, dash, dot, space. Anything else (slashes, colons) is
   // rejected to prevent key injection across app namespaces.
   const STORAGE_KEY_REGEX = /^[\w\-. ]+$/;
   const STORAGE_VALUE_MAX_BYTES = 5 * 1024 * 1024; // 5 MB per single value
+  const STORAGE_APP_QUOTA_BYTES = 25 * 1024 * 1024; // 25 MB total per app
   const CLIPBOARD_HISTORY_MAX = 30;
   const ALLOWED_HTTP_METHODS = new Set([
     'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS',
@@ -1363,9 +1363,155 @@ const AppSandbox = (() => {
 
   // -- Storage --
   //
-  // All keys are namespaced under nova_storage_<appId>_ so apps can only see
-  // their own keys. Key characters are restricted to prevent path-like
-  // injection that could confuse the namespace.
+  // Backed by a single host-side IndexedDB database (NovaByte_AppStorage),
+  // NOT localStorage. localStorage lives on the shared shell origin and is
+  // readable by anything with same-origin access (e.g. audited first-party
+  // apps with allow-same-origin) — a string key prefix isn't real isolation,
+  // it just stops accidental collisions. IndexedDB here still lives in the
+  // host's origin (the guest webview can't be reached directly from this
+  // module — see the sandbox notes above), but every record is keyed by
+  // [appId, key] and every operation is scoped with an IDBKeyRange bound to
+  // the calling app's own appId, so one app's IPC calls can never read,
+  // enumerate, or clear another app's rows even if it somehow forged a
+  // request. Key characters are also restricted to prevent path-like
+  // injection confusing downstream consumers of the raw key string.
+
+  const STORAGE_DB_NAME = 'NovaByte_AppStorage';
+  const STORAGE_DB_VERSION = 1;
+  const STORAGE_STORE = 'kv';
+  let _storageDbPromise = null;
+
+  function openStorageDB() {
+    if (_storageDbPromise) return _storageDbPromise;
+    _storageDbPromise = new Promise((resolve, reject) => {
+      let req;
+      try {
+        req = indexedDB.open(STORAGE_DB_NAME, STORAGE_DB_VERSION);
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      req.onupgradeneeded = (e) => {
+        const d = e.target.result;
+        if (!d.objectStoreNames.contains(STORAGE_STORE)) {
+          // Composite keyPath so [appId, key] is unique and directly
+          // addressable; the appId index lets clear/keys range-scan just
+          // that app's rows instead of iterating every app's data.
+          const store = d.createObjectStore(STORAGE_STORE, { keyPath: ['appId', 'key'] });
+          store.createIndex('by_appId', 'appId');
+        }
+      };
+      req.onsuccess = (e) => resolve(e.target.result);
+      req.onerror = () => reject(req.error || new Error('Failed to open storage database'));
+    });
+    return _storageDbPromise;
+  }
+
+  function storageAppRange(appId) {
+    return IDBKeyRange.bound([appId, ''], [appId, '\uffff'], false, false);
+  }
+
+  async function storageGet(appId, key) {
+    const db = await openStorageDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readonly');
+      const req = tx.objectStore(STORAGE_STORE).get([appId, key]);
+      req.onsuccess = () => resolve(req.result ? req.result.value : null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function storageAppUsageBytes(appId, db) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readonly');
+      const idx = tx.objectStore(STORAGE_STORE).index('by_appId');
+      const req = idx.openCursor(IDBKeyRange.only(appId));
+      let total = 0;
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          total += cursor.value.byteSize || 0;
+          cursor.continue();
+        } else {
+          resolve(total);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function storageSet(appId, key, value, valueBytes) {
+    const db = await openStorageDB();
+    // Check quota against existing usage for this app minus whatever this
+    // key already costs (so overwriting an existing key isn't double-counted).
+    const [usage, existing] = await Promise.all([
+      storageAppUsageBytes(appId, db),
+      storageGet(appId, key).then(
+        () => new Promise((resolve) => {
+          const tx = db.transaction(STORAGE_STORE, 'readonly');
+          const req = tx.objectStore(STORAGE_STORE).get([appId, key]);
+          req.onsuccess = () => resolve(req.result ? (req.result.byteSize || 0) : 0);
+          req.onerror = () => resolve(0);
+        })
+      ),
+    ]);
+    if (usage - existing + valueBytes > STORAGE_APP_QUOTA_BYTES) {
+      const err = new Error('Storage quota exceeded');
+      err.code = 'STORAGE_FULL';
+      throw err;
+    }
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readwrite');
+      tx.objectStore(STORAGE_STORE).put({ appId, key, value, byteSize: valueBytes });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function storageDelete(appId, key) {
+    const db = await openStorageDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readwrite');
+      tx.objectStore(STORAGE_STORE).delete([appId, key]);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function storageClear(appId) {
+    const db = await openStorageDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readwrite');
+      tx.objectStore(STORAGE_STORE).index('by_appId').openCursor(IDBKeyRange.only(appId)).onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function storageKeys(appId) {
+    const db = await openStorageDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readonly');
+      const req = tx.objectStore(STORAGE_STORE).index('by_appId').openCursor(IDBKeyRange.only(appId));
+      const keys = [];
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          keys.push(cursor.value.key);
+          cursor.continue();
+        } else {
+          resolve(keys);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
 
   function validateStorageKey(rawKey) {
     const key = String(rawKey ?? '');
