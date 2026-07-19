@@ -589,6 +589,7 @@ novabyte-os/
 │  │  │  │  ├── app-sandbox.js     # App sandbox enforcement
 │  │  │  │  ├── app-permission-manager.js # Permission system
 │  │  │  │  ├── app-permissions-bootstrap.js # Permission bootstrap
+│  │  │  │  ├── app-scheduler.js   # Tier-1 background wake scheduler (system:background)
 │  │  │  │  ├── trust-store.js    # Built-in trust store for .novaapp signatures
 │  │  │  │  └── revoked-signatures.json # Revoked signature blocklist
 │  │  │  ├── core/        # Core platform modules
