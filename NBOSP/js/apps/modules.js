@@ -13,7 +13,7 @@ registerApp({
   // response — functionally equivalent to remote code execution against
   // the OS's own module tree. Treat this as high-trust, same tier as
   // net:internal + system:settings, not just system:info.
-  permissions: ['system:info', 'system:settings', 'net:internal', 'fs:write'],
+  permissions: ['system:info', 'system:settings', 'net:internal', 'vfs:write'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';

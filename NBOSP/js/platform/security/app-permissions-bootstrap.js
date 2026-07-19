@@ -35,79 +35,79 @@
 
     // Files (vault)
     vault: {
-      normal   : ['fs:read', 'fs:metadata'],
-      dangerous: ['fs:write', 'fs:delete'],
+      normal   : ['vfs:read', 'vfs:metadata'],
+      dangerous: ['vfs:write', 'vfs:delete'],
     },
 
     // Terminal (shell)
     shell: {
-      normal   : ['fs:read', 'system:info'],
-      dangerous: ['fs:write', 'fs:delete', 'admin:system'],
+      normal   : ['vfs:read', 'system:info'],
+      dangerous: ['vfs:write', 'vfs:delete', 'admin:system'],
     },
 
     // Text Editor (quill) — id confirmed from textedit.js com.nbosp.quill
     quill: {
-      normal   : ['fs:read'],
-      dangerous: ['fs:write'],
+      normal   : ['vfs:read'],
+      dangerous: ['vfs:write'],
     },
 
     // Email
     'nbosp-email': {
       normal   : ['net:internal'],
-      dangerous: ['mail:read', 'mail:write', 'mail:send', 'mail:delete', 'net:external', 'fs:write'],
+      dangerous: ['mail:read', 'mail:write', 'mail:send', 'mail:delete', 'net:external', 'vfs:write'],
     },
 
     // Calendar
     'calendar-app': {
       normal   : [],
-      dangerous: ['calendar:read', 'calendar:write', 'calendar:delete', 'fs:write'],
+      dangerous: ['calendar:read', 'calendar:write', 'calendar:delete', 'vfs:write'],
     },
 
     // Contacts
     'nbosp-contacts': {
       normal   : [],
-      dangerous: ['contacts:read', 'contacts:write', 'contacts:delete', 'fs:write'],
+      dangerous: ['contacts:read', 'contacts:write', 'contacts:delete', 'vfs:write'],
     },
 
     // Browser
     browser: {
       normal   : ['net:internal'],
-      dangerous: ['net:external', 'device:camera', 'device:microphone', 'device:geolocation', 'fs:write'],
+      dangerous: ['net:external', 'device:camera', 'device:microphone', 'device:geolocation', 'vfs:write'],
     },
 
     // Settings (nook) — system UI, never prompt
     nook: {
-      normal   : ['system:info', 'system:settings', 'admin:system', 'fs:read', 'fs:write', 'fs:delete', 'fs:metadata', 'device:camera', 'device:microphone', 'device:geolocation'],
+      normal   : ['system:info', 'system:settings', 'admin:system', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata', 'device:camera', 'device:microphone', 'device:geolocation'],
       dangerous: [],
     },
 
     // Gallery
     'nbosp-gallery': {
-      normal   : ['fs:read', 'fs:metadata'],
+      normal   : ['vfs:read', 'vfs:metadata'],
       dangerous: [],
     },
 
     // Music
     'nbosp-music': {
-      normal   : ['fs:read', 'fs:metadata'],
-      dangerous: ['fs:write'],
+      normal   : ['vfs:read', 'vfs:metadata'],
+      dangerous: ['vfs:write'],
     },
 
     // Downloads
     'nbosp-downloads': {
-      normal   : ['fs:read', 'fs:metadata'],
-      dangerous: ['fs:write', 'fs:delete', 'net:external'],
+      normal   : ['vfs:read', 'vfs:metadata'],
+      dangerous: ['vfs:write', 'vfs:delete', 'net:external'],
     },
 
     // Search
     'nbosp-search': {
-      normal   : ['fs:read', 'fs:metadata'],
+      normal   : ['vfs:read', 'vfs:metadata'],
       dangerous: [],
     },
 
     // App Manager — system UI, never prompt
     'app-manager': {
-      normal   : ['system:apps', 'fs:read', 'fs:write', 'fs:delete', 'net:external'],
+      normal   : ['system:apps', 'vfs:read', 'vfs:write', 'vfs:delete', 'net:external'],
       dangerous: [],
     },
 
@@ -125,7 +125,7 @@
 
     // Developer tools — all permissions auto-granted, never prompt
     sysaccess: {
-      normal   : ['system:info', 'fs:read', 'fs:write', 'net:internal'],
+      normal   : ['system:info', 'vfs:read', 'vfs:write', 'net:internal'],
       dangerous: [],
     },
     devconsole: {
@@ -133,27 +133,27 @@
       dangerous: [],
     },
     perf: {
-      normal   : ['system:info', 'system:settings', 'fs:write'],
+      normal   : ['system:info', 'system:settings', 'vfs:write'],
       dangerous: [],
     },
     packages: {
-      normal   : ['system:info', 'system:settings', 'fs:write'],
+      normal   : ['system:info', 'system:settings', 'vfs:write'],
       dangerous: [],
     },
     permissions: {
-      normal   : ['system:apps', 'system:settings', 'fs:write'],
+      normal   : ['system:apps', 'system:settings', 'vfs:write'],
       dangerous: [],
     },
     modules: {
-      normal   : ['system:info', 'system:settings', 'net:internal', 'fs:write'],
+      normal   : ['system:info', 'system:settings', 'net:internal', 'vfs:write'],
       dangerous: [],
     },
     inspector: {
-      normal   : ['system:info', 'system:apps', 'system:settings', 'fs:write'],
+      normal   : ['system:info', 'system:apps', 'system:settings', 'vfs:write'],
       dangerous: [],
     },
     events: {
-      normal   : ['system:info', 'system:settings', 'fs:write'],
+      normal   : ['system:info', 'system:settings', 'vfs:write'],
       dangerous: [],
     },
   });
@@ -293,14 +293,14 @@
   // unavailable (e.g. system calls during boot).
 
   const FS_PERMISSION_MAP = Object.freeze({
-    deleteToTrash   : 'fs:delete',
-    permanentDelete : 'fs:delete',
-    emptyTrash      : 'fs:delete',
-    createFile      : 'fs:write',
-    createFolder    : 'fs:write',
-    writeFile       : 'fs:write',
-    move            : 'fs:write',
-    rename          : 'fs:write',
+    deleteToTrash   : 'vfs:delete',
+    permanentDelete : 'vfs:delete',
+    emptyTrash      : 'vfs:delete',
+    createFile      : 'vfs:write',
+    createFolder    : 'vfs:write',
+    writeFile       : 'vfs:write',
+    move            : 'vfs:write',
+    rename          : 'vfs:write',
   });
 
   function _getCallerAppId() {

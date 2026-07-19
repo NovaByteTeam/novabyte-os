@@ -1599,16 +1599,16 @@ registerApp({
         const mgr = window.AppPermissionManager;
         if (!mgr) return true;
         const appId = 'browser';
-        if (mgr.isGranted('fs:write', appId)) return true;
-        if (mgr.isDenied?.('fs:write', appId)) {
+        if (mgr.isGranted('vfs:write', appId)) return true;
+        if (mgr.isDenied?.('vfs:write', appId)) {
           Notify.show({
             title: 'Download blocked',
-            body: 'Browser does not have permission to write files. Grant "fs:write" in Settings → Apps.',
+            body: 'Browser does not have permission to write files. Grant "vfs:write" in Settings → Apps.',
             type: 'error', appName: 'Browser',
           });
           return false;
         }
-        const granted = await mgr.requestPermission('fs:write', appId, {
+        const granted = await mgr.requestPermission('vfs:write', appId, {
           appName: 'Browser',
           reason: 'Browser needs to save downloaded files to your Downloads folder.',
         });
@@ -2670,7 +2670,7 @@ registerApp({
 
       // vault:// URL handling
       if (url.startsWith('vault:')) {
-        if (!AppPermissionManager?.isGranted('fs:write', 'browser')) {
+        if (!AppPermissionManager?.isGranted('vfs:write', 'browser')) {
           Notify.show({
             title: 'Permission denied', body: 'Browser needs fs:write to access vault files.',
             type: 'error', appName: 'Browser'
@@ -2996,7 +2996,7 @@ registerApp({
 
     // ── Open HTML file from vault ───────────────────────────────────────────
     if (options?.fileId) {
-      if (!AppPermissionManager?.isGranted('fs:write', 'browser')) {
+      if (!AppPermissionManager?.isGranted('vfs:write', 'browser')) {
         Notify.show({
           title: 'Permission denied', body: 'Browser needs fs:write to open vault files.',
           type: 'error', appName: 'Browser'

@@ -32,7 +32,7 @@ const AppRegistry = (() => {
   const _onUninstalled = [];
 
   const KNOWN_PERMISSIONS = new Set([
-    'fs:read', 'fs:write', 'fs:delete', 'fs:metadata',
+    'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata',
     'net:internal', 'net:external', 'net:websocket',
     'mail:read', 'mail:write', 'mail:send', 'mail:delete',
     'calendar:read', 'calendar:write', 'calendar:delete',

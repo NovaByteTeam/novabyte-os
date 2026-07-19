@@ -70,7 +70,7 @@ registerApp({
     ];
 
     const PERM_LABELS = {
-      'fs:read': 'Read files', 'fs:write': 'Write files', 'fs:delete': 'Delete files', 'fs:metadata': 'File metadata',
+      'vfs:read': 'Read files', 'vfs:write': 'Write files', 'vfs:delete': 'Delete files', 'vfs:metadata': 'File metadata',
       'net:internal': 'Internal network', 'net:external': 'External network', 'net:websocket': 'WebSocket',
       'mail:read': 'Read emails', 'mail:write': 'Compose emails', 'mail:send': 'Send emails', 'mail:delete': 'Delete emails',
       'calendar:read': 'Read calendar', 'calendar:write': 'Edit calendar', 'calendar:delete': 'Delete events',

@@ -1517,10 +1517,10 @@ registerApp({
           const row = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;' });
 
           function permStyle(p) {
-            if (['fs:delete', 'admin:system'].includes(p)) {
+            if (['vfs:delete', 'admin:system'].includes(p)) {
               return 'background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.35);color:#f85149;';
             }
-            if (['fs:write', 'device:geolocation', 'system:settings'].includes(p)) {
+            if (['vfs:write', 'device:geolocation', 'system:settings'].includes(p)) {
               return 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:#d29922;';
             }
             return 'background:var(--accent-muted);border:1px solid rgba(88,166,255,0.3);color:var(--accent);';

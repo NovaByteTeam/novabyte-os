@@ -30,8 +30,8 @@ const AppPermissionManager = (() => {
   // ── Permission catalogue ───────────────────────────────────────────────────
 
   const PERMISSION_TYPES = Object.freeze({
-    FS_READ           : 'fs:read',        FS_WRITE          : 'fs:write',
-    FS_DELETE         : 'fs:delete',      FS_METADATA       : 'fs:metadata',
+    FS_READ           : 'vfs:read',       FS_WRITE          : 'vfs:write',
+    FS_DELETE         : 'vfs:delete',     FS_METADATA       : 'vfs:metadata',
     NET_INTERNAL      : 'net:internal',   NET_EXTERNAL      : 'net:external',
     NET_WEBSOCKET     : 'net:websocket',
     MAIL_READ         : 'mail:read',      MAIL_WRITE        : 'mail:write',
@@ -51,10 +51,18 @@ const AppPermissionManager = (() => {
   });
 
   const PERMISSION_CATEGORIES = Object.freeze({
-    'fs:read'           : { category: 'filesystem', risk: 'medium',   label: 'Read files' },
-    'fs:write'          : { category: 'filesystem', risk: 'high',     label: 'Write files' },
-    'fs:delete'         : { category: 'filesystem', risk: 'critical', label: 'Delete files' },
-    'fs:metadata'       : { category: 'filesystem', risk: 'low',      label: 'File metadata' },
+    // Renamed from fs:* — this is NovaByte's own OS-managed virtual
+    // filesystem (the Files app / vault, worker+IndexedDB-backed), never
+    // real Node fs/real host disk. "fs:*" read as raw Node fs access to
+    // anyone coming in fresh, which it never was; "vfs:*" says what it
+    // actually is. Real host-disk access, if built, is reserved for a
+    // future picker-mediated fs:* (single user-chosen file via native
+    // dialog, not free-roam path access) — a categorically different,
+    // much higher-risk capability that deliberately isn't this.
+    'vfs:read'          : { category: 'filesystem', risk: 'medium',   label: 'Read files' },
+    'vfs:write'         : { category: 'filesystem', risk: 'high',     label: 'Write files' },
+    'vfs:delete'        : { category: 'filesystem', risk: 'critical', label: 'Delete files' },
+    'vfs:metadata'      : { category: 'filesystem', risk: 'low',      label: 'File metadata' },
     'net:internal'      : { category: 'network',    risk: 'low',      label: 'Internal network' },
     'net:external'      : { category: 'network',    risk: 'medium',   label: 'External network' },
     'net:websocket'     : { category: 'network',    risk: 'medium',   label: 'WebSocket connections' },

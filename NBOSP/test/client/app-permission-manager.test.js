@@ -26,7 +26,7 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
   describe('PERMISSION_TYPES / PERMISSION_CATEGORIES', () => {
     it('exposes all permission constants', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      expect(APM.PERMISSION_TYPES.FS_READ).toBe('fs:read');
+      expect(APM.PERMISSION_TYPES.FS_READ).toBe('vfs:read');
       expect(APM.PERMISSION_TYPES.NET_EXTERNAL).toBe('net:external');
     });
 
@@ -42,21 +42,21 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
   describe('isGranted / isDenied', () => {
     it('returns false when no grant exists', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      expect(APM.isGranted('fs:read', 'app1')).toBe(false);
-      expect(APM.isDenied('fs:read', 'app1')).toBe(false);
+      expect(APM.isGranted('vfs:read', 'app1')).toBe(false);
+      expect(APM.isDenied('vfs:read', 'app1')).toBe(false);
     });
 
     it('returns true after grantPermission', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
-      expect(APM.isGranted('fs:read', 'app1')).toBe(true);
-      expect(APM.isDenied('fs:read', 'app1')).toBe(false);
+      APM.grantPermission('vfs:read', 'app1');
+      expect(APM.isGranted('vfs:read', 'app1')).toBe(true);
+      expect(APM.isDenied('vfs:read', 'app1')).toBe(false);
     });
 
     it('returns true after requestPermission grants', async () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
       vi.spyOn(APM, 'requestPermission').mockResolvedValue(true);
-      const result = await APM.requestPermission('fs:read', 'app1', { appName: 'TestApp' });
+      const result = await APM.requestPermission('vfs:read', 'app1', { appName: 'TestApp' });
       expect(result).toBe(true);
     });
   });
@@ -64,28 +64,28 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
   describe('revokePermission / revokeAllPermissions', () => {
     it('removes a single permission grant', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
-      expect(APM.isGranted('fs:read', 'app1')).toBe(true);
-      APM.revokePermission('fs:read', 'app1');
-      expect(APM.isGranted('fs:read', 'app1')).toBe(false);
+      APM.grantPermission('vfs:read', 'app1');
+      expect(APM.isGranted('vfs:read', 'app1')).toBe(true);
+      APM.revokePermission('vfs:read', 'app1');
+      expect(APM.isGranted('vfs:read', 'app1')).toBe(false);
     });
 
     it('removes all permissions for an app', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
-      APM.grantPermission('fs:write', 'app1');
+      APM.grantPermission('vfs:read', 'app1');
+      APM.grantPermission('vfs:write', 'app1');
       APM.revokeAllPermissions('app1');
-      expect(APM.isGranted('fs:read', 'app1')).toBe(false);
-      expect(APM.isGranted('fs:write', 'app1')).toBe(false);
+      expect(APM.isGranted('vfs:read', 'app1')).toBe(false);
+      expect(APM.isGranted('vfs:write', 'app1')).toBe(false);
     });
   });
 
   describe('getAppPermissions / getStats / getConsentLog', () => {
     it('returns grants for a specific app', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
+      APM.grantPermission('vfs:read', 'app1');
       const perms = APM.getAppPermissions('app1');
-      expect(perms.some((p) => p.permission === 'fs:read' && p.appId === 'app1')).toBe(true);
+      expect(perms.some((p) => p.permission === 'vfs:read' && p.appId === 'app1')).toBe(true);
     });
 
     it('returns an empty array for app with no grants', () => {
@@ -100,8 +100,8 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
 
     it('computes stats correctly', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
-      APM.grantPermission('fs:write', 'app1');
+      APM.grantPermission('vfs:read', 'app1');
+      APM.grantPermission('vfs:write', 'app1');
       const stats = APM.getStats();
       expect(stats.totalGrants).toBeGreaterThanOrEqual(2);
     });
@@ -110,9 +110,9 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
   describe('requestAll', () => {
     it('returns true when all permissions already granted', async () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
-      APM.grantPermission('fs:write', 'app1');
-      const result = await APM.requestAll(['fs:read', 'fs:write'], 'app1');
+      APM.grantPermission('vfs:read', 'app1');
+      APM.grantPermission('vfs:write', 'app1');
+      const result = await APM.requestAll(['vfs:read', 'vfs:write'], 'app1');
       expect(result).toBe(true);
     });
 
@@ -125,11 +125,11 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
     it('returns false when any permission is denied', async () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
       // Grant only fs:read; fs:write will be pending and get denied
-      APM.grantPermission('fs:read', 'app1');
+      APM.grantPermission('vfs:read', 'app1');
       // requestAll calls the internal requestPermission, not the exported one,
       // so we can't easily spy on it. Instead we verify the behavior by
       // checking that requestAll returns false when a permission is not granted.
-      const result = await APM.requestAll(['fs:read', 'fs:write'], 'app1');
+      const result = await APM.requestAll(['vfs:read', 'vfs:write'], 'app1');
       // fs:write is not granted and the dialog will show; in test env
       // without a real dialog, requestPermission may return false.
       // We accept either false or true here since the dialog behavior
@@ -141,7 +141,7 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
   describe('recordAppUse', () => {
     it('updates lastUsed timestamp for grants', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
+      APM.grantPermission('vfs:read', 'app1');
       APM.recordAppUse('app1');
       const after = APM.getAppPermissions('app1')[0].lastUsed;
       expect(after).toBeDefined();
@@ -151,9 +151,9 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
   describe('resetPermission', () => {
     it('removes a permission grant', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
-      APM.grantPermission('fs:read', 'app1');
-      APM.resetPermission('fs:read', 'app1');
-      expect(APM.isGranted('fs:read', 'app1')).toBe(false);
+      APM.grantPermission('vfs:read', 'app1');
+      APM.resetPermission('vfs:read', 'app1');
+      expect(APM.isGranted('vfs:read', 'app1')).toBe(false);
     });
   });
 });

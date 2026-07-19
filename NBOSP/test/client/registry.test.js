@@ -104,11 +104,11 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mod.registerApp({ id: 'perm-test', name: 'PT', permissions: ['fs:read', 'evil:inject'] });
+    mod.registerApp({ id: 'perm-test', name: 'PT', permissions: ['vfs:read', 'evil:inject'] });
     expect(spy).toHaveBeenCalled();
     const app = mod.getApp('perm-test');
     expect(app.permissions).not.toContain('evil:inject');
-    expect(app.permissions).toContain('fs:read');
+    expect(app.permissions).toContain('vfs:read');
     spy.mockRestore();
   });
 
@@ -153,7 +153,7 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     globalThis.AppPermissionManager = undefined;
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
-    const app = mod.registerApp({ id: 'cp-app', name: 'CPA', permissions: ['fs:read'] });
+    const app = mod.registerApp({ id: 'cp-app', name: 'CPA', permissions: ['vfs:read'] });
     expect(mod.checkPermissions(app)).toBe(true);
     globalThis.AppPermissionManager = prev;
   });

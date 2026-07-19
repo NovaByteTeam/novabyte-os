@@ -9,7 +9,7 @@ registerApp({
   autoGrant: true,
   defaultSize: [700, 550],
   minSize: [420, 350],
-  permissions: ['system:info', 'system:apps', 'system:settings', 'fs:write'],
+  permissions: ['system:info', 'system:apps', 'system:settings', 'vfs:write'],
   init(content, state, options) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
