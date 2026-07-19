@@ -1360,6 +1360,172 @@ const AppSandbox = (() => {
     }
   }
 
+  // mail:* proxies to /api/email/*, which is backed by whatever account is
+  // currently connected in the host shell's Email app (session-scoped
+  // creds, per email/credentials.js). There's no separate identity for
+  // sandboxed apps here — same shape as admin:* reusing the host session
+  // rather than inventing a second auth path. If nothing is connected,
+  // these fail closed with a clear message rather than silently no-op'ing
+  // or prompting a connect flow the calling app can't drive.
+  async function mailFetch(path, options = {}) {
+    const res = await fetch(path, {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken(),
+        ...(options.headers || {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    let json = null;
+    try { json = await res.json(); } catch (_) { /* non-JSON error page */ }
+    return { status: res.status, ok: res.ok, json };
+  }
+
+  function mailNotConnectedError(webview, channel, requestId) {
+    return respondError(webview, channel, requestId, 'UNAVAILABLE', 'No email account connected — open the Email app and connect an account first');
+  }
+
+  // mail:read — folders, message lists, single messages, search. All GET,
+  // no mutation of mailbox state.
+  async function handleMailRead({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('mail:read', app.id)) {
+      return respondError(webview, 'nova:mail:read', requestId, 'PERMISSION_DENIED', 'mail:read permission required');
+    }
+    const q = payload ?? {};
+    const action = q.action === 'folders' ? 'folders'
+      : q.action === 'message' ? 'message'
+      : q.action === 'search' ? 'search'
+      : q.action === 'account' ? 'account'
+      : 'messages';
+    try {
+      let url;
+      if (action === 'account') {
+        url = '/api/email/restore';
+      } else if (action === 'folders') {
+        url = '/api/email/folders';
+      } else if (action === 'message') {
+        if (!q.uid) return respondError(webview, 'nova:mail:read', requestId, 'INVALID_ARGS', 'uid is required for action "message"');
+        const p = new URLSearchParams();
+        p.set('uid', String(q.uid));
+        if (q.folder) p.set('folder', String(q.folder));
+        url = `/api/email/message?${p.toString()}`;
+      } else if (action === 'search') {
+        if (!q.query) return respondError(webview, 'nova:mail:read', requestId, 'INVALID_ARGS', 'query is required for action "search"');
+        const p = new URLSearchParams();
+        p.set('q', String(q.query));
+        if (q.folder) p.set('folder', String(q.folder));
+        url = `/api/email/search?${p.toString()}`;
+      } else {
+        const p = new URLSearchParams();
+        if (q.folder) p.set('folder', String(q.folder));
+        if (q.page) p.set('page', String(q.page));
+        if (q.limit) p.set('limit', String(q.limit));
+        url = `/api/email/messages?${p.toString()}`;
+      }
+      const { status, json } = await mailFetch(url);
+      if (status === 401) return mailNotConnectedError(webview, 'nova:mail:read', requestId);
+      if (!json || json.error) {
+        return respondError(webview, 'nova:mail:read', requestId, 'UNAVAILABLE', json?.error || 'Mail read request failed');
+      }
+      return respond(webview, 'nova:mail:read', requestId, { success: true, action, data: json });
+    } catch (e) {
+      return respondError(webview, 'nova:mail:read', requestId, 'UNAVAILABLE', e.message || 'Mail read request failed');
+    }
+  }
+
+  // mail:write — batch mutations that aren't deletion (mark-read, move)
+  // plus HTML preview rendering. Deliberately excludes batch delete,
+  // which is mail:delete's job even though both go through /api/email/batch.
+  async function handleMailWrite({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('mail:write', app.id)) {
+      return respondError(webview, 'nova:mail:write', requestId, 'PERMISSION_DENIED', 'mail:write permission required');
+    }
+    const q = payload ?? {};
+    const action = q.action === 'preview' ? 'preview' : 'batch';
+    try {
+      if (action === 'preview') {
+        if (typeof q.html !== 'string') return respondError(webview, 'nova:mail:write', requestId, 'INVALID_ARGS', 'html string is required for action "preview"');
+        const { status, json } = await mailFetch('/api/email/preview', { method: 'POST', body: { html: q.html } });
+        if (status === 401) return mailNotConnectedError(webview, 'nova:mail:write', requestId);
+        if (!json || json.error) {
+          return respondError(webview, 'nova:mail:write', requestId, 'UNAVAILABLE', json?.error || 'Preview request failed');
+        }
+        return respond(webview, 'nova:mail:write', requestId, { success: true, action, token: json.token });
+      }
+      // action === 'batch', op must be 'read' or 'move' — 'delete' isn't
+      // allowed through this handler, that's mail:delete's surface.
+      const op = q.op === 'move' ? 'move' : 'read';
+      const uids = Array.isArray(q.uids) ? q.uids : [];
+      if (!uids.length) return respondError(webview, 'nova:mail:write', requestId, 'INVALID_ARGS', 'uids array is required');
+      if (op === 'move' && !q.dest) return respondError(webview, 'nova:mail:write', requestId, 'INVALID_ARGS', 'dest is required for op "move"');
+      const { status, json } = await mailFetch('/api/email/batch', {
+        method: 'POST',
+        body: { op, uids, folder: q.folder || 'INBOX', dest: q.dest },
+      });
+      if (status === 401) return mailNotConnectedError(webview, 'nova:mail:write', requestId);
+      if (!json || json.error) {
+        return respondError(webview, 'nova:mail:write', requestId, 'UNAVAILABLE', json?.error || 'Mail batch request failed');
+      }
+      return respond(webview, 'nova:mail:write', requestId, { success: true, action, op });
+    } catch (e) {
+      return respondError(webview, 'nova:mail:write', requestId, 'UNAVAILABLE', e.message || 'Mail write request failed');
+    }
+  }
+
+  // mail:send — SMTP send via the connected account's credentials.
+  // The server has no way to know the account's real SMTP host/port on its
+  // own: /connect only stores the IMAP/POP3/EWS host (e.g. imap.gmail.com),
+  // which is frequently a *different* host than SMTP (smtp.gmail.com) —
+  // silently reusing the IMAP host caused real send failures (TLS cert
+  // mismatch) before this was required explicitly. The Email app's own UI
+  // has a dedicated SMTP Host/Port field for exactly this reason; a
+  // sandboxed app calling mail:send needs to supply the same thing rather
+  // than have this handler guess at it.
+  async function handleMailSend({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('mail:send', app.id)) {
+      return respondError(webview, 'nova:mail:send', requestId, 'PERMISSION_DENIED', 'mail:send permission required');
+    }
+    const q = payload ?? {};
+    if (!q.to) return respondError(webview, 'nova:mail:send', requestId, 'INVALID_ARGS', 'to is required');
+    if (!q.smtpHost) return respondError(webview, 'nova:mail:send', requestId, 'INVALID_ARGS', 'smtpHost is required — the server has no way to infer it from the connected IMAP/POP3/EWS account (they are frequently different hosts)');
+    try {
+      const { status, json } = await mailFetch('/api/email/send', {
+        method: 'POST',
+        body: { to: q.to, cc: q.cc, bcc: q.bcc, subject: q.subject, text: q.text, html: q.html, host: q.smtpHost, port: q.smtpPort },
+      });
+      if (status === 401) return mailNotConnectedError(webview, 'nova:mail:send', requestId);
+      if (!json || json.error) {
+        return respondError(webview, 'nova:mail:send', requestId, 'UNAVAILABLE', json?.error || 'Send failed');
+      }
+      return respond(webview, 'nova:mail:send', requestId, { success: true, messageId: json.messageId });
+    } catch (e) {
+      return respondError(webview, 'nova:mail:send', requestId, 'UNAVAILABLE', e.message || 'Send request failed');
+    }
+  }
+
+  // mail:delete — batch delete only.
+  async function handleMailDelete({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('mail:delete', app.id)) {
+      return respondError(webview, 'nova:mail:delete', requestId, 'PERMISSION_DENIED', 'mail:delete permission required');
+    }
+    const q = payload ?? {};
+    const uids = Array.isArray(q.uids) ? q.uids : [];
+    if (!uids.length) return respondError(webview, 'nova:mail:delete', requestId, 'INVALID_ARGS', 'uids array is required');
+    try {
+      const { status, json } = await mailFetch('/api/email/batch', {
+        method: 'POST',
+        body: { op: 'delete', uids, folder: q.folder || 'INBOX' },
+      });
+      if (status === 401) return mailNotConnectedError(webview, 'nova:mail:delete', requestId);
+      if (!json || json.error) {
+        return respondError(webview, 'nova:mail:delete', requestId, 'UNAVAILABLE', json?.error || 'Mail delete request failed');
+      }
+      return respond(webview, 'nova:mail:delete', requestId, { success: true, deleted: uids.length });
+    } catch (e) {
+      return respondError(webview, 'nova:mail:delete', requestId, 'UNAVAILABLE', e.message || 'Mail delete request failed');
+    }
+  }
 
   //
   // These, together with launch (above) and info, are what 'system:apps'
@@ -2342,6 +2508,10 @@ const AppSandbox = (() => {
     'nova:admin:system': handleAdminSystem,
     'nova:admin:users': handleAdminUsers,
     'nova:admin:apps': handleAdminApps,
+    'nova:mail:read': handleMailRead,
+    'nova:mail:write': handleMailWrite,
+    'nova:mail:send': handleMailSend,
+    'nova:mail:delete': handleMailDelete,
     'nova:events:subscribe': handleEventsSubscribe,
     'nova:events:unsubscribe': handleEventsUnsubscribe,
     'nova:net:fetch': handleNetFetch,
@@ -2878,6 +3048,21 @@ const AppSandbox = (() => {
       usersList: function() { return ipc('nova:admin:users', { action: 'list' }); },
       usersRevoke: function(sessionId) { return ipc('nova:admin:users', { action: 'revoke', sessionId: sessionId }); },
       appsList: function() { return ipc('nova:admin:apps', {}); }
+    },
+    // mail:* reuses whatever account is connected in the host shell's
+    // Email app (session-scoped) — there's no separate per-app mail
+    // identity. Fails with UNAVAILABLE if nothing is connected.
+    mail: {
+      account: function() { return ipc('nova:mail:read', { action: 'account' }); },
+      folders: function() { return ipc('nova:mail:read', { action: 'folders' }); },
+      messages: function(opts) { return ipc('nova:mail:read', Object.assign({ action: 'messages' }, opts || {})); },
+      message: function(uid, folder) { return ipc('nova:mail:read', { action: 'message', uid: uid, folder: folder }); },
+      search: function(query, folder) { return ipc('nova:mail:read', { action: 'search', query: query, folder: folder }); },
+      preview: function(html) { return ipc('nova:mail:write', { action: 'preview', html: html }); },
+      markRead: function(uids, folder) { return ipc('nova:mail:write', { action: 'batch', op: 'read', uids: uids, folder: folder }); },
+      move: function(uids, dest, folder) { return ipc('nova:mail:write', { action: 'batch', op: 'move', uids: uids, dest: dest, folder: folder }); },
+      send: function(msg) { return ipc('nova:mail:send', msg || {}); }, // msg: { to, cc, bcc, subject, text, html, smtpHost, smtpPort }
+      remove: function(uids, folder) { return ipc('nova:mail:delete', { uids: uids, folder: folder }); }
     }
   };
 

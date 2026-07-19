@@ -762,10 +762,23 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
       if (state.appId === 'browser') {
         const webviews = state.element?.querySelectorAll?.('webview');
         if (webviews) {
+          // Volume is attacker-relevant here only in the sense that this
+          // string gets executed inside every open browser tab's webview —
+          // never build the executed source by concatenating a value into
+          // it, even a value that's "supposed" to already be a safe number.
+          // Clamp/validate defensively and pass the value through
+          // JSON.stringify so it becomes an unambiguous literal, not
+          // something an unexpected/NaN input could turn into a syntax
+          // break or, if this pattern gets copied elsewhere with a
+          // less-trusted value, an injection point.
+          const safeVolume = Number.isFinite(newVolume)
+            ? Math.min(1, Math.max(0, newVolume / 100))
+            : 1;
+          const volumeLiteral = JSON.stringify(safeVolume);
           for (const webview of webviews) {
             if (typeof webview.executeJavaScript === 'function') {
               webview.executeJavaScript(
-                `(function(){const v=${(newVolume / 100).toFixed(2)};` +
+                `(function(){var v=${volumeLiteral};` +
                 `document.querySelectorAll('audio,video').forEach(function(el){el.volume=v;});})();`
               ).catch(function(){});
             }

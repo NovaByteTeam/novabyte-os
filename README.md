@@ -359,6 +359,7 @@ server/
 | **Session Management** | Express-session with 24h expiry, sameSite=lax, secure on production |
 | **SSRF Guards** | Private IP blocking on all proxy endpoints (favicon, email image proxy) |
 | **Security Headers** | X-Content-Type-Options, X-XSS-Protection, CORP policies |
+| **Local Admin Mode** | Single-user admin flag (`server/security/admin-state.js`), off by default, toggled in Settings → Privacy & Security. Backs `req.user.role` for `/api/security/*` routes and the four `admin:*` sandboxed-app permissions — granting an app an `admin:*` permission doesn't itself put the machine in admin mode. |
 
 #### Modular Proxies
 
@@ -532,6 +533,8 @@ novabyte-os/
 │  │  │  ├── env.js        # Environment validation with fallback secrets (50 lines)
 │  │  │  ├── events-routes.js # SSE endpoint exposing ServerEventLog to the client
 │  │  │  └── server-event-log.js # Server-side event log (SSRF blocks, proxy errors)
+│  │  ├── security/        # Local admin-mode state (separate from security/ at repo root)
+│  │  │  └── admin-state.js  # Local admin-flag store backing req.user.role and admin:* gates
 │  │  ├── routes.js        # Sub-router composition and mounting
 │  │  ├── favicons.js       # Favicon proxy with SSRF protection, DB caching (400 lines)
 │  │  └── proxies.js        # Email image proxy (500 lines)
@@ -621,8 +624,10 @@ novabyte-os/
 │  │    ├── perf.js        # [Dev Mode] FPS, memory, DOM performance monitor
 │  │    ├── permissions.js    # [Dev Mode] Grant/revoke app permissions
 │  │    └── sysaccess.js     # [Dev Mode] Network proxy & VFS inspector
-│  ├── data/
-│  │  └── favicons.db       # Persistent SQLite favicon cache
+│  ├── data/              # Gitignored — generated at runtime, not part of the repo
+│  │  ├── favicons.db       # Persistent SQLite favicon cache
+│  │  ├── sessions.db       # Express session store (backs admin:users session list/revoke)
+│  │  └── admin-state.json   # Local admin-mode flag (Settings → Privacy & Security → Admin Access)
 │  ├── assets/
 │  └── LICENSE
 ├── .gitignore
@@ -634,11 +639,11 @@ novabyte-os/
 
 ### 🧩 Architecture Note: Modular Isolation
 
-NBOSP uses a fully decoupled modular architecture. The original monolithic `app.js` (14,000+ lines), `server.js` (~1,450 lines), and `client.js` (400+ lines) have been split into **57 modular files** across clearly separated layers:
+NBOSP uses a fully decoupled modular architecture. The original monolithic `app.js` (14,000+ lines), `server.js` (~1,450 lines), and `client.js` (400+ lines) have been split into **58 modular files** across clearly separated layers:
 
 | Layer | Location | Count |
 |:---|:---|:---|
-| Backend modules | `server/` | 7 files |
+| Backend modules | `server/` (incl. `server/security/`) | 8 files |
 | Launcher modules | `scripts/` | 7 files |
 | Frontend core | `js/core/` (sub-folders: `core/`, `events/`, `services/`, `ui/`, `utils/`) | 15 files |
 | Frontend platform | `js/platform/` | 12 files |
