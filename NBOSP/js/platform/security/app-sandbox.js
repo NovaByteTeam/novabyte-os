@@ -3033,12 +3033,12 @@ const AppSandbox = (() => {
       // pendingRequests, so without this branch they'd hit the
       // "!entry -> continue" fallthrough below and silently vanish.
       // Dispatched to listeners registered per-wsId via window.nova.websocket().
-      if ((msg.type === 'nova:net:ws:message' || msg.type === 'nova:net:ws:error' || msg.type === 'nova:net:ws:close')
+      if ((msg.type === 'nova:net:ws:message:response' || msg.type === 'nova:net:ws:error:response' || msg.type === 'nova:net:ws:close:response')
           && msg.result && msg.result.wsId) {
         var wsListeners = wsEventListeners[msg.result.wsId];
         if (wsListeners) {
-          var kind = msg.type === 'nova:net:ws:message' ? 'message'
-            : msg.type === 'nova:net:ws:error' ? 'error' : 'close';
+          var kind = msg.type === 'nova:net:ws:message:response' ? 'message'
+            : msg.type === 'nova:net:ws:error:response' ? 'error' : 'close';
           var cbs = wsListeners[kind] || [];
           for (var k = 0; k < cbs.length; k++) {
             try { cbs[k](msg.result); } catch (_) {}
