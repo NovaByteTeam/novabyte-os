@@ -1747,6 +1747,10 @@ registerApp({
         // Expandable body
         const body = createEl('div', { style: 'display:none;border-top:1px solid var(--border-subtle);' });
 
+        // Keep references to each permission's toggle so we can sync them
+        // in-place (e.g. after "Reset All Permissions") without a full re-render.
+        const toggleEls = {};
+
         if (dangerous.length > 0) {
           const section = createEl('div', { style: 'padding:10px 14px 6px;' });
           section.appendChild(createEl('div', {
@@ -1786,6 +1790,9 @@ registerApp({
             });
             slider.appendChild(knob);
             toggleWrap.append(toggleInput, slider);
+
+            // Register so "Reset All Permissions" can sync this toggle's visuals too
+            toggleEls[perm] = { toggleInput, slider, knob };
 
             toggleInput.addEventListener('change', async () => {
               if (toggleInput.checked) {
@@ -1835,6 +1842,17 @@ registerApp({
               for (const p of dangerous) await mgr.resetPermission(p, appId);
             } else {
               await mgr.revokeAllPermissions(appId);
+            }
+            // Sync every toggle's checked state + slider/knob visuals now that
+            // the underlying grants have been cleared — previously only the
+            // header badges were refreshed, leaving switches stuck "on" until
+            // the card was collapsed/reopened.
+            for (const p of dangerous) {
+              const t = toggleEls[p];
+              if (!t) continue;
+              t.toggleInput.checked = false;
+              t.slider.style.background = 'var(--bg-elevated)';
+              t.knob.style.left = '2px';
             }
             Notify.show({ title: 'Permissions Reset', body: appName + ' will be asked again next launch.', type: 'info', appName: 'Settings' });
             refreshBadges();
