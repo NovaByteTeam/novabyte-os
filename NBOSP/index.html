@@ -6,7 +6,17 @@
   <meta content="width=device-width, initial-scale=1.0, user-scalable=no" name="viewport"/>
   <meta content="nosniff" http-equiv="X-Content-Type-Options"/>
   <meta content="strict-origin-when-cross-origin" http-equiv="Referrer-Policy"/>
-  <meta content="camera=(), microphone=(), geolocation=(), payment=(), usb=()" http-equiv="Permissions-Policy"/>
+  <!-- camera/microphone/geolocation are intentionally left at the browser's
+       default ('self') rather than locked to () here: AppPermissionManager
+       plus the per-app permissionrequest gate in app-sandbox.js is the real,
+       fine-grained enforcement point for these three. An empty allowlist at
+       this document level blocked every same-origin sandboxed app outright,
+       regardless of what the per-app permission system decided, so a
+       correctly-granted device:geolocation/camera/microphone permission
+       could never actually work. payment/usb have no corresponding
+       permission type or IPC handler anywhere in the sandbox, so they stay
+       fully disabled. -->
+  <meta content="payment=(), usb=()" http-equiv="Permissions-Policy"/>
   <title>
    NovaByte
   </title>

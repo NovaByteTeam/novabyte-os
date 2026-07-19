@@ -1618,6 +1618,38 @@ const AppSandbox = (() => {
     );
   }
 
+  // -- Device: camera / microphone --
+  //
+  // Unlike geolocation, a getUserMedia() MediaStream can't cross the IPC
+  // bridge at all — it isn't serializable, and this handler runs in the
+  // host shell's own document (see the module-level note in "Storage"
+  // above for the same host-vs-guest distinction), not inside the guest
+  // webview that would actually consume the stream. So these two handlers
+  // are authorization-only: they check AppPermissionManager and report
+  // whether the app is allowed to use the camera/microphone. The guest is
+  // expected to then call navigator.mediaDevices.getUserMedia() itself,
+  // inside its own document — see window.nova.getUserMedia in the
+  // capability shim below, which calls this check first and only then
+  // makes the real getUserMedia() call. That real call still goes through
+  // the webview's own permissionrequest gate (setupPermissionRequestGate,
+  // 'media' branch) as the actual browser-level enforcement point; this
+  // handler is the app-level permission gate, a separate decision the
+  // browser-level gate doesn't know about on its own.
+
+  async function handleDeviceCamera({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:camera', app.id)) {
+      return respondError(webview, 'nova:device:camera', requestId, 'PERMISSION_DENIED', 'device:camera permission required');
+    }
+    return respond(webview, 'nova:device:camera', requestId, { success: true, authorized: true });
+  }
+
+  async function handleDeviceMicrophone({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:microphone', app.id)) {
+      return respondError(webview, 'nova:device:microphone', requestId, 'PERMISSION_DENIED', 'device:microphone permission required');
+    }
+    return respond(webview, 'nova:device:microphone', requestId, { success: true, authorized: true });
+  }
+
   // -- System info --
 
   async function handleSystemInfo({ requestId, app, webview }) {
@@ -1742,6 +1774,8 @@ const AppSandbox = (() => {
     'nova:storage:clear': handleStorageClear,
     'nova:storage:keys': handleStorageKeys,
     'nova:device:geolocation': handleDeviceGeolocation,
+    'nova:device:camera': handleDeviceCamera,
+    'nova:device:microphone': handleDeviceMicrophone,
     'nova:system:info': handleSystemInfo,
     'nova:ready': handleReady,
     'nova:dialog:open': handleDialogOpen,
@@ -1944,9 +1978,20 @@ const AppSandbox = (() => {
         return;
       }
       if (e.permission === 'media') {
+        // Chromium's MediaPermissionRequest carries no audio/video sub-type
+        // (confirmed against the chrome.webviewTag reference — it's just
+        // { url, allow, deny }), so this layer can't tell a camera-only
+        // getUserMedia({video:true}) call apart from a mic-only or
+        // combined one. Requiring BOTH device:camera AND device:microphone
+        // would wrongly block an app that's only been granted (and only
+        // asked for) one of the two. Allowing on EITHER being granted is
+        // the correct trade-off here: the actual audio/video split is
+        // still enforced by whatever constraints the guest's own
+        // getUserMedia() call passes — this gate only decides whether the
+        // app may use the media permission surface at all.
         const camOk = AppPermissionManager?.isGranted('device:camera', app.id);
         const micOk = AppPermissionManager?.isGranted('device:microphone', app.id);
-        if (camOk && micOk) {
+        if (camOk || micOk) {
           e.request.allow();
         } else {
           e.request.deny();
@@ -2182,6 +2227,36 @@ const AppSandbox = (() => {
       if (!eventListeners[eventName]) eventListeners[eventName] = [];
       eventListeners[eventName].push(callback);
       return ipc('nova:events:subscribe', { event: eventName });
+    },
+    // Camera/microphone can't be proxied through the IPC bridge like
+    // geolocation coordinates — a MediaStream isn't serializable, and
+    // nova:device:camera/microphone only check AppPermissionManager, they
+    // don't (and can't) hand back a stream. So this wrapper does the
+    // app-level check first, and only calls the real getUserMedia() here
+    // in the guest's own document if that check passes. The browser-level
+    // decision still happens separately, via this document's own
+    // permissionrequest gate (see setupPermissionRequestGate's 'media'
+    // branch in app-sandbox.js) when getUserMedia() itself is called.
+    getUserMedia: function(constraints) {
+      constraints = constraints || {};
+      var needsCamera = !!constraints.video;
+      var needsMic = !!constraints.audio;
+      var checks = [];
+      if (needsCamera) checks.push(ipc('nova:device:camera', {}));
+      if (needsMic) checks.push(ipc('nova:device:microphone', {}));
+      if (checks.length === 0) {
+        return Promise.reject(new TypeError('getUserMedia requires at least one of video/audio in constraints'));
+      }
+      return Promise.all(checks).then(function() {
+        if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+          return Promise.reject(new TypeError('getUserMedia not available in this environment'));
+        }
+        return navigator.mediaDevices.getUserMedia(constraints);
+      });
+      // Any PERMISSION_DENIED from the ipc() calls above rejects here
+      // naturally (ipc() rejects on error responses), so callers see the
+      // same app-level denial they'd get from any other nova:* call,
+      // before ever reaching the browser's own permission prompt.
     }
   };
 

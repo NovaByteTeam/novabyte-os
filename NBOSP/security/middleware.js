@@ -522,7 +522,18 @@ function securityHeaders(req, res, next) {
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 
     // Permissions Policy
-    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    //
+    // This HTTP header is the one that actually wins: per spec, an HTTP
+    // Permissions-Policy header always overrides a <meta http-equiv> version
+    // of the same policy, so fixing index.html's meta tag alone (see its
+    // comment) did nothing while this line still shipped an empty
+    // allowlist on every response. AppPermissionManager plus the
+    // per-app permissionrequest gate in app-sandbox.js is the real,
+    // fine-grained enforcement point for these three — leaving self here
+    // lets same-origin sandboxed apps use the API at all, same reasoning
+    // as the meta tag fix. payment/usb have no corresponding permission
+    // type or IPC handler anywhere in the sandbox, so they stay disabled.
+    res.setHeader('Permissions-Policy', 'geolocation=(self), microphone=(self), camera=(self), payment=(), usb=()');
 
     // Origin-Agent-Cluster — set uniformly on every response to avoid the
     // browser warning about site-keyed vs origin-keyed agent clusters.
