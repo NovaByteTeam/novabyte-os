@@ -78,8 +78,7 @@ registerApp({
       'device:camera': 'Camera', 'device:microphone': 'Microphone',
       'device:geolocation': 'Location', 'device:notifications': 'Notifications',
       'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps',
-      'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs',
-      'data:export': 'Export data', 'data:backup': 'Backup data',
+      'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs',
     };
     const RISK_COLOR = { low: '#3fb950', medium: '#d29922', high: '#f0883e', critical: '#f85149' };
     const RISK_BG    = { low: 'rgba(63,185,80,0.1)', medium: 'rgba(210,153,34,0.1)', high: 'rgba(240,136,62,0.1)', critical: 'rgba(248,81,73,0.1)' };
@@ -1996,6 +1995,79 @@ registerApp({
       exportActions.appendChild(importBtn);
       exportSection.appendChild(exportActions);
       mainContent.appendChild(exportSection);
+
+      // Admin access — controls the server-side admin-state flag that
+      // req.user.role derives from. Off by default (see
+      // server/security/admin-state.js). This is what admin:* permission
+      // grants to sandboxed apps actually check against on top of the
+      // app-level grant — turning this on doesn't itself give any app
+      // access, it just makes the machine capable of honoring an
+      // admin:*-granted app's requests.
+      const adminSection = createEl('div', { className: 'nook-privacy-section' });
+      adminSection.appendChild(createEl('h3', { textContent: 'Admin Access' }));
+      adminSection.appendChild(createEl('p', {
+        textContent: 'Lets apps you\u2019ve granted admin permissions to (audit logs, system settings, sessions) actually use them. Off by default — most people never need this.',
+        style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', marginBottom: '12px' }
+      }));
+      const adminRow = createEl('div', { className: 'nook-toggle-row' });
+      adminRow.appendChild(createEl('span', { textContent: 'Enable admin mode on this device' }));
+      const adminToggle = createEl('button', { className: 'toggle', disabled: true });
+      adminRow.appendChild(adminToggle);
+      adminSection.appendChild(adminRow);
+      mainContent.appendChild(adminSection);
+
+      // State lives server-side (not OS.settings/localStorage), since
+      // req.user.role is derived from it on every server request — fetch
+      // current value and enable the control once known, rather than
+      // guess/flash an incorrect initial state.
+      (async () => {
+        try {
+          const res = await fetch('/api/security/admin-mode');
+          const json = await res.json();
+          if (json && json.success) {
+            adminToggle.classList.toggle('active', !!json.adminEnabled);
+          }
+        } catch (e) {
+          // Leave disabled — can't safely toggle a value we couldn't confirm.
+          adminSection.appendChild(createEl('p', {
+            textContent: 'Could not reach the server to check admin status.',
+            style: { color: 'var(--danger, #f85149)', fontSize: '12px', marginTop: '8px' }
+          }));
+          return;
+        }
+        adminToggle.disabled = false;
+      })();
+
+      adminToggle.addEventListener('click', async () => {
+        if (adminToggle.disabled) return;
+        const next = !adminToggle.classList.contains('active');
+        adminToggle.disabled = true;
+        try {
+          const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+          const res = await fetch('/api/security/admin-mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({ enabled: next })
+          });
+          const json = await res.json();
+          if (json && json.success) {
+            adminToggle.classList.toggle('active', !!json.adminEnabled);
+            Notify.show({
+              title: json.adminEnabled ? 'Admin Mode Enabled' : 'Admin Mode Disabled',
+              body: json.adminEnabled
+                ? 'Apps granted admin permissions can now use them.'
+                : 'Admin permission grants are now inert again.',
+              type: 'success', appName: 'Nook'
+            });
+          } else {
+            throw new Error(json?.message || 'Request failed');
+          }
+        } catch (e) {
+          Notify.show({ title: 'Could Not Update Admin Mode', body: e.message || 'Try again', type: 'error', appName: 'Nook' });
+        } finally {
+          adminToggle.disabled = false;
+        }
+      });
     }
 
     // ── Shortcuts ───────────────────────────────────────────────────────────

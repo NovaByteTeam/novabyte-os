@@ -1179,7 +1179,188 @@ const AppSandbox = (() => {
     });
   }
 
-  // -- App: list / install / uninstall --
+  // -- Admin: audit / system / apps / users --
+  //
+  // admin:* is the only permission category gated by something below the
+  // app-permission layer — /api/security/* checks req.user.role === 'admin'
+  // server-side, which now reflects a real local admin-state flag (see
+  // server/security/admin-state.js) instead of being permanently false.
+  // Two gates have to agree: AppPermissionManager (per-app grant, same as
+  // every other permission) AND the local admin flag (per-machine, off by
+  // default, toggled in Settings). An app can be granted admin:audit and
+  // still get nothing back if the machine itself isn't in admin mode —
+  // that's intentional, not a bug: granting an app the permission means
+  // "if this machine is ever in admin mode, this app may use it," not
+  // "make this machine an admin machine."
+  //
+  // There's no user-account CRUD anywhere in this codebase (confirmed —
+  // no create/delete/edit-user route exists), so admin:users maps to
+  // session management (list/revoke active sessions) rather than invented
+  // account operations. admin:apps has no dedicated route of its own in
+  // security/routes.js; it's folded into admin:system's settings surface
+  // for now since nothing else under /api/security exists for it — see
+  // the note in handleAdminApps below.
+
+  function csrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+  }
+
+  async function adminFetch(path, options = {}) {
+    const res = await fetch(path, {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken(),
+        ...(options.headers || {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    let json = null;
+    try { json = await res.json(); } catch (_) { /* non-JSON error page, fall through */ }
+    return { status: res.status, ok: res.ok, json };
+  }
+
+  async function handleAdminAudit({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('admin:audit', app.id)) {
+      return respondError(webview, 'nova:admin:audit', requestId, 'PERMISSION_DENIED', 'admin:audit permission required');
+    }
+    const q = payload ?? {};
+    const params = new URLSearchParams();
+    for (const k of ['userId', 'action', 'resource', 'ipAddress', 'success', 'startDate', 'endDate', 'level', 'limit', 'offset']) {
+      if (q[k] !== undefined && q[k] !== null) params.set(k, String(q[k]));
+    }
+    try {
+      const { status, json } = await adminFetch(`/api/security/audit?${params.toString()}`);
+      if (status === 403) {
+        return respondError(webview, 'nova:admin:audit', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
+      }
+      if (!json || json.success !== true) {
+        return respondError(webview, 'nova:admin:audit', requestId, 'UNAVAILABLE', json?.message || 'Failed to query audit log');
+      }
+      return respond(webview, 'nova:admin:audit', requestId, { success: true, logs: json.data, pagination: json.pagination, statistics: json.statistics });
+    } catch (e) {
+      return respondError(webview, 'nova:admin:audit', requestId, 'UNAVAILABLE', e.message || 'Audit request failed');
+    }
+  }
+
+  async function handleAdminSystem({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('admin:system', app.id)) {
+      return respondError(webview, 'nova:admin:system', requestId, 'PERMISSION_DENIED', 'admin:system permission required');
+    }
+    const action = payload?.action === 'set' ? 'set' : 'get';
+    try {
+      if (action === 'get') {
+        const { status, json } = await adminFetch('/api/security/settings');
+        if (status === 403) {
+          return respondError(webview, 'nova:admin:system', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
+        }
+        if (!json || json.success !== true) {
+          return respondError(webview, 'nova:admin:system', requestId, 'UNAVAILABLE', json?.message || 'Failed to read security settings');
+        }
+        return respond(webview, 'nova:admin:system', requestId, { success: true, settings: json.data });
+      }
+      // action === 'set'
+      const updates = payload?.settings;
+      if (!updates || typeof updates !== 'object') {
+        return respondError(webview, 'nova:admin:system', requestId, 'INVALID_ARGS', 'settings object is required for action "set"');
+      }
+      const { status, json } = await adminFetch('/api/security/settings', { method: 'PUT', body: updates });
+      if (status === 403) {
+        return respondError(webview, 'nova:admin:system', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
+      }
+      if (!json || json.success !== true) {
+        return respondError(webview, 'nova:admin:system', requestId, 'UNAVAILABLE', json?.message || 'Failed to update security settings');
+      }
+      return respond(webview, 'nova:admin:system', requestId, { success: true, updated: json.updated });
+    } catch (e) {
+      return respondError(webview, 'nova:admin:system', requestId, 'UNAVAILABLE', e.message || 'Admin system request failed');
+    }
+  }
+
+  async function handleAdminUsers({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('admin:users', app.id)) {
+      return respondError(webview, 'nova:admin:users', requestId, 'PERMISSION_DENIED', 'admin:users permission required');
+    }
+    // No account system exists in this codebase — this maps to session
+    // management (list/revoke), the closest real equivalent to "manage
+    // other users' access" that /api/security actually implements.
+    const action = payload?.action === 'revoke' ? 'revoke' : 'list';
+    try {
+      if (action === 'list') {
+        const { status, json } = await adminFetch('/api/security/sessions');
+        if (status === 401) {
+          return respondError(webview, 'nova:admin:users', requestId, 'UNAVAILABLE', 'No active session');
+        }
+        if (!json || json.success !== true) {
+          return respondError(webview, 'nova:admin:users', requestId, 'UNAVAILABLE', json?.message || 'Failed to list sessions');
+        }
+        return respond(webview, 'nova:admin:users', requestId, { success: true, sessions: json.data });
+      }
+      // action === 'revoke'
+      const sessionId = payload?.sessionId;
+      if (!sessionId) {
+        return respondError(webview, 'nova:admin:users', requestId, 'INVALID_ARGS', 'sessionId is required for action "revoke"');
+      }
+      const { status, json } = await adminFetch(`/api/security/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      if (status === 403) {
+        return respondError(webview, 'nova:admin:users', requestId, 'PERMISSION_DENIED', 'Not permitted to revoke this session');
+      }
+      if (status === 404) {
+        return respondError(webview, 'nova:admin:users', requestId, 'NOT_FOUND', 'Session not found');
+      }
+      if (!json || json.success !== true) {
+        return respondError(webview, 'nova:admin:users', requestId, 'UNAVAILABLE', json?.message || 'Failed to revoke session');
+      }
+      return respond(webview, 'nova:admin:users', requestId, { success: true, revoked: true });
+    } catch (e) {
+      return respondError(webview, 'nova:admin:users', requestId, 'UNAVAILABLE', e.message || 'Admin users request failed');
+    }
+  }
+
+  async function handleAdminApps({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('admin:apps', app.id)) {
+      return respondError(webview, 'nova:admin:apps', requestId, 'PERMISSION_DENIED', 'admin:apps permission required');
+    }
+    // There's no dedicated /api/security route for app management — the
+    // real, non-sandboxed app inventory already lives behind system:apps
+    // (nova:app:list/install/uninstall). admin:apps' honest scope right
+    // now is read-only visibility into that same registry gated by the
+    // machine's admin flag, distinguishing "any app I granted system:apps
+    // to can list/launch/install/uninstall apps for itself" from "an
+    // admin-mode app can audit what's installed system-wide." If real
+    // admin-only app operations (e.g. force-uninstall another app,
+    // disable an app fleet-wide) get built later, they belong here.
+    if (typeof APP_REGISTRY === 'undefined' || !Array.isArray(APP_REGISTRY)) {
+      return respondError(webview, 'nova:admin:apps', requestId, 'UNAVAILABLE', 'App registry not available');
+    }
+    if (!(await isAdminEnabledClient())) {
+      return respondError(webview, 'nova:admin:apps', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
+    }
+    const apps = APP_REGISTRY.map(a => ({
+      id: a.id, name: a.name, version: a.version || '1.0.0',
+      source: a.source || 'local', builtin: a.source !== 'file',
+      permissions: a.permissions || [], optionalPermissions: a.optionalPermissions || [],
+    }));
+    return respond(webview, 'nova:admin:apps', requestId, { success: true, apps });
+  }
+
+  // admin:apps has no server route to 403 against (unlike the other three,
+  // which proxy to /api/security and get a real 403 from there), so it
+  // needs its own client-side admin-mode check. Reuses the same signal:
+  // GET /api/security/settings returns a *limited* payload for non-admins
+  // (no _meta.editable, no full settings) but always 200s, so the leanest
+  // honest check is a HEAD-less settings fetch and looking at whether the
+  // admin-only fields came back.
+  async function isAdminEnabledClient() {
+    try {
+      const { json } = await adminFetch('/api/security/settings');
+      return !!(json && json.success && json.data && json.data._meta);
+    } catch (_) {
+      return false;
+    }
+  }
+
+
   //
   // These, together with launch (above) and info, are what 'system:apps'
   // actually gates. list/uninstall are straightforward reads/writes on
@@ -2157,6 +2338,10 @@ const AppSandbox = (() => {
     'nova:app:list': handleAppList,
     'nova:app:install': handleAppInstall,
     'nova:app:uninstall': handleAppUninstall,
+    'nova:admin:audit': handleAdminAudit,
+    'nova:admin:system': handleAdminSystem,
+    'nova:admin:users': handleAdminUsers,
+    'nova:admin:apps': handleAdminApps,
     'nova:events:subscribe': handleEventsSubscribe,
     'nova:events:unsubscribe': handleEventsUnsubscribe,
     'nova:net:fetch': handleNetFetch,
@@ -2681,6 +2866,18 @@ const AppSandbox = (() => {
       launch: function(appId, options) { return ipc('nova:app:launch', { appId: appId, options: options || {} }); },
       install: function(pkg) { return ipc('nova:app:install', { package: pkg }); },
       uninstall: function(appId) { return ipc('nova:app:uninstall', { appId: appId }); }
+    },
+    // admin:* — requires both the per-app permission grant AND the
+    // machine's local admin flag to be on (set in Settings). Granting an
+    // app one of these permissions doesn't put the machine in admin mode
+    // by itself.
+    admin: {
+      auditQuery: function(filters) { return ipc('nova:admin:audit', filters || {}); },
+      systemGet: function() { return ipc('nova:admin:system', { action: 'get' }); },
+      systemSet: function(settings) { return ipc('nova:admin:system', { action: 'set', settings: settings }); },
+      usersList: function() { return ipc('nova:admin:users', { action: 'list' }); },
+      usersRevoke: function(sessionId) { return ipc('nova:admin:users', { action: 'revoke', sessionId: sessionId }); },
+      appsList: function() { return ipc('nova:admin:apps', {}); }
     }
   };
 

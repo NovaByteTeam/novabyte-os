@@ -39,7 +39,6 @@ const AppRegistry = (() => {
     'contacts:read', 'contacts:write', 'contacts:delete',
     'device:notifications', 'device:geolocation', 'device:camera', 'device:microphone',
     'system:info', 'system:settings', 'system:apps', 'system:events',
-    'data:export', 'data:backup',
     'admin:apps', 'admin:users', 'admin:system', 'admin:audit',
   ]);
 

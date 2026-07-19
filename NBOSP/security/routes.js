@@ -9,6 +9,7 @@ const router = express.Router();
 // Import services
 const securityMiddleware = require('./middleware');
 const ServerEventLog = require('../server/core/server-event-log');
+const adminState = require('../server/security/admin-state');
 
 // In-memory failed login attempt tracking for rate limiting (SEC3)
 const failedLoginAttempts = new Map(); // ip -> { count, lastAttempt, lockedUntil }
@@ -21,8 +22,37 @@ const failedLoginAttempts = new Map(); // ip -> { count, lastAttempt, lockedUnti
 // stripped v3 store and have no equivalent here yet; ServerEventLog is a
 // live ring buffer for the Events app timeline, not a queryable audit DB.
 const auditService = {
-    query: (filters) => [],
-    getStatistics: () => ({}),
+    // query/getStatistics now read the real ServerEventLog ring buffer
+    // (500 most-recent server-side events) instead of the stripped v3
+    // audit store's always-empty stub. This is a live in-memory buffer,
+    // not a persisted audit trail — see server-event-log.js's own header
+    // comment — so results reset on server restart and only cover recent
+    // activity, not full history. That's an honest limitation to surface
+    // via admin:audit rather than silently pretend this is a real DB.
+    query: (filters = {}) => {
+        let logs = ServerEventLog.getAll();
+        if (filters.userId) logs = logs.filter(e => e.data?.userId === filters.userId);
+        if (filters.action) logs = logs.filter(e => e.data?.action === filters.action);
+        if (filters.resource) logs = logs.filter(e => e.data?.resource === filters.resource);
+        if (filters.level) logs = logs.filter(e => e.severity === filters.level);
+        if (typeof filters.success === 'boolean') logs = logs.filter(e => e.data?.success === filters.success);
+        if (filters.startDate) logs = logs.filter(e => e.timestamp >= new Date(filters.startDate).getTime());
+        if (filters.endDate) logs = logs.filter(e => e.timestamp <= new Date(filters.endDate).getTime());
+        // Newest first, matches the ring buffer's natural read pattern for a log viewer
+        logs = logs.slice().reverse();
+        const offset = filters.offset || 0;
+        const limit = filters.limit || 100;
+        return logs.slice(offset, offset + limit);
+    },
+    getStatistics: () => {
+        const logs = ServerEventLog.getAll();
+        const stats = { total: logs.length, bySeverity: {}, byApp: {} };
+        for (const e of logs) {
+            stats.bySeverity[e.severity] = (stats.bySeverity[e.severity] || 0) + 1;
+            stats.byApp[e.app] = (stats.byApp[e.app] || 0) + 1;
+        }
+        return stats;
+    },
     log: (entry) => {
         ServerEventLog.log({
             app: 'SecurityRoutes',
@@ -67,8 +97,69 @@ const auditService = {
     },
     getSuspiciousActivities: (filters) => [],
     updateSuspiciousActivity: (id, status, notes) => null,
-    exportLogs: (format, filters) => ''
+    exportLogs: (format, filters = {}) => {
+        const logs = auditService.query(filters);
+        if (format === 'csv') {
+            const header = 'id,timestamp,app,severity,message\n';
+            const rows = logs.map(e => [
+                e.id, new Date(e.timestamp).toISOString(), e.app, e.severity,
+                JSON.stringify(e.message || '')
+            ].join(','));
+            return header + rows.join('\n');
+        }
+        return JSON.stringify(logs, null, 2);
+    }
 };
+
+/**
+ * GET/POST /api/security/admin-mode - read/toggle the local admin flag.
+ *
+ * This is the one thing in this file that ISN'T gated by req.user.role
+ * === 'admin' — that would be a lock-out (you can't turn admin mode on
+ * if turning it on requires already being admin). Instead it relies on
+ * two things that are already true for every route in this file:
+ *   1. Guest .novaapp webviews run in a separate NW.js partition
+ *      (persist:app_<id>) with their own cookie jar, so they can't reach
+ *      this endpoint with the host shell's session cookie even if they
+ *      fetch() the same-origin path directly.
+ *   2. Global CSRF protection (createSecurityMiddleware, wired in
+ *      server/middleware.js) rejects state-changing requests without a
+ *      valid token, which only the host shell's own rendered page has
+ *      access to.
+ * So this is reachable only from the host shell itself (Settings app),
+ * not from a sandboxed app pretending to be it.
+ */
+router.get('/admin-mode', async (req, res) => {
+    try {
+        res.json({ success: true, adminEnabled: adminState.isAdminEnabled() });
+    } catch (error) {
+        console.error('[Security Routes] Error reading admin mode:', error);
+        res.status(500).json({ error: 'Internal Server Error', message: 'Failed to read admin mode' });
+    }
+});
+
+router.post('/admin-mode',
+    securityMiddleware.validateRequest({
+        body: { enabled: { type: 'boolean', required: true } }
+    }),
+    async (req, res) => {
+        try {
+            const state = adminState.setAdminEnabled(req.body.enabled);
+            auditService.log({
+                action: 'config_change',
+                userId: req.user?.id,
+                resource: 'admin_mode',
+                success: true,
+                metadata: { adminEnabled: state.adminEnabled }
+            });
+            res.json({ success: true, adminEnabled: state.adminEnabled });
+        } catch (error) {
+            console.error('[Security Routes] Error setting admin mode:', error);
+            res.status(500).json({ error: 'Internal Server Error', message: 'Failed to set admin mode' });
+        }
+    }
+);
+
 
 // Cleanup expired login locks every 5 minutes
 setInterval(() => {
@@ -79,8 +170,64 @@ setInterval(() => {
     }
 }, 5 * 60 * 1000);
 
-// In-memory session storage (would be database in production)
-const sessions = new Map();
+// The in-memory `sessions` Map this used to be was dead code — its only
+// writer, registerSession() below, was exported but never called from
+// anywhere in the app, so /sessions and DELETE /sessions/:id always saw an
+// empty Map / 404'd on every id. The real session store already exists:
+// middleware.js persists Express sessions to a SQLite `sessions` table
+// (via better-sqlite3-session-store) at NBOSP/data/sessions.db. This reads
+// that table directly instead of maintaining a second, parallel, never-
+// synced copy of the same data.
+const path = require('path');
+const Database = require('better-sqlite3');
+const SESSION_DB_PATH = path.join(__dirname, '..', 'data', 'sessions.db');
+let sessionDb = null;
+function getSessionDb() {
+    // Lazy-opened: this file loads before middleware.js has necessarily
+    // created the DB/table on first run, so open on first actual read
+    // rather than at module-load time.
+    if (!sessionDb) {
+        sessionDb = new Database(SESSION_DB_PATH, { fileMustExist: false });
+        sessionDb.pragma('journal_mode = WAL');
+    }
+    return sessionDb;
+}
+// Reads all non-expired rows and parses each `sess` JSON blob. sess.user is
+// what our own req.user middleware assigns — id (the sid itself, since
+// there's no separate account system) and role. Rows from *before* that
+// middleware existed, or sessions that never got a request routed through
+// it, won't have a `user` key; those are surfaced with userId: null rather
+// than dropped, since they're still real active sessions.
+function listActiveSessions() {
+    try {
+        const db = getSessionDb();
+        const rows = db.prepare(
+            `SELECT sid, sess, expire FROM sessions WHERE datetime('now') < datetime(expire)`
+        ).all();
+        return rows.map(row => {
+            let sess = {};
+            try { sess = JSON.parse(row.sess); } catch (_) { /* corrupt row, skip parsing */ }
+            return {
+                id: row.sid,
+                userId: sess.user?.id ?? null,
+                role: sess.user?.role ?? null,
+                createdAt: sess.cookie?.originalMaxAge ? undefined : undefined, // not tracked by this store; omitted rather than fabricated
+                expiresAt: row.expire,
+                ipAddress: sess.lastIp ?? null,
+                userAgent: sess.lastUserAgent ?? null
+            };
+        });
+    } catch (e) {
+        // DB not created yet (fresh install, no requests served) — empty
+        // is the correct answer, not an error.
+        return [];
+    }
+}
+function revokeSession(sid) {
+    const db = getSessionDb();
+    const result = db.prepare(`DELETE FROM sessions WHERE sid = ?`).run(sid);
+    return result.changes > 0;
+}
 
 // Security settings (would be database in production)
 let securitySettings = {
@@ -126,6 +273,31 @@ let securitySettings = {
  * GET /api/security/audit - Query audit logs (admin only)
  */
 router.get('/audit', 
+    // limit/offset arrive as query-string values, always strings — but
+    // this app runs on Express 5, where req.query is a read-only getter
+    // recomputed from the URL on every access. Assigning req.query[k] =
+    // Number(...) (an earlier attempt at this fix) silently does nothing
+    // in Express 5 — no error, the value just never changes — so
+    // validateRequest's type:'number' check could never pass regardless.
+    // Confirmed via a direct test against this exact express version.
+    // Fix: validate limit/offset as numeric *strings* here (a pattern
+    // check, not typeof), and let the handler's existing parseInt(...) ||
+    // default calls do the real numeric coercion, same as it already did
+    // for every other case (missing/invalid values falling back to
+    // defaults).
+    (req, res, next) => {
+        for (const k of ['limit', 'offset']) {
+            const v = req.query[k];
+            if (v !== undefined && !/^\d+$/.test(String(v))) {
+                return res.status(400).json({
+                    error: 'Validation Failed',
+                    message: 'Request validation failed',
+                    details: [{ field: k, location: 'query', message: `${k} must be a non-negative integer` }]
+                });
+            }
+        }
+        next();
+    },
     securityMiddleware.validateRequest({
         query: {
             userId: { type: 'string' },
@@ -135,9 +307,11 @@ router.get('/audit',
             success: { type: 'string' },
             startDate: { type: 'string' },
             endDate: { type: 'string' },
-            level: { type: 'string' },
-            limit: { type: 'number', min: 1, max: 1000 },
-            offset: { type: 'number', min: 0 }
+            level: { type: 'string' }
+            // limit/offset intentionally NOT declared here anymore — see
+            // the numeric-string check above, which replaces them. They
+            // can never be type:'number' against a real Express 5
+            // req.query, whose values are always strings.
         }
     }),
     async (req, res) => {
@@ -159,8 +333,8 @@ router.get('/audit',
                 startDate: req.query.startDate,
                 endDate: req.query.endDate,
                 level: req.query.level,
-                limit: parseInt(req.query.limit) || 100,
-                offset: parseInt(req.query.offset) || 0
+                limit: Math.min(1000, Math.max(1, parseInt(req.query.limit) || 100)),
+                offset: Math.max(0, parseInt(req.query.offset) || 0)
             };
 
             const logs = auditService.query(filters);
@@ -208,38 +382,25 @@ router.get('/sessions', async (req, res) => {
             });
         }
 
-        // Get user's sessions
-        const userSessions = Array.from(sessions.values())
-            .filter(s => s.userId === userId && s.status === 'active')
-            .map(s => ({
-                id: s.id,
-                createdAt: s.createdAt,
-                lastActivity: s.lastActivity,
-                ipAddress: s.ipAddress,
-                userAgent: s.userAgent,
-                current: s.id === req.sessionID
-            }));
-
-        // Admin can see all sessions
+        const all = listActiveSessions();
         const isAdmin = req.user?.role === 'admin';
-        if (isAdmin) {
-            const allSessions = Array.from(sessions.values())
-                .filter(s => s.status === 'active')
-                .map(s => ({
-                    id: s.id,
-                    userId: s.userId,
-                    createdAt: s.createdAt,
-                    lastActivity: s.lastActivity,
-                    ipAddress: s.ipAddress,
-                    userAgent: s.userAgent
-                }));
 
+        if (isAdmin) {
+            const allSessions = all.map(s => ({ ...s, current: s.id === req.sessionID }));
             return res.json({
                 success: true,
                 data: allSessions,
                 count: allSessions.length
             });
         }
+
+        // Non-admins only see their own session — in this single-user OS
+        // "their own" means the current browser session itself, since
+        // there's no separate account system distinguishing sessions by
+        // user beyond the session id.
+        const userSessions = all
+            .filter(s => s.id === req.sessionID)
+            .map(s => ({ ...s, current: true }));
 
         res.json({
             success: true,
@@ -270,8 +431,9 @@ router.delete('/sessions/:id', async (req, res) => {
             });
         }
 
-        const session = sessions.get(sessionId);
-        
+        const all = listActiveSessions();
+        const session = all.find(s => s.id === sessionId);
+
         if (!session) {
             return res.status(404).json({
                 error: 'Not Found',
@@ -281,17 +443,24 @@ router.delete('/sessions/:id', async (req, res) => {
 
         // Users can only revoke their own sessions unless admin
         const isAdmin = req.user?.role === 'admin';
-        if (session.userId !== userId && !isAdmin) {
+        if (session.id !== req.sessionID && !isAdmin) {
             return res.status(403).json({
                 error: 'Forbidden',
                 message: 'Cannot revoke other user sessions'
             });
         }
 
-        // Revoke the session
-        session.status = 'revoked';
-        session.revokedAt = new Date().toISOString();
-        session.revokedBy = userId;
+        // Revoke the session — actually deletes the row from the SQLite
+        // store (which is what express-session/SqliteStore checks on
+        // every request), not a status flag on a detached copy, so this
+        // takes effect immediately rather than silently doing nothing.
+        const revoked = revokeSession(sessionId);
+        if (!revoked) {
+            return res.status(404).json({
+                error: 'Not Found',
+                message: 'Session not found'
+            });
+        }
 
         auditService.log({
             action: 'session_revoke',
@@ -299,7 +468,7 @@ router.delete('/sessions/:id', async (req, res) => {
             resource: 'session',
             resourceId: sessionId,
             success: true,
-            metadata: { revokedSessionUser: session.userId }
+            metadata: { revokedSessionUser: session.userId, revokedSelf: session.id === req.sessionID }
         });
 
         res.json({
@@ -783,24 +952,5 @@ router.post('/export',
     }
 );
 
-// Helper function to register a session
-function registerSession(sessionData) {
-    sessions.set(sessionData.id, {
-        ...sessionData,
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        lastActivity: new Date().toISOString()
-    });
-}
-
-// Helper function to update session activity
-function updateSessionActivity(sessionId) {
-    const session = sessions.get(sessionId);
-    if (session) {
-        session.lastActivity = new Date().toISOString();
-    }
-}
 
 module.exports = router;
-module.exports.registerSession = registerSession;
-module.exports.updateSessionActivity = updateSessionActivity;

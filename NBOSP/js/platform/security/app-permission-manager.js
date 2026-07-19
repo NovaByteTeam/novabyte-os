@@ -76,8 +76,6 @@ const AppPermissionManager = (() => {
     'system:settings'   : { category: 'system',     risk: 'medium',   label: 'System settings' },
     'system:apps'       : { category: 'system',     risk: 'medium',   label: 'Manage apps' },
     'system:events'     : { category: 'system',     risk: 'medium',   label: 'System events' },
-    'data:export'       : { category: 'data',       risk: 'high',     label: 'Export data' },
-    'data:backup'       : { category: 'data',       risk: 'high',     label: 'Backup data' },
     'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },
