@@ -882,8 +882,19 @@ const AppSandbox = (() => {
   }
 
   async function handleFsStat({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
-      return respondError(webview, 'nova:vfs:stat', requestId, 'PERMISSION_DENIED', 'vfs:read permission required');
+    // vfs:metadata is the narrower, lower-risk permission this channel is
+    // actually meant to gate on — it existed in PERMISSION_TYPES/
+    // PERMISSION_CATEGORIES as a real, distinct entry but this handler was
+    // never updated to check it, so it was silently dead: declaring
+    // vfs:metadata in a manifest did nothing, and there was no way to get
+    // metadata-only access without also getting full file content (vfs:read).
+    // vfs:read still satisfies this too, since full read access is a
+    // superset of metadata-only access — an app that can already read file
+    // contents shouldn't need a second, separate grant just for stat().
+    const hasMetadata = AppPermissionManager.isGranted('vfs:metadata', app.id);
+    const hasRead = AppPermissionManager.isGranted('vfs:read', app.id);
+    if (!hasMetadata && !hasRead) {
+      return respondError(webview, 'nova:vfs:stat', requestId, 'PERMISSION_DENIED', 'vfs:metadata or vfs:read permission required');
     }
     const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:vfs:stat', requestId, 'NOT_FOUND', 'File not found');
