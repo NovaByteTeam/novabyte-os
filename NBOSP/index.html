@@ -608,6 +608,13 @@
   <!-- Window Container -->
   <div aria-label="Application windows" id="windows">
   </div>
+  <!-- Background App Host: holds <webview>s for apps with system:background:live
+       whose window was closed but whose process is being kept alive. These are
+       detached from the window layer entirely (not just visually hidden) so the
+       app never receives focus/paint events meant for a visible window, but the
+       underlying webview process keeps running. See AppSandbox.detachToBackground. -->
+  <div aria-hidden="true" id="background-app-host" style="display:none;">
+  </div>
   <!-- Taskbar -->
   <div aria-label="Taskbar" id="taskbar" role="toolbar">
    <div class="taskbar-start">

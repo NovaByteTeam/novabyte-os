@@ -46,6 +46,21 @@ const AppPermissionManager = (() => {
     DEVICE_MICROPHONE : 'device:microphone',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
     SYSTEM_APPS       : 'system:apps',    SYSTEM_EVENTS     : 'system:events',
+    // Background execution is split into two independent grants on purpose:
+    // SYSTEM_BACKGROUND covers scheduled wake-ups (the app doesn't need to be
+    // open at all for the host to run it briefly), while
+    // SYSTEM_BACKGROUND_LIVE covers staying alive as a running process after
+    // the user closes its window — a strictly bigger ask, since the process
+    // keeps consuming resources indefinitely rather than waking briefly.
+    // Neither implies device:notifications — an app with either background
+    // grant still can't call nova:notifications:show without that grant too.
+    // SYSTEM_AUTOSTART is a third, separate thing again: launching the app
+    // at OS boot/login with no user action at all in that session, which is
+    // a bigger trust ask than either background tier and must be granted
+    // explicitly rather than folded into SYSTEM_BACKGROUND.
+    SYSTEM_BACKGROUND      : 'system:background',
+    SYSTEM_BACKGROUND_LIVE : 'system:background:live',
+    SYSTEM_AUTOSTART       : 'system:autostart',
     ADMIN_APPS        : 'admin:apps',     ADMIN_USERS       : 'admin:users',
     ADMIN_SYSTEM      : 'admin:system',   ADMIN_AUDIT       : 'admin:audit',
   });
@@ -84,6 +99,9 @@ const AppPermissionManager = (() => {
     'system:settings'   : { category: 'system',     risk: 'medium',   label: 'System settings' },
     'system:apps'       : { category: 'system',     risk: 'medium',   label: 'Manage apps' },
     'system:events'     : { category: 'system',     risk: 'medium',   label: 'System events' },
+    'system:background' : { category: 'system',     risk: 'medium',   label: 'Run scheduled background tasks' },
+    'system:background:live': { category: 'system', risk: 'high',     label: 'Keep running after you close it' },
+    'system:autostart'  : { category: 'system',     risk: 'high',     label: 'Start automatically when NovaByte starts' },
     'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },

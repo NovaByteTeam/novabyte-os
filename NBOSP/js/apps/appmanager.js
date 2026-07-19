@@ -1423,6 +1423,28 @@ registerApp({
 
         const disabledSet = new Set(getDisabled());
         const isDis = disabledSet.has(app.id);
+        // isBoot reflects reality, not just the stored preference list:
+        // list membership alone doesn't mean the grant still holds — it can
+        // be revoked from the Permissions section, or expire via the 30-day
+        // unused-app sweep, independently of this list. If the grant is
+        // gone, the button should show "off" immediately on next render
+        // rather than keep claiming "Starts at Boot" for an entry that
+        // launchAutostartApps() will silently skip at next boot anyway.
+        const hasAutostartGrant = typeof AppPermissionManager !== 'undefined' &&
+          AppPermissionManager.isGranted('system:autostart', app.id);
+        const isBoot = getBootApps().includes(app.id) && hasAutostartGrant;
+        // The boot toggle itself should only ever appear for an app that
+        // actually declared system:autostart in its manifest (required or
+        // optional) — same principle as every other permission in this
+        // list: a permission being *requestable* at all is gated by the
+        // app asking for it up front, not by whatever buttons App Manager
+        // happens to render. Without this, any installed app could be
+        // pushed into requesting a permission it never declared, purely
+        // because the button existed — that's App Manager granting
+        // capabilities on the app's behalf, not the app asking for them.
+        const declaresAutostart =
+          (app.permissions || []).includes('system:autostart') ||
+          (app.optionalPermissions || []).includes('system:autostart');
 
         // ── Header ─────────────────────────────────────────────
         const header = createEl('div', {
@@ -1493,7 +1515,53 @@ registerApp({
           () => doUninstall(app.id)
         );
 
-        actionBar.append(launchBtn, toggleBtn, uninstBtn);
+        const bootBtn = makeActionBtn(
+          isBoot ? 'Starts at Boot' : 'Start at Boot',
+          isBoot ? 'done' : 'power',
+          isBoot
+            ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
+            : 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
+          async () => {
+            if (isBoot) {
+              // Turning it off is just a preference change — no permission
+              // implications, so no dialog. The system:autostart grant
+              // itself is untouched; revoking that is a separate action in
+              // the Permissions section, same as any other permission.
+              setBootApps(getBootApps().filter(id => id !== app.id));
+              selectedPkgId = app.id;
+              renderList();
+              renderDetail();
+              Notify.show({ title: 'Removed from Boot', body: `${app.name} will no longer start automatically.`, type: 'success', appName: 'App Manager' });
+              return;
+            }
+
+            // Turning it on requires the actual grant, same as any other
+            // permission — being in this list is a user preference, not
+            // authorization by itself (see launchAutostartApps() in
+            // boot.js, which checks both). isGranted() first so an app that
+            // already holds the grant (e.g. declared it in its manifest and
+            // was granted at install) doesn't get re-prompted here.
+            const mgr = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
+            let granted = mgr ? mgr.isGranted('system:autostart', app.id) : false;
+            if (mgr && !granted) {
+              granted = await mgr.requestPermission('system:autostart', app.id, {
+                appName: app.name,
+                reason: 'Launch automatically when NovaByte starts, with no need to open it first.',
+              });
+            }
+            if (!granted) {
+              Notify.show({ title: 'Permission Required', body: `${app.name} needs the "Start automatically" permission to boot with NovaByte.`, type: 'warn', appName: 'App Manager' });
+              return;
+            }
+            setBootApps([...getBootApps().filter(id => id !== app.id), app.id]);
+            selectedPkgId = app.id;
+            renderList();
+            renderDetail();
+            Notify.show({ title: 'Added to Boot', body: `${app.name} will start automatically next time.`, type: 'success', appName: 'App Manager' });
+          }
+        );
+
+        actionBar.append(launchBtn, toggleBtn, ...(declaresAutostart ? [bootBtn] : []), uninstBtn);
         detail.appendChild(actionBar);
 
         // ── Info ────────────────────────────────────────────────

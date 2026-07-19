@@ -387,7 +387,8 @@ const WM = window.WM = (() => {
       return state;
     },
 
-    closeWindow(id) {
+    closeWindow(id, options = {}) {
+      const { forceKill = false } = options;
       const state = OS.windows.get(id);
       if (!state) return Promise.resolve();
 
@@ -403,6 +404,38 @@ const WM = window.WM = (() => {
         closed = true;
         clearTimeout(fallback);
 
+        // system:background:live keep-alive check. This only ever keeps the
+        // *sandbox* (the webview + its process) alive — the window chrome,
+        // event listeners, and OS.windows entry for this window are always
+        // torn down below exactly as before. What changes is whether
+        // AppSandbox destroys the webview or reparents it into the hidden
+        // background host first. An app must hold the grant AND the sandbox
+        // must still exist (it may have already exited on its own, or never
+        // requested to be kept alive this session) for this to trigger.
+        //
+        // forceKill skips this entirely: uninstall, "disable app", and any
+        // other path that's actually removing the app (see
+        // AppRegistry.unregisterApp) must not let a background grant turn
+        // into an orphaned webview that outlives the registry entry, its
+        // files, and its permissions. Those callers pass forceKill: true and
+        // additionally terminate any sandbox already sitting in the
+        // background host for this app (see below), since the app may have
+        // been backgrounded in an earlier session already.
+        let keptAlive = false;
+        try {
+          if (!forceKill &&
+              typeof AppPermissionManager !== 'undefined' &&
+              typeof AppSandbox !== 'undefined' &&
+              AppPermissionManager.isGranted('system:background:live', state.appId)) {
+            const sandbox = AppSandbox.getAllSandboxes().find(s => s.windowId === id && !s.backgrounded);
+            if (sandbox) {
+              keptAlive = AppSandbox.detachToBackground(sandbox.sandboxId);
+            }
+          }
+        } catch (err) {
+          console.warn('[WM] background keep-alive check failed:', err);
+        }
+
         for (const cleanup of state.cleanups) {
           try { cleanup(); } catch (err) { console.warn('[WM] cleanup error:', err); }
         }
@@ -412,6 +445,18 @@ const WM = window.WM = (() => {
         const app = OS.apps[state.appId];
         if (app?.onClose) {
           try { app.onClose(state); } catch (err) { console.warn(`[WM] ${state.appId}.onClose error:`, err); }
+        }
+
+        if (keptAlive && typeof Notify !== 'undefined' && Notify.pinBackgroundApp) {
+          const appName = app?.name || state.appId;
+          Notify.show({ title: `${appName} started running in the background`, type: 'info', appName, appId: state.appId });
+          Notify.pinBackgroundApp(state.appId, {
+            appName,
+            onTerminate: () => {
+              const sandbox = AppSandbox.getAllSandboxes().find(s => s.appId === state.appId && s.backgrounded);
+              if (sandbox) AppSandbox.terminateBackground(sandbox.sandboxId);
+            },
+          });
         }
 
         if (OS.focusedWindowId === id) {

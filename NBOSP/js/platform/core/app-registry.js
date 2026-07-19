@@ -215,13 +215,31 @@ const AppRegistry = (() => {
     // Every uninstall surface (App Manager, desktop right-click,
     // MyAppsManager) funnels through here — close any window still open
     // for this app before its registry entry, files, and permissions are
-    // deleted out from under it.
+    // deleted out from under it. forceKill: true so a system:background:live
+    // grant can't turn this into an orphaned webview that outlives the
+    // registry entry being deleted below.
     if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
       const openWindowIds = [];
       for (const [wid, wstate] of OS.windows) {
         if (wstate.appId === appId) openWindowIds.push(wid);
       }
-      for (const wid of openWindowIds) WM.closeWindow(wid);
+      for (const wid of openWindowIds) WM.closeWindow(wid, { forceKill: true });
+    }
+
+    // An app can also be alive in the background with no open window at
+    // all (its window was closed in an earlier moment of this session,
+    // and its sandbox has been sitting in #background-app-host ever
+    // since) — the loop above wouldn't touch that, since it only looks at
+    // OS.windows. Catch that case directly so uninstalling a backgrounded
+    // app actually stops its process instead of leaving it running with
+    // no registry entry, files, or permissions left to justify it.
+    if (typeof AppSandbox !== 'undefined' && AppSandbox.getAllSandboxes) {
+      for (const sandbox of AppSandbox.getAllSandboxes()) {
+        if (sandbox.appId === appId && sandbox.backgrounded) {
+          AppSandbox.terminateBackground(sandbox.sandboxId);
+          if (typeof Notify !== 'undefined' && Notify.unpin) Notify.unpin(`pin_bg_${appId}`);
+        }
+      }
     }
 
     if (typeof OS !== 'undefined' && OS?.apps) delete OS.apps[appId];

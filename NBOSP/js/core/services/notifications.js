@@ -57,12 +57,16 @@ const Notify = {
     Notify.renderPanel();
   },
 
-  // Clears every notification regardless of source. Not exposed over the
-  // app IPC bridge — only for first-party system UI (e.g. a "Clear all"
-  // button the user presses directly in the notification panel).
+  // Clears every notification regardless of source, except pinned entries.
+  // Not exposed over the app IPC bridge — only for first-party system UI
+  // (e.g. a "Clear all" button the user presses directly in the
+  // notification panel). Pinned entries survive this on purpose: "Clear
+  // All" is a way to tidy up past events, not a way to make a still-running
+  // background app disappear from view — the only path that removes a
+  // pinned entry is unpin(), via Terminate or the app's own exit.
   clearAll() {
-    OS.notifications = [];
-    OS.notifUnread = 0;
+    OS.notifications = OS.notifications.filter(n => n && n.pinned);
+    OS.notifUnread = OS.notifications.filter(n => !n.read).length;
     Notify.persist();
     Notify.updateBadge();
     updateNotificationBadge();
@@ -71,9 +75,10 @@ const Notify = {
 
   show(opts) {
     Notify.loadPersisted();
-    const { title, body, type, appName, appId, category, icon, action, actionLabel } = opts;
+    const { title, body, type, appName, appId, category, icon, action, actionLabel, pinned, pinId } = opts;
+    const id = generateId();
     const notif = {
-      id: generateId(),
+      id,
       title: title || '',
       body: body || '',
       type: type || 'info',
@@ -84,10 +89,25 @@ const Notify = {
       timestamp: Date.now(),
       read: false,
       action: action || null,
-      actionLabel: actionLabel || null
+      actionLabel: actionLabel || null,
+      // Pinned entries are for things that are still true right now (an app
+      // is currently running in the background), not a one-off event — see
+      // pinBackgroundApp()/unpin() below. `pinId` is a stable key so a
+      // caller can look the entry up later and clear it without touching
+      // regular notifications; plain one-off notifications never set this.
+      pinned: !!pinned,
+      pinId: pinned ? (pinId || `pin_${id}`) : null,
     };
+
     OS.notifications.unshift(notif);
-    if (OS.notifications.length > 100) OS.notifications.pop();
+    if (OS.notifications.length > 100) {
+      // Never let the 100-cap evict a pinned entry — it's reporting a
+      // currently-true fact (a background app is alive), not a stale event,
+      // so it doesn't age out just because unrelated notifications piled up.
+      // Trim the oldest *unpinned* entry instead.
+      const idx = [...OS.notifications].reverse().findIndex(n => !n.pinned);
+      if (idx !== -1) OS.notifications.splice(OS.notifications.length - 1 - idx, 1);
+    }
     OS.notifUnread++;
     Notify.updateBadge();
     updateNotificationBadge();
@@ -98,6 +118,69 @@ const Notify = {
 
     if (notif.type === 'error' && typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `[${notif.appName}] ${notif.title}${notif.body ? ': ' + notif.body : ''}`, data: { appName: notif.appName, title: notif.title } });
+    }
+
+    return notif;
+  },
+
+  // ── Pinned background-app entries ──────────────────────────────────────
+  // A pinned entry represents "this app is currently running in the
+  // background," not a past event, so it behaves differently from a normal
+  // notification in three ways: it sorts above everything else in the
+  // panel, it survives clearAll()/the 100-item cap, and it can't be
+  // dismissed by the user — only by the thing it describes actually ending
+  // (see unpin(), called from the Terminate action or the app's own
+  // natural exit). This mirrors how a foreground-service notification
+  // behaves on Android, for the same reason: the cost is ongoing, so the
+  // visibility should be too.
+
+  /**
+   * Create (or replace) the pinned "running in background" entry for an app.
+   * @param {string} appId
+   * @param {{ appName?: string, title?: string, body?: string, onTerminate?: () => void }} opts
+   * @returns {object} the pinned notification object
+   */
+  pinBackgroundApp(appId, opts = {}) {
+    Notify.loadPersisted();
+    const pinId = `pin_bg_${appId}`;
+    // Replace rather than duplicate if one already exists for this app.
+    Notify.unpin(pinId, { silent: true });
+    const notif = Notify.show({
+      title: opts.title || `${opts.appName || appId} is running in the background`,
+      body: opts.body || '',
+      type: 'info',
+      appName: opts.appName || appId,
+      appId,
+      category: 'background',
+      icon: 'zap',
+      pinned: true,
+      pinId,
+      action: () => {
+        try { opts.onTerminate?.(); } finally { Notify.unpin(pinId); }
+      },
+      actionLabel: 'Terminate',
+    });
+    return notif;
+  },
+
+  /**
+   * Remove a pinned entry by its pinId. This is the *only* way a pinned
+   * entry goes away — normal dismiss/clear paths skip pinned rows entirely
+   * (see clearAll() and renderPanel()'s missing close button on pinned
+   * items). Call this once the thing it was reporting on has actually
+   * ended (Terminate pressed, or the app exited on its own).
+   */
+  unpin(pinId, { silent = false } = {}) {
+    if (!pinId) return;
+    const before = OS.notifications.length;
+    OS.notifications = OS.notifications.filter(n => !(n.pinned && n.pinId === pinId));
+    if (OS.notifications.length === before) return;
+    OS.notifUnread = OS.notifications.filter(n => !n.read).length;
+    Notify.persist();
+    if (!silent) {
+      Notify.updateBadge();
+      updateNotificationBadge();
+      Notify.renderPanel();
     }
   },
 
@@ -221,18 +304,24 @@ const Notify = {
       return;
     }
     // Building nodes in a fragment and appending once avoids a reflow per
-    // notification row.
+    // notification row. Pinned entries (currently-running background apps)
+    // sort above everything else regardless of timestamp — they're
+    // reporting an ongoing state, not a past event, so "most recent first"
+    // doesn't apply to them the way it does to the rest of the list.
+    const sorted = [...OS.notifications].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
     const frag = document.createDocumentFragment();
-    for (const n of OS.notifications.slice(0, 50)) {
-      const item = createEl('div', { className: 'notif-item' });
-      const icon = createEl('div', { style: { width: '24px', height: '24px', color: 'var(--text-secondary)', flexShrink: '0' } });
-      icon.innerHTML = svgIcon('bell', 16);
+    for (const n of sorted.slice(0, 50)) {
+      const item = createEl('div', { className: n.pinned ? 'notif-item notif-item-pinned' : 'notif-item' });
+      const icon = createEl('div', { style: { width: '24px', height: '24px', color: n.pinned ? '#58a6ff' : 'var(--text-secondary)', flexShrink: '0' } });
+      icon.innerHTML = svgIcon(n.pinned ? (n.icon || 'zap') : 'bell', 16);
       const content = createEl('div', { className: 'notif-item-content' });
       content.appendChild(createEl('div', { className: 'notif-item-title', textContent: n.title }));
       content.appendChild(createEl('div', { className: 'notif-item-body', textContent: n.body }));
       const ago = Date.now() - n.timestamp;
       const mins = Math.floor(ago / 60000);
-      const timeStr = mins < 1 ? 'Just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`;
+      const timeStr = n.pinned
+        ? (mins < 1 ? 'Running' : mins < 60 ? `Running for ${mins}m` : `Running for ${Math.floor(mins / 60)}h`)
+        : (mins < 1 ? 'Just now' : mins < 60 ? `${mins}m ago` : `${Math.floor(mins / 60)}h ago`);
       content.appendChild(createEl('div', { className: 'notif-item-time', textContent: timeStr }));
       item.appendChild(icon);
       item.appendChild(content);

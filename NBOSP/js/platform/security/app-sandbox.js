@@ -972,6 +972,21 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:notifications:clear', requestId, { success: true });
   }
 
+  // -- Background wake (system:background) --
+
+  // Lets a wake handler signal early completion — see AppScheduler.wake,
+  // which is the only thing that ever creates the kind of sandbox this
+  // gets called from. No permission check needed here specifically: by
+  // the time this sandbox exists at all, the scheduler has already
+  // verified system:background before spinning it up, and this call does
+  // nothing more than flip a flag the scheduler is already polling for.
+  async function handleBackgroundWakeDone({ requestId, app, webview }) {
+    if (typeof AppScheduler !== 'undefined' && AppScheduler._markWakeDone) {
+      AppScheduler._markWakeDone(webview.dataset.sandboxId);
+    }
+    return respond(webview, 'nova:background:wake-done', requestId, { success: true });
+  }
+
   // -- Settings --
 
   async function handleSettingsGet({ payload, requestId, app, webview }) {
@@ -2665,6 +2680,7 @@ const AppSandbox = (() => {
     'nova:mail:delete': handleMailDelete,
     'nova:events:subscribe': handleEventsSubscribe,
     'nova:events:unsubscribe': handleEventsUnsubscribe,
+    'nova:background:wake-done': handleBackgroundWakeDone,
     'nova:net:fetch': handleNetFetch,
     'nova:net:websocket': handleNetWebsocket,
     'nova:net:ws:send': handleNetWsSend,
@@ -3048,6 +3064,21 @@ const AppSandbox = (() => {
         continue;
       }
 
+      // Pushed background wake calls (system:background scheduled wake) —
+      // also unprompted, same shape as the events branch above. Dispatched
+      // to listeners registered via window.nova.onBackgroundWake(). The
+      // host only ever sends this to a sandbox it started specifically for
+      // a wake cycle (see AppScheduler.wake in app-sandbox.js) — there's no
+      // separate permission check needed here on the guest side, since the
+      // host already gated the wake itself on system:background before
+      // this sandbox was even created.
+      if (msg.type === 'nova:background:wake:response') {
+        for (var w = 0; w < backgroundWakeListeners.length; w++) {
+          try { backgroundWakeListeners[w](msg.result || {}); } catch (_) {}
+        }
+        continue;
+      }
+
       if (typeof msg.requestId !== 'string') continue;
       var entry = pendingRequests.get(msg.requestId);
       if (!entry) continue;
@@ -3162,6 +3193,13 @@ const AppSandbox = (() => {
   // need their own dispatch rather than the requestId-keyed one above).
   var eventListeners = {}; // eventName -> [callback, ...]
 
+  // Callbacks registered via window.nova.onBackgroundWake(). Plain array,
+  // not keyed by name — there's exactly one wake channel per sandbox
+  // instance (this whole sandbox exists only for the duration of one wake
+  // cycle; see AppScheduler.wake), unlike eventListeners above which fans
+  // out across many different named OS events in a long-lived window.
+  var backgroundWakeListeners = [];
+
   // wsId -> { message: [cb,...], error: [cb,...], close: [cb,...] }
   // Populated by window.nova.websocket(); read by the inbox poller above.
   var wsEventListeners = {};
@@ -3176,6 +3214,26 @@ const AppSandbox = (() => {
       if (!eventListeners[eventName]) eventListeners[eventName] = [];
       eventListeners[eventName].push(callback);
       return ipc('nova:events:subscribe', { event: eventName });
+    },
+    // system:background scheduled-wake support. The host only ever spins
+    // up a sandbox for a wake cycle if the app holds system:background —
+    // there's no separate permission call needed here, unlike most of the
+    // rest of this API, since the wake happening at all IS the permission
+    // check having already passed (see AppScheduler.wake). The callback
+    // gets a bounded window (see wakeInfo.deadlineMs, matching the same
+    // clock the host is timing the wake against) to do its work before the
+    // host tears this sandbox down regardless — this is a brief scheduled
+    // wake, not a way to stay alive; apps wanting to persist need
+    // system:background:live instead, which is a different, bigger grant.
+    onBackgroundWake: function(callback) {
+      backgroundWakeListeners.push(callback);
+    },
+    // Lets a wake handler tell the host it finished early, so the host
+    // doesn't have to sit through the full deadline before tearing the
+    // sandbox down. Optional — if never called, the host just waits out
+    // the deadline and tears down anyway.
+    backgroundWakeDone: function() {
+      return ipc('nova:background:wake-done', {});
     },
     // Convenience wrapper around nova:net:websocket + ws:send/ws:close so
     // apps don't have to hand-roll requestId bookkeeping. Returns a promise
@@ -3878,6 +3936,24 @@ const AppSandbox = (() => {
   }
 
   /**
+   * Push a background-wake event into a specific sandbox's guest page.
+   * Narrow, purpose-built wrapper around the internal respond() push
+   * mechanism — not a general "send anything into any sandbox" API, since
+   * that would let a caller forge arbitrary IPC responses. This only ever
+   * sends the one wake payload shape AppScheduler produces, to a sandbox
+   * that scheduler itself just created or already knows about.
+   * @param {string} sandboxId
+   * @param {object} payload - delivered as the wake callback's argument
+   * @returns {boolean} true if the sandbox was found and the push was sent
+   */
+  function dispatchBackgroundWake(sandboxId, payload) {
+    const sandbox = activeSandboxes.get(sandboxId);
+    if (!sandbox || !sandbox.webview) return false;
+    respond(sandbox.webview, 'nova:background:wake', generateRequestId(), payload || {});
+    return true;
+  }
+
+  /**
    * Get active sandbox info by ID.
    * @param {string} sandboxId
    * @returns {object|null}
@@ -3887,11 +3963,78 @@ const AppSandbox = (() => {
   }
 
   /**
+   * Keep a sandbox's webview (and the process behind it) alive after its
+   * window has been closed, for apps holding system:background:live.
+   *
+   * This does NOT touch activeSandboxes, the API bridge, or any of the
+   * sandbox's live state (WebSocket connections, event subscriptions,
+   * etc.) — none of that is torn down, unlike a real destroy(). All this
+   * does is reparent the webview element out of the closing window's DOM
+   * subtree (which is about to be removed) into the hidden
+   * #background-app-host, so the element survives `state.element.remove()`
+   * and keeps running invisibly.
+   *
+   * The webview keeps its `hidden` size/position and pointer-events off —
+   * it isn't a window, it has no chrome, and it should never receive
+   * focus, paint as visible UI, or intercept input. It's purely a live
+   * process now, gated behind the pinned notification's Terminate button
+   * as its only way to actually stop.
+   *
+   * @param {string} sandboxId
+   * @returns {boolean} true if detached, false if the sandbox/host wasn't found
+   */
+  function detachToBackground(sandboxId) {
+    const sandbox = activeSandboxes.get(sandboxId);
+    if (!sandbox) return false;
+
+    const host = document.getElementById('background-app-host');
+    if (!host) {
+      log('warn', `detachToBackground: #background-app-host not found, cannot keep ${sandboxId} alive`);
+      return false;
+    }
+
+    const webview = sandbox.webview;
+    if (webview && webview.parentNode !== host) {
+      host.appendChild(webview);
+    }
+
+    sandbox.backgrounded = true;
+    sandbox.backgroundedAt = new Date().toISOString();
+    // windowId no longer refers to a live window once the window is gone —
+    // keep the old value around under a different key for diagnostics
+    // (Inspector, EventLog) rather than silently dropping it.
+    sandbox.lastWindowId = sandbox.windowId;
+    sandbox.windowId = null;
+
+    log('debug', `Detached sandbox ${sandboxId} to background host`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `${sandbox.appId} kept alive in background`, data: { appId: sandbox.appId, sandboxId } });
+    }
+    return true;
+  }
+
+  /**
+   * Fully stop a backgrounded sandbox — the Terminate action's actual
+   * effect. This is just destroy(): once a sandbox is in the background
+   * host rather than a window, ending it is identical to a normal
+   * teardown, since there's no window to also close.
+   * @param {string} sandboxId
+   * @returns {boolean}
+   */
+  function terminateBackground(sandboxId) {
+    return destroy(sandboxId);
+  }
+
+  /**
    * Get all active sandboxes as an array.
    * @returns {object[]}
    */
   function getAllSandboxes() {
-    return Array.from(activeSandboxes.values());
+    // Spread the map key in as `sandboxId` on each entry — callers like
+    // WM.closeWindow() need to look up a sandbox by windowId/appId and then
+    // act on that specific instance (detachToBackground/terminateBackground),
+    // and both of those take a sandboxId string, not the object itself.
+    return Array.from(activeSandboxes.entries()).map(([sandboxId, sandbox]) => ({ sandboxId, ...sandbox }));
   }
 
   /**
@@ -3990,6 +4133,8 @@ const AppSandbox = (() => {
     getAllSandboxes,
     clearAppPartition,
     clearAppPartitions,
+    detachToBackground,
+    terminateBackground,
 
     // Internal exports for testing and advanced consumers. Not covered by
     // stability guarantees — do not depend on these in production code.

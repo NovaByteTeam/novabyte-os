@@ -3278,6 +3278,19 @@
       border-color: rgba(255, 255, 255, 0.14);
     }
 
+    /* Pinned entries report an ongoing state (an app running in the
+       background), not a past event — the accent border + tint keeps them
+       visually distinct from the rest of the list they sort above. */
+    .notif-item-pinned {
+      background: rgba(88, 166, 255, 0.08);
+      border-color: rgba(88, 166, 255, 0.3);
+    }
+
+    .notif-item-pinned:hover {
+      background: rgba(88, 166, 255, 0.13);
+      border-color: rgba(88, 166, 255, 0.4);
+    }
+
     .notif-item-content {
       flex: 1;
     }

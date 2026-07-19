@@ -486,6 +486,12 @@ async function boot() {
       // them later against already-fresh OS.apps/APP_REGISTRY data.
       if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
       if (typeof renderLaunchpad === 'function') renderLaunchpad();
+      // Apps only launch here once they're guaranteed to be registered in
+      // AppRegistry/OS.apps (loadInstalledNovaApps has just finished above)
+      // — launchAutostartApps() checks disabled/permission state itself and
+      // is a no-op for anyone with nothing eligible, so it's safe to always
+      // call.
+      launchAutostartApps();
     });
   });
 
@@ -589,6 +595,87 @@ async function boot() {
     // starts, regardless of whether App Manager is ever opened.
     scanForRevokedApps(apps).catch(e =>
       console.error('[BOOT] Revocation scan failed:', e));
+  }
+
+  /**
+   * Launch every app the user has opted into "start at boot" (nova_boot_apps,
+   * set via App Manager's boot toggle — see appmanager.js getBootApps/
+   * setBootApps) AND that separately holds the system:autostart grant.
+   *
+   * Both conditions matter and neither substitutes for the other:
+   *  - nova_boot_apps is the user's own preference ("open this for me"),
+   *    stored per-app, not a security boundary — a malicious app can't get
+   *    itself into this list, only the user's own App Manager toggle does.
+   *  - system:autostart is the permission grant. An app the user asked to
+   *    autostart still needs to actually hold the grant, same as any other
+   *    permission — a boot-list entry is not itself authorization. This
+   *    also protects against nova_boot_apps having been populated by some
+   *    older/different mechanism before this permission existed; a stale
+   *    boot-list entry alone is never enough to launch something.
+   *
+   * Deliberately skipped if the lock screen is showing (OS.lockPin set):
+   * autostart is real, silent app execution with no user present yet to
+   * consent to or even see it happening, which is exactly the case
+   * system:autostart is supposed to be the bigger, explicit ask for — it
+   * shouldn't quietly happen before the user has even unlocked the
+   * session. Apps on the list simply launch once the desktop actually
+   * shows (lockScreen()'s own unlock flow doesn't currently re-trigger
+   * this pass; that's a reasonable follow-up if it becomes an issue, not
+   * something silently assumed to be covered here).
+   */
+  function launchAutostartApps() {
+    if (OS.lockPin) return;
+
+    let bootAppIds;
+    try {
+      bootAppIds = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
+    } catch {
+      bootAppIds = [];
+    }
+    if (!Array.isArray(bootAppIds) || bootAppIds.length === 0) return;
+
+    let disabled;
+    try {
+      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]')
+        .map(x => (typeof x === 'string' ? x : x?.id))
+        .filter(Boolean);
+    } catch {
+      disabled = [];
+    }
+
+    let staleEntryRemoved = false;
+    for (const appId of bootAppIds) {
+      if (typeof appId !== 'string' || !appId) continue;
+      if (disabled.includes(appId)) continue;
+      if (!OS.apps[appId]) continue; // not installed (or not yet registered)
+
+      const hasGrant = typeof AppPermissionManager !== 'undefined' &&
+        AppPermissionManager.isGranted('system:autostart', appId);
+      if (!hasGrant) {
+        // The grant was revoked (Permissions section) or expired (30-day
+        // unused-app sweep) since this app was added to the boot list.
+        // Don't just skip silently forever — drop the stale entry so App
+        // Manager's toggle reflects reality next time it's opened, instead
+        // of showing "Starts at Boot" for something that will never
+        // actually launch again without the user re-granting it.
+        bootAppIds = bootAppIds.filter(id => id !== appId);
+        staleEntryRemoved = true;
+        continue;
+      }
+
+      try {
+        WM.createWindow(appId);
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'Boot', category: 'apps', severity: 'info', message: `Autostarted ${appId}`, data: { appId } });
+        }
+      } catch (err) {
+        console.warn('[BOOT] Autostart failed for', appId, err);
+      }
+    }
+
+    if (staleEntryRemoved) {
+      try { localStorage.setItem('nova_boot_apps', JSON.stringify(bootAppIds)); } catch { /* quota */ }
+    }
   }
 
   /**
