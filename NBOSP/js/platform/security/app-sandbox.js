@@ -1179,6 +1179,240 @@ const AppSandbox = (() => {
     });
   }
 
+  // -- App: list / install / uninstall --
+  //
+  // These, together with launch (above) and info, are what 'system:apps'
+  // actually gates. list/uninstall are straightforward reads/writes on
+  // AppRegistry. install is the interesting one: appmanager.js's real
+  // install flow (processFile in js/apps/appmanager.js) can require up to
+  // three human confirmation dialogs — untrusted signer, tampered
+  // contents, or "already installed, replace?" — none of which a
+  // sandboxed app calling this over IPC can click through. Rather than
+  // silently bypassing a security gate a human would otherwise have to
+  // consciously approve, this handler fails closed: it only succeeds for
+  // a package that is fully signed, trust-store-verified, and unmodified,
+  // with no existing install of the same app id already present. Anything
+  // that would need a dialog is rejected with a message telling the
+  // caller to have the user install manually via App Manager instead.
+
+  async function handleAppList({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:apps', app.id)) {
+      return respondError(webview, 'nova:app:list', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
+    }
+    // AppRegistry.installedApps is NOT what built-in apps register into —
+    // all 22+ built-in apps (calendar-app, nbosp-contacts, etc.) call the
+    // global registerApp() in js/core/services/registry.js, which writes
+    // to OS.apps + the module-level APP_REGISTRY array. AppRegistry's own
+    // store only ever gets entries from its initialize() localStorage
+    // restore, so it's effectively empty for the running OS's actual app
+    // set. APP_REGISTRY is the real, live list everything else (launchpad,
+    // taskbar, App Manager) reads from.
+    if (typeof APP_REGISTRY === 'undefined' || !Array.isArray(APP_REGISTRY)) {
+      return respondError(webview, 'nova:app:list', requestId, 'UNAVAILABLE', 'App registry not available');
+    }
+    const apps = APP_REGISTRY.map(a => ({
+      id: a.id,
+      name: a.name,
+      version: a.version || '1.0.0',
+      icon: a.icon || null,
+      description: a.description || '',
+      categories: a.categories || [],
+      verified: !!a.verified,
+      source: a.source || 'local',
+      builtin: a.source !== 'file',
+    }));
+    return respond(webview, 'nova:app:list', requestId, { success: true, apps });
+  }
+
+  async function handleAppUninstall({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:apps', app.id)) {
+      return respondError(webview, 'nova:app:uninstall', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
+    }
+    const { appId } = payload ?? {};
+    if (!appId) {
+      return respondError(webview, 'nova:app:uninstall', requestId, 'INVALID_ARGS', 'appId is required');
+    }
+    if (appId === app.id) {
+      return respondError(webview, 'nova:app:uninstall', requestId, 'INVALID_ARGS', 'An app cannot uninstall itself');
+    }
+    if (typeof APP_REGISTRY === 'undefined' || !Array.isArray(APP_REGISTRY)) {
+      return respondError(webview, 'nova:app:uninstall', requestId, 'UNAVAILABLE', 'App registry not available');
+    }
+    const target = APP_REGISTRY.find(a => a.id === appId);
+    if (!target) {
+      return respondError(webview, 'nova:app:uninstall', requestId, 'NOT_FOUND', `No installed app with id ${appId}`);
+    }
+    // Built-in apps (source !== 'file') were never installed as a
+    // .novaapp package — there's no package files, storage partition, or
+    // app-data directory to clean up, and appmanager.js's own uninstall
+    // UI has no path for removing them either. Refuse rather than
+    // half-uninstall something that isn't really an installed package.
+    if (target.source !== 'file') {
+      return respondError(webview, 'nova:app:uninstall', requestId, 'NOT_UNINSTALLABLE', `"${target.name}" is a built-in system app and cannot be uninstalled`);
+    }
+
+    // Mirrors appmanager.js's doUninstall(): close open windows, then
+    // clean up package files, the app's storage partition, and its app
+    // data directory, then remove from every registry/list that tracks
+    // it. Each cleanup step is independently best-effort (matching the
+    // manual path's own try/catch-per-step), since a failure in one
+    // (e.g. partition already cleared) shouldn't block the others.
+    if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+      const openWindowIds = [];
+      for (const [wid, wstate] of OS.windows) {
+        if (wstate.appId === appId) openWindowIds.push(wid);
+      }
+      await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
+    }
+    try {
+      if (typeof PackageStore !== 'undefined' && PackageStore?.removeApp) {
+        await PackageStore.removeApp(appId, { updateRegistry: false });
+      }
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to remove stored package files for', appId, e);
+    }
+    try {
+      if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
+        await AppSandbox.clearAppPartition(appId);
+      }
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to clear storage partition for', appId, e);
+    }
+    try {
+      if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
+        await AppDirs.removeAppData(appId);
+      }
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to clear app data for', appId, e);
+    }
+
+    delete OS.apps[appId];
+    const ri = APP_REGISTRY.findIndex(a => a.id === appId);
+    if (ri > -1) APP_REGISTRY.splice(ri, 1);
+
+    // appmanager.js's own local installedApps array + its persisted copy
+    // is a THIRD place tracking installed-from-file apps, independent of
+    // APP_REGISTRY/OS.apps — remove from there too if it's reachable from
+    // this scope, same as the manual uninstall path does.
+    try {
+      if (typeof installedApps !== 'undefined' && Array.isArray(installedApps)) {
+        const ii = installedApps.findIndex(a => a.id === appId);
+        if (ii > -1) installedApps.splice(ii, 1);
+        if (typeof saveStoredApps === 'function') saveStoredApps(installedApps);
+      }
+    } catch (_) { /* appmanager.js's local state isn't in scope here — fine, APP_REGISTRY/OS.apps removal above is the part that actually matters */ }
+
+    OS.settings?.set?.('pinnedApps', (OS.settings?.get?.('pinnedApps') || []).filter(id => id !== appId));
+    if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
+    if (typeof renderDesktopIcons === 'function') { try { renderDesktopIcons(); } catch (_) {} }
+
+    return respond(webview, 'nova:app:uninstall', requestId, { success: true, removed: true });
+  }
+
+  async function handleAppInstall({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:apps', app.id)) {
+      return respondError(webview, 'nova:app:install', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
+    }
+    const { package: pkg } = payload ?? {};
+    if (!pkg || typeof pkg !== 'object') {
+      return respondError(webview, 'nova:app:install', requestId, 'INVALID_ARGS', 'package (a parsed .novaapp object) is required');
+    }
+    if (!pkg.manifest?.id || !pkg.manifest?.name || !pkg.manifest?.version) {
+      return respondError(webview, 'nova:app:install', requestId, 'INVALID_PACKAGE', 'Missing required manifest fields (id, name, version)');
+    }
+
+    // Malware/heuristic scan — same as the manual install path, and
+    // equally non-negotiable: no override, no "proceed anyway".
+    if (window.Scanner?.scanBase64 && pkg.files && typeof pkg.files === 'object') {
+      for (const [relPath, rawB64] of Object.entries(pkg.files)) {
+        if (typeof rawB64 !== 'string') continue;
+        try {
+          const verdict = await window.Scanner.scanBase64(relPath, rawB64);
+          if (!verdict.safe) {
+            return respondError(webview, 'nova:app:install', requestId, 'MALICIOUS_PACKAGE',
+              `File "${relPath}" was flagged and installation was blocked: ${verdict.reason || 'matched a pattern associated with malicious files'}`);
+          }
+        } catch (err) {
+          // Scanner error is treated as inconclusive, not a pass — the
+          // manual path silently continues past scanner errors (best
+          // effort, since a human is still there to react to whatever
+          // comes next), but this unattended path has no human backstop,
+          // so an inconclusive scan blocks install instead.
+          return respondError(webview, 'nova:app:install', requestId, 'SCAN_FAILED', `Could not scan "${relPath}": ${err.message}`);
+        }
+      }
+    }
+
+    // Integrity — must be present and must pass. No informational-only
+    // path here (the manual flow can warn-and-proceed via a dialog; this
+    // one can't warn anyone, so a failed or missing integrity check is a
+    // hard stop).
+    if (!pkg.integrity || typeof AppPackage === 'undefined' || typeof AppPackage.verifyIntegrity !== 'function') {
+      return respondError(webview, 'nova:app:install', requestId, 'UNVERIFIED', 'Package has no integrity record — install manually via App Manager');
+    }
+    let integrityOk = false;
+    try { integrityOk = await AppPackage.verifyIntegrity(pkg); } catch (_) { integrityOk = false; }
+    if (!integrityOk) {
+      return respondError(webview, 'nova:app:install', requestId, 'TAMPERED', 'Package contents do not match their recorded integrity hashes — install manually via App Manager to review');
+    }
+
+    // Trust — must be signed and the signature must resolve to a trusted
+    // entry in the trust store, not revoked. This is the check that
+    // rejects unsigned packages (like our own permission-tester.novaapp)
+    // by design, same as the manual flow would show "Unverified" for one.
+    if (typeof AppPackage === 'undefined' || typeof AppPackage.verifyAgainstTrustStore !== 'function' || typeof TrustStore === 'undefined') {
+      return respondError(webview, 'nova:app:install', requestId, 'UNAVAILABLE', 'Trust store not available');
+    }
+    let trustResult;
+    try {
+      const revocationCheck = typeof TrustStore.isRevoked === 'function' ? TrustStore.isRevoked : undefined;
+      trustResult = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list(), revocationCheck);
+    } catch (_) {
+      trustResult = { trusted: false, signer: null };
+    }
+    if (!trustResult.trusted) {
+      const reason = trustResult.revoked ? 'the signature is on the revocation list' : 'the package is unsigned or not from a trusted publisher';
+      return respondError(webview, 'nova:app:install', requestId, 'UNTRUSTED', `Install blocked — ${reason}. Install manually via App Manager to review and confirm.`);
+    }
+
+    // Already-installed — the manual flow asks "replace?"; this path has
+    // no one to ask, so it refuses rather than silently overwriting an
+    // existing install (which could be a downgrade, or could clobber user
+    // data tied to the old version).
+    if (typeof AppRegistry === 'undefined' || typeof AppRegistry.getApp !== 'function' || typeof AppRegistry.registerApp !== 'function') {
+      return respondError(webview, 'nova:app:install', requestId, 'UNAVAILABLE', 'App registry not available');
+    }
+    const existing = AppRegistry.getApp(pkg.manifest.id);
+    if (existing) {
+      return respondError(webview, 'nova:app:install', requestId, 'ALREADY_INSTALLED', `"${pkg.manifest.name}" (${pkg.manifest.id}) is already installed — install manually via App Manager to replace it`);
+    }
+
+    // All gates passed: signed, trusted, unmodified, not a duplicate.
+    // Register it the same way appmanager.js's manual path ultimately
+    // does — via AppRegistry, not by hand-rolling a second code path.
+    try {
+      const appData = {
+        ...pkg.manifest,
+        files: pkg.files,
+        signature: pkg.signature,
+        integrity: pkg.integrity,
+        verified: true,
+        signer: trustResult.signer,
+        source: 'file',
+        installedDate: new Date().toISOString(),
+      };
+      const registered = AppRegistry.registerApp(appData);
+      return respond(webview, 'nova:app:install', requestId, {
+        success: true,
+        id: registered.id,
+        name: registered.name,
+        version: registered.version,
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:app:install', requestId, 'ERROR', e.message);
+    }
+  }
+
   // -- Events --
 
   async function handleEventsSubscribe({ payload, requestId, app, webview, sandbox }) {
@@ -1650,6 +1884,164 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:device:microphone', requestId, { success: true, authorized: true });
   }
 
+  // -- Calendar --
+  //
+  // Same host-shell context as nova:storage: this handler runs in the shell,
+  // reading/writing the SAME localStorage key ('calendar_events_v2') the
+  // first-party Calendar app (id 'calendar-app') uses — this is the shared,
+  // real user calendar, not a per-app isolated store, per product decision.
+  // Sanitization mirrors js/apps/calendar.js's sanitizeEvent() exactly so a
+  // sandboxed app can't write a malformed/malicious event (e.g. a bad
+  // `color` value) that the host Calendar UI would then render unsafely.
+
+  const CALENDAR_STORE_KEY = 'calendar_events_v2';
+  const CALENDAR_COLORS = Object.freeze(['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#ff7b72','#79c0ff','#56d364']);
+
+  function sanitizeCalendarEvent(ev) {
+    if (!ev || typeof ev !== 'object') return null;
+    if (typeof ev.title !== 'string' || !ev.title.trim()) return null;
+    if (typeof ev.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ev.date)) return null;
+    return {
+      id:        typeof ev.id === 'string' && ev.id ? ev.id : cryptoRandomId(),
+      title:     ev.title.trim(),
+      date:      ev.date,
+      timeStart: typeof ev.timeStart === 'string' ? ev.timeStart : '',
+      timeEnd:   typeof ev.timeEnd   === 'string' ? ev.timeEnd   : '',
+      desc:      typeof ev.desc      === 'string' ? ev.desc      : '',
+      color:     CALENDAR_COLORS.includes(ev.color) ? ev.color : CALENDAR_COLORS[0],
+    };
+  }
+
+  function cryptoRandomId() {
+    return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
+      : `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function loadCalendarEvents() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(CALENDAR_STORE_KEY) ?? '[]');
+      return Array.isArray(raw) ? raw.map(sanitizeCalendarEvent).filter(Boolean) : [];
+    } catch { return []; }
+  }
+
+  function saveCalendarEvents(evs) {
+    localStorage.setItem(CALENDAR_STORE_KEY, JSON.stringify(evs));
+  }
+
+  async function handleCalendarRead({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('calendar:read', app.id)) {
+      return respondError(webview, 'nova:calendar:read', requestId, 'PERMISSION_DENIED', 'calendar:read permission required');
+    }
+    return respond(webview, 'nova:calendar:read', requestId, { success: true, events: loadCalendarEvents() });
+  }
+
+  async function handleCalendarWrite({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('calendar:write', app.id)) {
+      return respondError(webview, 'nova:calendar:write', requestId, 'PERMISSION_DENIED', 'calendar:write permission required');
+    }
+    const incoming = sanitizeCalendarEvent(payload && payload.event);
+    if (!incoming) {
+      return respondError(webview, 'nova:calendar:write', requestId, 'INVALID_EVENT', 'Event must have a title and a YYYY-MM-DD date');
+    }
+    const events = loadCalendarEvents();
+    const idx = events.findIndex(e => e.id === incoming.id);
+    if (idx >= 0) events[idx] = incoming; else events.push(incoming);
+    saveCalendarEvents(events);
+    return respond(webview, 'nova:calendar:write', requestId, { success: true, event: incoming });
+  }
+
+  async function handleCalendarDelete({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('calendar:delete', app.id)) {
+      return respondError(webview, 'nova:calendar:delete', requestId, 'PERMISSION_DENIED', 'calendar:delete permission required');
+    }
+    const id = payload && payload.id;
+    if (typeof id !== 'string' || !id) {
+      return respondError(webview, 'nova:calendar:delete', requestId, 'INVALID_ID', 'id must be a non-empty string');
+    }
+    const events = loadCalendarEvents();
+    const next = events.filter(e => e.id !== id);
+    const removed = next.length !== events.length;
+    saveCalendarEvents(next);
+    return respond(webview, 'nova:calendar:delete', requestId, { success: true, removed });
+  }
+
+  // -- Contacts --
+  //
+  // Same shared-host-storage model as Calendar above; mirrors
+  // js/apps/contacts.js's isValidContact() sanitization exactly.
+
+  const CONTACTS_STORE_KEY = 'nova_contacts';
+
+  function isValidContact(c) {
+    return c !== null && typeof c === 'object' &&
+      typeof c.id === 'string' && c.id.length > 0 &&
+      typeof c.name === 'string' &&
+      typeof c.email === 'string' &&
+      typeof c.phone === 'string' &&
+      typeof c.notes === 'string';
+  }
+
+  function loadContacts() {
+    try {
+      const raw = localStorage.getItem(CONTACTS_STORE_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(isValidContact).map(c => ({
+        id: String(c.id), name: String(c.name), email: String(c.email),
+        phone: String(c.phone), notes: String(c.notes),
+      }));
+    } catch { return []; }
+  }
+
+  function saveContacts(arr) {
+    localStorage.setItem(CONTACTS_STORE_KEY, JSON.stringify(arr));
+  }
+
+  async function handleContactsRead({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('contacts:read', app.id)) {
+      return respondError(webview, 'nova:contacts:read', requestId, 'PERMISSION_DENIED', 'contacts:read permission required');
+    }
+    return respond(webview, 'nova:contacts:read', requestId, { success: true, contacts: loadContacts() });
+  }
+
+  async function handleContactsWrite({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('contacts:write', app.id)) {
+      return respondError(webview, 'nova:contacts:write', requestId, 'PERMISSION_DENIED', 'contacts:write permission required');
+    }
+    const incoming = payload && payload.contact;
+    if (!incoming || typeof incoming !== 'object' || typeof incoming.name !== 'string' || !incoming.name.trim()) {
+      return respondError(webview, 'nova:contacts:write', requestId, 'INVALID_CONTACT', 'Contact must have at least a name');
+    }
+    const contact = {
+      id: typeof incoming.id === 'string' && incoming.id ? incoming.id : cryptoRandomId(),
+      name: incoming.name.trim(),
+      email: typeof incoming.email === 'string' ? incoming.email : '',
+      phone: typeof incoming.phone === 'string' ? incoming.phone : '',
+      notes: typeof incoming.notes === 'string' ? incoming.notes : '',
+    };
+    const contacts = loadContacts();
+    const idx = contacts.findIndex(c => c.id === contact.id);
+    if (idx >= 0) contacts[idx] = contact; else contacts.push(contact);
+    saveContacts(contacts);
+    return respond(webview, 'nova:contacts:write', requestId, { success: true, contact });
+  }
+
+  async function handleContactsDelete({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('contacts:delete', app.id)) {
+      return respondError(webview, 'nova:contacts:delete', requestId, 'PERMISSION_DENIED', 'contacts:delete permission required');
+    }
+    const id = payload && payload.id;
+    if (typeof id !== 'string' || !id) {
+      return respondError(webview, 'nova:contacts:delete', requestId, 'INVALID_ID', 'id must be a non-empty string');
+    }
+    const contacts = loadContacts();
+    const next = contacts.filter(c => c.id !== id);
+    const removed = next.length !== contacts.length;
+    saveContacts(next);
+    return respond(webview, 'nova:contacts:delete', requestId, { success: true, removed });
+  }
+
   // -- System info --
 
   async function handleSystemInfo({ requestId, app, webview }) {
@@ -1762,6 +2154,9 @@ const AppSandbox = (() => {
     'nova:clipboard:write': handleClipboardWrite,
     'nova:app:launch': handleAppLaunch,
     'nova:app:info': handleAppInfo,
+    'nova:app:list': handleAppList,
+    'nova:app:install': handleAppInstall,
+    'nova:app:uninstall': handleAppUninstall,
     'nova:events:subscribe': handleEventsSubscribe,
     'nova:events:unsubscribe': handleEventsUnsubscribe,
     'nova:net:fetch': handleNetFetch,
@@ -1776,6 +2171,12 @@ const AppSandbox = (() => {
     'nova:device:geolocation': handleDeviceGeolocation,
     'nova:device:camera': handleDeviceCamera,
     'nova:device:microphone': handleDeviceMicrophone,
+    'nova:calendar:read': handleCalendarRead,
+    'nova:calendar:write': handleCalendarWrite,
+    'nova:calendar:delete': handleCalendarDelete,
+    'nova:contacts:read': handleContactsRead,
+    'nova:contacts:write': handleContactsWrite,
+    'nova:contacts:delete': handleContactsDelete,
     'nova:system:info': handleSystemInfo,
     'nova:ready': handleReady,
     'nova:dialog:open': handleDialogOpen,
@@ -2257,6 +2658,29 @@ const AppSandbox = (() => {
       // naturally (ipc() rejects on error responses), so callers see the
       // same app-level denial they'd get from any other nova:* call,
       // before ever reaching the browser's own permission prompt.
+    },
+    // Calendar/contacts read/write the SAME shared data the host
+    // Calendar/Contacts apps use (not a per-app isolated store) — see the
+    // handleCalendar*/handleContacts* comments in app-sandbox.js for why.
+    calendar: {
+      list: function() { return ipc('nova:calendar:read', {}); },
+      save: function(event) { return ipc('nova:calendar:write', { event: event }); },
+      remove: function(id) { return ipc('nova:calendar:delete', { id: id }); }
+    },
+    contacts: {
+      list: function() { return ipc('nova:contacts:read', {}); },
+      save: function(contact) { return ipc('nova:contacts:write', { contact: contact }); },
+      remove: function(id) { return ipc('nova:contacts:delete', { id: id }); }
+    },
+    // list/uninstall are plain reads/writes on the app registry.
+    // install fails closed on anything a human would normally need to
+    // click through (untrusted signer, tampered contents, already
+    // installed) — see the handleAppInstall comment in app-sandbox.js.
+    apps: {
+      list: function() { return ipc('nova:app:list', {}); },
+      launch: function(appId, options) { return ipc('nova:app:launch', { appId: appId, options: options || {} }); },
+      install: function(pkg) { return ipc('nova:app:install', { package: pkg }); },
+      uninstall: function(appId) { return ipc('nova:app:uninstall', { appId: appId }); }
     }
   };
 
