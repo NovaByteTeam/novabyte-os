@@ -644,12 +644,20 @@ document.getElementById('notif-close').addEventListener('click', () => {
 });
 
 document.getElementById('notif-mark-all').addEventListener('click', () => {
-  OS.notifications = [];
-  OS.notifUnread   = 0;
-  Notify.persist();
-  Notify.updateBadge();
+  // Was OS.notifications = [] directly here, which bypassed
+  // Notify.clearAll() entirely — including the pinned-entry preservation
+  // it exists specifically to do. That wiped a "running in background"
+  // pinned notification (and its Terminate button) the same as any other
+  // entry, which defeats the whole point of it being non-dismissible: the
+  // app kept running with no visible way left to stop it. clearAll()
+  // does the identical OS.notifications/persist/badge/render sequence,
+  // it just filters to `n && n.pinned` first.
+  Notify.clearAll();
+  // clearAll() only updates Notify's own badge tracking (Notify.updateBadge),
+  // not this file's separate #notif-badge element — same gap already noted
+  // in the notif-mark-read handler below. Call it here too so the tray
+  // badge doesn't go stale.
   updateNotificationBadge();
-  Notify.renderPanel();
 });
 
 // Separate from Clear All — this keeps notification history but marks

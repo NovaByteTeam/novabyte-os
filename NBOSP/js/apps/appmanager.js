@@ -1517,7 +1517,7 @@ registerApp({
 
         const bootBtn = makeActionBtn(
           isBoot ? 'Starts at Boot' : 'Start at Boot',
-          isBoot ? 'done' : 'power',
+          isBoot ? 'done' : 'shutdown',
           isBoot
             ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
             : 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',

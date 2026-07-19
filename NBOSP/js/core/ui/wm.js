@@ -360,8 +360,26 @@ const WM = window.WM = (() => {
       wm.updateTaskbar();
       wm.applyWindowFlags(state);
 
+      // If this app already has a live sandbox sitting in the background
+      // host (system:background:live kept it alive after a previous
+      // window close), reattach that instance instead of launching a
+      // second, independent one — otherwise the app silently ends up
+      // running twice, with the original orphaned and its pinned
+      // notification now describing a process the user can't see or find
+      // from this new window.
+      let reattached = false;
+      if (typeof AppSandbox !== 'undefined') {
+        const bg = AppSandbox.getAllSandboxes().find(s => s.appId === appId && s.backgrounded);
+        if (bg) {
+          reattached = AppSandbox.reattachFromBackground(bg.sandboxId, content, state);
+          if (reattached && typeof Notify !== 'undefined' && Notify.unpin) {
+            Notify.unpin(`pin_bg_${appId}`);
+          }
+        }
+      }
+
       try {
-        if (app.init) app.init(content, state, options);
+        if (!reattached && app.init) app.init(content, state, options);
       } catch (err) {
         console.warn(`[WM] ${appId}.init error:`, err);
         if (typeof EventLog !== 'undefined') {
@@ -409,9 +427,13 @@ const WM = window.WM = (() => {
         // event listeners, and OS.windows entry for this window are always
         // torn down below exactly as before. What changes is whether
         // AppSandbox destroys the webview or reparents it into the hidden
-        // background host first. An app must hold the grant AND the sandbox
-        // must still exist (it may have already exited on its own, or never
-        // requested to be kept alive this session) for this to trigger.
+        // background host first. An app must hold the grant AND have
+        // explicitly opted in this session via nova.stayAliveInBackground()
+        // (sandbox.wantsBackgroundLive, see handleBackgroundStayAlive in
+        // app-sandbox.js) for this to trigger — holding the grant alone is
+        // no longer sufficient. It used to be: every app with the
+        // permission got backgrounded on every close, whether or not it
+        // (or the user) had actually asked for that this session.
         //
         // forceKill skips this entirely: uninstall, "disable app", and any
         // other path that's actually removing the app (see
@@ -422,13 +444,15 @@ const WM = window.WM = (() => {
         // background host for this app (see below), since the app may have
         // been backgrounded in an earlier session already.
         let keptAlive = false;
+        let isFirstBackground = false;
         try {
           if (!forceKill &&
               typeof AppPermissionManager !== 'undefined' &&
               typeof AppSandbox !== 'undefined' &&
               AppPermissionManager.isGranted('system:background:live', state.appId)) {
             const sandbox = AppSandbox.getAllSandboxes().find(s => s.windowId === id && !s.backgrounded);
-            if (sandbox) {
+            if (sandbox && sandbox.wantsBackgroundLive) {
+              isFirstBackground = !sandbox.everBackgrounded;
               keptAlive = AppSandbox.detachToBackground(sandbox.sandboxId);
             }
           }
@@ -449,7 +473,9 @@ const WM = window.WM = (() => {
 
         if (keptAlive && typeof Notify !== 'undefined' && Notify.pinBackgroundApp) {
           const appName = app?.name || state.appId;
-          Notify.show({ title: `${appName} started running in the background`, type: 'info', appName, appId: state.appId });
+          if (isFirstBackground) {
+            Notify.show({ title: `${appName} started running in the background`, type: 'info', appName, appId: state.appId });
+          }
           Notify.pinBackgroundApp(state.appId, {
             appName,
             onTerminate: () => {

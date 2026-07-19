@@ -987,6 +987,40 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:background:wake-done', requestId, { success: true });
   }
 
+  // -- Background live (system:background:live) --
+
+  // Opts a sandbox into being kept alive if its window closes. This is
+  // the piece that was missing: closeWindow() previously backgrounded
+  // *any* app holding system:background:live on every close, purely
+  // because the grant existed — with no way for the app (or the user, via
+  // some in-app "run in background" toggle) to say whether this
+  // particular session actually wants that. Holding the permission is
+  // necessary but was wrongly being treated as sufficient. Now
+  // closeWindow checks this per-sandbox flag in addition to the grant, so
+  // an app only survives its window closing if it explicitly asked to.
+  //
+  // Deliberately session-only (not persisted): the app calls this each
+  // time it wants the current session kept alive, e.g. right when the
+  // user clicks its own "run in background" button. Nothing carries over
+  // to the next launch automatically — that mirrors how Tier 1
+  // (system:background scheduled wake) works too, where nothing "sticks"
+  // beyond the grant itself.
+  async function handleBackgroundStayAlive({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:background:live', app.id)) {
+      return respondError(webview, 'nova:background:stay-alive', requestId, 'PERMISSION_DENIED', 'system:background:live permission required');
+    }
+    const sandboxId = webview.dataset.sandboxId;
+    const sandbox = activeSandboxes.get(sandboxId);
+    if (!sandbox) {
+      return respondError(webview, 'nova:background:stay-alive', requestId, 'UNAVAILABLE', 'Sandbox not found');
+    }
+    // enabled defaults true — nova.stayAliveInBackground() with no args
+    // means "yes, keep me alive"; passing { enabled: false } lets an app
+    // change its mind before it actually closes.
+    sandbox.wantsBackgroundLive = payload?.enabled !== false;
+    return respond(webview, 'nova:background:stay-alive', requestId, { success: true, enabled: sandbox.wantsBackgroundLive });
+  }
+
   // -- Settings --
 
   async function handleSettingsGet({ payload, requestId, app, webview }) {
@@ -2681,6 +2715,7 @@ const AppSandbox = (() => {
     'nova:events:subscribe': handleEventsSubscribe,
     'nova:events:unsubscribe': handleEventsUnsubscribe,
     'nova:background:wake-done': handleBackgroundWakeDone,
+    'nova:background:stay-alive': handleBackgroundStayAlive,
     'nova:net:fetch': handleNetFetch,
     'nova:net:websocket': handleNetWebsocket,
     'nova:net:ws:send': handleNetWsSend,
@@ -3234,6 +3269,13 @@ const AppSandbox = (() => {
     // the deadline and tears down anyway.
     backgroundWakeDone: function() {
       return ipc('nova:background:wake-done', {});
+    },
+    // Opt this session into staying alive if the window closes (requires
+    // system:background:live). Call with no args to enable, or
+    // stayAliveInBackground(false) to change your mind before closing.
+    // Session-only — call again next launch if you want it again.
+    stayAliveInBackground: function(enabled) {
+      return ipc('nova:background:stay-alive', { enabled: enabled !== false });
     },
     // Convenience wrapper around nova:net:websocket + ws:send/ws:close so
     // apps don't have to hand-roll requestId bookkeeping. Returns a promise
@@ -4000,6 +4042,12 @@ const AppSandbox = (() => {
 
     sandbox.backgrounded = true;
     sandbox.backgroundedAt = new Date().toISOString();
+    // Distinct from backgrounded/backgroundedAt: this never gets cleared
+    // by reattachFromBackground(), so wm.js can tell "first time going to
+    // background" (show the 'started running' toast) apart from "resuming
+    // background mode after a reattach-then-close cycle" (skip the toast —
+    // it never actually stopped).
+    sandbox.everBackgrounded = true;
     // windowId no longer refers to a live window once the window is gone —
     // keep the old value around under a different key for diagnostics
     // (Inspector, EventLog) rather than silently dropping it.
@@ -4023,6 +4071,62 @@ const AppSandbox = (() => {
    */
   function terminateBackground(sandboxId) {
     return destroy(sandboxId);
+  }
+
+  /**
+   * Move a backgrounded sandbox's webview back into a freshly-created
+   * window's content area, and clear its backgrounded state. This is the
+   * counterpart to detachToBackground() — without it, reopening an app
+   * that's currently alive in the background just launches a second,
+   * independent sandbox via the normal launch() path, leaving the
+   * original running invisibly with two instances of the same app now
+   * open (one live in #background-app-host, one in the new window).
+   *
+   * The webview element itself, its IPC bridge (setupAPIBridge is keyed
+   * to the webview/sandboxId, not to any particular window state), and
+   * its in-page JS state all survive the move untouched — only the DOM
+   * parent changes. What we do need to refresh is sandbox.state and
+   * sandbox.windowId, since detachToBackground() nulled/staled those when
+   * the original window closed, and closeWindow() (if this window closes
+   * again later) reads the window's own state.appId, not the sandbox's,
+   * so this mainly keeps AppSandbox's own bookkeeping (Inspector,
+   * getAllSandboxes()) accurate rather than gating any security check.
+   *
+   * @param {string} sandboxId
+   * @param {HTMLElement} container - the new window's content div
+   * @param {object} state - the new window's state object
+   * @returns {boolean} true if reattached, false if the sandbox wasn't found
+   */
+  function reattachFromBackground(sandboxId, container, state) {
+    const sandbox = activeSandboxes.get(sandboxId);
+    if (!sandbox || !sandbox.webview) return false;
+    if (!container) return false;
+
+    container.innerHTML = '';
+    container.appendChild(sandbox.webview);
+
+    sandbox.backgrounded = false;
+    sandbox.backgroundedAt = null;
+    sandbox.state = state;
+    sandbox.windowId = state?.id;
+    // Deliberately NOT resetting wantsBackgroundLive here. The process
+    // never stopped and its intent to stay alive was already established
+    // this continuous session (via nova.stayAliveInBackground()) — that
+    // doesn't need to be re-asked just because the user glanced at the
+    // window and closed it again. Resetting it would force every
+    // reattach-then-close cycle to silently drop back to foreground-only,
+    // which is a worse failure mode than the one this whole feature
+    // exists to prevent: an app the user believes is still running
+    // quietly stops being kept alive with no signal that anything
+    // changed. If an app wants OUT of background mode, it calls
+    // nova.stayAliveInBackground(false) itself — see
+    // handleBackgroundStayAlive in app-sandbox.js.
+
+    log('debug', `Reattached sandbox ${sandboxId} from background host to window ${state?.id}`);
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `${sandbox.appId} reattached from background`, data: { appId: sandbox.appId, sandboxId, windowId: state?.id } });
+    }
+    return true;
   }
 
   /**
@@ -4135,6 +4239,8 @@ const AppSandbox = (() => {
     clearAppPartitions,
     detachToBackground,
     terminateBackground,
+    dispatchBackgroundWake,
+    reattachFromBackground,
 
     // Internal exports for testing and advanced consumers. Not covered by
     // stability guarantees — do not depend on these in production code.

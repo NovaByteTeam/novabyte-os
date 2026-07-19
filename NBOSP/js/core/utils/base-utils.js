@@ -105,6 +105,7 @@
     'info': 'info',
     'eye': 'eye',
     'zap': 'lightning',
+    'shutdown': 'shutdown',
     'tag': 'tag',
     'edit-3': 'edit',
     'edit-pencil': 'edit-pencil',

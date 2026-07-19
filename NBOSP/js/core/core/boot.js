@@ -492,6 +492,14 @@ async function boot() {
       // is a no-op for anyone with nothing eligible, so it's safe to always
       // call.
       launchAutostartApps();
+
+      // Tier-1 scheduled background wake (system:background). Started once
+      // here, not re-armed elsewhere — AppScheduler.start() is itself a
+      // no-op on repeat calls, so this is just the one place boot always
+      // reaches after apps are registered.
+      if (typeof AppScheduler !== 'undefined') {
+        AppScheduler.start();
+      }
     });
   });
 
