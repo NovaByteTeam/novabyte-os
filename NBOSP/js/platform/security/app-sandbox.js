@@ -1097,9 +1097,18 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
       return respondError(webview, 'nova:clipboard:read', requestId, 'PERMISSION_DENIED', 'vfs:read permission required for clipboard access');
     }
+    var text = null;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (err) {
+      // No permission / no focus / insecure context — fall back to the
+      // last value this OS instance itself wrote, rather than failing
+      // outright, so same-session copy/paste inside Nova still works.
+      text = OS.clipboard || null;
+    }
     return respond(webview, 'nova:clipboard:read', requestId, {
       success: true,
-      data: OS.clipboard || null,
+      text: text,
     });
   }
 
@@ -1107,10 +1116,34 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
       return respondError(webview, 'nova:clipboard:write', requestId, 'PERMISSION_DENIED', 'vfs:read permission required for clipboard access');
     }
-    OS.clipboard = payload.data || '';
+    var text = payload.text || '';
+    try {
+      // Actually write to the real system clipboard. navigator.clipboard
+      // requires a secure context + (usually) a recent user gesture; if it
+      // rejects (no focus, no gesture, permission denied), fall back to the
+      // legacy execCommand path before giving up entirely.
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      var ok = false;
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch (fallbackErr) { ok = false; }
+      if (!ok) {
+        return respondError(webview, 'nova:clipboard:write', requestId, 'CLIPBOARD_UNAVAILABLE', 'Could not write to the system clipboard: ' + (err && err.message ? err.message : String(err)));
+      }
+    }
+    OS.clipboard = text;
     if (!OS.clipboardHistory) OS.clipboardHistory = [];
-    if (typeof payload.data === 'string' && !OS.clipboardHistory.includes(payload.data)) {
-      OS.clipboardHistory.unshift(payload.data);
+    if (typeof text === 'string' && text && !OS.clipboardHistory.includes(text)) {
+      OS.clipboardHistory.unshift(text);
       if (OS.clipboardHistory.length > CLIPBOARD_HISTORY_MAX) OS.clipboardHistory.pop();
     }
     return respond(webview, 'nova:clipboard:write', requestId, { success: true });
@@ -2995,6 +3028,26 @@ const AppSandbox = (() => {
         continue;
       }
 
+      // Pushed WebSocket events (message/error/close) — also unprompted,
+      // sent with a fresh requestId that was never registered in
+      // pendingRequests, so without this branch they'd hit the
+      // "!entry -> continue" fallthrough below and silently vanish.
+      // Dispatched to listeners registered per-wsId via window.nova.websocket().
+      if ((msg.type === 'nova:net:ws:message' || msg.type === 'nova:net:ws:error' || msg.type === 'nova:net:ws:close')
+          && msg.result && msg.result.wsId) {
+        var wsListeners = wsEventListeners[msg.result.wsId];
+        if (wsListeners) {
+          var kind = msg.type === 'nova:net:ws:message' ? 'message'
+            : msg.type === 'nova:net:ws:error' ? 'error' : 'close';
+          var cbs = wsListeners[kind] || [];
+          for (var k = 0; k < cbs.length; k++) {
+            try { cbs[k](msg.result); } catch (_) {}
+          }
+          if (kind === 'close') delete wsEventListeners[msg.result.wsId];
+        }
+        continue;
+      }
+
       if (typeof msg.requestId !== 'string') continue;
       var entry = pendingRequests.get(msg.requestId);
       if (!entry) continue;
@@ -3109,6 +3162,10 @@ const AppSandbox = (() => {
   // need their own dispatch rather than the requestId-keyed one above).
   var eventListeners = {}; // eventName -> [callback, ...]
 
+  // wsId -> { message: [cb,...], error: [cb,...], close: [cb,...] }
+  // Populated by window.nova.websocket(); read by the inbox poller above.
+  var wsEventListeners = {};
+
   // Public API for apps that want to use the bridge directly.
   window.nova = {
     ipc: ipc,
@@ -3119,6 +3176,35 @@ const AppSandbox = (() => {
       if (!eventListeners[eventName]) eventListeners[eventName] = [];
       eventListeners[eventName].push(callback);
       return ipc('nova:events:subscribe', { event: eventName });
+    },
+    // Convenience wrapper around nova:net:websocket + ws:send/ws:close so
+    // apps don't have to hand-roll requestId bookkeeping. Returns a promise
+    // that resolves once the socket is open (mirrors host's onopen-only
+    // response — see NOTE below) with a small handle object.
+    //
+    // NOTE: the host only ever resolves this ipc() call from the socket's
+    // onopen handler. If the connection never opens (bad host, connection
+    // refused, TLS failure before handshake), there is no host-side
+    // reject path — the call will sit until the shim's own IPC timeout
+    // fires and rejects with a generic "IPC request timed out" error
+    // rather than a specific connection-failure reason. Callers should
+    // treat that timeout as a real (if under-specific) connection failure,
+    // not assume something is hung on the guest side.
+    websocket: function(url, protocols) {
+      return ipc('nova:net:websocket', { url: url, protocols: protocols }).then(function(res) {
+        var wsId = res.wsId || (res.result && res.result.wsId);
+        if (!wsId) throw new Error('nova:net:websocket resolved without a wsId');
+        wsEventListeners[wsId] = { message: [], error: [], close: [] };
+        return {
+          wsId: wsId,
+          readyState: res.readyState,
+          onMessage: function(cb) { wsEventListeners[wsId].message.push(cb); },
+          onError: function(cb) { wsEventListeners[wsId].error.push(cb); },
+          onClose: function(cb) { wsEventListeners[wsId].close.push(cb); },
+          send: function(data) { return ipc('nova:net:ws:send', { wsId: wsId, data: data }); },
+          close: function(code, reason) { return ipc('nova:net:ws:close', { wsId: wsId, code: code, reason: reason }); },
+        };
+      });
     },
     // Camera/microphone can't be proxied through the IPC bridge like
     // geolocation coordinates — a MediaStream isn't serializable, and
