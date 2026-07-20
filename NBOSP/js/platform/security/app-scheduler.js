@@ -48,22 +48,75 @@ const AppScheduler = (() => {
   // How long a single wake gets to run before being torn down regardless
   // of whether it called wake-done. Bounded and short — this is meant for
   // "check something, update local state," not sustained work.
+  //
+  // This is expected to stay well under WAKE_INTERVAL_MS. If someone ever
+  // widens the deadline close to (or past) the interval, wakes could start
+  // overlapping with the next sweep for the same app. The dedupe check in
+  // wake() (pendingWakes.has(sandboxId)) protects against a double-dispatch
+  // if that happens, but it's still worth keeping this gap large on
+  // purpose rather than relying on that guard.
   const WAKE_DEADLINE_MS = 10 * 1000;
 
-  // sandboxId -> { timeoutId, appId, ownedByScheduler }
+  // sandboxId -> { timeoutId, appId, ownedByScheduler, wrapperEl }
   // ownedByScheduler distinguishes "this scheduler launched and must tear
   // down this sandbox" from "this is someone else's Tier-2 sandbox that
-  // the scheduler is just borrowing for a wake push."
+  // the scheduler is just borrowing for a wake push." wrapperEl is the
+  // scaffolding div the scheduler created for an owned launch, kept here
+  // directly rather than re-derived later — see endWake() for why.
   const pendingWakes = new Map();
 
   let intervalId = null;
   let running = false;
 
-  function log(level, msg, data) {
-    if (typeof window !== 'undefined' && window.EventLog) {
-      EventLog.log({ app: 'AppScheduler', category: 'system', severity: level === 'warn' ? 'warn' : 'info', message: msg, data });
+  // Sandboxes get destroyed here regardless of how endWake() was reached
+  // (deadline timer or an early wake-done signal), so tearDownOwnedSandbox
+  // is the single place that owns "how to clean up a sandbox this
+  // scheduler created." One path in, one path out.
+  function tearDownOwnedSandbox(sandboxId, wrapperEl) {
+    if (typeof AppSandbox !== 'undefined') {
+      try {
+        AppSandbox.destroy(sandboxId);
+      } catch (err) {
+        log('warn', `AppScheduler: AppSandbox.destroy threw for ${sandboxId}`, {
+          error: err?.message,
+        });
+      }
+    }
+
+    // wrapperEl is the exact node wake() created and appended — not
+    // rediscovered by walking sandbox internals — so this removal is
+    // correct regardless of what AppSandbox.launch() does internally with
+    // the container it's given.
+    if (wrapperEl && wrapperEl.isConnected) {
+      wrapperEl.remove();
     }
   }
+
+  // Logging must never be able to take down the caller. A malformed data
+  // payload or a broken EventLog shouldn't turn a routine wake/teardown
+  // into an uncaught exception.
+  function log(level, msg, data) {
+    if (typeof window === 'undefined' || !window.EventLog) return;
+    try {
+      EventLog.log({
+        app: 'AppScheduler',
+        category: 'system',
+        severity: level === 'warn' ? 'warn' : 'info',
+        message: msg,
+        data,
+      });
+    } catch {
+      // Logging is best-effort. If EventLog itself is broken, there's
+      // nowhere safe left to report that — swallow rather than crash the
+      // scheduler over a logging failure.
+    }
+  }
+
+  // Warn once per missing-dependency situation instead of once per app,
+  // per cycle, forever. If AppPermissionManager isn't loaded, every app
+  // will keep failing this same check every 15 minutes — one warning on
+  // first sighting is more useful than silent repeated no-ops.
+  let warnedMissingPermissionManager = false;
 
   /**
    * Every app eligible for a Tier-1 wake right now: installed, not
@@ -76,15 +129,25 @@ const AppScheduler = (() => {
   function getEligibleApps() {
     if (typeof OS === 'undefined' || !OS.apps) return [];
 
+    if (typeof AppPermissionManager === 'undefined') {
+      if (!warnedMissingPermissionManager) {
+        warnedMissingPermissionManager = true;
+        log('warn', 'AppScheduler: AppPermissionManager unavailable, no apps are eligible for wake');
+      }
+      return [];
+    }
+
     let disabled = [];
     try {
       disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
-    } catch { /* corrupt value, treat as none disabled */ }
+    } catch {
+      // Corrupt value — treat as none disabled rather than failing eligibility
+      // for every app.
+    }
 
-    return Object.values(OS.apps).filter(app => {
+    return Object.values(OS.apps).filter((app) => {
       if (!app || !app.id) return false;
       if (disabled.includes(app.id)) return false;
-      if (typeof AppPermissionManager === 'undefined') return false;
       return AppPermissionManager.isGranted('system:background', app.id);
     });
   }
@@ -99,8 +162,9 @@ const AppScheduler = (() => {
    */
   function findLiveBackgroundSandbox(appId) {
     if (typeof AppSandbox === 'undefined') return null;
-    return AppSandbox.getAllSandboxes()
-      .find(s => s.appId === appId && s.backgrounded) || null;
+    return (
+      AppSandbox.getAllSandboxes().find((s) => s.appId === appId && s.backgrounded) ?? null
+    );
   }
 
   /**
@@ -114,6 +178,7 @@ const AppScheduler = (() => {
     const existing = findLiveBackgroundSandbox(app.id);
     let sandboxId;
     let ownedByScheduler;
+    let wrapperEl = null;
 
     if (existing) {
       // Already alive for Tier 2 reasons — just piggyback the wake push,
@@ -127,6 +192,7 @@ const AppScheduler = (() => {
         log('warn', `AppScheduler: no #background-app-host, skipping wake for ${app.id}`);
         return;
       }
+
       // A fresh headless launch: no window state, into the same hidden
       // host Tier 2 uses. loadAppContent inside launch() is async and
       // fire-and-forget — the wake push below can race ahead of the
@@ -134,14 +200,23 @@ const AppScheduler = (() => {
       // opening the app quickly and the OS sending an early IPC call.
       // That's an acceptable, pre-existing characteristic of this IPC
       // model, not something Tier 1 introduces.
-      const wrapperHost = document.createElement('div');
-      wrapperHost.style.cssText = 'position:absolute;width:1px;height:1px;overflow:hidden;pointer-events:none;';
-      host.appendChild(wrapperHost);
+      wrapperEl = document.createElement('div');
+      wrapperEl.style.cssText =
+        'position:absolute;width:1px;height:1px;overflow:hidden;pointer-events:none;';
+      host.appendChild(wrapperEl);
 
-      const result = AppSandbox.launch(app, wrapperHost, null, {});
+      let result;
+      try {
+        result = AppSandbox.launch(app, wrapperEl, null, {});
+      } catch (err) {
+        log('warn', `AppScheduler: launch threw for ${app.id}`, { error: err?.message });
+        wrapperEl.remove();
+        return;
+      }
+
       if (!result || !result.success) {
         log('warn', `AppScheduler: launch failed for ${app.id}, skipping wake`);
-        wrapperHost.remove();
+        wrapperEl.remove();
         return;
       }
       sandboxId = result.sandboxId;
@@ -150,22 +225,36 @@ const AppScheduler = (() => {
 
     if (pendingWakes.has(sandboxId)) {
       // Already mid-wake (e.g. two intervals overlapped for a slow app) —
-      // don't double-dispatch or double-schedule teardown.
+      // don't double-dispatch or double-schedule teardown. If this wake
+      // owns a wrapper no one else knows about yet, it has to be cleaned
+      // up here rather than leaked, since nothing else holds a reference
+      // to it.
+      if (ownedByScheduler) tearDownOwnedSandbox(sandboxId, wrapperEl);
       return;
     }
 
-    const dispatched = AppSandbox.dispatchBackgroundWake(sandboxId, {
-      wokeAt: new Date().toISOString(),
-      deadlineMs: WAKE_DEADLINE_MS,
-    });
+    let dispatched;
+    try {
+      dispatched = AppSandbox.dispatchBackgroundWake(sandboxId, {
+        wokeAt: Temporal.Now.instant().toString(),
+        deadlineMs: WAKE_DEADLINE_MS,
+      });
+    } catch (err) {
+      log('warn', `AppScheduler: dispatch threw for ${app.id} (sandbox ${sandboxId})`, {
+        error: err?.message,
+      });
+      if (ownedByScheduler) tearDownOwnedSandbox(sandboxId, wrapperEl);
+      return;
+    }
+
     if (!dispatched) {
       log('warn', `AppScheduler: dispatch failed for ${app.id} (sandbox ${sandboxId})`);
-      if (ownedByScheduler) endWake(sandboxId);
+      if (ownedByScheduler) tearDownOwnedSandbox(sandboxId, wrapperEl);
       return;
     }
 
     const timeoutId = setTimeout(() => endWake(sandboxId), WAKE_DEADLINE_MS);
-    pendingWakes.set(sandboxId, { timeoutId, appId: app.id, ownedByScheduler });
+    pendingWakes.set(sandboxId, { timeoutId, appId: app.id, ownedByScheduler, wrapperEl });
 
     log('info', `AppScheduler: woke ${app.id}`, { sandboxId, ownedByScheduler });
   }
@@ -184,20 +273,14 @@ const AppScheduler = (() => {
     clearTimeout(pending.timeoutId);
     pendingWakes.delete(sandboxId);
 
-    if (pending.ownedByScheduler && typeof AppSandbox !== 'undefined') {
-      const sandbox = AppSandbox.getSandbox(sandboxId);
-      const wrapper = sandbox?.webview?.parentNode;
-      AppSandbox.destroy(sandboxId);
-      // Clean up the 1x1 wrapper div created in wake() — destroy() removes
-      // the sandbox's own listeners/state but doesn't know about (or own)
-      // this wrapper element, since it's scheduler-created scaffolding,
-      // not part of the sandbox itself.
-      if (wrapper && wrapper.id !== 'background-app-host') {
-        wrapper.remove();
-      }
+    if (pending.ownedByScheduler) {
+      tearDownOwnedSandbox(sandboxId, pending.wrapperEl);
     }
 
-    log('info', `AppScheduler: ended wake`, { sandboxId, ownedByScheduler: pending.ownedByScheduler });
+    log('info', 'AppScheduler: ended wake', {
+      sandboxId,
+      ownedByScheduler: pending.ownedByScheduler,
+    });
   }
 
   /**
@@ -215,11 +298,20 @@ const AppScheduler = (() => {
    * Sweep every eligible app and wake each one. Exposed so it can also be
    * triggered manually (e.g. from a debug/inspector panel) without
    * waiting for the next interval tick.
+   *
+   * Each app's wake is isolated with try/catch — one app throwing (a bad
+   * launch, a broken dispatch) shouldn't stop the rest of the sweep from
+   * running. Without this, a single misbehaving app could silently cost
+   * every other eligible app its wake for that entire 15-minute cycle.
    */
   function runWakeCycle() {
     const apps = getEligibleApps();
     for (const app of apps) {
-      wake(app);
+      try {
+        wake(app);
+      } catch (err) {
+        log('warn', `AppScheduler: wake threw for ${app?.id}`, { error: err?.message });
+      }
     }
   }
 
