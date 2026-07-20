@@ -2371,9 +2371,6 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageGet({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
-      return respondError(webview, 'nova:storage:get', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
-    }
     const rawKey = validateStorageKey(payload?.key);
     if (!rawKey) {
       return respondError(webview, 'nova:storage:get', requestId, 'INVALID_ARGS', 'Invalid storage key');
@@ -2390,9 +2387,6 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageSet({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
-      return respondError(webview, 'nova:storage:set', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
-    }
     const rawKey = validateStorageKey(payload?.key);
     if (!rawKey) {
       return respondError(webview, 'nova:storage:set', requestId, 'INVALID_ARGS', 'Invalid storage key');
@@ -2416,9 +2410,6 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageDelete({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
-      return respondError(webview, 'nova:storage:delete', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
-    }
     const rawKey = validateStorageKey(payload?.key);
     if (!rawKey) {
       return respondError(webview, 'nova:storage:delete', requestId, 'INVALID_ARGS', 'Invalid storage key');
@@ -2432,9 +2423,6 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageClear({ requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
-      return respondError(webview, 'nova:storage:clear', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
-    }
     try {
       await storageClear(app.id);
       return respond(webview, 'nova:storage:clear', requestId, { success: true });
@@ -2444,9 +2432,6 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageKeys({ requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
-      return respondError(webview, 'nova:storage:keys', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
-    }
     try {
       const keys = await storageKeys(app.id);
       return respond(webview, 'nova:storage:keys', requestId, { success: true, keys });
