@@ -103,6 +103,9 @@ registerApp({
     const saveAsBtn  = createEl('button',   {
       className: 'btn btn-sm', textContent: 'Save As…', title: 'Save a copy with a new name'
     });
+    const openBtn    = createEl('button',   {
+      className: 'btn btn-sm', textContent: 'Open…', title: 'Open a file from the VFS'
+    });
     const editorWrap = createEl('div',      { className: 'quill-editor-wrap' });
     const gutter     = createEl('div',      { className: 'quill-gutter', 'aria-hidden': 'true' });
     const textarea   = createEl('textarea', {
@@ -115,7 +118,7 @@ registerApp({
       role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true'
     });
 
-    toolbar.append(saveBtn, saveAsBtn);
+    toolbar.append(saveBtn, saveAsBtn, openBtn);
     editorWrap.append(gutter, textarea);
     container.append(toolbar, editorWrap, statusBar);
     content.appendChild(container);
@@ -340,18 +343,47 @@ registerApp({
 
     async function saveFileAs() {
       try {
-        const name = (await showPrompt('Save As', file.name))?.trim();
-        if (!name) return; // user cancelled or entered blank
-        const node    = await FS.createFile(getFilesDir(), name, textarea.value, 'text/plain');
+        const picked = await SystemDialogs.save({
+          title: 'Save As',
+          suggestedName: file.name,
+          startFolderId: getFilesDir(),
+        });
+        if (!picked) return; // user cancelled
+        const node    = await FS.createFile(picked.folderId, picked.name, textarea.value, 'text/plain');
         file.id       = node.id;
-        file.name     = name;
+        file.name     = picked.name;
         file.content  = textarea.value;
         file.modified = false;
         renderDesktopIcons();
-        Notify.show({ title: 'Saved', body: name, type: 'success', appName: 'TextEdit' });
+        Notify.show({ title: 'Saved', body: picked.name, type: 'success', appName: 'TextEdit' });
       } catch (err) {
         Notify.show({
           title: 'Save Failed', body: err?.message ?? 'Unknown error',
+          type: 'error', appName: 'TextEdit'
+        });
+      }
+    }
+
+    // ── Open (Import) ─────────────────────────────────────────────────────────
+    async function openFile() {
+      try {
+        const picked = await SystemDialogs.open({
+          title: 'Open',
+          startFolderId: getFilesDir(),
+          filter: (node) => (node.mimeType || '').startsWith('text/') || node.mimeType === 'application/json',
+        });
+        if (!picked) return; // user cancelled
+        file.id       = picked.id;
+        file.name     = picked.name;
+        file.content  = picked.content ?? '';
+        file.modified = false;
+        textarea.value = file.content;
+        syncGutter();
+        syncStatus();
+        Notify.show({ title: 'Opened', body: picked.name, type: 'success', appName: 'TextEdit' });
+      } catch (err) {
+        Notify.show({
+          title: 'Open Failed', body: err?.message ?? 'Unknown error',
           type: 'error', appName: 'TextEdit'
         });
       }
@@ -389,6 +421,7 @@ registerApp({
     // ── Wire all events (AbortSignal = zero-leak teardown) ────────────────────
     saveBtn.addEventListener('click',          saveFile,       { signal });
     saveAsBtn.addEventListener('click',        saveFileAs,     { signal });
+    openBtn.addEventListener('click',          openFile,       { signal });
     editorWrap.addEventListener('contextmenu', onContextMenu,  { signal });
     editorWrap.addEventListener('click', e => {
       if (e.target === gutter) textarea.focus();
