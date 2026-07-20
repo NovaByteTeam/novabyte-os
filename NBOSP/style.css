@@ -3278,6 +3278,32 @@
       border-color: rgba(255, 255, 255, 0.14);
     }
 
+    .notif-item.read {
+      background: rgba(255, 255, 255, 0.02);
+      border-color: rgba(255, 255, 255, 0.05);
+    }
+
+    .notif-item.read .notif-item-title,
+    .notif-item.read .notif-item-body,
+    .notif-item.read .notif-item-time {
+      opacity: 0.55;
+    }
+
+    .notif-item.read:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.09);
+    }
+
+    .notif-item-pinned.read {
+      background: rgba(88, 166, 255, 0.04);
+      border-color: rgba(88, 166, 255, 0.15);
+    }
+
+    .notif-item-pinned.read:hover {
+      background: rgba(88, 166, 255, 0.08);
+      border-color: rgba(88, 166, 255, 0.25);
+    }
+
     /* Pinned entries report an ongoing state (an app running in the
        background), not a past event — the accent border + tint keeps them
        visually distinct from the rest of the list they sort above. */
@@ -3312,6 +3338,25 @@
       margin-top: 4px;
     }
 
+    .notif-item-dismiss {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .notif-item-dismiss:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-primary);
+    }
+
     .notification-panel.light-bg .notif-header h3,
     .notification-panel.light-bg .notif-item-title {
       color: #1a1a1a;
@@ -3330,6 +3375,37 @@
     .notification-panel.light-bg .notif-item:hover {
       background: rgba(0, 0, 0, 0.08);
       border-color: rgba(0, 0, 0, 0.14);
+    }
+
+    .notification-panel.light-bg .notif-item.read {
+      background: rgba(0, 0, 0, 0.02);
+      border-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .notification-panel.light-bg .notif-item.read:hover {
+      background: rgba(0, 0, 0, 0.05);
+      border-color: rgba(0, 0, 0, 0.09);
+    }
+
+    .notification-panel.light-bg .notif-item-pinned.read {
+      background: rgba(88, 166, 255, 0.04);
+      border-color: rgba(88, 166, 255, 0.15);
+    }
+
+    .notification-panel.light-bg .notif-item-pinned.read:hover {
+      background: rgba(88, 166, 255, 0.08);
+      border-color: rgba(88, 166, 255, 0.25);
+    }
+
+    .notification-panel.light-bg .notif-item-dismiss {
+      background: rgba(0, 0, 0, 0.04);
+      border-color: rgba(0, 0, 0, 0.08);
+      color: #666;
+    }
+
+    .notification-panel.light-bg .notif-item-dismiss:hover {
+      background: rgba(0, 0, 0, 0.08);
+      color: #1a1a1a;
     }
 
     .notification-panel.light-bg .notif-header {
