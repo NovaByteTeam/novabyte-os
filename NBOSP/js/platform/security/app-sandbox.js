@@ -40,10 +40,12 @@ const AppSandbox = (() => {
     'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS',
   ]);
   const ALLOWED_WEB_PROTOCOLS = new Set(['http:', 'https:']);
-  // Hostnames that count as "internal" for permission gating. Both bracketed
-  // ([::1]) and unbracketed (::1) IPv6 forms are accepted.
+  // Hostnames that count as "internal" for permission gating, beyond
+  // whatever isInternalHost's IP-range checks already catch. Named
+  // first-party internal services live here since they don't resolve to
+  // a fixed literal IP we could range-check.
   const INTERNAL_HOSTS = new Set([
-    'localhost', '127.0.0.1', '::1', '[::1]', 'api.novabyte.internal',
+    'localhost', 'api.novabyte.internal',
   ]);
   const DEFAULT_WINDOW_WIDTH = 800;
   const DEFAULT_WINDOW_HEIGHT = 600;
@@ -195,8 +197,73 @@ const AppSandbox = (() => {
     };
   }
 
+  // Parse a dotted-decimal IPv4 string into 4 octets, or null if it isn't
+  // one. `URL` already normalizes alternate encodings (hex, octal, decimal-
+  // integer, short forms like "127.1") into plain dotted-decimal before this
+  // ever sees the hostname, so a strict dotted-decimal parse here is safe —
+  // it's not re-opening the encodings URL already collapsed.
+  function parseIPv4(hostname) {
+    const parts = hostname.split('.');
+    if (parts.length !== 4) return null;
+    const octets = [];
+    for (const p of parts) {
+      if (!/^\d{1,3}$/.test(p)) return null;
+      const n = Number(p);
+      if (n > 255) return null;
+      octets.push(n);
+    }
+    return octets;
+  }
+
+  // True if the given IPv4 octets fall in a loopback/private/link-local
+  // range — i.e. anything that isn't routable "external" address space.
+  // Covers: 127.0.0.0/8 (all loopback, not just .1), 10.0.0.0/8,
+  // 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 (link-local, which
+  // includes the 169.254.169.254 cloud metadata endpoint), and 0.0.0.0.
+  function isPrivateIPv4(octets) {
+    const [a, b] = octets;
+    if (a === 127) return true;
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 0 && b === 0 && octets[2] === 0 && octets[3] === 0) return true;
+    return false;
+  }
+
+  // True if a normalized IPv6 literal (no brackets, lowercase — which is
+  // what URL.hostname already gives us) is loopback/private/link-local, or
+  // wraps an internal IPv4 address (IPv4-mapped ::ffff:a.b.c.d or the
+  // legacy IPv4-compatible ::a.b.c.d form).
+  function isPrivateIPv6(hostname) {
+    if (hostname === '::1' || hostname === '::') return true;
+    // Unique local (fc00::/7) and link-local (fe80::/10).
+    if (/^f[cd][0-9a-f]{2}:/.test(hostname)) return true;
+    if (/^fe[89ab][0-9a-f]:/.test(hostname)) return true;
+    // IPv4-mapped (::ffff:a.b.c.d) or IPv4-compatible (::a.b.c.d) — the
+    // embedded IPv4 address is what actually gets routed to, so classify
+    // by that.
+    const mapped = /^::(?:ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(hostname);
+    if (mapped) {
+      const octets = parseIPv4(mapped[1]);
+      return octets ? isPrivateIPv4(octets) : false;
+    }
+    return false;
+  }
+
   function isInternalHost(hostname) {
-    return INTERNAL_HOSTS.has(hostname) || INTERNAL_HOSTS.has(hostname.toLowerCase());
+    const h = String(hostname || '').toLowerCase();
+    if (INTERNAL_HOSTS.has(h)) return true;
+
+    const v4 = parseIPv4(h);
+    if (v4) return isPrivateIPv4(v4);
+
+    // URL.hostname strips brackets from IPv6 literals, but check both
+    // forms defensively in case this is ever called with a raw value.
+    const v6 = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+    if (v6.includes(':')) return isPrivateIPv6(v6);
+
+    return false;
   }
 
   // Validate that a value is a positive integer within optional bounds.
@@ -2304,6 +2371,9 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageGet({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
+      return respondError(webview, 'nova:storage:get', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
+    }
     const rawKey = validateStorageKey(payload?.key);
     if (!rawKey) {
       return respondError(webview, 'nova:storage:get', requestId, 'INVALID_ARGS', 'Invalid storage key');
@@ -2320,6 +2390,9 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageSet({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
+      return respondError(webview, 'nova:storage:set', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
+    }
     const rawKey = validateStorageKey(payload?.key);
     if (!rawKey) {
       return respondError(webview, 'nova:storage:set', requestId, 'INVALID_ARGS', 'Invalid storage key');
@@ -2343,6 +2416,9 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageDelete({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
+      return respondError(webview, 'nova:storage:delete', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
+    }
     const rawKey = validateStorageKey(payload?.key);
     if (!rawKey) {
       return respondError(webview, 'nova:storage:delete', requestId, 'INVALID_ARGS', 'Invalid storage key');
@@ -2356,6 +2432,9 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageClear({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
+      return respondError(webview, 'nova:storage:clear', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
+    }
     try {
       await storageClear(app.id);
       return respond(webview, 'nova:storage:clear', requestId, { success: true });
@@ -2365,6 +2444,9 @@ const AppSandbox = (() => {
   }
 
   async function handleStorageKeys({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:storage', app.id)) {
+      return respondError(webview, 'nova:storage:keys', requestId, 'PERMISSION_DENIED', 'system:storage permission required');
+    }
     try {
       const keys = await storageKeys(app.id);
       return respond(webview, 'nova:storage:keys', requestId, { success: true, keys });
