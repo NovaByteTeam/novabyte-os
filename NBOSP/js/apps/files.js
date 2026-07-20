@@ -717,9 +717,18 @@
         },
       ];
       if (f.type === 'file') {
+        const selectedFileIds = new Set(
+          [...this.selectedIds].filter(id => {
+            const n = FS.files.get(id);
+            return n && n.type === 'file';
+          })
+        );
+        selectedFileIds.add(f.id);
+        const count = selectedFileIds.size;
         items.push({
-          label: 'Export to Host…', icon: 'download',
-          action: () => this.exportToHost(f),
+          label: count > 1 ? `Export ${count} Files to Host…` : 'Export to Host…',
+          icon: 'download',
+          action: () => this.exportToHost([...selectedFileIds]),
         });
       }
       if (isHtmlFile(f)) {
@@ -834,46 +843,90 @@
       Notify.show({ title: 'Cut', body: f.name + ' ready to move', type: 'info', appName: 'Files' });
     }
 
-    // Writes a VFS file's bytes out to the real host filesystem via NW.js's
-    // native save dialog. This runs in the Files app's own top-level shell
-    // window (a real Node frame — unlike a .novaapp's sandboxed <webview>),
-    // so it can use `nwsaveas` + Node's fs module directly instead of going
-    // through the nova:download IPC bridge that sandboxed apps need.
-    // node.content is either a string (text files) or a Uint8Array
-    // (binary files dropped in from the host) — Buffer.from handles both.
-    exportToHost(f) {
-      if (f.type !== 'file') return;
-      const content = f.content ?? '';
-      let buffer;
-      try {
-        buffer = Buffer.from(content);
-      } catch (err) {
-        notifyError('Export failed', err);
-        return;
+    // Writes one or more VFS files' bytes out to the real host filesystem
+    // via NW.js's native save dialog. This runs in the Files app's own
+    // top-level shell window (a real Node frame — unlike a .novaapp's
+    // sandboxed <webview>), so it can use `nwsaveas` + Node's fs module
+    // directly instead of going through the nova:download IPC bridge that
+    // sandboxed apps need.
+    //
+    // Accepts either a single file node or an array of file ids. There's no
+    // batch/multi-file `nwsaveas` API, so a multi-file export shows one
+    // native Save dialog per file, one after another — cancelling any one
+    // of them just skips that file and moves on to the next rather than
+    // aborting the whole batch. A single summary notification reports how
+    // many actually saved vs were skipped.
+    async exportToHost(target) {
+      const ids = Array.isArray(target) ? target : [target.id];
+      const nodes = ids
+        .map(id => (typeof id === 'string' ? FS.files.get(id) : id))
+        .filter(n => n && n.type === 'file');
+      if (!nodes.length) return;
+
+      let saved = 0;
+      let skipped = 0;
+      for (const node of nodes) {
+        // eslint-disable-next-line no-await-in-loop -- dialogs are inherently sequential; the user can only look at one at a time
+        const ok = await this.exportOneToHost(node);
+        if (ok) saved++; else skipped++;
       }
 
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.setAttribute('nwsaveas', f.name || 'export');
-      input.style.display = 'none';
-      document.body.appendChild(input);
+      if (nodes.length === 1) {
+        const node = nodes[0];
+        if (saved) {
+          Notify.show({ title: 'Exported', body: `${node.name} saved to host`, type: 'success', appName: 'Files' });
+        }
+        // skipped (cancelled) or already-notified error: no extra toast
+        return;
+      }
+      const parts = [`${saved} saved`];
+      if (skipped) parts.push(`${skipped} skipped`);
+      Notify.show({
+        title: 'Export complete', body: parts.join(', '),
+        type: skipped && !saved ? 'warning' : 'success', appName: 'Files',
+      });
+    }
 
-      input.addEventListener('change', () => {
-        const savePath = input.value;
-        input.remove();
-        if (!savePath) return; // dialog dismissed without a change event elsewhere
-        require('fs').writeFile(savePath, buffer, (err) => {
-          if (err) {
-            notifyError('Export failed', err);
-          } else {
-            Notify.show({ title: 'Exported', body: `${f.name} saved to host`, type: 'success', appName: 'Files' });
-          }
-        });
-      }, { once: true });
+    // Exports a single file node, resolving true on success, false on
+    // cancel/error. node.content is either a string (text files) or a
+    // Uint8Array (binary files dropped in from the host) — Buffer.from
+    // handles both.
+    exportOneToHost(node) {
+      return new Promise((resolve) => {
+        let buffer;
+        try {
+          buffer = Buffer.from(node.content ?? '');
+        } catch (err) {
+          notifyError('Export failed', err);
+          resolve(false);
+          return;
+        }
 
-      input.addEventListener('cancel', () => { input.remove(); }, { once: true });
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.setAttribute('nwsaveas', node.name || 'export');
+        input.style.display = 'none';
+        document.body.appendChild(input);
 
-      input.click();
+        const finish = (ok) => { input.remove(); resolve(ok); };
+
+        input.addEventListener('change', () => {
+          const savePath = input.value;
+          if (!savePath) { finish(false); return; }
+          require('fs').writeFile(savePath, buffer, (err) => {
+            if (err) {
+              notifyError('Export failed', err);
+              finish(false);
+            } else {
+              finish(true);
+            }
+          });
+        }, { once: true });
+
+        input.addEventListener('cancel', () => finish(false), { once: true });
+
+        input.click();
+      });
     }
 
     // Restore from trash: persist first, then update the UI. If persistence
