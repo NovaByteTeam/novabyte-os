@@ -716,6 +716,12 @@
           },
         },
       ];
+      if (f.type === 'file') {
+        items.push({
+          label: 'Export to Host…', icon: 'download',
+          action: () => this.exportToHost(f),
+        });
+      }
       if (isHtmlFile(f)) {
         items.push({ label: 'Edit in Text Editor', icon: 'pen', action: () => WM.createWindow('quill', { fileId: f.id }) });
       }
@@ -826,6 +832,48 @@
       this.clipboardOp = { type: 'cut', fileId: f.id };
       OS.clipboard = this.clipboardOp;
       Notify.show({ title: 'Cut', body: f.name + ' ready to move', type: 'info', appName: 'Files' });
+    }
+
+    // Writes a VFS file's bytes out to the real host filesystem via NW.js's
+    // native save dialog. This runs in the Files app's own top-level shell
+    // window (a real Node frame — unlike a .novaapp's sandboxed <webview>),
+    // so it can use `nwsaveas` + Node's fs module directly instead of going
+    // through the nova:download IPC bridge that sandboxed apps need.
+    // node.content is either a string (text files) or a Uint8Array
+    // (binary files dropped in from the host) — Buffer.from handles both.
+    exportToHost(f) {
+      if (f.type !== 'file') return;
+      const content = f.content ?? '';
+      let buffer;
+      try {
+        buffer = Buffer.from(content);
+      } catch (err) {
+        notifyError('Export failed', err);
+        return;
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.setAttribute('nwsaveas', f.name || 'export');
+      input.style.display = 'none';
+      document.body.appendChild(input);
+
+      input.addEventListener('change', () => {
+        const savePath = input.value;
+        input.remove();
+        if (!savePath) return; // dialog dismissed without a change event elsewhere
+        require('fs').writeFile(savePath, buffer, (err) => {
+          if (err) {
+            notifyError('Export failed', err);
+          } else {
+            Notify.show({ title: 'Exported', body: `${f.name} saved to host`, type: 'success', appName: 'Files' });
+          }
+        });
+      }, { once: true });
+
+      input.addEventListener('cancel', () => { input.remove(); }, { once: true });
+
+      input.click();
     }
 
     // Restore from trash: persist first, then update the UI. If persistence
