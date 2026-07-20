@@ -100,28 +100,58 @@ const frameCheckLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Fetches targetUrl with manual, per-hop SSRF revalidation + IP pinning
+// (redirect: 'follow' would let fetch chase a redirect straight to a
+// private/internal address with no revalidation at all — the classic
+// SSRF-via-redirect bypass, and worse than the rebinding gap since it
+// needs no timing trick, just a 302).
+const FRAME_CHECK_MAX_REDIRECTS = 5;
+async function _probeFetchValidated(initialUrl, method, signal) {
+    let currentUrl = initialUrl;
+    const visited = new Set();
+    for (let hop = 0; hop <= FRAME_CHECK_MAX_REDIRECTS; hop++) {
+        if (visited.has(currentUrl)) throw Object.assign(new Error('Redirect loop'), { code: 'REDIRECT_LOOP' });
+        visited.add(currentUrl);
+
+        let urlObj;
+        try { urlObj = new URL(currentUrl); } catch { throw Object.assign(new Error('Invalid URL'), { code: 'INVALID_URL' }); }
+        if (!['http:', 'https:'].includes(urlObj.protocol)) throw Object.assign(new Error('Bad protocol'), { code: 'BAD_PROTOCOL' });
+        if (_isPrivateHost(urlObj.hostname)) throw Object.assign(new Error('Private host'), { code: 'SSRF_BLOCKED' });
+        const dnsResult = await _dnsResolvePrivate(urlObj.hostname);
+        if (dnsResult.private) throw Object.assign(new Error('Private host (DNS)'), { code: 'SSRF_BLOCKED' });
+
+        const resp = await _pinnedFetch(currentUrl, {
+            method,
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
+            redirect: 'manual',
+            signal,
+        }, dnsResult);
+
+        if (resp.status >= 300 && resp.status < 400) {
+            const loc = resp.headers.get('location');
+            try { resp.body?.cancel(); } catch (_) {}
+            if (!loc) throw Object.assign(new Error('Redirect with no Location'), { code: 'BAD_REDIRECT' });
+            try { currentUrl = new URL(loc, currentUrl).toString(); }
+            catch { throw Object.assign(new Error('Invalid redirect target'), { code: 'BAD_REDIRECT' }); }
+            continue;
+        }
+        return resp;
+    }
+    throw Object.assign(new Error('Too many redirects'), { code: 'TOO_MANY_REDIRECTS' });
+}
+
 async function _probeFrameEmbeddable(targetUrl, embedOrigin) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FRAME_CHECK_TIMEOUT);
     try {
         // HEAD first — cheapest; many servers echo the same security headers.
-        let resp = await fetch(targetUrl, {
-            method: 'HEAD',
-            redirect: 'follow',
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
-            signal: controller.signal,
-        });
+        let resp = await _probeFetchValidated(targetUrl, 'HEAD', controller.signal);
         // Some servers don't send XFO/CSP on HEAD (or reject it). Fall back to GET.
         const hasSecurityHdr = resp.headers.get('x-frame-options') ||
             /frame-ancestors/i.test(resp.headers.get('content-security-policy') || '');
         if (!hasSecurityHdr && resp.ok) return false;
         if (resp.status === 405 || resp.status === 501 || resp.status === 400 || !resp.ok) {
-            resp = await fetch(targetUrl, {
-                method: 'GET',
-                redirect: 'follow',
-                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
-                signal: controller.signal,
-            });
+            resp = await _probeFetchValidated(targetUrl, 'GET', controller.signal);
             // Stream bodies are expensive; we only need headers, so cancel it.
             try { resp.body?.cancel(); } catch (_) {}
         }
@@ -203,7 +233,7 @@ const _PRIVATE_EXACT = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0', '[::
 const _PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
     '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
     '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
-    '192.168.', '169.254.', '100.64.'];
+    '192.168.', '169.254.', '100.64.', '127.'];
 
 function _isPrivateHost(hostname) {
     const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -213,40 +243,112 @@ function _isPrivateHost(hostname) {
     return false;
 }
 
-function _isPrivateIpAddr(ip) {
+// IPv4-mapped IPv6 (::ffff:a.b.c.d) — pull out the embedded v4 address so it
+// hits the same range checks as a plain v4 literal.
+function _extractMappedV4(ip) {
+    const m = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(ip);
+    return m ? m[1] : null;
+}
+
+function _isPrivateIpv4(ip) {
     if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) return false;
     const parts = ip.split('.').map(Number);
+    if (parts.some(p => p > 255)) return false;
     return parts[0] === 10 ||
+           parts[0] === 127 ||                                    // loopback 127.0.0.0/8
+           parts[0] === 0 ||                                      // "this network" 0.0.0.0/8
            (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
            (parts[0] === 192 && parts[1] === 168) ||
-           (parts[0] === 169 && parts[1] === 254) ||
-           (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127);
+           (parts[0] === 169 && parts[1] === 254) ||               // link-local incl. cloud metadata
+           (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127); // CGNAT
+}
+
+function _isPrivateIpv6(ip) {
+    const h = ip.toLowerCase().replace(/^\[|\]$/g, '');
+    if (h === '::1' || h === '::') return true;                   // loopback / unspecified
+    const mapped = _extractMappedV4(h);
+    if (mapped) return _isPrivateIpv4(mapped);
+    if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;                 // ULA fc00::/7
+    if (/^fe[89ab][0-9a-f]:/.test(h)) return true;                 // link-local fe80::/10
+    return false;
+}
+
+function _isPrivateIpAddr(ip) {
+    if (!ip || typeof ip !== 'string') return true; // fail closed
+    if (ip.includes(':')) return _isPrivateIpv6(ip);
+    return _isPrivateIpv4(ip);
 }
 
 const _dnsPrivateCache = new Map();
 const _DNS_TTL = 30_000;
-async function _dnsCheckPrivate(hostname) {
-    if (!hostname || typeof hostname !== 'string') return true;
+
+// Resolves hostname -> { private, address, family } and caches the result.
+// address/family are needed downstream so the actual network connection can
+// be pinned to the exact IP we validated (see _pinnedFetch), instead of
+// letting fetch() re-resolve the hostname itself. Re-resolving is what opens
+// the DNS-rebinding TOCTOU gap: validation lookup returns a public IP, then
+// the fetch's own lookup (attacker-controlled DNS, low TTL) returns a
+// private one moments later.
+async function _dnsResolvePrivate(hostname) {
+    if (!hostname || typeof hostname !== 'string') return { private: true, address: null, family: null };
     const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (_isPrivateHost(h)) return true;
+    if (_isPrivateHost(h)) return { private: true, address: null, family: null };
 
     const cached = _dnsPrivateCache.get(h);
-    if (cached && Date.now() - cached.ts < _DNS_TTL) return cached.private;
+    if (cached && Date.now() - cached.ts < _DNS_TTL) return cached;
 
-    let private_ = false;
+    let result;
     try {
-        const { address } = await dns.promises.lookup(h);
-        private_ = _isPrivateIpAddr(address);
+        const { address, family } = await dns.promises.lookup(h);
+        result = { private: _isPrivateIpAddr(address), address, family, ts: Date.now() };
     } catch {
-        private_ = true; // fail closed on DNS error
+        result = { private: true, address: null, family: null, ts: Date.now() }; // fail closed on DNS error
     }
 
-    _dnsPrivateCache.set(h, { private: private_, ts: Date.now() });
+    _dnsPrivateCache.set(h, result);
     if (_dnsPrivateCache.size > 500) {
         const first = _dnsPrivateCache.keys().next().value;
         _dnsPrivateCache.delete(first);
     }
-    return private_;
+    return result;
+}
+
+// Backward-compatible boolean-only wrapper. IMPORTANT: any caller that goes
+// on to fetch() the same hostname itself is still exposed to the rebinding
+// TOCTOU. Use _dnsResolvePrivate + _pinnedFetch for anything that performs
+// a real outbound request; this wrapper is for checks that don't fetch.
+async function _dnsCheckPrivate(hostname) {
+    const { private: isPrivate } = await _dnsResolvePrivate(hostname);
+    return isPrivate;
+}
+
+// Fetch pinned to a pre-validated IP, closing the DNS-rebinding TOCTOU: we
+// resolve+validate once via _dnsResolvePrivate, then force the TCP
+// connection to that exact IP. Host header / TLS SNI still use the original
+// hostname (undici handles this automatically — we only override the
+// connect-time lookup, not the URL). If dnsResult indicates an
+// invalid/private/unresolved address, this throws rather than silently
+// falling back to fetch's own resolver.
+const { Agent, fetch: undiciFetch } = require('undici');
+function _pinnedAgent(pinnedAddress, family) {
+    return new Agent({
+        connect: {
+            lookup: (_hostname, _opts, cb) => {
+                cb(null, [{ address: pinnedAddress, family: family === 6 ? 6 : 4 }]);
+            },
+        },
+    });
+}
+async function _pinnedFetch(urlString, opts, dnsResult) {
+    if (!dnsResult || dnsResult.private || !dnsResult.address) {
+        throw Object.assign(new Error('Refusing to fetch unvalidated/private address'), { code: 'SSRF_BLOCKED' });
+    }
+    const agent = _pinnedAgent(dnsResult.address, dnsResult.family);
+    try {
+        return await undiciFetch(urlString, { ...opts, dispatcher: agent });
+    } finally {
+        agent.close().catch(() => {});
+    }
 }
 
 const appProxyLimiter = rateLimit({
@@ -288,7 +390,10 @@ function setupAppNetworkProxy(app) {
             });
             return res.status(403).json({ error: 'Internal URLs are not permitted' });
         }
-        if (await _dnsCheckPrivate(urlObj.hostname)) {
+        // dnsResult carries the resolved IP forward so the eventual fetch can be
+        // pinned to it (see loop below) instead of re-resolving the hostname.
+        let dnsResult = await _dnsResolvePrivate(urlObj.hostname);
+        if (dnsResult.private) {
             debugLog('PROXY_REJECT_DNS_PRIVATE', { hostname: urlObj.hostname });
             ServerEventLog.log({
                 app: 'AppNetworkProxy',
@@ -348,7 +453,14 @@ function setupAppNetworkProxy(app) {
             if (!['http:', 'https:'].includes(hopUrlObj.protocol)) {
                 return res.status(400).json({ error: 'Only http and https URLs are supported' });
             }
-            if (await _dnsCheckPrivate(hopUrlObj.hostname)) {
+            if (_isPrivateHost(hopUrlObj.hostname)) {
+                return res.status(403).json({ error: 'Internal URLs are not permitted' });
+            }
+            // Re-resolve + re-validate on every hop (redirect targets can point
+            // anywhere) and keep the resolved IP so the fetch below is pinned to
+            // exactly what we just validated.
+            dnsResult = await _dnsResolvePrivate(hopUrlObj.hostname);
+            if (dnsResult.private) {
                 return res.status(403).json({ error: 'Internal URLs are not permitted' });
             }
 
@@ -357,13 +469,13 @@ function setupAppNetworkProxy(app) {
 
             let hopResp;
             try {
-                hopResp = await fetch(currentUrl, {
+                hopResp = await _pinnedFetch(currentUrl, {
                     method,
                     headers: outHeaders,
                     body: (method === 'GET' || method === 'HEAD') ? undefined : (reqBody ?? null),
                     redirect: 'manual',
                     signal: controller.signal,
-                });
+                }, dnsResult);
             } catch (err) {
                 clearTimeout(timer);
                 debugLog('PROXY_FETCH_THREW', {
@@ -464,8 +576,9 @@ async function _validateEmailImgHop(rawUrl) {
     if (!['http:', 'https:'].includes(urlObj.protocol)) return null;
     if (urlObj.username || urlObj.password) return null;
     if (_isPrivateHost(urlObj.hostname)) return null;
-    if (await _dnsCheckPrivate(urlObj.hostname)) return null;
-    return urlObj;
+    const dnsResult = await _dnsResolvePrivate(urlObj.hostname);
+    if (dnsResult.private) return null;
+    return { urlObj, dnsResult };
 }
 
 async function _fetchEmailImage(initialUrl) {
@@ -478,19 +591,22 @@ async function _fetchEmailImage(initialUrl) {
 
         // Re-validate on every hop — a URL can pass the check, then redirect
         // to a private/internal address (classic SSRF-via-redirect bypass).
-        const urlObj = await _validateEmailImgHop(currentUrl);
-        if (!urlObj) return null;
+        const validated = await _validateEmailImgHop(currentUrl);
+        if (!validated) return null;
+        const { dnsResult } = validated;
 
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), EMAIL_IMG_TIMEOUT);
 
         let resp;
         try {
-            resp = await fetch(currentUrl, {
+            // Pinned to the IP we just validated — fetch() re-resolving the
+            // hostname itself is the DNS-rebinding gap this closes.
+            resp = await _pinnedFetch(currentUrl, {
                 headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NovaByte/1.0)' },
                 redirect: 'manual', // never let fetch auto-follow — we must validate each hop ourselves
                 signal: controller.signal,
-            });
+            }, dnsResult);
         } catch {
             return null;
         } finally {
