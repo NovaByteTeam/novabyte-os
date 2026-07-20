@@ -232,8 +232,13 @@ app.post('/api/apps/serve/register', (req, res) => {
   if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
     return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
   }
-  // sandboxId must match our internal format to prevent registry pollution
-  if (!/^sandbox_[\w.-]+_\d+$/.test(sandboxId)) {
+  // sandboxId must match our internal format to prevent registry pollution.
+  // generateSandboxId() (app-sandbox.js) produces `sandbox_${appId}_${unique}`
+  // where unique is either a crypto.randomUUID() (hex + hyphens) or the
+  // fallback `${Date.now()}_${base36}` (digits + lowercase letters). The old
+  // regex required a trailing all-digit group, which neither format reliably
+  // ends in, so every registration was rejected. Match the real charset instead.
+  if (!/^sandbox_[\w.-]+$/.test(sandboxId)) {
     return res.status(400).json({ error: 'Invalid sandboxId format' });
   }
   _pruneAppServeRegistry();
