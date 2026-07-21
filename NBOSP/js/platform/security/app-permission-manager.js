@@ -274,9 +274,11 @@ const AppPermissionManager = (() => {
   async function requestPermission(permission, appId, options = {}) {
     if (isGranted(permission, appId)) return true;
 
-    // Already denied by user — never re-prompt
-    const existing = permissionGrants.get(`${appId}:${permission}`);
-    if (existing && existing.granted === false) return false;
+    // Previously denied grants no longer short-circuit here — every call
+    // to requestPermission() now shows the live dialog again, so the user
+    // gets a fresh real-time choice each time an app asks. The persisted
+    // denial record from _persistDenial() is only used by isDenied() for
+    // callers that want to check status without prompting.
 
     const appName   = options.appName
       ?? (typeof AppRegistry !== 'undefined' ? AppRegistry.getApp(appId)?.name : null)
@@ -308,9 +310,8 @@ const AppPermissionManager = (() => {
   async function requestAll(permissions, appId, appName) {
     if (!permissions?.length) return true;
 
-    // Only skip permissions that are already granted — denied ones need to be
-    // surfaced so the caller knows to block the app, and requestPermission()
-    // will return false for them immediately without re-prompting.
+    // Only skip permissions that are already granted — previously denied
+    // ones still get a live re-prompt via requestPermission() below.
     const pending = permissions.filter(p => !isGranted(p, appId));
     if (!pending.length) return true;
 
