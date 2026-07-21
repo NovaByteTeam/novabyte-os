@@ -2266,7 +2266,7 @@ registerApp({
         clickTimeout = setTimeout(() => { clickCount = 0; clickTimeout = null; }, 1500);
       });
       swRows.appendChild(novaVersionRow);
-      swRows.appendChild(mkRow('Source Date',  '2026-07-18'));
+      swRows.appendChild(mkRow('Source Date',  '2026-07-21'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
       const secRowLeft  = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
