@@ -2031,6 +2031,7 @@ registerApp({
       const adminRow = createEl('div', { className: 'nook-toggle-row' });
       adminRow.appendChild(createEl('span', { textContent: 'Enable admin mode on this device' }));
       const adminToggle = createEl('button', { className: 'toggle', disabled: true });
+      adminToggle.classList.remove('active');
       adminRow.appendChild(adminToggle);
       adminSection.appendChild(adminRow);
       mainContent.appendChild(adminSection);

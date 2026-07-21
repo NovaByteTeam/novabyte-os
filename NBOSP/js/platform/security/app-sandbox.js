@@ -1471,6 +1471,9 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('admin:audit', app.id)) {
       return respondError(webview, 'nova:admin:audit', requestId, 'PERMISSION_DENIED', 'admin:audit permission required');
     }
+    if (!(await isAdminEnabledClient())) {
+      return respondError(webview, 'nova:admin:audit', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
+    }
     const q = payload ?? {};
     const params = new URLSearchParams();
     for (const k of ['userId', 'action', 'resource', 'ipAddress', 'success', 'startDate', 'endDate', 'level', 'limit', 'offset']) {
@@ -1493,6 +1496,9 @@ const AppSandbox = (() => {
   async function handleAdminSystem({ payload, requestId, app, webview }) {
     if (!AppPermissionManager.isGranted('admin:system', app.id)) {
       return respondError(webview, 'nova:admin:system', requestId, 'PERMISSION_DENIED', 'admin:system permission required');
+    }
+    if (!(await isAdminEnabledClient())) {
+      return respondError(webview, 'nova:admin:system', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
     }
     const action = payload?.action === 'set' ? 'set' : 'get';
     try {
@@ -1527,6 +1533,9 @@ const AppSandbox = (() => {
   async function handleAdminUsers({ payload, requestId, app, webview }) {
     if (!AppPermissionManager.isGranted('admin:users', app.id)) {
       return respondError(webview, 'nova:admin:users', requestId, 'PERMISSION_DENIED', 'admin:users permission required');
+    }
+    if (!(await isAdminEnabledClient())) {
+      return respondError(webview, 'nova:admin:users', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
     }
     // No account system exists in this codebase — this maps to session
     // management (list/revoke), the closest real equivalent to "manage
