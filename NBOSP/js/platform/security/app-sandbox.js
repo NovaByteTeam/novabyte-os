@@ -2809,12 +2809,16 @@ const AppSandbox = (() => {
 
   // Audit: eval
   //
-  // Sent by the capability shim whenever an app calls eval(). We log it for
-  // observability but don't block — the CSP allows unsafe-eval by design for
-  // apps that genuinely need it. The shim uses fire-and-forget for this so
-  // it doesn't wait on a response, but we send one anyway so any caller
-  // using the regular ipc() path (rather than ipcFireAndForget) gets an
-  // ack instead of timing out after 30 seconds.
+  // Sent by the capability shim whenever an app calls eval(). Historically
+  // this only logged, since the CSP allowed 'unsafe-eval' by design — but
+  // 'unsafe-eval' has since been removed from RELAXED_CSP_META (see that
+  // constant below), so the browser now blocks eval()/new Function() before
+  // this handler would ever fire from a real call. This audit path is kept
+  // for observability/back-compat only; it does not mean eval is permitted.
+  // The shim uses fire-and-forget for this so it doesn't wait on a response,
+  // but we send one anyway so any caller using the regular ipc() path
+  // (rather than ipcFireAndForget) gets an ack instead of timing out after
+  // 30 seconds.
 
   async function handleAuditEval({ app, payload, requestId, webview }) {
     log('warn', `${app.name} called eval():`, payload?.preview);
@@ -3706,8 +3710,15 @@ const AppSandbox = (() => {
     } catch { /* best-effort */ }
   }
 
-  // Audit eval calls — log to host but still execute (per the audit:eval
-  // contract: "Log it — don't block"). CSP allows unsafe-eval by design.
+  // Audit eval calls. This wrapper is now effectively dead code for direct
+  // eval() — the CSP no longer includes 'unsafe-eval', so the browser
+  // itself throws a CSP violation before this function body ever runs.
+  // Left in place (harmless) in case CSP is ever relaxed again; if you're
+  // reading this because eval() calls aren't being logged, check whether
+  // 'unsafe-eval' is back in RELAXED_CSP_META first.
+  // NOTE: this only ever wrapped window.eval — new Function(...) is a
+  // separate code-execution path that was never audited here, and is now
+  // blocked by the same CSP change rather than logged.
   const originalEval = window.eval;
   window.eval = function(code) {
     const preview = String(code).slice(0, 200);
@@ -3741,7 +3752,7 @@ const AppSandbox = (() => {
   // need this) and eval (the audit hook catches abuse), but blocks all direct
   // network access via connect-src 'none' — forcing network through the IPC
   // bridge where permissions are enforced.
-  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\' \'unsafe-eval\'; script-src \'self\' blob: \'unsafe-inline\' \'unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob: http://localhost:* https://localhost:*">';
+  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\'; script-src \'self\' blob: \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob: http://localhost:* https://localhost:*">';
 
   // Prepend the capability shim as the very first script in the app's HTML.
   // Injects after <head> if present, otherwise prepends to the document.

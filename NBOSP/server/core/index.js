@@ -274,14 +274,20 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
     ico: 'image/x-icon', woff: 'font/woff', woff2: 'font/woff2'
   };
 
-  // Relaxed CSP for third-party apps — unsafe-inline/eval allowed because:
-  //   1. webview process isolation is the real security boundary
-  //   2. connect-src 'none' still blocks direct exfiltration; all network goes through IPC
+  // Relaxed CSP for third-party apps — unsafe-inline allowed because apps need
+  // inline scripts/styles to function; connect-src is locked to self/localhost
+  // so all real network egress routes through the IPC bridge, where per-app
+  // permissions are actually enforced.
+  // unsafe-eval was previously granted here on the theory that the runtime
+  // audit hook (nova:audit:eval) was enough of a check. It wasn't — logging
+  // after the fact doesn't stop the call. eval/new Function are now blocked
+  // outright: removed from both directives below, matching the same fix
+  // already applied to the client-side RELAXED_CSP_META in app-sandbox.js.
   const isHtml = ext === 'html';
   if (isHtml) {
     res.setHeader('Content-Security-Policy', [
-      "default-src 'self' blob: data: 'unsafe-inline' 'unsafe-eval'",
-      "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval'",
+      "default-src 'self' blob: data: 'unsafe-inline'",
+      "script-src 'self' blob: 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline' blob: data:",
       "img-src 'self' blob: data: https:",
       "font-src 'self' blob: data:",
