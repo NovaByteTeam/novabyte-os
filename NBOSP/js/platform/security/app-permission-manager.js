@@ -116,6 +116,21 @@ const AppPermissionManager = (() => {
   let permissionGrants = new Map(); // key: `${appId}:${permission}`
   const consentLog     = [];
 
+  // ── FIX [P8]: requestPermission() rate limiting ─────────────────────────────
+  // Since denied grants no longer short-circuit (see requestPermission()),
+  // an app could previously call requestPermission() in a tight loop and
+  // re-show the live dialog every single time — a prompt-bombing DoS that
+  // also pressures the user into eventually clicking "Allow" just to make
+  // it stop. rateLimitState tracks, per `${appId}:${permission}`, recent
+  // request timestamps and the current cooldown (which backs off on each
+  // denial). Once an app hits the burst cap within the window, further
+  // requests are auto-denied with no dialog shown until the cooldown clears.
+  const rateLimitState  = new Map(); // key: `${appId}:${permission}` -> { attempts:number[], cooldownUntil:number, denialStreak:number }
+  const RATE_WINDOW_MS  = 60_000;   // rolling window for burst detection
+  const RATE_MAX_BURST  = 3;        // max prompts allowed within the window
+  const RATE_BASE_COOLDOWN_MS = 5_000;     // cooldown after hitting the burst cap
+  const RATE_MAX_COOLDOWN_MS  = 15 * 60_000; // cap on backoff (15 min)
+
   // ── Integrity check ────────────────────────────────────────────────────────
   // Simple structural validation — no HMAC, no cross-session key dependency.
   // The user owns this machine; HMAC against localStorage tampering is security
@@ -265,8 +280,64 @@ const AppPermissionManager = (() => {
 
   function resetPermission(permission, appId) {
     permissionGrants.delete(`${appId}:${permission}`);
+    rateLimitState.delete(`${appId}:${permission}`);
     saveToStorage();
     console.log(`[AppPermissionManager] Reset ${permission} → ${appId}`);
+  }
+
+  // FIX [P8]: lets callers (e.g. the Permissions app) check/display cooldown
+  // status without triggering a request, and confirms a key isn't stuck.
+  function isRateLimited(permission, appId) {
+    const state = rateLimitState.get(`${appId}:${permission}`);
+    if (!state) return { limited: false };
+    const now = Date.now();
+    if (now < state.cooldownUntil) {
+      return { limited: true, retryAfterMs: state.cooldownUntil - now };
+    }
+    return { limited: false };
+  }
+
+  // ── FIX [P8]: rate-limit gate ────────────────────────────────────────────────
+  // Called at the top of requestPermission(). Returns { allowed:true } if this
+  // call is allowed to show a live dialog, or { allowed:false, retryAfterMs }
+  // if it must be auto-denied silently (no dialog) because the caller is
+  // bursting requests for this key.
+  function _checkRateLimit(permission, appId) {
+    const key   = `${appId}:${permission}`;
+    const now   = Date.now();
+    const state = rateLimitState.get(key) ?? { attempts: [], cooldownUntil: 0, denialStreak: 0 };
+
+    if (now < state.cooldownUntil) {
+      rateLimitState.set(key, state);
+      return { allowed: false, retryAfterMs: state.cooldownUntil - now };
+    }
+
+    // Drop attempts outside the rolling window before counting this one.
+    state.attempts = state.attempts.filter(t => now - t < RATE_WINDOW_MS);
+    state.attempts.push(now);
+
+    if (state.attempts.length > RATE_MAX_BURST) {
+      // Exponential backoff keyed off consecutive denials so a persistently
+      // pushy app gets throttled harder over time, not just a flat delay.
+      const backoff = Math.min(
+        RATE_BASE_COOLDOWN_MS * Math.pow(2, state.denialStreak),
+        RATE_MAX_COOLDOWN_MS
+      );
+      state.cooldownUntil = now + backoff;
+      state.attempts = [];
+      rateLimitState.set(key, state);
+      return { allowed: false, retryAfterMs: backoff };
+    }
+
+    rateLimitState.set(key, state);
+    return { allowed: true };
+  }
+
+  function _recordRateLimitOutcome(permission, appId, granted) {
+    const key   = `${appId}:${permission}`;
+    const state = rateLimitState.get(key) ?? { attempts: [], cooldownUntil: 0, denialStreak: 0 };
+    state.denialStreak = granted ? 0 : state.denialStreak + 1;
+    rateLimitState.set(key, state);
   }
 
   // ── Single permission request ──────────────────────────────────────────────
@@ -279,6 +350,23 @@ const AppPermissionManager = (() => {
     // gets a fresh real-time choice each time an app asks. The persisted
     // denial record from _persistDenial() is only used by isDenied() for
     // callers that want to check status without prompting.
+    //
+    // FIX [P8]: that re-prompt-every-time behavior is exactly what makes
+    // prompt-bombing possible, so it's now gated by a rate limiter: bursts
+    // beyond RATE_MAX_BURST within RATE_WINDOW_MS get auto-denied (no
+    // dialog shown at all) with exponential backoff on repeat offenders.
+    const gate = _checkRateLimit(permission, appId);
+    if (!gate.allowed) {
+      console.warn(`[AppPermissionManager] Rate-limited ${permission} → ${appId} (retry in ${Math.ceil(gate.retryAfterMs / 1000)}s)`);
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({
+          app: 'Permissions', category: 'permissions', severity: 'warn',
+          message: `Rate-limited permission request ${permission} → ${appId}`,
+          data: { appId, permission, action: 'rate-limited', retryAfterMs: gate.retryAfterMs },
+        });
+      }
+      return false;
+    }
 
     const appName   = options.appName
       ?? (typeof AppRegistry !== 'undefined' ? AppRegistry.getApp(appId)?.name : null)
@@ -302,6 +390,7 @@ const AppPermissionManager = (() => {
     } else {
       _persistDenial(permission, appId);
     }
+    _recordRateLimitOutcome(permission, appId, granted);
     return granted;
   }
 
@@ -395,6 +484,9 @@ const AppPermissionManager = (() => {
     let count = 0;
     for (const key of [...permissionGrants.keys()]) {
       if (key.startsWith(`${appId}:`)) { permissionGrants.delete(key); count++; }
+    }
+    for (const key of [...rateLimitState.keys()]) {
+      if (key.startsWith(`${appId}:`)) rateLimitState.delete(key);
     }
     saveToStorage();
     console.log(`[AppPermissionManager] Revoked all permissions for ${appId}`);
@@ -576,6 +668,7 @@ const AppPermissionManager = (() => {
     initialize,
     isGranted,
     isDenied,
+    isRateLimited,       // FIX [P8]: query cooldown status without prompting
     resetPermission,
     requestPermission,
     requestAll,           // FIX [P2]: sequential queue

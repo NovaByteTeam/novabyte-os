@@ -1120,6 +1120,22 @@ const AppSandbox = (() => {
     }
   }
 
+  // Lets a caller check rate-limit/cooldown status for a permission without
+  // triggering a new prompt — e.g. the Permissions app showing "try again in
+  // Ns" instead of blindly calling requestPermission and eating a silent deny.
+  async function handlePermissionRateLimited({ payload, requestId, app, webview }) {
+    const { permission } = payload ?? {};
+    if (!permission) {
+      return respondError(webview, 'nova:permission-rate-limited', requestId, 'INVALID_ARGS', 'permission is required');
+    }
+    try {
+      const status = AppPermissionManager.isRateLimited(permission, app.id);
+      return respond(webview, 'nova:permission-rate-limited', requestId, status);
+    } catch (e) {
+      return respondError(webview, 'nova:permission-rate-limited', requestId, 'ERROR', e.message || 'Rate limit check failed');
+    }
+  }
+
   // Window management
   //
   // These all no-op silently when WM or the window state is missing, then
@@ -2834,6 +2850,7 @@ const AppSandbox = (() => {
     'nova:settings:get': handleSettingsGet,
     'nova:settings:set': handleSettingsSet,
     'nova:request-permission': handleRequestPermission,
+    'nova:permission-rate-limited': handlePermissionRateLimited,
     'nova:window:close': handleWindowClose,
     'nova:window:minimize': handleWindowMinimize,
     'nova:window:maximize': handleWindowMaximize,
