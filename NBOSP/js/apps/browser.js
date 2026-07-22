@@ -1769,7 +1769,17 @@ registerApp({
               .replace(/[\s\u0000-\u001f\u007f-\u009f]/g, '')
               .trim();
             if (!/^(javascript|data|vbscript|about):/i.test(_bgCanonical) && !isLocalAddress(url)) {
-              bgWv.src = url;
+              // Bypasses navigate() entirely (sets wv.src directly), so the
+              // net:external gate there doesn't apply here — check it again.
+              if (/^https?:\/\//i.test(url) && !AppPermissionManager?.isGranted('net:external', 'browser')) {
+                Notify.show({
+                  title: 'Permission denied',
+                  body: 'Browser needs the "External network" permission to load websites. Grant it in Settings → Apps.',
+                  type: 'error', appName: 'Browser'
+                });
+              } else {
+                bgWv.src = url;
+              }
             }
           } else {
             switchToTab(newTab.id);
@@ -2760,6 +2770,23 @@ registerApp({
       if (!url.match(/^https?:\/\//i) && !url.startsWith('blob:') && !url.startsWith('file://') && !url.startsWith('data:')) {
         url = (url.includes('.') && !url.includes(' ')) ? 'https://' + url : getSearchUrl(url);
       }
+
+      // Real network fetch about to happen (http/https to an actual site,
+      // not blob:/file:/data: which are local content already produced by
+      // this app — see the branches above). Gate on net:external the same
+      // way vault:// above gates on vfs:write: check first, notify + bail
+      // if missing, rather than letting the webview/iframe silently load
+      // the URL regardless of what the user actually granted.
+      if (/^https?:\/\//i.test(url) && !AppPermissionManager?.isGranted('net:external', 'browser')) {
+        urlBar.value = stripHttps(url);
+        Notify.show({
+          title: 'Permission denied',
+          body: 'Browser needs the "External network" permission to load websites. Grant it in Settings → Apps.',
+          type: 'error', appName: 'Browser'
+        });
+        return;
+      }
+
       urlBar.value = stripHttps(url); currentUrl = url; updateUrlIcon(url);
       const activeTab = tabs.find(t => t.id === activeTabId);
       if (activeTab) {

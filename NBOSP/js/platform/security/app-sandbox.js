@@ -3826,9 +3826,9 @@ const AppSandbox = (() => {
       Object.defineProperty(Element.prototype, 'innerHTML', {
         get: innerHTMLDesc.get,
         set: function(value) {
-          if (typeof value === 'string' && /<webview[\s>]/i.test(value)) {
+          if (typeof value === 'string' && /<webview[\\s>]/i.test(value)) {
             ipcFireAndForget('nova:audit:blocked-nested-webview', { via: 'innerHTML' });
-            value = value.replace(/<webview[\s\S]*?<\/webview>/gi, '').replace(/<webview[^>]*\/?>/gi, '');
+            value = value.replace(/<webview[\\s\\S]*?<\\/webview>/gi, '').replace(/<webview[^>]*\\/?>/gi, '');
           }
           return innerHTMLDesc.set.call(this, value);
         },
@@ -3838,9 +3838,9 @@ const AppSandbox = (() => {
 
     const originalInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
     Element.prototype.insertAdjacentHTML = function(position, text) {
-      if (typeof text === 'string' && /<webview[\s>]/i.test(text)) {
+      if (typeof text === 'string' && /<webview[\\s>]/i.test(text)) {
         ipcFireAndForget('nova:audit:blocked-nested-webview', { via: 'insertAdjacentHTML' });
-        text = text.replace(/<webview[\s\S]*?<\/webview>/gi, '').replace(/<webview[^>]*\/?>/gi, '');
+        text = text.replace(/<webview[\\s\\S]*?<\\/webview>/gi, '').replace(/<webview[^>]*\\/?>/gi, '');
       }
       return originalInsertAdjacentHTML.call(this, position, text);
     };

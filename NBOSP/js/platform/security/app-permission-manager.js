@@ -75,6 +75,15 @@ const AppPermissionManager = (() => {
     // holding this permission, so this entry only ever applies to
     // .novaapp third-party packages.
     SANDBOX_NESTED_WEBVIEW : 'sandbox:nested-webview',
+    // Lets a third-party .novaapp's outer sandbox webview receive
+    // allow-same-origin, giving the guest access to its own cookies,
+    // localStorage, and sessionStorage on the shared origin. System apps
+    // never need this entry — they're exempted by appId via
+    // SYSTEM_SANDBOX_APPS in app-sandbox.js, not by holding this
+    // permission. For everyone else, sanitizeSandboxAttr() requires BOTH
+    // `allowSameOrigin: true` in the manifest AND this grant before adding
+    // allow-same-origin to the sandbox attribute — see app-sandbox.js.
+    SANDBOX_SAME_ORIGIN : 'sandbox:same-origin',
   });
 
   const PERMISSION_CATEGORIES = Object.freeze({
@@ -126,6 +135,14 @@ const AppPermissionManager = (() => {
     // sandbox's own webview attrs constrain. Never auto-granted, never
     // implied by any other permission.
     'sandbox:nested-webview': { category: 'sandbox', risk: 'critical', label: 'Embed live web content (nested browser view)' },
+    // 'high', not 'critical': unlike nested-webview (a whole second
+    // uncontained renderer), this only widens what an existing XSS inside
+    // the guest can reach — shared cookies/localStorage/sessionStorage on
+    // the origin — rather than handing the guest a fresh escape surface.
+    // Still a real privilege step up from the sandboxed default, so it's
+    // not 'medium' either. See sanitizeSandboxAttr() in app-sandbox.js for
+    // the actual gate this backs.
+    'sandbox:same-origin': { category: 'sandbox', risk: 'high', label: 'Access shared cookies & storage' },
   });
 
   const STORAGE_KEY      = 'nova_app_permissions';
