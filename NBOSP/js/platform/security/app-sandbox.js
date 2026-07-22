@@ -3145,10 +3145,39 @@ const AppSandbox = (() => {
   // The shim also exposes window.nova for apps that want to call the IPC
   // bridge directly (e.g. to request permissions or subscribe to events).
 
-  const CAPABILITY_SHIM = `<script>
+  // Whether this app's guest content is allowed to instantiate its own
+  // nested <webview> tag. System apps (SYSTEM_SANDBOX_APPS) are exempt by
+  // appId, same as the allow-same-origin exemption below — everyone else
+  // (i.e. every .novaapp third-party package) needs the manifest to opt in
+  // AND hold the 'sandbox:nested-webview' permission, checked fresh at
+  // load time. Fail-closed: any error, missing manager, or ungranted state
+  // defaults to blocked.
+  function isNestedWebviewPermitted(app) {
+    if (!app) return false;
+    if (SYSTEM_SANDBOX_APPS.has(app.id)) return true;
+    const manifestOptIn = app.manifest && app.manifest.allowNestedWebview === true;
+    if (!manifestOptIn) return false;
+    try {
+      return AppPermissionManager?.isGranted('sandbox:nested-webview', app.id) === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Builds the capability shim string for a given app. `nestedWebviewAllowed`
+  // is baked in as a literal at injection time (not re-checked async inside
+  // the guest — permission grants are host-side and the guest has no safe
+  // synchronous way to ask), so this must be regenerated per-app/per-load
+  // rather than reused as a static constant.
+  function buildCapabilityShim(nestedWebviewAllowed) {
+  return `<script>
 (function() {
   'use strict';
   const REQUEST_TIMEOUT_MS = 30000;
+  // Baked in at injection time from the host-side permission check —
+  // see isNestedWebviewPermitted() in app-sandbox.js. Never trust a guest
+  // to self-report this.
+  const __NOVA_NESTED_WEBVIEW_ALLOWED__ = ${nestedWebviewAllowed ? 'true' : 'false'};
 
   // A handful of channels block on a human making a decision in a native
   // OS dialog (choosing where to save, which file to open) rather than on
@@ -3745,8 +3774,100 @@ const AppSandbox = (() => {
       }
     };
   }
+
+  // Nested <webview> lockdown
+  //
+  // A <webview> tag the guest's OWN content creates is a second, independent
+  // renderer process this guest would control directly — a much bigger
+  // capability than anything else this shim gates, since none of the outer
+  // sandbox's own webview attributes (nodeintegration, partition, sandbox
+  // tokens) apply to a tag the guest instantiates itself. Blocked by
+  // default; only bypassed when the host baked in
+  // __NOVA_NESTED_WEBVIEW_ALLOWED__ = true for this specific app (system
+  // apps, or a .novaapp that both declared allowNestedWebview in its
+  // manifest AND holds the 'sandbox:nested-webview' grant — see
+  // isNestedWebviewPermitted() host-side).
+  //
+  // Three insertion paths are covered, since blocking only one leaves the
+  // others wide open:
+  //   1. document.createElement('webview') — the normal, scriptable path.
+  //   2. innerHTML / outerHTML / insertAdjacentHTML — the HTML parser can
+  //      create a <webview> without ever calling createElement.
+  //   3. A MutationObserver backstop — catches anything that slips past
+  //      1/2 (e.g. a future API, or a parser edge case), by removing any
+  //      <webview> element the instant it's actually attached to the DOM.
+  if (!__NOVA_NESTED_WEBVIEW_ALLOWED__) {
+    const originalCreateElement = Document.prototype.createElement;
+    Document.prototype.createElement = function(tagName, options) {
+      if (typeof tagName === 'string' && tagName.toLowerCase() === 'webview') {
+        ipcFireAndForget('nova:audit:blocked-nested-webview', { via: 'createElement' });
+        // Return an inert, disconnected <span> rather than throwing — a
+        // throw here would crash whatever app code called createElement
+        // (often inside a try/catch-less render path), turning a security
+        // block into an unrelated-looking app crash. An inert element that
+        // silently does nothing when appended is a much smaller surprise.
+        return originalCreateElement.call(this, 'span');
+      }
+      return originalCreateElement.call(this, tagName, options);
+    };
+
+    // Covers innerHTML/outerHTML — both funnel through the same setter,
+    // which is what we patch here rather than trying to catch every
+    // possible property name.
+    const innerHTMLDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+    if (innerHTMLDesc && innerHTMLDesc.set) {
+      Object.defineProperty(Element.prototype, 'innerHTML', {
+        get: innerHTMLDesc.get,
+        set: function(value) {
+          if (typeof value === 'string' && /<webview[\s>]/i.test(value)) {
+            ipcFireAndForget('nova:audit:blocked-nested-webview', { via: 'innerHTML' });
+            value = value.replace(/<webview[\s\S]*?<\/webview>/gi, '').replace(/<webview[^>]*\/?>/gi, '');
+          }
+          return innerHTMLDesc.set.call(this, value);
+        },
+        configurable: true,
+      });
+    }
+
+    const originalInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+    Element.prototype.insertAdjacentHTML = function(position, text) {
+      if (typeof text === 'string' && /<webview[\s>]/i.test(text)) {
+        ipcFireAndForget('nova:audit:blocked-nested-webview', { via: 'insertAdjacentHTML' });
+        text = text.replace(/<webview[\s\S]*?<\/webview>/gi, '').replace(/<webview[^>]*\/?>/gi, '');
+      }
+      return originalInsertAdjacentHTML.call(this, position, text);
+    };
+
+    // Backstop: if a <webview> still makes it into the live DOM through
+    // some path the above didn't anticipate, rip it out immediately rather
+    // than letting it sit there and load. Runs for the lifetime of the
+    // document — cheap, since <webview> insertion is not a hot path.
+    const nestedWebviewObserver = new MutationObserver(function(mutations) {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.tagName === 'WEBVIEW') {
+            ipcFireAndForget('nova:audit:blocked-nested-webview', { via: 'mutation-observer' });
+            node.remove();
+            continue;
+          }
+          if (typeof node.querySelectorAll === 'function') {
+            const nested = node.querySelectorAll('webview');
+            if (nested.length) {
+              ipcFireAndForget('nova:audit:blocked-nested-webview', { via: 'mutation-observer-descendant' });
+              nested.forEach((n) => n.remove());
+            }
+          }
+        }
+      }
+    });
+    // documentElement always exists by the time this inline script runs
+    // (it's injected right after <head>), so no readiness check needed.
+    nestedWebviewObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
 })();
 \x3C/script>`;
+  }
 
   // CSP meta tag injected into app HTML. Allows inline scripts/styles (apps
   // need this) and eval (the audit hook catches abuse), but blocks all direct
@@ -3756,13 +3877,18 @@ const AppSandbox = (() => {
 
   // Prepend the capability shim as the very first script in the app's HTML.
   // Injects after <head> if present, otherwise prepends to the document.
-  function injectCapabilityShim(html) {
+  // `app` is required to decide the nested-<webview> grant for THIS app —
+  // see isNestedWebviewPermitted(). Passing no app is treated as no app
+  // (fails closed to "not permitted"), it does not fall back to some
+  // shared/cached shim from a previous call.
+  function injectCapabilityShim(html, app) {
     if (typeof html !== 'string') return html;
+    const shim = buildCapabilityShim(isNestedWebviewPermitted(app));
     if (/<head(\s[^>]*)?>/i.test(html)) {
       const relaxed = RELAXED_CSP_META + '\n';
-      return html.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + relaxed + CAPABILITY_SHIM);
+      return html.replace(/<head(\s[^>]*)?>/i, (match) => match + '\n' + relaxed + shim);
     }
-    return CAPABILITY_SHIM + '\n' + RELAXED_CSP_META + '\n' + html;
+    return shim + '\n' + RELAXED_CSP_META + '\n' + html;
   }
 
   // App loading
@@ -3792,7 +3918,7 @@ const AppSandbox = (() => {
         // Use UTF-8-safe base64 so non-ASCII content survives the round-trip.
         const shimmedFiles = Object.assign({}, app.files);
         const rawHtml = decodeBase64Utf8(shimmedFiles[app.entry]);
-        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(rawHtml));
+        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(rawHtml, app));
 
         const regRes = await fetch('/api/apps/serve/register', {
           method: 'POST',
@@ -4465,7 +4591,8 @@ const AppSandbox = (() => {
       validateStorageKey,
       handleAPICall,
       API_HANDLERS,
-      CAPABILITY_SHIM,
+      buildCapabilityShim,
+      isNestedWebviewPermitted,
       RELAXED_CSP_META,
       // Test-only helpers for resetting module state between tests.
       _resetState() {
