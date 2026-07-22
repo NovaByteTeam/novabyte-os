@@ -3155,7 +3155,14 @@ const AppSandbox = (() => {
   function isNestedWebviewPermitted(app) {
     if (!app) return false;
     if (SYSTEM_SANDBOX_APPS.has(app.id)) return true;
-    const manifestOptIn = app.manifest && app.manifest.allowNestedWebview === true;
+    // NOTE: flattened top-level field (app.allowNestedWebview), matching how
+    // `sandbox`/`permissions`/etc. are flattened onto the sandboxApp object
+    // in appmanager.js's buildNovaAppConfig() — NOT app.manifest.allowNestedWebview.
+    // The app object AppSandbox.launch() receives is built from an explicit
+    // field allowlist there and never carries a `manifest` property, so
+    // checking app.manifest would always silently read undefined and fail
+    // closed. See appmanager.js's sandboxApp construction.
+    const manifestOptIn = app.allowNestedWebview === true;
     if (!manifestOptIn) return false;
     try {
       return AppPermissionManager?.isGranted('sandbox:nested-webview', app.id) === true;

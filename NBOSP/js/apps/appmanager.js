@@ -614,6 +614,10 @@
               permissions: appData.permissions || [],
               optionalPermissions: appData.optionalPermissions || [],
               type: appData.type || 'package',
+              // Manifest opt-in for nested <webview> creation — see
+              // isNestedWebviewPermitted() in app-sandbox.js. Must also hold
+              // the 'sandbox:nested-webview' grant; this alone doesn't enable it.
+              allowNestedWebview: appData.allowNestedWebview === true,
             };
             return AppSandbox.launch(sandboxApp, contentEl, state || {}, options || {});
           }
