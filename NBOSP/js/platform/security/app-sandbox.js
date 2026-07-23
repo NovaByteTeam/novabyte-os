@@ -4349,6 +4349,33 @@ const AppSandbox = (() => {
     fetch(`/api/apps/serve/unregister/${encodeURIComponent(sandboxId)}`, { method: 'DELETE' })
       .catch(() => {});
 
+    // Same-origin gating (sanitizeSandboxAttr, above) only controls whether
+    // the guest's raw cookies/localStorage/sessionStorage land on a real,
+    // stable origin vs an opaque one — it does NOT stop those DOM storage
+    // APIs from writing to disk. The persist:app_<appId> partition is a
+    // separate Chromium mechanism, set unconditionally in createSandbox(),
+    // so an opaque-origin (unpermissioned) app's raw storage writes still
+    // survive relaunch under that same reused partition. That's the actual
+    // gap sandbox:same-origin's wording ("cookies/localStorage/sessionStorage
+    // on the shared origin") implies should NOT persist for these apps.
+    //
+    // nova:storage:* is unaffected by this — it's a completely separate,
+    // host-shell-side IndexedDB, isolated by [appId, key], not by this
+    // partition. Wiping the partition here never touches it.
+    //
+    // Only wipe for apps that don't hold the permission — same exemption
+    // logic sanitizeSandboxAttr uses, kept in sync so the two checks can't
+    // drift apart. Best-effort: a failure here shouldn't block teardown.
+    const appId = sandbox.appId;
+    const isSystemApp = SYSTEM_SANDBOX_APPS.has(appId);
+    const sameOriginPermitted = isSystemApp
+      || (typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.isGranted('sandbox:same-origin', appId));
+    if (appId && !sameOriginPermitted) {
+      clearAppPartition(appId).catch(e => {
+        log('warn', 'destroy() — failed to clear storage partition for', appId, e);
+      });
+    }
+
     activeSandboxes.delete(sandboxId);
     log('debug', `Destroyed sandbox: ${sandboxId}`);
     if (typeof EventLog !== 'undefined') {
