@@ -80,6 +80,14 @@ const AppRegistry = (() => {
       if (!raw) return;
       const apps = JSON.parse(raw);
       for (const app of apps) {
+        // Re-sanitize on restore too — closes the gap for records persisted
+        // by a pre-patch version of this file, where a .novaapp install
+        // could have had autoGrant: true written to storage before this
+        // source-based check existed. See registerApp() for the full
+        // rationale; kept in sync with the same rule (source === 'local').
+        if ((app.source || 'local') !== 'local' && app.autoGrant) {
+          app.autoGrant = false;
+        }
         installedApps.set(app.id, app);
         if (typeof OS !== 'undefined' && OS?.apps) {
           // Always rebuild from the persisted record, even if a static
@@ -158,6 +166,28 @@ const AppRegistry = (() => {
       appConfig.optionalPermissions = (appConfig.optionalPermissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
     }
 
+    // autoGrant silently skips the permission-request prompt entirely (see
+    // launchApp() below) — it exists for first-party dev tools that are
+    // hardcoded into the JS bundle (console, packages, permissions, etc.),
+    // none of which go through a package install path. Every real .novaapp
+    // install — whether via the Packages app, App Manager's manual install,
+    // or the nova:app:install IPC handler in app-sandbox.js — sets `source`
+    // to something other than the 'local' default used by built-ins. Any
+    // manifest arriving through one of those paths is untrusted, so strip
+    // autoGrant from it here regardless of what the manifest itself claims:
+    // otherwise a package author could just declare autoGrant: true and
+    // self-grant sandbox:same-origin (or any other permission) with zero
+    // user prompt. This is enforced here, once, rather than at each of the
+    // several install call sites, so it can't be missed by a new one later.
+    const claimedSource = appConfig.source || 'local';
+    const isBuiltinSource = claimedSource === 'local';
+    if (!isBuiltinSource && appConfig.autoGrant) {
+      console.warn('[AppRegistry] Ignoring autoGrant on non-builtin app', appConfig.id, '(source:', claimedSource + ')');
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Ignored autoGrant on non-builtin app ${appConfig.id} (source: ${claimedSource})`, data: { appId: appConfig.id, source: claimedSource } });
+      }
+    }
+
     const app = {
       icon: '/assets/no_app_icon.svg', description: '', version: '1.0.0', author: 'Unknown',
       type: 'webapp', entry: 'index.html', permissions: [], optionalPermissions: [],
@@ -168,6 +198,7 @@ const AppRegistry = (() => {
       ...appConfig,
       id: appConfig.id,
       name: appConfig.name,
+      autoGrant: isBuiltinSource ? (appConfig.autoGrant || false) : false,
     };
 
     if (typeof OS !== 'undefined' && OS?.apps) {
@@ -178,7 +209,7 @@ const AppRegistry = (() => {
         alwaysOnTop: app.alwaysOnTop || false, fullscreenable: app.fullscreenable !== false,
         startMinimized: app.startMinimized || false, transparent: app.transparent || false,
         devOnly: appConfig.devOnly || false,
-        autoGrant: appConfig.autoGrant || false,
+        autoGrant: app.autoGrant,
         init: (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
         onDrop: appConfig.onDrop ?? undefined,
         onClose: appConfig.onClose ?? undefined,
