@@ -46,7 +46,7 @@
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
     "i18next": "^26.3.6",
-    "imapflow": "^1.4.8",
+    "imapflow": "^1.5.0",
     "node-pop3": "^0.11.0",
     "nodemailer": "^9.0.3",
     "postal-mime": "^2.7.5",
@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.10",
-    "happy-dom": "^20.11.0",
+    "happy-dom": "^20.11.1",
     "jsdom": "^29.1.1",
     "nw": "^0.113.0-sdk",
     "supertest": "^7.2.2",
