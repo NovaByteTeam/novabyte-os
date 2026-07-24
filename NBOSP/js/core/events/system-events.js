@@ -396,11 +396,21 @@ async function uninstallApp(app) {
     OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== app.id));
 
     // Clear disabled/boot lists so the app doesn't get re-resurrected on restart.
-    for (const key of ['nova_disabled_apps', 'nova_boot_apps']) {
+    for (const { globalKey, scopedKey } of [
+      { globalKey: 'nova_disabled_apps', scopedKey: 'disabled_apps' },
+      { globalKey: 'nova_boot_apps',    scopedKey: 'boot_apps'    },
+    ]) {
       try {
-        const list = JSON.parse(localStorage.getItem(key) || '[]');
+        const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+          ? UserScopedStorage.getItem(scopedKey)
+          : localStorage.getItem(globalKey);
+        const list = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
         const updated = list.filter(x => (typeof x === 'string' ? x : x?.id) !== app.id);
-        localStorage.setItem(key, JSON.stringify(updated));
+        if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
+          UserScopedStorage.setItem(scopedKey, updated);
+        } else {
+          localStorage.setItem(globalKey, JSON.stringify(updated));
+        }
       } catch { /* quota or parse error — best effort */ }
     }
 
@@ -1330,6 +1340,7 @@ function logout() {
 // when there's exactly one account and it has a PIN (skip the picker grid,
 // go straight to PIN entry); null means show the full picker.
 Boot.showAccountGate = Boot._showAccountGate = function (soloUserId) {
+  localStorage.setItem('_gate_called', JSON.stringify({called:true, soloUserId, t:Date.now()}));
   _gateMode = 'boot';
   document.getElementById('lock-screen')?.classList.add('active');
   renderAccountGate(soloUserId);
@@ -1495,23 +1506,32 @@ async function completeLogin(userId) {
   // line instead so the user isn't stuck looking at an unresponsive screen.
   try {
     if (isSwitch) {
-      // Re-point storage before touching FS/desktop state for the new user —
-      // same ordering rule as boot's initSubsystems(): setUser must land
-      // before anything reads/writes files for this account.
       await OS.workers.fs.call('setUser', userId);
       Users.setActive(userId);
       await FS.init();
+      await Users.load();
+      await OS.settings.load();
+      if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setUserId) {
+        const hadScope = UserScopedStorage.userId === userId;
+        UserScopedStorage.setUserId(userId);
+        if (!hadScope) {
+          UserScopedStorage.migrateGlobalToUser(userId, [
+            { from: 'nova_app_permissions', to: 'app_permissions' },
+            { from: 'nova_installed_apps',  to: 'installed_apps'  },
+            { from: 'nova_disabled_apps',   to: 'disabled_apps'   },
+            { from: 'nova_boot_apps',       to: 'boot_apps'       },
+            { from: 'novabyte-shortcuts',   to: 'shortcuts'       },
+            { from: 'nova_contacts',        to: 'contacts'        },
+            { from: 'nova_downloads',       to: 'downloads'       },
+          ]);
+        }
+      }
     } else if (_gateMode === 'boot') {
-      // Same ordering rule applies here too: the FS worker's fsDb is still
-      // unset at this point on a returning/multi-account boot (initSubsystems()
-      // only opens the accounts DB, not a per-user fsDb — see boot.js), so
-      // setUser must run before finishBootAsUser()'s FS.init() call or it
-      // throws "no active user" inside the worker. That throw was previously
-      // uncaught (finishBootAsUser() runs outside boot()'s try/catch), which
-      // silently stalled boot forever and only surfaced as a watchdog-timeout
-      // reload loop with no visible error.
       await OS.workers.fs.call('setUser', userId);
       Users.setActive(userId);
+      if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setUserId) {
+        UserScopedStorage.setUserId(userId);
+      }
     }
   } catch (err) {
     const statusEl = document.getElementById('lock-status');
@@ -1721,6 +1741,7 @@ function triggerSecurityWipe(statusEl, attempt) {
 //   person cancels. When there's more than one admin account, shows a
 //   picker first (since each admin has their own PIN, not one shared
 //   machine password); with exactly one admin, goes straight to PIN entry.
+//   If the chosen admin has no PIN set, skips PIN entry and auto-resolves.
 async function requestAdminAuth(reason) {
   const admins = Users.admins();
   if (admins.length === 0) return null; // shouldn't happen — always >=1 admin
@@ -1759,7 +1780,16 @@ async function requestAdminAuth(reason) {
       const grid = createEl('div', { className: 'admin-gate-picker' });
       for (const a of admins) {
         const tile = createEl('button', { className: 'admin-gate-tile', textContent: a.name || 'Admin' });
-        tile.addEventListener('click', () => { selectedAdminId = a.id; enteredPin = ''; renderPinPad(); });
+        tile.addEventListener('click', () => {
+          selectedAdminId = a.id;
+          enteredPin = '';
+          const admin = Users.get(a.id);
+          if (!admin || !admin.pinHash) {
+            finish(a.id);
+          } else {
+            renderPinPad();
+          }
+        });
         grid.appendChild(tile);
       }
       bodyEl.appendChild(grid);
@@ -1771,6 +1801,7 @@ async function requestAdminAuth(reason) {
     function renderPinPad() {
       bodyEl.innerHTML = '';
       const admin = Users.get(selectedAdminId);
+      if (!admin) { finish(null); return; }
 
       if (admins.length > 1) {
         const backLink = createEl('button', { className: 'lock-back-link', textContent: '\u2190 Choose a different admin' });
@@ -1841,7 +1872,16 @@ async function requestAdminAuth(reason) {
     document.addEventListener('keydown', onKeydown);
 
     document.body.appendChild(overlay);
-    if (selectedAdminId) renderPinPad(); else renderPicker();
+    if (selectedAdminId) {
+      const admin = Users.get(selectedAdminId);
+      if (!admin || !admin.pinHash) {
+        finish(selectedAdminId);
+        return;
+      }
+      renderPinPad();
+    } else {
+      renderPicker();
+    }
   });
 }
 window.requestAdminAuth = requestAdminAuth;

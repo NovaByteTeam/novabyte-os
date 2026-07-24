@@ -188,9 +188,13 @@ const AppPermissionManager = (() => {
 
   function saveToStorage() {
     try {
-      if (typeof localStorage === 'undefined' || !localStorage) return;
-      const grants = [...permissionGrants.values()];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(grants));
+      if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
+        const grants = [...permissionGrants.values()];
+        UserScopedStorage.setItem(STORAGE_KEY, grants);
+      } else if (typeof localStorage !== 'undefined' && localStorage) {
+        const grants = [...permissionGrants.values()];
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(grants));
+      }
     } catch (e) {
       if (e.name !== 'SecurityError') console.error('[AppPermissionManager] save failed:', e);
     }
@@ -241,10 +245,15 @@ const AppPermissionManager = (() => {
 
   // Run sweep at most once per day
   function _scheduleSweep() {
-    const last = parseInt(localStorage.getItem(SWEEP_KEY) || '0', 10);
-    if (Date.now() - last < MS_PER_DAY) return;
-    localStorage.setItem(SWEEP_KEY, String(Date.now()));
-    // Defer so it doesn't block init
+    const last = (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+      ? UserScopedStorage.getItem(SWEEP_KEY)
+      : localStorage.getItem(SWEEP_KEY)) || '0';
+    if (Date.now() - parseInt(last, 10) < MS_PER_DAY) return;
+    if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
+      UserScopedStorage.setItem(SWEEP_KEY, String(Date.now()));
+    } else {
+      localStorage.setItem(SWEEP_KEY, String(Date.now()));
+    }
     setTimeout(() => _sweepExpired(), 5000);
   }
 
@@ -257,9 +266,11 @@ const AppPermissionManager = (() => {
         return;
       }
 
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+        ? UserScopedStorage.getItem(STORAGE_KEY)
+        : (localStorage.getItem(STORAGE_KEY) || null);
       if (raw) {
-        const grants  = JSON.parse(raw);
+        const grants  = typeof raw === 'string' ? JSON.parse(raw) : raw;
         let rejected  = 0;
         for (const grant of grants) {
           if (!_verify(grant)) { rejected++; continue; }

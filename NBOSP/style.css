@@ -1650,6 +1650,109 @@
       transform: scale(0.95);
     }
 
+    .lock-picker-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: var(--text-primary);
+    }
+
+    .lock-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 12px;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .lock-picker-tile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 16px 8px;
+      border-radius: var(--r-md);
+      border: 1px solid var(--border-default);
+      background: var(--bg-overlay);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .lock-picker-tile:hover {
+      background: var(--accent-muted);
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    .lock-picker-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .lock-back-link {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 13px;
+      padding: 4px 0;
+      margin-bottom: 8px;
+      text-align: left;
+    }
+
+    .lock-back-link:hover {
+      text-decoration: underline;
+    }
+
+    .admin-gate-dialog {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .admin-gate-body {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .admin-gate-picker {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .admin-gate-tile {
+      padding: 12px 20px;
+      border-radius: var(--r-md);
+      border: 1px solid var(--border-default);
+      background: var(--bg-overlay);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      min-width: 100px;
+    }
+
+    .admin-gate-tile:hover {
+      background: var(--accent-muted);
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
     /* ── DESKTOP ── */
     #desktop {
       position: fixed;

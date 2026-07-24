@@ -6,13 +6,17 @@
   const STORAGE_VERSION = 1;
 
   function parseJSON(raw, fallback) {
-    try { return raw ? JSON.parse(raw) : fallback; }
+    try { return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : fallback; }
     catch { return fallback; }
   }
 
   function loadRegistry() {
-    try { return parseJSON(localStorage.getItem(APPS_KEY), []); }
-    catch { return []; }
+    try {
+      const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+        ? UserScopedStorage.getItem(APPS_KEY)
+        : localStorage.getItem(APPS_KEY);
+      return parseJSON(raw, []);
+    } catch { return []; }
   }
 
   function safeAppId(id) {
@@ -66,7 +70,11 @@
 
   function saveRegistry(list) {
     const metadata = toMetadataList(list);
-    localStorage.setItem(APPS_KEY, JSON.stringify(metadata));
+    if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
+      UserScopedStorage.setItem(APPS_KEY, metadata);
+    } else {
+      localStorage.setItem(APPS_KEY, JSON.stringify(metadata));
+    }
     if (window.AppDirs?.syncKey) AppDirs.syncKey(APPS_KEY, metadata).catch(() => {});
     return metadata;
   }

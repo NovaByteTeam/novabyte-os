@@ -282,13 +282,9 @@ registerApp({
       recoveryGroup.appendChild(recoveryRow);
       mainContent.appendChild(recoveryGroup);
 
-      // Developer Mode — admin-only, per the account rules: standard users
-      // don't get Developer Mode at all, not even behind a password prompt.
-      // It simply doesn't render for them, rather than showing a locked/greyed
-      // control that would just invite trying to bypass it.
-      if (Users.active?.role === 'admin') {
-        renderDeveloperModeGroup();
-      }
+      // Developer Mode — visible to all users. Standard users must
+      // authenticate as an admin before enabling it.
+      renderDeveloperModeGroup();
     }
 
     function renderDeveloperModeGroup() {
@@ -301,6 +297,10 @@ registerApp({
       });
       devToggle.addEventListener('click', async () => {
         const next = !OS.settings.get('devMode');
+        if (next && Users.active?.role !== 'admin') {
+          const adminId = await requestAdminAuth('An administrator must authorize enabling Developer Mode.');
+          if (!adminId) return;
+        }
         if (next) {
           const confirmed = await new Promise((resolve) => {
             const overlay = createEl('div', {
@@ -2220,6 +2220,8 @@ registerApp({
       adminToggle.addEventListener('click', async () => {
         if (adminToggle.disabled) return;
         const next = !adminToggle.classList.contains('active');
+        const adminId = await requestAdminAuth('An administrator must authorize enabling Admin Mode.');
+        if (!adminId) return;
         adminToggle.disabled = true;
         try {
           const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';

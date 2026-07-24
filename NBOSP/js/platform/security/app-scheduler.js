@@ -139,7 +139,10 @@ const AppScheduler = (() => {
 
     let disabled = [];
     try {
-      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+        ? UserScopedStorage.getItem('disabled_apps')
+        : localStorage.getItem('nova_disabled_apps');
+      disabled = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
     } catch {
       // Corrupt value — treat as none disabled rather than failing eligibility
       // for every app.

@@ -283,10 +283,23 @@
             'textedit': 'nbosp-textedit', 'terminal': 'nbosp-terminal', 'music': 'nbosp-music' };
           const appId = id ? (map[id] || id) : null;
           if (appId) {
-            localStorage.setItem('nova_disabled_apps', JSON.stringify([
-              ...(JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]').filter(x => x !== appId)),
+            const getDisabled = () => {
+              const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+                ? UserScopedStorage.getItem('disabled_apps')
+                : localStorage.getItem('nova_disabled_apps');
+              return typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
+            };
+            const setDisabled = (list) => {
+              if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
+                UserScopedStorage.setItem('disabled_apps', list);
+              } else {
+                localStorage.setItem('nova_disabled_apps', JSON.stringify(list));
+              }
+            };
+            setDisabled([
+              ...getDisabled().filter(x => (typeof x === 'string' ? x : x?.id) !== appId),
               { id: appId, reason: 'broken: ' + src, ts: Date.now() }
-            ]));
+            ]);
           }
         } catch { }
       }
@@ -321,11 +334,12 @@
       window._bootStartTime = bootStartTime;
 
       const watchdog = setInterval(function () {
-        // Check if the boot-screen is still visible (boot incomplete)
         const bootScreen = document.getElementById('boot-screen');
         const hasCompleted = document.body.classList.contains('os-booted');
+        const lockScreenActive = document.getElementById('lock-screen')?.classList.contains('active');
+        const bootScreenVisible = bootScreen && bootScreen.offsetParent !== null;
 
-        if (Date.now() - bootStartTime > BOOT_TIMEOUT_MS && !hasCompleted && bootScreen) {
+        if (Date.now() - bootStartTime > BOOT_TIMEOUT_MS && !hasCompleted && bootScreenVisible && !lockScreenActive) {
           clearInterval(watchdog);
           console.error('[CRITICAL] Boot timeout - stuck detection');
           localStorage.setItem(RECOVERY_FORCE_KEY, '1');

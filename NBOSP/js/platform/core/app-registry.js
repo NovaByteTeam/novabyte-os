@@ -55,8 +55,11 @@ const AppRegistry = (() => {
 
   function _saveToStorage() {
     try {
-      if (typeof localStorage === 'undefined' || !localStorage) return;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...installedApps.values()]));
+      if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
+        UserScopedStorage.setItem(STORAGE_KEY, [...installedApps.values()]);
+      } else if (typeof localStorage !== 'undefined' && localStorage) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...installedApps.values()]));
+      }
     } catch (e) {
       if (e.name !== 'SecurityError') {
         console.error('[AppRegistry] save failed:', e);
@@ -78,9 +81,11 @@ const AppRegistry = (() => {
         }
         return;
       }
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+        ? UserScopedStorage.getItem(STORAGE_KEY)
+        : (localStorage.getItem(STORAGE_KEY) || null);
       if (!raw) return;
-      const apps = JSON.parse(raw);
+      const apps = typeof raw === 'string' ? JSON.parse(raw) : raw;
       for (const app of apps) {
         // Re-sanitize on restore too — closes the gap for records persisted
         // by a pre-patch version of this file, where a .novaapp install
@@ -304,7 +309,10 @@ const AppRegistry = (() => {
    */
   async function launchApp(appId, content, state, options) {
     try {
-      const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+        ? UserScopedStorage.getItem('disabled_apps')
+        : localStorage.getItem('nova_disabled_apps');
+      const disabled = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
       if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
         console.warn('[AppRegistry] Launch blocked — disabled app:', appId);
         if (typeof EventLog !== 'undefined') {

@@ -1,5 +1,5 @@
 // ── Static Configurations & Constants ──────────────────────────────
-const BOOT_TIMEOUT_MS = 15000;
+const BOOT_TIMEOUT_MS = 30000;
 const BOOT_THRESHOLD  = 5;
 
 const KEYS = Object.freeze({
@@ -110,9 +110,18 @@ const Boot = {
   _setupWatchdog(bootStartTime, uaShort) {
     Storage.set(KEYS.TIMEOUT, { start: bootStartTime, completed: false });
 
-    const id = setTimeout(() => {
+    const fire = () => {
       const td = Storage.get(KEYS.TIMEOUT, {});
       if (!td.completed) {
+        const lockScreenActive = document.getElementById('lock-screen')?.classList.contains('active');
+        const bootScreen = document.getElementById('boot-screen');
+        const bootScreenVisible = bootScreen && bootScreen.offsetParent !== null;
+
+        if (lockScreenActive || bootScreenVisible) {
+          id = setTimeout(fire, BOOT_TIMEOUT_MS);
+          return;
+        }
+
         console.error('[BOOT] Stuck — timeout detected');
         Storage.set(KEYS.TIMEOUT, { start: bootStartTime, completed: false, stuck: true });
         localStorage.setItem(KEYS.FORCE, '1');
@@ -122,7 +131,9 @@ const Boot = {
         ]);
         location.reload();
       }
-    }, BOOT_TIMEOUT_MS);
+    };
+
+    let id = setTimeout(fire, BOOT_TIMEOUT_MS);
 
     return {
       complete() {
@@ -131,6 +142,12 @@ const Boot = {
         td.completed = true;
         Storage.set(KEYS.TIMEOUT, td);
         Storage.remove(KEYS.FORCE);
+      },
+      pause() {
+        clearTimeout(id);
+      },
+      resume() {
+        id = setTimeout(fire, BOOT_TIMEOUT_MS);
       },
     };
   },
@@ -227,6 +244,7 @@ const Boot = {
    * once login succeeds on a returning/multi-account install.
    */
   async finishBootAsUser() {
+    await OS.settings.load();
     await FS.init();
     await window.AppDirs?.bootstrap?.();
     await window.OPFS?.init?.();
@@ -541,6 +559,18 @@ async function boot() {
     if (solo && !solo.pinHash) {
       await Boot._activateUser(solo.id);
     } else {
+      // The login gate (#lock-screen, z-index 99998) renders underneath the
+      // still-visible boot splash (#boot-screen, z-index 99999) unless we
+      // hide the splash first -- otherwise the picker/PIN UI is fully
+      // functional but invisible and unclickable, the login promise below
+      // never resolves, and the 15s watchdog force-reloads into the same
+      // stuck state forever (the actual cause of the "bootloop when a PIN
+      // or a 2nd account exists" bug).
+      bootScreen.classList.add('fade-out');
+      await new Promise(r => setTimeout(r, 400));
+      bootScreen.style.display = 'none';
+
+      watchdog.pause();
       try {
         await new Promise((resolve, reject) => {
           Boot._pendingLoginResolve = resolve;
@@ -558,6 +588,7 @@ async function boot() {
       } finally {
         Boot._pendingLoginResolve = null;
         Boot._pendingLoginReject = null;
+        watchdog.resume();
       }
     }
   }
@@ -700,7 +731,10 @@ async function boot() {
 
     let disabled;
     try {
-      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]')
+      const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
+        ? UserScopedStorage.getItem('disabled_apps')
+        : localStorage.getItem('nova_disabled_apps');
+      disabled = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || [])
         .map(x => (typeof x === 'string' ? x : x?.id))
         .filter(Boolean);
     } catch {
