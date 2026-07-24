@@ -3664,7 +3664,17 @@ const AppSandbox = (() => {
   // as if it were a fetchable resource, which always fails. This
   // interceptor needs the real, unpatched fetch to read blob bytes
   // in-context, so grab it now while it's still native.
-  const nativeFetchForDownloads = window.fetch.bind(window);
+  // Guarded: this shim's IIFE has no outer try/catch, and this line runs
+  // unconditionally near the very top of the guest's first script — if
+  // window.fetch isn't available yet at this exact point (confirmed
+  // reproducible: a TypeError here throws with nothing to catch it,
+  // which aborts the rest of this script, including the IPC bridge setup
+  // that runs after it), the whole shim silently fails to initialize.
+  // Falling back to a no-op means blob: downloads via <a download> won't
+  // work until fetch exists, but everything else in the shim still loads.
+  const nativeFetchForDownloads = (typeof window.fetch === 'function')
+    ? window.fetch.bind(window)
+    : function() { return Promise.reject(new TypeError('fetch unavailable at shim init time')); };
   HTMLAnchorElement.prototype.click = function() {
     const href = this.href || '';
     const filename = this.download;
@@ -4147,9 +4157,27 @@ const AppSandbox = (() => {
   // see isNestedWebviewPermitted(). Passing no app is treated as no app
   // (fails closed to "not permitted"), it does not fall back to some
   // shared/cached shim from a previous call.
+  //
+  // One exception to "unconditional": a leading <!DOCTYPE ...>. Per the
+  // HTML spec a doctype is only recognized when it's the very first thing
+  // in the document — it's not executable and doesn't run any guest code,
+  // so it doesn't reopen the script-ordering race this rewrite closed, but
+  // splicing a <script> block before it does knock the parser out of
+  // no-quirks mode (or worse, depending on how the host serves the file),
+  // which is exactly the "whole app fails to load" failure this is fixing.
+  // Matched narrowly (must be at offset 0, case-insensitive) rather than
+  // searched for anywhere in the string, so this can't be tricked by an
+  // app embedding a fake "<!DOCTYPE" later in the body.
+  const LEADING_DOCTYPE_RE = /^\s*<!DOCTYPE\s+html\s*>/i;
   function injectCapabilityShim(html, app) {
     if (typeof html !== 'string') return html;
     const shim = buildCapabilityShim(isNestedWebviewPermitted(app));
+    const doctypeMatch = html.match(LEADING_DOCTYPE_RE);
+    if (doctypeMatch) {
+      const doctype = doctypeMatch[0];
+      const rest = html.slice(doctype.length);
+      return doctype + '\n' + shim + '\n' + RELAXED_CSP_META + '\n' + rest;
+    }
     return shim + '\n' + RELAXED_CSP_META + '\n' + html;
   }
 
