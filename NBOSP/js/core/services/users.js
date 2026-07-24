@@ -93,17 +93,26 @@ const Users = {
 
   // Creates a new account. First account on the machine is forced admin
   // regardless of what's passed in — there's no admin-less install state.
+  //
+  // pin may be null/undefined — an account can exist with no PIN set yet
+  // (this is how the very first, auto-created admin account starts: see
+  // boot.js's first-run path, which mirrors the old single-user install
+  // where a PIN was optional). A null pin here means pinHash/pinSalt stay
+  // null until the user sets one via setPin(), same as the migration path
+  // in load() for an install that never had OS.lockPin set.
   async createUser({ name, role, pin }) {
-    if (!name || !/^\d{4}$/.test(pin || '')) {
-      throw new Error('Name and a 4-digit PIN are required.');
+    if (!name) throw new Error('Name is required.');
+    if (pin !== null && pin !== undefined && !/^\d{4}$/.test(pin)) {
+      throw new Error('PIN must be exactly 4 digits, or omitted.');
     }
     const isFirst = this._cache.size === 0;
-    const salt = this._freshSalt();
+    const hasPin = pin !== null && pin !== undefined;
+    const salt = hasPin ? this._freshSalt() : null;
     const user = {
       id: generateId(),
       name,
       role: isFirst ? 'admin' : (role === 'admin' ? 'admin' : 'standard'),
-      pinHash: await this._hash(pin, salt),
+      pinHash: hasPin ? await this._hash(pin, salt) : null,
       pinSalt: salt,
       avatar: null,
       createdAt: Date.now()

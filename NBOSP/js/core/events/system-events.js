@@ -1263,7 +1263,25 @@ document.addEventListener('keyup', (e) => {
   if (windows[switcherIdx]) WM.focusWindow(windows[switcherIdx].id);
 });
 
-// LOCK SCREEN
+// LOCK SCREEN / ACCOUNT GATE
+//
+// One screen, two entry points:
+//
+//   - Boot._showAccountGate(soloAccountIdOrNull) — pre-login, called from
+//     boot.js when Users.activeId is still null (returning/multi-account
+//     install). Resolves Boot._pendingLoginResolve once a user is verified
+//     in; there is no "cancel" — boot is blocked until this succeeds.
+//   - lockScreen() — runtime lock/switch-user, called from the taskbar menu,
+//     Cmd/Ctrl+L, or idle timeout. A desktop already exists, so unlocking
+//     resumes it instead of resolving a boot promise.
+//
+// Both funnel through the same renderAccountGate()/verifyPin() machinery —
+// the numpad, dots, lockout escalation, biometric hook, and security wipe
+// are identical either way, only what happens on success differs.
+
+let _gateMode = null;        // 'boot' | 'lock'
+let _gateSelectedUserId = null;
+let enteredPin = '';
 
 function handleLockScreenKeydown(e) {
   const lockScreenEl = document.getElementById('lock-screen');
@@ -1271,37 +1289,125 @@ function handleLockScreenKeydown(e) {
     document.removeEventListener('keydown', handleLockScreenKeydown);
     return;
   }
+  // Digit/backspace/enter only apply once a specific account is selected —
+  // on the picker grid itself there's no PIN field to type into yet.
+  if (!_gateSelectedUserId) return;
   if (e.key >= '0' && e.key <= '9') { e.preventDefault(); enterPinDigit(e.key); }
   else if (e.key === 'Backspace') { e.preventDefault(); backspacePin(); }
   else if (e.key === 'Enter') { e.preventDefault(); if (enteredPin.length === 4) verifyPin(); }
   else if (e.key === 'Escape') { e.preventDefault(); clearPin(); }
 }
 
+// Runtime lock — a session is already active. Re-shows the gate for the
+// *currently* signed-in user only (locking is not the same as switching
+// accounts — see switchUser() below for that).
 function lockScreen() {
-  if (!OS.lockPin) { WM.minimizeAll(); return; }
+  const active = Users.active;
+  if (!active || !active.pinHash) { WM.minimizeAll(); return; }
   OS.isLocked = true;
+  _gateMode = 'lock';
   document.getElementById('lock-screen')?.classList.add('active');
-  renderLockScreen();
+  renderAccountGate(active.id);
   EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Screen locked' });
 }
 
-let enteredPin = '';
+// Switch user from the taskbar — distinct from lockScreen(): shows the full
+// picker (or, if the target has no PIN, an instant swap) rather than
+// re-locking the current account.
+function switchUser() {
+  OS.isLocked = true;
+  _gateMode = 'lock';
+  document.getElementById('lock-screen')?.classList.add('active');
+  renderAccountGate(null);
+  EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Switch user opened' });
+}
 
-function renderLockScreen() {
-  const usernameEl = document.getElementById('lock-username');
-  const dotsEl = document.getElementById('lock-pin-dots');
-  const statusEl = document.getElementById('lock-status');
-  const numpadEl = document.getElementById('lock-numpad');
-  if (!usernameEl || !dotsEl || !statusEl || !numpadEl) return;
+function logout() {
+  switchUser();
+}
 
-  usernameEl.textContent = OS.username || '';
-  dotsEl.innerHTML = '';
-  for (let i = 0; i < 4; i++) {
-    dotsEl.appendChild(createEl('div', { className: 'lock-pin-dot' }));
+// Boot-time entry point — see boot.js's login-gate stage. soloUserId is set
+// when there's exactly one account and it has a PIN (skip the picker grid,
+// go straight to PIN entry); null means show the full picker.
+Boot.showAccountGate = Boot._showAccountGate = function (soloUserId) {
+  _gateMode = 'boot';
+  document.getElementById('lock-screen')?.classList.add('active');
+  renderAccountGate(soloUserId);
+};
+
+// userId === null renders the picker grid; a real id renders PIN entry for
+// that specific account (skipping the grid, e.g. for the single-PIN-account
+// boot case or after clicking a tile in the picker).
+function renderAccountGate(userId) {
+  _gateSelectedUserId = userId;
+  const gateEl = document.getElementById('lock-screen');
+  if (!gateEl) return;
+
+  if (!userId) {
+    renderAccountPicker(gateEl);
+  } else {
+    renderPinEntry(gateEl, userId);
   }
-  statusEl.textContent = '';
-  numpadEl.innerHTML = '';
+}
 
+function renderAccountPicker(gateEl) {
+  gateEl.innerHTML = '';
+  gateEl.appendChild(createEl('div', { className: 'lock-picker-title', textContent: 'Who\u2019s signing in?' }));
+
+  const grid = createEl('div', { className: 'lock-picker-grid' });
+  for (const u of Users.list()) {
+    const tile = createEl('button', { className: 'lock-picker-tile', 'aria-label': u.name });
+    const avatar = createEl('div', { className: 'lock-avatar', 'aria-hidden': 'true' });
+    if (u.avatar) {
+      avatar.style.backgroundImage = `url(${u.avatar})`;
+    } else {
+      avatar.textContent = (u.name || '?').trim().charAt(0).toUpperCase();
+    }
+    tile.appendChild(avatar);
+    tile.appendChild(createEl('div', { className: 'lock-picker-name', textContent: u.name }));
+    tile.addEventListener('click', () => {
+      if (u.pinHash) {
+        renderAccountGate(u.id);
+      } else {
+        completeLogin(u.id);
+      }
+    });
+    grid.appendChild(tile);
+  }
+  gateEl.appendChild(grid);
+
+  document.removeEventListener('keydown', handleLockScreenKeydown);
+  document.addEventListener('keydown', handleLockScreenKeydown);
+}
+
+function renderPinEntry(gateEl, userId) {
+  const user = Users.get(userId);
+  if (!user) { renderAccountGate(null); return; }
+
+  gateEl.innerHTML = '';
+  const avatar = createEl('div', { className: 'lock-avatar', 'aria-hidden': 'true' });
+  if (user.avatar) avatar.style.backgroundImage = `url(${user.avatar})`;
+  else avatar.textContent = (user.name || '?').trim().charAt(0).toUpperCase();
+  gateEl.appendChild(avatar);
+
+  gateEl.appendChild(createEl('div', { className: 'lock-username', id: 'lock-username', textContent: user.name || '' }));
+
+  // "Back to accounts" only makes sense when there's more than one account
+  // to go back to — otherwise it'd just reopen a picker with one tile.
+  if (Users.list().length > 1) {
+    const backLink = createEl('button', { className: 'lock-back-link', textContent: '\u2190 Switch account' });
+    backLink.addEventListener('click', () => renderAccountGate(null));
+    gateEl.appendChild(backLink);
+  }
+
+  const dotsEl = createEl('div', { className: 'lock-pin-input', id: 'lock-pin-dots' });
+  for (let i = 0; i < 4; i++) dotsEl.appendChild(createEl('div', { className: 'lock-pin-dot' }));
+  gateEl.appendChild(dotsEl);
+
+  const statusEl = createEl('div', { className: 'lock-status', id: 'lock-status', 'aria-live': 'assertive' });
+  gateEl.appendChild(statusEl);
+
+  const numpadEl = createEl('div', { className: 'lock-numpad', id: 'lock-numpad', role: 'group', 'aria-label': 'PIN entry' });
   for (let i = 1; i <= 9; i++) {
     const btn = createEl('button', { textContent: String(i), 'aria-label': String(i) });
     btn.addEventListener('click', () => enterPinDigit(String(i)));
@@ -1319,24 +1425,23 @@ function renderLockScreen() {
   backBtn.innerHTML = svgIcon('chevron-left', 18);
   backBtn.addEventListener('click', backspacePin);
   numpadEl.appendChild(backBtn);
+  gateEl.appendChild(numpadEl);
 
-  // Biometric unlock button — added once per lock screen mount.
-  if (window.PublicKeyCredential && OS.settings.get('biometricCredentialId')) {
-    const lockScreenEl = document.getElementById('lock-screen');
-    if (lockScreenEl && !lockScreenEl.querySelector('.biometric-btn')) {
-      const bioBtn = createEl('button', {
-        className: 'biometric-btn',
-        style: 'margin-top:16px;width:100%;padding:12px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-weight:600;cursor:pointer;'
-      });
-      bioBtn.textContent = '👆 Use Biometric';
-      bioBtn.addEventListener('click', () => attemptBiometricUnlock(statusEl));
-      numpadEl.parentNode?.appendChild(bioBtn);
-    }
+  // Biometric unlock — only ever offered for the account that originally
+  // registered the credential, i.e. only meaningful in 'lock' mode for the
+  // already-active user, not while picking between accounts pre-login.
+  if (_gateMode === 'lock' && window.PublicKeyCredential && OS.settings.get('biometricCredentialId') && userId === Users.activeId) {
+    const bioBtn = createEl('button', {
+      className: 'biometric-btn',
+      style: 'margin-top:16px;width:100%;padding:12px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-weight:600;cursor:pointer;'
+    });
+    bioBtn.textContent = '\ud83d\udc46 Use Biometric';
+    bioBtn.addEventListener('click', () => attemptBiometricUnlock(statusEl));
+    gateEl.appendChild(bioBtn);
   }
 
   enteredPin = '';
   updatePinDots();
-  // Remove before re-adding so re-renders don't stack keydown listeners.
   document.removeEventListener('keydown', handleLockScreenKeydown);
   document.addEventListener('keydown', handleLockScreenKeydown);
 }
@@ -1363,19 +1468,37 @@ async function attemptBiometricUnlock(statusEl) {
       }
     });
     if (credential) {
-      unlockFromLockScreen();
       Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
+      completeLogin(_gateSelectedUserId);
     }
   } catch (err) {
     statusEl.textContent = 'Biometric failed: ' + (err?.message || 'Try PIN instead');
   }
 }
 
-function unlockFromLockScreen() {
-  OS.isLocked = false;
-  EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Screen unlocked' });
+// Shared success path for both boot login and runtime unlock/switch. In
+// 'boot' mode this resolves the promise boot() is awaiting; in 'lock' mode
+// it re-points the FS worker (if the account actually changed) and resumes
+// the desktop.
+async function completeLogin(userId) {
+  const isSwitch = _gateMode === 'lock' && userId !== Users.activeId;
 
-  // Cancel any pending wipe countdown — biometric auth must be able to abort it.
+  if (isSwitch) {
+    // Re-point storage before touching FS/desktop state for the new user —
+    // same ordering rule as boot's initSubsystems(): setUser must land
+    // before anything reads/writes files for this account.
+    await OS.workers.fs.call('setUser', userId);
+    Users.setActive(userId);
+    await FS.init();
+  } else if (_gateMode === 'boot') {
+    Users.setActive(userId);
+  }
+
+  OS.isLocked = false;
+  OS.wrongPinCount = 0;
+  OS.lockoutUntil = 0;
+  EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: isSwitch ? 'User switched' : 'Screen unlocked' });
+
   if (_wipeCountdownId) {
     clearInterval(_wipeCountdownId);
     _wipeCountdownId = 0;
@@ -1384,7 +1507,17 @@ function unlockFromLockScreen() {
   document.getElementById('lock-screen')?.classList.remove('active');
   document.removeEventListener('keydown', handleLockScreenKeydown);
   enteredPin = '';
+  _gateSelectedUserId = null;
 
+  if (_gateMode === 'boot') {
+    const resolve = Boot._pendingLoginResolve;
+    Boot._pendingLoginResolve = null;
+    _gateMode = null;
+    resolve?.();
+    return;
+  }
+
+  _gateMode = null;
   WM.updateTaskbar();
   requestAnimationFrame(() => { renderDesktopIcons(); WM.updateTaskbar(); });
 }
@@ -1399,7 +1532,8 @@ function enterPinDigit(d) {
 function clearPin() {
   enteredPin = '';
   updatePinDots();
-  document.getElementById('lock-status').textContent = '';
+  const el = document.getElementById('lock-status');
+  if (el) el.textContent = '';
 }
 
 function backspacePin() {
@@ -1415,7 +1549,7 @@ function updatePinDots() {
 
 async function verifyPin() {
   const statusEl = document.getElementById('lock-status');
-  if (!statusEl) return;
+  if (!statusEl || !_gateSelectedUserId) return;
 
   // Enforce lockout before touching the hash worker — the original code set
   // OS.lockoutUntil but never checked it at entry, so a caller could keep
@@ -1431,11 +1565,10 @@ async function verifyPin() {
 
   statusEl.textContent = 'Verifying...';
 
-  let hash;
+  let ok;
   try {
-    if (!OS.workers?.crypto?.call) throw new Error('crypto worker unavailable');
-    if (typeof getPinSalt !== 'function') throw new Error('PIN salt provider unavailable');
-    hash = await OS.workers.crypto.call('pbkdf2', enteredPin, getPinSalt());
+    if (typeof Users?.verifyPin !== 'function') throw new Error('account verification unavailable');
+    ok = await Users.verifyPin(_gateSelectedUserId, enteredPin);
   } catch (err) {
     statusEl.textContent = 'Verification unavailable: ' + (err?.message || 'try again');
     enteredPin = '';
@@ -1444,10 +1577,8 @@ async function verifyPin() {
     return;
   }
 
-  if (hash === OS.lockPin) {
-    OS.wrongPinCount = 0;
-    OS.lockoutUntil = 0;
-    unlockFromLockScreen();
+  if (ok) {
+    await completeLogin(_gateSelectedUserId);
     return;
   }
 
