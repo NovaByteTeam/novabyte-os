@@ -4,10 +4,15 @@ const FS_WORKER_CODE = `
 'use strict';
 // ─────────────────────────────────────────────────────────────────────────────
 const DB_NAME = 'NovaByte_FS';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_FILES = 'files';
 const STORE_SETTINGS = 'settings';
 const STORE_NOTIFICATIONS = 'notifications';
+const STORE_USERS = 'users';
+// Account records live in their own store, in the same *unscoped* DB that
+// this worker always opens (STORE_FILES/STORE_SETTINGS get namespaced per
+// user in a later change — this store deliberately never does, since the
+// list of accounts has to be readable before any one of them is "active").
 
 let db = null;
 
@@ -41,7 +46,7 @@ function openDB() {
         }
       };
       // Pre-create the expected stores
-      [STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS].forEach(n => { _stores[n] = {}; });
+      [STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS, STORE_USERS].forEach(n => { _stores[n] = {}; });
       resolve(db);
       return;
     }
@@ -56,6 +61,9 @@ function openDB() {
       if (!d.objectStoreNames.contains(STORE_NOTIFICATIONS)) {
         const ns = d.createObjectStore(STORE_NOTIFICATIONS, { keyPath: 'id' });
         ns.createIndex('timestamp', 'timestamp');
+      }
+      if (!d.objectStoreNames.contains(STORE_USERS)) {
+        d.createObjectStore(STORE_USERS, { keyPath: 'id' });
       }
     };
     req.onsuccess = (e) => { db = e.target.result; resolve(db); };
@@ -128,6 +136,36 @@ async function getAllSettings() {
   });
 }
 
+async function getAllUsers() {
+  const d = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE_USERS, 'readonly');
+    const req = tx.objectStore(STORE_USERS).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function putUser(user) {
+  const d = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE_USERS, 'readwrite');
+    tx.objectStore(STORE_USERS).put(user);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function deleteUser(id) {
+  const d = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE_USERS, 'readwrite');
+    tx.objectStore(STORE_USERS).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 self.onmessage = async (e) => {
   const { id, method, args } = e.data;
   try {
@@ -140,6 +178,9 @@ self.onmessage = async (e) => {
       case 'getSetting': result = await getSetting(args[0]); break;
       case 'putSetting': await putSetting(args[0], args[1]); result = true; break;
       case 'getAllSettings': result = await getAllSettings(); break;
+      case 'getAllUsers': result = await getAllUsers(); break;
+      case 'putUser': await putUser(args[0]); result = true; break;
+      case 'deleteUser': await deleteUser(args[0]); result = true; break;
       default: throw new Error('Unknown method: ' + method);
     }
     self.postMessage({ id, result });

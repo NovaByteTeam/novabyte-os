@@ -184,6 +184,12 @@ const Boot = {
       }
     });
 
+    // Users.load() must run before FS.init(): it may migrate a pre-account
+    // install's single OS.lockPin into the first admin account, and step 2
+    // (per-user storage scoping) needs Users.activeId to already be settled
+    // — or at least the account list populated — before FS decides which
+    // IndexedDB namespace to open.
+    await Users.load();
     await FS.init();
     await window.AppDirs?.bootstrap?.();
     await window.OPFS?.init?.();
