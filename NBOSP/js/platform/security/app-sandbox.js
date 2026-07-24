@@ -3209,12 +3209,13 @@ const AppSandbox = (() => {
     }
   }
 
-  // Marker used on the postMessage bridge between the isolated transport
-  // script and the main-world capability shim. Deliberately distinct from
-  // IPC_MARKER (the guest->host console.log marker) — this one never
-  // leaves the guest's own window, it just tags same-window postMessage
-  // traffic so the transport/shim pair can tell their own messages apart
-  // from anything else that might call postMessage on this window.
+  // Marker used ONLY on the one-shot handshake that hands a MessagePort
+  // from the isolated transport script to the main-world capability shim.
+  // Deliberately distinct from IPC_MARKER (the guest->host console.log
+  // marker). Unlike the previous design, this marker does NOT authenticate
+  // ongoing request/response traffic — see the handshake comment below for
+  // why a tagged window.postMessage alone is forgeable by any main-world
+  // script and can't be trusted for anything beyond the initial port handoff.
   const BRIDGE_MARKER = '__NOVA_BRIDGE__';
 
   // Builds the isolated-world transport content script. This owns the
@@ -3226,23 +3227,60 @@ const AppSandbox = (() => {
   // "isolated world", same mechanism as Chrome extension content
   // scripts) that the guest's own page script cannot reach, patch, or
   // race against. See JavaScript Contexts in NW.js docs: isolated and
-  // main-world scripts share the DOM but not JS globals, so this talks
-  // to the main-world capability shim (buildCapabilityShim below) purely
-  // via same-window postMessage, tagged with BRIDGE_MARKER.
+  // main-world scripts share the DOM but not JS globals.
   //
-  // Concretely, this closes two things the old single-realm shim could
-  // not: (1) a guest page redefining console.log before the shim's IIFE
-  // ran could previously blind or spoof the IPC channel — now that
-  // channel lives in a realm the guest's console.log override never
-  // touches; (2) window.__novaInbox / window.__novaOutboxPull used to be
-  // plain globals on the guest's own window, readable/writable by any
-  // guest script — now they're closures inside this isolated script,
-  // invisible to window.* lookups from the main world.
+  // Ongoing traffic with the main-world capability shim (buildCapabilityShim
+  // below) goes over a dedicated MessageChannel, not tagged window.postMessage.
+  // This is a deliberate correction: window.postMessage with a __novaBridge
+  // tag authenticates "this arrived on this window" but NOT "this actually
+  // came from the isolated script" — any main-world code (including an
+  // attacker who achieved script execution in the guest's own page, e.g. via
+  // an XSS bug in the app itself) can call
+  // window.postMessage(sameShapeObject, ...) and a listener keyed only on the
+  // tag has no way to tell the difference. Concretely, that let a compromised
+  // guest forge a fake "response" for one of its OWN in-flight requestIds and
+  // win the race against the real host response, corrupting whatever the
+  // guest's own app code does with that result.
+  //
+  // A MessagePort is what authenticates a message now: holding a reference
+  // to port2 is only possible for code that received it in the one-shot
+  // handshake below, and the isolated script stops listening for further
+  // handshake requests the instant one is claimed — so nothing that runs
+  // afterward (including later-injected or dynamically-eval'd guest script)
+  // can obtain a second reference to it. A message arriving on
+  // `port1.onmessage` can only have been sent via `port2.postMessage`, so no
+  // tag/marker is needed to trust port traffic — possession of the port is
+  // the credential.
+  //
+  // This still closes what the window.postMessage version closed relative to
+  // the original single-realm shim: (1) a guest page redefining console.log
+  // before the shim's IIFE ran could previously blind or spoof the IPC
+  // channel — that channel lives in a realm the guest's console.log override
+  // never touches; (2) window.__novaInbox / window.__novaOutboxPull used to
+  // be plain globals on the guest's own window — now they're closures inside
+  // this isolated script, invisible to window.* lookups from the main world.
+  // It additionally closes the response-forgery gap the tagged-postMessage
+  // bridge itself introduced.
   function buildIsolatedTransportScript() {
     return `(function() {
   'use strict';
   const IPC_MARKER = ${JSON.stringify(IPC_MARKER)};
   const BRIDGE_MARKER = ${JSON.stringify(BRIDGE_MARKER)};
+
+  // The MessagePort this isolated script keeps for itself once the
+  // handshake completes. port2 (the other end) is handed to the
+  // main-world shim exactly once, below. Until the handshake fires,
+  // outbound messages queue in pendingOutbound rather than being lost.
+  let mainWorldPort = null;
+  let pendingOutbound = [];
+
+  function sendToMainWorld(msg) {
+    if (mainWorldPort) {
+      try { mainWorldPort.postMessage(msg); } catch (e) { /* torn-down guest window */ }
+    } else {
+      pendingOutbound.push(msg);
+    }
+  }
 
   // Host->guest responses land here, pushed to by respond() in
   // app-sandbox.js via executeScript targeting this isolated world
@@ -3273,15 +3311,16 @@ const AppSandbox = (() => {
     } catch (e) {
       // Deliver a synthetic error back to the main world so its pending
       // promise doesn't hang forever if console.log itself throws.
-      deliverToMainWorld({ __novaBridge: BRIDGE_MARKER, kind: 'response', requestId: requestId,
+      deliverToMainWorld({ kind: 'response', requestId: requestId,
         type: type + ':response', result: null, error: { code: 'TRANSPORT_ERROR', message: String(e && e.message || e) } });
     }
   }
 
-  // Forward a host response (or pushed event) to the main-world shim.
+  // Forward a host response (or pushed event) to the main-world shim, over
+  // the dedicated port rather than tagged window.postMessage — see the
+  // module-level comment above buildIsolatedTransportScript for why.
   function deliverToMainWorld(msg) {
-    try { window.postMessage(msg, window.location.origin); }
-    catch (e) { /* best-effort — a torn-down guest window can throw here */ }
+    sendToMainWorld(msg);
   }
 
   // Same idle-backoff poller design as the original shim, just relocated:
@@ -3308,7 +3347,7 @@ const AppSandbox = (() => {
     for (let i = 0; i < drained.length; i++) {
       const msg = drained[i];
       if (!msg || typeof msg.type !== 'string') continue;
-      deliverToMainWorld(Object.assign({ __novaBridge: BRIDGE_MARKER, kind: 'response' }, msg));
+      deliverToMainWorld(Object.assign({ kind: 'response' }, msg));
     }
   }
 
@@ -3317,19 +3356,57 @@ const AppSandbox = (() => {
   }
   scheduleNextPoll();
 
-  // Requests arrive from the main-world shim via postMessage. event.source
-  // === window is the load-bearing check here: this isolated script and
-  // the main-world shim share the same window object (same document,
-  // different JS realm), so a same-window, same-origin postMessage is
-  // exactly what a legitimate call from our own shim looks like. Nothing
-  // outside this window (no nested iframe, no opener) can produce an
-  // event.source === window match against this window's own identity.
-  window.addEventListener('message', function(event) {
-    if (event.source !== window) return;
+  // Requests arrive from the main-world shim over the dedicated port once
+  // the handshake below completes.
+  function handlePortMessage(event) {
     const data = event.data;
-    if (!data || data.__novaBridge !== BRIDGE_MARKER || data.kind !== 'request') return;
+    if (!data || data.kind !== 'request') return;
     if (typeof data.type !== 'string' || typeof data.requestId !== 'string') return;
     sendToHost(data.type, data.payload, data.requestId);
+  }
+
+  // One-shot handshake: create a MessageChannel and hand port2 to the
+  // main-world shim. This is the ONLY message this script ever sends via
+  // window.postMessage — everything after this point goes over the port.
+  //
+  // handshakeClaimed makes the handoff strictly one-time: the instant a
+  // valid claim request is processed, the listener stops accepting further
+  // claims (even a same-tick duplicate call), so no later script — however
+  // it got main-world execution — can obtain a second reference to port2.
+  // A legitimate shim always wins this because buildCapabilityShim is
+  // guaranteed to run as the very first script in the guest's document
+  // (see injectCapabilityShim's unconditional prepend), before any guest
+  // HTML/script has had a chance to execute at all; run_at: 'document_start'
+  // on this content script additionally guarantees this listener exists
+  // before that first script tag runs. So the race this is closing is not
+  // "can a guest script beat the shim to the handshake" (it can't — the shim
+  // runs first, full stop) but "can a guest script REPLAY or FORGE the claim
+  // message after the fact" — handshakeClaimed defeats that by making the
+  // claim single-use regardless of timing.
+  let handshakeClaimed = false;
+  window.addEventListener('message', function(event) {
+    if (handshakeClaimed) return;
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.__novaBridge !== BRIDGE_MARKER || data.kind !== 'claim-port') return;
+    handshakeClaimed = true;
+
+    const channel = new MessageChannel();
+    mainWorldPort = channel.port1;
+    mainWorldPort.onmessage = handlePortMessage;
+    mainWorldPort.start();
+
+    // Flush anything queued before the shim claimed its port (there
+    // shouldn't be much — host pushes are rare this early — but this
+    // avoids silently dropping a pushed event that raced the handshake).
+    const queued = pendingOutbound;
+    pendingOutbound = [];
+    for (let i = 0; i < queued.length; i++) mainWorldPort.postMessage(queued[i]);
+
+    // Transfer port2 to the shim. This is a structured-clone transfer, not
+    // a copy — after this call, this script no longer holds any reference
+    // to port2, and neither does anything else that isn't the recipient.
+    event.source.postMessage({ __novaBridge: BRIDGE_MARKER, kind: 'claim-port-ack' }, event.origin, [channel.port2]);
   });
 })();`;
   }
@@ -3372,8 +3449,48 @@ const AppSandbox = (() => {
   // buildIsolatedTransportScript(). This shim never touches IPC_MARKER or
   // console.log directly anymore — that channel now lives entirely inside
   // the isolated-world transport script (injected separately via
-  // addContentScripts), which this shim can only reach by postMessage.
+  // addContentScripts). BRIDGE_MARKER is used ONLY to claim this shim's
+  // MessagePort at startup (see the handshake below) — once claimed, all
+  // request/response traffic goes over the port itself, which needs no tag
+  // because possession of the port is what proves a message is legitimate.
+  // A tagged window.postMessage is forgeable by any main-world script; a
+  // port reference isn't, since nothing outside this handshake ever gets one.
   const BRIDGE_MARKER = '__NOVA_BRIDGE__';
+
+  // Set once the one-shot handshake below completes. Requests made before
+  // this resolves are queued and flushed the instant the port arrives —
+  // in practice this window is essentially zero since this script is
+  // guaranteed to run before any other guest code (see
+  // injectCapabilityShim's unconditional prepend) and the isolated
+  // transport script's claim listener is armed by run_at: 'document_start'
+  // before that.
+  let hostPort = null;
+  let pendingPortMessages = [];
+  function sendOverPort(msg) {
+    if (hostPort) {
+      hostPort.postMessage(msg);
+    } else {
+      pendingPortMessages.push(msg);
+    }
+  }
+  window.addEventListener('message', function claimHandshake(event) {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.__novaBridge !== BRIDGE_MARKER || data.kind !== 'claim-port-ack') return;
+    window.removeEventListener('message', claimHandshake);
+    const port = event.ports && event.ports[0];
+    if (!port) return;
+    hostPort = port;
+    hostPort.onmessage = function(portEvent) { handleInboxMessage(portEvent.data); };
+    hostPort.start();
+    const queued = pendingPortMessages;
+    pendingPortMessages = [];
+    for (let i = 0; i < queued.length; i++) hostPort.postMessage(queued[i]);
+  });
+  // Ask the isolated transport script for a port. Sent exactly once; the
+  // isolated script's handshake listener is single-use on its end too, so
+  // a duplicate/replayed claim from anywhere else is a no-op.
+  window.postMessage({ __novaBridge: BRIDGE_MARKER, kind: 'claim-port' }, window.location.origin);
 
   function generateId() {
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -3395,11 +3512,10 @@ const AppSandbox = (() => {
   // unchanged: same Promise, same resolve/reject shape, same timeouts —
   // only the transport underneath moved.
   //
-  // event.source === window is the check that matters on the receiving
-  // end (see the 'message' listener below and the isolated script's own
-  // listener) — a same-window postMessage can only originate from code
-  // that shares this exact window object, i.e. this shim or the isolated
-  // transport script, never a nested iframe or external page.
+  // Requests go out over hostPort (see the claim-port handshake above),
+  // not window.postMessage — the port itself is what authenticates this
+  // as a legitimate call; see the BRIDGE_MARKER comment above for why a
+  // tagged window.postMessage wasn't sufficient on its own.
   function ipc(type, payload) {
     return new Promise(function(resolve, reject) {
       const id = generateId();
@@ -3412,7 +3528,7 @@ const AppSandbox = (() => {
       }, timeoutMs);
       pendingRequests.set(id, { resolve: resolve, reject: reject, timer: timer });
       try {
-        window.postMessage({ __novaBridge: BRIDGE_MARKER, kind: 'request', type: type, payload: payload, requestId: id }, window.location.origin);
+        sendOverPort({ kind: 'request', type: type, payload: payload, requestId: id });
       } catch (e) {
         clearTimeout(timer);
         pendingRequests.delete(id);
@@ -3421,18 +3537,14 @@ const AppSandbox = (() => {
     });
   }
 
-  // Responses (and pushed events) arrive via postMessage from the
-  // isolated-world transport script — see buildIsolatedTransportScript()
-  // in app-sandbox.js, which drains window.__novaInbox on its own poll
-  // loop and forwards each message here. This shim no longer touches
-  // window.__novaInbox itself (it lives in a different JS realm now), so
-  // there's nothing left to poll on this side — just a listener.
-  //
-  // Same event.source === window check as ipc()'s send path: only
-  // same-window postMessage traffic is accepted, which in practice means
-  // only the isolated transport script (or this shim itself) can be the
-  // source, since both share this window object but nothing outside it
-  // does.
+  // Responses (and pushed events) arrive via hostPort.onmessage — see the
+  // claim-port handshake above. The isolated transport script drains
+  // window.__novaInbox on its own poll loop and forwards each message over
+  // the port. This shim no longer touches window.__novaInbox itself (it
+  // lives in a different JS realm now), so there's nothing left to poll on
+  // this side — just a listener, and one that trusts its input by
+  // construction: only the isolated script ever held a reference to the
+  // other end of this port, so nothing else could be the source.
   function handleInboxMessage(msg) {
     if (!msg || typeof msg.type !== 'string') return;
 
@@ -3523,18 +3635,14 @@ const AppSandbox = (() => {
     }
   }
 
-  // Listens for postMessage traffic from the isolated-world transport
-  // script. Replaces the old setInterval-based drainInbox() poller — this
-  // is push-based now (the transport script only posts when it actually
-  // has something), so there's no idle-backoff tuning needed on this side
-  // anymore; that trade lives in the transport script's own poll of
-  // window.__novaInbox, which this shim can no longer see directly.
-  window.addEventListener('message', function(event) {
-    if (event.source !== window) return;
-    const data = event.data;
-    if (!data || data.__novaBridge !== BRIDGE_MARKER || data.kind !== 'response') return;
-    handleInboxMessage(data);
-  });
+  // Responses (and pushed events) arrive on hostPort.onmessage, wired up
+  // in the claim-port-ack handshake above the moment the port is received —
+  // no separate listener needed here. Replaces the old setInterval-based
+  // drainInbox() poller (push-based now, via the isolated script's own
+  // poll of window.__novaInbox forwarding over the port) and the tagged
+  // window.postMessage listener this shim used before the MessageChannel
+  // handoff (forgeable by any main-world script — see the BRIDGE_MARKER
+  // comment above for why that mattered).
 
   // Download interceptor
   // <webview> tags can't hand a blob: URL to the host — blob URLs are
@@ -3873,12 +3981,12 @@ const AppSandbox = (() => {
   }
   window.XMLHttpRequest = NovaXHR;
 
-  // Fire-and-forget send: same postMessage bridge as ipc(), but with no
+  // Fire-and-forget send: same port bridge as ipc(), but with no
   // pendingRequests entry since nothing here waits on a reply.
   function ipcFireAndForget(type, payload) {
     try {
       const id = generateId();
-      window.postMessage({ __novaBridge: BRIDGE_MARKER, kind: 'request', type: type, payload: payload, requestId: id }, window.location.origin);
+      sendOverPort({ kind: 'request', type: type, payload: payload, requestId: id });
     } catch { /* best-effort */ }
   }
 
