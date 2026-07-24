@@ -541,10 +541,24 @@ async function boot() {
     if (solo && !solo.pinHash) {
       await Boot._activateUser(solo.id);
     } else {
-      await new Promise((resolve) => {
-        Boot._pendingLoginResolve = resolve;
-        Boot._showAccountGate(solo ? solo.id : null);
-      });
+      try {
+        await new Promise((resolve, reject) => {
+          Boot._pendingLoginResolve = resolve;
+          Boot._pendingLoginReject = reject;
+          Boot._showAccountGate(solo ? solo.id : null);
+        });
+      } catch (e) {
+        console.error('[BOOT] Login gate failed, falling back to first account:', e);
+        const fallback = Users.list()[0];
+        if (fallback) {
+          await Boot._activateUser(fallback.id);
+        } else {
+          throw e;
+        }
+      } finally {
+        Boot._pendingLoginResolve = null;
+        Boot._pendingLoginReject = null;
+      }
     }
   }
 

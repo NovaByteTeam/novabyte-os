@@ -80,6 +80,12 @@ function openAccountsDb() {
     };
     req.onsuccess = (e) => { accountsDb = e.target.result; resolve(accountsDb); };
     req.onerror = (e) => reject(e.target.error);
+    // See the matching comment in openFsDbForUser() — same failure mode,
+    // and this one runs on every boot's very first FS worker call ('init'),
+    // so a blocked open here hangs boot before anything else even starts.
+    req.onblocked = () => {
+      reject(new Error('FS worker: open of ' + ACCOUNTS_DB_NAME + ' blocked by another connection — close other tabs/instances and retry'));
+    };
   });
 }
 
@@ -117,6 +123,16 @@ function openFsDbForUser(userId) {
     };
     req.onsuccess = (e) => { fsDb = e.target.result; activeUserId = userId; resolve(fsDb); };
     req.onerror = (e) => reject(e.target.error);
+    // Without this, a stale connection to the same-named DB (leftover tab,
+    // a previous worker instance, or a lingering DevTools inspection) makes
+    // indexedDB.open() fire neither onsuccess nor onerror — it just waits
+    // silently for the other connection to close. That left setUser's
+    // promise unresolved forever, which stalled boot until the 15s watchdog
+    // force-reloaded the page, which hit the same block again: a bootloop
+    // with no console error, only a generic 'Stuck — timeout detected' log.
+    req.onblocked = () => {
+      reject(new Error('FS worker: open of ' + dbName + ' blocked by another connection — close other tabs/instances and retry'));
+    };
   });
 }
 
@@ -366,7 +382,15 @@ self.onmessage = async (e) => {
               pending.set(id, {
                 resolve,
                 reject: (err) => {
-                  if (typeof EventLog !== 'undefined') {
+                  // getAllSettings failing with "no active user" is expected
+                  // once per boot — OS.settings.load() always runs before
+                  // any setUser call lands (see kernel.js's load() comment).
+                  // Logging that as an [Workers] error every single boot
+                  // buried real failures in the Events log under noise that
+                  // looked identical to it. Everything else still logs.
+                  const isExpectedPreLoginSettingsMiss =
+                    method === 'getAllSettings' && /no active user/.test(err?.message || '');
+                  if (typeof EventLog !== 'undefined' && !isExpectedPreLoginSettingsMiss) {
                     EventLog.log({ app: 'Workers', category: 'system', severity: 'error', message: `${workerName}.${method} failed: ${err?.message || err}`, data: { worker: workerName, method } });
                   }
                   reject(err);

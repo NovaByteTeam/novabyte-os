@@ -1483,24 +1483,41 @@ async function attemptBiometricUnlock(statusEl) {
 async function completeLogin(userId) {
   const isSwitch = _gateMode === 'lock' && userId !== Users.activeId;
 
-  if (isSwitch) {
-    // Re-point storage before touching FS/desktop state for the new user —
-    // same ordering rule as boot's initSubsystems(): setUser must land
-    // before anything reads/writes files for this account.
-    await OS.workers.fs.call('setUser', userId);
-    Users.setActive(userId);
-    await FS.init();
-  } else if (_gateMode === 'boot') {
-    // Same ordering rule applies here too: the FS worker's fsDb is still
-    // unset at this point on a returning/multi-account boot (initSubsystems()
-    // only opens the accounts DB, not a per-user fsDb — see boot.js), so
-    // setUser must run before finishBootAsUser()'s FS.init() call or it
-    // throws "no active user" inside the worker. That throw was previously
-    // uncaught (finishBootAsUser() runs outside boot()'s try/catch), which
-    // silently stalled boot forever and only surfaced as a watchdog-timeout
-    // reload loop with no visible error.
-    await OS.workers.fs.call('setUser', userId);
-    Users.setActive(userId);
+  // setUser can reject — most commonly because indexedDB.open() for this
+  // user's per-account DB got blocked by a stale connection (a leftover
+  // tab, a previous worker instance, a lingering DevTools inspection) and
+  // the worker's onblocked handler rejected instead of hanging forever.
+  // completeLogin() used to await this bare: on the 'boot' path that left
+  // Boot._pendingLoginResolve uncalled forever (a silent hang only visible
+  // as the watchdog's timeout reload), and on the picker-tile click path
+  // (fire-and-forget, no .catch()) it became an unhandled rejection that
+  // left the gate frozen with no feedback at all. Surface it on the status
+  // line instead so the user isn't stuck looking at an unresponsive screen.
+  try {
+    if (isSwitch) {
+      // Re-point storage before touching FS/desktop state for the new user —
+      // same ordering rule as boot's initSubsystems(): setUser must land
+      // before anything reads/writes files for this account.
+      await OS.workers.fs.call('setUser', userId);
+      Users.setActive(userId);
+      await FS.init();
+    } else if (_gateMode === 'boot') {
+      // Same ordering rule applies here too: the FS worker's fsDb is still
+      // unset at this point on a returning/multi-account boot (initSubsystems()
+      // only opens the accounts DB, not a per-user fsDb — see boot.js), so
+      // setUser must run before finishBootAsUser()'s FS.init() call or it
+      // throws "no active user" inside the worker. That throw was previously
+      // uncaught (finishBootAsUser() runs outside boot()'s try/catch), which
+      // silently stalled boot forever and only surfaced as a watchdog-timeout
+      // reload loop with no visible error.
+      await OS.workers.fs.call('setUser', userId);
+      Users.setActive(userId);
+    }
+  } catch (err) {
+    const statusEl = document.getElementById('lock-status');
+    if (statusEl) statusEl.textContent = 'Sign-in failed: ' + (err?.message || 'storage unavailable');
+    EventLog?.log?.({ app: 'System', category: 'security', severity: 'error', message: `completeLogin failed: ${err?.message || err}`, data: { userId } });
+    return;
   }
 
   OS.isLocked = false;
