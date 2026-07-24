@@ -136,15 +136,10 @@ const WM = window.WM = (() => {
     createWindow(appId, options) {
       if (appId === 'launchpad') { toggleLaunchpad(); return null; }
 
-       const disabled = (() => {
-         try {
-           const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-             ? UserScopedStorage.getItem('disabled_apps')
-             : localStorage.getItem('nova_disabled_apps');
-           return typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
-         }
-         catch { return []; }
-       })();
+      const disabled = (() => {
+        try { return JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); }
+        catch { return []; }
+      })();
       if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
         return null;
       }

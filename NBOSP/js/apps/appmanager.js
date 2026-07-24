@@ -1017,104 +1017,65 @@ registerApp({
       return null;
     }
 
-     async function getStoredApps() {
-       try {
-         const list = PackageStore?.loadRegistry
-           ? PackageStore.loadRegistry()
-           : (() => {
-             const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-               ? UserScopedStorage.getItem(APPS_KEY)
-               : localStorage.getItem(APPS_KEY);
-return typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
-           })();
-         return PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
-       } catch (e) {
-         console.warn('[AppManager] Failed to load installed packages:', e);
-         return [];
-       }
-     }
-
-     function saveStoredApps(list) {
-       try {
-         if (PackageStore?.saveRegistry) {
-           PackageStore.saveRegistry(list);
-         } else {
-           if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-             UserScopedStorage.setItem(APPS_KEY, list);
-           } else {
-             localStorage.setItem(APPS_KEY, JSON.stringify(list));
-           }
-         }
-       } catch (e) {
-         if (e.name === 'QuotaExceededError' || e.code === 22) {
-           console.warn('[AppManager] localStorage quota exceeded while saving app metadata.');
-         } else {
-           console.warn('[AppManager] Failed to save installed app metadata:', e);
-         }
-       }
-     }
-
-      function getLog() {
-        try {
-          const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-            ? UserScopedStorage.getItem(LOG_KEY)
-            : localStorage.getItem(LOG_KEY);
-          return typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
-        }
-        catch { return []; }
+    async function getStoredApps() {
+      try {
+        const list = PackageStore?.loadRegistry
+          ? PackageStore.loadRegistry()
+          : JSON.parse(localStorage.getItem(APPS_KEY) || '[]');
+        return PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
+      } catch (e) {
+        console.warn('[AppManager] Failed to load installed packages:', e);
+        return [];
       }
+    }
+
+    function saveStoredApps(list) {
+      try {
+        if (PackageStore?.saveRegistry) {
+          PackageStore.saveRegistry(list);
+        } else {
+          localStorage.setItem(APPS_KEY, JSON.stringify(list));
+        }
+      } catch (e) {
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+          console.warn('[AppManager] localStorage quota exceeded while saving app metadata.');
+        } else {
+          console.warn('[AppManager] Failed to save installed app metadata:', e);
+        }
+      }
+    }
+
+    function getLog() {
+      try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }
+      catch { return []; }
+    }
 
     function pushLog(entry) {
       const log = getLog();
-       log.unshift({ ...entry, ts: Date.now() });
-       if (log.length > 200) log.length = 200;
-       try {
-         if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-           UserScopedStorage.setItem(LOG_KEY, log);
-         } else {
-           localStorage.setItem(LOG_KEY, JSON.stringify(log));
-         }
-       }
-       catch { /* quota — discard oldest silently */ }
+      log.unshift({ ...entry, ts: Date.now() });
+      if (log.length > 200) log.length = 200;
+      try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+      catch { /* quota — discard oldest silently */ }
     }
 
     function getPinned() { return OS.settings.get('pinnedApps') || []; }
     function getDisabled() {
       try {
-        const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-          ? UserScopedStorage.getItem('disabled_apps')
-          : localStorage.getItem('nova_disabled_apps');
-        return (typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || [])).map(x => typeof x === 'string' ? x : x?.id).filter(Boolean);
+        const raw = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+        return raw.map(x => typeof x === 'string' ? x : x?.id).filter(Boolean);
       }
       catch { return []; }
     }
     function setDisabled(list) {
-      try {
-        if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-          UserScopedStorage.setItem('disabled_apps', list);
-        } else {
-          localStorage.setItem('nova_disabled_apps', JSON.stringify(list));
-        }
-      }
+      try { localStorage.setItem('nova_disabled_apps', JSON.stringify(list)); }
       catch { /* quota */ }
     }
     function getBootApps() {
-      try {
-        const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-          ? UserScopedStorage.getItem('boot_apps')
-          : localStorage.getItem('nova_boot_apps');
-        return typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
-      }
+      try { return JSON.parse(localStorage.getItem('nova_boot_apps') || '[]'); }
       catch { return []; }
     }
     function setBootApps(list) {
-      try {
-        if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-          UserScopedStorage.setItem('boot_apps', list);
-        } else {
-          localStorage.setItem('nova_boot_apps', JSON.stringify(list));
-        }
-      }
+      try { localStorage.setItem('nova_boot_apps', JSON.stringify(list)); }
       catch { /* quota */ }
     }
 

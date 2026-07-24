@@ -396,21 +396,11 @@ async function uninstallApp(app) {
     OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== app.id));
 
     // Clear disabled/boot lists so the app doesn't get re-resurrected on restart.
-    for (const { globalKey, scopedKey } of [
-      { globalKey: 'nova_disabled_apps', scopedKey: 'disabled_apps' },
-      { globalKey: 'nova_boot_apps',    scopedKey: 'boot_apps'    },
-    ]) {
+    for (const key of ['nova_disabled_apps', 'nova_boot_apps']) {
       try {
-        const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-          ? UserScopedStorage.getItem(scopedKey)
-          : localStorage.getItem(globalKey);
-        const list = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
+        const list = JSON.parse(localStorage.getItem(key) || '[]');
         const updated = list.filter(x => (typeof x === 'string' ? x : x?.id) !== app.id);
-        if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-          UserScopedStorage.setItem(scopedKey, updated);
-        } else {
-          localStorage.setItem(globalKey, JSON.stringify(updated));
-        }
+        localStorage.setItem(key, JSON.stringify(updated));
       } catch { /* quota or parse error — best effort */ }
     }
 
@@ -1273,25 +1263,7 @@ document.addEventListener('keyup', (e) => {
   if (windows[switcherIdx]) WM.focusWindow(windows[switcherIdx].id);
 });
 
-// LOCK SCREEN / ACCOUNT GATE
-//
-// One screen, two entry points:
-//
-//   - Boot._showAccountGate(soloAccountIdOrNull) — pre-login, called from
-//     boot.js when Users.activeId is still null (returning/multi-account
-//     install). Resolves Boot._pendingLoginResolve once a user is verified
-//     in; there is no "cancel" — boot is blocked until this succeeds.
-//   - lockScreen() — runtime lock/switch-user, called from the taskbar menu,
-//     Cmd/Ctrl+L, or idle timeout. A desktop already exists, so unlocking
-//     resumes it instead of resolving a boot promise.
-//
-// Both funnel through the same renderAccountGate()/verifyPin() machinery —
-// the numpad, dots, lockout escalation, biometric hook, and security wipe
-// are identical either way, only what happens on success differs.
-
-let _gateMode = null;        // 'boot' | 'lock'
-let _gateSelectedUserId = null;
-let enteredPin = '';
+// LOCK SCREEN
 
 function handleLockScreenKeydown(e) {
   const lockScreenEl = document.getElementById('lock-screen');
@@ -1299,126 +1271,37 @@ function handleLockScreenKeydown(e) {
     document.removeEventListener('keydown', handleLockScreenKeydown);
     return;
   }
-  // Digit/backspace/enter only apply once a specific account is selected —
-  // on the picker grid itself there's no PIN field to type into yet.
-  if (!_gateSelectedUserId) return;
   if (e.key >= '0' && e.key <= '9') { e.preventDefault(); enterPinDigit(e.key); }
   else if (e.key === 'Backspace') { e.preventDefault(); backspacePin(); }
   else if (e.key === 'Enter') { e.preventDefault(); if (enteredPin.length === 4) verifyPin(); }
   else if (e.key === 'Escape') { e.preventDefault(); clearPin(); }
 }
 
-// Runtime lock — a session is already active. Re-shows the gate for the
-// *currently* signed-in user only (locking is not the same as switching
-// accounts — see switchUser() below for that).
 function lockScreen() {
-  const active = Users.active;
-  if (!active || !active.pinHash) { WM.minimizeAll(); return; }
+  if (!OS.lockPin) { WM.minimizeAll(); return; }
   OS.isLocked = true;
-  _gateMode = 'lock';
   document.getElementById('lock-screen')?.classList.add('active');
-  renderAccountGate(active.id);
+  renderLockScreen();
   EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Screen locked' });
 }
 
-// Switch user from the taskbar — distinct from lockScreen(): shows the full
-// picker (or, if the target has no PIN, an instant swap) rather than
-// re-locking the current account.
-function switchUser() {
-  OS.isLocked = true;
-  _gateMode = 'lock';
-  document.getElementById('lock-screen')?.classList.add('active');
-  renderAccountGate(null);
-  EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Switch user opened' });
-}
+let enteredPin = '';
 
-function logout() {
-  switchUser();
-}
+function renderLockScreen() {
+  const usernameEl = document.getElementById('lock-username');
+  const dotsEl = document.getElementById('lock-pin-dots');
+  const statusEl = document.getElementById('lock-status');
+  const numpadEl = document.getElementById('lock-numpad');
+  if (!usernameEl || !dotsEl || !statusEl || !numpadEl) return;
 
-// Boot-time entry point — see boot.js's login-gate stage. soloUserId is set
-// when there's exactly one account and it has a PIN (skip the picker grid,
-// go straight to PIN entry); null means show the full picker.
-Boot.showAccountGate = Boot._showAccountGate = function (soloUserId) {
-  localStorage.setItem('_gate_called', JSON.stringify({called:true, soloUserId, t:Date.now()}));
-  _gateMode = 'boot';
-  document.getElementById('lock-screen')?.classList.add('active');
-  renderAccountGate(soloUserId);
-};
-
-// userId === null renders the picker grid; a real id renders PIN entry for
-// that specific account (skipping the grid, e.g. for the single-PIN-account
-// boot case or after clicking a tile in the picker).
-function renderAccountGate(userId) {
-  _gateSelectedUserId = userId;
-  const gateEl = document.getElementById('lock-screen');
-  if (!gateEl) return;
-
-  if (!userId) {
-    renderAccountPicker(gateEl);
-  } else {
-    renderPinEntry(gateEl, userId);
+  usernameEl.textContent = OS.username || '';
+  dotsEl.innerHTML = '';
+  for (let i = 0; i < 4; i++) {
+    dotsEl.appendChild(createEl('div', { className: 'lock-pin-dot' }));
   }
-}
+  statusEl.textContent = '';
+  numpadEl.innerHTML = '';
 
-function renderAccountPicker(gateEl) {
-  gateEl.innerHTML = '';
-  gateEl.appendChild(createEl('div', { className: 'lock-picker-title', textContent: 'Who\u2019s signing in?' }));
-
-  const grid = createEl('div', { className: 'lock-picker-grid' });
-  for (const u of Users.list()) {
-    const tile = createEl('button', { className: 'lock-picker-tile', 'aria-label': u.name });
-    const avatar = createEl('div', { className: 'lock-avatar', 'aria-hidden': 'true' });
-    if (u.avatar) {
-      avatar.style.backgroundImage = `url(${u.avatar})`;
-    } else {
-      avatar.textContent = (u.name || '?').trim().charAt(0).toUpperCase();
-    }
-    tile.appendChild(avatar);
-    tile.appendChild(createEl('div', { className: 'lock-picker-name', textContent: u.name }));
-    tile.addEventListener('click', () => {
-      if (u.pinHash) {
-        renderAccountGate(u.id);
-      } else {
-        completeLogin(u.id);
-      }
-    });
-    grid.appendChild(tile);
-  }
-  gateEl.appendChild(grid);
-
-  document.removeEventListener('keydown', handleLockScreenKeydown);
-  document.addEventListener('keydown', handleLockScreenKeydown);
-}
-
-function renderPinEntry(gateEl, userId) {
-  const user = Users.get(userId);
-  if (!user) { renderAccountGate(null); return; }
-
-  gateEl.innerHTML = '';
-  const avatar = createEl('div', { className: 'lock-avatar', 'aria-hidden': 'true' });
-  if (user.avatar) avatar.style.backgroundImage = `url(${user.avatar})`;
-  else avatar.textContent = (user.name || '?').trim().charAt(0).toUpperCase();
-  gateEl.appendChild(avatar);
-
-  gateEl.appendChild(createEl('div', { className: 'lock-username', id: 'lock-username', textContent: user.name || '' }));
-
-  // "Back to accounts" only makes sense when there's more than one account
-  // to go back to — otherwise it'd just reopen a picker with one tile.
-  if (Users.list().length > 1) {
-    const backLink = createEl('button', { className: 'lock-back-link', textContent: '\u2190 Switch account' });
-    backLink.addEventListener('click', () => renderAccountGate(null));
-    gateEl.appendChild(backLink);
-  }
-
-  const dotsEl = createEl('div', { className: 'lock-pin-input', id: 'lock-pin-dots' });
-  for (let i = 0; i < 4; i++) dotsEl.appendChild(createEl('div', { className: 'lock-pin-dot' }));
-  gateEl.appendChild(dotsEl);
-
-  const statusEl = createEl('div', { className: 'lock-status', id: 'lock-status', 'aria-live': 'assertive' });
-  gateEl.appendChild(statusEl);
-
-  const numpadEl = createEl('div', { className: 'lock-numpad', id: 'lock-numpad', role: 'group', 'aria-label': 'PIN entry' });
   for (let i = 1; i <= 9; i++) {
     const btn = createEl('button', { textContent: String(i), 'aria-label': String(i) });
     btn.addEventListener('click', () => enterPinDigit(String(i)));
@@ -1436,23 +1319,24 @@ function renderPinEntry(gateEl, userId) {
   backBtn.innerHTML = svgIcon('chevron-left', 18);
   backBtn.addEventListener('click', backspacePin);
   numpadEl.appendChild(backBtn);
-  gateEl.appendChild(numpadEl);
 
-  // Biometric unlock — only ever offered for the account that originally
-  // registered the credential, i.e. only meaningful in 'lock' mode for the
-  // already-active user, not while picking between accounts pre-login.
-  if (_gateMode === 'lock' && window.PublicKeyCredential && OS.settings.get('biometricCredentialId') && userId === Users.activeId) {
-    const bioBtn = createEl('button', {
-      className: 'biometric-btn',
-      style: 'margin-top:16px;width:100%;padding:12px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-weight:600;cursor:pointer;'
-    });
-    bioBtn.textContent = '\ud83d\udc46 Use Biometric';
-    bioBtn.addEventListener('click', () => attemptBiometricUnlock(statusEl));
-    gateEl.appendChild(bioBtn);
+  // Biometric unlock button — added once per lock screen mount.
+  if (window.PublicKeyCredential && OS.settings.get('biometricCredentialId')) {
+    const lockScreenEl = document.getElementById('lock-screen');
+    if (lockScreenEl && !lockScreenEl.querySelector('.biometric-btn')) {
+      const bioBtn = createEl('button', {
+        className: 'biometric-btn',
+        style: 'margin-top:16px;width:100%;padding:12px;background:var(--bg-elevated);border:1px solid var(--accent);border-radius:8px;color:var(--accent);font-weight:600;cursor:pointer;'
+      });
+      bioBtn.textContent = '👆 Use Biometric';
+      bioBtn.addEventListener('click', () => attemptBiometricUnlock(statusEl));
+      numpadEl.parentNode?.appendChild(bioBtn);
+    }
   }
 
   enteredPin = '';
   updatePinDots();
+  // Remove before re-adding so re-renders don't stack keydown listeners.
   document.removeEventListener('keydown', handleLockScreenKeydown);
   document.addEventListener('keydown', handleLockScreenKeydown);
 }
@@ -1479,71 +1363,19 @@ async function attemptBiometricUnlock(statusEl) {
       }
     });
     if (credential) {
+      unlockFromLockScreen();
       Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
-      completeLogin(_gateSelectedUserId);
     }
   } catch (err) {
     statusEl.textContent = 'Biometric failed: ' + (err?.message || 'Try PIN instead');
   }
 }
 
-// Shared success path for both boot login and runtime unlock/switch. In
-// 'boot' mode this resolves the promise boot() is awaiting; in 'lock' mode
-// it re-points the FS worker (if the account actually changed) and resumes
-// the desktop.
-async function completeLogin(userId) {
-  const isSwitch = _gateMode === 'lock' && userId !== Users.activeId;
-
-  // setUser can reject — most commonly because indexedDB.open() for this
-  // user's per-account DB got blocked by a stale connection (a leftover
-  // tab, a previous worker instance, a lingering DevTools inspection) and
-  // the worker's onblocked handler rejected instead of hanging forever.
-  // completeLogin() used to await this bare: on the 'boot' path that left
-  // Boot._pendingLoginResolve uncalled forever (a silent hang only visible
-  // as the watchdog's timeout reload), and on the picker-tile click path
-  // (fire-and-forget, no .catch()) it became an unhandled rejection that
-  // left the gate frozen with no feedback at all. Surface it on the status
-  // line instead so the user isn't stuck looking at an unresponsive screen.
-  try {
-    if (isSwitch) {
-      await OS.workers.fs.call('setUser', userId);
-      Users.setActive(userId);
-      await FS.init();
-      await Users.load();
-      await OS.settings.load();
-      if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setUserId) {
-        const hadScope = UserScopedStorage.userId === userId;
-        UserScopedStorage.setUserId(userId);
-        if (!hadScope) {
-          UserScopedStorage.migrateGlobalToUser(userId, [
-            { from: 'nova_app_permissions', to: 'app_permissions' },
-            { from: 'nova_installed_apps',  to: 'installed_apps'  },
-            { from: 'nova_disabled_apps',   to: 'disabled_apps'   },
-            { from: 'nova_boot_apps',       to: 'boot_apps'       },
-            { from: 'novabyte-shortcuts',   to: 'shortcuts'       },
-            { from: 'nova_contacts',        to: 'contacts'        },
-            { from: 'nova_downloads',       to: 'downloads'       },
-          ]);
-        }
-      }
-    } else if (_gateMode === 'boot') {
-      await OS.workers.fs.call('setUser', userId);
-      Users.setActive(userId);
-      if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setUserId) {
-        UserScopedStorage.setUserId(userId);
-      }
-    }
-  } catch (err) {
-    const statusEl = document.getElementById('lock-status');
-    if (statusEl) statusEl.textContent = 'Sign-in failed: ' + (err?.message || 'storage unavailable');
-    EventLog?.log?.({ app: 'System', category: 'security', severity: 'error', message: `completeLogin failed: ${err?.message || err}`, data: { userId } });
-    return;
-  }
-
+function unlockFromLockScreen() {
   OS.isLocked = false;
-  _pinAttempts.delete(userId);
-  EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: isSwitch ? 'User switched' : 'Screen unlocked' });
+  EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'Screen unlocked' });
 
+  // Cancel any pending wipe countdown — biometric auth must be able to abort it.
   if (_wipeCountdownId) {
     clearInterval(_wipeCountdownId);
     _wipeCountdownId = 0;
@@ -1552,17 +1384,7 @@ async function completeLogin(userId) {
   document.getElementById('lock-screen')?.classList.remove('active');
   document.removeEventListener('keydown', handleLockScreenKeydown);
   enteredPin = '';
-  _gateSelectedUserId = null;
 
-  if (_gateMode === 'boot') {
-    const resolve = Boot._pendingLoginResolve;
-    Boot._pendingLoginResolve = null;
-    _gateMode = null;
-    resolve?.();
-    return;
-  }
-
-  _gateMode = null;
   WM.updateTaskbar();
   requestAnimationFrame(() => { renderDesktopIcons(); WM.updateTaskbar(); });
 }
@@ -1577,8 +1399,7 @@ function enterPinDigit(d) {
 function clearPin() {
   enteredPin = '';
   updatePinDots();
-  const el = document.getElementById('lock-status');
-  if (el) el.textContent = '';
+  document.getElementById('lock-status').textContent = '';
 }
 
 function backspacePin() {
@@ -1592,46 +1413,29 @@ function updatePinDots() {
   );
 }
 
-// Per-account attempt/lockout state. Was previously two bare globals
-// (OS.wrongPinCount / OS.lockoutUntil) shared across every account on the
-// machine — meaning 3 wrong guesses against account A would lock out an
-// immediate, first-ever attempt against account B on the same picker.
-// Keyed by userId so failed attempts on one account never affect another.
-// Machine-wide security wipe (10 attempts) is intentionally NOT split by
-// user below: a wipe is inherently whole-machine (there's no "wipe just
-// this account's data" concept), so it stays keyed off any single
-// account's count crossing the threshold, same as before.
-const _pinAttempts = new Map(); // userId -> { count, lockoutUntil }
-
-function _attemptState(userId) {
-  let s = _pinAttempts.get(userId);
-  if (!s) { s = { count: 0, lockoutUntil: 0 }; _pinAttempts.set(userId, s); }
-  return s;
-}
-
 async function verifyPin() {
   const statusEl = document.getElementById('lock-status');
-  if (!statusEl || !_gateSelectedUserId) return;
-  const attempt = _attemptState(_gateSelectedUserId);
+  if (!statusEl) return;
 
   // Enforce lockout before touching the hash worker — the original code set
-  // a lockout timestamp but never checked it at entry, so a caller could keep
+  // OS.lockoutUntil but never checked it at entry, so a caller could keep
   // submitting PINs indefinitely during the lockout window.
-  if (attempt.lockoutUntil && Date.now() < attempt.lockoutUntil) {
-    const remaining = Math.ceil((attempt.lockoutUntil - Date.now()) / 1000);
+  if (OS.lockoutUntil && Date.now() < OS.lockoutUntil) {
+    const remaining = Math.ceil((OS.lockoutUntil - Date.now()) / 1000);
     statusEl.textContent = `Locked out. Try again in ${remaining}s`;
     enteredPin = '';
     updatePinDots();
-    EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `PIN attempt blocked — lockout active (${remaining}s remaining)`, data: { userId: _gateSelectedUserId } });
+    EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `PIN attempt blocked — lockout active (${remaining}s remaining)` });
     return;
   }
 
   statusEl.textContent = 'Verifying...';
 
-  let ok;
+  let hash;
   try {
-    if (typeof Users?.verifyPin !== 'function') throw new Error('account verification unavailable');
-    ok = await Users.verifyPin(_gateSelectedUserId, enteredPin);
+    if (!OS.workers?.crypto?.call) throw new Error('crypto worker unavailable');
+    if (typeof getPinSalt !== 'function') throw new Error('PIN salt provider unavailable');
+    hash = await OS.workers.crypto.call('pbkdf2', enteredPin, getPinSalt());
   } catch (err) {
     statusEl.textContent = 'Verification unavailable: ' + (err?.message || 'try again');
     enteredPin = '';
@@ -1640,67 +1444,60 @@ async function verifyPin() {
     return;
   }
 
-  if (ok) {
-    _pinAttempts.delete(_gateSelectedUserId);
-    await completeLogin(_gateSelectedUserId);
+  if (hash === OS.lockPin) {
+    OS.wrongPinCount = 0;
+    OS.lockoutUntil = 0;
+    unlockFromLockScreen();
     return;
   }
 
-  // Wrong PIN — escalate lockout based on this account's attempt count only.
-  attempt.count++;
+  // Wrong PIN — escalate lockout based on attempt count.
+  OS.wrongPinCount++;
   enteredPin = '';
   updatePinDots();
-  EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `Incorrect PIN entered (attempt ${attempt.count})`, data: { userId: _gateSelectedUserId, wrongPinCount: attempt.count } });
+  EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `Incorrect PIN entered (attempt ${OS.wrongPinCount})`, data: { wrongPinCount: OS.wrongPinCount } });
 
   const THRESHOLD = 3;
   const DURATION_MS = 30_000;
 
-  if (attempt.count >= THRESHOLD && attempt.count < THRESHOLD * 2) {
-    applyLockout(statusEl, attempt, DURATION_MS);
-  } else if (attempt.count >= THRESHOLD * 2 && attempt.count < 10) {
-    applyLockout(statusEl, attempt, DURATION_MS * 5);
-  } else if (attempt.count >= 10) {
-    triggerSecurityWipe(statusEl, attempt);
+  if (OS.wrongPinCount >= THRESHOLD && OS.wrongPinCount < THRESHOLD * 2) {
+    applyLockout(statusEl, DURATION_MS);
+  } else if (OS.wrongPinCount >= THRESHOLD * 2 && OS.wrongPinCount < 10) {
+    applyLockout(statusEl, DURATION_MS * 5);
+  } else if (OS.wrongPinCount >= 10) {
+    triggerSecurityWipe(statusEl);
   } else {
     statusEl.textContent = 'Incorrect PIN';
   }
 }
 
 // Shared lockout path for both the standard and extended windows. Starts a
-// timer that clears this account's count once the window expires.
-function applyLockout(statusEl, attempt, durationMs) {
+// timer that clears the count once the window expires.
+function applyLockout(statusEl, durationMs) {
   const sec = Math.round(durationMs / 1000);
   const label = sec >= 60 ? `${Math.round(sec / 60)}min` : `${sec}s`;
   statusEl.textContent = `Too many attempts. ${label} lockout.`;
-  attempt.lockoutUntil = Date.now() + durationMs;
+  OS.lockoutUntil = Date.now() + durationMs;
   EventLog?.log?.({
     app: 'System', category: 'security', severity: 'warn',
-    message: `Lockout triggered (${label}) after ${attempt.count} failed PIN attempts`,
-    data: { userId: _gateSelectedUserId, wrongPinCount: attempt.count, durationMs }
+    message: `Lockout triggered (${label}) after ${OS.wrongPinCount} failed PIN attempts`,
+    data: { wrongPinCount: OS.wrongPinCount, durationMs }
   });
-  const lockedUserId = _gateSelectedUserId;
   setTimeout(() => {
-    attempt.count = 0;
-    attempt.lockoutUntil = 0;
-    // Only clear the visible status text if the picker is still showing
-    // this same account's PIN screen — the user could've switched to a
-    // different tile during the lockout window, and that screen's status
-    // text belongs to a different account's attempt state now.
-    if (_gateSelectedUserId === lockedUserId) {
-      const el = document.getElementById('lock-status');
-      if (el) el.textContent = '';
-    }
+    OS.wrongPinCount = 0;
+    OS.lockoutUntil = 0;
+    statusEl.textContent = '';
   }, durationMs);
 }
 
 // Ten or more failed attempts triggers a 10-second countdown to a full local
 // wipe. Biometric unlock can still cancel it via unlockFromLockScreen().
-function triggerSecurityWipe(statusEl, attempt) {
+function triggerSecurityWipe(statusEl) {
   statusEl.textContent = 'Security alert! Data will be wiped.';
   EventLog?.log?.({
     app: 'System', category: 'security', severity: 'error',
-    message: `Security wipe countdown started after ${attempt.count} failed PIN attempts on account ${_gateSelectedUserId}`,
-    data: { userId: _gateSelectedUserId, wrongPinCount: attempt.count }
+    message: `Security wipe countdown started after ${OS.wrongPinCount} failed PIN attempts`,
+    data: { wrongPinCount: OS.wrongPinCount }
   });
 
   let countdown = 10;
@@ -1722,169 +1519,6 @@ function triggerSecurityWipe(statusEl, attempt) {
     setTimeout(() => location.reload(), 2000);
   }, 1000);
 }
-
-// ADMIN AUTH GATE
-//
-// Deliberately independent from the lock/login machinery above. That code
-// (verifyPin/completeLogin/_gateSelectedUserId/_gateMode) drives *session*
-// state — switching the active account, re-pointing the FS worker, resuming
-// the desktop. This gate does none of that: it exists purely to answer
-// "does the person in front of the screen know an admin's PIN right now",
-// for actions that require re-authorization without changing who's signed
-// in (installing a privileged .novaapp, entering Developer Mode as a
-// standard user's admin, changing a role). Reusing the login code path here
-// would have silently logged the user into whichever admin account they
-// authenticated as — wrong behavior for a re-auth prompt.
-//
-// requestAdminAuth(reason) -> Promise<adminId | null>
-//   Resolves with the verified admin's userId on success, or null if the
-//   person cancels. When there's more than one admin account, shows a
-//   picker first (since each admin has their own PIN, not one shared
-//   machine password); with exactly one admin, goes straight to PIN entry.
-//   If the chosen admin has no PIN set, skips PIN entry and auto-resolves.
-async function requestAdminAuth(reason) {
-  const admins = Users.admins();
-  if (admins.length === 0) return null; // shouldn't happen — always >=1 admin
-
-  return new Promise((resolve) => {
-    const overlay = createEl('div', { className: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' });
-    const dialog = createEl('div', { className: 'modal-dialog admin-gate-dialog' });
-    dialog.appendChild(createEl('div', { className: 'modal-title', textContent: 'Admin Authorization Required' }));
-    if (reason) {
-      dialog.appendChild(createEl('div', { className: 'modal-body', textContent: reason }));
-    }
-
-    const bodyEl = createEl('div', { className: 'admin-gate-body' });
-    dialog.appendChild(bodyEl);
-    overlay.appendChild(dialog);
-
-    const finish = (result) => {
-      document.removeEventListener('keydown', onKeydown);
-      overlay.remove();
-      resolve(result);
-    };
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) finish(null);
-    });
-
-    // Local, non-escalating attempt state — this popup doesn't need the
-    // 3-strikes/wipe machinery the main lock screen has, just "wrong PIN,
-    // try again". Keyed per adminId in case the picker is used.
-    const attempts = new Map();
-    let enteredPin = '';
-    let selectedAdminId = admins.length === 1 ? admins[0].id : null;
-
-    function renderPicker() {
-      bodyEl.innerHTML = '';
-      const grid = createEl('div', { className: 'admin-gate-picker' });
-      for (const a of admins) {
-        const tile = createEl('button', { className: 'admin-gate-tile', textContent: a.name || 'Admin' });
-        tile.addEventListener('click', () => {
-          selectedAdminId = a.id;
-          enteredPin = '';
-          const admin = Users.get(a.id);
-          if (!admin || !admin.pinHash) {
-            finish(a.id);
-          } else {
-            renderPinPad();
-          }
-        });
-        grid.appendChild(tile);
-      }
-      bodyEl.appendChild(grid);
-      const cancelBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Cancel', style: { marginTop: '12px' } });
-      cancelBtn.addEventListener('click', () => finish(null));
-      bodyEl.appendChild(cancelBtn);
-    }
-
-    function renderPinPad() {
-      bodyEl.innerHTML = '';
-      const admin = Users.get(selectedAdminId);
-      if (!admin) { finish(null); return; }
-
-      if (admins.length > 1) {
-        const backLink = createEl('button', { className: 'lock-back-link', textContent: '\u2190 Choose a different admin' });
-        backLink.addEventListener('click', () => { selectedAdminId = null; renderPicker(); });
-        bodyEl.appendChild(backLink);
-      }
-
-      bodyEl.appendChild(createEl('div', { className: 'lock-username', textContent: admin?.name || 'Admin' }));
-
-      const dotsEl = createEl('div', { className: 'lock-pin-input' });
-      for (let i = 0; i < 4; i++) dotsEl.appendChild(createEl('div', { className: 'lock-pin-dot' }));
-      bodyEl.appendChild(dotsEl);
-
-      const statusEl = createEl('div', { className: 'lock-status', 'aria-live': 'assertive' });
-      bodyEl.appendChild(statusEl);
-
-      const updateDots = () => {
-        const dots = dotsEl.querySelectorAll('.lock-pin-dot');
-        dots.forEach((d, i) => d.classList.toggle('filled', i < enteredPin.length));
-      };
-      updateDots();
-
-      const numpadEl = createEl('div', { className: 'lock-numpad', role: 'group', 'aria-label': 'Admin PIN entry' });
-      const pressDigit = async (d) => {
-        if (enteredPin.length >= 4) return;
-        enteredPin += d;
-        updateDots();
-        if (enteredPin.length === 4) await tryVerify();
-      };
-      for (let i = 1; i <= 9; i++) {
-        const btn = createEl('button', { textContent: String(i), 'aria-label': String(i) });
-        btn.addEventListener('click', () => pressDigit(String(i)));
-        numpadEl.appendChild(btn);
-      }
-      const clearBtn = createEl('button', { textContent: 'C', 'aria-label': 'Clear' });
-      clearBtn.addEventListener('click', () => { enteredPin = ''; updateDots(); });
-      numpadEl.appendChild(clearBtn);
-      const zeroBtn = createEl('button', { textContent: '0', 'aria-label': '0' });
-      zeroBtn.addEventListener('click', () => pressDigit('0'));
-      numpadEl.appendChild(zeroBtn);
-      const backBtn = createEl('button', { 'aria-label': 'Backspace' });
-      backBtn.innerHTML = svgIcon('chevron-left', 18);
-      backBtn.addEventListener('click', () => { enteredPin = enteredPin.slice(0, -1); updateDots(); });
-      numpadEl.appendChild(backBtn);
-      bodyEl.appendChild(numpadEl);
-
-      const cancelBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Cancel', style: { marginTop: '12px' } });
-      cancelBtn.addEventListener('click', () => finish(null));
-      bodyEl.appendChild(cancelBtn);
-
-      async function tryVerify() {
-        const ok = await Users.verifyPin(selectedAdminId, enteredPin);
-        if (ok) {
-          finish(selectedAdminId);
-          return;
-        }
-        const count = (attempts.get(selectedAdminId) || 0) + 1;
-        attempts.set(selectedAdminId, count);
-        statusEl.textContent = 'Incorrect PIN';
-        enteredPin = '';
-        updateDots();
-      }
-    }
-
-    function onKeydown(e) {
-      if (e.key === 'Escape') { e.preventDefault(); finish(null); }
-    }
-    document.addEventListener('keydown', onKeydown);
-
-    document.body.appendChild(overlay);
-    if (selectedAdminId) {
-      const admin = Users.get(selectedAdminId);
-      if (!admin || !admin.pinHash) {
-        finish(selectedAdminId);
-        return;
-      }
-      renderPinPad();
-    } else {
-      renderPicker();
-    }
-  });
-}
-window.requestAdminAuth = requestAdminAuth;
 
 // IDLE LOCK
 

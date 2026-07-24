@@ -1827,28 +1827,14 @@ function renderDesktopIcons() {
               if (ri > -1) APP_REGISTRY.splice(ri, 1);
               OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== app.id));
               try {
-                const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-                  ? UserScopedStorage.getItem('disabled_apps')
-                  : localStorage.getItem('nova_disabled_apps');
-                const disabled = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
+                const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
                 const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== app.id);
-                if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-                  UserScopedStorage.setItem('disabled_apps', updated);
-                } else {
-                  localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
-                }
+                localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
               } catch { /* quota */ }
               try {
-                const raw2 = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-                  ? UserScopedStorage.getItem('boot_apps')
-                  : localStorage.getItem('nova_boot_apps');
-                const bootApps = typeof raw2 === 'string' ? JSON.parse(raw2 || '[]') : (raw2 || []);
+                const bootApps = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
                 const updated = bootApps.filter(id => id !== app.id);
-                if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-                  UserScopedStorage.setItem('boot_apps', updated);
-                } else {
-                  localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
-                }
+                localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
               } catch { /* quota */ }
               try {
                 const desktopFolder = FS.specialFolders?.desktop;
@@ -2143,30 +2129,16 @@ function renderDesktopIcons() {
                 const ri = APP_REGISTRY.findIndex(a => a.id === appId);
                 if (ri > -1) APP_REGISTRY.splice(ri, 1);
                 OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== appId));
-                 try {
-                   const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-                     ? UserScopedStorage.getItem('disabled_apps')
-                     : localStorage.getItem('nova_disabled_apps');
-const disabled = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || []);
-                    const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== appId);
-                    if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-                      UserScopedStorage.setItem('disabled_apps', updated);
-                    } else {
-                      localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
-                    }
-                  } catch { /* quota */ }
-                  try {
-                    const raw2 = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-                      ? UserScopedStorage.getItem('boot_apps')
-                      : localStorage.getItem('nova_boot_apps');
-                    const bootApps = typeof raw2 === 'string' ? JSON.parse(raw2 || '[]') : (raw2 || []);
-                   const updated = bootApps.filter(id => id !== appId);
-                   if (typeof UserScopedStorage !== 'undefined' && UserScopedStorage.setItem) {
-                     UserScopedStorage.setItem('boot_apps', updated);
-                   } else {
-                     localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
-                   }
-                 } catch { /* quota */ }
+                try {
+                  const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+                  const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== appId);
+                  localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
+                } catch { /* quota */ }
+                try {
+                  const bootApps = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
+                  const updated = bootApps.filter(id => id !== appId);
+                  localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
+                } catch { /* quota */ }
                 await FS.permanentDelete(f.id);
                 delete iconPositions['file:' + f.id];
                 delete iconPositions['app:' + appId];

@@ -119,16 +119,8 @@ const OS = {
       try {
         const all = await OS.workers.fs.call('getAllSettings');
         this._cache = all || {};
-      } catch (e) {
-        // Expected on every boot: settings.load() runs before any user is
-        // active (Users.load()'s migration path needs to read settings
-        // first — see boot.js's initSubsystems), so the FS worker always
-        // rejects this call with "no active user" at this point. That's
-        // not a failure, just falls back to an empty cache until the real
-        // per-user settings load happens after login. The worker's own
-        // reject() already logs it as an [Workers] error event, which was
-        // showing up in Events every boot and made it look like a bug.
-        this._cache = {};
+      } catch (e) { 
+        this._cache = {}; 
       }
     },
     

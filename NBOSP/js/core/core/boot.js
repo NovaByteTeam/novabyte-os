@@ -1,5 +1,5 @@
 // ── Static Configurations & Constants ──────────────────────────────
-const BOOT_TIMEOUT_MS = 30000;
+const BOOT_TIMEOUT_MS = 15000;
 const BOOT_THRESHOLD  = 5;
 
 const KEYS = Object.freeze({
@@ -110,18 +110,9 @@ const Boot = {
   _setupWatchdog(bootStartTime, uaShort) {
     Storage.set(KEYS.TIMEOUT, { start: bootStartTime, completed: false });
 
-    const fire = () => {
+    const id = setTimeout(() => {
       const td = Storage.get(KEYS.TIMEOUT, {});
       if (!td.completed) {
-        const lockScreenActive = document.getElementById('lock-screen')?.classList.contains('active');
-        const bootScreen = document.getElementById('boot-screen');
-        const bootScreenVisible = bootScreen && bootScreen.offsetParent !== null;
-
-        if (lockScreenActive || bootScreenVisible) {
-          id = setTimeout(fire, BOOT_TIMEOUT_MS);
-          return;
-        }
-
         console.error('[BOOT] Stuck — timeout detected');
         Storage.set(KEYS.TIMEOUT, { start: bootStartTime, completed: false, stuck: true });
         localStorage.setItem(KEYS.FORCE, '1');
@@ -131,9 +122,7 @@ const Boot = {
         ]);
         location.reload();
       }
-    };
-
-    let id = setTimeout(fire, BOOT_TIMEOUT_MS);
+    }, BOOT_TIMEOUT_MS);
 
     return {
       complete() {
@@ -142,12 +131,6 @@ const Boot = {
         td.completed = true;
         Storage.set(KEYS.TIMEOUT, td);
         Storage.remove(KEYS.FORCE);
-      },
-      pause() {
-        clearTimeout(id);
-      },
-      resume() {
-        id = setTimeout(fire, BOOT_TIMEOUT_MS);
       },
     };
   },
@@ -201,78 +184,12 @@ const Boot = {
       }
     });
 
-    // Users.load() must run before FS.init(): it may migrate a pre-account
-    // install's single OS.lockPin into the first admin account, and step 2
-    // (per-user storage scoping) needs Users.activeId to already be settled
-    // — or at least the account list populated — before FS decides which
-    // IndexedDB namespace to open.
-    await Users.load();
-
-    // Fresh install: Users.load() just created the sole "user" admin account
-    // (see Users.load()'s migration branch) with no PIN. There is nothing to
-    // pick and nothing to unlock, so log straight into it here — this is what
-    // keeps first boot identical to the old single-account experience.
-    // Existing installs with accounts already on file are deliberately left
-    // with activeId still null: boot() below decides whether that means
-    // "auto-login the one PIN-less account" or "show the lock/picker screen",
-    // since that decision needs the full account list, not just this hook.
-    if (Users.needsFirstRun()) {
-      const created = await Users.createUser({ name: 'user', role: 'admin', pin: null });
-      await Boot._activateUser(created.id);
-    }
-
-    window.__NB_RUNTIME.ready = true;
-    Boot._patchSettingsSet();
-  },
-
-  /**
-   * Point the FS worker at userId's isolated database and mark them as the
-   * active session in Users. Must complete before FS.init() runs for that
-   * user — FS.init() will throw (via the worker's requireFsDb()) if no
-   * setUser call has landed yet.
-   */
-  async _activateUser(userId) {
-    await OS.workers.fs.call('setUser', userId);
-    Users.setActive(userId);
-  },
-
-  /**
-   * The part of boot that depends on a filesystem existing: FS.init(),
-   * AppDirs/OPFS bootstrap, then all of the original stage 7-11 work
-   * (theme/vars/wallpaper, services, desktop render, autostart). Runs once
-   * right after initSubsystems() on a fresh install (no login needed), or
-   * once login succeeds on a returning/multi-account install.
-   */
-  async finishBootAsUser() {
-    await OS.settings.load();
     await FS.init();
     await window.AppDirs?.bootstrap?.();
     await window.OPFS?.init?.();
 
-    const sGet = Boot.applyOSVars();
-    Boot.applyThemeAndVars(sGet);
-    Boot.applyWallpaper(sGet);
-    Boot.applyAccessibility(sGet);
-    Boot.applyCursorSize(sGet);
-    Boot.syncVersion(sGet);
-    Boot.configureTaskbar(sGet);
-    Boot.initScreenReader();
-    Boot.startServices();
-
-    const scheduleIdle = window.requestIdleCallback
-      ? (fn) => requestIdleCallback(fn, { timeout: 3000 })
-      : (fn) => setTimeout(fn, 0);
-    scheduleIdle(() => {
-      loadInstalledNovaApps().catch(e => console.error('[BOOT] Failed to load installed Nova apps:', e)).finally(() => {
-        if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
-        if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
-        if (typeof renderLaunchpad === 'function') renderLaunchpad();
-        launchAutostartApps();
-        if (typeof AppScheduler !== 'undefined') {
-          AppScheduler.start();
-        }
-      });
-    });
+    window.__NB_RUNTIME.ready = true;
+    Boot._patchSettingsSet();
   },
 
   /**
@@ -540,62 +457,53 @@ async function boot() {
   // so a subsequent fast restart doesn't accumulate toward the threshold.
   Storage.remove(KEYS.ATTEMPTS);
 
-  // 7. Login Gate ────────────────────────────────────────────────
-  // initSubsystems() already auto-logged-in on a genuine first run (single
-  // account, no PIN, just created). If Users.activeId is still unset here,
-  // this is a returning/multi-account install and boot must pause for a
-  // login before touching the filesystem — see finishBootAsUser() for what
-  // was previously unconditional stage 7-11 work.
-  //
-  // Three-way branch, per the account rules:
-  //   - exactly 1 account, no PIN  -> auto-login, no screen shown at all
-  //   - exactly 1 account, has PIN -> PIN entry only, no picker grid
-  //   - 2+ accounts                -> picker first, then PIN if that
-  //                                    account has one, else instant login
-  if (!Users.activeId) {
-    const accounts = Users.list();
-    const solo = accounts.length === 1 ? accounts[0] : null;
+  // 7. Settings & UI ───────────────────────────────────────────────
+  const sGet = Boot.applyOSVars();
+  Boot.applyThemeAndVars(sGet);
+  Boot.applyWallpaper(sGet);
+  Boot.applyAccessibility(sGet);
+  Boot.applyCursorSize(sGet);
+  Boot.syncVersion(sGet);
+  Boot.configureTaskbar(sGet);
+  Boot.initScreenReader();
+  Boot.startServices();
 
-    if (solo && !solo.pinHash) {
-      await Boot._activateUser(solo.id);
-    } else {
-      // The login gate (#lock-screen, z-index 99998) renders underneath the
-      // still-visible boot splash (#boot-screen, z-index 99999) unless we
-      // hide the splash first -- otherwise the picker/PIN UI is fully
-      // functional but invisible and unclickable, the login promise below
-      // never resolves, and the 15s watchdog force-reloads into the same
-      // stuck state forever (the actual cause of the "bootloop when a PIN
-      // or a 2nd account exists" bug).
-      bootScreen.classList.add('fade-out');
-      await new Promise(r => setTimeout(r, 400));
-      bootScreen.style.display = 'none';
+  // 8. Deferred Non-Critical Work ──────────────────────────────────
+  const scheduleIdle = window.requestIdleCallback
+    ? (fn) => requestIdleCallback(fn, { timeout: 3000 })
+    : (fn) => setTimeout(fn, 0);
+  scheduleIdle(() => {
+    loadInstalledNovaApps().catch(e => console.error('[BOOT] Failed to load installed Nova apps:', e)).finally(() => {
+      if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
+      // loadInstalledNovaApps() is fire-and-forget from an idle callback and
+      // races the fixed 800ms boot-finalize delay below — hydrateApps() does
+      // async per-file OPFS reads per installed app and can easily lose that
+      // race, especially right after an install/replace when OPFS state just
+      // changed. Desktop icons and the launchpad had nothing re-render them
+      // once this actually finished (only the taskbar did above), so a
+      // freshly-installed/replaced app's icon and content stayed stale until
+      // something unrelated (e.g. opening App Manager) happened to redraw
+      // them later against already-fresh OS.apps/APP_REGISTRY data.
+      if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+      if (typeof renderLaunchpad === 'function') renderLaunchpad();
+      // Apps only launch here once they're guaranteed to be registered in
+      // AppRegistry/OS.apps (loadInstalledNovaApps has just finished above)
+      // — launchAutostartApps() checks disabled/permission state itself and
+      // is a no-op for anyone with nothing eligible, so it's safe to always
+      // call.
+      launchAutostartApps();
 
-      watchdog.pause();
-      try {
-        await new Promise((resolve, reject) => {
-          Boot._pendingLoginResolve = resolve;
-          Boot._pendingLoginReject = reject;
-          Boot._showAccountGate(solo ? solo.id : null);
-        });
-      } catch (e) {
-        console.error('[BOOT] Login gate failed, falling back to first account:', e);
-        const fallback = Users.list()[0];
-        if (fallback) {
-          await Boot._activateUser(fallback.id);
-        } else {
-          throw e;
-        }
-      } finally {
-        Boot._pendingLoginResolve = null;
-        Boot._pendingLoginReject = null;
-        watchdog.resume();
+      // Tier-1 scheduled background wake (system:background). Started once
+      // here, not re-armed elsewhere — AppScheduler.start() is itself a
+      // no-op on repeat calls, so this is just the one place boot always
+      // reaches after apps are registered.
+      if (typeof AppScheduler !== 'undefined') {
+        AppScheduler.start();
       }
-    }
-  }
+    });
+  });
 
-  await Boot.finishBootAsUser();
-
-  // 8. Finalize ────────────────────────────────────────────────────
+  // 9. Finalize ────────────────────────────────────────────────────
   await new Promise(r => setTimeout(r, 800));
   bootScreen.classList.add('fade-out');
 
@@ -603,12 +511,17 @@ async function boot() {
   bootScreen.style.display = 'none';
   markBootSuccess();
   WM.updateTaskbar();
-  renderDesktopIcons();
 
-  // 9. Post-boot Hooks ────────────────────────────────────────────
+  if (OS.lockPin) {
+    lockScreen();
+  } else {
+    renderDesktopIcons();
+  }
+
+  // 10. Post-boot Hooks ────────────────────────────────────────────
   Boot._runHooks('after');
 
-  // 10. Developer Mode / Debug Overlay ───────────────────────────
+  // 11. Developer Mode / Debug Overlay ───────────────────────────
   if (OS.settings.get('devMode')) {
     const overlayPref = OS.settings.get('debugOverlayVisible');
     if (overlayPref !== false && window.DebugOverlay) {
@@ -731,10 +644,7 @@ async function boot() {
 
     let disabled;
     try {
-      const raw = typeof UserScopedStorage !== 'undefined' && UserScopedStorage.getItem
-        ? UserScopedStorage.getItem('disabled_apps')
-        : localStorage.getItem('nova_disabled_apps');
-      disabled = typeof raw === 'string' ? JSON.parse(raw || '[]') : (raw || [])
+      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]')
         .map(x => (typeof x === 'string' ? x : x?.id))
         .filter(Boolean);
     } catch {

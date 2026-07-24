@@ -18,7 +18,6 @@ registerApp({
       { id: 'accessibility', name: 'Accessibility', icon: 'eye'       },
       { id: 'desktop',       name: 'Desktop',       icon: 'layers'    },
       { id: 'system',        name: 'System',        icon: 'processor' },
-      { id: 'users',         name: 'Users',         icon: 'user'      },
       { id: 'date-and-region', name: 'Date and Region', icon: 'calendar' },
       { id: 'storage',       name: 'Storage',       icon: 'database'  },
       { id: 'privacy',       name: 'Privacy',       icon: 'lock'      },
@@ -130,7 +129,6 @@ registerApp({
         case 'appearance':    renderAppearance();    break;
         case 'accessibility': renderAccessibility(); break;
         case 'system':        renderSystem();        break;
-        case 'users':         renderUsers();         break;
         case 'date-and-region': renderDateAndRegion(); break;
         case 'storage':       renderStorage();       break;
         case 'shortcuts':     renderShortcuts();     break;
@@ -251,11 +249,85 @@ registerApp({
     function renderSystem() {
       mainContent.appendChild(createEl('h2', { textContent: 'System', style: { marginBottom: '20px' } }));
 
-      // Username and PIN lock used to live here as OS.username/OS.lockPin —
-      // single global identity fields from before the account system existed.
-      // They now belong to the Users section (self-service name/PIN editing
-      // for whichever account is signed in), since there's no longer one
-      // machine-wide identity to edit from System.
+      // User
+      const userGroup = createEl('div', { className: 'nook-group' });
+      userGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'User' }));
+      const userRow = createEl('div', { className: 'nook-row' });
+      userRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Username' }));
+      const userInput = createEl('input', {
+        className: 'input', id: 'system-username-input', name: 'system-username',
+        style: { width: '150px' }, value: OS.username
+      });
+      userInput.addEventListener('change', () => {
+        OS.username = userInput.value || 'user';
+        OS.settings.set('username', OS.username);
+      });
+      userRow.appendChild(userInput);
+      userGroup.appendChild(userRow);
+      mainContent.appendChild(userGroup);
+
+      // Lock screen
+      const lockGroup = createEl('div', { className: 'nook-group' });
+      lockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Lock Screen' }));
+      const pinRow = createEl('div', { className: 'nook-row' });
+      pinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'PIN Lock' }));
+
+      const pinBtn = createEl('button', { className: 'btn btn-sm', textContent: OS.lockPin ? 'Change PIN' : 'Set PIN' });
+      pinBtn.addEventListener('click', async () => {
+        if (OS.lockPin) {
+          const currentPin = await showModal('Change PIN', 'Enter current PIN:', [
+            { label: 'Cancel' }, { label: 'Next', value: 'next' }
+          ], 'password');
+          if (!currentPin) return;
+          const hash = await OS.workers.crypto.call('pbkdf2', currentPin, getPinSalt());
+          if (hash !== OS.lockPin) {
+            showModal('Incorrect PIN', 'The current PIN you entered is incorrect.');
+            return;
+          }
+        }
+
+        const pin1 = await showModal(OS.lockPin ? 'New PIN' : 'Set PIN', 'Enter a 4-digit PIN:', [
+          { label: 'Cancel' }, { label: 'Next', value: 'next' }
+        ], 'password');
+        if (!pin1 || pin1.length !== 4 || !/^\d{4}$/.test(pin1)) {
+          if (pin1) showModal('Invalid PIN', 'PIN must be exactly 4 digits.');
+          return;
+        }
+
+        const pin2 = await showModal('Confirm PIN', 'Re-enter your PIN:', [
+          { label: 'Cancel' }, { label: 'Set PIN', value: 'confirm' }
+        ], 'password');
+        if (pin1 !== pin2) {
+          showModal('PIN Mismatch', 'The PINs do not match. Please try again.');
+          return;
+        }
+
+        const wasSet  = !!OS.lockPin;
+        const newHash = await OS.workers.crypto.call('pbkdf2', pin1, getPinSalt());
+        OS.lockPin    = newHash;
+        OS.settings.set('lockPin', newHash);
+        Notify.show({ title: wasSet ? 'PIN Updated' : 'PIN Set', body: wasSet ? 'Lock screen PIN has been updated' : 'Lock screen PIN has been set', type: 'success', appName: 'Settings' });
+        renderContent();
+      });
+      pinRow.appendChild(pinBtn);
+
+      if (OS.lockPin) {
+        const removePinBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: 'Remove', style: { marginLeft: '8px' } });
+        removePinBtn.addEventListener('click', async () => {
+          const result = await showModal('Remove PIN', 'Are you sure you want to remove PIN lock?', [
+            { label: 'Cancel' }, { label: 'Remove PIN', danger: true, value: 'confirm' }
+          ]);
+          if (result === 'confirm') {
+            OS.settings.set('lockPin', null);
+            OS.lockPin = null;
+            Notify.show({ title: 'PIN Removed', body: 'PIN lock has been disabled', type: 'success', appName: 'Settings' });
+            renderContent();
+          }
+        });
+        pinRow.appendChild(removePinBtn);
+      }
+      lockGroup.appendChild(pinRow);
+      mainContent.appendChild(lockGroup);
 
       // Recovery
       const recoveryGroup = createEl('div', { className: 'nook-group' });
@@ -282,12 +354,7 @@ registerApp({
       recoveryGroup.appendChild(recoveryRow);
       mainContent.appendChild(recoveryGroup);
 
-      // Developer Mode — visible to all users. Standard users must
-      // authenticate as an admin before enabling it.
-      renderDeveloperModeGroup();
-    }
-
-    function renderDeveloperModeGroup() {
+      // Developer Mode
       const devGroup = createEl('div', { className: 'nook-group' });
       devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Developer' }));
       const devRow = createEl('div', { className: 'nook-toggle-row' });
@@ -297,10 +364,6 @@ registerApp({
       });
       devToggle.addEventListener('click', async () => {
         const next = !OS.settings.get('devMode');
-        if (next && Users.active?.role !== 'admin') {
-          const adminId = await requestAdminAuth('An administrator must authorize enabling Developer Mode.');
-          if (!adminId) return;
-        }
         if (next) {
           const confirmed = await new Promise((resolve) => {
             const overlay = createEl('div', {
@@ -394,219 +457,8 @@ registerApp({
       devGroup.appendChild(devRow);
       mainContent.appendChild(devGroup);
     }
-    // ── Users ────────────────────────────────────────────────────────────
-    // Two distinct views off the same section, gated by the signed-in
-    // account's role. PIN changes are always owner-only, enforced again in
-    // Users.setPin itself — this UI simply never exposes a "change someone
-    // else's PIN" control, for anyone, admins included. Role changes,
-    // deletes, and new-admin creation re-prompt via requestAdminAuth().
-    function renderUsers() {
-      mainContent.appendChild(createEl('h2', { textContent: 'Users', style: { marginBottom: '20px' } }));
-      const me = Users.active;
-      if (!me) {
-        mainContent.appendChild(createEl('div', { className: 'nook-group', textContent: 'No signed-in account.' }));
-        return;
-      }
 
-      renderMyAccountGroup(me);
-
-      if (me.role === 'admin') {
-        renderOtherAccountsGroup(me);
-        renderAddAccountGroup(me);
-      }
-    }
-
-    // Self-service block — every account gets this, regardless of role.
-    function renderMyAccountGroup(me) {
-      const group = createEl('div', { className: 'nook-group' });
-      group.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'My Account' }));
-
-      const nameRow = createEl('div', { className: 'nook-row' });
-      nameRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Name' }));
-      const nameInput = createEl('input', {
-        className: 'input', id: 'user-name-input', name: 'user-name', style: { width: '150px' }, value: me.name || ''
-      });
-      nameInput.addEventListener('change', async () => {
-        if (!nameInput.value.trim()) { nameInput.value = me.name || ''; return; }
-        await Users.updateProfile(me.id, me.id, { name: nameInput.value });
-        Notify.show({ title: 'Name Updated', body: 'Your account name has been changed', type: 'success', appName: 'Settings' });
-      });
-      nameRow.appendChild(nameInput);
-      group.appendChild(nameRow);
-
-      const picRow = createEl('div', { className: 'nook-row', style: 'margin-top:12px;' });
-      picRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Picture' }));
-      const picInput = createEl('input', { type: 'file', accept: 'image/*', style: { width: '200px' } });
-      picInput.addEventListener('change', () => {
-        const file = picInput.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async () => {
-          await Users.updateProfile(me.id, me.id, { avatar: reader.result });
-          Notify.show({ title: 'Picture Updated', body: 'Your account picture has been changed', type: 'success', appName: 'Settings' });
-          renderContent();
-        };
-        reader.readAsDataURL(file);
-      });
-      picRow.appendChild(picInput);
-      group.appendChild(picRow);
-
-      const pinRow = createEl('div', { className: 'nook-row', style: 'margin-top:12px;' });
-      pinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'PIN' }));
-      const pinBtn = createEl('button', { className: 'btn btn-sm', textContent: me.pinHash ? 'Change PIN' : 'Set PIN' });
-      pinBtn.addEventListener('click', () => changeOwnPin(me));
-      pinRow.appendChild(pinBtn);
-      group.appendChild(pinRow);
-
-      const roleRow = createEl('div', { className: 'nook-row', style: 'margin-top:12px;' });
-      roleRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Role' }));
-      roleRow.appendChild(createEl('span', { textContent: me.role === 'admin' ? 'Administrator' : 'Standard User' }));
-      group.appendChild(roleRow);
-
-      mainContent.appendChild(group);
-    }
-
-    async function changeOwnPin(me) {
-      let currentPin = null;
-      if (me.pinHash) {
-        currentPin = await showModal('Change PIN', 'Enter current PIN:', [
-          { label: 'Cancel' }, { label: 'Next', value: 'next' }
-        ], 'password');
-        if (!currentPin) return;
-      }
-      const pin1 = await showModal(me.pinHash ? 'New PIN' : 'Set PIN', 'Enter a 4-digit PIN:', [
-        { label: 'Cancel' }, { label: 'Next', value: 'next' }
-      ], 'password');
-      if (!pin1) return;
-      if (!/^\d{4}$/.test(pin1)) { showModal('Invalid PIN', 'PIN must be exactly 4 digits.'); return; }
-      const pin2 = await showModal('Confirm PIN', 'Re-enter your PIN:', [
-        { label: 'Cancel' }, { label: 'Set PIN', value: 'confirm' }
-      ], 'password');
-      if (pin1 !== pin2) { showModal('PIN Mismatch', 'The PINs do not match. Please try again.'); return; }
-      try {
-        await Users.setPin(me.id, me.id, currentPin, pin1);
-        Notify.show({ title: me.pinHash ? 'PIN Updated' : 'PIN Set', body: 'Your PIN has been changed', type: 'success', appName: 'Settings' });
-        renderContent();
-      } catch (err) {
-        showModal('Error', err.message || 'Something went wrong.');
-      }
-    }
-
-    // Admin-only: manage every other account on the machine.
-    function renderOtherAccountsGroup(me) {
-      const others = Users.list().filter(u => u.id !== me.id);
-      const group = createEl('div', { className: 'nook-group' });
-      group.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Other Accounts' }));
-
-      if (others.length === 0) {
-        group.appendChild(createEl('div', { className: 'nook-row', textContent: 'No other accounts on this machine yet.' }));
-      }
-
-      for (const u of others) {
-        const row = createEl('div', { className: 'nook-row', style: 'margin-bottom:10px;' });
-        const label = createEl('span', { className: 'nook-row-label', textContent: `${u.name} \u2014 ${u.role === 'admin' ? 'Administrator' : 'Standard User'}` });
-        row.appendChild(label);
-
-        const roleBtn = createEl('button', { className: 'btn btn-sm', textContent: u.role === 'admin' ? 'Demote to Standard' : 'Promote to Admin' });
-        roleBtn.addEventListener('click', async () => {
-          const newRole = u.role === 'admin' ? 'standard' : 'admin';
-          const adminId = await requestAdminAuth(`Confirm changing ${u.name}'s role to ${newRole === 'admin' ? 'Administrator' : 'Standard User'}.`);
-          if (!adminId) return;
-          try {
-            await Users.setRole(u.id, adminId, newRole);
-            Notify.show({ title: 'Role Changed', body: `${u.name} is now ${newRole === 'admin' ? 'an Administrator' : 'a Standard User'}`, type: 'success', appName: 'Settings' });
-            renderContent();
-          } catch (err) {
-            showModal('Error', err.message || 'Something went wrong.');
-          }
-        });
-        row.appendChild(roleBtn);
-
-        const nameBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Rename', style: { marginLeft: '8px' } });
-        nameBtn.addEventListener('click', async () => {
-          const newName = await showPrompt(`Rename ${u.name}`, u.name);
-          if (!newName || !newName.trim()) return;
-          await Users.updateProfile(u.id, me.id, { name: newName });
-          renderContent();
-        });
-        row.appendChild(nameBtn);
-
-        const delBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: 'Delete', style: { marginLeft: '8px' } });
-        delBtn.addEventListener('click', async () => {
-          const result = await showModal('Delete Account', `Delete ${u.name}'s account? This permanently erases their files and cannot be undone.`, [
-            { label: 'Cancel' }, { label: 'Delete', danger: true, value: 'confirm' }
-          ]);
-          if (result !== 'confirm') return;
-          const adminId = await requestAdminAuth(`Confirm deleting ${u.name}'s account.`);
-          if (!adminId) return;
-          try {
-            await Users.deleteUser(u.id, adminId);
-            // Note: this only removes the account record. That account's
-            // per-user IndexedDB (NovaByte_FS_<id>) is orphaned, not wiped
-            // here — deleteUser() owns the account list, not the FS layer.
-            // A real "erase their files" guarantee needs a follow-up call
-            // into the fs worker to drop that DB; not wired yet, flagging
-            // rather than silently claiming it's handled.
-            Notify.show({ title: 'Account Deleted', body: `${u.name}'s account has been removed`, type: 'success', appName: 'Settings' });
-            renderContent();
-          } catch (err) {
-            showModal('Error', err.message || 'Something went wrong.');
-          }
-        });
-        row.appendChild(delBtn);
-
-        group.appendChild(row);
-      }
-
-      mainContent.appendChild(group);
-    }
-
-    // Admin-only: create a new account. Role defaults to Standard; PIN is
-    // optional at creation (matches createUser's contract) — the new user
-    // sets their own PIN later from their own My Account section.
-    function renderAddAccountGroup(me) {
-      const group = createEl('div', { className: 'nook-group' });
-      group.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Add Account' }));
-
-      const nameRow = createEl('div', { className: 'nook-row' });
-      nameRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Name' }));
-      const nameInput = createEl('input', { className: 'input', id: 'new-user-name', name: 'new-user-name', style: { width: '150px' }, placeholder: 'Account name' });
-      nameRow.appendChild(nameInput);
-      group.appendChild(nameRow);
-
-      const roleRow = createEl('div', { className: 'nook-toggle-row', style: 'margin-top:10px;' });
-      roleRow.appendChild(createEl('span', { textContent: 'Make this account an Administrator' }));
-      let makeAdmin = false;
-      const roleToggle = createEl('button', { className: 'toggle', 'aria-pressed': 'false' });
-      roleToggle.addEventListener('click', () => {
-        makeAdmin = !makeAdmin;
-        roleToggle.classList.toggle('active', makeAdmin);
-        roleToggle.setAttribute('aria-pressed', String(makeAdmin));
-      });
-      roleRow.appendChild(roleToggle);
-      group.appendChild(roleRow);
-
-      const createBtn = createEl('button', { className: 'btn btn-sm btn-primary', textContent: 'Create Account', style: { marginTop: '12px' } });
-      createBtn.addEventListener('click', async () => {
-        const name = nameInput.value.trim();
-        if (!name) { showModal('Name Required', 'Please enter a name for the new account.'); return; }
-        try {
-          if (makeAdmin) {
-            const adminId = await requestAdminAuth(`Confirm creating a new admin account for "${name}".`);
-            if (!adminId) return;
-          }
-          await Users.createUser({ name, role: makeAdmin ? 'admin' : 'standard', pin: null });
-          Notify.show({ title: 'Account Created', body: `${name} has been added`, type: 'success', appName: 'Settings' });
-          renderContent();
-        } catch (err) {
-          showModal('Error', err.message || 'Something went wrong.');
-        }
-      });
-      group.appendChild(createBtn);
-
-      mainContent.appendChild(group);
-    }
-
+    // ── Date and Region ────────────────────────────────────────────────────
     function renderDateAndRegion() {
       mainContent.appendChild(createEl('h2', { textContent: 'Date and Region', style: { marginBottom: '20px' } }));
 
@@ -2220,8 +2072,6 @@ registerApp({
       adminToggle.addEventListener('click', async () => {
         if (adminToggle.disabled) return;
         const next = !adminToggle.classList.contains('active');
-        const adminId = await requestAdminAuth('An administrator must authorize enabling Admin Mode.');
-        if (!adminId) return;
         adminToggle.disabled = true;
         try {
           const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';

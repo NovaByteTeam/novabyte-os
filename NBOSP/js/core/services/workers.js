@@ -3,109 +3,46 @@
 const FS_WORKER_CODE = `
 'use strict';
 // ─────────────────────────────────────────────────────────────────────────────
-// Two separate IndexedDB databases, deliberately not one:
-//
-//   NovaByte_Accounts  — fixed name, never re-pointed. Holds STORE_USERS only.
-//                        The account list must be enumerable before any one
-//                        account is "active", so it can't live inside a
-//                        per-user database.
-//   NovaByte_FS_<id>   — one per user (name includes the active userId).
-//                        Holds STORE_FILES/STORE_SETTINGS/STORE_NOTIFICATIONS.
-//                        Opened on demand via the 'setUser' message; switching
-//                        users closes the old connection and opens/creates a
-//                        fresh one for the new id. This is what gives each
-//                        account real storage isolation.
-//
-// Before setUser has ever been called, activeUserId is null and any
-// files/settings/notifications call fails loudly rather than silently
-// falling back to a shared DB — a silent fallback here is exactly the kind
-// of bug that would leak one user's files into another's session.
-const ACCOUNTS_DB_NAME = 'NovaByte_Accounts';
-const ACCOUNTS_DB_VERSION = 1;
-const STORE_USERS = 'users';
-
-const FS_DB_VERSION = 1;
+const DB_NAME = 'NovaByte_FS';
+const DB_VERSION = 1;
 const STORE_FILES = 'files';
 const STORE_SETTINGS = 'settings';
 const STORE_NOTIFICATIONS = 'notifications';
 
-let accountsDb = null;
-let fsDb = null;
-let activeUserId = null;
+let db = null;
 
-// Shared in-memory fallback builder for sandboxed contexts where indexedDB
-// throws on open. Used by both DB openers below.
-function _makeMemoryDb(storeNames) {
-  const _stores = {};
-  function _ms(n) {
-    if (!_stores[n]) _stores[n] = {};
-    const s = _stores[n];
-    return {
-      put(i) { const k = i.id !== undefined ? i.id : i.key !== undefined ? i.key : JSON.stringify(i); s[k] = i; return {}; },
-      get(k) { const r = {result: s[k]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
-      getAll() { const r = {result: Object.values(s)}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
-      delete(k) { delete s[k]; return {}; },
-      createIndex() { return { getAll() { const r={result:[]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; } }; }
-    };
-  }
-  const db = {
-    objectStoreNames: { contains: n => !!_stores[n] },
-    createObjectStore: n => { _stores[n] = {}; return _ms(n); },
-    transaction(storeName, mode) {
-      const tx = { objectStore: n => _ms(n), oncomplete: null, onerror: null };
-      setTimeout(() => tx.oncomplete?.({target:tx}), 0);
-      return tx;
-    }
-  };
-  storeNames.forEach(n => { _stores[n] = {}; });
-  return db;
-}
-
-function openAccountsDb() {
+function openDB() {
   return new Promise((resolve, reject) => {
-    if (accountsDb) { resolve(accountsDb); return; }
+    if (db) { resolve(db); return; }
     let req;
     try {
-      req = indexedDB.open(ACCOUNTS_DB_NAME, ACCOUNTS_DB_VERSION);
-    } catch (e) {
-      accountsDb = _makeMemoryDb([STORE_USERS]);
-      resolve(accountsDb);
-      return;
-    }
-    req.onupgradeneeded = (e) => {
-      const d = e.target.result;
-      if (!d.objectStoreNames.contains(STORE_USERS)) {
-        d.createObjectStore(STORE_USERS, { keyPath: 'id' });
+      req = indexedDB.open(DB_NAME, DB_VERSION);
+    } catch(e) {
+      // IDB blocked (sandboxed VM context) — build an in-memory fallback DB
+      const _stores = {};
+      function _ms(n) {
+        if (!_stores[n]) _stores[n] = {};
+        const s = _stores[n];
+        return {
+          put(i) { const k = i.id !== undefined ? i.id : i.key !== undefined ? i.key : JSON.stringify(i); s[k] = i; return {}; },
+          get(k) { const r = {result: s[k]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
+          getAll() { const r = {result: Object.values(s)}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
+          delete(k) { delete s[k]; return {}; },
+          createIndex() { return { getAll() { const r={result:[]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; } }; }
+        };
       }
-    };
-    req.onsuccess = (e) => { accountsDb = e.target.result; resolve(accountsDb); };
-    req.onerror = (e) => reject(e.target.error);
-    // See the matching comment in openFsDbForUser() — same failure mode,
-    // and this one runs on every boot's very first FS worker call ('init'),
-    // so a blocked open here hangs boot before anything else even starts.
-    req.onblocked = () => {
-      reject(new Error('FS worker: open of ' + ACCOUNTS_DB_NAME + ' blocked by another connection — close other tabs/instances and retry'));
-    };
-  });
-}
-
-// Closes the current per-user DB connection (if any) and opens/creates the
-// one for userId. Must be called (via the 'setUser' message) before any
-// files/settings/notifications operation — see module comment.
-function openFsDbForUser(userId) {
-  return new Promise((resolve, reject) => {
-    if (!userId) { reject(new Error('openFsDbForUser called without a userId')); return; }
-    if (fsDb && activeUserId === userId) { resolve(fsDb); return; }
-    if (fsDb) { fsDb.close?.(); fsDb = null; }
-
-    const dbName = 'NovaByte_FS_' + userId;
-    let req;
-    try {
-      req = indexedDB.open(dbName, FS_DB_VERSION);
-    } catch (e) {
-      fsDb = _makeMemoryDb([STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS]);
-      activeUserId = userId;
-      resolve(fsDb);
+      db = {
+        objectStoreNames: { contains: n => !!_stores[n] },
+        createObjectStore: n => { _stores[n] = {}; return _ms(n); },
+        transaction(storeName, mode) {
+          const tx = { objectStore: n => _ms(n), oncomplete: null, onerror: null };
+          setTimeout(() => tx.oncomplete?.({target:tx}), 0);
+          return tx;
+        }
+      };
+      // Pre-create the expected stores
+      [STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS].forEach(n => { _stores[n] = {}; });
+      resolve(db);
       return;
     }
     req.onupgradeneeded = (e) => {
@@ -121,28 +58,13 @@ function openFsDbForUser(userId) {
         ns.createIndex('timestamp', 'timestamp');
       }
     };
-    req.onsuccess = (e) => { fsDb = e.target.result; activeUserId = userId; resolve(fsDb); };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
     req.onerror = (e) => reject(e.target.error);
-    // Without this, a stale connection to the same-named DB (leftover tab,
-    // a previous worker instance, or a lingering DevTools inspection) makes
-    // indexedDB.open() fire neither onsuccess nor onerror — it just waits
-    // silently for the other connection to close. That left setUser's
-    // promise unresolved forever, which stalled boot until the 15s watchdog
-    // force-reloaded the page, which hit the same block again: a bootloop
-    // with no console error, only a generic 'Stuck — timeout detected' log.
-    req.onblocked = () => {
-      reject(new Error('FS worker: open of ' + dbName + ' blocked by another connection — close other tabs/instances and retry'));
-    };
   });
 }
 
-function requireFsDb() {
-  if (!fsDb) throw new Error('FS worker: no active user — setUser must run before file/setting operations');
-  return fsDb;
-}
-
 async function getAllFiles() {
-  const d = requireFsDb();
+  const d = await openDB();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_FILES, 'readonly');
     const req = tx.objectStore(STORE_FILES).getAll();
@@ -152,7 +74,7 @@ async function getAllFiles() {
 }
 
 async function putFiles(files) {
-  const d = requireFsDb();
+  const d = await openDB();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_FILES, 'readwrite');
     const store = tx.objectStore(STORE_FILES);
@@ -163,7 +85,7 @@ async function putFiles(files) {
 }
 
 async function deleteFile(id) {
-  const d = requireFsDb();
+  const d = await openDB();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_FILES, 'readwrite');
     tx.objectStore(STORE_FILES).delete(id);
@@ -173,7 +95,7 @@ async function deleteFile(id) {
 }
 
 async function getSetting(key) {
-  const d = requireFsDb();
+  const d = await openDB();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_SETTINGS, 'readonly');
     const req = tx.objectStore(STORE_SETTINGS).get(key);
@@ -183,7 +105,7 @@ async function getSetting(key) {
 }
 
 async function putSetting(key, value) {
-  const d = requireFsDb();
+  const d = await openDB();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_SETTINGS, 'readwrite');
     tx.objectStore(STORE_SETTINGS).put({ key, value });
@@ -193,7 +115,7 @@ async function putSetting(key, value) {
 }
 
 async function getAllSettings() {
-  const d = requireFsDb();
+  const d = await openDB();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_SETTINGS, 'readonly');
     const req = tx.objectStore(STORE_SETTINGS).getAll();
@@ -206,55 +128,18 @@ async function getAllSettings() {
   });
 }
 
-async function getAllUsers() {
-  const d = await openAccountsDb();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE_USERS, 'readonly');
-    const req = tx.objectStore(STORE_USERS).getAll();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function putUser(user) {
-  const d = await openAccountsDb();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE_USERS, 'readwrite');
-    tx.objectStore(STORE_USERS).put(user);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function deleteUser(id) {
-  const d = await openAccountsDb();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(STORE_USERS, 'readwrite');
-    tx.objectStore(STORE_USERS).delete(id);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
 self.onmessage = async (e) => {
   const { id, method, args } = e.data;
   try {
     let result;
     switch (method) {
-      // 'init' only opens the fixed accounts DB — it deliberately does NOT
-      // pick a per-user FS DB, since no user may be active yet. Callers
-      // must follow up with 'setUser' before touching files/settings.
-      case 'init': await openAccountsDb(); result = true; break;
-      case 'setUser': await openFsDbForUser(args[0]); result = true; break;
+      case 'init': await openDB(); result = true; break;
       case 'getAllFiles': result = await getAllFiles(); break;
       case 'putFiles': await putFiles(args[0]); result = true; break;
       case 'deleteFile': await deleteFile(args[0]); result = true; break;
       case 'getSetting': result = await getSetting(args[0]); break;
       case 'putSetting': await putSetting(args[0], args[1]); result = true; break;
       case 'getAllSettings': result = await getAllSettings(); break;
-      case 'getAllUsers': result = await getAllUsers(); break;
-      case 'putUser': await putUser(args[0]); result = true; break;
-      case 'deleteUser': await deleteUser(args[0]); result = true; break;
       default: throw new Error('Unknown method: ' + method);
     }
     self.postMessage({ id, result });
@@ -382,15 +267,7 @@ self.onmessage = async (e) => {
               pending.set(id, {
                 resolve,
                 reject: (err) => {
-                  // getAllSettings failing with "no active user" is expected
-                  // once per boot — OS.settings.load() always runs before
-                  // any setUser call lands (see kernel.js's load() comment).
-                  // Logging that as an [Workers] error every single boot
-                  // buried real failures in the Events log under noise that
-                  // looked identical to it. Everything else still logs.
-                  const isExpectedPreLoginSettingsMiss =
-                    method === 'getAllSettings' && /no active user/.test(err?.message || '');
-                  if (typeof EventLog !== 'undefined' && !isExpectedPreLoginSettingsMiss) {
+                  if (typeof EventLog !== 'undefined') {
                     EventLog.log({ app: 'Workers', category: 'system', severity: 'error', message: `${workerName}.${method} failed: ${err?.message || err}`, data: { worker: workerName, method } });
                   }
                   reject(err);
