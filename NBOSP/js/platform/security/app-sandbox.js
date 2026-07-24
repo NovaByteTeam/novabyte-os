@@ -2370,6 +2370,26 @@ const AppSandbox = (() => {
     });
   }
 
+  // Wipe every row in the nova:storage store, regardless of appId. For
+  // factory-reset / "Wipe All Data" — unlike storageClear(appId), this
+  // isn't scoped to one app because a factory reset needs to clear
+  // everything, including any rows left behind by an app that's since
+  // been uninstalled (an already-cleaned entry wouldn't appear in
+  // OS.apps for a per-appId sweep to find). Goes through the same
+  // cached connection as every other storage* function rather than
+  // indexedDB.deleteDatabase(STORAGE_DB_NAME) directly, since a raw
+  // delete call would block on this module's own open connection
+  // (storageDbPromise) for the lifetime of the session.
+  async function clearAllStorage() {
+    const db = await openStorageDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readwrite');
+      tx.objectStore(STORAGE_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
   async function storageKeys(appId) {
     const db = await openStorageDB();
     return new Promise((resolve, reject) => {
@@ -4363,13 +4383,25 @@ const AppSandbox = (() => {
     // host-shell-side IndexedDB, isolated by [appId, key], not by this
     // partition. Wiping the partition here never touches it.
     //
-    // Only wipe for apps that don't hold the permission — same exemption
-    // logic sanitizeSandboxAttr uses, kept in sync so the two checks can't
-    // drift apart. Best-effort: a failure here shouldn't block teardown.
+    // Only wipe for apps that weren't granted allow-same-origin at
+    // creation. Best-effort: a failure here shouldn't block teardown.
     const appId = sandbox.appId;
     const isSystemApp = SYSTEM_SANDBOX_APPS.has(appId);
-    const sameOriginPermitted = isSystemApp
-      || (typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.isGranted('sandbox:same-origin', appId));
+    // sanitizeSandboxAttr() only adds 'allow-same-origin' when isSystemApp
+    // OR (manifest allowSameOrigin===true AND the permission is granted) —
+    // so the token's presence on the actual webview is a direct readout of
+    // that combined decision. Reading it back here (rather than
+    // re-deriving the rule with a second isGranted() check, which is what
+    // caused the original bug: it dropped the manifest-opt-in half, so an
+    // app with a stale/leftover grant but no opt-in — which never got the
+    // token at creation and is genuinely opaque-origin — was wrongly
+    // treated as exempt and skipped the wipe below) means the two checks
+    // can't drift apart again, since this one isn't a second copy of the
+    // logic at all.
+    const webviewHasSameOrigin = !!sandbox.webview
+      && typeof sandbox.webview.getAttribute === 'function'
+      && (sandbox.webview.getAttribute('sandbox') || '').split(/\s+/).includes('allow-same-origin');
+    const sameOriginPermitted = isSystemApp || webviewHasSameOrigin;
     if (appId && !sameOriginPermitted) {
       clearAppPartition(appId).catch(e => {
         log('warn', 'destroy() — failed to clear storage partition for', appId, e);
@@ -4605,6 +4637,15 @@ const AppSandbox = (() => {
     getAllSandboxes,
     clearAppPartition,
     clearAppPartitions,
+    // storageClear/clearAllStorage clear nova:storage (a separate,
+    // host-shell-side IndexedDB keyed by [appId, key] — see storageClear
+    // above) which clearAppPartition(s) never touches, since that only
+    // wipes the webview's own persist:app_<appId> partition. Uninstall
+    // and factory-reset callers need both: clearAppPartition(appId) for
+    // the webview partition, storageClear(appId) or clearAllStorage()
+    // for this store.
+    storageClear,
+    clearAllStorage,
     detachToBackground,
     terminateBackground,
     dispatchBackgroundWake,
