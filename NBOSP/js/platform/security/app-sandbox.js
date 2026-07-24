@@ -4057,6 +4057,77 @@ const AppSandbox = (() => {
   //   3. A MutationObserver backstop — catches anything that slips past
   //      1/2 (e.g. a future API, or a parser edge case), by removing any
   //      <webview> element the instant it's actually attached to the DOM.
+  //
+  // Nested-webview navigation delay (permitted apps only)
+  //
+  // Manual testing found that creating a nested <webview> and setting its
+  // .src immediately on page load reproducibly crashes the guest's
+  // renderer process outright — not a catchable JS error (no window
+  // 'error' event fires, DevTools attached to the webview dies with it).
+  // A 1000ms delay between creation and the first navigation reliably
+  // avoided the crash in testing; instant navigation reliably reproduced
+  // it. The underlying cause hasn't been confirmed against NW.js/Chromium
+  // internals — this is a tested mitigation for an observed timing race,
+  // not a proven root-cause fix. If NW.js ever exposes a real readiness
+  // signal for a freshly created <webview>, prefer that over this delay.
+  //
+  // Scoped to ONLY the first .src assignment on a nested webview, and
+  // only when nested webviews are actually permitted for this app —
+  // apps that don't create nested webviews, and the outer sandbox's own
+  // webview (created host-side in app-sandbox.js's createSandbox, a
+  // separate code path from this shim entirely), are unaffected. Every
+  // browser-type app gets this automatically; individual apps don't need
+  // their own delay in app.js.
+  const NESTED_WEBVIEW_NAV_DELAY_MS = 1000;
+
+  if (__NOVA_NESTED_WEBVIEW_ALLOWED__) {
+    const originalCreateElementForNav = Document.prototype.createElement;
+    Document.prototype.createElement = function(tagName, options) {
+      const el = originalCreateElementForNav.call(this, tagName, options);
+      if (typeof tagName === 'string' && tagName.toLowerCase() === 'webview') {
+        const srcDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'src')
+          || Object.getOwnPropertyDescriptor(Element.prototype, 'src');
+        // Fall back to plain attribute get/set if this build's <webview>
+        // doesn't expose src as an accessor property (still functionally
+        // correct, just without the descriptor's own get/set semantics).
+        const nativeGetSrc = srcDesc && srcDesc.get
+          ? function() { return srcDesc.get.call(el); }
+          : function() { return el.getAttribute('src'); };
+        const nativeSetSrc = srcDesc && srcDesc.set
+          ? function(v) { srcDesc.set.call(el, v); }
+          : function(v) { el.setAttribute('src', v); };
+
+        let delayed = false;
+        try {
+          Object.defineProperty(el, 'src', {
+            get: nativeGetSrc,
+            set: function(value) {
+              if (!delayed) {
+                delayed = true;
+                setTimeout(function() { nativeSetSrc(value); }, NESTED_WEBVIEW_NAV_DELAY_MS);
+                return;
+              }
+              // Any navigation after the first goes through immediately —
+              // this only guards the initial create-then-navigate race,
+              // not normal in-app navigation (URL bar, back/forward, etc).
+              nativeSetSrc(value);
+            },
+            configurable: true,
+          });
+        } catch (e) {
+          // If defineProperty fails for any reason (unexpected element
+          // shape, frozen prototype, etc.), fail open to the original,
+          // undelayed behavior rather than leaving .src unusable. Uses
+          // console.warn directly (not the host-side log() helper — this
+          // code runs inside the guest's own injected shim, a different
+          // scope, where that helper doesn't exist).
+          console.warn('Could not wrap nested webview src for nav delay:', e);
+        }
+      }
+      return el;
+    };
+  }
+
   if (!__NOVA_NESTED_WEBVIEW_ALLOWED__) {
     const originalCreateElement = Document.prototype.createElement;
     Document.prototype.createElement = function(tagName, options) {
@@ -4617,9 +4688,34 @@ const AppSandbox = (() => {
     const webview = createSandbox(app, container, state);
     container.appendChild(webview);
 
+    // NOTE on timing: createSandbox() calls webview.addContentScripts(...)
+    // to register the isolated IPC transport script. NW.js's
+    // addContentScripts has no Promise, callback, or completion event in
+    // its public API (confirmed against docs.nwjs.io and multiple NW.js
+    // issue threads) — there is no real way to await "registration done."
+    // It's also not guaranteed instantaneous: nwjs/nw.js#7597 reports the
+    // registered content script intermittently missing from a webview's
+    // very first navigation, which is consistent with a registration race
+    // against that navigation rather than a guaranteed-synchronous call.
+    //
+    // Previously this fired addContentScripts and set webview.src (via
+    // loadAppContent, below) back-to-back on the same tick, with nothing
+    // between them. If addContentScripts hadn't been processed by NW.js's
+    // browser process yet when navigation began, the isolated transport
+    // script could fail to attach for that load — and, per manual testing,
+    // could produce a hard renderer failure rather than a clean fallback.
+    // A short deliberate delay before navigation gives that registration
+    // a real window to land first. This is a mitigation for an
+    // undocumented timing gap in NW.js's own API, not a confirmed fix for
+    // its root cause — if NW.js ever exposes a real completion signal for
+    // addContentScripts, switch to that instead of this delay.
+    const CONTENT_SCRIPT_REGISTRATION_DELAY_MS = 250;
+
     // loadAppContent is async (registers files with the server) — fire and
     // let errors surface in the webview via showErrorPage.
-    loadAppContent(webview, app, state);
+    setTimeout(() => {
+      loadAppContent(webview, app, state);
+    }, CONTENT_SCRIPT_REGISTRATION_DELAY_MS);
 
     log('debug', `Launched ${app.name} in sandbox`);
 
