@@ -3,51 +3,103 @@
 const FS_WORKER_CODE = `
 'use strict';
 // ─────────────────────────────────────────────────────────────────────────────
-const DB_NAME = 'NovaByte_FS';
-const DB_VERSION = 2;
+// Two separate IndexedDB databases, deliberately not one:
+//
+//   NovaByte_Accounts  — fixed name, never re-pointed. Holds STORE_USERS only.
+//                        The account list must be enumerable before any one
+//                        account is "active", so it can't live inside a
+//                        per-user database.
+//   NovaByte_FS_<id>   — one per user (name includes the active userId).
+//                        Holds STORE_FILES/STORE_SETTINGS/STORE_NOTIFICATIONS.
+//                        Opened on demand via the 'setUser' message; switching
+//                        users closes the old connection and opens/creates a
+//                        fresh one for the new id. This is what gives each
+//                        account real storage isolation.
+//
+// Before setUser has ever been called, activeUserId is null and any
+// files/settings/notifications call fails loudly rather than silently
+// falling back to a shared DB — a silent fallback here is exactly the kind
+// of bug that would leak one user's files into another's session.
+const ACCOUNTS_DB_NAME = 'NovaByte_Accounts';
+const ACCOUNTS_DB_VERSION = 1;
+const STORE_USERS = 'users';
+
+const FS_DB_VERSION = 1;
 const STORE_FILES = 'files';
 const STORE_SETTINGS = 'settings';
 const STORE_NOTIFICATIONS = 'notifications';
-const STORE_USERS = 'users';
-// Account records live in their own store, in the same *unscoped* DB that
-// this worker always opens (STORE_FILES/STORE_SETTINGS get namespaced per
-// user in a later change — this store deliberately never does, since the
-// list of accounts has to be readable before any one of them is "active").
 
-let db = null;
+let accountsDb = null;
+let fsDb = null;
+let activeUserId = null;
 
-function openDB() {
+// Shared in-memory fallback builder for sandboxed contexts where indexedDB
+// throws on open. Used by both DB openers below.
+function _makeMemoryDb(storeNames) {
+  const _stores = {};
+  function _ms(n) {
+    if (!_stores[n]) _stores[n] = {};
+    const s = _stores[n];
+    return {
+      put(i) { const k = i.id !== undefined ? i.id : i.key !== undefined ? i.key : JSON.stringify(i); s[k] = i; return {}; },
+      get(k) { const r = {result: s[k]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
+      getAll() { const r = {result: Object.values(s)}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
+      delete(k) { delete s[k]; return {}; },
+      createIndex() { return { getAll() { const r={result:[]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; } }; }
+    };
+  }
+  const db = {
+    objectStoreNames: { contains: n => !!_stores[n] },
+    createObjectStore: n => { _stores[n] = {}; return _ms(n); },
+    transaction(storeName, mode) {
+      const tx = { objectStore: n => _ms(n), oncomplete: null, onerror: null };
+      setTimeout(() => tx.oncomplete?.({target:tx}), 0);
+      return tx;
+    }
+  };
+  storeNames.forEach(n => { _stores[n] = {}; });
+  return db;
+}
+
+function openAccountsDb() {
   return new Promise((resolve, reject) => {
-    if (db) { resolve(db); return; }
+    if (accountsDb) { resolve(accountsDb); return; }
     let req;
     try {
-      req = indexedDB.open(DB_NAME, DB_VERSION);
-    } catch(e) {
-      // IDB blocked (sandboxed VM context) — build an in-memory fallback DB
-      const _stores = {};
-      function _ms(n) {
-        if (!_stores[n]) _stores[n] = {};
-        const s = _stores[n];
-        return {
-          put(i) { const k = i.id !== undefined ? i.id : i.key !== undefined ? i.key : JSON.stringify(i); s[k] = i; return {}; },
-          get(k) { const r = {result: s[k]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
-          getAll() { const r = {result: Object.values(s)}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; },
-          delete(k) { delete s[k]; return {}; },
-          createIndex() { return { getAll() { const r={result:[]}; setTimeout(() => r.onsuccess?.({target:r}), 0); return r; } }; }
-        };
+      req = indexedDB.open(ACCOUNTS_DB_NAME, ACCOUNTS_DB_VERSION);
+    } catch (e) {
+      accountsDb = _makeMemoryDb([STORE_USERS]);
+      resolve(accountsDb);
+      return;
+    }
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(STORE_USERS)) {
+        d.createObjectStore(STORE_USERS, { keyPath: 'id' });
       }
-      db = {
-        objectStoreNames: { contains: n => !!_stores[n] },
-        createObjectStore: n => { _stores[n] = {}; return _ms(n); },
-        transaction(storeName, mode) {
-          const tx = { objectStore: n => _ms(n), oncomplete: null, onerror: null };
-          setTimeout(() => tx.oncomplete?.({target:tx}), 0);
-          return tx;
-        }
-      };
-      // Pre-create the expected stores
-      [STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS, STORE_USERS].forEach(n => { _stores[n] = {}; });
-      resolve(db);
+    };
+    req.onsuccess = (e) => { accountsDb = e.target.result; resolve(accountsDb); };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+// Closes the current per-user DB connection (if any) and opens/creates the
+// one for userId. Must be called (via the 'setUser' message) before any
+// files/settings/notifications operation — see module comment.
+function openFsDbForUser(userId) {
+  return new Promise((resolve, reject) => {
+    if (!userId) { reject(new Error('openFsDbForUser called without a userId')); return; }
+    if (fsDb && activeUserId === userId) { resolve(fsDb); return; }
+    if (fsDb) { fsDb.close?.(); fsDb = null; }
+
+    const dbName = 'NovaByte_FS_' + userId;
+    let req;
+    try {
+      req = indexedDB.open(dbName, FS_DB_VERSION);
+    } catch (e) {
+      fsDb = _makeMemoryDb([STORE_FILES, STORE_SETTINGS, STORE_NOTIFICATIONS]);
+      activeUserId = userId;
+      resolve(fsDb);
       return;
     }
     req.onupgradeneeded = (e) => {
@@ -62,17 +114,19 @@ function openDB() {
         const ns = d.createObjectStore(STORE_NOTIFICATIONS, { keyPath: 'id' });
         ns.createIndex('timestamp', 'timestamp');
       }
-      if (!d.objectStoreNames.contains(STORE_USERS)) {
-        d.createObjectStore(STORE_USERS, { keyPath: 'id' });
-      }
     };
-    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onsuccess = (e) => { fsDb = e.target.result; activeUserId = userId; resolve(fsDb); };
     req.onerror = (e) => reject(e.target.error);
   });
 }
 
+function requireFsDb() {
+  if (!fsDb) throw new Error('FS worker: no active user — setUser must run before file/setting operations');
+  return fsDb;
+}
+
 async function getAllFiles() {
-  const d = await openDB();
+  const d = requireFsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_FILES, 'readonly');
     const req = tx.objectStore(STORE_FILES).getAll();
@@ -82,7 +136,7 @@ async function getAllFiles() {
 }
 
 async function putFiles(files) {
-  const d = await openDB();
+  const d = requireFsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_FILES, 'readwrite');
     const store = tx.objectStore(STORE_FILES);
@@ -93,7 +147,7 @@ async function putFiles(files) {
 }
 
 async function deleteFile(id) {
-  const d = await openDB();
+  const d = requireFsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_FILES, 'readwrite');
     tx.objectStore(STORE_FILES).delete(id);
@@ -103,7 +157,7 @@ async function deleteFile(id) {
 }
 
 async function getSetting(key) {
-  const d = await openDB();
+  const d = requireFsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_SETTINGS, 'readonly');
     const req = tx.objectStore(STORE_SETTINGS).get(key);
@@ -113,7 +167,7 @@ async function getSetting(key) {
 }
 
 async function putSetting(key, value) {
-  const d = await openDB();
+  const d = requireFsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_SETTINGS, 'readwrite');
     tx.objectStore(STORE_SETTINGS).put({ key, value });
@@ -123,7 +177,7 @@ async function putSetting(key, value) {
 }
 
 async function getAllSettings() {
-  const d = await openDB();
+  const d = requireFsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_SETTINGS, 'readonly');
     const req = tx.objectStore(STORE_SETTINGS).getAll();
@@ -137,7 +191,7 @@ async function getAllSettings() {
 }
 
 async function getAllUsers() {
-  const d = await openDB();
+  const d = await openAccountsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_USERS, 'readonly');
     const req = tx.objectStore(STORE_USERS).getAll();
@@ -147,7 +201,7 @@ async function getAllUsers() {
 }
 
 async function putUser(user) {
-  const d = await openDB();
+  const d = await openAccountsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_USERS, 'readwrite');
     tx.objectStore(STORE_USERS).put(user);
@@ -157,7 +211,7 @@ async function putUser(user) {
 }
 
 async function deleteUser(id) {
-  const d = await openDB();
+  const d = await openAccountsDb();
   return new Promise((resolve, reject) => {
     const tx = d.transaction(STORE_USERS, 'readwrite');
     tx.objectStore(STORE_USERS).delete(id);
@@ -171,7 +225,11 @@ self.onmessage = async (e) => {
   try {
     let result;
     switch (method) {
-      case 'init': await openDB(); result = true; break;
+      // 'init' only opens the fixed accounts DB — it deliberately does NOT
+      // pick a per-user FS DB, since no user may be active yet. Callers
+      // must follow up with 'setUser' before touching files/settings.
+      case 'init': await openAccountsDb(); result = true; break;
+      case 'setUser': await openFsDbForUser(args[0]); result = true; break;
       case 'getAllFiles': result = await getAllFiles(); break;
       case 'putFiles': await putFiles(args[0]); result = true; break;
       case 'deleteFile': await deleteFile(args[0]); result = true; break;
