@@ -30,8 +30,17 @@ globalThis.OS = {
   username: null,
 };
 globalThis.window = globalThis;
+let _saltCallCount = 0;
 globalThis.crypto = {
-  getRandomValues: (arr) => { for (let i = 0; i < arr.length; i++) arr[i] = i; return arr; },
+  // Deterministic but call-order-dependent, so repeated _freshSalt() calls
+  // within/across tests never collide the way a fixed 0..15 fill did — real
+  // getRandomValues' only property this suite actually relies on is "not the
+  // same bytes twice," not true entropy.
+  getRandomValues: (arr) => {
+    _saltCallCount++;
+    for (let i = 0; i < arr.length; i++) arr[i] = (i + _saltCallCount) & 0xff;
+    return arr;
+  },
 };
 
 require('../../js/core/services/users.js');

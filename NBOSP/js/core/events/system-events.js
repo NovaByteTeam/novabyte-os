@@ -1491,6 +1491,15 @@ async function completeLogin(userId) {
     Users.setActive(userId);
     await FS.init();
   } else if (_gateMode === 'boot') {
+    // Same ordering rule applies here too: the FS worker's fsDb is still
+    // unset at this point on a returning/multi-account boot (initSubsystems()
+    // only opens the accounts DB, not a per-user fsDb — see boot.js), so
+    // setUser must run before finishBootAsUser()'s FS.init() call or it
+    // throws "no active user" inside the worker. That throw was previously
+    // uncaught (finishBootAsUser() runs outside boot()'s try/catch), which
+    // silently stalled boot forever and only surfaced as a watchdog-timeout
+    // reload loop with no visible error.
+    await OS.workers.fs.call('setUser', userId);
     Users.setActive(userId);
   }
 
