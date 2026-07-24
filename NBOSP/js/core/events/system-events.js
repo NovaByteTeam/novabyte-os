@@ -1677,6 +1677,149 @@ function triggerSecurityWipe(statusEl, attempt) {
   }, 1000);
 }
 
+// ADMIN AUTH GATE
+//
+// Deliberately independent from the lock/login machinery above. That code
+// (verifyPin/completeLogin/_gateSelectedUserId/_gateMode) drives *session*
+// state — switching the active account, re-pointing the FS worker, resuming
+// the desktop. This gate does none of that: it exists purely to answer
+// "does the person in front of the screen know an admin's PIN right now",
+// for actions that require re-authorization without changing who's signed
+// in (installing a privileged .novaapp, entering Developer Mode as a
+// standard user's admin, changing a role). Reusing the login code path here
+// would have silently logged the user into whichever admin account they
+// authenticated as — wrong behavior for a re-auth prompt.
+//
+// requestAdminAuth(reason) -> Promise<adminId | null>
+//   Resolves with the verified admin's userId on success, or null if the
+//   person cancels. When there's more than one admin account, shows a
+//   picker first (since each admin has their own PIN, not one shared
+//   machine password); with exactly one admin, goes straight to PIN entry.
+async function requestAdminAuth(reason) {
+  const admins = Users.admins();
+  if (admins.length === 0) return null; // shouldn't happen — always >=1 admin
+
+  return new Promise((resolve) => {
+    const overlay = createEl('div', { className: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' });
+    const dialog = createEl('div', { className: 'modal-dialog admin-gate-dialog' });
+    dialog.appendChild(createEl('div', { className: 'modal-title', textContent: 'Admin Authorization Required' }));
+    if (reason) {
+      dialog.appendChild(createEl('div', { className: 'modal-body', textContent: reason }));
+    }
+
+    const bodyEl = createEl('div', { className: 'admin-gate-body' });
+    dialog.appendChild(bodyEl);
+    overlay.appendChild(dialog);
+
+    const finish = (result) => {
+      document.removeEventListener('keydown', onKeydown);
+      overlay.remove();
+      resolve(result);
+    };
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish(null);
+    });
+
+    // Local, non-escalating attempt state — this popup doesn't need the
+    // 3-strikes/wipe machinery the main lock screen has, just "wrong PIN,
+    // try again". Keyed per adminId in case the picker is used.
+    const attempts = new Map();
+    let enteredPin = '';
+    let selectedAdminId = admins.length === 1 ? admins[0].id : null;
+
+    function renderPicker() {
+      bodyEl.innerHTML = '';
+      const grid = createEl('div', { className: 'admin-gate-picker' });
+      for (const a of admins) {
+        const tile = createEl('button', { className: 'admin-gate-tile', textContent: a.name || 'Admin' });
+        tile.addEventListener('click', () => { selectedAdminId = a.id; enteredPin = ''; renderPinPad(); });
+        grid.appendChild(tile);
+      }
+      bodyEl.appendChild(grid);
+      const cancelBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Cancel', style: { marginTop: '12px' } });
+      cancelBtn.addEventListener('click', () => finish(null));
+      bodyEl.appendChild(cancelBtn);
+    }
+
+    function renderPinPad() {
+      bodyEl.innerHTML = '';
+      const admin = Users.get(selectedAdminId);
+
+      if (admins.length > 1) {
+        const backLink = createEl('button', { className: 'lock-back-link', textContent: '\u2190 Choose a different admin' });
+        backLink.addEventListener('click', () => { selectedAdminId = null; renderPicker(); });
+        bodyEl.appendChild(backLink);
+      }
+
+      bodyEl.appendChild(createEl('div', { className: 'lock-username', textContent: admin?.name || 'Admin' }));
+
+      const dotsEl = createEl('div', { className: 'lock-pin-input' });
+      for (let i = 0; i < 4; i++) dotsEl.appendChild(createEl('div', { className: 'lock-pin-dot' }));
+      bodyEl.appendChild(dotsEl);
+
+      const statusEl = createEl('div', { className: 'lock-status', 'aria-live': 'assertive' });
+      bodyEl.appendChild(statusEl);
+
+      const updateDots = () => {
+        const dots = dotsEl.querySelectorAll('.lock-pin-dot');
+        dots.forEach((d, i) => d.classList.toggle('filled', i < enteredPin.length));
+      };
+      updateDots();
+
+      const numpadEl = createEl('div', { className: 'lock-numpad', role: 'group', 'aria-label': 'Admin PIN entry' });
+      const pressDigit = async (d) => {
+        if (enteredPin.length >= 4) return;
+        enteredPin += d;
+        updateDots();
+        if (enteredPin.length === 4) await tryVerify();
+      };
+      for (let i = 1; i <= 9; i++) {
+        const btn = createEl('button', { textContent: String(i), 'aria-label': String(i) });
+        btn.addEventListener('click', () => pressDigit(String(i)));
+        numpadEl.appendChild(btn);
+      }
+      const clearBtn = createEl('button', { textContent: 'C', 'aria-label': 'Clear' });
+      clearBtn.addEventListener('click', () => { enteredPin = ''; updateDots(); });
+      numpadEl.appendChild(clearBtn);
+      const zeroBtn = createEl('button', { textContent: '0', 'aria-label': '0' });
+      zeroBtn.addEventListener('click', () => pressDigit('0'));
+      numpadEl.appendChild(zeroBtn);
+      const backBtn = createEl('button', { 'aria-label': 'Backspace' });
+      backBtn.innerHTML = svgIcon('chevron-left', 18);
+      backBtn.addEventListener('click', () => { enteredPin = enteredPin.slice(0, -1); updateDots(); });
+      numpadEl.appendChild(backBtn);
+      bodyEl.appendChild(numpadEl);
+
+      const cancelBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Cancel', style: { marginTop: '12px' } });
+      cancelBtn.addEventListener('click', () => finish(null));
+      bodyEl.appendChild(cancelBtn);
+
+      async function tryVerify() {
+        const ok = await Users.verifyPin(selectedAdminId, enteredPin);
+        if (ok) {
+          finish(selectedAdminId);
+          return;
+        }
+        const count = (attempts.get(selectedAdminId) || 0) + 1;
+        attempts.set(selectedAdminId, count);
+        statusEl.textContent = 'Incorrect PIN';
+        enteredPin = '';
+        updateDots();
+      }
+    }
+
+    function onKeydown(e) {
+      if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+    }
+    document.addEventListener('keydown', onKeydown);
+
+    document.body.appendChild(overlay);
+    if (selectedAdminId) renderPinPad(); else renderPicker();
+  });
+}
+window.requestAdminAuth = requestAdminAuth;
+
 // IDLE LOCK
 
 let lastActivity = Date.now();
