@@ -18,6 +18,7 @@ registerApp({
       { id: 'accessibility', name: 'Accessibility', icon: 'eye'       },
       { id: 'desktop',       name: 'Desktop',       icon: 'layers'    },
       { id: 'system',        name: 'System',        icon: 'processor' },
+      { id: 'users',         name: 'Users',         icon: 'user'      },
       { id: 'date-and-region', name: 'Date and Region', icon: 'calendar' },
       { id: 'storage',       name: 'Storage',       icon: 'database'  },
       { id: 'privacy',       name: 'Privacy',       icon: 'lock'      },
@@ -129,6 +130,7 @@ registerApp({
         case 'appearance':    renderAppearance();    break;
         case 'accessibility': renderAccessibility(); break;
         case 'system':        renderSystem();        break;
+        case 'users':         renderUsers();         break;
         case 'date-and-region': renderDateAndRegion(); break;
         case 'storage':       renderStorage();       break;
         case 'shortcuts':     renderShortcuts();     break;
@@ -249,85 +251,11 @@ registerApp({
     function renderSystem() {
       mainContent.appendChild(createEl('h2', { textContent: 'System', style: { marginBottom: '20px' } }));
 
-      // User
-      const userGroup = createEl('div', { className: 'nook-group' });
-      userGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'User' }));
-      const userRow = createEl('div', { className: 'nook-row' });
-      userRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Username' }));
-      const userInput = createEl('input', {
-        className: 'input', id: 'system-username-input', name: 'system-username',
-        style: { width: '150px' }, value: OS.username
-      });
-      userInput.addEventListener('change', () => {
-        OS.username = userInput.value || 'user';
-        OS.settings.set('username', OS.username);
-      });
-      userRow.appendChild(userInput);
-      userGroup.appendChild(userRow);
-      mainContent.appendChild(userGroup);
-
-      // Lock screen
-      const lockGroup = createEl('div', { className: 'nook-group' });
-      lockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Lock Screen' }));
-      const pinRow = createEl('div', { className: 'nook-row' });
-      pinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'PIN Lock' }));
-
-      const pinBtn = createEl('button', { className: 'btn btn-sm', textContent: OS.lockPin ? 'Change PIN' : 'Set PIN' });
-      pinBtn.addEventListener('click', async () => {
-        if (OS.lockPin) {
-          const currentPin = await showModal('Change PIN', 'Enter current PIN:', [
-            { label: 'Cancel' }, { label: 'Next', value: 'next' }
-          ], 'password');
-          if (!currentPin) return;
-          const hash = await OS.workers.crypto.call('pbkdf2', currentPin, getPinSalt());
-          if (hash !== OS.lockPin) {
-            showModal('Incorrect PIN', 'The current PIN you entered is incorrect.');
-            return;
-          }
-        }
-
-        const pin1 = await showModal(OS.lockPin ? 'New PIN' : 'Set PIN', 'Enter a 4-digit PIN:', [
-          { label: 'Cancel' }, { label: 'Next', value: 'next' }
-        ], 'password');
-        if (!pin1 || pin1.length !== 4 || !/^\d{4}$/.test(pin1)) {
-          if (pin1) showModal('Invalid PIN', 'PIN must be exactly 4 digits.');
-          return;
-        }
-
-        const pin2 = await showModal('Confirm PIN', 'Re-enter your PIN:', [
-          { label: 'Cancel' }, { label: 'Set PIN', value: 'confirm' }
-        ], 'password');
-        if (pin1 !== pin2) {
-          showModal('PIN Mismatch', 'The PINs do not match. Please try again.');
-          return;
-        }
-
-        const wasSet  = !!OS.lockPin;
-        const newHash = await OS.workers.crypto.call('pbkdf2', pin1, getPinSalt());
-        OS.lockPin    = newHash;
-        OS.settings.set('lockPin', newHash);
-        Notify.show({ title: wasSet ? 'PIN Updated' : 'PIN Set', body: wasSet ? 'Lock screen PIN has been updated' : 'Lock screen PIN has been set', type: 'success', appName: 'Settings' });
-        renderContent();
-      });
-      pinRow.appendChild(pinBtn);
-
-      if (OS.lockPin) {
-        const removePinBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: 'Remove', style: { marginLeft: '8px' } });
-        removePinBtn.addEventListener('click', async () => {
-          const result = await showModal('Remove PIN', 'Are you sure you want to remove PIN lock?', [
-            { label: 'Cancel' }, { label: 'Remove PIN', danger: true, value: 'confirm' }
-          ]);
-          if (result === 'confirm') {
-            OS.settings.set('lockPin', null);
-            OS.lockPin = null;
-            Notify.show({ title: 'PIN Removed', body: 'PIN lock has been disabled', type: 'success', appName: 'Settings' });
-            renderContent();
-          }
-        });
-        pinRow.appendChild(removePinBtn);
-      }
-      lockGroup.appendChild(pinRow);
-      mainContent.appendChild(lockGroup);
+      // Username and PIN lock used to live here as OS.username/OS.lockPin —
+      // single global identity fields from before the account system existed.
+      // They now belong to the Users section (self-service name/PIN editing
+      // for whichever account is signed in), since there's no longer one
+      // machine-wide identity to edit from System.
 
       // Recovery
       const recoveryGroup = createEl('div', { className: 'nook-group' });
@@ -354,7 +282,16 @@ registerApp({
       recoveryGroup.appendChild(recoveryRow);
       mainContent.appendChild(recoveryGroup);
 
-      // Developer Mode
+      // Developer Mode — admin-only, per the account rules: standard users
+      // don't get Developer Mode at all, not even behind a password prompt.
+      // It simply doesn't render for them, rather than showing a locked/greyed
+      // control that would just invite trying to bypass it.
+      if (Users.active?.role === 'admin') {
+        renderDeveloperModeGroup();
+      }
+    }
+
+    function renderDeveloperModeGroup() {
       const devGroup = createEl('div', { className: 'nook-group' });
       devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Developer' }));
       const devRow = createEl('div', { className: 'nook-toggle-row' });
@@ -457,8 +394,6 @@ registerApp({
       devGroup.appendChild(devRow);
       mainContent.appendChild(devGroup);
     }
-
-    // ── Date and Region ────────────────────────────────────────────────────
     function renderDateAndRegion() {
       mainContent.appendChild(createEl('h2', { textContent: 'Date and Region', style: { marginBottom: '20px' } }));
 

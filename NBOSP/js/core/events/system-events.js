@@ -1495,8 +1495,7 @@ async function completeLogin(userId) {
   }
 
   OS.isLocked = false;
-  OS.wrongPinCount = 0;
-  OS.lockoutUntil = 0;
+  _pinAttempts.delete(userId);
   EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: isSwitch ? 'User switched' : 'Screen unlocked' });
 
   if (_wipeCountdownId) {
@@ -1547,19 +1546,37 @@ function updatePinDots() {
   );
 }
 
+// Per-account attempt/lockout state. Was previously two bare globals
+// (OS.wrongPinCount / OS.lockoutUntil) shared across every account on the
+// machine — meaning 3 wrong guesses against account A would lock out an
+// immediate, first-ever attempt against account B on the same picker.
+// Keyed by userId so failed attempts on one account never affect another.
+// Machine-wide security wipe (10 attempts) is intentionally NOT split by
+// user below: a wipe is inherently whole-machine (there's no "wipe just
+// this account's data" concept), so it stays keyed off any single
+// account's count crossing the threshold, same as before.
+const _pinAttempts = new Map(); // userId -> { count, lockoutUntil }
+
+function _attemptState(userId) {
+  let s = _pinAttempts.get(userId);
+  if (!s) { s = { count: 0, lockoutUntil: 0 }; _pinAttempts.set(userId, s); }
+  return s;
+}
+
 async function verifyPin() {
   const statusEl = document.getElementById('lock-status');
   if (!statusEl || !_gateSelectedUserId) return;
+  const attempt = _attemptState(_gateSelectedUserId);
 
   // Enforce lockout before touching the hash worker — the original code set
-  // OS.lockoutUntil but never checked it at entry, so a caller could keep
+  // a lockout timestamp but never checked it at entry, so a caller could keep
   // submitting PINs indefinitely during the lockout window.
-  if (OS.lockoutUntil && Date.now() < OS.lockoutUntil) {
-    const remaining = Math.ceil((OS.lockoutUntil - Date.now()) / 1000);
+  if (attempt.lockoutUntil && Date.now() < attempt.lockoutUntil) {
+    const remaining = Math.ceil((attempt.lockoutUntil - Date.now()) / 1000);
     statusEl.textContent = `Locked out. Try again in ${remaining}s`;
     enteredPin = '';
     updatePinDots();
-    EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `PIN attempt blocked — lockout active (${remaining}s remaining)` });
+    EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `PIN attempt blocked — lockout active (${remaining}s remaining)`, data: { userId: _gateSelectedUserId } });
     return;
   }
 
@@ -1578,57 +1595,66 @@ async function verifyPin() {
   }
 
   if (ok) {
+    _pinAttempts.delete(_gateSelectedUserId);
     await completeLogin(_gateSelectedUserId);
     return;
   }
 
-  // Wrong PIN — escalate lockout based on attempt count.
-  OS.wrongPinCount++;
+  // Wrong PIN — escalate lockout based on this account's attempt count only.
+  attempt.count++;
   enteredPin = '';
   updatePinDots();
-  EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `Incorrect PIN entered (attempt ${OS.wrongPinCount})`, data: { wrongPinCount: OS.wrongPinCount } });
+  EventLog?.log?.({ app: 'System', category: 'security', severity: 'warn', message: `Incorrect PIN entered (attempt ${attempt.count})`, data: { userId: _gateSelectedUserId, wrongPinCount: attempt.count } });
 
   const THRESHOLD = 3;
   const DURATION_MS = 30_000;
 
-  if (OS.wrongPinCount >= THRESHOLD && OS.wrongPinCount < THRESHOLD * 2) {
-    applyLockout(statusEl, DURATION_MS);
-  } else if (OS.wrongPinCount >= THRESHOLD * 2 && OS.wrongPinCount < 10) {
-    applyLockout(statusEl, DURATION_MS * 5);
-  } else if (OS.wrongPinCount >= 10) {
-    triggerSecurityWipe(statusEl);
+  if (attempt.count >= THRESHOLD && attempt.count < THRESHOLD * 2) {
+    applyLockout(statusEl, attempt, DURATION_MS);
+  } else if (attempt.count >= THRESHOLD * 2 && attempt.count < 10) {
+    applyLockout(statusEl, attempt, DURATION_MS * 5);
+  } else if (attempt.count >= 10) {
+    triggerSecurityWipe(statusEl, attempt);
   } else {
     statusEl.textContent = 'Incorrect PIN';
   }
 }
 
 // Shared lockout path for both the standard and extended windows. Starts a
-// timer that clears the count once the window expires.
-function applyLockout(statusEl, durationMs) {
+// timer that clears this account's count once the window expires.
+function applyLockout(statusEl, attempt, durationMs) {
   const sec = Math.round(durationMs / 1000);
   const label = sec >= 60 ? `${Math.round(sec / 60)}min` : `${sec}s`;
   statusEl.textContent = `Too many attempts. ${label} lockout.`;
-  OS.lockoutUntil = Date.now() + durationMs;
+  attempt.lockoutUntil = Date.now() + durationMs;
   EventLog?.log?.({
     app: 'System', category: 'security', severity: 'warn',
-    message: `Lockout triggered (${label}) after ${OS.wrongPinCount} failed PIN attempts`,
-    data: { wrongPinCount: OS.wrongPinCount, durationMs }
+    message: `Lockout triggered (${label}) after ${attempt.count} failed PIN attempts`,
+    data: { userId: _gateSelectedUserId, wrongPinCount: attempt.count, durationMs }
   });
+  const lockedUserId = _gateSelectedUserId;
   setTimeout(() => {
-    OS.wrongPinCount = 0;
-    OS.lockoutUntil = 0;
-    statusEl.textContent = '';
+    attempt.count = 0;
+    attempt.lockoutUntil = 0;
+    // Only clear the visible status text if the picker is still showing
+    // this same account's PIN screen — the user could've switched to a
+    // different tile during the lockout window, and that screen's status
+    // text belongs to a different account's attempt state now.
+    if (_gateSelectedUserId === lockedUserId) {
+      const el = document.getElementById('lock-status');
+      if (el) el.textContent = '';
+    }
   }, durationMs);
 }
 
 // Ten or more failed attempts triggers a 10-second countdown to a full local
 // wipe. Biometric unlock can still cancel it via unlockFromLockScreen().
-function triggerSecurityWipe(statusEl) {
+function triggerSecurityWipe(statusEl, attempt) {
   statusEl.textContent = 'Security alert! Data will be wiped.';
   EventLog?.log?.({
     app: 'System', category: 'security', severity: 'error',
-    message: `Security wipe countdown started after ${OS.wrongPinCount} failed PIN attempts`,
-    data: { wrongPinCount: OS.wrongPinCount }
+    message: `Security wipe countdown started after ${attempt.count} failed PIN attempts on account ${_gateSelectedUserId}`,
+    data: { userId: _gateSelectedUserId, wrongPinCount: attempt.count }
   });
 
   let countdown = 10;
