@@ -1,4 +1,4 @@
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
@@ -95,7 +95,16 @@ async function main() {
   // 4. Build for each platform — each gets its own subfolder, since
   // nw-builder dumps straight into outDir with no per-platform namespacing
   // and would otherwise overwrite the previous platform's build.
-  const { default: nwbuild } = await import("nw-builder");
+  // Import nw-builder from the staged copy — that's where npm ci just
+  // installed it. Importing bare "nw-builder" here would resolve relative to
+  // build.mjs's own location (NBOSP), which has no node_modules on a fresh
+  // CI checkout since only the staged copy gets npm ci'd.
+  const nwBuilderPkgPath = path.join(stageDir, "node_modules", "nw-builder", "package.json");
+  const nwBuilderPkg = JSON.parse(fs.readFileSync(nwBuilderPkgPath, "utf8"));
+  const nwBuilderEntry = pathToFileURL(
+    path.join(stageDir, "node_modules", "nw-builder", nwBuilderPkg.main)
+  ).href;
+  const { default: nwbuild } = await import(nwBuilderEntry);
 
   // nw-builder requires extra macOS-specific fields for the osx build —
   // it won't fall back to defaults for these, so they must be set explicitly
