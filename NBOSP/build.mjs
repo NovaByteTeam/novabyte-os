@@ -109,8 +109,8 @@ async function main() {
     },
     osx: {
       platform: "osx",
-      arch: "x64",
-      folder: "osx-x64",
+      arch: "arm64",
+      folder: "osx-arm64",
       appExtra: (icon) => ({
         name: "NovaByte",
         icon,

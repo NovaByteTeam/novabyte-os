@@ -29,8 +29,8 @@ jobs:
             asset: NovaByte-linux-x64.zip
           - os: macos-latest
             platform: osx
-            folder: osx-x64
-            asset: NovaByte-osx-x64.zip
+            folder: osx-arm64
+            asset: NovaByte-osx-arm64.zip
 
     runs-on: ${{ matrix.os }}
 
@@ -100,7 +100,7 @@ jobs:
           gh release upload NBOSP-PREBUILT \
             artifacts/NovaByte-win-x64.zip \
             artifacts/NovaByte-linux-x64.zip \
-            artifacts/NovaByte-osx-x64.zip \
+            artifacts/NovaByte-osx-arm64.zip \
             --repo "${{ github.repository }}" \
             --clobber
 
@@ -115,6 +115,6 @@ jobs:
           Available builds:
           - Windows (x64)
           - Linux (x64)
-          - macOS (x64)
+          - macOS (Apple Silicon / arm64)
 
           No installation needed — extract and run the executable for your platform."
