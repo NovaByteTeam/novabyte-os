@@ -170,6 +170,19 @@ const AppSandbox = (() => {
     }
   }
 
+  // Cloud metadata endpoints — checked ahead of, and independent of, the
+  // internal/external classification below. isInternalHost correctly
+  // classifies these as internal (they're link-local), which means any app
+  // holding an ordinary net:internal grant (intended for talking to
+  // api.novabyte.internal) could also reach them directly and pull
+  // instance credentials. There's no legitimate reason a third-party
+  // sandboxed app should ever reach these regardless of what network
+  // permission it holds, so they get a hard deny here rather than being
+  // bundled into the same grant as first-party internal services.
+  // 169.254.169.254 covers AWS/GCP/Azure/DigitalOcean's IMDS; fd00:ec2::254
+  // is AWS's IPv6 equivalent.
+  const BLOCKED_METADATA_HOSTS = new Set(['169.254.169.254', 'fd00:ec2::254']);
+
   // Resolve a URL string against the current origin and classify it as
   // internal or external. Handles protocol-relative URLs (//host/path) safely
   // by always resolving through new URL(rawUrl, window.location.origin).
@@ -189,6 +202,9 @@ const AppSandbox = (() => {
     }
     if (!ALLOWED_WEB_PROTOCOLS.has(resolved.protocol)) {
       return { valid: false, error: 'Only http and https URLs are allowed' };
+    }
+    if (BLOCKED_METADATA_HOSTS.has(resolved.hostname.toLowerCase())) {
+      return { valid: false, error: 'Cloud metadata endpoints are not reachable from apps' };
     }
     return {
       valid: true,
@@ -219,7 +235,17 @@ const AppSandbox = (() => {
   // range — i.e. anything that isn't routable "external" address space.
   // Covers: 127.0.0.0/8 (all loopback, not just .1), 10.0.0.0/8,
   // 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 (link-local, which
-  // includes the 169.254.169.254 cloud metadata endpoint), and 0.0.0.0.
+  // includes the 169.254.169.254 cloud metadata endpoint), 0.0.0.0/8, and
+  // 100.64.0.0/10 (RFC 6598 shared address space — used internally by some
+  // cloud providers, so it isn't public/routable either even though it
+  // isn't classic RFC1918).
+  //
+  // The 0.0.0.0 check used to only match the literal all-zero address
+  // (0.0.0.0), not the wider /8. That mattered because Linux resolves any
+  // 0.x.x.x address to loopback — http://0.1.2.3/ reaches the same place
+  // as 127.0.0.1 on a Linux host, so treating only 0.0.0.0 as internal left
+  // the rest of that /8 misclassified as external and routable via a plain
+  // net:external grant.
   function isPrivateIPv4(octets) {
     const [a, b] = octets;
     if (a === 127) return true;
@@ -227,7 +253,8 @@ const AppSandbox = (() => {
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
     if (a === 169 && b === 254) return true;
-    if (a === 0 && b === 0 && octets[2] === 0 && octets[3] === 0) return true;
+    if (a === 0) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
     return false;
   }
 
@@ -275,9 +302,17 @@ const AppSandbox = (() => {
   }
 
   // Sanitize an app id for safe interpolation into a /data/ path segment.
-  // Strips anything that isn't word char, dash, dot, or underscore.
+  // Strips anything that isn't a word char or dash — notably including dots
+  // now, since a bare '..' previously survived this unchanged (the old
+  // pattern allowed dots and dashes both, so '..' matched every character
+  // and passed through as-is). The one path that constructs an appId here
+  // (handleAppInstall) requires signature verification before an id ever
+  // reaches this function, so '..' isn't reachable through it today — but
+  // this is the last line of defense if a future sideload/dev-install path
+  // ever skips that check, so it strips dots regardless of current
+  // reachability.
   function sanitizeAppIdSegment(appId) {
-    return String(appId || 'default').replace(/[^a-zA-Z0-9_.-]/g, '_');
+    return String(appId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
   }
 
   // Notification gateway helpers
@@ -1105,16 +1140,53 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:background:stay-alive', requestId, { success: true, enabled: sandbox.wantsBackgroundLive });
   }
 
-  // Settings keys an app holding system:info still must not be able to read
-  // remotely — these hold credentials or auth material the OS itself needs to
-  // keep private even from a "can read settings" grant. system:settings (the
-  // mutation permission) is a separate, higher-trust grant and is denied
-  // writes to the same keys, so an app can't bypass the lock screen by
-  // overwriting lockPin or clearing lockoutUntil.
-  const SETTINGS_READ_DENYLIST = new Set([
-    'lockPin', 'pinSalt', 'biometricCredentialId', 'lockoutUntil',
-    'wrongPinCount', 'bootPassword',
+  // Settings keys apps holding system:info may read. This used to be a
+  // denylist (block these specific sensitive keys, allow everything else by
+  // default) — structurally fragile, since every new sensitive settings key
+  // added later had to be remembered and added here manually, or it was
+  // exposed to any app with system:info by default. Flipped to an allowlist
+  // so new keys fail closed instead of open.
+  //
+  // This list was built by grepping every OS.settings.get()/.set() call
+  // site in the codebase (including the sGet() alias used in boot.js) as of
+  // this change — it's a snapshot, not derived automatically, so it will
+  // drift if a new settings key is added without updating this list too.
+  // A key missing from here isn't a bug in itself (it fails closed, the
+  // safe direction) but will make legitimate new settings silently
+  // unreadable by apps until this list is updated.
+  //
+  // Deliberately excluded (must stay unreadable regardless of system:info):
+  // lockPin, pinSalt, biometricCredentialId, bootPassword — credentials or
+  // auth material the OS itself needs to keep private. lockoutUntil and
+  // wrongPinCount are also excluded, though for a different reason: they
+  // live on the in-memory OS object directly (OS.lockoutUntil,
+  // OS.wrongPinCount in kernel.js/system-events.js), never through
+  // OS.settings at all, so they were never reachable through this handler
+  // in the first place — excluded here only for defense-in-depth in case
+  // that ever changes.
+  // NOTE: read (system:info) and write (system:settings) are separate,
+  // higher/lower-trust grants, so they don't have to share one list.
+  // osVersion is the one key here that's fine to read but shouldn't be
+  // app-writable: boot.js uses it purely to track the running OS build
+  // (`if (sGet('osVersion') !== codeVer) OS.settings.set('osVersion',
+  // codeVer)`), and an app overwriting it via nova:settings:set could
+  // interfere with that version-detection logic for no legitimate benefit.
+  // SETTINGS_WRITABLE_KEYS below is SETTINGS_READABLE_KEYS minus osVersion;
+  // every other key is both readable and writable, same as before this
+  // split.
+  const SETTINGS_READABLE_KEYS = new Set([
+    '_hiddenDevIconPositions', 'accentColor', 'autoLock', 'browserPartitionId',
+    'clockFormat', 'cursorSize', 'customWallpaper', 'debugOverlayVisible',
+    'desktopGridSpacing', 'desktopIconPositions', 'desktopIconSize', 'devMode',
+    'filesViewOnly', 'highContrast', 'osVersion', 'pinnedApps',
+    'prohibitWallpaperChange', 'reduceMotion', 'region', 'removeTransparency',
+    'showDesktopIcons', 'showTaskbarClock', 'taskbarAutoHide', 'taskbarPosition',
+    'taskbarSize', 'theme', 'timezone', 'username', 'wallpaperId',
   ]);
+
+  const SETTINGS_WRITABLE_KEYS = new Set(
+    [...SETTINGS_READABLE_KEYS].filter((k) => k !== 'osVersion')
+  );
 
   async function handleSettingsGet({ payload, requestId, app, webview }) {
     // system:info gates read access — otherwise any app could read credentials
@@ -1126,7 +1198,7 @@ const AppSandbox = (() => {
     if (typeof key !== 'string' || !key) {
       return respondError(webview, 'nova:settings:get', requestId, 'INVALID_ARGS', 'key is required');
     }
-    if (SETTINGS_READ_DENYLIST.has(key)) {
+    if (!SETTINGS_READABLE_KEYS.has(key)) {
       return respondError(webview, 'nova:settings:get', requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not readable by apps`);
     }
     const value = OS?.settings?.get(key);
@@ -1141,7 +1213,7 @@ const AppSandbox = (() => {
     if (typeof key !== 'string' || !key) {
       return respondError(webview, 'nova:settings:set', requestId, 'INVALID_ARGS', 'key is required');
     }
-    if (SETTINGS_READ_DENYLIST.has(key)) {
+    if (!SETTINGS_WRITABLE_KEYS.has(key)) {
       return respondError(webview, 'nova:settings:set', requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not writable by apps`);
     }
     OS?.settings?.set(key, payload?.value);
@@ -1266,11 +1338,35 @@ const AppSandbox = (() => {
 
   // Clipboard
 
+  // The system clipboard is a shared, ambient, cross-app channel — it can
+  // contain whatever any other app, or the user, copied moments ago from
+  // anywhere, including outside this sandbox model entirely. Gating it on
+  // vfs:read ("read files") was a misleading label for "also read whatever's
+  // currently on the system clipboard," and meant granting file access
+  // silently granted clipboard snooping too.
+  //
+  // Now gated on its own clipboard:read/clipboard:write permissions instead.
+  // vfs:read is kept as a fallback ONLY for apps that were already granted
+  // it before this change shipped — those grants live in each user's local
+  // permission store, which this patch has no way to inspect or migrate, so
+  // a hard cutover would silently break clipboard access for any app that
+  // already had file access and expected clipboard to come with it. Any
+  // newly-installed app, or any app whose permissions are re-requested,
+  // should be prompted for clipboard:read/clipboard:write directly rather
+  // than relying on this fallback — treat the vfs:read branch as removable
+  // once existing installs have had a chance to re-consent.
+  function clipboardReadPermitted(appId) {
+    return AppPermissionManager.isGranted('clipboard:read', appId)
+      || AppPermissionManager.isGranted('vfs:read', appId);
+  }
+  function clipboardWritePermitted(appId) {
+    return AppPermissionManager.isGranted('clipboard:write', appId)
+      || AppPermissionManager.isGranted('vfs:read', appId);
+  }
+
   async function handleClipboardRead({ requestId, app, webview }) {
-    // Clipboard is gated on vfs:read — intentional design choice from the
-    // original code (clipboard contents often include file paths).
-    if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
-      return respondError(webview, 'nova:clipboard:read', requestId, 'PERMISSION_DENIED', 'vfs:read permission required for clipboard access');
+    if (!clipboardReadPermitted(app.id)) {
+      return respondError(webview, 'nova:clipboard:read', requestId, 'PERMISSION_DENIED', 'clipboard:read permission required for clipboard access');
     }
     let text = null;
     try {
@@ -1288,8 +1384,8 @@ const AppSandbox = (() => {
   }
 
   async function handleClipboardWrite({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
-      return respondError(webview, 'nova:clipboard:write', requestId, 'PERMISSION_DENIED', 'vfs:read permission required for clipboard access');
+    if (!clipboardWritePermitted(app.id)) {
+      return respondError(webview, 'nova:clipboard:write', requestId, 'PERMISSION_DENIED', 'clipboard:write permission required for clipboard access');
     }
     // ?? not || — a payload of { text: 0 } or { text: false } should still
     // write a real value, not silently become the empty-string default.
@@ -2132,9 +2228,33 @@ const AppSandbox = (() => {
     'system:notification', 'system:volumeChanged', 'system:themeChanged',
     'system:workspaceChanged', 'system:power', 'system:network',
     'app:installed', 'app:uninstalled', 'app:launched',
+    // As of this comment, nothing in the codebase calls OS.events.emit()
+    // for any of the five names below — subscribing today is a no-op, not
+    // a live leak. Pre-declared for whoever wires up mail/calendar/contacts
+    // sync, gated on the same *:read permission each domain's actual data
+    // access already requires (see EVENT_DOMAIN_PERMISSIONS below), rather
+    // than being reachable through the flat system:events grant alone. An
+    // app that can already read your mail gains nothing new from mail:new
+    // notifications; an app that only holds system:events (for volume/
+    // theme/power — genuinely low-stakes) can't piggyback into mail
+    // metadata just because these names exist in this set. Whoever
+    // implements the emit side should still double check the actual
+    // payload shape against this gate once it's real, since this was
+    // designed against the *names* only — no payload existed to review.
     'mail:new', 'mail:updated',
     'calendar:reminder', 'calendar:updated',
     'contacts:updated',
+  ]);
+
+  // Domain-gated events: subscribing requires system:events AND the listed
+  // permission, not system:events alone. Events not listed here only need
+  // system:events, same as before this split.
+  const EVENT_DOMAIN_PERMISSIONS = new Map([
+    ['mail:new', 'mail:read'],
+    ['mail:updated', 'mail:read'],
+    ['calendar:reminder', 'calendar:read'],
+    ['calendar:updated', 'calendar:read'],
+    ['contacts:updated', 'contacts:read'],
   ]);
 
   async function handleEventsSubscribe({ payload, requestId, app, webview, sandbox }) {
@@ -2147,6 +2267,10 @@ const AppSandbox = (() => {
     }
     if (typeof event !== 'string' || !ALLOWED_EVENT_NAMES.has(event)) {
       return respondError(webview, 'nova:events:subscribe', requestId, 'INVALID_ARGS', `Event '${event}' is not in the subscribable allowlist`);
+    }
+    const domainPermission = EVENT_DOMAIN_PERMISSIONS.get(event);
+    if (domainPermission && !AppPermissionManager.isGranted(domainPermission, app.id)) {
+      return respondError(webview, 'nova:events:subscribe', requestId, 'PERMISSION_DENIED', `${domainPermission} permission required to subscribe to '${event}'`);
     }
     const sandboxId = webview.dataset.sandboxId;
     const subs = eventSubscriptions.get(sandboxId);
@@ -4747,12 +4871,25 @@ const AppSandbox = (() => {
     // Parse the manifest's sandbox config into a token set so we can
     // match exact tokens rather than substring-contains (which would
     // wrongly accept e.g. "allow-scripts-foo" as "allow-scripts").
+    //
+    // allow-popups-to-escape-sandbox used to be granted purely from the
+    // manifest's own self-declaration, with no permission check — unlike
+    // allow-same-origin just above, which requires both the manifest flag
+    // AND a separate grant. A popup that escapes the sandbox is a fully
+    // unrestricted browsing context, arguably comparable risk to
+    // allow-same-origin, so it now goes through the same double-gate:
+    // manifest opt-in AND sandbox:escape-popups granted.
+    const popupsEscapePermitted = isSystemApp
+      || (sandboxConfig && typeof sandboxConfig === 'object'
+          && sandboxConfig.allowPopupsToEscapeSandbox === true
+          && AppPermissionManager?.isGranted('sandbox:escape-popups', appId));
+
     const requestedTokens = new Set();
     if (sandboxConfig && typeof sandboxConfig === 'object') {
       if (sandboxConfig.allowScripts === true) requestedTokens.add('allow-scripts');
       if (sandboxConfig.allowForms === true) requestedTokens.add('allow-forms');
       if (sandboxConfig.allowPopups === true) requestedTokens.add('allow-popups');
-      if (sandboxConfig.allowPopupsToEscapeSandbox === true) requestedTokens.add('allow-popups-to-escape-sandbox');
+      if (popupsEscapePermitted) requestedTokens.add('allow-popups-to-escape-sandbox');
       if (sandboxConfig.allowModals === true) requestedTokens.add('allow-modals');
     } else if (typeof sandboxConfig === 'string') {
       for (const tok of sandboxConfig.split(/\s+/)) {

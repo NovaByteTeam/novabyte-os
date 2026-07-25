@@ -27,6 +27,13 @@ const AppPermissionManager = (() => {
     DEVICE_GEOLOCATION: 'device:geolocation',
     DEVICE_CAMERA     : 'device:camera',
     DEVICE_MICROPHONE : 'device:microphone',
+    // Split from FS_READ (vfs:read) — clipboard is a shared, ambient,
+    // cross-app channel, not a file. See handleClipboardRead/Write in
+    // app-sandbox.js for the full rationale. vfs:read is kept as a fallback
+    // there for apps already granted it before this split, so an app can
+    // still function on either grant during the transition; new/re-consented
+    // apps should be prompted for these instead.
+    CLIPBOARD_READ    : 'clipboard:read',  CLIPBOARD_WRITE   : 'clipboard:write',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
     SYSTEM_APPS       : 'system:apps',    SYSTEM_EVENTS     : 'system:events',
     // Background execution is split into two independent grants on purpose:
@@ -67,6 +74,15 @@ const AppPermissionManager = (() => {
     // `allowSameOrigin: true` in the manifest AND this grant before adding
     // allow-same-origin to the sandbox attribute — see app-sandbox.js.
     SANDBOX_SAME_ORIGIN : 'sandbox:same-origin',
+    // Same double-gate pattern as SANDBOX_SAME_ORIGIN just above: system
+    // apps are exempted by appId (SYSTEM_SANDBOX_APPS), everyone else needs
+    // BOTH `allowPopupsToEscapeSandbox: true` in the manifest AND this grant
+    // before sanitizeSandboxAttr() adds allow-popups-to-escape-sandbox to
+    // the sandbox attribute. Previously the manifest flag alone was enough —
+    // a popup that escapes the sandbox is a fully unrestricted browsing
+    // context, comparable risk to allow-same-origin, with none of the same
+    // gating. See app-sandbox.js.
+    SANDBOX_ESCAPE_POPUPS : 'sandbox:escape-popups',
   });
 
   const PERMISSION_CATEGORIES = Object.freeze({
@@ -99,7 +115,24 @@ const AppPermissionManager = (() => {
     'device:geolocation': { category: 'device',     risk: 'high',     label: 'Access location' },
     'device:camera'     : { category: 'device',     risk: 'critical', label: 'Access camera' },
     'device:microphone' : { category: 'device',     risk: 'critical', label: 'Access microphone' },
-    'system:info'       : { category: 'system',     risk: 'low',      label: 'System information' },
+    // 'high', matching mail:read/device:geolocation rather than vfs:read's
+    // 'medium' — the clipboard is a shared, ambient, cross-app channel that
+    // can contain whatever any other app (or the user) copied moments ago,
+    // not scoped to this app's own data the way most 'medium' grants are.
+    // Split out from vfs:read; see handleClipboardRead/Write in
+    // app-sandbox.js for the full rationale.
+    'clipboard:read'    : { category: 'device',     risk: 'high',     label: 'Read clipboard' },
+    'clipboard:write'   : { category: 'device',     risk: 'medium',   label: 'Write clipboard' },
+    // 'medium', not 'low' — this gates both nova:system:info (OS version,
+    // security patch level, username, uptime) and handleSettingsGet's
+    // SETTINGS_READABLE_KEYS allowlist (username, region, timezone,
+    // devMode, browserPartitionId, and 24 other real settings values — see
+    // app-sandbox.js). That's substantive personal/system data, not just
+    // inert metadata; closer in shape to vfs:read or calendar:read (both
+    // 'medium') than to vfs:metadata or device:notifications (both 'low',
+    // and genuinely lower-stakes: filenames only, or send-only with no
+    // data exposure).
+    'system:info'       : { category: 'system',     risk: 'medium',   label: 'System information' },
     'system:settings'   : { category: 'system',     risk: 'medium',   label: 'System settings' },
     'system:apps'       : { category: 'system',     risk: 'medium',   label: 'Manage apps' },
     'system:events'     : { category: 'system',     risk: 'medium',   label: 'System events' },
@@ -126,6 +159,12 @@ const AppPermissionManager = (() => {
     // not 'medium' either. See sanitizeSandboxAttr() in app-sandbox.js for
     // the actual gate this backs.
     'sandbox:same-origin': { category: 'sandbox', risk: 'high', label: 'Access shared cookies & storage' },
+    // 'high', same as sandbox:same-origin just above — a popup that escapes
+    // the sandbox is a fully unrestricted browsing context, which the
+    // comment on SANDBOX_ESCAPE_POPUPS above already calls "comparable risk
+    // to allow-same-origin." See sanitizeSandboxAttr() in app-sandbox.js for
+    // the actual gate this backs.
+    'sandbox:escape-popups': { category: 'sandbox', risk: 'high', label: 'Open unrestricted popup windows' },
   });
 
   const STORAGE_KEY = 'nova_app_permissions';
