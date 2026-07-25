@@ -432,7 +432,10 @@ const AppSandbox = (() => {
         data: { appId, type, code },
       });
     }
-    respond(webview, type, requestId, null, { code, message });
+    // Coerce message to a string so a non-Error value (e.g. an object
+    // thrown by an upstream caller that didn't use Error) doesn't surface
+    // as "[object Object]" in the guest-side error handler.
+    respond(webview, type, requestId, null, { code, message: String(message ?? '') });
   }
 
   // Filesystem helpers
@@ -772,7 +775,7 @@ const AppSandbox = (() => {
           });
         } catch (e) {
           closeDialog();
-          respondError(webview, type, requestId, 'WRITE_ERROR', e.message || 'Failed to write file');
+          respondError(webview, type, requestId, 'WRITE_ERROR', e?.message || 'Failed to write file');
         }
       }
     });
@@ -854,7 +857,7 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
     }
     const { path, content, mimeType } = payload ?? {};
-    if (!path || content === undefined) {
+    if (!path || content === undefined || content === null) {
       return respondError(webview, 'nova:vfs:write', requestId, 'INVALID_ARGS', 'path and content are required');
     }
     const resolvedPath = rewriteDataPath(path, app.id);
@@ -888,8 +891,9 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'Parent folder is outside this app\'s data directory');
     }
     // Coerce content to a string for FS.createFile. Strings pass through;
-    // anything else is JSON-stringified so structured data round-trips
-    // cleanly rather than becoming "[object Object]".
+    // null/undefined is rejected above; anything else (objects, arrays,
+    // numbers) is JSON-stringified so structured data round-trips cleanly
+    // rather than becoming "[object Object]".
     const fileContent = typeof content === 'string' ? content : JSON.stringify(content);
     const newNode = await FS.createFile(parent.id, fileName, fileContent, mimeType || 'text/plain');
     return respond(webview, 'nova:vfs:write', requestId, {
@@ -938,9 +942,11 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:vfs:mkdir', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
     }
     const { path, name } = payload ?? {};
-    if (!name) {
+    if (!name || typeof name !== 'string') {
       return respondError(webview, 'nova:vfs:mkdir', requestId, 'INVALID_ARGS', 'name is required');
     }
+    // rewriteDataPath returns '' for null/undefined path; treat that as
+    // "root" so a caller can mkdir directly under the app's /data/<appId>/.
     const resolvedPath = rewriteDataPath(path, app.id);
     let parent;
     if (resolvedPath) {
@@ -1026,7 +1032,11 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:notifications:show', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
     }
     // Notify may be absent in headless test environments. Report UNAVAILABLE
-    // rather than silently claiming success — apps deserve to know.
+    // rather than silently claiming success — apps deserve to know. Check
+    // this BEFORE the rate limit counter, otherwise an environment without
+    // Notify would still burn a rate-limit slot for every call, eventually
+    // throttling the app for "spamming" notifications that never actually
+    // rendered anywhere.
     if (typeof Notify === 'undefined' || typeof Notify.show !== 'function') {
       return respondError(webview, 'nova:notifications:show', requestId, 'UNAVAILABLE', 'Notification service not available');
     }
@@ -1057,8 +1067,9 @@ const AppSandbox = (() => {
   // system:background before spinning it up, and this call does nothing
   // more than flip a flag the scheduler is already polling for.
   async function handleBackgroundWakeDone({ requestId, app, webview }) {
-    if (typeof AppScheduler !== 'undefined' && AppScheduler._markWakeDone) {
-      AppScheduler._markWakeDone(webview.dataset.sandboxId);
+    const sandboxId = webview?.dataset?.sandboxId;
+    if (sandboxId && typeof AppScheduler !== 'undefined' && typeof AppScheduler._markWakeDone === 'function') {
+      AppScheduler._markWakeDone(sandboxId);
     }
     return respond(webview, 'nova:background:wake-done', requestId, { success: true });
   }
@@ -1094,7 +1105,16 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:background:stay-alive', requestId, { success: true, enabled: sandbox.wantsBackgroundLive });
   }
 
-  // Settings
+  // Settings keys an app holding system:info still must not be able to read
+  // remotely — these hold credentials or auth material the OS itself needs to
+  // keep private even from a "can read settings" grant. system:settings (the
+  // mutation permission) is a separate, higher-trust grant and is denied
+  // writes to the same keys, so an app can't bypass the lock screen by
+  // overwriting lockPin or clearing lockoutUntil.
+  const SETTINGS_READ_DENYLIST = new Set([
+    'lockPin', 'pinSalt', 'biometricCredentialId', 'lockoutUntil',
+    'wrongPinCount', 'bootPassword',
+  ]);
 
   async function handleSettingsGet({ payload, requestId, app, webview }) {
     // system:info gates read access — otherwise any app could read credentials
@@ -1102,7 +1122,14 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('system:info', app.id)) {
       return respondError(webview, 'nova:settings:get', requestId, 'PERMISSION_DENIED', 'system:info permission required');
     }
-    const value = OS?.settings?.get(payload.key);
+    const key = payload?.key;
+    if (typeof key !== 'string' || !key) {
+      return respondError(webview, 'nova:settings:get', requestId, 'INVALID_ARGS', 'key is required');
+    }
+    if (SETTINGS_READ_DENYLIST.has(key)) {
+      return respondError(webview, 'nova:settings:get', requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not readable by apps`);
+    }
+    const value = OS?.settings?.get(key);
     return respond(webview, 'nova:settings:get', requestId, { success: true, value });
   }
 
@@ -1110,7 +1137,14 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('system:settings', app.id)) {
       return respondError(webview, 'nova:settings:set', requestId, 'PERMISSION_DENIED', 'system:settings permission required');
     }
-    OS?.settings?.set(payload.key, payload.value);
+    const key = payload?.key;
+    if (typeof key !== 'string' || !key) {
+      return respondError(webview, 'nova:settings:set', requestId, 'INVALID_ARGS', 'key is required');
+    }
+    if (SETTINGS_READ_DENYLIST.has(key)) {
+      return respondError(webview, 'nova:settings:set', requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not writable by apps`);
+    }
+    OS?.settings?.set(key, payload?.value);
     return respond(webview, 'nova:settings:set', requestId, { success: true });
   }
 
@@ -1128,7 +1162,7 @@ const AppSandbox = (() => {
       });
       return respond(webview, 'nova:request-permission', requestId, { granted });
     } catch (e) {
-      return respondError(webview, 'nova:request-permission', requestId, 'ERROR', e.message || 'Permission request failed');
+      return respondError(webview, 'nova:request-permission', requestId, 'ERROR', e?.message || 'Permission request failed');
     }
   }
 
@@ -1144,7 +1178,7 @@ const AppSandbox = (() => {
       const status = AppPermissionManager.isRateLimited(permission, app.id);
       return respond(webview, 'nova:permission-rate-limited', requestId, status);
     } catch (e) {
-      return respondError(webview, 'nova:permission-rate-limited', requestId, 'ERROR', e.message || 'Rate limit check failed');
+      return respondError(webview, 'nova:permission-rate-limited', requestId, 'ERROR', e?.message || 'Rate limit check failed');
     }
   }
 
@@ -1180,10 +1214,13 @@ const AppSandbox = (() => {
 
   async function handleWindowSetTitle({ payload, requestId, sandbox, webview }) {
     const windowId = sandbox?.windowId;
-    if (windowId) {
+    if (windowId && OS?.windows?.get) {
       const state = OS.windows.get(windowId);
       if (state && state.titleText) {
-        state.titleText.textContent = String(payload?.title ?? '');
+        // Cap the title so an app can't blow the title bar's layout or
+        // OOM the WM's title-state tracking with a multi-megabyte string.
+        const title = String(payload?.title ?? '').slice(0, 200);
+        state.titleText.textContent = title;
       }
     }
     return respond(webview, 'nova:window:setTitle', requestId, { success: true });
@@ -1191,7 +1228,7 @@ const AppSandbox = (() => {
 
   async function handleWindowResize({ payload, requestId, sandbox, webview }) {
     const windowId = sandbox?.windowId;
-    if (windowId) {
+    if (windowId && OS?.windows?.get) {
       const state = OS.windows.get(windowId);
       if (state && state.element) {
         // parseInt with explicit radix and a minimum bound to prevent
@@ -1213,7 +1250,7 @@ const AppSandbox = (() => {
 
   async function handleWindowGetState({ requestId, sandbox, webview }) {
     const windowId = sandbox?.windowId;
-    const state = windowId ? OS.windows.get(windowId) : null;
+    const state = windowId && OS?.windows?.get ? OS.windows.get(windowId) : null;
     if (!state) {
       return respondError(webview, 'nova:window:getState', requestId, 'NOT_FOUND', 'Window not found');
     }
@@ -1254,7 +1291,9 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
       return respondError(webview, 'nova:clipboard:write', requestId, 'PERMISSION_DENIED', 'vfs:read permission required for clipboard access');
     }
-    const text = payload.text || '';
+    // ?? not || — a payload of { text: 0 } or { text: false } should still
+    // write a real value, not silently become the empty-string default.
+    const text = payload?.text ?? '';
     try {
       // Actually write to the real system clipboard. navigator.clipboard
       // requires a secure context + (usually) a recent user gesture; if it
@@ -1380,9 +1419,22 @@ const AppSandbox = (() => {
           finish(() => respond(webview, 'nova:download', requestId, { success: false, cancelled: true }));
           return;
         }
-        require('fs').writeFile(savePath, buffer, (err) => {
+        // Lazy-require fs: this handler only runs in the top-level shell
+        // window (a Node frame), so require() is expected to exist. If it
+        // doesn't (test/headless env missing Node integration), surface
+        // that as an explicit error rather than a ReferenceError.
+        if (typeof require !== 'function') {
+          finish(() => respondError(webview, 'nova:download', requestId, 'UNAVAILABLE', 'Node fs module not available in this context'));
+          return;
+        }
+        let fs;
+        try { fs = require('fs'); } catch (e) {
+          finish(() => respondError(webview, 'nova:download', requestId, 'UNAVAILABLE', `Could not load fs module: ${e?.message || e}`));
+          return;
+        }
+        fs.writeFile(savePath, buffer, (err) => {
           if (err) {
-            finish(() => respondError(webview, 'nova:download', requestId, 'IO_ERROR', err.message || 'Failed to write file'));
+            finish(() => respondError(webview, 'nova:download', requestId, 'IO_ERROR', err?.message || 'Failed to write file'));
           } else {
             if (typeof EventLog !== 'undefined') {
               EventLog.log({
@@ -1419,8 +1471,8 @@ const AppSandbox = (() => {
     if (!appId) {
       return respondError(webview, 'nova:app:launch', requestId, 'INVALID_ARGS', 'appId is required');
     }
-    if (!OS.settings.get('devMode')) {
-      const target = OS.apps[appId];
+    if (!OS?.settings?.get?.('devMode')) {
+      const target = OS?.apps?.[appId];
       if (target?.devOnly) {
         return respondError(webview, 'nova:app:launch', requestId, 'PERMISSION_DENIED', 'Developer Mode must be enabled to launch this app');
       }
@@ -1435,11 +1487,14 @@ const AppSandbox = (() => {
         windowId: win ? win.id : null,
       });
     } catch (e) {
-      return respondError(webview, 'nova:app:launch', requestId, 'ERROR', e.message);
+      return respondError(webview, 'nova:app:launch', requestId, 'ERROR', e?.message || 'Launch failed');
     }
   }
 
   async function handleAppInfo({ requestId, app, webview }) {
+    if (!app) {
+      return respondError(webview, 'nova:app:info', requestId, 'UNAVAILABLE', 'No app context');
+    }
     return respond(webview, 'nova:app:info', requestId, {
       success: true,
       id: app.id,
@@ -1517,7 +1572,7 @@ const AppSandbox = (() => {
       }
       return respond(webview, 'nova:admin:audit', requestId, { success: true, logs: json.data, pagination: json.pagination, statistics: json.statistics });
     } catch (e) {
-      return respondError(webview, 'nova:admin:audit', requestId, 'UNAVAILABLE', e.message || 'Audit request failed');
+      return respondError(webview, 'nova:admin:audit', requestId, 'UNAVAILABLE', e?.message || 'Audit request failed');
     }
   }
 
@@ -1542,7 +1597,7 @@ const AppSandbox = (() => {
       }
       // action === 'set'
       const updates = payload?.settings;
-      if (!updates || typeof updates !== 'object') {
+      if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
         return respondError(webview, 'nova:admin:system', requestId, 'INVALID_ARGS', 'settings object is required for action "set"');
       }
       const { status, json } = await authedJsonFetch('/api/security/settings', { method: 'PUT', body: updates });
@@ -1554,7 +1609,7 @@ const AppSandbox = (() => {
       }
       return respond(webview, 'nova:admin:system', requestId, { success: true, updated: json.updated });
     } catch (e) {
-      return respondError(webview, 'nova:admin:system', requestId, 'UNAVAILABLE', e.message || 'Admin system request failed');
+      return respondError(webview, 'nova:admin:system', requestId, 'UNAVAILABLE', e?.message || 'Admin system request failed');
     }
   }
 
@@ -1597,7 +1652,7 @@ const AppSandbox = (() => {
       }
       return respond(webview, 'nova:admin:users', requestId, { success: true, revoked: true });
     } catch (e) {
-      return respondError(webview, 'nova:admin:users', requestId, 'UNAVAILABLE', e.message || 'Admin users request failed');
+      return respondError(webview, 'nova:admin:users', requestId, 'UNAVAILABLE', e?.message || 'Admin users request failed');
     }
   }
 
@@ -1721,7 +1776,7 @@ const AppSandbox = (() => {
       }
       return respond(webview, 'nova:mail:read', requestId, { success: true, action, data: json });
     } catch (e) {
-      return respondError(webview, 'nova:mail:read', requestId, 'UNAVAILABLE', e.message || 'Mail read request failed');
+      return respondError(webview, 'nova:mail:read', requestId, 'UNAVAILABLE', e?.message || 'Mail read request failed');
     }
   }
 
@@ -1760,7 +1815,7 @@ const AppSandbox = (() => {
       }
       return respond(webview, 'nova:mail:write', requestId, { success: true, action, op });
     } catch (e) {
-      return respondError(webview, 'nova:mail:write', requestId, 'UNAVAILABLE', e.message || 'Mail write request failed');
+      return respondError(webview, 'nova:mail:write', requestId, 'UNAVAILABLE', e?.message || 'Mail write request failed');
     }
   }
 
@@ -1791,7 +1846,7 @@ const AppSandbox = (() => {
       }
       return respond(webview, 'nova:mail:send', requestId, { success: true, messageId: json.messageId });
     } catch (e) {
-      return respondError(webview, 'nova:mail:send', requestId, 'UNAVAILABLE', e.message || 'Send request failed');
+      return respondError(webview, 'nova:mail:send', requestId, 'UNAVAILABLE', e?.message || 'Send request failed');
     }
   }
 
@@ -1814,7 +1869,7 @@ const AppSandbox = (() => {
       }
       return respond(webview, 'nova:mail:delete', requestId, { success: true, deleted: uids.length });
     } catch (e) {
-      return respondError(webview, 'nova:mail:delete', requestId, 'UNAVAILABLE', e.message || 'Mail delete request failed');
+      return respondError(webview, 'nova:mail:delete', requestId, 'UNAVAILABLE', e?.message || 'Mail delete request failed');
     }
   }
 
@@ -1896,7 +1951,7 @@ const AppSandbox = (() => {
     // it. Each cleanup step is independently best-effort (matching the
     // manual path's own try/catch-per-step), since a failure in one
     // (e.g. partition already cleared) shouldn't block the others.
-    if (typeof WM !== 'undefined' && WM.closeWindow && typeof OS !== 'undefined' && OS.windows) {
+    if (typeof WM !== 'undefined' && WM.closeWindow && OS?.windows && typeof OS.windows[Symbol.iterator] === 'function') {
       const openWindowIds = [];
       for (const [wid, wstate] of OS.windows) {
         if (wstate.appId === appId) openWindowIds.push(wid);
@@ -1986,7 +2041,7 @@ const AppSandbox = (() => {
           // effort, since a human is still there to react to whatever
           // comes next), but this unattended path has no human backstop,
           // so an inconclusive scan blocks install instead.
-          return respondError(webview, 'nova:app:install', requestId, 'SCAN_FAILED', `Could not scan "${relPath}": ${err.message}`);
+          return respondError(webview, 'nova:app:install', requestId, 'SCAN_FAILED', `Could not scan "${relPath}": ${err?.message || err}`);
         }
       }
     }
@@ -2060,11 +2115,27 @@ const AppSandbox = (() => {
         version: registered.version,
       });
     } catch (e) {
-      return respondError(webview, 'nova:app:install', requestId, 'ERROR', e.message);
+      return respondError(webview, 'nova:app:install', requestId, 'ERROR', e?.message || 'Unknown error');
     }
   }
 
   // Events
+  //
+  // Apps holding system:events may subscribe to OS-wide event bus messages.
+  // Without an allowlist, an app could subscribe to internal channels like
+  // 'settings:changed' (which fires for every settings write, including
+  // password/PIN updates from system code) or 'os:volumeChanged' purely for
+  // reconnaissance. Limit subscriptions to the public event surface — names
+  // the OS explicitly emits for app consumption — and reject anything else
+  // rather than forwarding it.
+  const ALLOWED_EVENT_NAMES = new Set([
+    'system:notification', 'system:volumeChanged', 'system:themeChanged',
+    'system:workspaceChanged', 'system:power', 'system:network',
+    'app:installed', 'app:uninstalled', 'app:launched',
+    'mail:new', 'mail:updated',
+    'calendar:reminder', 'calendar:updated',
+    'contacts:updated',
+  ]);
 
   async function handleEventsSubscribe({ payload, requestId, app, webview, sandbox }) {
     if (!AppPermissionManager.isGranted('system:events', app.id)) {
@@ -2073,6 +2144,9 @@ const AppSandbox = (() => {
     const { event } = payload ?? {};
     if (!event) {
       return respondError(webview, 'nova:events:subscribe', requestId, 'INVALID_ARGS', 'event name is required');
+    }
+    if (typeof event !== 'string' || !ALLOWED_EVENT_NAMES.has(event)) {
+      return respondError(webview, 'nova:events:subscribe', requestId, 'INVALID_ARGS', `Event '${event}' is not in the subscribable allowlist`);
     }
     const sandboxId = webview.dataset.sandboxId;
     const subs = eventSubscriptions.get(sandboxId);
@@ -2128,6 +2202,26 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted(netPerm, app.id)) {
       return respondError(webview, 'nova:net:fetch', requestId, 'PERMISSION_DENIED', `${netPerm} permission required`);
     }
+    // Normalize headers to a plain object — apps can pass a Headers instance,
+    // an array of pairs, or a plain object. Same conversion the shim does
+    // client-side; redo here so the proxy path doesn't choke on a non-plain
+    // value getting JSON.stringify'd.
+    const headerObj = {};
+    if (headers && typeof headers === 'object') {
+      if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+        headers.forEach((v, k) => { headerObj[k] = v; });
+      } else if (Array.isArray(headers)) {
+        for (const pair of headers) {
+          if (Array.isArray(pair) && pair.length >= 2) {
+            headerObj[String(pair[0])] = String(pair[1]);
+          }
+        }
+      } else {
+        for (const k of Object.keys(headers)) {
+          headerObj[k] = String(headers[k]);
+        }
+      }
+    }
     try {
       let resStatus, resStatusText, resHeaders, resBody;
 
@@ -2135,8 +2229,8 @@ const AppSandbox = (() => {
         // Same-origin requests don't hit CORS, so go direct.
         const res = await fetch(classified.url, {
           method: safeMethod,
-          headers: headers || {},
-          body: body || null,
+          headers: headerObj,
+          body: body ?? null,
         });
         resBody = await res.text();
         resStatus = res.status;
@@ -2149,7 +2243,7 @@ const AppSandbox = (() => {
         // so we hand the request to /api/proxy, which makes it server-to-server.
         const { status: proxyStatus, ok, json: proxyJson } = await authedJsonFetch('/api/proxy', {
           method: 'POST',
-          body: { url: classified.url, method: safeMethod, headers: headers || {}, body: body || null },
+          body: { url: classified.url, method: safeMethod, headers: headerObj, body: body ?? null },
         });
         if (!ok) {
           return respondError(webview, 'nova:net:fetch', requestId, 'NETWORK_ERROR', proxyJson?.error || `Proxy request failed (${proxyStatus})`);
@@ -2168,7 +2262,7 @@ const AppSandbox = (() => {
         body: resBody,
       });
     } catch (e) {
-      return respondError(webview, 'nova:net:fetch', requestId, 'NETWORK_ERROR', e.message);
+      return respondError(webview, 'nova:net:fetch', requestId, 'NETWORK_ERROR', e?.message || String(e));
     }
   }
 
@@ -2191,7 +2285,7 @@ const AppSandbox = (() => {
         ? new WebSocket(url, protocols)
         : new WebSocket(url);
     } catch (e) {
-      return respondError(webview, 'nova:net:websocket', requestId, 'INVALID_ARGS', e.message);
+      return respondError(webview, 'nova:net:websocket', requestId, 'INVALID_ARGS', e?.message || 'Unknown error');
     }
     const wsId = `ws_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     // Track the WebSocket so destroy() can close it when the sandbox is torn
@@ -2221,6 +2315,9 @@ const AppSandbox = (() => {
     if (typeof WebSocket === 'undefined') {
       return respondError(webview, 'nova:net:ws:send', requestId, 'UNAVAILABLE', 'WebSocket not supported');
     }
+    if (!wsId || typeof wsId !== 'string') {
+      return respondError(webview, 'nova:net:ws:send', requestId, 'INVALID_ARGS', 'wsId is required');
+    }
     const wsState = sandbox?.wsConnections?.get(wsId);
     if (!wsState) {
       return respondError(webview, 'nova:net:ws:send', requestId, 'NOT_FOUND', 'WebSocket connection not found');
@@ -2228,7 +2325,18 @@ const AppSandbox = (() => {
     if (wsState.ws.readyState !== WebSocket.OPEN) {
       return respondError(webview, 'nova:net:ws:send', requestId, 'INVALID_STATE', 'WebSocket is not open');
     }
-    wsState.ws.send(data ?? '');
+    // Coerce data to a string — ws.send accepts strings, ArrayBuffers,
+    // and Blobs, but IPC values come through JSON.parse so anything
+    // non-string here is probably an object the app meant to JSON-encode.
+    let payload2send = data;
+    if (payload2send == null) payload2send = '';
+    else if (typeof payload2send === 'object') payload2send = JSON.stringify(payload2send);
+    else payload2send = String(payload2send);
+    try {
+      wsState.ws.send(payload2send);
+    } catch (e) {
+      return respondError(webview, 'nova:net:ws:send', requestId, 'INVALID_STATE', e?.message || 'Failed to send');
+    }
     return respond(webview, 'nova:net:ws:send', requestId, { success: true });
   }
 
@@ -2450,8 +2558,14 @@ const AppSandbox = (() => {
     }
     // Enforce a per-value size cap, and storageSet enforces the per-app quota
     // against real existing usage in the DB (not just a per-call check).
+    // IndexedDB stores structured values directly, so an object value's real
+    // on-disk size is its JSON representation — measure that, not the
+    // '[object Object]' that String(value) would give, otherwise the quota
+    // check is silently too lenient for any non-string value.
     const value = payload?.value ?? '';
-    const valueBytes = sharedTextEncoder.encode(String(value)).length;
+    const valueBytes = sharedTextEncoder.encode(
+      typeof value === 'string' ? value : JSON.stringify(value)
+    ).length;
     if (valueBytes > STORAGE_VALUE_MAX_BYTES) {
       return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', `Value exceeds ${STORAGE_VALUE_MAX_BYTES} byte limit`);
     }
@@ -2475,7 +2589,7 @@ const AppSandbox = (() => {
       await storageDelete(app.id, rawKey);
       return respond(webview, 'nova:storage:delete', requestId, { success: true });
     } catch (e) {
-      return respondError(webview, 'nova:storage:delete', requestId, 'ERROR', e.message);
+      return respondError(webview, 'nova:storage:delete', requestId, 'ERROR', e?.message || 'Unknown error');
     }
   }
 
@@ -2484,7 +2598,7 @@ const AppSandbox = (() => {
       await storageClear(app.id);
       return respond(webview, 'nova:storage:clear', requestId, { success: true });
     } catch (e) {
-      return respondError(webview, 'nova:storage:clear', requestId, 'ERROR', e.message);
+      return respondError(webview, 'nova:storage:clear', requestId, 'ERROR', e?.message || 'Unknown error');
     }
   }
 
@@ -2493,7 +2607,7 @@ const AppSandbox = (() => {
       const keys = await storageKeys(app.id);
       return respond(webview, 'nova:storage:keys', requestId, { success: true, keys });
     } catch (e) {
-      return respondError(webview, 'nova:storage:keys', requestId, 'ERROR', e.message);
+      return respondError(webview, 'nova:storage:keys', requestId, 'ERROR', e?.message || 'Unknown error');
     }
   }
 
@@ -2522,7 +2636,7 @@ const AppSandbox = (() => {
         },
         timestamp: pos.timestamp,
       }),
-      (err) => respondError(webview, 'nova:device:geolocation', requestId, 'GEOLOCATION_ERROR', err.message),
+      (err) => respondError(webview, 'nova:device:geolocation', requestId, 'GEOLOCATION_ERROR', err?.message || 'Geolocation error'),
       payload.options || {}
     );
   }
@@ -2722,13 +2836,14 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('system:info', app.id)) {
       return respondError(webview, 'nova:system:info', requestId, 'PERMISSION_DENIED', 'system:info permission required');
     }
+    const bootTime = OS?._bootTime || Date.now();
     return respond(webview, 'nova:system:info', requestId, {
       success: true,
       os: {
-        version: OS.version,
-        securityPatch: OS.securityPatch,
-        username: OS.username,
-        uptime: Date.now() - (OS._bootTime || Date.now()),
+        version: OS?.version,
+        securityPatch: OS?.securityPatch,
+        username: OS?.username,
+        uptime: Date.now() - bootTime,
       },
     });
   }
@@ -2736,20 +2851,21 @@ const AppSandbox = (() => {
   // Ready handshake
 
   async function handleReady({ requestId, app, webview }) {
+    if (!app) {
+      return respondError(webview, 'nova:ready', requestId, 'UNAVAILABLE', 'No app context for ready handshake');
+    }
     const mgr = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
-    const granted = mgr
-      ? (app.permissions || []).filter(p => mgr.isGranted(p, app.id))
-      : (app.permissions || []);
-    const optionalGranted = mgr
-      ? (app.optionalPermissions || []).filter(p => mgr.isGranted(p, app.id))
-      : (app.optionalPermissions || []);
+    const appPerms = app.permissions || [];
+    const appOptional = app.optionalPermissions || [];
+    const granted = mgr ? appPerms.filter(p => mgr.isGranted(p, app.id)) : appPerms;
+    const optionalGranted = mgr ? appOptional.filter(p => mgr.isGranted(p, app.id)) : appOptional;
     const payload = {
       success: true,
       appId: app.id,
       permissions: granted,
       optionalPermissions: optionalGranted,
-      osVersion: OS.version,
-      securityPatch: OS.securityPatch,
+      osVersion: OS?.version,
+      securityPatch: OS?.securityPatch,
     };
     // Some apps (see the capability shim / createDefaultAppShell) read the
     // handshake fields directly off the top-level response object rather
@@ -2853,14 +2969,16 @@ const AppSandbox = (() => {
   // 30 seconds.
 
   async function handleAuditEval({ app, payload, requestId, webview }) {
-    log('warn', `${app.name} called eval():`, payload?.preview);
+    const appName = app?.name || app?.id || 'unknown';
+    const appId = app?.id || 'unknown';
+    log('warn', `${appName} called eval():`, payload?.preview);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'AppSandbox',
         category: 'security',
         severity: 'warn',
-        message: `${app.name} called eval()`,
-        data: { appId: app.id, preview: payload?.preview },
+        message: `${appName} called eval()`,
+        data: { appId, preview: payload?.preview },
       });
     }
     return respond(webview, 'nova:audit:eval', requestId, { success: true });
@@ -2951,12 +3069,17 @@ const AppSandbox = (() => {
       }
       await handler({ payload, requestId, app, webview, sandbox });
     } catch (err) {
+      // Error.isError (ES2026) is the cross-realm-safe check; fall back to
+      // instanceof for older runtimes. Either way, extract a real message
+      // string for both the log and the guest-side error response.
+      const isError = typeof Error.isError === 'function' ? Error.isError(err) : err instanceof Error;
+      const msg = isError ? err.message : String(err);
       log('error', `Error handling ${type}:`, err);
       // Guard against a webview that's been destroyed between the call
       // arriving and an async handler throwing — respond would log a
       // spurious error on top of the real one.
       if (webview && typeof webview.executeScript === 'function') {
-        respondError(webview, type, requestId, 'INTERNAL_ERROR', err.message || 'Internal error');
+        respondError(webview, type, requestId, 'INTERNAL_ERROR', msg || 'Internal error');
       }
     }
   }
@@ -3035,15 +3158,24 @@ const AppSandbox = (() => {
       // __novaOutboxPull directly anymore). executeScript's default
       // (isolated world) is what reaches it.
       const idLiteral = JSON.stringify(requestId);
+      // Bail out early if the sandbox has already been destroyed between
+      // the consolemessage firing and this host-initiated read landing.
+      // Without this guard, handleAPICall would run against a stale
+      // webview reference and produce confusing log noise rather than
+      // silently dropping the orphaned call.
+      if (!activeSandboxes.has(sandboxId)) return;
       webview.executeScript({
         code: `(function(){ var m = window.__novaOutboxPull || {}; var p = m[${idLiteral}]; delete m[${idLiteral}]; return JSON.stringify(p === undefined ? null : p); })()`,
       }, (results) => {
+        // Second guard: the executeScript callback is async and may fire
+        // after destroy() has torn this sandbox down.
+        if (!activeSandboxes.has(sandboxId)) return;
         let payload = null;
         try {
           const raw = Array.isArray(results) ? results[0] : results;
           payload = raw ? JSON.parse(raw) : null;
         } catch (e) {
-          log('warn', `Failed to retrieve IPC payload for ${type} from ${app?.id || 'unknown app'}: ${e.message}`);
+          log('warn', `Failed to retrieve IPC payload for ${type} from ${app?.id || 'unknown app'}: ${e?.message || e}`);
           return;
         }
         const sandbox = activeSandboxes.get(sandboxId);
@@ -3218,6 +3350,11 @@ const AppSandbox = (() => {
   // script and can't be trusted for anything beyond the initial port handoff.
   const BRIDGE_MARKER = '__NOVA_BRIDGE__';
 
+  // Cache for buildIsolatedTransportScript — the script is identical for
+  // every sandbox, so build it once and reuse the string. Reset by tests
+  // via _internal._resetState.
+  let _isolatedTransportScriptCache = null;
+
   // Builds the isolated-world transport content script. This owns the
   // ONLY code path that can produce a valid guest->host IPC message
   // (console.log(IPC_MARKER + ...)) or read a host->guest response
@@ -3262,7 +3399,12 @@ const AppSandbox = (() => {
   // It additionally closes the response-forgery gap the tagged-postMessage
   // bridge itself introduced.
   function buildIsolatedTransportScript() {
-    return `(function() {
+    // Cached: the transport script is identical for every sandbox, so build
+    // it once. The original code regenerated a multi-KB string template on
+    // every launch — measurable on cold boot when several apps launch back
+    // to back.
+    if (_isolatedTransportScriptCache) return _isolatedTransportScriptCache;
+    _isolatedTransportScriptCache = `(function() {
   'use strict';
   const IPC_MARKER = ${JSON.stringify(IPC_MARKER)};
   const BRIDGE_MARKER = ${JSON.stringify(BRIDGE_MARKER)};
@@ -3312,7 +3454,7 @@ const AppSandbox = (() => {
       // Deliver a synthetic error back to the main world so its pending
       // promise doesn't hang forever if console.log itself throws.
       deliverToMainWorld({ kind: 'response', requestId: requestId,
-        type: type + ':response', result: null, error: { code: 'TRANSPORT_ERROR', message: String(e && e.message || e) } });
+        type: type + ':response', result: null, error: { code: 'TRANSPORT_ERROR', message: String((e && e.message) || e) } });
     }
   }
 
@@ -3409,6 +3551,7 @@ const AppSandbox = (() => {
     event.source.postMessage({ __novaBridge: BRIDGE_MARKER, kind: 'claim-port-ack' }, event.origin, [channel.port2]);
   });
 })();`;
+    return _isolatedTransportScriptCache;
   }
 
   // Builds the capability shim string for a given app. `nestedWebviewAllowed`
@@ -3885,7 +4028,6 @@ const AppSandbox = (() => {
   });
 
   // Override fetch — route through the IPC bridge.
-  const originalFetch = window.fetch;
   window.fetch = function(input, init) {
     init = init || {};
     const url = typeof input === 'string' ? input : (input && input.url) || String(input);
@@ -3918,8 +4060,9 @@ const AppSandbox = (() => {
   // Minimal XMLHttpRequest override that routes through the fetch shim.
   // Covers the common API surface (open/send/setRequestHeader/onload/onerror/
   // onreadystatechange/status/responseText). Advanced features (upload
-  // events, progress, responseType blob) are not implemented — apps needing
-  // those should use fetch directly.
+  // events, progress, responseType blob, the timeout property's auto-fire
+  // of a 'timeout' event) are not implemented — apps needing those should
+  // use fetch directly.
   function NovaXHR() {
     const xhr = this;
     let method = 'GET', url = '', headers = {}, body = null;
@@ -3931,7 +4074,7 @@ const AppSandbox = (() => {
     // resolved and overwrote everything, so abort was effectively a no-op
     // for any request that had already been sent).
     let aborted = false;
-    const listeners = { load: [], error: [], readystatechange: [], loadend: [], abort: [], timeout: [] };
+    const listeners = { load: [], error: [], readystatechange: [], loadend: [], abort: [] };
 
     Object.defineProperty(this, 'readyState', { get: function() { return state; }, configurable: true });
     Object.defineProperty(this, 'status', { get: function() { return xhr._status || 0; }, configurable: true });
@@ -4737,6 +4880,12 @@ const AppSandbox = (() => {
   function destroy(sandboxId) {
     const sandbox = activeSandboxes.get(sandboxId);
     if (!sandbox) return false;
+    // Reentrancy guard: a second caller (e.g. closeWindow racing with
+    // uninstall) could otherwise see the same `sandbox` between our get
+    // and our delete below, run cleanup twice, and double-close
+    // WebSockets / double-remove the dialog overlay. Delete first, then
+    // tear down — sandbox.cleanup is still callable via the local ref.
+    activeSandboxes.delete(sandboxId);
 
     // sandbox.cleanup (set up in createSandbox) does the actual teardown:
     // aborts the message listener, detaches OS event subs, closes WebSockets,
@@ -4798,7 +4947,9 @@ const AppSandbox = (() => {
       });
     }
 
-    activeSandboxes.delete(sandboxId);
+    // activeSandboxes.delete(sandboxId) already ran at the top of this
+    // function — that early delete is the reentrancy guard, see the
+    // comment there for why.
     log('debug', `Destroyed sandbox: ${sandboxId}`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `Destroyed sandbox ${sandboxId}`, data: { appId: sandbox.appId, sandboxId } });
@@ -4964,7 +5115,11 @@ const AppSandbox = (() => {
     let baseUrl;
     try {
       const sandboxId = `sandbox_clr_${appId.replace(/[^\w.-]/g, '_')}_${Date.now()}`;
-      const files = { 'index.html': btoa('<!doctype html><html><body></body></html>') };
+      // Use encodeBase64Utf8 rather than bare btoa for consistency with the
+      // rest of this module — btoa throws on non-Latin1 input, and even
+      // though this particular payload is ASCII-only today, the helper is
+      // the convention everywhere else.
+      const files = { 'index.html': encodeBase64Utf8('<!doctype html><html><body></body></html>') };
       const regRes = await fetch('/api/apps/serve/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5067,6 +5222,7 @@ const AppSandbox = (() => {
         openDialogs.clear();
         notifRateLimitLog.clear();
         storageDbPromise = null;
+        _isolatedTransportScriptCache = null;
       },
       _activeSandboxes: activeSandboxes,
       _eventSubscriptions: eventSubscriptions,
