@@ -73,9 +73,18 @@ function copyClean(src, dest, relBase = "") {
 }
 
 function rmrf(dir) {
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  if (!fs.existsSync(dir)) return;
+  // Windows can throw EPERM/EBUSY if a file handle (antivirus scan, search
+  // indexer, lingering npm child process) is still open on something inside
+  // dir — Unix doesn't have this problem, deleting while a handle is open
+  // just works there. Node's fs.rmSync has built-in retry-with-backoff for
+  // exactly this, activated only when recursive is true.
+  fs.rmSync(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 300
+  });
 }
 
 async function main() {
