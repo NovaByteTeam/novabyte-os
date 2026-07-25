@@ -178,10 +178,9 @@ async function main() {
     app: def.appExtra(icon)
   });
   console.log(`Built for ${def.platform}-${def.arch} -> build/${def.folder}`);
-
-  // 6. Clean up staging dir
-  rmrf(stageDir);
-  console.log("Done.");
+  console.log(
+    "Done. (.build-stage left in place — cleaned up automatically at the start of the next run)"
+  );
 }
 
 main().catch((error) => {
