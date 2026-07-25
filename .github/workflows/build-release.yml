@@ -11,7 +11,24 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            folder: win-x64
+            asset: NovaByte-win-x64.zip
+          - os: ubuntu-latest
+            platform: linux
+            folder: linux-x64
+            asset: NovaByte-linux-x64.zip
+          - os: macos-latest
+            platform: osx
+            folder: osx-x64
+            asset: NovaByte-osx-x64.zip
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
@@ -22,16 +39,42 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Run build script
+      # Each matrix job runs npm ci natively on its own OS, so native
+      # modules (e.g. better-sqlite3) compile correctly for that platform
+      # instead of all three shipping Linux-compiled binaries.
+      - name: Run build script for this platform
         working-directory: NBOSP
         run: node build.mjs
+        env:
+          NBOSP_BUILD_PLATFORM: ${{ matrix.platform }}
 
-      - name: Zip platform builds
+      - name: Zip platform build (Windows)
+        if: runner.os == 'Windows'
         working-directory: build
-        run: |
-          zip -r NovaByte-win-x64.zip win-x64
-          zip -r NovaByte-linux-x64.zip linux-x64
-          zip -r NovaByte-osx-x64.zip osx-x64
+        run: Compress-Archive -Path "${{ matrix.folder }}" -DestinationPath "${{ matrix.asset }}"
+        shell: pwsh
+
+      - name: Zip platform build (Linux/macOS)
+        if: runner.os != 'Windows'
+        working-directory: build
+        run: zip -r "${{ matrix.asset }}" "${{ matrix.folder }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: build/${{ matrix.asset }}
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Set release date
         id: date
@@ -41,9 +84,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view NBOSP-PREBUILT --json assets \
+          gh release view NBOSP-PREBUILT --repo "${{ github.repository }}" --json assets \
             --jq '.assets[].name' | while read -r asset; do
-            gh release delete-asset NBOSP-PREBUILT "$asset" -y || true
+            gh release delete-asset NBOSP-PREBUILT "$asset" --repo "${{ github.repository }}" -y || true
           done
 
       - name: Upload new release assets
@@ -51,16 +94,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload NBOSP-PREBUILT \
-            build/NovaByte-win-x64.zip \
-            build/NovaByte-linux-x64.zip \
-            build/NovaByte-osx-x64.zip \
+            artifacts/NovaByte-win-x64.zip \
+            artifacts/NovaByte-linux-x64.zip \
+            artifacts/NovaByte-osx-x64.zip \
+            --repo "${{ github.repository }}" \
             --clobber
 
       - name: Update release notes with date
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release edit NBOSP-PREBUILT --notes "Pre-built cross-platform binaries for NovaByte, built directly from the current NBOSP source (no cloning or \`npm install\` required — just download and run).
+          gh release edit NBOSP-PREBUILT --repo "${{ github.repository }}" --notes "Pre-built cross-platform binaries for NovaByte, built directly from the current NBOSP source (no cloning or \`npm install\` required — just download and run).
 
           Updated as of ${{ steps.date.outputs.date }}. This release is updated in place as NBOSP changes — binaries reflect the latest source as of the date above, not a fixed version snapshot.
 
