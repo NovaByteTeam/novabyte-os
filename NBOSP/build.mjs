@@ -79,23 +79,71 @@ function rmrf(dir) {
 }
 
 async function main() {
+  // Which platform to build — passed by CI matrix (one native OS per
+  // platform, so native modules like better-sqlite3 compile correctly for
+  // that OS) or defaults to the current host OS for local/manual runs.
+  const requestedPlatform =
+    process.env.NBOSP_BUILD_PLATFORM || process.argv[2] || null;
+
+  const platformDefs = {
+    win: {
+      platform: "win",
+      arch: "x64",
+      folder: "win-x64",
+      appExtra: (icon) => ({ name: "NovaByte", icon, version: "3.0.2" })
+    },
+    linux: {
+      platform: "linux",
+      arch: "x64",
+      folder: "linux-x64",
+      appExtra: (icon) => ({ name: "NovaByte", icon, version: "3.0.2" })
+    },
+    osx: {
+      platform: "osx",
+      arch: "x64",
+      folder: "osx-x64",
+      appExtra: (icon) => ({
+        name: "NovaByte",
+        icon,
+        LSApplicationCategoryType: "public.app-category.developer-tools",
+        CFBundleVersion: "3.0.2",
+        CFBundleShortVersionString: "3.0.2",
+        NSHumanReadableCopyright: "Copyright © 2026 NovaByteOfficial"
+      })
+    }
+  };
+
+  // Map to native host platform automatically if not specified (local runs)
+  const hostPlatform =
+    process.platform === "win32" ? "win" : process.platform === "darwin" ? "osx" : "linux";
+  const targetKey = requestedPlatform || hostPlatform;
+
+  if (!platformDefs[targetKey]) {
+    console.error(
+      `Unknown platform "${targetKey}". Expected one of: ${Object.keys(platformDefs).join(", ")}`
+    );
+    process.exit(1);
+  }
+
+  const iconExt = targetKey === "win" ? "ico" : targetKey === "osx" ? "icns" : "png";
+
   // 1. Clean previous build output and any leftover staging dir
   console.log("Cleaning previous build output...");
   rmrf(outDir);
   rmrf(stageDir);
 
-  // 2. Stage a clean copy of NBOSP (node_modules excluded — installed fresh below)
+  // 2. Stage a clean copy of NBOSP (node_modules excluded — installed fresh
+  // below, natively on this host, so any native modules like better-sqlite3
+  // compile for THIS platform, not whatever OS the script last ran on)
   console.log("Staging clean copy of NBOSP...");
   copyClean(nbospDir, stageDir);
 
-  // 3. Install dependencies with npm ci for a clean, reproducible install
-  console.log("Running npm ci in staged copy...");
+  // 3. Install dependencies with npm ci for a clean, reproducible,
+  // platform-native install
+  console.log(`Running npm ci in staged copy (native to ${process.platform})...`);
   execSync("npm ci", { cwd: stageDir, stdio: "inherit" });
 
-  // 4. Build for each platform — each gets its own subfolder, since
-  // nw-builder dumps straight into outDir with no per-platform namespacing
-  // and would otherwise overwrite the previous platform's build.
-  // Import nw-builder from the staged copy — that's where npm ci just
+  // 4. Import nw-builder from the staged copy — that's where npm ci just
   // installed it. Importing bare "nw-builder" here would resolve relative to
   // build.mjs's own location (NBOSP), which has no node_modules on a fresh
   // CI checkout since only the staged copy gets npm ci'd.
@@ -106,64 +154,23 @@ async function main() {
   ).href;
   const { default: nwbuild } = await import(nwBuilderEntry);
 
-  // nw-builder requires extra macOS-specific fields for the osx build —
-  // it won't fall back to defaults for these, so they must be set explicitly
-  // or the osx build throws a validation error.
-  // NOTE: LSApplicationCategoryType must be one of Apple's fixed category
-  // strings — "developer-tools" is a best guess for an OS/system-shell app.
-  // Change if a different category fits better:
-  // https://developer.apple.com/documentation/bundleresources/information-property-list/lsapplicationcategorytype
-  const macAppConfig = {
-    name: "NovaByte",
-    icon: path.join(stageDir, "assets", "icon.icns"),
-    LSApplicationCategoryType: "public.app-category.developer-tools",
-    CFBundleVersion: "3.0.2",
-    CFBundleShortVersionString: "3.0.2",
-    NSHumanReadableCopyright: "Copyright © 2026 NovaByteOfficial"
-  };
+  // 5. Build only the requested platform
+  const def = platformDefs[targetKey];
+  const icon = path.join(stageDir, "assets", `icon.${iconExt}`);
 
-  const platforms = [
-    {
-      platform: "win",
-      arch: "x64",
-      folder: "win-x64",
-      app: {
-        name: "NovaByte",
-        icon: path.join(stageDir, "assets", "icon.ico"),
-        version: "3.0.2"
-      }
-    },
-    {
-      platform: "linux",
-      arch: "x64",
-      folder: "linux-x64",
-      app: {
-        name: "NovaByte",
-        icon: path.join(stageDir, "assets", "icon.png"),
-        version: "3.0.2"
-      }
-    },
-    { platform: "osx", arch: "x64", folder: "osx-x64", app: macAppConfig }
-  ];
+  console.log(`Building ${def.platform}-${def.arch}...`);
+  await nwbuild({
+    mode: "build",
+    srcDir: stageDir,
+    glob: false,
+    platform: def.platform,
+    arch: def.arch,
+    outDir: path.join(outDir, def.folder),
+    app: def.appExtra(icon)
+  });
+  console.log(`Built for ${def.platform}-${def.arch} -> build/${def.folder}`);
 
-  for (const { platform, arch, folder, app } of platforms) {
-    try {
-      await nwbuild({
-        mode: "build",
-        srcDir: stageDir,
-        glob: false,
-        platform,
-        arch,
-        outDir: path.join(outDir, folder),
-        ...(app ? { app } : {})
-      });
-      console.log(`Built for ${platform}-${arch} -> build/${folder}`);
-    } catch (error) {
-      console.error(`Build failed for ${platform}-${arch}:`, error);
-    }
-  }
-
-  // 5. Clean up staging dir
+  // 6. Clean up staging dir
   rmrf(stageDir);
   console.log("Done.");
 }
