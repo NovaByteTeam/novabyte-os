@@ -4716,9 +4716,17 @@ const AppSandbox = (() => {
     // realm the guest's own scripts cannot reach (see
     // buildIsolatedTransportScript for why that matters).
     //
-    // Scoped to this host's own origin — every app's served files live
-    // under window.location.origin + a per-sandbox baseUrl path (see
-    // loadAppContent), so this never needs to match external content.
+    // Scoped to THIS sandbox's own serving path, not the whole origin.
+    // /api/apps/serve/register (server/core/index.js) always returns
+    // baseUrl = `/api/apps/serve/${sandboxId}` — deterministic from the
+    // sandboxId we already generated above, no need to wait on the async
+    // registration call below to know it. Matching the bare origin would
+    // register this transport against every app's served files on this
+    // host (they all live under window.location.origin), so every
+    // launched app's webview would get every other app's transport
+    // script injected into it — scoping to our own baseUrl keeps this
+    // sandbox's isolated IPC transport from leaking into any other
+    // sandbox's webview.
     // webapp-type apps (external URLs) don't get this at all: they
     // navigate to classified.url directly and were never given
     // window.nova capabilities in the first place.
@@ -4726,7 +4734,7 @@ const AppSandbox = (() => {
       try {
         webview.addContentScripts([{
           name: `nova-ipc-transport-${sandboxId}`,
-          matches: [`${window.location.origin}/*`],
+          matches: [`${window.location.origin}/api/apps/serve/${sandboxId}/*`],
           js: { code: buildIsolatedTransportScript() },
           run_at: 'document_start',
           all_frames: false,
