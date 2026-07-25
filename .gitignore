@@ -13,6 +13,8 @@
 /v1
 /build
 /novabyte-v3-build
+/.build-stage
+/NBOSP/build.mjs
 **/.cache/
 **/.dist/
 /NBOSP/cache/
