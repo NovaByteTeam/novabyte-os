@@ -162,7 +162,7 @@ jobs:
 
       - name: Set release date
         id: date
-        run: echo "date=$(date -u +'%d/%m/%Y')" >> "$GITHUB_OUTPUT"
+        run: echo "date=$(TZ='Europe/London' date +'%d/%m/%Y')" >> "$GITHUB_OUTPUT"
 
       - name: Delete previous release assets
         env:
