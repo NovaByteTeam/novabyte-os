@@ -43,9 +43,27 @@ jobs:
         with:
           node-version: "24"
 
+      # Installs NBOSP's OWN node_modules (including devDependencies like
+      # nw-builder) at the repo root, separately from the staged copy
+      # build.mjs creates internally. build.mjs now imports nw-builder from
+      # here (nbospDir) rather than from its staged copy, because the staged
+      # copy runs `npm ci --omit=dev` — devDependencies like `nw` (the full
+      # NW.js SDK download) and `nw-builder` itself must never end up
+      # packaged inside the shipped package.nw, but nw-builder still has to
+      # be available *somewhere* for build.mjs to actually run the build.
+      # Plain `npm ci` (no --omit=dev) here is intentional and correct: this
+      # install never gets packaged into the shipped app, so there's no
+      # downside to it including devDependencies.
+      - name: Install NBOSP's own dependencies (for nw-builder)
+        working-directory: NBOSP
+        run: npm ci
+
       # Each matrix job runs npm ci natively on its own OS, so native
       # modules (e.g. better-sqlite3) compile correctly for that platform
-      # instead of all three shipping Linux-compiled binaries.
+      # instead of all three shipping Linux-compiled binaries. (build.mjs's
+      # OWN internal npm ci for the staged copy now runs with --omit=dev, so
+      # devDependencies like `nw`/`nw-builder` are excluded from the shipped
+      # package — see build.mjs for details.)
       - name: Run build script for this platform
         working-directory: NBOSP
         run: node build.mjs

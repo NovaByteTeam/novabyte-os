@@ -147,19 +147,33 @@ async function main() {
   console.log("Staging clean copy of NBOSP...");
   copyClean(nbospDir, stageDir);
 
-  // 3. Install dependencies with npm ci for a clean, reproducible,
-  // platform-native install
-  console.log(`Running npm ci in staged copy (native to ${process.platform})...`);
-  execSync("npm ci", { cwd: stageDir, stdio: "inherit" });
+  // 3. Install PRODUCTION dependencies only. --omit=dev skips devDependencies
+  // like `nw` (the full NW.js SDK download — hundreds of MB of Chromium
+  // runtime + nwjc + debug symbols) and `nw-builder` itself, neither of
+  // which the shipped app ever needs at runtime — they're build-time-only
+  // tools for producing the package, not something end users' copies should
+  // carry. Without this flag, both were being installed into stageDir and
+  // then packaged wholesale into package.nw, meaningfully inflating every
+  // download for no runtime benefit. This is the one thing NovaByte Studio's
+  // build.mjs already did correctly that NBOSP's was missing.
+  //
+  // nw-builder itself is imported from a SEPARATE, non-omitted install
+  // below (step 4) rather than from stageDir, since build.mjs needs
+  // nw-builder to run the build, but the *packaged app* must not ship it.
+  console.log(`Running npm ci --omit=dev in staged copy (native to ${process.platform})...`);
+  execSync("npm ci --omit=dev", { cwd: stageDir, stdio: "inherit" });
 
-  // 4. Import nw-builder from the staged copy — that's where npm ci just
-  // installed it. Importing bare "nw-builder" here would resolve relative to
-  // build.mjs's own location (NBOSP), which has no node_modules on a fresh
-  // CI checkout since only the staged copy gets npm ci'd.
-  const nwBuilderPkgPath = path.join(stageDir, "node_modules", "nw-builder", "package.json");
+  // 4. nw-builder is a devDependency, so it's deliberately NOT in stageDir's
+  // node_modules after the --omit=dev install above. Resolve it instead from
+  // build.mjs's OWN location (NBOSP root, i.e. __dirname / nbospDir) — this
+  // requires `npm install` (not `npm ci --omit=dev`) to have been run once
+  // in NBOSP itself, separately from the staged copy, so nw-builder is
+  // available here to actually perform the build. CI must install NBOSP's
+  // own devDependencies before invoking this script for that reason.
+  const nwBuilderPkgPath = path.join(nbospDir, "node_modules", "nw-builder", "package.json");
   const nwBuilderPkg = JSON.parse(fs.readFileSync(nwBuilderPkgPath, "utf8"));
   const nwBuilderEntry = pathToFileURL(
-    path.join(stageDir, "node_modules", "nw-builder", nwBuilderPkg.main)
+    path.join(nbospDir, "node_modules", "nw-builder", nwBuilderPkg.main)
   ).href;
   const { default: nwbuild } = await import(nwBuilderEntry);
 
