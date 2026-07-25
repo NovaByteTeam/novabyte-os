@@ -8,6 +8,7 @@ on:
       - 'NBOSP/**'
       - '!NBOSP/test/**'
       - '!NBOSP/vitest.config.js'
+  workflow_dispatch:
 
 # Needed to create/update releases and upload assets
 permissions:
