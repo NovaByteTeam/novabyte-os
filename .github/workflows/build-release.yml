@@ -73,13 +73,74 @@ jobs:
       - name: Zip platform build (Windows)
         if: runner.os == 'Windows'
         working-directory: build
-        run: Compress-Archive -Path "${{ matrix.folder }}" -DestinationPath "${{ matrix.asset }}"
+        # Call the Microsoft-shipped bsdtar at its full System32 path rather
+        # than bare `tar`. On windows-latest, PATH can also contain Git for
+        # Windows' bundled GNU tar, which has caused real breakage in other
+        # projects when it got picked up instead of the native bsdtar. The
+        # explicit path removes the ambiguity regardless of PATH ordering.
         shell: pwsh
+        run: |
+          & "$env:windir\System32\tar.exe" -a -cf "${{ matrix.asset }}" "${{ matrix.folder }}"
 
-      - name: Zip platform build (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Zip platform build (macOS)
+        if: runner.os == 'macOS'
         working-directory: build
-        run: zip -r "${{ matrix.asset }}" "${{ matrix.folder }}"
+        run: tar -a -cf "${{ matrix.asset }}" "${{ matrix.folder }}"
+
+      - name: Zip platform build (Linux)
+        if: runner.os == 'Linux'
+        working-directory: build
+        # GNU tar (Linux's default) can't produce a real .zip via -a the way
+        # BSD tar (Windows/macOS) can — only .tar.gz/.tar.xz etc. Use zip
+        # here instead. -r recurses into the folder, -y stores symlinks as
+        # symlinks rather than following/dereferencing them.
+        run: zip -ry "${{ matrix.asset }}" "${{ matrix.folder }}/"
+
+      - name: Verify zip contents match source folder
+        working-directory: build
+        shell: bash
+        # Catches the exact class of bug we hit before (a curated/guessed
+        # file list silently dropping DLLs etc.) by comparing real file
+        # counts on both sides — not raw archive entries, since those also
+        # include directory and symlink entries that inflate the count and
+        # don't correspond 1:1 with source files. Uses `unzip -l` on every
+        # OS rather than `tar -tf`, because GNU tar cannot read zip archives
+        # at all ("This does not look like a tar archive") — it's a real
+        # parse failure, not a corruption signal, so tar is the wrong tool
+        # to verify a .zip regardless of platform.
+        run: |
+          if ! command -v unzip >/dev/null 2>&1; then
+            echo "::warning::unzip not found on this runner — skipping zip-content verification for ${{ matrix.folder }}. Runner images can drop preinstalled tools between updates; consider pinning a setup step if this recurs."
+            exit 0
+          fi
+
+          FOLDER="${{ matrix.folder }}"
+          ZIP="${{ matrix.asset }}"
+
+          SOURCE_COUNT=$(find "$FOLDER" -type f | wc -l)
+
+          # unzip -l lines look like: "     123  2026-07-25 18:02   folder/sub/file.ext"
+          # Filter to lines with a non-zero size AND not ending in / (drops
+          # directory entries). This undercounts legitimate 0-byte files,
+          # which is an acceptable tradeoff for a loose sanity check.
+          ZIP_COUNT=$(unzip -l "$ZIP" | awk 'NF>3 && $1+0>0 && $NF !~ /\/$/ {c++} END{print c+0}')
+
+          echo "Source files: $SOURCE_COUNT | Real (non-dir) zip entries: $ZIP_COUNT"
+
+          if [ "$ZIP_COUNT" -lt 1 ]; then
+            echo "::error::Zip appears empty, unreadable, or malformed for ${FOLDER}."
+            exit 1
+          fi
+
+          # Loose sanity check, not exact match: 0-byte files and symlinks
+          # can cause small legitimate divergence between the two counts.
+          DIFF=$(( SOURCE_COUNT - ZIP_COUNT ))
+          if [ "$DIFF" -lt 0 ]; then DIFF=$(( -DIFF )); fi
+          THRESHOLD=$(( SOURCE_COUNT / 10 + 5 ))
+          if [ "$DIFF" -gt "$THRESHOLD" ]; then
+            echo "::error::Zip entry count (${ZIP_COUNT}) diverges too far from source file count (${SOURCE_COUNT}, threshold ${THRESHOLD}) — possible missing files."
+            exit 1
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
