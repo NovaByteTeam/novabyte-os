@@ -1,0 +1,72 @@
+name: Build and publish NovaByte
+
+on:
+  push:
+    branches:
+      - main
+
+# Needed to create/update releases and upload assets
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run build script
+        working-directory: NBOSP
+        run: node build.mjs
+
+      - name: Zip platform builds
+        working-directory: build
+        run: |
+          zip -r NovaByte-win-x64.zip win-x64
+          zip -r NovaByte-linux-x64.zip linux-x64
+          zip -r NovaByte-osx-x64.zip osx-x64
+
+      - name: Set release date
+        id: date
+        run: echo "date=$(date -u +'%d/%m/%Y')" >> "$GITHUB_OUTPUT"
+
+      - name: Delete previous release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view NBOSP-PREBUILT --json assets \
+            --jq '.assets[].name' | while read -r asset; do
+            gh release delete-asset NBOSP-PREBUILT "$asset" -y || true
+          done
+
+      - name: Upload new release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload NBOSP-PREBUILT \
+            build/NovaByte-win-x64.zip \
+            build/NovaByte-linux-x64.zip \
+            build/NovaByte-osx-x64.zip \
+            --clobber
+
+      - name: Update release notes with date
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit NBOSP-PREBUILT --notes "Pre-built cross-platform binaries for NovaByte, built directly from the current NBOSP source (no cloning or \`npm install\` required — just download and run).
+
+          Updated as of ${{ steps.date.outputs.date }}. This release is updated in place as NBOSP changes — binaries reflect the latest source as of the date above, not a fixed version snapshot.
+
+          Available builds:
+          - Windows (x64)
+          - Linux (x64)
+          - macOS (x64)
+
+          No installation needed — extract and run the executable for your platform."
