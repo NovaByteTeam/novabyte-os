@@ -171,7 +171,7 @@ async function main() {
   await nwbuild({
     mode: "build",
     srcDir: stageDir,
-    glob: false,
+    glob: true,
     platform: def.platform,
     arch: def.arch,
     outDir: path.join(outDir, def.folder),

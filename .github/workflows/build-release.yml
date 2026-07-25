@@ -51,7 +51,11 @@ jobs:
       - name: Zip platform build (Windows)
         if: runner.os == 'Windows'
         working-directory: build
-        run: Compress-Archive -Path "${{ matrix.folder }}" -DestinationPath "${{ matrix.asset }}"
+        # tar (bsdtar, built into Windows) instead of Compress-Archive:
+        # better long-path handling and more standard zip output.
+        # Still zip-format output, so this is not a symlink-fidelity change —
+        # win/linux builds don't carry the .app-bundle symlink concerns osx does.
+        run: tar -a -c -f "${{ matrix.asset }}" "${{ matrix.folder }}"
         shell: pwsh
 
       - name: Zip platform build (Linux/macOS)
