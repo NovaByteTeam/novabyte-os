@@ -4028,7 +4028,7 @@ const AppSandbox = (() => {
   });
 
   // Override fetch — route through the IPC bridge.
-  window.fetch = function(input, init) {
+  const novaFetchImpl = function(input, init) {
     init = init || {};
     const url = typeof input === 'string' ? input : (input && input.url) || String(input);
     const method = (init.method || (input && input.method) || 'GET').toUpperCase();
@@ -4056,6 +4056,16 @@ const AppSandbox = (() => {
         return new Response(res.body || '', responseInit);
       });
   };
+
+  // fetch/XMLHttpRequest/WebSocket are locked down with defineProperty
+  // (writable: false, configurable: false) after both are defined below,
+  // rather than plain 'window.fetch = ...' assignment. A plain assignment
+  // is trivially reversible with 'delete window.fetch', since fetch isn't
+  // a native own-property of window (it lives on Window.prototype) — the
+  // delete just unshadows the real implementation underneath. Locking
+  // these down doesn't change behavior for any app going through the
+  // override normally; it only stops an app from un-shadowing the native
+  // fetch/XHR/WebSocket to bypass nova:net:* permission checks entirely.
 
   // Minimal XMLHttpRequest override that routes through the fetch shim.
   // Covers the common API surface (open/send/setRequestHeader/onload/onerror/
@@ -4099,7 +4109,7 @@ const AppSandbox = (() => {
 
     this.send = function(b) {
       body = b;
-      window.fetch(url, { method: method, headers: headers, body: typeof body === 'string' ? body : null })
+      novaFetchImpl(url, { method: method, headers: headers, body: typeof body === 'string' ? body : null })
         .then(function(res) {
           if (aborted) return; // caller cancelled — drop silently
           state = 2;
@@ -4132,7 +4142,97 @@ const AppSandbox = (() => {
         });
     };
   }
-  window.XMLHttpRequest = NovaXHR;
+  // Override WebSocket — route through the IPC bridge instead of letting
+  // the guest open a raw socket unmediated. This closes the gap where
+  // 'new WebSocket(...)' bypassed nova:net:websocket's permission check
+  // entirely: the fetch/XHR overrides below only ever covered fetch()/XHR,
+  // never the native WebSocket constructor, so an app with zero granted
+  // permissions could still open a live socket to any host RELAXED_CSP_META's
+  // connect-src allows. Reuses the same wsId/wsEventListeners plumbing the
+  // nova.websocket() convenience wrapper already uses (see setupAPIBridge),
+  // so host-side event delivery (nova:net:ws:message/error/close) needs no
+  // changes — this just gives the *native* constructor the same routing the
+  // wrapper already had.
+  function NovaWebSocket(url, protocols) {
+    const self = this;
+    let wsId = null;
+    let readyState = 0; // CONNECTING
+    const listeners = { open: [], message: [], error: [], close: [] };
+    const bufferedBeforeOpen = []; // sends attempted before the IPC round-trip resolves
+
+    Object.defineProperty(this, 'readyState', { get: function() { return readyState; }, configurable: true });
+    Object.defineProperty(this, 'url', { value: typeof url === 'string' ? url : String(url), configurable: true });
+
+    this.addEventListener = function(type, handler) { if (listeners[type]) listeners[type].push(handler); };
+    this.removeEventListener = function(type, handler) {
+      if (listeners[type]) listeners[type] = listeners[type].filter(function(h) { return h !== handler; });
+    };
+    // onopen/onmessage/onerror/onclose property-style handlers, mirrored
+    // into the same listener arrays as addEventListener for consistency.
+    ['open', 'message', 'error', 'close'].forEach(function(evt) {
+      let handler = null;
+      Object.defineProperty(self, 'on' + evt, {
+        get: function() { return handler; },
+        set: function(fn) {
+          if (handler) listeners[evt] = listeners[evt].filter(function(h) { return h !== handler; });
+          handler = fn;
+          if (typeof fn === 'function') listeners[evt].push(fn);
+        },
+        configurable: true
+      });
+    });
+
+    this.send = function(data) {
+      if (readyState !== 1) { bufferedBeforeOpen.push(data); return; }
+      ipc('nova:net:ws:send', { wsId: wsId, data: data }).catch(function() { /* best-effort, matches native fire-and-forget semantics */ });
+    };
+    this.close = function(code, reason) {
+      if (readyState === 2 || readyState === 3) return;
+      readyState = 2; // CLOSING
+      ipc('nova:net:ws:close', { wsId: wsId, code: code, reason: reason }).catch(function() { /* best-effort */ });
+    };
+
+    ipc('nova:net:websocket', { url: this.url, protocols: protocols })
+      .then(function(res) {
+        wsId = res.wsId || (res.result && res.result.wsId);
+        if (!wsId) throw new Error('nova:net:websocket resolved without a wsId');
+        readyState = 1; // OPEN
+        wsEventListeners[wsId] = {
+          message: [function(data) { listeners.message.forEach(function(h) { h.call(self, { data: data }); }); }],
+          error: [function() { listeners.error.forEach(function(h) { h.call(self, {}); }); }],
+          close: [function(info) {
+            readyState = 3; // CLOSED
+            listeners.close.forEach(function(h) { h.call(self, info || {}); });
+            delete wsEventListeners[wsId];
+          }]
+        };
+        bufferedBeforeOpen.splice(0).forEach(function(data) { self.send(data); });
+        listeners.open.forEach(function(h) { h.call(self, {}); });
+      })
+      .catch(function() {
+        readyState = 3; // CLOSED — connection never opened; host has no reject
+        // path for this (see nova.websocket()'s NOTE above), so this only
+        // fires once the shim's own IPC timeout elapses.
+        listeners.error.forEach(function(h) { h.call(self, {}); });
+        listeners.close.forEach(function(h) { h.call(self, {}); });
+      });
+  }
+  NovaWebSocket.CONNECTING = 0;
+  NovaWebSocket.OPEN = 1;
+  NovaWebSocket.CLOSING = 2;
+  NovaWebSocket.CLOSED = 3;
+
+  // Lock down fetch/XHR/WebSocket so 'delete window.fetch' etc. can't
+  // unshadow the native implementations underneath (fix #2). Plain
+  // assignment (the old 'window.fetch = ...' / 'window.XMLHttpRequest = ...'
+  // pattern) left these reversible with one line from guest code.
+  [
+    ['fetch', novaFetchImpl],
+    ['XMLHttpRequest', NovaXHR],
+    ['WebSocket', NovaWebSocket]
+  ].forEach(function(pair) {
+    Object.defineProperty(window, pair[0], { value: pair[1], writable: false, configurable: false });
+  });
 
   // Fire-and-forget send: same port bridge as ipc(), but with no
   // pendingRequests entry since nothing here waits on a reply.
@@ -4348,7 +4448,24 @@ const AppSandbox = (() => {
   // need this) and eval (the audit hook catches abuse), but blocks all direct
   // network access via connect-src 'none' — forcing network through the IPC
   // bridge where permissions are enforced.
-  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\'; script-src \'self\' blob: \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob: http://localhost:* https://localhost:*">';
+  // connect-src no longer carves out http(s)://localhost:* (fix #3). The
+  // IPC bridge itself doesn't need it — it's console.log + executeScript,
+  // not fetch/XHR/WebSocket — so this carve-out existed only as an
+  // (unintentional) escape hatch. With fix #1/#2 closing the WebSocket
+  // bypass and locking fetch/XHR/WebSocket against `delete window.fetch`-
+  // style unshadowing, this line was the only thing that made either
+  // bypass reach anything once triggered. Removing it doesn't change
+  // behavior for any app going through nova.fetch()/nova.websocket() as
+  // intended, since those never touch native connect-src at all (they're
+  // IPC calls, not network requests initiated by this document).
+  // CAVEAT: if any first-party app bundle currently does a direct
+  // `fetch('http://localhost:...')` or `new WebSocket('ws://localhost:...')`
+  // instead of going through nova.fetch()/nova.websocket(), it will break
+  // silently (CSP violation, not a JS error) once this ships. That
+  // couldn't be verified from this file alone — grep first-party app
+  // source for direct localhost fetch/WebSocket calls before deploying,
+  // and migrate any hits to the nova.* wrappers first.
+  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\'; script-src \'self\' blob: \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob:">';
 
   // Prepend the capability shim as the very first bytes of the app's HTML,
   // unconditionally — not after a regex-matched <head> tag.
