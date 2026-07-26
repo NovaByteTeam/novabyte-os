@@ -148,6 +148,43 @@ async function main() {
   console.log("Staging clean copy of NBOSP...");
   copyClean(nbospDir, stageDir);
 
+  // 2b. package.json's window.icon/window.icons is the RUNTIME window icon
+  // NW.js loads when the packaged app actually launches — separate from the
+  // packaging-time icon passed to appExtra() below (which sets the .exe file
+  // icon / macOS bundle icon and was already correctly resolved per-platform
+  // via iconExt). The source package.json hardcodes this to
+  // "assets/icon.png" regardless of platform. On Windows this produced
+  // repeated "Unable to decode PNG" errors from Chromium's ui/gfx/image
+  // decoder during window creation. The PNG itself is not corrupt (verified:
+  // standard 8-bit RGBA, decodes fine with Pillow, and Linux's build loads
+  // the identical file without error) — this looks like a Windows/NW.js
+  // icon-loading quirk with that specific codepath rather than a bad file,
+  // though the exact Chromium internals aren't confirmed firsthand. Since a
+  // per-platform .ico/.icns already exists for packaging, pointing the
+  // runtime window icon at the same native format sidesteps the issue.
+  if (targetKey === "win") {
+    const stagedPkgPath = path.join(stageDir, "package.json");
+    const stagedPkg = JSON.parse(fs.readFileSync(stagedPkgPath, "utf8"));
+    const winIconRel = `assets/icon.${iconExt}`; // "ico" on win
+    if (stagedPkg.window) {
+      stagedPkg.window.icon = winIconRel;
+      if (stagedPkg.window.icons) {
+        for (const key of Object.keys(stagedPkg.window.icons)) {
+          stagedPkg.window.icons[key] = winIconRel;
+        }
+      }
+    }
+    fs.writeFileSync(stagedPkgPath, JSON.stringify(stagedPkg, null, 2));
+    console.log(`Patched staged package.json window icon -> ${winIconRel} (Windows only)`);
+  }
+  // macOS/Linux keep the original PNG-based window.icon unpatched: Linux
+  // already expects PNG (iconExt resolves to "png" there, so there'd be
+  // nothing to change anyway), and whether NW.js's macOS runtime path even
+  // reads window.icon at all — let alone whether it'd accept .icns there —
+  // hasn't been verified. Only touching the platform with actual evidence
+  // of a problem (Windows) avoids introducing an unverified change on a
+  // platform that isn't currently broken.
+
   // 3. Install PRODUCTION dependencies only. --omit=dev skips devDependencies
   // like `nw` (the full NW.js SDK download — hundreds of MB of Chromium
   // runtime + nwjc + debug symbols) and `nw-builder` itself, neither of

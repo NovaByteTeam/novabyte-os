@@ -361,7 +361,6 @@ jobs:
                 echo "::warning::No exact NovaByte.app match, falling back to loose search."
                 EXE=$(find "$FOLDER" -maxdepth 1 -iname "*.app" | head -1)
               fi
-              # macOS .app bundles are launched via `open`, not executed directly.
               ;;
             *)
               EXE=$(find "$FOLDER" -maxdepth 2 -type f -executable -iname "novabyte" | head -1)
@@ -381,7 +380,30 @@ jobs:
           echo "Smoke testing: $EXE"
 
           if [ "${{ runner.os }}" = "macOS" ]; then
-            open -W -n "$EXE" --args --headless > "$LOG" 2>&1 &
+            # Launch the actual binary inside the bundle directly, not via
+            # `open`. `open` hands the launch off to LaunchServices, which
+            # spawns the real app as an unrelated process outside our shell's
+            # process tree — `open -W` waits on LaunchServices' own
+            # notification, not a real parent-child handle. That mismatch is
+            # the likely cause of NW.js's own "Unable to block on
+            # application (GetProcessPID() returned ...)" error seen in CI:
+            # the huge unsigned number logged there is -600 in two's
+            # complement, i.e. NW.js's own launch-tracking code failing to
+            # resolve its process, not a real PID. Launching the bundle's
+            # Mach-O binary directly makes it a normal child process we can
+            # track with $! exactly like the Linux/Windows paths below.
+            APP_BINARY_NAME=$(basename "$EXE" .app)
+            APP_BINARY="$EXE/Contents/MacOS/$APP_BINARY_NAME"
+            if [ ! -x "$APP_BINARY" ]; then
+              echo "::warning::Expected binary not found at $APP_BINARY, falling back to searching Contents/MacOS."
+              APP_BINARY=$(find "$EXE/Contents/MacOS" -maxdepth 1 -type f -perm -u+x | head -1)
+            fi
+            if [ -z "$APP_BINARY" ] || [ ! -x "$APP_BINARY" ]; then
+              echo "::error::Could not locate an executable inside ${EXE}/Contents/MacOS."
+              exit 1
+            fi
+            echo "Launching bundle binary directly: $APP_BINARY"
+            "$APP_BINARY" --headless > "$LOG" 2>&1 &
           elif [ "${{ runner.os }}" = "Linux" ]; then
             chmod +x "$EXE"
             xvfb-run --auto-servernum "$EXE" > "$LOG" 2>&1 &
