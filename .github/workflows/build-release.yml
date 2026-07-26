@@ -339,16 +339,38 @@ jobs:
           LOG="/tmp/smoke-${{ matrix.platform }}.log"
           TIMEOUT=30
 
+          # App is packaged as "NovaByte" on every platform (see build.mjs's
+          # appExtra name field). Prefer an exact name match over the first
+          # thing `find` happens to return, since NW.js bundles extra
+          # executables/libraries alongside the real app binary that
+          # otherwise get picked up first (e.g. Windows also ships
+          # notification_helper.exe, and Linux ships shared libs like
+          # libvulkan.so.1 which the old "! -name *.so" filter missed
+          # because the filename ends in ".so.1", not literal ".so").
           case "${{ runner.os }}" in
             Windows)
-              EXE=$(find "$FOLDER" -maxdepth 2 -iname "*.exe" ! -iname "*crashpad*" ! -iname "*uninstall*" | head -1)
+              EXE=$(find "$FOLDER" -maxdepth 2 -iname "novabyte.exe" | head -1)
+              if [ -z "$EXE" ]; then
+                echo "::warning::No exact NovaByte.exe match, falling back to loose search."
+                EXE=$(find "$FOLDER" -maxdepth 2 -iname "*.exe" ! -iname "*crashpad*" ! -iname "*uninstall*" ! -iname "*helper*" | head -1)
+              fi
               ;;
             macOS)
-              EXE=$(find "$FOLDER" -maxdepth 1 -iname "*.app" | head -1)
+              EXE=$(find "$FOLDER" -maxdepth 1 -iname "novabyte.app" | head -1)
+              if [ -z "$EXE" ]; then
+                echo "::warning::No exact NovaByte.app match, falling back to loose search."
+                EXE=$(find "$FOLDER" -maxdepth 1 -iname "*.app" | head -1)
+              fi
               # macOS .app bundles are launched via `open`, not executed directly.
               ;;
             *)
-              EXE=$(find "$FOLDER" -maxdepth 2 -type f -executable ! -name "*.so" ! -name "*.pak" | head -1)
+              EXE=$(find "$FOLDER" -maxdepth 2 -type f -executable -iname "novabyte" | head -1)
+              if [ -z "$EXE" ]; then
+                echo "::warning::No exact 'novabyte' binary match, falling back to loose search."
+                # Exclude shared libs by extension anywhere in the name (.so,
+                # .so.1, .so.2 etc.), not just a literal trailing ".so".
+                EXE=$(find "$FOLDER" -maxdepth 2 -type f -executable ! -name "*.so*" ! -name "*.pak" | head -1)
+              fi
               ;;
           esac
 
