@@ -8,14 +8,106 @@ on:
       - 'NBOSP/**'
       - '!NBOSP/test/**'
       - '!NBOSP/vitest.config.js'
+  schedule:
+    # Runs daily at 06:00 UTC so the release date always reflects "today"
+    # even on days with no NBOSP push — without this, the workflow (and
+    # therefore "Updated as of ..." in the release notes) only runs on a
+    # matching push, so a quiet day leaves the notes showing whatever date
+    # the last real push happened to land on. This does mean a full
+    # rebuild on all 3 platforms every day regardless of whether anything
+    # actually changed — real CI time/cost, traded for an always-current date.
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
-# Needed to create/update releases and upload assets
+# Needed to create/update releases and upload assets (contents), mint the
+# OIDC token for Sigstore signing (id-token), and persist SBOM/provenance
+# attestations (attestations) — see the SBOM/attestation steps in the build
+# job below.
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: 'npm'
+          cache-dependency-path: 'NBOSP/package-lock.json'
+
+      # npm audit reads NBOSP's own lockfile specifically (not the repo
+      # root, which has no package.json of its own) and blocks on
+      # high/critical advisories. `npm ci` first so audit runs against the
+      # exact locked tree rather than whatever's cached from a previous run.
+      - name: npm audit
+        working-directory: NBOSP
+        run: |
+          npm ci
+          npm audit --audit-level=high
+
+      # CodeQL's default queries plus the security-and-quality pack, for
+      # NBOSP's JS source. build-mode: none is correct here — this is
+      # interpreted JS/HTML, nothing to compile, so autobuild would just be
+      # unnecessary overhead (and would try to run whatever build.mjs does,
+      # which needs the NW.js SDK download this scan has no reason to pull).
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+          queries: security-and-quality
+          source-root: NBOSP
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+
+      # Trivy fs scan covers both dependency CVEs (vuln) and leaked
+      # secrets/credentials (secret) in one pass across NBOSP's source and
+      # lockfile. Uploaded as SARIF for visibility in the Security tab
+      # regardless of outcome, then a second pass with exit-code: 1 actually
+      # fails the job on CRITICAL/HIGH — matching the project's active
+      # dependency-currency practice (ncu), so a real, current
+      # vulnerability is expected to mean something actionable rather than
+      # noise from deliberately-unpatched deps.
+      - name: Trivy scan (report to Security tab)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: NBOSP
+          format: sarif
+          output: trivy-results.sarif
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Trivy scan (enforce CRITICAL/HIGH policy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: NBOSP
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+
   build:
+    needs: security-scan
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +135,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: 'npm'
+          cache-dependency-path: 'NBOSP/package-lock.json'
+
+      # Caches the ~150MB NW.js SDK download (nw-builder's cacheDir, set
+      # explicitly in build.mjs to NBOSP/.nwjs-cache) across runs. Keyed on
+      # package.json rather than package-lock.json specifically because the
+      # nw/nw-builder *versions* (which determine what SDK build gets
+      # downloaded) live in package.json's dependencies block — a lockfile
+      # change that doesn't touch those two lines shouldn't invalidate a
+      # perfectly good cached SDK download. restore-keys falls back to any
+      # cache for this OS if the exact hash doesn't match (e.g. first run
+      # after a version bump), which still saves the base download layer
+      # even though nw-builder will then fetch the new version on top.
+      - name: Cache NW.js SDK download
+        uses: actions/cache@v4
+        with:
+          path: NBOSP/.nwjs-cache
+          key: nwjs-sdk-${{ runner.os }}-${{ hashFiles('NBOSP/package.json') }}
+          restore-keys: |
+            nwjs-sdk-${{ runner.os }}-
 
       # Installs NBOSP's OWN node_modules (including devDependencies like
       # nw-builder) at the repo root, separately from the staged copy
@@ -197,12 +309,147 @@ jobs:
 
           echo "Zip verification passed for ${FOLDER}: integrity ok, size ok, all source files present."
 
+      # --- Smoke test setup: only Linux needs a virtual display. NW.js is a
+      # GUI app (Chromium-based) and will refuse to open a window with no
+      # display server at all; Windows/macOS GitHub-hosted runners already
+      # provide a real (if non-interactive) desktop session, so nothing
+      # extra is needed there. Installed explicitly rather than assumed
+      # preinstalled, since runner images can and do change over time.
+      - name: Install xvfb (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y xvfb
+
+      # Actually launches the built executable and waits for the app's own
+      # ready signal in its log output, rather than just checking that a
+      # process stayed alive. This app (see js/core/../scripts/startup.js)
+      # spawns a local Node server as a subprocess and opens its window
+      # against https://localhost:<port> — critically, it ALSO has an 8s
+      # fallback that opens the window even if the server never comes up,
+      # so "a window appeared" alone would pass even on a fully broken
+      # backend. Instead this greps for "Address" — one of the exact
+      # substrings startup.js itself checks for in server stdout to know
+      # the backend is ready — which is a real signal of a working app, not
+      # just a surviving process. Executable is located by pattern rather
+      # than a hardcoded name, since the exact filename nw-builder produces
+      # per-platform isn't something to guess at and silently get wrong.
+      - name: Headless smoke test
+        shell: bash
+        run: |
+          FOLDER="build/${{ matrix.folder }}"
+          LOG="/tmp/smoke-${{ matrix.platform }}.log"
+          TIMEOUT=30
+
+          case "${{ runner.os }}" in
+            Windows)
+              EXE=$(find "$FOLDER" -maxdepth 2 -iname "*.exe" ! -iname "*crashpad*" ! -iname "*uninstall*" | head -1)
+              ;;
+            macOS)
+              EXE=$(find "$FOLDER" -maxdepth 1 -iname "*.app" | head -1)
+              # macOS .app bundles are launched via `open`, not executed directly.
+              ;;
+            *)
+              EXE=$(find "$FOLDER" -maxdepth 2 -type f -executable ! -name "*.so" ! -name "*.pak" | head -1)
+              ;;
+          esac
+
+          if [ -z "$EXE" ]; then
+            echo "::error::Could not locate an executable inside ${FOLDER} to smoke test."
+            exit 1
+          fi
+          echo "Smoke testing: $EXE"
+
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            open -W -n "$EXE" --args --headless > "$LOG" 2>&1 &
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            chmod +x "$EXE"
+            xvfb-run --auto-servernum "$EXE" > "$LOG" 2>&1 &
+          else
+            "$EXE" > "$LOG" 2>&1 &
+          fi
+          APP_PID=$!
+
+          READY=0
+          for i in $(seq 1 "$TIMEOUT"); do
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "::error::App process exited early (after ${i}s) during smoke test for ${{ matrix.folder }}."
+              break
+            fi
+            if grep -q "Address" "$LOG" 2>/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+
+          echo "--- App log (${{ matrix.folder }}) ---"
+          cat "$LOG" 2>/dev/null || echo "(no log captured)"
+          echo "--- end log ---"
+
+          kill "$APP_PID" 2>/dev/null || true
+          # Give it a moment to shut down cleanly (closes the server subprocess
+          # via the window 'close' handler) before a forced kill if it lingers.
+          sleep 2
+          kill -9 "$APP_PID" 2>/dev/null || true
+
+          if [ "$READY" -ne 1 ]; then
+            echo "::error::Smoke test failed for ${{ matrix.folder }}: app never printed its ready signal within ${TIMEOUT}s (or crashed early). See log above — this usually means a missing DLL/shared library or a startup crash."
+            exit 1
+          fi
+          echo "Smoke test passed for ${{ matrix.folder }}: app started and server came up."
+
+      # Scans the actual unzipped platform build folder (build/${{ matrix.folder }})
+      # rather than the NBOSP source tree, so each platform's SBOM reflects what
+      # that specific zip actually ships — native modules like better-sqlite3
+      # compile differently per OS, so a source-tree-only scan would produce an
+      # identical, less accurate SBOM for all three platforms. Two formats
+      # generated (SPDX for licence/compliance tooling, CycloneDX for
+      # vulnerability-management tooling) since different consumers expect
+      # different standards.
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: build/${{ matrix.folder }}
+          format: spdx-json
+          output-file: build/${{ matrix.asset }}.spdx.json
+
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: build/${{ matrix.folder }}
+          format: cyclonedx-json
+          output-file: build/${{ matrix.asset }}.cdx.json
+
+      # Signs the zip with Sigstore and attaches the SPDX SBOM generated
+      # above to the same attestation, rather than filing build provenance
+      # and the SBOM as two disconnected attestations — this is the
+      # combined form GitHub's own docs recommend (actions/attest with both
+      # subject-path and sbom-path). Requires the id-token/attestations
+      # permissions added at the top of this workflow.
+      - name: Attest build provenance and SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: build/${{ matrix.asset }}
+          sbom-path: build/${{ matrix.asset }}.spdx.json
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: build/${{ matrix.asset }}
           retention-days: 1
+
+      # SBOMs uploaded as their own artifacts (not release assets) so they're
+      # available for inspection/audit via the Actions run, without cluttering
+      # the GitHub Release's asset list with 6 extra files (2 formats x 3
+      # platforms) alongside the 3 zips end users actually want to download.
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}-sboms
+          path: |
+            build/${{ matrix.asset }}.spdx.json
+            build/${{ matrix.asset }}.cdx.json
+          retention-days: 7
 
   release:
     needs: build
@@ -213,6 +460,11 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+        # Note: this also pulls down the per-platform SBOM artifacts
+        # uploaded in the build job (${{ matrix.asset }}-sboms) into the
+        # same directory. Harmless — the upload step below references the
+        # 3 zip files by exact name — but expect to see the SBOM JSON files
+        # sitting alongside the zips in artifacts/ if inspecting this step.
 
       - name: Set release date
         id: date

@@ -33,6 +33,7 @@ const EXCLUDE_NAMES = new Set([
   ".git",
   ".github",
   ".cache",
+  ".nwjs-cache",
   ".build-stage",
   "build",
   "build.mjs",
@@ -189,6 +190,14 @@ async function main() {
     platform: def.platform,
     arch: def.arch,
     outDir: path.join(outDir, def.folder),
+    // Explicit cacheDir rather than relying on nw-builder's own default —
+    // CI (build-release.yml) caches this exact path keyed on the nw/
+    // nw-builder versions in package.json, so the ~150MB NW.js SDK
+    // download only happens once per version bump instead of on every
+    // run. Lives under nbospDir (not stageDir/outDir) so it survives
+    // the "clean previous build output" step at the top of this script,
+    // which deletes stageDir and outDir but not nbospDir itself.
+    cacheDir: path.join(nbospDir, ".nwjs-cache"),
     app: def.appExtra(icon)
   });
   console.log(`Built for ${def.platform}-${def.arch} -> build/${def.folder}`);
