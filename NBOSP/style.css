@@ -2058,7 +2058,7 @@
   .app-window.opening::before,
   .app-window.closing::before,
   .app-window.minimizing::before,
-  .app-window.window-restoring::before,
+  .app-window.restoring::before,
   .app-window.is-maximizing::before {
     filter: none;
   }
