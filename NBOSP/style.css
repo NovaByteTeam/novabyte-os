@@ -1160,6 +1160,11 @@
   .rec-breadcrumb-item {
     color: var(--text-secondary);
     cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
   }
   .rec-breadcrumb-item:hover {
     color: #ff6b35;
