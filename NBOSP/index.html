@@ -432,10 +432,10 @@
         <span class="tray-badge hidden" id="notif-badge">0</span>
       </button>
 
-      <div class="tray-clock" id="tray-clock" role="timer" aria-label="Clock">
-        <div class="tray-time" id="tray-time"></div>
+      <button type="button" class="tray-clock" id="tray-clock" aria-label="Open calendar" aria-haspopup="dialog">
+        <div class="tray-time" id="tray-time" role="timer" aria-label="Clock"></div>
         <div class="tray-date" id="tray-date"></div>
-      </div>
+      </button>
     </div>
   </div>
   <!-- Volume Popup -->
@@ -444,6 +444,20 @@
     <label class="sr-only" for="volume-slider">Volume level</label>
     <input type="range" id="volume-slider" name="volume" class="volume-slider" min="0" max="100" value="80" aria-label="Volume level">
     <div id="volume-value" style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center;">80%</div>
+  </div>
+  <!-- Calendar Popup -->
+  <div class="calendar-popup" id="calendar-popup" role="dialog" aria-label="Calendar">
+    <div class="calendar-popup-header">
+      <button type="button" class="calendar-popup-nav" id="calendar-popup-prev" aria-label="Previous month">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </button>
+      <div class="calendar-popup-title" id="calendar-popup-title"></div>
+      <button type="button" class="calendar-popup-nav" id="calendar-popup-next" aria-label="Next month">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </button>
+    </div>
+    <div class="calendar-popup-weekdays" id="calendar-popup-weekdays"></div>
+    <div class="calendar-popup-grid" id="calendar-popup-grid"></div>
   </div>
   <!-- Notification Panel -->
   <div id="notification-panel" role="complementary" aria-label="Notifications">

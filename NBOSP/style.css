@@ -1892,6 +1892,10 @@
     justify-content: center;
     border-radius: var(--r-xs);
     transition: background var(--t-fast);
+    border: none;
+    background: transparent;
+    font: inherit;
+    color: inherit;
   }
   .tray-clock:hover {
     background: rgba(255, 255, 255, 0.06);
@@ -3061,6 +3065,85 @@
     border-radius: 50%;
     background: var(--accent);
     cursor: pointer;
+  }
+
+  /* Calendar popup — small month-view widget opened from the taskbar clock. */
+  /* Same overlay/blur/shadow treatment as .volume-popup for visual */
+  /* consistency between tray popups. */
+  .calendar-popup {
+    position: fixed;
+    z-index: 9200;
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-default);
+    border-radius: var(--r-md);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(20px);
+    padding: 14px;
+    width: 260px;
+    display: none;
+  }
+  .calendar-popup.active {
+    display: block;
+  }
+  .calendar-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .calendar-popup-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .calendar-popup-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--r-sm);
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .calendar-popup-nav:hover {
+    background: var(--border-default);
+    color: var(--text-primary);
+  }
+  .calendar-popup-weekdays,
+  .calendar-popup-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+  }
+  .calendar-popup-weekdays {
+    margin-bottom: 4px;
+  }
+  .calendar-popup-weekdays > span {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 4px 0;
+  }
+  .calendar-popup-grid > span {
+    font-size: 12px;
+    text-align: center;
+    padding: 6px 0;
+    border-radius: 50%;
+    color: var(--text-secondary);
+    cursor: default;
+  }
+  .calendar-popup-grid > span.is-outside-month {
+    color: var(--text-muted);
+    opacity: 0.5;
+  }
+  .calendar-popup-grid > span.is-today {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
   }
 
   /* Modal dialog — centered overlay with backdrop blur. Used for */

@@ -100,15 +100,29 @@ jobs:
       - name: Verify zip contents match source folder
         working-directory: build
         shell: bash
-        # Catches the exact class of bug we hit before (a curated/guessed
-        # file list silently dropping DLLs etc.) by comparing real file
-        # counts on both sides — not raw archive entries, since those also
-        # include directory and symlink entries that inflate the count and
-        # don't correspond 1:1 with source files. Uses `unzip -l` on every
-        # OS rather than `tar -tf`, because GNU tar cannot read zip archives
-        # at all ("This does not look like a tar archive") — it's a real
-        # parse failure, not a corruption signal, so tar is the wrong tool
-        # to verify a .zip regardless of platform.
+        # Replaces the old count-based sanity check with a strict path-level
+        # diff: every real file/symlink in the source folder must appear at
+        # the identical relative path inside the zip, and vice versa. A
+        # count match can hide a swap (N files present but the wrong N —
+        # e.g. a stale build's assets zipped instead of the fresh one) or a
+        # tolerated loss under the old 10%+5 threshold. This catches both,
+        # and fails loudly with the exact missing/extra paths instead of a
+        # fuzzy "diverges too far" message.
+        #
+        # Uses `unzip -Z1` (zipinfo, one path per line) rather than
+        # `unzip -l`, because -l's output is a human-readable column format
+        # meant for eyeballing, not parsing — awk has to guess column
+        # boundaries and can misparse filenames containing spaces or
+        # unusual characters. -Z1 gives exactly one raw path per line, no
+        # column-counting fragility, and naturally includes 0-byte files.
+        #
+        # `unzip` is used on every OS (including on the Windows/macOS zips,
+        # which are built with bsdtar, not `zip`) rather than `tar -tf`,
+        # because GNU tar cannot read zip archives at all ("This does not
+        # look like a tar archive") — bsdtar's .zip output is standard
+        # PKZIP format regardless of which tool created it, so unzip reads
+        # it fine; tar is simply the wrong tool to inspect a .zip on any
+        # platform.
         run: |
           if ! command -v unzip >/dev/null 2>&1; then
             echo "::warning::unzip not found on this runner — skipping zip-content verification for ${{ matrix.folder }}. Runner images can drop preinstalled tools between updates; consider pinning a setup step if this recurs."
@@ -118,30 +132,70 @@ jobs:
           FOLDER="${{ matrix.folder }}"
           ZIP="${{ matrix.asset }}"
 
-          SOURCE_COUNT=$(find "$FOLDER" -type f | wc -l)
-
-          # unzip -l lines look like: "     123  2026-07-25 18:02   folder/sub/file.ext"
-          # Filter to lines with a non-zero size AND not ending in / (drops
-          # directory entries). This undercounts legitimate 0-byte files,
-          # which is an acceptable tradeoff for a loose sanity check.
-          ZIP_COUNT=$(unzip -l "$ZIP" | awk 'NF>3 && $1+0>0 && $NF !~ /\/$/ {c++} END{print c+0}')
-
-          echo "Source files: $SOURCE_COUNT | Real (non-dir) zip entries: $ZIP_COUNT"
-
-          if [ "$ZIP_COUNT" -lt 1 ]; then
-            echo "::error::Zip appears empty, unreadable, or malformed for ${FOLDER}."
+          # --- Integrity test first: confirms the archive isn't corrupted,
+          # separate from and prior to inspecting its contents. `unzip -l`/
+          # `-Z1` can successfully list a central directory that still fails
+          # to actually extract (truncated data, bad CRCs); `-t` re-reads
+          # and CRC-checks every entry.
+          if ! unzip -t "$ZIP" > /dev/null; then
+            echo "::error::Zip failed integrity test (corrupted or truncated) for ${FOLDER}."
             exit 1
           fi
 
-          # Loose sanity check, not exact match: 0-byte files and symlinks
-          # can cause small legitimate divergence between the two counts.
-          DIFF=$(( SOURCE_COUNT - ZIP_COUNT ))
-          if [ "$DIFF" -lt 0 ]; then DIFF=$(( -DIFF )); fi
-          THRESHOLD=$(( SOURCE_COUNT / 10 + 5 ))
-          if [ "$DIFF" -gt "$THRESHOLD" ]; then
-            echo "::error::Zip entry count (${ZIP_COUNT}) diverges too far from source file count (${SOURCE_COUNT}, threshold ${THRESHOLD}) — possible missing files."
+          # --- Size floor: catches a structurally valid but suspiciously
+          # small zip (e.g. build silently dropped a large asset bundle)
+          # that a path-diff alone wouldn't flag if file *counts* still
+          # happen to line up. Calibrated against real observed NBOSP
+          # release sizes (NBOSP-PREBUILT release, 26/07/2026): linux-x64
+          # 202 MB, osx-arm64 184 MB, win-x64 222 MB. 160 MB sits below the
+          # smallest of those (osx, 184 MB) with meaningful headroom while
+          # still catching a build that's lost a large chunk of itself.
+          # Revisit if a legitimately smaller platform build is ever added.
+          MIN_SIZE=$((160 * 1024 * 1024))
+          ZIP_SIZE=$(stat -c%s "$ZIP" 2>/dev/null || stat -f%z "$ZIP")
+          if [ "$ZIP_SIZE" -lt "$MIN_SIZE" ]; then
+            echo "::error::Zip suspiciously small (${ZIP_SIZE} bytes, expected at least ${MIN_SIZE}) for ${FOLDER}."
             exit 1
           fi
+          echo "Zip size: ${ZIP_SIZE} bytes (ok)"
+
+          # --- Path-level diff. Source list includes symlinks alongside
+          # regular files (`-type f,l`) since the Linux zip step stores
+          # symlinks as symlinks (`zip -y`), not dereferenced — they're
+          # real, expected entries in the zip, not divergence to tolerate.
+          # Both lists are stripped of the "$FOLDER/" prefix so they're
+          # comparable as plain relative paths; unzip -Z1 entries already
+          # start with that prefix because $ZIP was built by zipping/taring
+          # "$FOLDER" itself (see the zip steps above), and directory
+          # entries (trailing "/") are dropped since they don't correspond
+          # to real source files.
+          find "$FOLDER" \( -type f -o -type l \) | sed "s|^$FOLDER/||" | sort > /tmp/source_files.txt
+          unzip -Z1 "$ZIP" | grep -v '/$' | sed "s|^$FOLDER/||" | sort > /tmp/zip_files.txt
+
+          MISSING=$(comm -23 /tmp/source_files.txt /tmp/zip_files.txt)
+          EXTRA=$(comm -13 /tmp/source_files.txt /tmp/zip_files.txt)
+
+          SOURCE_COUNT=$(wc -l < /tmp/source_files.txt)
+          ZIP_COUNT=$(wc -l < /tmp/zip_files.txt)
+          echo "Source files: ${SOURCE_COUNT} | Zip entries: ${ZIP_COUNT}"
+
+          if [ -n "$MISSING" ]; then
+            echo "::error::Files present in source but MISSING from zip for ${FOLDER}:"
+            echo "$MISSING" | sed 's/^/  - /'
+          fi
+          if [ -n "$EXTRA" ]; then
+            # Not necessarily a bug (e.g. a leftover from a previous run in
+            # the same working directory) but worth surfacing loudly rather
+            # than silently ignoring — an unexpected extra file is still an
+            # unexplained divergence between what was built and what shipped.
+            echo "::warning::Files present in zip but NOT in source for ${FOLDER} (unexpected):"
+            echo "$EXTRA" | sed 's/^/  - /'
+          fi
+          if [ -n "$MISSING" ]; then
+            exit 1
+          fi
+
+          echo "Zip verification passed for ${FOLDER}: integrity ok, size ok, all source files present."
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
