@@ -2063,6 +2063,7 @@
   .app-window.closing::before,
   .app-window.minimizing::before,
   .app-window.restoring::before,
+  .app-window.unmaximizing::before,
   .app-window.is-maximizing::before {
     filter: none;
   }
@@ -2132,6 +2133,18 @@
       width 400ms var(--ease-spring),
       height 400ms var(--ease-spring),
       transform 400ms var(--ease-spring);
+  }
+
+  /* Un-maximize: ease back to the pre-maximize rect with a plain transition.
+     Deliberately NOT the windowRestore keyframe animation (used for
+     un-minimizing) — combining that pop-in-from-small animation with this
+     rect change produced a visible double-animation. */
+  .app-window.unmaximizing {
+    transition:
+      left 400ms var(--ease-spring),
+      top 400ms var(--ease-spring),
+      width 400ms var(--ease-spring),
+      height 400ms var(--ease-spring);
   }
 
   /* Unfocused: dimmed via inset box-shadow, NOT opacity. opacity < 1 would */

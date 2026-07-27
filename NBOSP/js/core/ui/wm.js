@@ -579,8 +579,8 @@ const WM = window.WM = (() => {
       wm.updateTaskbar();
     },
 
-    getWorkArea() {
-      if (_waCache) return _waCache;
+    getWorkArea(noGap = false) {
+      if (!noGap && _waCache) return _waCache;
 
       const vw   = Math.max(0, window.innerWidth  || document.documentElement.clientWidth  || 0);
       const vh   = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
@@ -588,12 +588,14 @@ const WM = window.WM = (() => {
       const area = { left: 0, top: 0, right: vw, bottom: vh };
 
       if (!tb) {
-        return (_waCache = { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' });
+        const result = { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' };
+        return noGap ? result : (_waCache = result);
       }
 
       const isHidden = tb.classList.contains('taskbar-autohide') && !tb.classList.contains('taskbar-ah-shown');
       if (isHidden) {
-        return (_waCache = { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' });
+        const result = { ...area, width: vw, height: vh, taskbarHidden: true, taskbarPosition: 'bottom' };
+        return noGap ? result : (_waCache = result);
       }
 
       const rect   = tb.getBoundingClientRect();
@@ -603,19 +605,24 @@ const WM = window.WM = (() => {
       else if (style.right === '0px' && style.left   === 'auto') position = 'right';
       else if (style.top   === '0px' && style.bottom === 'auto') position = 'top';
 
-      const gap = 8;
+      // Maximize should sit flush against the taskbar edge — the 8px gap
+      // below is only for regular floating/snapped windows so they don't
+      // visually touch the taskbar. Applying it to maximize left a small
+      // sliver of desktop visible on the taskbar side.
+      const gap = noGap ? 0 : 8;
       if      (position === 'bottom') area.bottom = Math.max(area.top    + 220, Math.floor(rect.top)   - gap);
       else if (position === 'top')    area.top    = Math.min(area.bottom - 220, Math.ceil(rect.bottom) + gap);
       else if (position === 'left')   area.left   = Math.min(area.right  - 320, Math.ceil(rect.right)  + gap);
       else if (position === 'right')  area.right  = Math.max(area.left   + 320, Math.floor(rect.left)  - gap);
 
-      return (_waCache = {
+      const result = {
         ...area,
         width:           Math.max(0, area.right  - area.left),
         height:          Math.max(0, area.bottom - area.top),
         taskbarHidden:   false,
         taskbarPosition: position,
-      });
+      };
+      return noGap ? result : (_waCache = result);
     },
 
     // area is an optional pre-computed work-area snapshot; pass it from hot paths
@@ -679,7 +686,14 @@ const WM = window.WM = (() => {
       if (state.maximized) {
         state.maximized = false;
         state.element.classList.remove('maximized');
-        state.element.classList.add('restoring');
+        // Don't reuse '.restoring' here — that class plays the windowRestore
+        // pop-from-minimized keyframe animation, which fights with the
+        // instant inline-style snap below and causes a double-animation
+        // (the window would visibly "pop" in addition to un-maximizing).
+        // 'unmaximizing' instead just gets a plain transition on
+        // left/top/width/height so the window eases back to its
+        // pre-maximize rect with a single, consistent motion.
+        state.element.classList.add('unmaximizing');
         if (state.preMaxState) {
           const { x, y, w, h } = state.preMaxState;
           state.element.style.left   = `${x}px`;
@@ -688,13 +702,12 @@ const WM = window.WM = (() => {
           state.element.style.height = `${h}px`;
           state.x = x;  state.y = y;  state.width = w;  state.height = h;
         }
-        state.element.addEventListener('animationend',
-          () => state.element.classList.remove('restoring'), { once: true });
+        setTimeout(() => state.element.classList.remove('unmaximizing'), 400);
       } else {
         state.preMaxState = { x: state.x, y: state.y, w: state.width, h: state.height };
         state.maximized = true;
         state.element.classList.add('maximized');
-        const area = wm.getWorkArea();
+        const area = wm.getWorkArea(true);
         state.element.style.left   = `${area.left}px`;
         state.element.style.top    = `${area.top}px`;
         state.element.style.width  = `${area.width}px`;
