@@ -97,6 +97,13 @@ function setupMiddleware(app) {
             if (req.path === '/favicon.ico') return true;
             // Has its own dedicated limiter and fires many times per page load
             if (req.path === '/api/favicon') return true;
+            // Long-lived SSE stream — has its own dedicated limiter below.
+            // Counting it against the general request budget means every
+            // reconnect (tab backgrounding, sleep/wake, brief network blips)
+            // eats into the same quota as normal API calls, and once
+            // rate-limited the stream can never recover since reconnecting
+            // is the very thing being blocked.
+            if (req.path === '/api/events/stream') return true;
             return false;
         }
     });
@@ -139,6 +146,19 @@ function setupMiddleware(app) {
         legacyHeaders: false,
     });
 
+    // The SSE stream is long-lived, but reconnects (tab backgrounding,
+    // sleep/wake, brief network blips) mean a fresh connect can happen
+    // several times a minute under normal use. Window is short and max
+    // is generous specifically so a reconnect burst can never get stuck
+    // rate-limited against itself.
+    const eventsStreamLimiter = rateLimit({
+        windowMs: 60 * 1000,
+        max: 30,   // up to 1 connect attempt every 2 sec, sustained
+        message: { error: 'Too many event stream connections, please slow down.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+    });
+
     app.use('/api/', limiter);
     app.use('/api/email/connect', emailConnectLimiter);
     app.use('/api/email/disconnect', emailConnectLimiter);
@@ -151,6 +171,7 @@ function setupMiddleware(app) {
     app.use('/api/email/send', emailWriteLimiter);
     app.use('/api/email/batch', emailWriteLimiter);
     app.use('/api/favicon', faviconLimiter);
+    app.use('/api/events/stream', eventsStreamLimiter);
 
     app.use(express.json({ limit: '4gb' }));
     app.use(express.urlencoded({ extended: true, limit: '4gb' }));

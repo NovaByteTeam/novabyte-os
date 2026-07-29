@@ -722,6 +722,20 @@
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
+    function _detectType(value) {
+      if (typeof value !== 'string' || value.length === 0) return 'empty';
+      const trimmed = value.trim();
+      if (trimmed === '') return 'empty';
+      try {
+        JSON.parse(trimmed);
+        return 'JSON';
+      } catch (_) { /* not JSON */ }
+      if (/^data:[^;]+;base64,/.test(trimmed)) return 'data URI';
+      if (/^[A-Za-z0-9+/]+={0,2}$/.test(trimmed) && trimmed.length % 4 === 0 && trimmed.length > 16) return 'base64';
+      if (/^https?:\/\//i.test(trimmed)) return 'URL';
+      return 'text';
+    }
+
     async function _renderFileManager() {
       const container = document.getElementById('rec-fm-content');
       if (!container) return;
@@ -781,6 +795,23 @@
       }
 
       await _renderOPFSSection();
+    }
+
+    function _fmView(key) {
+      const v = localStorage.getItem(key);
+      if (v === null) {
+        recLog('localStorage key not found: ' + key, 'warn');
+        return;
+      }
+      const preview = v.length > 8000 ? v.slice(0, 8000) + '\n… [truncated]' : v;
+      recLog('[' + key + ']\n' + preview, 'ok');
+    }
+
+    function _fmDelete(key) {
+      if (!confirm('Delete localStorage item?\n\n' + key)) return;
+      localStorage.removeItem(key);
+      recLog('Deleted localStorage item: ' + key, 'warn');
+      _renderFileManager();
     }
 
     async function _renderOPFSSection() {
