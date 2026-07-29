@@ -1,21 +1,9 @@
 'use strict';
 
-// ImapFlow is imported/checked in index.js and passed in via dependency injection
-// or required here. For now we check at runtime.
 let ImapFlow, PostalMime;
 
 function missingDep(name) {
   return new Error(`Missing dependency: run "npm install ${name}"`);
-}
-
-// Decode HTML entities in email subjects and headers
-function decodeEntities(str) {
-  if (!str || typeof str !== 'string') return str;
-  return str
-    .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
-    .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
-    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-    .replace(/&amp;/gi, '&');
 }
 
 function setDependencies(deps) {
@@ -23,27 +11,35 @@ function setDependencies(deps) {
   PostalMime = deps.PostalMime;
 }
 
-// Some IMAP servers or JSON serialisers encode '/' as '&#x2F;' in folder paths.
-// Decode all named/numeric HTML entities before using a path with ImapFlow.
-// Memoize results to avoid O(n) regex replacements on repeated folder paths (P1)
+// Memoized HTML entity decoder for folder paths, subject lines, and headers
 const decodedPathCache = new Map();
+const MAX_ENTITY_CACHE_SIZE = 500;
+
 function decodeEntities(str) {
-  if (!str || !str.includes('&')) return str;
+  if (!str || typeof str !== 'string' || !str.includes('&')) return str;
   if (decodedPathCache.has(str)) return decodedPathCache.get(str);
+
   const decoded = str
     .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
-  if (decodedPathCache.size > 500) {
-    const first = decodedPathCache.keys().next().value;
-    decodedPathCache.delete(first);
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x22;/gi, '"');
+
+  if (decodedPathCache.size > MAX_ENTITY_CACHE_SIZE) {
+    const firstKey = decodedPathCache.keys().next().value;
+    decodedPathCache.delete(firstKey);
   }
   decodedPathCache.set(str, decoded);
   return decoded;
 }
 
-// Common folder name aliases per provider (Gmail, Outlook, Yahoo, etc.)
+// Common folder name aliases across email providers
 const FOLDER_ALIASES = {
   inbox: ['inbox'],
   sent: ['sent', 'sent mail', 'sent messages', 'sent items', '[gmail]/sent mail'],
@@ -55,17 +51,22 @@ const FOLDER_ALIASES = {
 
 async function imapConnect(creds) {
   if (!ImapFlow) throw missingDep('imapflow');
+  if (!creds || !creds.host || !creds.user || !creds.pass) {
+    throw new Error('IMAP connection requires host, user, and pass');
+  }
+
   const client = new ImapFlow({
     host: creds.host,
-    port: parseInt(creds.port) || (creds.ssl ? 993 : 143),
+    port: parseInt(creds.port, 10) || (creds.ssl ? 993 : 143),
     secure: Boolean(creds.ssl),
     auth: { user: creds.user, pass: creds.pass },
     logger: false,
     tls: { rejectUnauthorized: true },
-    timeout: 10000,           // 10s connection timeout
-    commandTimeout: 30000,    // 30s command timeout
-    idleTimeout: 30 * 60 * 1000  // 30m idle timeout
+    timeout: 10000,
+    commandTimeout: 30000,
+    idleTimeout: 30 * 60 * 1000
   });
+
   await client.connect();
   return client;
 }
@@ -81,18 +82,16 @@ async function imapFolders(creds) {
       flags: [...(m.flags || [])]
     }));
   } finally {
-    await client.logout().catch(() => { });
+    await client.logout().catch(() => {});
   }
 }
 
 async function resolveFolder(client, folder) {
-  // Decode HTML entities (e.g. &#x2F; → /) that may be embedded in stored paths.
-  folder = decodeEntities(folder);
+  const decodedFolder = decodeEntities(folder);
   try {
-    return await client.mailboxOpen(folder);
+    return await client.mailboxOpen(decodedFolder);
   } catch {
-    // Folder path didn't match — try alias-based lookup against the real folder list.
-    const needle = folder.toLowerCase().replace(/^.*\//, ''); // strip namespace prefix
+    const needle = decodedFolder.toLowerCase().replace(/^.*\//, '');
     const aliases = FOLDER_ALIASES[needle] || [needle];
     const list = await client.list();
     const match = list.find(f =>
@@ -107,10 +106,13 @@ async function imapMessages(creds, folder, page, limit, msgShape) {
   const client = await imapConnect(creds);
   try {
     const box = await resolveFolder(client, folder);
-    const total = box.exists;
-    if (total === 0) return { messages: [], total: 0, page, pages: 0 };
+    const total = box.exists || 0;
+    const totalPages = Math.ceil(total / limit) || 0;
 
-    // Sequence range — newest first
+    if (total === 0 || (page - 1) * limit >= total) {
+      return { messages: [], total, page, pages: totalPages };
+    }
+
     const end = Math.max(1, total - (page - 1) * limit);
     const start = Math.max(1, end - limit + 1);
 
@@ -127,36 +129,44 @@ async function imapMessages(creds, folder, page, limit, msgShape) {
         from: env.from?.[0]
           ? [env.from[0].name, `<${env.from[0].address}>`].filter(Boolean).join(' ').trim()
           : '',
-        to: (env.to || []).map(a => a.address).join(', '),
+        to: (env.to || []).map(a => a.address).filter(Boolean).join(', '),
         date: env.date ? new Date(env.date).toISOString() : null
       });
     }
-    return { messages: messages.reverse(), total, page, pages: Math.ceil(total / limit) };
+    return { messages: messages.reverse(), total, page, pages: totalPages };
   } finally {
-    await client.logout().catch(() => { });
+    await client.logout().catch(() => {});
   }
 }
 
 async function imapMessage(creds, folder, uid, msgShape) {
   if (!PostalMime) throw missingDep('postal-mime');
+  const numericUid = parseInt(uid, 10);
+  if (!numericUid || isNaN(numericUid)) {
+    throw new Error('Invalid message UID');
+  }
+
   const client = await imapConnect(creds);
   try {
     await resolveFolder(client, folder);
     let raw = null;
-    for await (const msg of client.fetch({ uid: parseInt(uid) }, { source: true })) {
+    for await (const msg of client.fetch(String(numericUid), { source: true }, { uid: true })) {
       raw = msg.source;
     }
     if (!raw) throw new Error('Message not found');
+
     const parser = new PostalMime();
     const parsed = await parser.parse(raw);
-    return msgShape(parsed);
+    return typeof msgShape === 'function' ? msgShape(parsed) : parsed;
   } finally {
-    await client.logout().catch(() => { });
+    await client.logout().catch(() => {});
   }
 }
 
 async function imapBatch(creds, op, uids, folder, dest) {
   if (!ImapFlow) throw missingDep('imapflow');
+  if (!Array.isArray(uids) || uids.length === 0) return;
+
   const client = await imapConnect(creds);
   try {
     await resolveFolder(client, folder);
@@ -165,10 +175,10 @@ async function imapBatch(creds, op, uids, folder, dest) {
     } else if (op === 'read') {
       await client.messageFlagsAdd(uids, ['\\Seen'], { uid: true });
     } else if (op === 'move' && dest) {
-      await client.messageMove(uids, dest, { uid: true });
+      await client.messageMove(uids, decodeEntities(dest), { uid: true });
     }
   } finally {
-    await client.logout().catch(() => { });
+    await client.logout().catch(() => {});
   }
 }
 
@@ -177,27 +187,35 @@ async function imapSearch(creds, query, folder) {
   const client = await imapConnect(creds);
   try {
     await resolveFolder(client, folder);
-    const uids = await client.search({ or: [{ subject: query }, { from: query }, { body: query }] }, { uid: true });
+    const uids = await client.search(
+      { or: [{ subject: query }, { from: query }, { body: query }] },
+      { uid: true }
+    );
     const messages = [];
-    if (uids.length) {
-      for await (const msg of client.fetch(uids.slice(-40).reverse(), { envelope: true, flags: true }, { uid: true })) {
+    if (Array.isArray(uids) && uids.length > 0) {
+      const recentUids = uids.slice(-40).reverse();
+      for await (const msg of client.fetch(recentUids, { envelope: true, flags: true }, { uid: true })) {
+        const env = msg.envelope || {};
         messages.push({
-          uid: msg.uid, subject: decodeEntities(msg.envelope.subject || '(no subject)'),
-          from: msg.envelope.from?.[0]?.address || '', date: msg.envelope.date, seen: msg.flags.has('\\Seen')
+          uid: msg.uid,
+          subject: decodeEntities(env.subject || '(no subject)'),
+          from: env.from?.[0]?.address || '',
+          date: env.date ? new Date(env.date).toISOString() : null,
+          seen: msg.flags?.has('\\Seen') || false
         });
       }
     }
     return messages;
-  } finally { 
-    await client.logout().catch(() => { }); 
+  } finally {
+    await client.logout().catch(() => {});
   }
 }
 
-module.exports = { 
+module.exports = {
   setDependencies,
-  imapConnect, 
-  imapFolders, 
-  imapMessages, 
+  imapConnect,
+  imapFolders,
+  imapMessages,
   imapMessage,
   imapBatch,
   imapSearch,

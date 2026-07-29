@@ -10,16 +10,42 @@ function setDependencies(deps) {
 }
 
 function decodeEntities(str) {
-  if (!str || typeof str !== 'string') return str;
+  if (!str || typeof str !== 'string' || !str.includes('&')) return str;
   return str
-    .replace(/&#x27;/gi, "'").replace(/&#39;/gi, "'")
-    .replace(/&quot;/gi, '"').replace(/&#x22;/gi, '"')
-    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-    .replace(/&amp;/gi, '&');
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(parseInt(d, 10)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x22;/gi, '"');
+}
+
+function escapeXmlAttr(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function xval(xml, tag) {
+  if (!xml || !tag) return '';
+  const match = xml.match(new RegExp(`<(?:[a-z]:)?${tag}[^>]*>([\\s\\S]*?)<\\/(?:[a-z]:)?${tag}>`, 'i'));
+  return match ? decodeEntities(match[1].trim()) : '';
 }
 
 function ewsReq(creds, soapBody) {
   return new Promise((resolve, reject) => {
+    if (!creds || !creds.host || !creds.user || !creds.pass) {
+      return reject(new Error('Missing EWS credentials'));
+    }
+
     const envelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
@@ -32,7 +58,13 @@ function ewsReq(creds, soapBody) {
     let urlStr = creds.host.startsWith('http') ? creds.host : `https://${creds.host}`;
     if (!urlStr.endsWith('/EWS/Exchange.asmx')) urlStr += '/EWS/Exchange.asmx';
 
-    const u = new URL(urlStr);
+    let u;
+    try {
+      u = new URL(urlStr);
+    } catch (e) {
+      return reject(new Error(`Invalid EWS host URL: ${creds.host}`));
+    }
+
     const lib = u.protocol === 'https:' ? https : http;
     const opts = {
       hostname: u.hostname,
@@ -44,33 +76,35 @@ function ewsReq(creds, soapBody) {
         'Authorization': `Basic ${auth}`,
         'Content-Length': Buffer.byteLength(envelope)
       },
-      rejectUnauthorized: true
+      rejectUnauthorized: true,
+      timeout: 15000
     };
 
     const req = lib.request(opts, res => {
       let body = '';
-      res.on('data', c => body += c);
-      res.on('end', () => resolve(body));
+      res.setEncoding('utf8');
+      res.on('data', c => { body += c; });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`EWS HTTP error ${res.statusCode}: ${res.statusMessage || 'Request failed'}`));
+        }
+        if (body.includes('<s:Fault>') || body.includes('<soap:Fault>')) {
+          const faultStr = xval(body, 'faultstring') || xval(body, 'Message') || 'SOAP Fault returned by Exchange server';
+          return reject(new Error(`EWS Fault: ${faultStr}`));
+        }
+        resolve(body);
+      });
     });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('EWS request timed out'));
+    });
+
     req.on('error', reject);
     req.write(envelope);
     req.end();
   });
-}
-
-function xval(xml, tag) {
-  const m = xml.match(new RegExp(`<(?:[a-z]:)?${tag}[^>]*>([\\s\\S]*?)<\\/(?:[a-z]:)?${tag}>`, 'i'));
-  return m ? m[1].trim() : '';
-}
-
-function escapeXmlAttr(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\"/g, '&quot;')
-    .replace(/'/g, '&apos;');
 }
 
 async function ewsFolders(creds) {
@@ -94,19 +128,24 @@ async function ewsFolders(creds) {
     { path: 'drafts', name: 'Drafts' },
     { path: 'deleteditems', name: 'Deleted Items' }
   ];
+
   const blocks = xml.match(/<t:Folder>[\s\S]*?<\/t:Folder>/g) || [];
-  const baseNames = new Set(base.map(f => f.name));
+  const baseNames = new Set(base.map(f => f.name.toLowerCase()));
   const extra = blocks.map(b => {
     const name = xval(b, 'DisplayName');
-    return name ? { path: b.match(/Id="([^"]+)"/)?.[1] || name, name } : null;
-  }).filter(f => f && !baseNames.has(f.name));
+    const pathMatch = b.match(/FolderId\s+Id="([^"]+)"/) || b.match(/Id="([^"]+)"/);
+    return name ? { path: pathMatch?.[1] || name, name } : null;
+  }).filter(f => f && !baseNames.has(f.name.toLowerCase()));
 
   return [...base, ...extra];
 }
 
 async function ewsMessages(creds, folder, page, limit) {
-  const offset = (page - 1) * limit;
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeLimit = Math.min(50, Math.max(5, parseInt(limit, 10) || 20));
+  const offset = (safePage - 1) * safeLimit;
   const safeFolderId = escapeXmlAttr(folder);
+
   const soap = `
 <m:FindItem Traversal="Shallow">
   <m:ItemShape>
@@ -118,7 +157,7 @@ async function ewsMessages(creds, folder, page, limit) {
       <t:FieldURI FieldURI="message:IsRead"/>
     </t:AdditionalProperties>
   </m:ItemShape>
-  <m:IndexedPageItemView MaxEntriesReturned="${limit}" Offset="${offset}" BasePoint="Beginning"/>
+  <m:IndexedPageItemView MaxEntriesReturned="${safeLimit}" Offset="${offset}" BasePoint="Beginning"/>
   <m:SortOrder>
     <t:FieldOrder Order="Descending">
       <t:FieldURI FieldURI="item:DateTimeReceived"/>
@@ -131,20 +170,29 @@ async function ewsMessages(creds, folder, page, limit) {
 
   const xml = await ewsReq(creds, soap);
   const blocks = xml.match(/<t:Message>[\s\S]*?<\/t:Message>/g) || [];
-  const messages = blocks.map(b => ({
-    uid: b.match(/Id="([^"]+)"/)?.[1] || '',
-    seq: 0,
-    seen: xval(b, 'IsRead') === 'true',
-    subject: decodeEntities(xval(b, 'Subject') || '(no subject)'),
-    from: xval(b, 'Name') || xval(b, 'EmailAddress'),
-    date: xval(b, 'DateTimeReceived') ? new Date(xval(b, 'DateTimeReceived')).toISOString() : null
-  }));
+  const messages = blocks.map(b => {
+    const name = xval(b, 'Name');
+    const email = xval(b, 'EmailAddress');
+    const fromStr = name && email ? `${name} <${email}>` : name || email;
 
-  const total = parseInt(xml.match(/TotalItemsInView="(\d+)"/)?.[1] || messages.length);
-  return { messages, total, page, pages: Math.ceil(total / limit) };
+    return {
+      uid: b.match(/ItemId\s+Id="([^"]+)"/)?.[1] || b.match(/Id="([^"]+)"/)?.[1] || '',
+      seq: 0,
+      seen: xval(b, 'IsRead') === 'true',
+      subject: xval(b, 'Subject') || '(no subject)',
+      from: fromStr,
+      date: xval(b, 'DateTimeReceived') ? new Date(xval(b, 'DateTimeReceived')).toISOString() : null
+    };
+  });
+
+  const totalMatch = xml.match(/TotalItemsInView="(\d+)"/);
+  const total = totalMatch ? parseInt(totalMatch[1], 10) : messages.length;
+  const pages = Math.ceil(total / safeLimit) || 1;
+
+  return { messages, total, page: safePage, pages };
 }
 
-async function ewsMessage(creds, uid) {
+async function ewsMessage(creds, uid, msgShape) {
   const safeUid = escapeXmlAttr(uid);
   const soap = `
 <m:GetItem>
@@ -157,11 +205,11 @@ async function ewsMessage(creds, uid) {
 
   const xml = await ewsReq(creds, soap);
   const mime = xval(xml, 'MimeContent');
+
   if (mime && PostalMime) {
     const parser = new PostalMime();
-    // Note: msgShape is expected to be imported and called by the controller
     const parsed = await parser.parse(Buffer.from(mime, 'base64'));
-    return {
+    return typeof msgShape === 'function' ? msgShape(parsed) : {
       subject: parsed.subject || '(no subject)',
       from: parsed.from?.text || '',
       to: parsed.to?.text || '',
@@ -176,13 +224,19 @@ async function ewsMessage(creds, uid) {
       }))
     };
   }
-  // fallback — text only from XML
-  return {
+
+  const fallback = {
     subject: xval(xml, 'Subject') || '(no subject)',
     from: xval(xml, 'EmailAddress') || xval(xml, 'Name'),
-    to: '', cc: '', date: null,
-    text: xval(xml, 'Body') || '', html: null, attachments: []
+    to: '',
+    cc: '',
+    date: xval(xml, 'DateTimeReceived') ? new Date(xval(xml, 'DateTimeReceived')).toISOString() : null,
+    text: xval(xml, 'Body') || '',
+    html: null,
+    attachments: []
   };
+
+  return typeof msgShape === 'function' ? msgShape(fallback) : fallback;
 }
 
 module.exports = {
