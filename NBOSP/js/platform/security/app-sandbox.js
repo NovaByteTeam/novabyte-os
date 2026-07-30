@@ -1587,6 +1587,75 @@ const AppSandbox = (() => {
     }
   }
 
+  // Lets an app send the user to Settings → Default Apps — the "Set as
+  // default" button pattern every OS has (Windows' "Make default" link in
+  // an installer, Android apps deep-linking into
+  // Settings > Apps > Default apps). The app cannot change the default
+  // itself; it can only bring the user to the picker, same as the real
+  // thing — the actual choice always happens through a human clicking an
+  // option in nook, never through this call.
+  //
+  // On the *why this can't require a genuine click* point: this handler
+  // runs after the request has already crossed the sandboxed webview's
+  // MessageChannel port (see setupAPIBridge / claimHandshake above). A
+  // browser's real click-to-postMessage user-activation state is not
+  // preserved across that boundary — nothing server-side can distinguish
+  // "app.apps.openDefaultAppsSettings() called from a real onclick" from
+  // "called from setInterval." Treating the guest as untrusted (which the
+  // whole sandbox already does) means we can't lean on the guest telling
+  // us it was a click. The mitigation actually available at this layer is
+  // the same one used for notifications: a sliding-window rate limit, so
+  // a misbehaving app can steal window focus at most a few times a minute
+  // instead of in a tight loop.
+  const DEFAULT_APPS_RATE_LIMIT_MAX = 3;
+  const DEFAULT_APPS_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  const defaultAppsRateLimitLog = new Map();
+
+  function checkDefaultAppsRateLimit(appId) {
+    const now = Date.now();
+    const windowStart = now - DEFAULT_APPS_RATE_LIMIT_WINDOW_MS;
+    const timestamps = (defaultAppsRateLimitLog.get(appId) ?? []).filter((ts) => ts > windowStart);
+    if (timestamps.length >= DEFAULT_APPS_RATE_LIMIT_MAX) {
+      defaultAppsRateLimitLog.set(appId, timestamps);
+      return false;
+    }
+    timestamps.push(now);
+    defaultAppsRateLimitLog.set(appId, timestamps);
+    return true;
+  }
+
+  function clearDefaultAppsRateLimit(appId) {
+    defaultAppsRateLimitLog.delete(appId);
+  }
+
+  async function handleOpenDefaultAppsSettings({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:apps', app.id)) {
+      return respondError(webview, 'nova:app:openDefaultAppsSettings', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
+    }
+    if (!checkDefaultAppsRateLimit(app.id)) {
+      return respondError(webview, 'nova:app:openDefaultAppsSettings', requestId, 'RATE_LIMITED', `Max ${DEFAULT_APPS_RATE_LIMIT_MAX} per minute`);
+    }
+    // category is optional and purely a UI hint (which row nook scrolls to
+    // / highlights) — it is never used to decide anything on the app's
+    // behalf, and an unrecognized value is just ignored by nook rather
+    // than rejected here, since the category list can grow over time.
+    const category = (payload && typeof payload.category === 'string') ? payload.category : null;
+    try {
+      if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
+        return respondError(webview, 'nova:app:openDefaultAppsSettings', requestId, 'UNAVAILABLE', 'Window manager not available');
+      }
+      const win = WM.createWindow('nook', { section: 'default-apps', highlightCategory: category, requestingAppId: app.id });
+      return respond(webview, 'nova:app:openDefaultAppsSettings', requestId, {
+        success: !!win,
+        windowId: win ? win.id : null,
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:app:openDefaultAppsSettings', requestId, 'ERROR', e?.message || 'Failed to open Settings');
+    }
+  }
+
+
+
   async function handleAppInfo({ requestId, app, webview }) {
     if (!app) {
       return respondError(webview, 'nova:app:info', requestId, 'UNAVAILABLE', 'No app context');
@@ -2078,6 +2147,7 @@ const AppSandbox = (() => {
     // Drop the notification rate-limit entry so it doesn't leak across
     // an uninstall/reinstall cycle for the same app id.
     clearNotificationRateLimit(appId);
+    clearDefaultAppsRateLimit(appId);
 
     delete OS.apps[appId];
     const ri = APP_REGISTRY.findIndex(a => a.id === appId);
@@ -3138,6 +3208,7 @@ const AppSandbox = (() => {
     'nova:clipboard:read': handleClipboardRead,
     'nova:clipboard:write': handleClipboardWrite,
     'nova:app:launch': handleAppLaunch,
+    'nova:app:openDefaultAppsSettings': handleOpenDefaultAppsSettings,
     'nova:app:info': handleAppInfo,
     'nova:app:list': handleAppList,
     'nova:app:install': handleAppInstall,
@@ -4111,7 +4182,14 @@ const AppSandbox = (() => {
       list: function() { return ipc('nova:app:list', {}); },
       launch: function(appId, options) { return ipc('nova:app:launch', { appId: appId, options: options || {} }); },
       install: function(pkg) { return ipc('nova:app:install', { package: pkg }); },
-      uninstall: function(appId) { return ipc('nova:app:uninstall', { appId: appId }); }
+      uninstall: function(appId) { return ipc('nova:app:uninstall', { appId: appId }); },
+      // Sends the user to Settings -> Default Apps. category is an
+      // optional hint (e.g. 'browser', 'texteditor') telling nook which
+      // row to highlight — it does not change the default on the app's
+      // own behalf. Meant to be called from a real button click; the host
+      // rate-limits this call since a postMessage-based sandbox boundary
+      // can't otherwise tell a click apart from a script loop.
+      openDefaultAppsSettings: function(category) { return ipc('nova:app:openDefaultAppsSettings', { category: category || null }); }
     },
     // admin:* — requires both the per-app permission grant AND the
     // machine's local admin flag to be on (set in Settings). Granting an

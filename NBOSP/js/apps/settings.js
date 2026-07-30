@@ -22,6 +22,7 @@ registerApp({
       { id: 'storage',       name: 'Storage',       icon: 'database'  },
       { id: 'privacy',       name: 'Privacy',       icon: 'lock'      },
       { id: 'apps',          name: 'Apps',          icon: 'package'   },
+      { id: 'default-apps',  name: 'Default Apps',  icon: 'default-apps' },
       { id: 'about',         name: 'About',         icon: 'info'      }
     ];
 
@@ -87,6 +88,11 @@ registerApp({
     // ── State ─────────────────────────────────────────────────────────────
     const validIds = new Set(SECTIONS.map(s => s.id));
     let currentSection = (options && validIds.has(options.section)) ? options.section : 'appearance';
+    // Set when another app opened us via apps.openDefaultAppsSettings() —
+    // used only to highlight a row / show a "X wants to be your default Y"
+    // banner. Never used to change anything without the user clicking.
+    const highlightCategory = (options && typeof options.highlightCategory === 'string') ? options.highlightCategory : null;
+    const requestingAppId   = (options && typeof options.requestingAppId   === 'string') ? options.requestingAppId   : null;
 
     // ── DOM skeleton ──────────────────────────────────────────────────────
     const container   = createEl('div', { className: 'nook-container' });
@@ -134,6 +140,7 @@ registerApp({
         case 'shortcuts':     renderShortcuts();     break;
         case 'privacy':       renderPrivacy();       break;
         case 'apps':          renderApps();          break;
+        case 'default-apps':  renderDefaultApps();   break;
         case 'desktop':       renderDesktop();       break;
         case 'about':         renderAbout();         break;
         default:
@@ -1912,6 +1919,174 @@ registerApp({
         const empty = createEl('div', { style: 'text-align:center;color:var(--text-muted);padding:40px 0;font-size:13px;' });
         empty.textContent = 'No apps found.';
         mainContent.appendChild(empty);
+      }
+    }
+
+    // ── Default Apps ───────────────────────────────────────────────────────
+    function renderDefaultApps() {
+      mainContent.appendChild(createEl('h2', { textContent: 'Default Apps', style: { marginBottom: '4px' } }));
+      mainContent.appendChild(createEl('p', {
+        textContent: 'Choose which app opens each type of file or link. Only apps that support a category are shown.',
+        style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }
+      }));
+
+      if (typeof DefaultApps === 'undefined') {
+        const warn = createEl('div', { style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;' });
+        warn.textContent = 'Default apps system not available.';
+        mainContent.appendChild(warn);
+        return;
+      }
+
+      // Banner shown when another app deep-linked here via
+      // apps.openDefaultAppsSettings() — purely informational, and the
+      // requesting app never gets told what the user ends up choosing.
+      if (requestingAppId && highlightCategory && DefaultApps.CATEGORIES[highlightCategory]) {
+        const requestingName = (typeof OS !== 'undefined' && OS.apps?.[requestingAppId]?.name) || requestingAppId;
+        const banner = createEl('div', {
+          style: 'display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--accent-muted,rgba(88,166,255,0.12));border:1px solid var(--accent);border-radius:8px;margin-bottom:16px;font-size:12.5px;color:var(--text-primary);'
+        });
+        banner.textContent = requestingName + ' would like to be your default ' + DefaultApps.CATEGORIES[highlightCategory].name + '.';
+        mainContent.appendChild(banner);
+      }
+
+      const list = createEl('div', { style: 'display:flex;flex-direction:column;gap:2px;' });
+      mainContent.appendChild(list);
+
+      function iconFor(iconVal, name) {
+        const el = createEl('div', {
+          style: 'width:32px;height:32px;border-radius:8px;background:var(--accent-muted,rgba(88,166,255,0.15));display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;color:var(--accent);'
+        });
+        if (iconVal && typeof svgIcon === 'function') {
+          el.innerHTML = svgIcon(iconVal, 16);
+        } else {
+          el.style.fontSize = '14px';
+          el.style.fontWeight = '700';
+          el.textContent = (name || '?').charAt(0).toUpperCase();
+        }
+        return el;
+      }
+
+      // Renders one row per category: icon of the current default, category
+      // name, current default's app name, and a "Change" button that opens
+      // the picker popup. Rows self-refresh after a choice is made, no full
+      // section re-render.
+      function buildCategoryRow(categoryId, category) {
+        const isHighlighted = categoryId === highlightCategory;
+        const row = createEl('div', {
+          style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--bg-elevated);border:1px solid ' + (isHighlighted ? 'var(--accent)' : 'var(--border)') + ';border-radius:10px;margin-bottom:8px;'
+        });
+
+        const left = createEl('div', { style: 'display:flex;align-items:center;gap:12px;' });
+        const iconWrap = createEl('div');
+        left.appendChild(iconWrap);
+
+        const textWrap = createEl('div');
+        textWrap.appendChild(createEl('div', { textContent: category.name, style: 'font-weight:600;font-size:13.5px;color:var(--text-primary);' }));
+        const currentLabel = createEl('div', { style: 'font-size:12px;color:var(--text-muted);margin-top:2px;' });
+        textWrap.appendChild(currentLabel);
+        left.appendChild(textWrap);
+        row.appendChild(left);
+
+        const changeBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Change' });
+        row.appendChild(changeBtn);
+
+        function refreshCurrent() {
+          const candidates = DefaultApps.getAppsForCategory(categoryId);
+          const chosenId   = DefaultApps.getDefault(categoryId);
+          const chosen     = candidates.find(a => a.id === chosenId) || candidates[0] || null;
+
+          iconWrap.innerHTML = '';
+          iconWrap.appendChild(iconFor(chosen?.icon, chosen?.name));
+
+          if (chosen) {
+            currentLabel.textContent = chosen.name + (chosenId ? '' : ' (default)');
+          } else {
+            currentLabel.textContent = 'No app available';
+          }
+          changeBtn.disabled = candidates.length === 0;
+          changeBtn.style.opacity = candidates.length === 0 ? '0.5' : '';
+        }
+        refreshCurrent();
+
+        changeBtn.addEventListener('click', () => openPicker(categoryId, category, refreshCurrent));
+
+        return row;
+      }
+
+      // Popup: lists every app that declared support for this category,
+      // radio-style. Mirrors the fixed-overlay pattern used by the
+      // shortcuts key-capture dialog elsewhere in this file.
+      function openPicker(categoryId, category, onChosen) {
+        const candidates = DefaultApps.getAppsForCategory(categoryId);
+        const currentId  = DefaultApps.getDefault(categoryId);
+
+        const overlay = createEl('div', {
+          tabIndex: -1,
+          style: 'position:fixed;inset:0;z-index:99001;background:rgba(0,0,0,0.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;'
+        });
+
+        const card = createEl('div', {
+          style: 'background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;width:360px;max-height:70vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5);'
+        });
+
+        const header = createEl('div', { style: 'padding:16px 18px 12px;border-bottom:1px solid var(--border-subtle);' });
+        header.appendChild(createEl('div', { textContent: 'Default ' + category.name, style: 'font-weight:600;font-size:14px;color:var(--text-primary);' }));
+        header.appendChild(createEl('div', { textContent: 'Detected from installed apps that support this type.', style: 'font-size:11.5px;color:var(--text-muted);margin-top:2px;' }));
+        card.appendChild(header);
+
+        const body = createEl('div', { style: 'padding:8px;' });
+
+        if (candidates.length === 0) {
+          body.appendChild(createEl('div', {
+            textContent: 'No installed apps support this category yet.',
+            style: 'padding:16px;text-align:center;color:var(--text-muted);font-size:12.5px;'
+          }));
+        }
+
+        for (const app of candidates) {
+          const optRow = createEl('div', {
+            style: 'display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:8px;cursor:pointer;'
+          });
+          optRow.addEventListener('mouseenter', () => optRow.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))');
+          optRow.addEventListener('mouseleave', () => optRow.style.background = '');
+
+          optRow.appendChild(iconFor(app.icon, app.name));
+
+          const nameEl = createEl('div', { textContent: app.name, style: 'flex:1;font-size:13px;color:var(--text-primary);' });
+          optRow.appendChild(nameEl);
+
+          const radio = createEl('div', {
+            style: 'width:16px;height:16px;border-radius:50%;border:2px solid ' + (app.id === currentId ? 'var(--accent)' : 'var(--border)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;'
+          });
+          if (app.id === currentId) {
+            radio.appendChild(createEl('div', { style: 'width:8px;height:8px;border-radius:50%;background:var(--accent);' }));
+          }
+          optRow.appendChild(radio);
+
+          optRow.addEventListener('click', () => {
+            DefaultApps.setDefault(categoryId, app.id);
+            overlay.remove();
+            onChosen();
+          });
+
+          body.appendChild(optRow);
+        }
+
+        card.appendChild(body);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+        const escHandler = (e) => {
+          if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+        };
+        document.addEventListener('keydown', escHandler);
+      }
+
+      for (const [categoryId, category] of Object.entries(DefaultApps.CATEGORIES)) {
+        list.appendChild(buildCategoryRow(categoryId, category));
       }
     }
 

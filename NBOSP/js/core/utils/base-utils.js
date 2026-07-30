@@ -164,7 +164,8 @@
     'list': 'document',
     'move': 'arrow-right',
     'shuffle': 'shuffle-96',
-    'repeat': 'repeat'
+    'repeat': 'repeat',
+    'default-apps': 'services'
   });
 
   // Icons that need a non-standard PNG filename suffix. Checked before

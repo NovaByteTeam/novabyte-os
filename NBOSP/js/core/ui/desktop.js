@@ -1071,12 +1071,25 @@ function openFileWithDefaultApp(fileNode) {
   if (!fileNode) return;
 
   const mime = fileNode.mimeType || '';
-  let appId = 'quill'; // default
+  const dotIdx = fileNode.name.lastIndexOf('.');
+  const extension = dotIdx !== -1 ? fileNode.name.slice(dotIdx).toLowerCase() : null;
+
+  let appId = 'quill'; // fallback default
 
   if (mime === 'text/html' || fileNode.name.endsWith('.html') || fileNode.name.endsWith('.htm')) appId = 'browser';
   else if (mime.startsWith('image/')) appId = 'nbosp-gallery';
   else if (mime.startsWith('audio/')) appId = 'nbosp-music';
-  else if (mime === 'application/pdf' || fileNode.name.endsWith('.pdf')) appId = 'lumina';
+  // NOTE: no built-in app declares a .pdf handler (the previous 'lumina'
+  // fallback here pointed at an app id that was never registered, so PDFs
+  // silently failed to open). Falls through to quill until a real PDF
+  // viewer exists — see DefaultApps.CATEGORIES for where to add one.
+
+  // A user-chosen default (Settings → Default Apps) always wins over the
+  // hardcoded guess above, as long as the extension/mime maps to a known
+  // category and the chosen app is still installed.
+  if (typeof DefaultApps !== 'undefined' && extension) {
+    appId = DefaultApps.resolveHandler({ extension }, appId);
+  }
 
   WM.createWindow(appId, { fileId: fileNode.id });
 }
