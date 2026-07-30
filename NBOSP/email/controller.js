@@ -11,11 +11,28 @@ const ewsClient = require('./protocols/ewsClient');
 const { msgShape, sanitizeEmailHtml } = require('./helpers');
 const ServerEventLog = require('../server/core/server-event-log');
 
-let nodemailer, ImapFlow, POP3Client, PostalMime;
+let nodemailer, ImapFlow, POP3Client, PostalMime, multer;
 try { ({ ImapFlow } = require('imapflow')); } catch { ImapFlow = null; }
 try { POP3Client = require('node-pop3'); } catch { POP3Client = null; }
 try { PostalMime = require('postal-mime'); } catch { PostalMime = null; }
 try { nodemailer = require('nodemailer'); } catch { nodemailer = null; }
+try { multer = require('multer'); } catch { multer = null; }
+
+// Attachments are held in memory only (not written to disk) and handed
+// straight to nodemailer as Buffers — this process already treats mail
+// bodies as ephemeral per-request data, so attachments follow the same
+// lifecycle rather than introducing a temp-file cleanup problem.
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024; // 25MB total, matches common provider limits
+const upload = multer
+  ? multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 10 },
+    })
+  : null;
+// No-op passthrough when multer isn't installed, so the route can still
+// give a clear "missing dependency" error instead of crashing on
+// undefined.single/.array at require time.
+const uploadAttachments = upload ? upload.array('attachments', 10) : (req, res, next) => next();
 
 imapClient.setDependencies({ ImapFlow, PostalMime });
 pop3Client.setDependencies({ POP3Client, PostalMime });
@@ -243,17 +260,29 @@ router.post('/batch', requireCreds, async (req, res) => {
   }
 });
 
-router.post('/send', requireCreds, async (req, res) => {
+router.post('/send', requireCreds, uploadAttachments, async (req, res) => {
   if (!nodemailer) {
     return res.status(500).json({ error: 'Missing dependency: run "npm install nodemailer"' });
   }
+  if (!multer) {
+    // Attachments silently wouldn't be parsed without multer — if the
+    // request actually carries files, fail loudly instead of sending a
+    // mail that's missing what the user attached.
+    if ((req.headers['content-type'] || '').startsWith('multipart/')) {
+      return res.status(500).json({ error: 'Missing dependency: run "npm install multer" to send attachments' });
+    }
+  }
 
+  // sess is guaranteed non-null by requireCreds, but it can legitimately
+  // be a sparse object (e.g. an IMAP-only account that was never given a
+  // separate SMTP host) — optional-chain every field read from it so a
+  // thin session degrades to the 400 below instead of throwing a 500.
   const sess = req.emailCreds;
-  const smtpHost = req.body.host || sess.smtpHost || sess.host;
-  const smtpPort = parseInt(req.body.port, 10) || sess.smtpPort || 587;
+  const smtpHost = req.body.host || sess?.smtpHost || sess?.host;
+  const smtpPort = parseInt(req.body.port, 10) || sess?.smtpPort || 587;
   const useDirectSsl = smtpPort === 465;
-  const user = req.body.user || sess.user;
-  const pass = req.body.pass || sess.pass;
+  const user = req.body.user || sess?.user;
+  const pass = req.body.pass || sess?.pass;
 
   if (!smtpHost) return res.status(400).json({ error: 'No SMTP host configured for this account' });
 
@@ -270,6 +299,14 @@ router.post('/send', requireCreds, async (req, res) => {
     const { to, cc, bcc, subject, text, body, html } = req.body || {};
     if (!to) return res.status(400).json({ error: 'No recipients defined' });
 
+    // req.files comes from multer's memoryStorage — each entry already
+    // has its full content as a Buffer, nothing left to read off disk.
+    const attachments = (req.files || []).map(f => ({
+      filename: f.originalname,
+      content: f.buffer,
+      contentType: f.mimetype || 'application/octet-stream',
+    }));
+
     const info = await transporter.sendMail({
       from: user,
       to,
@@ -277,14 +314,15 @@ router.post('/send', requireCreds, async (req, res) => {
       bcc: bcc || undefined,
       subject,
       text: text || body || '',
-      html: html || undefined
+      html: html || undefined,
+      attachments: attachments.length ? attachments : undefined,
     });
 
     ServerEventLog.log({
       app: 'EmailController',
       severity: 'info',
       message: 'Sent message via SMTP',
-      data: { smtpHost, recipientCount: [to, cc, bcc].filter(Boolean).length },
+      data: { smtpHost, recipientCount: [to, cc, bcc].filter(Boolean).length, attachmentCount: attachments.length },
     });
 
     res.json({ ok: true, messageId: info.messageId });
