@@ -1653,7 +1653,19 @@ registerApp({
               if (cl && +cl > DOWNLOAD_MAX_BYTES) throw new Error('File too large');
               const buf = await resp.arrayBuffer();
               if (buf.byteLength > DOWNLOAD_MAX_BYTES) throw new Error('File too large');
-              await FS.createFile(dlFolderId, adjusted + ext, new Uint8Array(buf), 'application/octet-stream');
+              // Store as a base64 string, not a raw Uint8Array. node.content
+              // has to survive JSON.stringify inside app-sandbox.js's respond()
+              // when a sandboxed app later reads this file via nova:vfs:read —
+              // JSON.stringify flattens a Uint8Array into an index-keyed object
+              // ({"0":73,"1":68,...}) instead of the bytes, silently corrupting
+              // any binary download (mp3, image, etc.) the moment a guest app
+              // reads it back. Base64 string is the shape every other write
+              // path (desktop.js's drop handler) already uses for this reason.
+              const bytes = new Uint8Array(buf);
+              let binary = '';
+              for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+              const base64Content = btoa(binary);
+              await FS.createFile(dlFolderId, adjusted + ext, base64Content, 'application/octet-stream');
               if (entryId) window.Downloads?.setStatus(entryId, 'done', buf.byteLength);
               Notify.show({
                 title: 'Download complete', body: adjusted + ext,
