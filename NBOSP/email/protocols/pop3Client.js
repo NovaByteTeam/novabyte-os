@@ -44,12 +44,17 @@ async function pop3Messages(creds, limit, msgShape) {
   if (!creds || !creds.host || !creds.user || !creds.pass) {
     throw new Error('POP3 connection requires host, user, and pass');
   }
+  // TLS is mandatory — see imapClient.js for why creds.ssl can no longer
+  // gate whether encryption happens at all.
+  if (!creds.ssl) {
+    throw new Error('Plaintext POP3 is not supported — TLS (implicit SSL) is required');
+  }
 
-  const port = parseInt(creds.port, 10) || (creds.ssl ? 995 : 110);
+  const port = parseInt(creds.port, 10) || 995;
   const client = new POP3Client({
     host: creds.host,
     port,
-    tls: Boolean(creds.ssl),
+    tls: true,
     user: creds.user,
     password: creds.pass
   });

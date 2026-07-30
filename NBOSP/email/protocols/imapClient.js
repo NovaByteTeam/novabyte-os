@@ -54,11 +54,19 @@ async function imapConnect(creds) {
   if (!creds || !creds.host || !creds.user || !creds.pass) {
     throw new Error('IMAP connection requires host, user, and pass');
   }
+  // TLS is mandatory. creds.ssl used to gate this (secure: Boolean(creds.ssl)),
+  // which let a request that simply omitted or set ssl:false connect over
+  // plaintext IMAP on port 143 with credentials and mail sent in the clear.
+  // There's no legitimate reason to support that path, so refuse it outright
+  // rather than trusting the caller to opt in.
+  if (!creds.ssl) {
+    throw new Error('Plaintext IMAP is not supported — TLS (implicit SSL) is required');
+  }
 
   const client = new ImapFlow({
     host: creds.host,
-    port: parseInt(creds.port, 10) || (creds.ssl ? 993 : 143),
-    secure: Boolean(creds.ssl),
+    port: parseInt(creds.port, 10) || 993,
+    secure: true,
     auth: { user: creds.user, pass: creds.pass },
     logger: false,
     tls: { rejectUnauthorized: true },

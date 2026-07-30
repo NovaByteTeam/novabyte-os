@@ -1,7 +1,6 @@
 'use strict';
 
 const https = require('https');
-const http = require('http');
 
 let PostalMime;
 
@@ -55,7 +54,14 @@ function ewsReq(creds, soapBody) {
 </soap:Envelope>`;
 
     const auth = Buffer.from(`${creds.user}:${creds.pass}`).toString('base64');
-    let urlStr = creds.host.startsWith('http') ? creds.host : `https://${creds.host}`;
+    // Force https regardless of what scheme the user's host string carries.
+    // This request sends Basic Auth (base64, not encryption) in a header —
+    // over plain http that's a cleartext password on the wire on every
+    // single call. Previously an "http://..." host string, or a bare
+    // host that happened to route to a plaintext listener, was honored
+    // as-is via `u.protocol === 'https:' ? https : http`.
+    let urlStr = creds.host.replace(/^http:\/\//i, 'https://');
+    if (!/^https:\/\//i.test(urlStr)) urlStr = `https://${urlStr}`;
     if (!urlStr.endsWith('/EWS/Exchange.asmx')) urlStr += '/EWS/Exchange.asmx';
 
     let u;
@@ -64,11 +70,13 @@ function ewsReq(creds, soapBody) {
     } catch (e) {
       return reject(new Error(`Invalid EWS host URL: ${creds.host}`));
     }
+    if (u.protocol !== 'https:') {
+      return reject(new Error('Plaintext EWS is not supported — HTTPS is required'));
+    }
 
-    const lib = u.protocol === 'https:' ? https : http;
     const opts = {
       hostname: u.hostname,
-      port: u.port || (u.protocol === 'https:' ? 443 : 80),
+      port: u.port || 443,
       path: u.pathname,
       method: 'POST',
       headers: {
@@ -80,7 +88,7 @@ function ewsReq(creds, soapBody) {
       timeout: 15000
     };
 
-    const req = lib.request(opts, res => {
+    const req = https.request(opts, res => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', c => { body += c; });

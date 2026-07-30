@@ -105,11 +105,21 @@ router.post('/connect', async (req, res) => {
   }
 
   const cleanType = String(type).trim().toLowerCase();
+  // Default to TLS on. Previously this defaulted to false, so a request
+  // that simply didn't include `ssl` (rather than actively opting out)
+  // would silently connect in plaintext. TLS is now mandatory for every
+  // protocol client (see imapClient/pop3Client/ewsClient), so an explicit
+  // opt-out is rejected here with a clear message instead of failing
+  // deeper in the stack.
+  const sslRequested = ssl === undefined ? true : (ssl === true || ssl === 'true' || ssl === 1);
+  if (!sslRequested) {
+    return res.status(400).json({ error: 'Plaintext connections are not supported — TLS/SSL is required for all mail protocols' });
+  }
   const creds = {
     type: cleanType,
     host: String(host).trim(),
     port: parseInt(port, 10) || undefined,
-    ssl: ssl === true || ssl === 'true' || ssl === 1,
+    ssl: true,
     user: String(user).trim(),
     pass: String(pass)
   };
