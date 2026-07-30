@@ -568,6 +568,11 @@
         alwaysOnTop: !!appData.alwaysOnTop,
         startMinimized: !!appData.startMinimized,
         frame: appData.frame !== false,
+        // Capability manifest (js/core/services/default-apps.js reads this
+        // to offer the app as a Default Apps candidate). Was missing here —
+        // same bug class as app-registry.js's registerApp()/initialize(),
+        // just in this install path's separate config builder instead.
+        handles: appData.handles ?? undefined,
 
         async init(contentEl, state, options) {
           // Scoped to this one launch — see the header comment above for

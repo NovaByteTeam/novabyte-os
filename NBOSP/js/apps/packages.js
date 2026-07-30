@@ -796,6 +796,10 @@ registerApp({
             categories: [appData.category || 'other'],
             permissions: appData.permissions,
             optionalPermissions: appData.optionalPermissions,
+            // See the matching comment in appmanager.js's buildNovaAppConfig —
+            // same missing field, this install path builds its own separate
+            // config object instead of sharing that one.
+            handles: appData.handles ?? undefined,
             init: (content, state, options) => AppRegistry.launchApp(appData.id, content, state, options),
           };
           OS.apps[appData.id] = cfg;

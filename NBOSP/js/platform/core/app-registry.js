@@ -106,6 +106,12 @@ const AppRegistry = (() => {
             startMinimized: app.startMinimized || false, transparent: app.transparent || false,
             devOnly: app.devOnly || false,
             autoGrant: app.autoGrant || false,
+            // See the matching comment in registerApp() below — same field,
+            // same reason, needed here too since this is a second, separate
+            // rebuild of OS.apps[app.id] (this one runs on every boot/reload
+            // for restored installs, registerApp() only runs once at install
+            // time), and it was dropping handles the exact same way.
+            handles: app.handles ?? undefined,
             init: (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
             onDrop: app.onDrop ?? undefined,
             onClose: app.onClose ?? undefined,
@@ -213,6 +219,12 @@ const AppRegistry = (() => {
         startMinimized: app.startMinimized || false, transparent: app.transparent || false,
         devOnly: appConfig.devOnly || false,
         autoGrant: app.autoGrant,
+        // Capability manifest (js/core/services/default-apps.js reads this
+        // to offer the app as a Default Apps candidate for any matching
+        // protocol/extension). Optional — omitted rather than defaulted to
+        // {} so DefaultApps' `if (!handles) continue` check works as
+        // intended for apps that don't declare one.
+        handles: app.handles ?? undefined,
         init: (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
         onDrop: appConfig.onDrop ?? undefined,
         onClose: appConfig.onClose ?? undefined,

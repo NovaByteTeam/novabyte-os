@@ -573,6 +573,7 @@ novabyte-os/
 │  │  │  │  ├── notifications.js # Notification system
 │  │  │  │  ├── calendar-notifier.js # Polls saved calendar events and fires upcoming-event reminders
 │  │  │  │  ├── registry.js   # Core app registry
+│  │  │  │  ├── default-apps.js # Default Apps (Settings → Default Apps): per-category default app resolution for file/protocol opening
 │  │  │  │  ├── event-log.js  # Central event logging
 │  │  │  │  ├── server-events-bridge.js # Streams server-side events into the client event log
 │  │  │  │  └── workers.js    # Multi-threaded worker management
