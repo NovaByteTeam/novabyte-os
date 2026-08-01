@@ -1,18 +1,13 @@
 // Shared network activity log, read by Perf Monitor's Network tab.
 //
-// Defined here at true top level (script-eval time), not inside init(),
-// unlike window.Downloads in gallery.js — that pattern only creates the
-// global once Gallery's window has actually been opened once, which is
-// fine for Downloads (browser.js only calls it after a download already
-// happened, well after Browser opened) but wrong for this log: Perf
-// Monitor could be opened before Browser, or Browser traffic could fire
-// before Perf Monitor ever opens, and neither app controls the other's
-// load order. A top-level definition means window.NetworkLog exists the
-// moment this script evaluates, regardless of which windows open when.
+// Defined at true top level (script-eval time), not inside init(), so the
+// log exists the moment this script evaluates regardless of which windows
+// are open. Perf Monitor could open before Browser, or Browser traffic
+// could fire before Perf Monitor ever opens, and neither app controls the
+// other's load order — a top-level definition is the only safe option.
 //
-// Guarded with `window.NetworkLog ||` so re-including this script (or a
-// future core-relocation of this same object) doesn't clobber entries
-// already pushed.
+// Guarded with `window.NetworkLog ||` so re-including this script doesn't
+// clobber entries already pushed.
 window.NetworkLog = window.NetworkLog || {
   entries: [],
   MAX_ENTRIES: 500, // ring buffer — a busy session could otherwise grow unbounded
@@ -42,11 +37,13 @@ registerApp({
 
   onClose(state) {
     // Flush any debounced localStorage writes so data isn't lost on rapid close.
-    // _flushPendingSaves is attached to `state` from inside init() (since it
-    // closes over per-app caches); call it via state to bridge the scope gap.
+    // _flushPendingSaves is attached to `state` from inside init() because it
+    // closes over per-app caches; calling it via state bridges the scope gap.
     try {
       if (typeof state._flushPendingSaves === 'function') state._flushPendingSaves();
-    } catch (err) { console.warn('[NB Browser] flush-on-close failed:', err); }
+    } catch (err) {
+      console.warn('[NB Browser] flush-on-close failed:', err);
+    }
 
     // Tear down every tracked cleanup (intervals, listeners, abort controllers).
     if (Array.isArray(state.cleanups)) {
@@ -56,12 +53,12 @@ registerApp({
       state.cleanups.length = 0;
     }
 
-    // Notify the OS shell that all browser windows should close.
-    if (window.ipc && typeof window.ipc.postMessage === 'function') {
+    // Tell the OS shell to close every browser window.
+    if (window.ipc?.postMessage) {
       try {
         window.ipc.postMessage(JSON.stringify({ type: 'browser:closeAll', source: 'browser-app' }));
       } catch (err) {
-        console.error('[NB Browser] Failed to send IPC close message:', err);
+        console.error('[NB Browser] IPC close message failed:', err);
       }
     }
   },
@@ -69,7 +66,7 @@ registerApp({
   init(content, state, options) {
     'use strict';
 
-    // ── NovaByte runtime guard — refuses to launch without AppDirs ──────────
+    // NovaByte runtime guard — refuses to launch without AppDirs.
     if (!window.AppDirs?.getVFSDir('com.nbosp.browser', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML =
@@ -80,7 +77,7 @@ registerApp({
       return;
     }
 
-    // ── Constants ───────────────────────────────────────────────────────────
+    // Constants
     const BK_KEY              = 'nbosp_browser_bookmarks';
     const HX_KEY              = 'nbosp_browser_history';
     const ST_KEY              = 'nbosp_browser_settings';
@@ -89,6 +86,7 @@ registerApp({
     const URL_MAX_LEN         = 2000;
     const TITLE_MAX_LEN       = 300;
     const FAVICON_DATAURI_MAX = 2048;
+    const FAVICON_CACHE_MAX   = 256;    // bounded favicon normaliser cache
     const URL_POLL_MS         = 500;
     const DEBOUNCE_MS         = 300;
     const MOBILE_W            = 390;
@@ -126,7 +124,7 @@ registerApp({
       '/idp/', '/identity/', '/session', '/token',
     ]);
 
-    // ── DOM root ────────────────────────────────────────────────────────────
+    // DOM root
     const container = createEl('div', { className: 'browser-container' });
     const tabsBar   = createEl('div', { className: 'browser-tabs-bar', role: 'tablist' });
     const viewport  = createEl('div', {
@@ -134,27 +132,33 @@ registerApp({
       style: { display: 'flex', flexDirection: 'column', position: 'relative' }
     });
 
-    // ── Tab state ───────────────────────────────────────────────────────────
+    // Tab state
     let tabs        = [{ id: 1, title: 'New Tab', url: '', favicon: '', incognito: false }];
     let activeTabId = 1;
     let nextTabId   = 2;
 
-    const tabWebviews  = new Map();  // tabId → <webview>
-    const tabIframes   = new Map();  // tabId → <iframe>
-    const tabViewMode  = new Map();  // tabId → 'webview' | 'iframe'
-    const tabZoom      = new Map();  // tabId → number
-    const tabCleanups  = new Map();  // tabId → Array<() => void>
-    const tabUnresponsive = new Set(); // tabIds currently flagged unresponsive
+    const tabWebviews     = new Map();  // tabId → <webview>
+    const tabIframes      = new Map();  // tabId → <iframe>
+    const tabViewMode     = new Map();  // tabId → 'webview' | 'iframe'
+    const tabZoom         = new Map();  // tabId → number
+    const tabCleanups     = new Map();  // tabId → Array<() => void>
+    const tabUnresponsive = new Set();  // tabIds currently flagged unresponsive
 
-    // ── Global teardown registry (single AbortController for whole-app
-    //    listeners; cheaper than tracking each one separately) ───────────────
+    // App-wide teardown: one AbortController backs every listener that doesn't
+    // need finer-grained lifecycle control. Cheaper than tracking each
+    // listener separately, and a single abort() call tears everything down.
     const appAbort = new AbortController();
     state.cleanups = state.cleanups || [];
     state.cleanups.push(() => appAbort.abort());
 
+    // Convenience accessor for the currently-active tab object.
+    const activeTab = () => tabs.find(t => t.id === activeTabId);
 
-    // ── Memoised favicon normaliser ─────────────────────────────────────────
-    const _faviconCache = new Map(); // url → normalised
+    // Favicon normaliser — memoised with a bounded cache. Without a cap a
+    // long session visiting thousands of distinct sites would grow this
+    // without end; the simple oldest-first eviction below keeps it bounded
+    // while preserving good hit-rate for the working set.
+    const _faviconCache = new Map();
     function normFavicon(favicon, siteUrl = '') {
       if (!favicon) return '';
       const cacheKey = favicon + '\u0000' + siteUrl;
@@ -162,12 +166,12 @@ registerApp({
       if (hit !== undefined) return hit;
 
       let result = favicon;
-      // Already a proxy URL — use as-is
+      // Already a proxy URL — use as-is.
       if (favicon.startsWith('/api/favicon')) {
         _faviconCache.set(cacheKey, favicon);
         return favicon;
       }
-      // Old Google favicon URL — extract the domain and re-proxy
+      // Old Google favicon URL — extract the domain and re-proxy.
       try {
         const u = new URL(favicon);
         if (u.hostname === 'www.google.com' && u.pathname === '/s2/favicons') {
@@ -178,27 +182,32 @@ registerApp({
             return result;
           }
         }
-      } catch (_) { /* not a URL */ }
-      // Resolve relative paths into absolute URLs using the guest tab's current domain
+      } catch { /* not a URL */ }
+      // Resolve relative paths into absolute URLs using the guest tab's current domain.
       if (!/^https?:\/\//i.test(favicon) && siteUrl) {
         try { favicon = new URL(favicon, siteUrl).href; }
-        catch (_) { /* leave as-is */ }
+        catch { /* leave as-is */ }
       }
-      // Any other external URL — proxy it via favicon endpoint using the URL's hostname
+      // Any other external URL — proxy it via the favicon endpoint using the URL's hostname.
       if (/^https?:\/\//i.test(favicon)) {
         try {
           const domain = new URL(favicon).hostname;
           result = '/api/favicon?domain=' + encodeURIComponent(domain);
         } catch (err) {
-          console.debug('[NB Browser] Failed to extract domain from favicon:', favicon, err);
+          console.debug('[NB Browser] favicon domain extract failed:', favicon, err);
           result = favicon;
         }
+      }
+      // Bounded eviction: drop the oldest entry once we hit the cap.
+      if (_faviconCache.size >= FAVICON_CACHE_MAX) {
+        const firstKey = _faviconCache.keys().next().value;
+        if (firstKey !== undefined) _faviconCache.delete(firstKey);
       }
       _faviconCache.set(cacheKey, result);
       return result;
     }
 
-    // ── Settings storage (write-through cache + debounced persist) ──────────
+    // Settings storage — write-through cache + debounced persist.
     let _settingsCache = null;
     let _settingsSaveTimer = null;
 
@@ -209,7 +218,7 @@ registerApp({
       } catch (err) {
         console.error('[NB Browser] Settings cache corrupted, resetting:', err);
         _settingsCache = {};
-        try { localStorage.removeItem(ST_KEY); } catch (_) {}
+        try { localStorage.removeItem(ST_KEY); } catch { /* ignore */ }
       }
       return _settingsCache;
     }
@@ -236,7 +245,7 @@ registerApp({
       return base + encodeURIComponent(q);
     };
 
-    // ── Bookmarks storage ───────────────────────────────────────────────────
+    // Bookmarks storage
     let _bookmarksCache = null;
     let _bookmarksSaveTimer = null;
 
@@ -247,7 +256,7 @@ registerApp({
       } catch (err) {
         console.error('[NB Browser] Bookmarks cache corrupted, resetting:', err);
         _bookmarksCache = [];
-        try { localStorage.removeItem(BK_KEY); } catch (_) {}
+        try { localStorage.removeItem(BK_KEY); } catch { /* ignore */ }
       }
       return _bookmarksCache;
     }
@@ -261,7 +270,7 @@ registerApp({
       }, DEBOUNCE_MS);
     }
 
-    // ── History storage ─────────────────────────────────────────────────────
+    // History storage
     let _historyCache = null;
     let _historySaveTimer = null;
 
@@ -272,7 +281,7 @@ registerApp({
       } catch (err) {
         console.error('[NB Browser] History cache corrupted, resetting:', err);
         _historyCache = [];
-        try { localStorage.removeItem(HX_KEY); } catch (_) {}
+        try { localStorage.removeItem(HX_KEY); } catch { /* ignore */ }
       }
       return _historyCache;
     }
@@ -286,7 +295,8 @@ registerApp({
       }, DEBOUNCE_MS);
     }
 
-    /** Flush every debounced save immediately (used by onClose). */
+    // Flush every debounced save immediately. Used by onClose so a rapid
+    // window close doesn't lose data sitting in a pending timer.
     function _flushPendingSaves() {
       clearTimeout(_settingsSaveTimer);
       clearTimeout(_bookmarksSaveTimer);
@@ -299,11 +309,11 @@ registerApp({
         console.warn('[NB Browser] Flush-on-close failed:', err);
       }
     }
-    // Exposed for onClose (which runs in a slightly different scope).
-    // onClose calls state._flushPendingSaves() to bridge the scope gap.
+    // Exposed for onClose, which runs in a slightly different scope.
     state._flushPendingSaves = _flushPendingSaves;
 
-    // ── Bookmark helpers (cached membership check) ──────────────────────────
+    // Bookmark helpers — cached membership check via a Set so the address-bar
+    // star toggle is O(1) instead of scanning the bookmarks array each time.
     let _bookmarkUrlSet = null;
     function refreshBookmarkSet() {
       _bookmarkUrlSet = new Set(loadBookmarks().map(b => b.url));
@@ -332,7 +342,8 @@ registerApp({
       return true;
     }
 
-    // ── Panel state for live refresh ────────────────────────────────────────
+    // Panel state — tracked so addHistory can live-refresh the History panel
+    // when it's the currently-visible panel.
     let _panelType = null;
 
     function addHistory(originTabId, url, title, favicon) {
@@ -340,7 +351,9 @@ registerApp({
       if (!tab || tab.incognito || tab.isPopup) return;
 
       try {
-        // Drop oversized Base64 data-URIs before they can exhaust the 5 MB localStorage quota.
+        // Drop oversized Base64 data-URIs before they can exhaust the 5 MB
+        // localStorage quota — a single 100KB favicon would otherwise waste
+        // 100KB of quota per visit.
         let safeFavicon = favicon || '';
         if (safeFavicon.startsWith('data:') && safeFavicon.length > FAVICON_DATAURI_MAX) {
           safeFavicon = '';
@@ -351,14 +364,15 @@ registerApp({
         const arr = loadHistory().filter(h => h.url !== url);
         arr.unshift({ url: safeStorageUrl, title: safeTitle, favicon: safeFavicon, ts: Date.now() });
         saveHistory(arr);
-        // Live-refresh history panel if it's open
+        // Live-refresh history panel if it's open.
         if (_panelType === 'history' && panel.style.display !== 'none') showPanel('history');
       } catch (err) {
         console.warn('[NB Browser] addHistory failed:', err);
       }
     }
 
-    // ── Tabs bar (event-delegated — no per-tab listeners) ───────────────────
+    // Tabs bar — event-delegated, so there are zero per-tab listeners.
+    // Click routing is decided by which element the click landed on.
     tabsBar.addEventListener('click', (e) => {
       const closeBtn = e.target.closest('.tab-close');
       if (closeBtn) {
@@ -371,7 +385,7 @@ registerApp({
       if (tabEl) switchToTab(Number(tabEl.dataset.tabId));
     }, { signal: appAbort.signal });
 
-    // Right-click a tab → tab strip context menu (Chromium-style essentials).
+    // Right-click a tab → Chromium-style tab strip context menu.
     tabsBar.addEventListener('contextmenu', (e) => {
       const tabEl = e.target.closest('.browser-tab');
       // Right-click on empty bar space → just offer a new tab.
@@ -403,7 +417,7 @@ registerApp({
     }, { signal: appAbort.signal });
 
     function renderTabs() {
-      // Use a DocumentFragment to batch DOM writes (avoids N reflows).
+      // Use a DocumentFragment to batch DOM writes — avoids N reflows.
       const frag = document.createDocumentFragment();
       for (const tab of tabs) {
         const tabEl = createEl('button', {
@@ -437,11 +451,13 @@ registerApp({
       frag.appendChild(newTabBtn);
       // Replace contents in one operation.
       tabsBar.replaceChildren(frag);
-      // Re-bind the "+" button (delegated handler can't distinguish it without a class).
+      // Re-bind the "+" button — the delegated handler above can't distinguish
+      // it without a class, and adding one would change the visual styling.
       newTabBtn.addEventListener('click', createNewTab, { signal: appAbort.signal });
     }
 
-    /** Update only the title text of an existing tab — avoids full re-render on URL change. */
+    // Update only the title text of an existing tab — avoids a full re-render
+    // on every URL change in an SPA.
     function updateTabTitle(tabId, title) {
       const tabEl = tabsBar.querySelector(`.browser-tab[data-tab-id="${tabId}"]`);
       if (!tabEl) { renderTabs(); return; }
@@ -483,6 +499,8 @@ registerApp({
         ifr.style.transformOrigin = 'top center';
         ifr.style.transform = z !== 1.0 ? `translateX(-50%) scale(${z})` : 'translateX(-50%)';
       } else {
+        // Counter-scale the iframe's intrinsic size so the visible box stays
+        // the same dimensions while page content scales by 1/z.
         const pct = (100 / z).toFixed(4) + '%';
         ifr.style.width = pct;
         ifr.style.height = pct;
@@ -492,11 +510,11 @@ registerApp({
     }
 
     function applyZoomToWebview(wv, z) {
-      try { wv.setZoom(z); } catch (_) {}
+      try { wv.setZoom(z); } catch { /* webview not ready */ }
     }
 
     function toggleUserAgent() {
-      const tab = tabs.find(t => t.id === activeTabId);
+      const tab = activeTab();
       if (!tab) return;
       const mode = getTabMode(activeTabId);
       const goingMobile = tab.userAgent !== 'mobile';
@@ -508,9 +526,9 @@ registerApp({
         if (!ifr) return;
         applyMobileViewportFrame(ifr, goingMobile);
         applyZoomToIframe(ifr, goingMobile, tabZoom.get(activeTabId) || 1.0);
-        // Reload so the page re-renders inside the new frame dimensions
+        // Reload so the page re-renders inside the new frame dimensions.
         try { ifr.contentWindow.location.reload(); }
-        catch (_) {
+        catch {
           const src = ifr.src; ifr.src = ''; ifr.src = src;
         }
       } else {
@@ -519,10 +537,11 @@ registerApp({
         const UA = goingMobile
           ? 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
           : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-        try { wv.setUserAgentOverride(UA); } catch (_) {}
+        try { wv.setUserAgentOverride(UA); } catch { /* webview not ready */ }
         applyMobileViewportFrame(wv, goingMobile);
         if (tab.url) {
           if (goingMobile) {
+            // Inject a viewport meta so mobile pages render at device-width.
             const onMobileLoad = () => {
               wv.removeEventListener('loadstop', onMobileLoad);
               try {
@@ -536,11 +555,11 @@ registerApp({
                             })();
                   m.content = 'width=device-width, initial-scale=1, maximum-scale=1';
                 ` });
-              } catch (_) {}
+              } catch { /* ignore */ }
             };
             wv.addEventListener('loadstop', onMobileLoad);
           }
-          try { wv.reload(); } catch (_) {}
+          try { wv.reload(); } catch { /* ignore */ }
         }
       }
     }
@@ -553,7 +572,7 @@ registerApp({
       if (mode === 'iframe') {
         const ifr = tabIframes.get(activeTabId);
         if (!ifr) return;
-        const tab = tabs.find(t => t.id === activeTabId);
+        const tab = activeTab();
         applyZoomToIframe(ifr, tab?.userAgent === 'mobile', z);
       } else {
         const wv = tabWebviews.get(activeTabId);
@@ -563,7 +582,7 @@ registerApp({
     }
 
     function registerTabCleanup(tabId, fn) {
-      // Baseline 2026 — Map.getOrInsert avoids the verbose has-check pattern.
+      // Map.getOrInsert (Baseline 2026) avoids the verbose has-check pattern.
       const arr = tabCleanups.getOrInsert(tabId, () => []);
       arr.push(fn);
     }
@@ -578,7 +597,7 @@ registerApp({
       // Revoke any tracked blob URLs to prevent memory leaks.
       const closedTab = tabs.find(t => t.id === tabId);
       if (closedTab?.activeBlobUrl) {
-        try { URL.revokeObjectURL(closedTab.activeBlobUrl); } catch (_) {}
+        try { URL.revokeObjectURL(closedTab.activeBlobUrl); } catch { /* ignore */ }
         closedTab.activeBlobUrl = null;
       }
 
@@ -587,11 +606,12 @@ registerApp({
       // Run per-tab cleanups (cancels poll timers, etc.) before removing the webview.
       const cleanups = tabCleanups.get(tabId);
       if (cleanups) {
-        for (const fn of cleanups) { try { fn(); } catch (_) {} }
+        for (const fn of cleanups) { try { fn(); } catch { /* ignore */ } }
         tabCleanups.delete(tabId);
       }
 
-      // Remove DOM elements BEFORE checking tabs.length, to prevent zombie viewport elements.
+      // Remove DOM elements BEFORE checking tabs.length — prevents zombie
+      // viewport elements lingering in the DOM.
       const closedWv = tabWebviews.get(tabId);
       if (closedWv) { closedWv.remove(); tabWebviews.delete(tabId); }
       const closedIfr = tabIframes.get(tabId);
@@ -609,7 +629,7 @@ registerApp({
       renderTabs();
     }
 
-    // ── Tab actions (shared by the toolbar button & context menus) ──────────
+    // Tab actions shared by the toolbar button and the context menus.
     function reloadTab(tabId) {
       const tab = tabs.find(t => t.id === tabId);
       if (!tab) return;
@@ -617,12 +637,12 @@ registerApp({
         const ifr = tabIframes.get(tabId);
         if (ifr) {
           try { ifr.contentWindow.location.reload(); }
-          catch (_) { const s = ifr.src; ifr.src = ''; ifr.src = s; }
+          catch { const s = ifr.src; ifr.src = ''; ifr.src = s; }
           return;
         }
       } else {
         const wv = tabWebviews.get(tabId);
-        if (wv) { try { wv.reload(); } catch (_) {} return; }
+        if (wv) { try { wv.reload(); } catch { /* ignore */ } return; }
       }
       // No element yet (never-rendered background tab) — load it now.
       if (tabId !== activeTabId) switchToTab(tabId);
@@ -647,7 +667,8 @@ registerApp({
 
     // Snapshot ids BEFORE closing — closeTab reassigns the `tabs` array.
     function closeOthers(keepTabId) {
-      switchToTab(keepTabId); // keep this one active so closeTab doesn't reshuffle
+      // keep this one active so closeTab doesn't reshuffle
+      switchToTab(keepTabId);
       for (const id of tabs.filter(t => t.id !== keepTabId).map(t => t.id)) closeTab(id);
     }
     function closeTabsToRight(fromTabId) {
@@ -663,7 +684,7 @@ registerApp({
       for (const id of tabs.slice(0, idx).map(t => t.id)) closeTab(id);
     }
 
-    // ── Speed dial (new-tab page) ───────────────────────────────────────────
+    // Speed dial — the new-tab page.
     function renderSpeedDial() {
       requestAnimationFrame(() => {
         for (const wv of tabWebviews.values()) {
@@ -674,7 +695,7 @@ registerApp({
       const old = viewport.querySelector('.speed-dial');
       if (old) old.remove();
 
-      const tab = tabs.find(t => t.id === activeTabId);
+      const tab = activeTab();
       const sd = createEl('div', { className: 'speed-dial' });
       sd.style.cssText = 'position:absolute;inset:0;overflow-y:auto;padding:40px 32px 24px;display:flex;flex-direction:column;align-items:center;gap:28px;background:var(--bg-base);z-index:1;';
 
@@ -732,7 +753,7 @@ registerApp({
           textContent: 'Recent'
         });
         sec.appendChild(hdr);
-        for (const h of hist) {
+        for (const hEntry of hist) {
           const row = createEl('div', {
             style: 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;'
           });
@@ -740,8 +761,8 @@ registerApp({
           row.addEventListener('mouseleave', () => row.style.background = '');
           row.innerHTML = svgIcon('clock', 13) + '<span style="font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;"></span>';
           const span = row.querySelector('span');
-          if (span) span.textContent = h.title || h.url;
-          row.addEventListener('click', () => { sd.remove(); navigate(h.url); }, { signal: appAbort.signal });
+          if (span) span.textContent = hEntry.title || hEntry.url;
+          row.addEventListener('click', () => { sd.remove(); navigate(hEntry.url); }, { signal: appAbort.signal });
           sec.appendChild(row);
         }
         sd.appendChild(sec);
@@ -799,7 +820,7 @@ registerApp({
       renderTabs();
     }
 
-    // ── Toolbar ─────────────────────────────────────────────────────────────
+    // Toolbar
     const toolbar    = createEl('div', { className: 'browser-toolbar' });
     const backBtn    = createEl('button', { className: 'browser-nav-btn', 'aria-label': 'Go back' });
     backBtn.innerHTML = svgIcon('chevron-left', 16);
@@ -821,10 +842,10 @@ registerApp({
     urlBarWrap.append(urlBar, urlIcon);
 
     function updateUrlIcon(url) {
-      if (url && url.startsWith('https://')) {
+      if (url?.startsWith('https://')) {
         urlIcon.innerHTML = svgIcon('lock', 14);
         urlIcon.style.color = 'var(--text-success)';
-      } else if (url && url.startsWith('http://')) {
+      } else if (url?.startsWith('http://')) {
         if (getSetting('show_security_warnings', true)) {
           urlIcon.innerHTML = svgIcon('unlock', 14);
           urlIcon.style.color = 'var(--text-warning)';
@@ -838,7 +859,7 @@ registerApp({
       }
     }
 
-    // ── Star bookmark button ────────────────────────────────────────────────
+    // Star bookmark button
     const starBtn = createEl('button', {
       className: 'browser-nav-btn',
       'aria-label': 'Bookmark', title: 'Bookmark this page'
@@ -846,7 +867,7 @@ registerApp({
     starBtn.innerHTML = svgIcon('star', 16);
     starBtn.addEventListener('click', () => {
       if (!currentUrl || currentUrl.startsWith('novabyte:')) return;
-      const tab = tabs.find(t => t.id === activeTabId);
+      const tab = activeTab();
       if (tab?.incognito) return;
       const added = toggleBookmark(currentUrl, tab?.title, tab?.favicon);
       starBtn.style.color = added ? 'var(--accent)' : '';
@@ -858,13 +879,13 @@ registerApp({
       });
     }, { signal: appAbort.signal });
 
-    // ── Menu button ─────────────────────────────────────────────────────────
+    // Menu button — Chromium-style overflow menu.
     const menuBtn = createEl('button', {
       className: 'browser-nav-btn', 'aria-label': 'Menu', title: 'Browser menu'
     });
     menuBtn.innerHTML = svgIcon('menu', 16);
     menuBtn.addEventListener('click', (e) => {
-      const tab = tabs.find(t => t.id === activeTabId);
+      const tab = activeTab();
       const isIncog = tab?.incognito || false;
       const menuItems = [
         { label: 'New Tab', action: createNewTab },
@@ -883,7 +904,7 @@ registerApp({
             const next = getTabMode(activeTabId) === 'iframe' ? 'webview' : 'iframe';
             if (next === 'webview') clearFindStateOnModeSwitch();
             setTabMode(activeTabId, next);
-            const t = tabs.find(t2 => t2.id === activeTabId);
+            const t = activeTab();
             if (t?.url && t.url !== 'browser://settings') navigate(t.url);
             updateModeBtn();
           },
@@ -900,30 +921,32 @@ registerApp({
 
     toolbar.append(backBtn, fwdBtn, refreshBtn, urlBarWrap, starBtn, menuBtn);
 
-    // ── View-mode toggle (Webview ↔ iFrame) ─────────────────────────────────
-/*****************************************************************
- * ⚠️ DEV ONLY - DO NOT SHIP BUTTON TO PRODUCTION ⚠️
- * * Dev/debug utility: lets a dev building on this app switch a tab
- * between <webview> and <iframe> rendering — useful when <webview>
- * isn't viable (e.g. missing nodeintegration/manifest flags) or
- * when comparing how a tag behaves across the two modes.
- * * REMOVE or HIDE this button element before deploying to production, 
- * as non-technical/consumer people do not need this interface. 
- * The underlying toggle logic is safe to leave in for devs.
- *****************************************************************/
-    const modeBtn = createEl('button', { className: 'browser-mode-btn', title: 'Switch to iframe mode' });
+    // View-mode toggle (Webview ↔ iFrame).
+    // DEV ONLY — DO NOT SHIP BUTTON TO PRODUCTION.
+    // Dev/debug utility: lets a dev building on this app switch a tab
+    // between <webview> and <iframe> rendering — useful when <webview>
+    // isn't viable (e.g. missing nodeintegration/manifest flags) or
+    // when comparing how a tag behaves across the two modes.
+    // REMOVE or HIDE this button element before deploying to production,
+    // as non-technical/consumer people do not need this interface.
+    // The underlying toggle logic is safe to leave in for devs.
+    const modeBtn = createEl('button', {
+      className: 'browser-mode-btn',
+      title: 'Switch to iframe mode',
+      'aria-pressed': 'false'
+    });
     modeBtn.innerHTML = svgIcon('monitor', 14) + ' <span>Webview</span>';
     modeBtn.addEventListener('click', () => {
       const current = getTabMode(activeTabId);
       const next = current === 'webview' ? 'iframe' : 'webview';
       setTabMode(activeTabId, next);
-      const tab = tabs.find(t => t.id === activeTabId);
+      const tab = activeTab();
       if (tab?.url && tab.url !== 'browser://settings') navigate(tab.url);
       updateModeBtn();
     }, { signal: appAbort.signal });
     toolbar.appendChild(modeBtn);
 
-    // ── Find bar ────────────────────────────────────────────────────────────
+    // Find bar
     const findBar = createEl('div', {
       style: 'display:none;align-items:center;gap:6px;padding:4px 10px;background:var(--bg-elevated);border-bottom:1px solid var(--border-subtle);flex-shrink:0;'
     });
@@ -951,7 +974,8 @@ registerApp({
       findInput.select();
     };
 
-    // ── iframe find helpers (uses RegExp.escape — ES2025) ───────────────────
+    // iframe find helpers — RegExp.escape (ES2025) makes the query safe
+    // even when the user types regex metacharacters.
     let _iframeFinds = [];
     let _iframeFindIdx = 0;
     let _lastFindText = '';
@@ -977,7 +1001,9 @@ registerApp({
       }
       if (!doc || !doc.body) return;
 
-      // Clear previous highlights then NORMALIZE to merge fragmented text nodes.
+      // Clear previous highlights then NORMALIZE to merge fragmented text nodes
+      // back together — otherwise splitting marks leaves the DOM in a messy
+      // state that breaks subsequent searches.
       doc.querySelectorAll('.__nb_highlight').forEach(el => {
         el.replaceWith(doc.createTextNode(el.textContent));
       });
@@ -989,7 +1015,7 @@ registerApp({
       const re = buildFindRegex(text);
       if (!re) return;
 
-      // Walk text nodes, skipping script/style so we don't break page JS
+      // Walk text nodes, skipping script/style so we don't break page JS.
       const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
         acceptNode(node) {
           const tag = node.parentElement?.tagName;
@@ -997,6 +1023,7 @@ registerApp({
           return NodeFilter.FILTER_ACCEPT;
         }
       });
+
       const toReplace = [];
       let node;
       while ((node = walker.nextNode())) {
@@ -1013,7 +1040,8 @@ registerApp({
           frag.appendChild(doc.createTextNode(textContent.slice(last, m.index)));
           const mark = doc.createElement('mark');
           mark.className = '__nb_highlight';
-          // font:inherit preserves every font property so highlights don't reflow text or break custom fonts
+          // font:inherit preserves every font property so highlights don't
+          // reflow text or break custom fonts.
           mark.style.cssText =
             'background:#f6c90e !important;color:#000 !important;' +
             'font:inherit !important;display:inline !important;' +
@@ -1055,7 +1083,7 @@ registerApp({
           });
           d.body.normalize();
         }
-      } catch (_) {}
+      } catch { /* cross-origin — expected, ignore */ }
       _iframeFinds = [];
       _iframeFindIdx = 0;
     }
@@ -1067,7 +1095,7 @@ registerApp({
         iframeFindClear();
       } else {
         const wv = tabWebviews.get(activeTabId);
-        if (wv) try { wv.stopFinding('clear'); } catch (_) {}
+        if (wv) try { wv.stopFinding('clear'); } catch { /* ignore */ }
       }
     }
 
@@ -1083,7 +1111,7 @@ registerApp({
         wv.find(q, opts, r => {
           if (r) findCount.textContent = r.activeMatchOrdinal + '/' + r.numberOfMatches;
         });
-      } catch (_) {}
+      } catch { /* ignore */ }
     }
 
     findInput.addEventListener('input', () => {
@@ -1108,7 +1136,8 @@ registerApp({
     });
     findClose.addEventListener('click', closeFindBar);
 
-    // ── Panel (Bookmarks / History) — event-delegated ──────────────────────
+    // Panel (Bookmarks / History) — event-delegated, so there's a single
+    // click listener for the whole list regardless of how many rows render.
     const panel = createEl('div', {
       style: 'display:none;position:absolute;top:0;right:0;bottom:0;width:300px;background:var(--bg-elevated);border-left:1px solid var(--border-subtle);z-index:100;flex-direction:column;overflow:hidden;'
     });
@@ -1117,7 +1146,7 @@ registerApp({
       _panelType = type;
       if (!panel.parentNode) viewport.appendChild(panel);
       panel.style.display = 'flex';
-      panel.innerHTML = '';
+      panel.replaceChildren();
 
       const hdr = createEl('div', {
         style: 'display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border-subtle);gap:8px;flex-shrink:0;'
@@ -1147,7 +1176,8 @@ registerApp({
         return;
       }
 
-      // Event delegation for row clicks & delete buttons — single listener for the whole list.
+      // Event delegation for row clicks & delete buttons — one listener
+      // for the whole list, regardless of how many rows there are.
       list.addEventListener('click', (e) => {
         const del = e.target.closest('[data-panel-del]');
         if (!del) {
@@ -1216,7 +1246,9 @@ registerApp({
     container.append(tabsBar, toolbar, findBar, viewport);
     content.appendChild(container);
 
-    // ── Popup mode ──────────────────────────────────────────────────────────
+    // Popup mode — when opened via window.open() from another app, the
+    // browser chrome is stripped down to just the URL bar (read-only) +
+    // a "Popup" badge.
     if (options?.popup) {
       tabsBar.style.display = 'none';
       fwdBtn.style.display = 'none';
@@ -1241,10 +1273,11 @@ registerApp({
 
     let currentUrl = '';
 
-
     const getTabMode = (tabId) => tabViewMode.get(tabId) || 'webview';
 
-    // ── Stable browser session ID ───────────────────────────────────────────
+    // Stable browser session ID. Persisted across launches so cookies,
+    // localStorage, etc. inside the webview survive a browser restart.
+    // Generated once per OS profile and stored in OS.settings.
     let _bpid = OS.settings.get('browserPartitionId');
     if (!_bpid) {
       _bpid = 'b' + Math.random().toString(36).slice(2, 12);
@@ -1252,10 +1285,10 @@ registerApp({
     }
     const BROWSER_PARTITION = 'persist:' + _bpid;
 
-    // ── URL tracking ───────────────────────────────────────────────────────
-    // Hoisted to this outer scope (not nested in getOrCreateWebview) because
-    // both the per-tab webview listeners AND the shared poll timer below
-    // need to call it, and it doesn't depend on any per-tab closure state.
+    // URL tracking — syncUrlForTab is hoisted to outer scope (not nested
+    // in getOrCreateWebview) because both the per-tab webview listeners
+    // AND the shared poll timer below need to call it, and it doesn't
+    // depend on any per-tab closure state.
     function syncUrlForTab(url, forTabId, source) {
       if (!url || url === 'about:blank' || url === 'about:newtab') return;
       const tab = tabs.find(t => t.id === forTabId);
@@ -1271,9 +1304,9 @@ registerApp({
       if (tab?.title) updateTabTitle(forTabId, tab.title);
     }
 
-    // ── Shared single-timer URL poller ──────────────────────────────────────
+    // Shared single-timer URL poller.
     // Instead of N intervals (one per webview), use ONE interval that polls
-    // only the currently-active webview. This reduces timer overhead and
+    // only the currently-active webview. Reduces timer overhead and
     // executeScript calls from O(tabs) to O(1) per tick.
     const _lastPolledUrls = new Map(); // tabId → string
     const _urlPollTimer = setInterval(() => {
@@ -1294,7 +1327,7 @@ registerApp({
     }, URL_POLL_MS);
     state.cleanups.push(() => clearInterval(_urlPollTimer));
 
-    // ── Info bar (for unresponsive pages, etc.) ─────────────────────────────
+    // Info bar — for unresponsive pages, certificate warnings, etc.
     function showInfoBar(tabId, msg, actions) {
       dismissInfoBar(tabId);
       const bar = createEl('div', {
@@ -1308,10 +1341,11 @@ registerApp({
           style: 'background:transparent;border:1px solid rgba(255,255,255,0.2);color:inherit;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;',
           textContent: a.label
         });
-        b.addEventListener('click', a.action);
+        // Bind to appAbort so a teardown cleans these up even if dismissInfoBar
+        // is never explicitly called.
+        b.addEventListener('click', a.action, { signal: appAbort.signal });
         bar.appendChild(b);
       }
-      // Insert at the top of the viewport
       viewport.insertBefore(bar, viewport.firstChild);
     }
     function dismissInfoBar(tabId) {
@@ -1319,7 +1353,61 @@ registerApp({
       if (existing) existing.remove();
     }
 
-    // ── Webview factory ─────────────────────────────────────────────────────
+    // Permission gate for downloads — checks AppPermissionManager for the
+    // 'vfs:write' capability, prompting the user if not yet decided.
+    // Hoisted out of getOrCreateWebview because it has no per-webview state;
+    // defining it once at init scope avoids recreating it on every webview.
+    async function ensureBrowserFsWritePermission() {
+      const mgr = window.AppPermissionManager;
+      if (!mgr) return true;
+      const appId = 'browser';
+      if (mgr.isGranted('vfs:write', appId)) return true;
+      if (mgr.isDenied?.('vfs:write', appId)) {
+        Notify.show({
+          title: 'Download blocked',
+          body: 'Browser does not have permission to write files. Grant "vfs:write" in Settings → Apps.',
+          type: 'error', appName: 'Browser',
+        });
+        return false;
+      }
+      const granted = await mgr.requestPermission('vfs:write', appId, {
+        appName: 'Browser',
+        reason: 'Browser needs to save downloaded files to your Downloads folder.',
+      });
+      if (!granted) {
+        Notify.show({
+          title: 'Download blocked',
+          body: 'Browser was denied permission to write files.',
+          type: 'error', appName: 'Browser',
+        });
+        return false;
+      }
+      return true;
+    }
+
+    // Sanitise a filename for saving to disk: strip path separators, control
+    // characters, and truncate to MAX_DL_NAME_LEN. Returns a non-empty name.
+    function sanitizeDownloadName(rawName) {
+      const base = (() => {
+        try { return decodeURIComponent(new URL(rawName).pathname.split('/').pop()); }
+        catch { return ''; }
+      })() || ('download_' + Date.now());
+      const cleaned = base.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
+      return cleaned.length > MAX_DL_NAME_LEN ? cleaned.slice(0, MAX_DL_NAME_LEN) : cleaned;
+    }
+
+    // Pick a non-colliding filename in the downloads folder by appending
+    // " (N)" before the extension if the proposed name already exists.
+    function pickUniqueDownloadName(folderId, name, ext) {
+      const existing = FS.listDir(folderId).map(f => f.name);
+      if (!existing.includes(name + ext)) return name;
+      const prefixCount = existing.filter(n => n.startsWith(name)).length;
+      return name.replace(/(\.\w+)?$/, ' (' + prefixCount + ')$1');
+    }
+
+    // Webview factory — creates or returns the <webview> element for a tab.
+    // Attaches all event listeners (load, error, fullscreen, permission,
+    // download, new-window, context-menu) exactly once per webview.
     function getOrCreateWebview(tabId) {
       const existing = tabWebviews.get(tabId);
       if (existing) return existing;
@@ -1332,14 +1420,12 @@ registerApp({
       wv.setAttribute('enableremotemodule', 'false');
       wv.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
       wv.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointerEvents:none;z-index:0;top:0;left:0;';
-      // wv.request listeners (added below in _attachRequestListeners) run
-      // through NW.js's webRequest event system, which — unlike normal DOM
-      // addEventListener callbacks — does not reliably retain a closure
-      // over this function's local `tabId` parameter (confirmed: the
-      // pre-existing onBeforeRequest listener already avoided referencing
-      // any outer local for the same reason). Stashing it directly on the
-      // element sidesteps that: the element itself is what the listener
-      // closure captures, and property reads on it always work.
+      // Stash the tabId directly on the element. NW.js's webRequest event
+      // system doesn't reliably retain a closure over the local `tabId`
+      // parameter (confirmed by the pre-existing onBeforeRequest listener
+      // already avoiding outer-local refs for the same reason). The element
+      // itself is what the listener closure captures, and property reads on
+      // it always work.
       wv._nbTabId = tabId;
 
       wv.addEventListener('loadcommit', e => {
@@ -1347,7 +1433,7 @@ registerApp({
       });
 
       wv.addEventListener('loadstop', () => {
-        // Sync URL via executeScript (NW.js has no did-navigate event)
+        // Sync URL via executeScript (NW.js has no did-navigate event).
         try {
           wv.executeScript({ code: 'location.href' }, r => {
             if (chrome.runtime?.lastError || !r?.[0]) return;
@@ -1375,12 +1461,12 @@ registerApp({
               const hostname = new URL(url || tab.url).hostname;
               tab.favicon = '/api/favicon?domain=' + hostname;
               if (tabId === activeTabId) renderTabs(); // re-render for favicon
-            } catch (_) {}
+            } catch { /* ignore */ }
             if (url && !url.startsWith('novabyte:') && !url.startsWith('file://')) {
               addHistory(tabId, url, title || url, tab.favicon);
             }
           });
-        } catch (_) {}
+        } catch { /* ignore */ }
       });
 
       wv.addEventListener('contentload', () => {
@@ -1389,7 +1475,7 @@ registerApp({
             if (chrome.runtime?.lastError || !r?.[0]) return;
             syncUrlForTab(r[0], tabId, 'contentload+executeScript');
           });
-        } catch (_) {}
+        } catch { /* ignore */ }
         // New page load — apply the current system volume to whatever
         // <audio>/<video> it just created, instead of leaving them at
         // the page's own default until the tray slider is next touched.
@@ -1398,10 +1484,8 @@ registerApp({
         }
       });
 
-
-
-
-      // ── Network / certificate error handling ──────────────────────────────
+      // Network / certificate error handling — render a custom error page
+      // inside the webview instead of leaving the user staring at a blank box.
       wv.addEventListener('loaderror', e => {
         if (!e.isTopLevel) return;
         const failedUrl = e.validatedURL || currentUrl || '';
@@ -1435,13 +1519,15 @@ registerApp({
           hint = desc ? 'Error: ' + desc : '';
         }
 
-        // Build the error page via DOM APIs where possible; the <script> tag
-        // uses a data-attribute + addEventListener (no inline handlers — CSP-safe).
-        const safeHint = hint
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-        const safeUrl = failedUrl
-          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
+        // Build the error page. The <script> tag uses data-attributes +
+        // addEventListener (no inline handlers — CSP-safe). All user-
+        // controlled strings (failedUrl, hint) are HTML-escaped before
+        // being interpolated into the markup.
+        const escapeHtml = (s) =>
+          s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        const safeHint = escapeHtml(hint);
+        const safeUrl  = escapeHtml(failedUrl);
 
         const bypassAttr = showBypass ? ' data-bypass="1"' : '';
         const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -1485,11 +1571,13 @@ registerApp({
 </body></html>`;
 
         try {
+          // JSON.stringify the whole HTML string so it survives being
+          // embedded inside a JS template literal executed via executeScript.
           const htmlStr = JSON.stringify(errorHtml);
           wv.executeScript({
             code: `requestAnimationFrame(() => { document.documentElement.innerHTML = ${htmlStr}; });`
           }, () => {});
-        } catch (_) {}
+        } catch { /* ignore */ }
       });
 
       wv.addEventListener('loadabort', e => {
@@ -1513,10 +1601,12 @@ registerApp({
               if (b) b.addEventListener('click', () => history.back());
             })();
           ` }, () => {});
-        } catch (_) {}
+        } catch { /* ignore */ }
       });
 
-      // ── Fullscreen support for web content ────────────────────────────────
+      // Fullscreen support for web content — when a page requests
+      // element fullscreen, expand the webview to cover the whole OS
+      // window and ask the OS shell to enter fullscreen too.
       wv.addEventListener('enter-html-full-screen', () => {
         wv.style.position = 'fixed';
         wv.style.inset = '0';
@@ -1533,7 +1623,7 @@ registerApp({
           document.documentElement.webkitRequestFullscreen();
         }
         if (typeof nw !== 'undefined' && nw.Window) {
-          try { nw.Window.get().enterFullscreen(); } catch (_) {}
+          try { nw.Window.get().enterFullscreen(); } catch { /* ignore */ }
         }
       });
 
@@ -1551,7 +1641,7 @@ registerApp({
           document.webkitExitFullscreen();
         }
         if (typeof nw !== 'undefined' && nw.Window) {
-          try { nw.Window.get().leaveFullscreen(); } catch (_) {}
+          try { nw.Window.get().leaveFullscreen(); } catch { /* ignore */ }
         }
       });
 
@@ -1568,7 +1658,8 @@ registerApp({
       document.addEventListener('fullscreenchange', _onFsChange);
       state.cleanups.push(() => document.removeEventListener('fullscreenchange', _onFsChange));
 
-      // ── Process status monitoring ─────────────────────────────────────────
+      // Process status monitoring — show an info bar offering Wait/Reload
+      // when a page becomes unresponsive.
       wv.addEventListener('unresponsive', () => {
         if (tabUnresponsive.has(tabId)) return;
         tabUnresponsive.add(tabId);
@@ -1590,59 +1681,28 @@ registerApp({
         dismissInfoBar(tabId);
       });
 
-      // ── Download handling ─────────────────────────────────────────────────
-      async function ensureBrowserFsWritePermission() {
-        const mgr = window.AppPermissionManager;
-        if (!mgr) return true;
-        const appId = 'browser';
-        if (mgr.isGranted('vfs:write', appId)) return true;
-        if (mgr.isDenied?.('vfs:write', appId)) {
-          Notify.show({
-            title: 'Download blocked',
-            body: 'Browser does not have permission to write files. Grant "vfs:write" in Settings → Apps.',
-            type: 'error', appName: 'Browser',
-          });
-          return false;
-        }
-        const granted = await mgr.requestPermission('vfs:write', appId, {
-          appName: 'Browser',
-          reason: 'Browser needs to save downloaded files to your Downloads folder.',
-        });
-        if (!granted) {
-          Notify.show({
-            title: 'Download blocked',
-            body: 'Browser was denied permission to write files.',
-            type: 'error', appName: 'Browser',
-          });
-          return false;
-        }
-        return true;
-      }
-
+      // Download handling. NW.js's webview 'permissionrequest' event with
+      // permission='download' is the only reliable hook into downloads
+      // initiated by guest content; we deny the native request and run
+      // our own fetch+save pipeline so the file lands in the OS Downloads
+      // folder with a Downloads manager entry.
       wv.addEventListener('permissionrequest', e => {
         if (e.permission === 'fullscreen') { e.request.allow(); return; }
         if (e.permission === 'pointerLock') { e.request.allow(); return; }
         if (e.permission === 'download') {
           e.request.deny();
-          // Use Promise.try (ES2025) to unify sync/async error handling.
+          // Promise.try (ES2025) unifies sync-throw and async-reject into a
+          // single catchable chain.
           Promise.try(async () => {
             const _url = e.request.url;
             if (!_url || !/^https?:\/\//i.test(_url)) return;
             if (!(await ensureBrowserFsWritePermission())) return;
             try {
-              const baseName = (() => {
-                try { return decodeURIComponent(new URL(_url).pathname.split('/').pop()); }
-                catch { return ''; }
-              })() || ('download_' + Date.now());
-              const safeName = baseName.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
-              const finalName = safeName.length > MAX_DL_NAME_LEN ? safeName.slice(0, MAX_DL_NAME_LEN) : safeName;
+              const finalName = sanitizeDownloadName(_url);
               const ext = finalName.includes('.') ? '' : '.bin';
               const dlFolderId = FS.specialFolders.downloads;
               if (!dlFolderId) throw new Error('Downloads folder missing');
-              const existing = FS.listDir(dlFolderId).map(f => f.name);
-              const adjusted = existing.includes(finalName + ext)
-                ? finalName.replace(/(\.\w+)?$/, ' (' + existing.filter(n => n.startsWith(finalName)).length + ')$1')
-                : finalName;
+              const adjusted = pickUniqueDownloadName(dlFolderId, finalName, ext);
               const entry = window.Downloads?.add(adjusted + ext, _url, 0, '');
               const entryId = entry?.id;
               if (entryId) window.Downloads?.setStatus(entryId, 'downloading');
@@ -1653,18 +1713,14 @@ registerApp({
               if (cl && +cl > DOWNLOAD_MAX_BYTES) throw new Error('File too large');
               const buf = await resp.arrayBuffer();
               if (buf.byteLength > DOWNLOAD_MAX_BYTES) throw new Error('File too large');
-              // Store as a base64 string, not a raw Uint8Array. node.content
-              // has to survive JSON.stringify inside app-sandbox.js's respond()
-              // when a sandboxed app later reads this file via nova:vfs:read —
-              // JSON.stringify flattens a Uint8Array into an index-keyed object
-              // ({"0":73,"1":68,...}) instead of the bytes, silently corrupting
-              // any binary download (mp3, image, etc.) the moment a guest app
-              // reads it back. Base64 string is the shape every other write
-              // path (desktop.js's drop handler) already uses for this reason.
-              const bytes = new Uint8Array(buf);
-              let binary = '';
-              for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-              const base64Content = btoa(binary);
+              // Encode as base64 for storage. Uint8Array.toBase64 (ES2026)
+              // is the native, non-looping way; node.content has to survive
+              // JSON.stringify inside app-sandbox.js's respond() when a
+              // sandboxed app later reads this file via nova:vfs:read —
+              // JSON.stringify flattens a raw Uint8Array into an
+              // index-keyed object that silently corrupts binary data,
+              // so base64 is required regardless of encoding approach.
+              const base64Content = new Uint8Array(buf).toBase64();
               await FS.createFile(dlFolderId, adjusted + ext, base64Content, 'application/octet-stream');
               if (entryId) window.Downloads?.setStatus(entryId, 'done', buf.byteLength);
               Notify.show({
@@ -1683,7 +1739,7 @@ registerApp({
         }
       });
 
-      // ── Popup / new-window support (NW.js Chrome Apps webview API) ────────
+      // Popup / new-window support (NW.js Chrome Apps webview API).
       wv.addEventListener('newwindow', e => {
         const url = e.targetUrl;
         if (!url || url === 'about:blank' || url.startsWith('javascript:')) return;
@@ -1697,19 +1753,20 @@ registerApp({
             if (AUTH_PATHS.some(p => path.startsWith(p) || path.includes(p + '/'))) return true;
             const params = parsed.searchParams;
             if (params.has('client_id') || params.has('response_type') || params.has('redirect_uri')) return true;
-          } catch (_) {}
+          } catch { /* ignore */ }
           return false;
         }
 
         if (getSetting('block_popup_windows', true) && e.windowOpenDisposition === 'new_popup' && !isAuthPopup(url)) {
-          try { if (e.window?.discard) e.window.discard(); } catch (_) {}
+          try { if (e.window?.discard) e.window.discard(); } catch { /* ignore */ }
           return;
         }
 
         const disposition = e.windowOpenDisposition;
 
         if (disposition === 'new_popup') {
-          // Inline popup overlay — attach() preserves opener link for window.close().
+          // Inline popup overlay — e.window.attach() preserves the opener
+          // link so window.close() works inside the popup.
           const pw = Math.min(Math.max(e.initialWidth || 520, 360), Math.round(window.innerWidth * 0.75));
           const ph = Math.min(Math.max(e.initialHeight || 620, 300), Math.round(window.innerHeight * 0.85));
 
@@ -1753,7 +1810,7 @@ registerApp({
                 if (chrome.runtime?.lastError || !r?.[0]) return;
                 barTitle.textContent = r[0];
               });
-            } catch (_) {}
+            } catch { /* ignore */ }
             if (typeof OS !== 'undefined' && typeof OS.applyVolumeToWebviews === 'function') {
               OS.applyVolumeToWebviews(Number.isFinite(OS.volume) ? OS.volume : 80, popWv);
             }
@@ -1762,7 +1819,7 @@ registerApp({
           e.window.attach(popWv);
         } else {
           // For tabs: discard the NW native window, open as a new tab instead.
-          try { if (e.window?.discard) e.window.discard(); } catch (_) {}
+          try { if (e.window?.discard) e.window.discard(); } catch { /* ignore */ }
           const parentTab = tabs.find(t => t.id === tabId);
           const newTab = {
             id: nextTabId++,
@@ -1799,7 +1856,7 @@ registerApp({
         }
       });
 
-      // window.close() support
+      // window.close() inside guest content closes the host tab.
       wv.addEventListener('close', () => closeTab(tabId));
 
       tabWebviews.set(tabId, wv);
@@ -1807,7 +1864,9 @@ registerApp({
       return wv;
     }
 
-    // ── iframe mode helpers ─────────────────────────────────────────────────
+    // iframe mode helpers — iframe mode is the fallback when <webview> is
+    // unavailable (e.g. in a plain browser without NW.js). It uses a
+    // sandboxed <iframe> with most of the same plumbing.
     function getOrCreateIframe(tabId) {
       const existing = tabIframes.get(tabId);
       if (existing) return existing;
@@ -1815,15 +1874,16 @@ registerApp({
       const ifr = document.createElement('iframe');
       ifr.setAttribute('allowfullscreen', 'true');
       ifr.setAttribute('allow', 'fullscreen; autoplay; clipboard-read; clipboard-write');
-      // allow-same-origin intentionally ABSENT — combining it with allow-scripts
-      // enables a known sandbox escape (framed doc can call frameElement.removeAttribute('sandbox')).
+      // allow-same-origin intentionally ABSENT — combining it with
+      // allow-scripts enables a known sandbox escape (framed doc can
+      // call frameElement.removeAttribute('sandbox')).
       ifr.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation');
       ifr.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointerEvents:none;z-index:0;top:0;left:0;background:#fff;';
 
-      // NOTE: blocking is detected server-side via /api/frame-check before the
-      // iframe is ever shown (see navigateFrameMode). The old heuristic here
-      // (checking ifr.contentDocument.URL === 'about:blank') was wrong both
-      // ways: embeddable sites pass through about:blank mid-load (false
+      // NOTE: blocking is detected server-side via /api/frame-check before
+      // the iframe is ever shown (see navigateFrameMode). The old heuristic
+      // here (checking ifr.contentDocument.URL === 'about:blank') was wrong
+      // both ways: embeddable sites pass through about:blank mid-load (false
       // positive), and genuinely-blocked sites are cross-origin so
       // contentDocument throws and the notice was never shown — leaving the
       // raw "refused to connect" error visible. We now just sync the title.
@@ -1837,7 +1897,7 @@ registerApp({
             if (tabId === activeTabId) updateTabTitle(tabId, title);
             else renderTabs();
           }
-        } catch (_) { /* cross-origin — title sync not possible, expected */ }
+        } catch { /* cross-origin — title sync not possible, expected */ }
       });
 
       tabIframes.set(tabId, ifr);
@@ -1861,28 +1921,30 @@ registerApp({
       viewport.appendChild(notice);
     }
 
-    // ── Per-tab frame-check generation guard ────────────────────────────────
-    // Bumped before each /api/frame-check so a slow response from a previous
-    // navigation can't show/hide the iframe of a newer one.
+    // Per-tab frame-check generation guard. Bumped before each
+    // /api/frame-check so a slow response from a previous navigation can't
+    // show/hide the iframe of a newer one.
     const _frameCheckGen = new Map(); // tabId → number
 
-    /**
-     * Server-side frame-embed check. Returns true if the URL may be loaded in
-     * an <iframe> (no XFO/CSP frame-ancestors blocking it). On any error or
-     * timeout we optimistically return true so we never false-block a
-     * legitimate page — the iframe will just show its normal content.
-     */
+    // Server-side frame-embed check. Returns true if the URL may be loaded
+    // in an <iframe> (no XFO/CSP frame-ancestors blocking it). On any error
+    // or timeout we optimistically return true so we never false-block a
+    // legitimate page — the iframe will just show its normal content.
+    // Returns null when superseded by a newer call (caller should bail).
     async function checkFrameEmbeddable(tabId, url) {
       const gen = (_frameCheckGen.get(tabId) || 0) + 1;
       _frameCheckGen.set(tabId, gen);
       try {
-        const r = await fetch('/api/frame-check?url=' + encodeURIComponent(url));
+        // AbortSignal.timeout caps the wait so a hanging server can't leave
+        // the iframe stuck on about:blank forever.
+        const r = await fetch('/api/frame-check?url=' + encodeURIComponent(url),
+          { signal: AbortSignal.timeout(8000) });
         if (gen !== _frameCheckGen.get(tabId)) return null; // superseded
         if (!r.ok) return true; // fail open
         const j = await r.json();
         if (gen !== _frameCheckGen.get(tabId)) return null; // superseded
         return j.embeddable !== false;
-      } catch (_) {
+      } catch {
         return true; // fail open — don't false-block on network errors
       }
     }
@@ -1907,6 +1969,7 @@ registerApp({
       const mode = getTabMode(activeTabId);
       modeBtn.classList.toggle('iframe-active', mode === 'iframe');
       modeBtn.title = mode === 'iframe' ? 'Switch to Webview mode' : 'Switch to iframe mode';
+      modeBtn.setAttribute('aria-pressed', mode === 'iframe' ? 'true' : 'false');
       modeBtn.innerHTML = (mode === 'iframe'
         ? svgIcon('layout', 14) + ' <span>iFrame</span>'
         : svgIcon('monitor', 14) + ' <span>Webview</span>');
@@ -1955,8 +2018,8 @@ registerApp({
         } else {
           // Take every iframe OUT of flow. visibility:hidden alone keeps a
           // flex item in layout flow, so a previously-shown iframe left at
-          // position:relative + flex:1 would claim half the viewport and show
-          // through as a black bar under the active webview.
+          // position:relative + flex:1 would claim half the viewport and
+          // show through as a black bar under the active webview.
           for (const [, ifr] of tabIframes) {
             ifr.style.position = 'absolute';
             ifr.style.visibility = 'hidden';
@@ -1987,18 +2050,23 @@ registerApp({
       });
     }
 
+    // Apply user prefs (zoom mode, per-page CSS overrides, permission
+    // gating, request listeners for the Network tab) to a webview.
+    // Called once when the webview is created.
     function applyWebviewSettings(wv) {
       const zoomMap = { FAR: 0.75, MEDIUM: 1.0, CLOSE: 1.25 };
 
       wv.addEventListener('loadstop', () => {
-        const tabId = [...tabWebviews.entries()].find(([, v]) => v === wv)?.[0];
-        if (tabId && !tabZoom.has(tabId)) {
-          try { wv.setZoom(zoomMap[getSetting('default_zoom', 'MEDIUM')] || 1.0); } catch (_) {}
+        // Use the stashed _nbTabId instead of doing an O(n) reverse
+        // lookup of the webview inside tabWebviews.
+        const tabId = wv._nbTabId;
+        if (tabId != null && !tabZoom.has(tabId)) {
+          try { wv.setZoom(zoomMap[getSetting('default_zoom', 'MEDIUM')] || 1.0); } catch { /* ignore */ }
         }
       });
 
       wv.addEventListener('loadcommit', () => {
-        try { wv.setZoomMode(getSetting('force_userscalable', false) ? 'per-view' : 'per-origin'); } catch (_) {}
+        try { wv.setZoomMode(getSetting('force_userscalable', false) ? 'per-view' : 'per-origin'); } catch { /* ignore */ }
       });
 
       wv.addEventListener('permissionrequest', e => {
@@ -2052,8 +2120,7 @@ registerApp({
             { urls: ['<all_urls>'], types: ['image', 'media'] },
             ['blocking']
           );
-        } catch (e) { /* wv.request not ready yet */ }
-        // (Removed the dead no-op listener that always returned { cancel: false }.)
+        } catch { /* wv.request not ready yet */ }
 
         // Feed Perf Monitor's Network tab. wv.request lives per-<webview>
         // (a genuinely separate NW.js/Chromium process from this document),
@@ -2108,12 +2175,13 @@ registerApp({
             },
             { urls: ['<all_urls>'] }
           );
-        } catch (e) { /* wv.request not ready yet */ }
+        } catch { /* wv.request not ready yet */ }
       }
       wv.addEventListener('contentload', _attachRequestListeners);
       wv.addEventListener('loadcommit', _attachRequestListeners);
 
-      // Per-page CSS: inverted colours + min font size + text zoom
+      // Per-page CSS: inverted colours + min font size + text zoom.
+      // Injected after every loadstop so SPA navigations stay styled.
       wv.addEventListener('loadstop', () => {
         let css = '';
         if (getSetting('inverted', false))
@@ -2124,20 +2192,18 @@ registerApp({
         const textZoom = getSetting('text_zoom', 10);
         if (textZoom !== 10)
           css += `body { zoom: ${textZoom / 10} !important; } `;
-        if (css) try { wv.insertCSS({ code: css }); } catch (_) {}
+        if (css) try { wv.insertCSS({ code: css }); } catch { /* ignore */ }
       });
 
-      // ── Webview viewport right-click menu ──────────────────────────────────
-      // NW.js does NOT forward arbitrary DOM events from guest content to the
-      // host — 'contextmenu' on the <webview> element never fires (confirmed
-      // dead since nw.js 0.29.3, see github.com/nwjs/nw.js/issues/6614: guest
-      // content runs in its own process, so host-side listeners for events
-      // outside the small documented set just don't see it). Only a short
-      // list of events (load*, newwindow, permissionrequest, consolemessage,
-      // ...) actually bubble to the host. So instead:
+      // Webview viewport right-click menu.
+      // NW.js does NOT forward arbitrary DOM events from guest content to
+      // the host — 'contextmenu' on the <webview> element never fires
+      // (confirmed dead since nw.js 0.29.3; guest content runs in its own
+      // process, so host-side listeners for events outside the small
+      // documented set just don't see it). So instead:
       //   1. Inject a script into the guest (on every loadstop, for SPA nav)
-      //      that listens for 'contextmenu' INSIDE the guest's own document —
-      //      the only place that can actually preventDefault() the native
+      //      that listens for 'contextmenu' INSIDE the guest's own document
+      //      — the only place that can actually preventDefault() the native
       //      Chromium menu for that content — and reports the click target +
       //      position to the host via console.log, tagged with a marker.
       //   2. Host listens for 'consolemessage' on the <webview> (this one
@@ -2175,12 +2241,12 @@ registerApp({
 
       // Re-inject the tracker after every navigation (SPAs included).
       wv.addEventListener('loadstop', () => {
-        try { wv.executeScript({ code: _GUEST_CTX_SCRIPT }); } catch (_) {}
+        try { wv.executeScript({ code: _GUEST_CTX_SCRIPT }); } catch { /* ignore */ }
       });
 
-      // Open a URL in a new tab (inherits incognito state).
+      // Open a URL in a new tab (inherits incognito state from the source tab).
       function _ctxOpenInNewTab(url) {
-        const _ctxTabId = [...tabWebviews.entries()].find(([, v]) => v === wv)?.[0];
+        const _ctxTabId = wv._nbTabId;
         const _ctxTab   = tabs.find(t => t.id === _ctxTabId);
         const t = { id: nextTabId++, title: 'New Tab', url, favicon: '', incognito: _ctxTab?.incognito || false };
         tabs.push(t);
@@ -2188,11 +2254,13 @@ registerApp({
         navigate(url);
       }
 
-      // Best-effort clipboard write.
+      // Best-effort clipboard write — try the async Clipboard API first,
+      // fall back to the deprecated execCommand path for non-secure
+      // contexts where navigator.clipboard is unavailable.
       function _ctxCopyText(text) {
         try {
           navigator.clipboard.writeText(text);
-        } catch (_) {
+        } catch {
           try {
             const ta = document.createElement('textarea');
             ta.value = text;
@@ -2201,7 +2269,7 @@ registerApp({
             ta.select();
             document.execCommand('copy');
             ta.remove();
-          } catch (__) {}
+          } catch { /* ignore */ }
         }
       }
 
@@ -2248,9 +2316,9 @@ registerApp({
         }
 
         // Page navigation (always present)
-        items.push({ label: 'Back',    action: () => { try { wv.back();    } catch (_) {} } });
-        items.push({ label: 'Forward', action: () => { try { wv.forward(); } catch (_) {} } });
-        items.push({ label: 'Reload',  action: () => { try { wv.reload();  } catch (_) {} } });
+        items.push({ label: 'Back',    action: () => { try { wv.back();    } catch { /* ignore */ } } });
+        items.push({ label: 'Forward', action: () => { try { wv.forward(); } catch { /* ignore */ } } });
+        items.push({ label: 'Reload',  action: () => { try { wv.reload();  } catch { /* ignore */ } } });
         items.push({ separator: true });
         if (pageUrl && /^https?:/i.test(pageUrl)) {
           items.push({ label: 'Copy Page URL', action: () => _ctxCopyText(pageUrl) });
@@ -2259,21 +2327,21 @@ registerApp({
           try { wv.executeScript({ code: 'location.href' }, r => {
             const url = (r && r[0]) || pageUrl;
             if (url) window.open(url);
-          }); } catch (_) {}
+          }); } catch { /* ignore */ }
         }});
         items.push({ label: 'Print\u2026', action: () => {
-          try { wv.executeScript({ code: 'window.print()' }); } catch (_) {}
+          try { wv.executeScript({ code: 'window.print()' }); } catch { /* ignore */ }
         }});
         items.push({ separator: true });
         items.push({ label: 'View Page Source', action: () => {
           try { wv.executeScript({ code: 'location.href' }, r => {
             const url = (r && r[0]) || pageUrl;
             if (url) _ctxOpenInNewTab('view-source:' + url);
-          }); } catch (_) {}
+          }); } catch { /* ignore */ }
         }});
         items.push({ label: 'Inspect', action: () => {
-          try { wv.showDevTools(true); } catch (_) {
-            try { nw.Window.get().showDevTools(); } catch (__) {}
+          try { wv.showDevTools(true); } catch {
+            try { nw.Window.get().showDevTools(); } catch { /* ignore */ }
           }
         }});
 
@@ -2286,9 +2354,9 @@ registerApp({
         const msg = e?.message;
         if (typeof msg !== 'string' || !msg.startsWith(_CTX_MARKER)) return;
         let ctx = null;
-        try { ctx = JSON.parse(msg.slice(_CTX_MARKER.length)); } catch (_) { return; }
+        try { ctx = JSON.parse(msg.slice(_CTX_MARKER.length)); } catch { return; }
 
-        const _ctxTabId = [...tabWebviews.entries()].find(([, v]) => v === wv)?.[0];
+        const _ctxTabId = wv._nbTabId;
         const _ctxTab   = tabs.find(t => t.id === _ctxTabId);
         const pageUrl    = ctx.pageUrl || _ctxTab?.url || currentUrl || '';
 
@@ -2305,7 +2373,7 @@ registerApp({
     function clearWebviewData(types, title, body) {
       requestAnimationFrame(() => {
         for (const [, wv] of tabWebviews) {
-          try { wv.clearData({}, types); } catch (_) {}
+          try { wv.clearData({}, types); } catch { /* ignore */ }
         }
       });
       Notify.show({ title, body, type: 'info', appName: 'Browser' });
@@ -2313,7 +2381,8 @@ registerApp({
 
     const showWebviewForTab = (tabId) => showViewForTab(tabId);
 
-    // ── Settings page ───────────────────────────────────────────────────────
+    // Settings page — built entirely via DOM APIs (no template literals
+    // with user-controlled content). Re-renders on category switch.
     function renderSettingsPage(activeCategory) {
       activeCategory = activeCategory || 'general';
       const eng = getSetting('searchEngine', 'brave');
@@ -2520,12 +2589,12 @@ registerApp({
         dataRow.append(
           mkClearBtn('Clear Cache', () => clearWebviewData({ cache: true, appcache: true }, 'Cache cleared', 'Cached data has been deleted.')),
           mkClearBtn('Clear History', () => {
-            try { localStorage.removeItem(HX_KEY); } catch (_) {}
+            try { localStorage.removeItem(HX_KEY); } catch { /* ignore */ }
             _historyCache = null;
             Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'info', appName: 'Browser' });
           }),
           mkClearBtn('Clear Bookmarks', () => {
-            try { localStorage.removeItem(BK_KEY); } catch (_) {}
+            try { localStorage.removeItem(BK_KEY); } catch { /* ignore */ }
             _bookmarksCache = null;
             refreshBookmarkSet();
             Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'info', appName: 'Browser' });
@@ -2575,7 +2644,7 @@ registerApp({
             [{ label: 'Reset', danger: true, value: true }, { label: 'Cancel', value: false }]
           ).then(confirmed => {
             if (!confirmed) return;
-            try { localStorage.removeItem(ST_KEY); } catch (_) {}
+            try { localStorage.removeItem(ST_KEY); } catch { /* ignore */ }
             _settingsCache = null;
             renderSettingsPage('general');
             Notify.show({ title: 'Settings reset', body: 'All browser settings restored to defaults.', type: 'success', appName: 'Browser' });
@@ -2589,8 +2658,9 @@ registerApp({
       viewport.appendChild(page);
     }
 
-    // ── Local-address guard ─────────────────────────────────────────────────
-    // Memoised — hostname is hashed to a boolean so repeated checks are O(1).
+    // Local-address guard — blocks navigation to RFC-1918 / loopback /
+    // link-local hosts to prevent SSRF-style attacks from guest content.
+    // Memoised: hostname → boolean so repeated checks are O(1).
     const _localAddrCache = new Map();
     function isLocalAddress(rawUrl) {
       let hostname;
@@ -2639,7 +2709,8 @@ registerApp({
       return result;
     }
 
-    // ── Path-traversal guard ────────────────────────────────────────────────
+    // Path-traversal guard — validates that filePath resolves inside basePath.
+    // Returns the resolved path on success, null on traversal attempt.
     function validateFilePath(basePath, filePath) {
       try {
         const nPath = require('path');
@@ -2656,11 +2727,15 @@ registerApp({
       }
     }
 
+    // Navigate the active tab to a URL. Handles all URL schemes the browser
+    // supports: browser://, vault:, http/https, plus search-query fallback
+    // for inputs that aren't URLs.
     function navigate(rawUrl) {
       if (!rawUrl) return;
       let url = rawUrl.trim();
       // Canonicalize: strip ALL control chars before scheme checks.
-      // Chromium strips \x09, \x0a, \x0d internally; mirror that here.
+      // Chromium strips \x09, \x0a, \x0d internally; mirror that here so
+      // a "java\nscript:" URL can't sneak past the scheme blocklist.
       const _canonicalUrl = url.toLowerCase()
         .replace(/[\s\u0000-\u001f\u007f-\u009f]/g, '')
         .trim();
@@ -2675,12 +2750,12 @@ registerApp({
         return;
       }
 
-      // browser://settings
+      // browser://settings — internal page, no network fetch.
       if (url === 'browser://settings') {
         urlBar.value = 'browser://settings';
         currentUrl = 'browser://settings';
-        const activeTab = tabs.find(t => t.id === activeTabId);
-        if (activeTab) { activeTab.url = url; activeTab.title = 'Settings'; }
+        const activeT = activeTab();
+        if (activeT) { activeT.url = url; activeT.title = 'Settings'; }
         renderTabs();
         renderSettingsPage();
         return;
@@ -2689,7 +2764,7 @@ registerApp({
       const settingsPage = viewport.querySelector('.browser-settings-page');
       if (settingsPage) settingsPage.remove();
 
-      // vault:// URL handling
+      // vault:// URL handling — open a file from the OS virtual filesystem.
       if (url.startsWith('vault:')) {
         if (!AppPermissionManager?.isGranted('vfs:write', 'browser')) {
           Notify.show({
@@ -2716,8 +2791,8 @@ registerApp({
         }
         if (targetNode && targetNode.content != null) {
           urlBar.value = stripHttps(url); currentUrl = url; updateUrlIcon(url);
-          const activeTab = tabs.find(t => t.id === targetTabId);
-          if (activeTab) { activeTab.url = url; activeTab.title = targetNode.name; }
+          const activeT = activeTab();
+          if (activeT) { activeT.url = url; activeT.title = targetNode.name; }
           renderTabs();
           const sd = viewport.querySelector('.speed-dial');
           if (sd) sd.remove();
@@ -2732,6 +2807,8 @@ registerApp({
             const dirKey = targetNode.parentId || 'root';
             const tmpBase = nPath.join(nOs.tmpdir(), 'nbosp_vault_' + dirKey);
             if (!nFs.existsSync(tmpBase)) nFs.mkdirSync(tmpBase, { recursive: true });
+            // Write sibling files alongside the target so relative resource
+            // references inside the HTML resolve correctly.
             if (targetNode.parentId) {
               for (const [, sib] of FS.files) {
                 if (sib.type !== 'file' || sib.parentId !== targetNode.parentId || sib.content == null) continue;
@@ -2755,7 +2832,7 @@ registerApp({
             }
           } catch (err) {
             console.error('[NB Browser] Failed to load vault file via file:// URL:', err);
-            // Fallback: use blob URL instead of file:// to avoid sandbox issues
+            // Fallback: use a blob URL instead of file:// to avoid sandbox issues.
             const contentStr = targetNode.content instanceof Uint8Array
               ? new TextDecoder().decode(targetNode.content)
               : String(targetNode.content);
@@ -2778,6 +2855,8 @@ registerApp({
         return;
       }
 
+      // Not a URL and not a known scheme — treat as a search query unless
+      // it looks like a domain (has a dot, no spaces).
       if (!url.match(/^https?:\/\//i) && !url.startsWith('blob:') && !url.startsWith('file://') && !url.startsWith('data:')) {
         url = (url.includes('.') && !url.includes(' ')) ? 'https://' + url : getSearchUrl(url);
       }
@@ -2799,10 +2878,10 @@ registerApp({
       }
 
       urlBar.value = stripHttps(url); currentUrl = url; updateUrlIcon(url);
-      const activeTab = tabs.find(t => t.id === activeTabId);
-      if (activeTab) {
-        activeTab.url = url;
-        try { activeTab.title = new URL(url).hostname; } catch { }
+      const activeT = activeTab();
+      if (activeT) {
+        activeT.url = url;
+        try { activeT.title = new URL(url).hostname; } catch { /* ignore */ }
       }
       renderTabs();
       const sd = viewport.querySelector('.speed-dial');
@@ -2814,18 +2893,19 @@ registerApp({
         const ifr = getOrCreateIframe(activeTabId);
         if (!ifr.parentNode) viewport.appendChild(ifr);
         showViewForTab(activeTabId);
-        // Server-side embed check BEFORE setting src. If the site blocks framing
-        // (XFO / CSP frame-ancestors), keep the iframe hidden and show our
-        // custom notice instead of letting Chromium render "refused to connect".
+        // Server-side embed check BEFORE setting src. If the site blocks
+        // framing (XFO / CSP frame-ancestors), keep the iframe hidden and
+        // show our custom notice instead of letting Chromium render
+        // "refused to connect".
         ifr.style.visibility = 'hidden';
         ifr.style.pointerEvents = 'none';
-        // Abort any previous in-flight navigation.
+        // Abort any previous in-flight navigation by resetting src.
         ifr.setAttribute('src', 'about:blank');
         checkFrameEmbeddable(activeTabId, url).then(result => {
           // Stale? Another navigation / mode switch superseded this tab.
           if (result === null) return;
           if (getTabMode(activeTabId) !== 'iframe') return;
-          const curTab = tabs.find(t => t.id === activeTabId);
+          const curTab = activeTab();
           if (curTab?.url !== url) return; // user navigated elsewhere
           if (result === false) {
             // Keep the iframe hidden (it's on about:blank) and show our notice.
@@ -2851,7 +2931,8 @@ registerApp({
 
     const stripHttps = (url) => url ? url.replace(/^https:\/\//, '') : '';
 
-    // ── Omnibox dropdown ────────────────────────────────────────────────────
+    // Omnibox dropdown — appears below the URL bar with bookmark/history
+    // matches as the user types.
     const omniDrop = createEl('div', { className: 'omnibox-dropdown' });
     omniDrop.setAttribute('role', 'listbox');
     container.appendChild(omniDrop);
@@ -2859,7 +2940,6 @@ registerApp({
     let omniItems = [];
     let omniIdx = -1;
     let omniTimer = null;
-    let omniController = null;
     let omniGen = 0; // bumped per query + on close → stale renders bail out
 
     function omniReposition() {
@@ -2874,7 +2954,6 @@ registerApp({
       // reopen the dropdown after Enter / blur / Esc.
       omniGen++;
       clearTimeout(omniTimer);
-      if (omniController) { try { omniController.abort(); } catch (_) {} omniController = null; }
       omniDrop.style.display = 'none';
       omniDrop.replaceChildren();
       omniItems = [];
@@ -2907,6 +2986,8 @@ registerApp({
         } else {
           row.append(ic, tx);
         }
+        // mousedown (not click) so the URL bar doesn't lose focus before
+        // we can read which suggestion was picked.
         row.addEventListener('mousedown', e => {
           e.preventDefault();
           omniClose();
@@ -2923,11 +3004,12 @@ registerApp({
       const q = raw.trim();
       if (!q) { omniClose(); return; }
 
-      // Capture this query's generation; any newer query (or omniClose) bumps
-      // omniGen, so a stale fetch result will bail before rendering.
+      // Capture this query's generation; any newer query (or omniClose)
+      // bumps omniGen, so a stale fetch result will bail before rendering.
       const gen = (++omniGen);
 
-      // Local sources — instant (Iterator helpers, ES2025, lazy pipelines).
+      // Local sources — instant. Filters run on the cached arrays so no
+      // localStorage reads happen on every keystroke.
       const lq = q.toLowerCase();
       const bkItems = loadBookmarks()
         .filter(b => b.url.toLowerCase().includes(lq) || (b.title || '').toLowerCase().includes(lq))
@@ -2942,7 +3024,7 @@ registerApp({
       omniRender([...bkItems, ...hxItems]);
     }
 
-    // ── URL bar events ──────────────────────────────────────────────────────
+    // URL bar events
     urlBar.addEventListener('keydown', e => {
       if (omniDrop.style.display === 'block') {
         if (e.key === 'ArrowDown') {
@@ -2977,44 +3059,41 @@ registerApp({
       urlBar.value = stripHttps(currentUrl || urlBar.value);
     });
 
-    // Clean up omnibox timer & in-flight request on app teardown.
-    state.cleanups.push(() => {
-      clearTimeout(omniTimer);
-      if (omniController) try { omniController.abort(); } catch (_) {}
-    });
+    // Clean up omnibox timer on app teardown.
+    state.cleanups.push(() => clearTimeout(omniTimer));
 
-    // ── Global keyboard shortcuts ───────────────────────────────────────────
+    // Global keyboard shortcuts
     const _onBrowserKeydown = e => {
       if (e.key === 'F12') {
         e.preventDefault();
-        try { nw.Window.get().showDevTools(); } catch (_) {}
+        try { nw.Window.get().showDevTools(); } catch { /* ignore */ }
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'J') {
         e.preventDefault();
         const wv = tabWebviews.get(activeTabId);
-        if (wv) try { wv.showDevTools(true); } catch (_) {}
+        if (wv) try { wv.showDevTools(true); } catch { /* ignore */ }
       }
     };
     document.addEventListener('keydown', _onBrowserKeydown);
     state.cleanups.push(() => document.removeEventListener('keydown', _onBrowserKeydown));
 
-    // ── Navigation button handlers ──────────────────────────────────────────
+    // Navigation button handlers
     backBtn.addEventListener('click', () => {
       if (getTabMode(activeTabId) === 'iframe') {
         const ifr = tabIframes.get(activeTabId);
-        try { ifr?.contentWindow?.history.back(); } catch (_) {}
+        try { ifr?.contentWindow?.history.back(); } catch { /* ignore */ }
       } else {
         const wv = tabWebviews.get(activeTabId);
-        try { wv?.back(); } catch (_) {}
+        try { wv?.back(); } catch { /* ignore */ }
       }
     });
     fwdBtn.addEventListener('click', () => {
       if (getTabMode(activeTabId) === 'iframe') {
         const ifr = tabIframes.get(activeTabId);
-        try { ifr?.contentWindow?.history.forward(); } catch (_) {}
+        try { ifr?.contentWindow?.history.forward(); } catch { /* ignore */ }
       } else {
         const wv = tabWebviews.get(activeTabId);
-        try { wv?.forward(); } catch (_) {}
+        try { wv?.forward(); } catch { /* ignore */ }
       }
     });
     refreshBtn.addEventListener('click', () => {
@@ -3023,16 +3102,17 @@ registerApp({
         const ifr = tabIframes.get(activeTabId);
         if (ifr) {
           try { ifr.contentWindow.location.reload(); }
-          catch (_) { const _s = ifr.src; ifr.src = ''; ifr.src = _s; }
+          catch { const _s = ifr.src; ifr.src = ''; ifr.src = _s; }
         }
       } else {
         const wv = tabWebviews.get(activeTabId);
-        if (wv) try { wv.reload(); } catch (_) {}
+        if (wv) try { wv.reload(); } catch { /* ignore */ }
         else if (currentUrl) navigate(currentUrl);
       }
     });
 
-    // ── Open HTML file from vault ───────────────────────────────────────────
+    // Open HTML file from vault — triggered when the browser is launched
+    // with options.fileId (e.g. double-clicking an HTML file in Files app).
     if (options?.fileId) {
       if (!AppPermissionManager?.isGranted('vfs:write', 'browser')) {
         Notify.show({
@@ -3076,6 +3156,8 @@ registerApp({
           const dirKey = fileNode.parentId || 'root';
           const tmpBase = nPath.join(nOs.tmpdir(), 'nbosp_vault_' + dirKey);
           if (!nFs.existsSync(tmpBase)) nFs.mkdirSync(tmpBase, { recursive: true });
+          // Write sibling files alongside the target so relative resource
+          // references inside the HTML resolve correctly.
           if (fileNode.parentId) {
             for (const [, sib] of FS.files) {
               if (sib.type !== 'file' || sib.parentId !== fileNode.parentId || sib.content == null) continue;
@@ -3100,9 +3182,8 @@ registerApp({
           console.error('[NB Browser] File system error during vault loading:', err);
         }
         if (!loaded) {
-          // FIX: original code had a syntax error here (Blob called with a
-          // malformed array literal). Now uses a proper Blob containing the
-          // decoded HTML string.
+          // Fallback: blob URL when the file:// approach fails (e.g. sandbox
+          // restrictions). Uses the already-decoded htmlContent string.
           const blob = new Blob([htmlContent], { type: 'text/html' });
           const blobUrl = URL.createObjectURL(blob);
           wv.src = blobUrl;
@@ -3117,14 +3198,14 @@ registerApp({
       }
     }
 
-    // ── Open URL passed from OS.openUrl() ───────────────────────────────────
+    // Open URL passed from OS.openUrl() — launched with options.url.
     if (options?.url) {
       renderTabs();
       navigate(options.url);
       return;
     }
 
-    // ── Initial render ──────────────────────────────────────────────────────
+    // Initial render
     renderTabs();
     (() => {
       const _hp = getSetting('homepage', 'most_visited');
@@ -3140,3 +3221,4 @@ registerApp({
     })();
   }
 });
+
