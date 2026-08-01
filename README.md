@@ -598,11 +598,9 @@ novabyte-os/
 │  │  │  │  ├── app-registry.js    # Full app registry
 │  │  │  │  ├── app-package.js     # App package management
 │  │  │  │  └── nova-app-package-store.js # Installed .novaapp store
-│  │  │  ├── ui/         # Platform UI modules
-│  │  │  │  ├── my-apps-manager.js   # User app management
-│  │  │  │  └── web-app-manager.js   # Web app management
-│  │  │  └── utils/        # Platform utilities
-│  │  │    └── safe-storage.js    # Secure storage abstraction
+│  │  │  └── ui/         # Platform UI modules
+│  │  │    ├── my-apps-manager.js   # User app management
+│  │  │    └── web-app-manager.js   # Web app management
 │  │  └── apps/          # Standalone applications
 │  │    ├── files.js       # File manager
 │  │    ├── terminal.js     # Terminal emulator
