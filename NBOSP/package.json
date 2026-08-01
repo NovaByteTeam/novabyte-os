@@ -69,8 +69,5 @@
     "nw@0.114.0-sdk": true,
     "nw-builder@4.18.0": true,
     "better-sqlite3@13.0.2": true
-  },
-  "overrides": {
-    "**": "latest"
   }
 }

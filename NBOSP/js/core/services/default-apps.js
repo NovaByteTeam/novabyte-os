@@ -34,66 +34,96 @@
 //
 // @module js/core/services/default-apps
 
+// categoryId -> { name, apps: [{id, name, icon}] }
+// `apps` here is ONLY the hardcoded built-in candidates — third-party
+// apps are found dynamically in getAppsForCategory(), not listed here.
+//
+// Frozen (deep) because this is a flat-global-script architecture — any
+// installed app has direct access to window.DefaultApps. Without freezing,
+// a buggy or malicious app could do DefaultApps.CATEGORIES.browser.apps.push(...)
+// and permanently corrupt the picker for every app in the session, not
+// just its own. Same reasoning for ROUTES below.
+const CATEGORIES = Object.freeze({
+  browser: Object.freeze({
+    name: 'Web Browser',
+    apps: Object.freeze([
+      Object.freeze({ id: 'browser', name: 'Browser', icon: 'globe' }),
+    ]),
+  }),
+  texteditor: Object.freeze({
+    name: 'Text Editor',
+    apps: Object.freeze([
+      Object.freeze({ id: 'quill', name: 'TextEdit', icon: 'pen-tool' }),
+    ]),
+  }),
+  music: Object.freeze({
+    name: 'Music Player',
+    apps: Object.freeze([
+      Object.freeze({ id: 'nbosp-music', name: 'Music', icon: 'music' }),
+    ]),
+  }),
+  gallery: Object.freeze({
+    name: 'Photo Viewer',
+    apps: Object.freeze([
+      Object.freeze({ id: 'nbosp-gallery', name: 'Gallery', icon: 'image' }),
+    ]),
+  }),
+  email: Object.freeze({
+    name: 'Email',
+    apps: Object.freeze([
+      Object.freeze({ id: 'nbosp-email', name: 'Email', icon: 'mail' }),
+    ]),
+  }),
+  calendar: Object.freeze({
+    name: 'Calendar',
+    apps: Object.freeze([
+      Object.freeze({ id: 'calendar-app', name: 'Calendar', icon: 'calendar' }),
+    ]),
+  }),
+});
+
+// Extensions/protocols routed to each category — used by
+// getCategoryFor()/resolveHandler() to decide *which* category a file or
+// link belongs to, AND by the live-discovery half of getAppsForCategory()
+// to check a third-party app's `handles` block for overlap. Kept separate
+// from CATEGORIES.apps on purpose: which built-in apps fill a slot and
+// which files fall into that slot are different questions.
+const ROUTES = Object.freeze({
+  browser:    Object.freeze({ protocols: Object.freeze(['http', 'https']), extensions: Object.freeze(['.html', '.htm']) }),
+  texteditor: Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.txt', '.md', '.json', '.js', '.css', '.log']) }),
+  music:      Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.mp3', '.wav', '.ogg', '.flac', '.m4a']) }),
+  gallery:    Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']) }),
+  email:      Object.freeze({ protocols: Object.freeze(['mailto']),        extensions: Object.freeze([]) }),
+  calendar:   Object.freeze({ protocols: Object.freeze(['webcal']),        extensions: Object.freeze(['.ics']) }),
+});
+
+const SETTINGS_KEY = 'defaultApps';
+
+// Precomputed once at load instead of rebuilt on every _dynamicCandidates()
+// call — the ROUTES table never changes at runtime (it's frozen above), so
+// there's no reason to re-derive these Sets on every scan of OS.apps.
+const ROUTE_PROTOCOL_SETS = new Map(
+  Object.entries(ROUTES).map(([categoryId, route]) => [categoryId, new Set(route.protocols)])
+);
+const ROUTE_EXTENSION_SETS = new Map(
+  Object.entries(ROUTES).map(([categoryId, route]) => [categoryId, new Set(route.extensions)]) // already lowercase in ROUTES
+);
+const STATIC_IDS_BY_CATEGORY = new Map(
+  Object.entries(CATEGORIES).map(([categoryId, category]) => [categoryId, new Set(category.apps.map(a => a.id))])
+);
+
+// All valid app ids across every category's static candidate list — used
+// to sanity-check a chosen appId is at least a real built-in id shape, not
+// a typo or injected garbage. (Third-party ids are still allowed; this
+// only rules out empty/non-string values, see _isPlausibleAppId below.)
+function isPlausibleAppId(appId) {
+  return typeof appId === 'string' && appId.length > 0 && appId.length <= 200;
+}
+
 const DefaultApps = {
 
-  // categoryId -> { name, apps: [{id, name, icon}] }
-  // `apps` here is ONLY the hardcoded built-in candidates — third-party
-  // apps are found dynamically in getAppsForCategory(), not listed here.
-  CATEGORIES: {
-    browser: {
-      name: 'Web Browser',
-      apps: [
-        { id: 'browser', name: 'Browser', icon: 'globe' },
-      ],
-    },
-    texteditor: {
-      name: 'Text Editor',
-      apps: [
-        { id: 'quill', name: 'TextEdit', icon: 'pen-tool' },
-      ],
-    },
-    music: {
-      name: 'Music Player',
-      apps: [
-        { id: 'nbosp-music', name: 'Music', icon: 'music' },
-      ],
-    },
-    gallery: {
-      name: 'Photo Viewer',
-      apps: [
-        { id: 'nbosp-gallery', name: 'Gallery', icon: 'image' },
-      ],
-    },
-    email: {
-      name: 'Email',
-      apps: [
-        { id: 'nbosp-email', name: 'Email', icon: 'mail' },
-      ],
-    },
-    calendar: {
-      name: 'Calendar',
-      apps: [
-        { id: 'calendar-app', name: 'Calendar', icon: 'calendar' },
-      ],
-    },
-  },
-
-  // Extensions/protocols routed to each category — used by
-  // getCategoryFor()/resolveHandler() to decide *which* category a file or
-  // link belongs to, AND by the live-discovery half of getAppsForCategory()
-  // to check a third-party app's `handles` block for overlap. Kept separate
-  // from CATEGORIES.apps on purpose: which built-in apps fill a slot and
-  // which files fall into that slot are different questions.
-  ROUTES: {
-    browser:    { protocols: ['http', 'https'], extensions: ['.html', '.htm'] },
-    texteditor: { protocols: [],                extensions: ['.txt', '.md', '.json', '.js', '.css', '.log'] },
-    music:      { protocols: [],                extensions: ['.mp3', '.wav', '.ogg', '.flac', '.m4a'] },
-    gallery:    { protocols: [],                extensions: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'] },
-    email:      { protocols: ['mailto'],        extensions: [] },
-    calendar:   { protocols: ['webcal'],        extensions: ['.ics'] },
-  },
-
-  _settingsKey: 'defaultApps',
+  CATEGORIES,
+  ROUTES,
 
   // ── Candidate apps ────────────────────────────────────────────────────
 
@@ -107,9 +137,13 @@ const DefaultApps = {
    * @returns {Array<{id: string, name: string, icon: string}>}
    */
   _staticCandidates(categoryId) {
-    const category = this.CATEGORIES[categoryId];
+    const category = CATEGORIES[categoryId];
     if (!category) return [];
     const hasOSApps = typeof OS !== 'undefined' && OS.apps && Object.keys(OS.apps).length > 0;
+    // .slice() here (and below) so callers get a fresh, mutable array —
+    // the source arrays are frozen, so handing one out directly would let
+    // a caller's .push()/.sort() throw or silently no-op depending on
+    // strict mode, instead of just working like a normal array.
     if (!hasOSApps) return category.apps.slice();
     return category.apps.filter(a => !!OS.apps[a.id]);
   },
@@ -124,21 +158,22 @@ const DefaultApps = {
    * @returns {Array<{id: string, name: string, icon: string}>}
    */
   _dynamicCandidates(categoryId) {
-    const route = this.ROUTES[categoryId];
-    if (!route || typeof OS === 'undefined' || !OS.apps) return [];
+    if (typeof OS === 'undefined' || !OS.apps) return [];
+    const protoSet = ROUTE_PROTOCOL_SETS.get(categoryId);
+    const extSet = ROUTE_EXTENSION_SETS.get(categoryId);
+    if (!protoSet || !extSet) return [];
 
-    const staticIds = new Set((this.CATEGORIES[categoryId]?.apps || []).map(a => a.id));
-    const protoSet   = new Set(route.protocols);
-    const extSet     = new Set(route.extensions.map(e => e.toLowerCase()));
+    const staticIds = STATIC_IDS_BY_CATEGORY.get(categoryId) || new Set();
 
     const matches = [];
     for (const [id, config] of Object.entries(OS.apps)) {
       if (staticIds.has(id)) continue; // built-ins come from CATEGORIES, not here
       const handles = config && config.handles;
       if (!handles) continue;
-      const appProtos = handles.protocols  || [];
-      const appExts    = (handles.extensions || []).map(e => e.toLowerCase());
-      const overlaps = appProtos.some(p => protoSet.has(p)) || appExts.some(e => extSet.has(e));
+      const appProtos = Array.isArray(handles.protocols) ? handles.protocols : [];
+      const appExts = Array.isArray(handles.extensions) ? handles.extensions : [];
+      const overlaps = appProtos.some(p => protoSet.has(p))
+        || appExts.some(e => typeof e === 'string' && extSet.has(e.toLowerCase()));
       if (overlaps) matches.push({ id, name: config.name || id, icon: config.icon || null });
     }
     return matches;
@@ -152,7 +187,7 @@ const DefaultApps = {
    * @returns {Array<{id: string, name: string, icon: string}>}
    */
   getAppsForCategory(categoryId) {
-    const staticList  = this._staticCandidates(categoryId);
+    const staticList = this._staticCandidates(categoryId);
     const dynamicList = this._dynamicCandidates(categoryId);
     const seen = new Set(staticList.map(a => a.id));
     const merged = staticList.slice();
@@ -170,8 +205,8 @@ const DefaultApps = {
    * @returns {string|null}
    */
   getCategoryFor({ extension, protocol } = {}) {
-    const ext = extension ? extension.toLowerCase() : null;
-    for (const [categoryId, route] of Object.entries(this.ROUTES)) {
+    const ext = typeof extension === 'string' ? extension.toLowerCase() : null;
+    for (const [categoryId, route] of Object.entries(ROUTES)) {
       if (protocol && route.protocols.includes(protocol)) return categoryId;
       if (ext && route.extensions.includes(ext)) return categoryId;
     }
@@ -185,7 +220,20 @@ const DefaultApps = {
    */
   _getMap() {
     if (typeof OS === 'undefined' || !OS.settings) return {};
-    return OS.settings.get(this._settingsKey) || {};
+    let stored;
+    try {
+      stored = OS.settings.get(SETTINGS_KEY);
+    } catch (err) {
+      console.error('DefaultApps: OS.settings.get threw, falling back to empty map', err);
+      return {};
+    }
+    // Guard against a corrupted/legacy value (e.g. an array, a string, or
+    // null stored under this key by an old buggy version). Without this,
+    // setDefault() below would write categoryId/appId onto whatever that
+    // value is — which "works" on an array by accident and throws on a
+    // primitive — instead of cleanly recovering to a fresh object.
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+    return stored;
   },
 
   /**
@@ -196,21 +244,39 @@ const DefaultApps = {
    * @returns {string|null}
    */
   getDefault(categoryId) {
-    return this._getMap()[categoryId] || null;
+    const chosen = this._getMap()[categoryId];
+    return isPlausibleAppId(chosen) ? chosen : null;
   },
 
   /**
    * Persist the user's choice. Emits the normal 'settings:changed' event
    * (via OS.settings.set) so anything caching a resolved handler — none of
    * the built-in apps do today, but a future one might — can invalidate.
+   *
+   * Validates categoryId/appId before writing: this object lives on
+   * window and any installed app can call it directly, so a typo'd or
+   * malicious call shouldn't be able to wedge junk into persisted
+   * settings that Settings' UI (which reads getDefault() straight back
+   * out, unlike resolveHandler(), it doesn't re-check OS.apps) would then
+   * render as-is.
    * @param {string} categoryId
    * @param {string} appId
+   * @returns {boolean} true if the write happened
    */
   setDefault(categoryId, appId) {
-    if (typeof OS === 'undefined' || !OS.settings) return;
+    if (typeof OS === 'undefined' || !OS.settings) return false;
+    if (!CATEGORIES[categoryId]) {
+      console.warn(`DefaultApps.setDefault: unknown category "${categoryId}"`);
+      return false;
+    }
+    if (!isPlausibleAppId(appId)) {
+      console.warn(`DefaultApps.setDefault: invalid appId for category "${categoryId}"`);
+      return false;
+    }
     const map = this._getMap();
     map[categoryId] = appId;
-    OS.settings.set(this._settingsKey, map);
+    OS.settings.set(SETTINGS_KEY, map);
+    return true;
   },
 
   /**
@@ -237,8 +303,4 @@ const DefaultApps = {
   },
 };
 
-if (typeof DefaultApps !== 'undefined') {
-  window.DefaultApps = DefaultApps;
-} else {
-  console.warn('DefaultApps object was not found in the local scope of default-apps.js');
-}
+window.DefaultApps = DefaultApps;
