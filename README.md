@@ -21,6 +21,10 @@
 
 <br>
 
+**→ [Check out the live site](https://novabyteteam.github.io/novabyte-os/)**
+
+<br>
+
 [**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Security**](#-security) · [**Versions**](#-versions)
 
 </div>
@@ -108,7 +112,7 @@ The `NBOSP/` folder in this repo is the **free, open base of NovaByte**.
 > **This is by design.** NBOSP is the raw skeleton — the base you fork and build on top of. It is not competing with v3 or any consumer OS on features. If you want a fully featured NovaByte OS, download v3 from [Releases](https://github.com/NovaByteTeam/novabyte-os/releases/latest).
 
 - Use, copy, modify, fork, sell, and redistribute it under the Apache 2.0 licence.
-- Preserve the copyright notices and the `NBOSP/LICENSE` text.
+- Preserve the copyright notices and the `LICENSE` text.
 - This is the NBOSP foundation.
 - Basic security (rate limiting, CSRF protection, security headers) is built in
 - No edition system, no update pipeline, and no telemetry
@@ -629,9 +633,9 @@ novabyte-os/
 │  │  ├── favicons.db       # Persistent SQLite favicon cache
 │  │  ├── sessions.db       # Express session store (backs admin:users session list/revoke)
 │  │  └── admin-state.json   # Local admin-mode flag (Settings → Privacy & Security → Admin Access)
-│  ├── assets/
-│  └── LICENSE
+│  └── assets/
 ├── .gitignore
+├── LICENSE
 ├── logo.svg
 └── README.md
 ```
@@ -784,7 +788,7 @@ If you discover a security vulnerability, please **open a private issue** or con
 |📁 `NBOSP/`      |**Apache 2.0 License** |Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text.|
 |📁 `v1/`, `v2/`, `v3/`|**All Rights Reserved**|Closed source. Source not included in this repo. Compiled exe available via Releases.                   |
 
-*See `NBOSP/LICENSE` for the complete Apache 2.0 legal text governing the open-source base.*
+*See `LICENSE` for the complete Apache 2.0 legal text governing the open-source base.*
 
 -----
 
