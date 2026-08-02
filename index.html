@@ -8,6 +8,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&amp;family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<!-- Lenis: replaces native scroll with lerp-smoothed momentum scrolling.
+     wraps the browser's real scroll (doesn't hijack it), so position:sticky,
+     anchor links, and the reveal-on-scroll IntersectionObserver below all
+     keep working untouched. skipped entirely under prefers-reduced-motion,
+     see the init call near the bottom of the page. -->
+<link rel="stylesheet" href="https://unpkg.com/lenis@1.3.23/dist/lenis.css">
+<script src="https://unpkg.com/lenis@1.3.23/dist/lenis.min.js"></script>
 <style>
   /*
     layer order is declared once, up front, so priority between groups is
@@ -69,17 +76,23 @@
         "slightly brighter green." equal lightness steps in oklch actually
         look equally bright too, unlike hsl.
       */
-      --bg-void: oklch(15% 0.01 255);
-      --bg-panel: oklch(19% 0.012 255);
-      --bg-panel-raised: oklch(22% 0.014 255);
-      --border-hairline: oklch(29% 0.02 255);
-      --border-hairline-bright: oklch(38% 0.02 255);
+      /* pushed the whole gray ramp several steps darker/blacker — void is
+         now near true black instead of charcoal, panel/raised follow the
+         same relative spacing so contrast between layers doesn't collapse */
+      --bg-void: oklch(8% 0.008 255);
+      --bg-panel: oklch(12% 0.01 255);
+      --bg-panel-raised: oklch(15% 0.012 255);
+      --border-hairline: oklch(22% 0.018 255);
+      --border-hairline-bright: oklch(32% 0.02 255);
 
-      --ink: oklch(92% 0.005 255);
+      --ink: oklch(93% 0.005 255);
       --ink-dim: oklch(68% 0.02 255);
       --ink-faint: oklch(46% 0.02 255);
 
-      --glow-primary: oklch(74% 0.19 148);
+      /* default accent swapped green -> blue, matched to the "Blue" swatch
+         (#58a6ff) already used in the theme-preview widget below, so the
+         page's own accent and the preview grid agree by default */
+      --glow-primary: oklch(70% 0.14 254);
       --glow-primary-soft: color-mix(in oklch, var(--glow-primary) 12%, transparent);
       --glow-primary-dim: color-mix(in oklch, var(--glow-primary) 65%, black);
 
@@ -97,9 +110,9 @@
       --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
       --ease-smooth: cubic-bezier(0.65, 0, 0.35, 1);
 
-      --radius-tight: 10px;
-      --radius-normal: 16px;
-      --radius-loose: 22px;
+      --radius-tight: 16px;
+      --radius-normal: 24px;
+      --radius-loose: 32px;
 
       /* glass surfaces: translucent panel bg + blur, so cards read as
          "floating over" the grid texture instead of flat-painted on it */
@@ -125,11 +138,45 @@
     }
 
     /*
-      faint grid texture, fixed to the viewport so it doesn't scroll with
-      content. it's deliberately quiet — the cursor glow (added later, on
-      cards) is the thing that's supposed to catch your eye, not this.
-      giving two things ambient motion at once just makes a page feel busy.
+      dynamic background, two layers instead of one static grid:
+
+      body::after — a big, soft, slow-drifting radial glow well behind
+      everything else. only `transform` is animated (compositor-only, no
+      layout/paint cost), so it stays free even on a page this animation-
+      heavy. this is the "dynamic" part — the page never looks static
+      even before you touch it.
+
+      body::before — the original grid texture, now on a much slower
+      opacity breathe so it doesn't compete with the glow or the
+      per-card cursor glow. still deliberately quiet.
     */
+    body {
+      position: relative;
+      overflow-x: clip;
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: -20vmax;
+      background:
+        radial-gradient(closest-side, var(--glow-primary-soft), transparent 70%);
+      background-repeat: no-repeat;
+      background-position: 20% 20%, 80% 70%;
+      filter: blur(40px);
+      opacity: 0.5;
+      pointer-events: none;
+      z-index: 0;
+      animation: ambient-drift 26s var(--ease-smooth) infinite alternate;
+      will-change: transform;
+    }
+
+    @keyframes ambient-drift {
+      0%   { transform: translate3d(-6%, -4%, 0) scale(1); }
+      50%  { transform: translate3d(8%, 6%, 0) scale(1.15); }
+      100% { transform: translate3d(-2%, 10%, 0) scale(1.05); }
+    }
+
     body::before {
       content: '';
       position: fixed;
@@ -141,6 +188,22 @@
       opacity: 0.15;
       pointer-events: none;
       z-index: 0;
+      animation: grid-breathe 12s ease-in-out infinite;
+    }
+
+    @keyframes grid-breathe {
+      0%, 100% { opacity: 0.12; }
+      50%      { opacity: 0.2; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body::after {
+        animation: none;
+        opacity: 0.3;
+      }
+      body::before {
+        animation: none;
+      }
     }
 
     code, .mono {
@@ -200,8 +263,8 @@
       flex-shrink: 0;
 
       & svg {
-        width: 32px !important;
-        height: 32px !important;
+        width: 40px !important;
+        height: 40px !important;
         display: block !important;
       }
     }
@@ -229,25 +292,55 @@
       align-self: center !important;
       background: transparent;
       border: 1px solid var(--border-hairline);
-      border-radius: var(--radius-tight);
+      border-radius: var(--radius-normal);
       color: var(--ink);
       cursor: pointer;
+      transition: border-color var(--pace-quick) var(--ease-smooth), background-color var(--pace-quick) var(--ease-smooth);
       flex-shrink: 0;
 
-      & svg { width: 18px; height: 18px; }
+      &:hover {
+        border-color: var(--border-hairline-bright);
+        background: var(--bg-panel);
+      }
+
+      & svg { width: 18px; height: 18px; overflow: visible; }
+
+      /*
+        hamburger -> X morph, driven off aria-expanded so it can never go
+        out of sync with the actual open/closed state (the JS already sets
+        this attribute, no extra JS needed here). each line rotates/slides
+        around its own center — top and bottom lines pivot into the two
+        diagonal strokes of the X, middle line just fades out.
+      */
+      & [data-toggle-icon] line {
+        transform-origin: center;
+        transition: transform var(--pace-normal) var(--ease-smooth), opacity var(--pace-quick) var(--ease-smooth);
+      }
+
+      &[aria-expanded="true"] [data-toggle-icon] {
+        & line:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+        & line:nth-child(2) { opacity: 0; }
+        & line:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+      }
     }
 
     .nav-panel {
       position: fixed;
-      inset-block: 0;
+      /* small inset off the top/bottom edges so the rounded corners below
+         actually show — flush 0/0 would clip them right off the viewport */
+      inset-block: 12px 12px;
       inset-inline-start: 0;
       z-index: 30;
       display: flex;
       flex-direction: column;
       width: min(320px, 85vw);
       padding: 24px;
-      border-inline-end: 1px solid var(--border-hairline);
+      border: 1px solid var(--border-hairline);
+      border-inline-start: none;
+      border-start-end-radius: var(--radius-loose);
+      border-end-end-radius: var(--radius-loose);
       background: var(--bg-void);
+      box-shadow: 0 20px 60px -20px oklch(0% 0 0 / 0.6);
       transform: translateX(-100%);
       transition: transform var(--pace-normal) var(--ease-smooth);
       overflow-y: auto;
@@ -657,6 +750,14 @@
     }
 
     /* ---------- what it is / isn't ---------- */
+    .what-lede {
+      margin-block-start: 24px;
+      max-width: 72ch;
+      font-size: 15px;
+      color: var(--ink-dim);
+      line-height: 1.7;
+    }
+
     .split-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -672,11 +773,13 @@
       border: 1px solid var(--border-hairline);
       border-radius: var(--radius-loose);
       padding: 24px;
-      transition: border-color var(--pace-normal) var(--ease-smooth), translate var(--pace-normal) var(--ease-smooth);
+      transition: border-color var(--pace-normal) var(--ease-smooth), translate var(--pace-normal) var(--ease-smooth), scale var(--pace-normal) var(--ease-smooth), box-shadow var(--pace-normal) var(--ease-smooth);
 
       &:hover {
         border-color: var(--border-hairline-bright);
-        translate: 0 -3px;
+        translate: 0 -5px;
+        scale: 1.012;
+        box-shadow: 0 20px 40px -24px color-mix(in oklch, var(--glow-primary) 35%, transparent);
       }
 
       & h3 {
@@ -1307,6 +1410,7 @@
       margin-block-start: 10px;
       max-height: 320px;
       overflow-y: auto;
+      overscroll-behavior: contain;
       display: grid;
       gap: 2px;
     }
@@ -1465,11 +1569,16 @@
       /* CM6 manages its own internal scroller — this just needs to be a
          solidly-sized box for CM6 to measure against. position:absolute
          gets a definite size straight from .file-preview-body without
-         depending on every ancestor in a flex chain resolving cleanly. */
+         depending on every ancestor in a flex chain resolving cleanly.
+         overscroll-behavior stops scroll from chaining to the page behind
+         the dialog once you hit the top/bottom of the file, which is the
+         other half of the Lenis-in-modals fix alongside data-lenis-prevent
+         on the ancestor above. */
       & .cm-editor {
         height: 100%;
         font-family: var(--font-mono);
         font-size: 13px;
+        overscroll-behavior: contain;
       }
     }
 
@@ -1662,6 +1771,57 @@
     .arch-connector {
       color: var(--ink-faint);
       font-size: 16px;
+    }
+
+    .arch-stats {
+      margin-block-start: 28px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .arch-stat {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-normal);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: border-color var(--pace-normal) var(--ease-smooth), translate var(--pace-normal) var(--ease-smooth);
+
+      &:hover {
+        border-color: var(--border-hairline-bright);
+        translate: 0 -3px;
+      }
+    }
+
+    .arch-stat-number {
+      font-family: var(--font-mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--glow-primary);
+      line-height: 1;
+    }
+
+    .arch-stat-label {
+      font-size: 13px;
+      color: var(--ink-dim);
+      line-height: 1.5;
+    }
+
+    .arch-note {
+      margin-block-start: 24px;
+      padding: 16px 18px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-normal);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      font-size: 13.5px;
+      color: var(--ink-dim);
+      line-height: 1.6;
+      max-width: 72ch;
     }
 
     /* ---------- requirements table ---------- */
@@ -2056,6 +2216,16 @@
         </p>
       </div>
 
+      <p class="what-lede reveal-on-scroll needs-js-reveal">
+        NBOSP is the actual foundation NovaByte built its own closed-source OS on top of — not a
+        stripped-down demo released alongside it. NovaByte took this exact codebase, added an update
+        system, Nova Core Services, and a full set of proprietary apps, and shipped that as v3. From here
+        on, the two app lines are maintained separately: NBOSP's apps stay feature-frozen and get bug and
+        security fixes only, while NovaByte's own apps keep gaining features on their own track. Basic
+        security — rate limiting, CSRF protection, and security headers — is built into NBOSP itself, not
+        bolted on by whoever forks it.
+      </p>
+
       <div class="split-grid">
         <div class="split-card is-what glow-surface glass reveal-on-scroll needs-js-reveal">
           <h3>NBOSP is</h3>
@@ -2078,6 +2248,14 @@
           </ul>
         </div>
       </div>
+
+      <p class="arch-note reveal-on-scroll needs-js-reveal">
+        <strong>Why Settings is the one exception:</strong> it isn't really an app — it's the
+        configuration layer for the whole OS, controlling the visual identity (themes, accents, layout) of
+        every window, not just its own. Because it affects how the OS looks and behaves at the system
+        level, it keeps receiving new options and visual updates as NBOSP evolves, same as the
+        developer-only apps below.
+      </p>
     </div>
   </section>
 
@@ -2258,6 +2436,27 @@
           <div class="arch-node is-server">Node Server <span class="arch-sub">server/core — TLS, sessions, event log</span></div>
         </div>
       </div>
+
+      <div class="arch-stats reveal-on-scroll needs-js-reveal">
+        <div class="arch-stat">
+          <span class="arch-stat-number">58</span>
+          <span class="arch-stat-label">modular files, split from what used to be a 14,000+ line <code class="mono">app.js</code></span>
+        </div>
+        <div class="arch-stat">
+          <span class="arch-stat-number">23</span>
+          <span class="arch-stat-label">standalone apps in <code class="mono">js/apps/</code>, including dev-mode-only tools like <code class="mono">console.js</code> and <code class="mono">inspector.js</code></span>
+        </div>
+        <div class="arch-stat">
+          <span class="arch-stat-number">0</span>
+          <span class="arch-stat-label">shared global state between modules — everything talks through explicit <code class="mono">window.*</code> bindings</span>
+        </div>
+      </div>
+
+      <p class="arch-note">
+        Every page load gets a fresh <code class="mono">crypto.randomBytes(16)</code> nonce, injected into every
+        <code class="mono">&lt;script&gt;</code>/<code class="mono">&lt;style&gt;</code> tag server-side before the CSP header ever forbids unsafe-inline —
+        so dynamically created elements stay policy-compliant via <code class="mono">window.__cspNonce</code> instead of loosening the policy for them.
+      </p>
     </div>
   </section>
 
@@ -2355,17 +2554,17 @@
         <div class="version-row">
           <span class="ver-num">v1.8.21</span>
           <span class="status-pill is-eol">End of life</span>
-          <span class="note">Final 1.x release. No further OS patches — devices are exposed and unpatched.</span>
+          <span class="note">Final 1.x release, last OS patch 2026-04-01. No further OS patches — devices are exposed and unpatched at the OS level, though Nova Core Services still ships partial service-level security patches.</span>
         </div>
         <div class="version-row">
           <span class="ver-num">v2.3.8</span>
           <span class="status-pill is-eol">End of life</span>
-          <span class="note">Final 2.x release. Deprecated, no backports.</span>
+          <span class="note">Final 2.x release, last OS patch 2026-05-01. Deprecated, no backports — Nova Core Services remains active for this line.</span>
         </div>
         <div class="version-row">
           <span class="ver-num">v3.x.x</span>
           <span class="status-pill is-current">Current</span>
-          <span class="note">Latest, recommended. Includes the built-in System Updates app.</span>
+          <span class="note">Latest, recommended. Includes the built-in System Updates app and active Nova Core Services.</span>
         </div>
       </div>
     </div>
@@ -2434,7 +2633,7 @@
         </details>
         <details class="faq-item">
           <summary>What actually happens when I install a <code class="mono">.novaapp</code> package?</summary>
-          <p>Every file inside the package is run through the built-in scanner before any trust or integrity checks happen. A flagged file blocks the install outright with no override — there's no way to force-install something the scanner rejects. Packages are also checked against the built-in trust store for a Verified/Unverified badge based on signature checks.</p>
+          <p>Every file inside the package is run through the built-in scanner before any trust or integrity checks happen — it's a heuristic, client-side gate (not a full antivirus) that checks for disguised executables, embedded scripts in previewed files (SVG/HTML/Markdown), obfuscated code patterns, and high-entropy content masquerading as text. A flagged file blocks the install outright with no override. Separately, packages are checked against the built-in trust store for Ed25519 signatures: <strong>Verified</strong> means it was signed with NovaByte's own private key, held offline and not distributed to developers — so a self-signed package, however legitimate, will always show as <strong>Unverified</strong>. There's no automated review queue yet either; NovaByte reviews submissions for that Verified key manually, offline.</p>
         </details>
         <details class="faq-item">
           <summary>Is Developer Mode safe to leave on?</summary>
@@ -2447,6 +2646,10 @@
         <details class="faq-item">
           <summary>What's the difference between NBOSP and the full NovaByte OS release (v1/v2/v3)?</summary>
           <p>NBOSP (this repo, under <code class="mono">/NBOSP</code>) is the Apache 2.0 foundation — minimal, feature-frozen apps, no update pipeline, no telemetry, meant to be forked. The versioned <code class="mono">v1/</code>, <code class="mono">v2/</code>, <code class="mono">v3/</code> releases are the full closed-source product built on top of it, distributed as a compiled executable via Releases only.</p>
+        </details>
+        <details class="faq-item">
+          <summary>If NovaByte fixes something in NBOSP, do I get the fix automatically?</summary>
+          <p>No — NBOSP doesn't use the built-in System Updates app at all; that's a v3-only, closed-source component. If a fix lands in this upstream repo, it stays there until whoever forked or packaged your copy pulls the change, repackages it, and cuts their own release — you then re-clone or re-download from them. There's no push mechanism, which is also why NBOSP ships no telemetry.</p>
         </details>
       </div>
     </div>
@@ -2482,6 +2685,10 @@
       <div class="section-head reveal-on-scroll needs-js-reveal">
         <div class="section-label">Get started</div>
         <h2>Running NBOSP takes one command.</h2>
+        <p class="section-desc">
+          <code class="mono">npm start</code> runs <code class="mono">prestart</code> first, which bootstraps a fresh
+          clone automatically — nothing to configure by hand before the window opens.
+        </p>
       </div>
 
       <div class="steps-list reveal-on-scroll needs-js-reveal">
@@ -2489,21 +2696,28 @@
           <span class="step-number">1</span>
           <div>
             <strong>Clone and start</strong>
-            <p>No separate install step — a fresh clone launches with <code class="mono">npm start</code>.</p>
+            <p><code class="mono">npm start</code> triggers a <code class="mono">prestart</code> hook (<code class="mono">scripts/bootstrap.js</code>) before <code class="mono">nw .</code> ever runs. It checks for <code class="mono">node_modules</code> and installs dependencies automatically if they're missing — first run or after a clean, no manual <code class="mono">npm install</code> step either way.</p>
           </div>
         </div>
         <div class="step">
           <span class="step-number">2</span>
           <div>
-            <strong>Trust the local certificate, once</strong>
-            <p>On first launch NBOSP generates a local HTTPS certificate and CA. Your OS will prompt you to trust it — accept once, and every launch after that is warning-free HTTPS.</p>
+            <strong>Env and certs, generated for you</strong>
+            <p>Bootstrap also writes a <code class="mono">.env</code> with a random <code class="mono">SESSION_SECRET</code> and sane defaults, then generates a local HTTPS certificate and CA. Your OS prompts you to trust it once — accept, and every launch after that opens over HTTPS with no browser warning.</p>
           </div>
         </div>
         <div class="step">
           <span class="step-number">3</span>
           <div>
+            <strong>The window opens itself</strong>
+            <p>No manual browser navigation — NW.js spawns the app window directly once the server's listening on <code class="mono">127.0.0.1:3003</code> (HTTPS if certs are present). Want verbose logs while you work? <code class="mono">npm run dev</code> runs the same thing with <code class="mono">--enable-logging=stderr --v=1</code>.</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step-number">4</span>
+          <div>
             <strong>Build on it</strong>
-            <p>Clear extension points for new API endpoints, proxies, middleware, and rate limit tiers. No global state, no tight coupling between modules.</p>
+            <p>Named extension points, not guesswork: new API endpoint → <code class="mono">security/routes.js</code> or <code class="mono">email/index.js</code>. New proxy → <code class="mono">server/proxies.js</code>. New middleware or rate-limit tier → <code class="mono">server/middleware.js</code>. Every module is independent — no global state, no tight coupling to route around.</p>
           </div>
         </div>
       </div>
@@ -2523,7 +2737,7 @@ npm start
 <dialog class="palette-dialog" data-palette-dialog aria-label="Command palette">
   <div class="palette-inner">
     <input type="text" class="palette-input" placeholder="Jump to a section…" autocomplete="off" data-palette-input aria-label="Search sections">
-    <ul class="palette-results" data-palette-results role="listbox" aria-label="Sections"></ul>
+    <ul class="palette-results" data-palette-results role="listbox" aria-label="Sections" data-lenis-prevent></ul>
     <div class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> close</div>
   </div>
 </dialog>
@@ -2536,7 +2750,13 @@ npm start
       <button class="file-preview-close" type="button" data-file-preview-close aria-label="Close preview">✕</button>
     </div>
   </div>
-  <div class="file-preview-body">
+  <!-- data-lenis-prevent stops Lenis from hijacking wheel events here — CM6
+       (dynamically created inside .file-preview-editor once a file loads)
+       manages its own internal .cm-scroller, and Lenis's document-level
+       wheel listener was winning the race against it, so scrolling inside
+       an open file did nothing. this attribute is a Lenis-native escape
+       hatch, not something we're implementing ourselves. -->
+  <div class="file-preview-body" data-lenis-prevent>
     <div class="file-preview-loading" data-file-preview-loading>Loading file…</div>
     <div class="file-preview-error" data-file-preview-error hidden>
       Couldn't load this file's contents from the GitHub API.
@@ -3728,9 +3948,40 @@ npm start
     loadPath(ROOT_PATH);
   }
 
+  /* ----------------------------------------------------------------------
+   * smooth scroll: hands scrolling to Lenis so wheel/touch input gets
+   * lerp'd into momentum instead of the browser's default instant jump.
+   * left off entirely when reduced-motion is on — Lenis's inertia IS the
+   * kind of motion that setting exists to suppress, so the honest move is
+   * to just not run it, not to run it with duration:0.
+   * ------------------------------------------------------------------- */
+  function wireUpSmoothScroll() {
+    if (reduceMotionQuery.matches || typeof Lenis === 'undefined') return;
+
+    const lenis = new Lenis({
+      duration: 1.1,
+      easing: (t) => 1 - Math.pow(1 - t, 3), // easeOutCubic — matches --ease-smooth's feel
+      wheelMultiplier: 1,
+      autoRaf: true,
+      anchors: true, // keeps in-page #hash links smooth too
+      // data-lenis-prevent on .file-preview-body / .palette-results covers
+      // the known scrollers; this is the fallback so any future scrollable
+      // content added inside a <dialog> doesn't reopen this same bug.
+      prevent: (node) => Boolean(node.closest?.('dialog')),
+    });
+
+    // if the person flips reduced-motion on mid-session, drop back to
+    // native scroll rather than leaving a mismatched preference running
+    reduceMotionQuery.addEventListener('change', () => {
+      if (reduceMotionQuery.matches) lenis.destroy();
+    });
+  }
+
   // kick everything off
   const bootContainer = document.querySelector('[data-boot-sequence]');
   if (bootContainer) typeOutBootSequence(bootContainer);
+
+  wireUpSmoothScroll();
 
   wireUpGlowTracking();
   wireUpNav();
