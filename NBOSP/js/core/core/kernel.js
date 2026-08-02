@@ -1,20 +1,17 @@
-// Cache the array allocation outside the function to eliminate garbage collection overhead on invocation
-const _saltBuffer = new Uint8Array(16);
-
-// Fully optimized PIN salt generator (removes intermediate mappings and string allocations)
+// Generates (and caches on disk via settings) a random salt used for PIN hashing elsewhere.
+// This only produces the salt — the actual hash + compare has to live wherever lockPin
+// is checked, since this file never touches lockPin directly.
 function getPinSalt() {
-  let salt = OS.settings.get('pinSalt');
-  if (salt) return salt;
+  const cached = OS.settings.get('pinSalt');
+  if (cached) return cached;
 
-  crypto.getRandomValues(_saltBuffer);
-  
-  // High-performance string construction via bitwise logic instead of Array.from + mapping + padStart + join
-  let hex = '';
-  for (let i = 0; i < 16; i++) {
-    const val = _saltBuffer[i];
-    hex += (val < 16 ? '0' : '') + val.toString(16);
-  }
-  
+  // 16 bytes, runs once until a salt is cached — no need to hoist this buffer to
+  // module scope, the perf win doesn't exist at this call frequency and the shared
+  // buffer just becomes something to reason about for no benefit.
+  const saltBuffer = new Uint8Array(16);
+  crypto.getRandomValues(saltBuffer);
+  const hex = saltBuffer.toHex();
+
   OS.settings.set('pinSalt', hex);
   return hex;
 }
@@ -50,8 +47,8 @@ const OS = {
   maxClipboardItems: 30,
 
   events: {
-    _handlers: Object.create(null), // Optimizes key-lookup speed by preventing prototype chain inheritance checks
-    
+    _handlers: Object.create(null), // no prototype chain to walk on lookup
+
     on(event, fn) {
       const handlers = this._handlers[event];
       if (handlers === undefined) {
@@ -60,29 +57,32 @@ const OS = {
         handlers.push(fn);
       }
     },
-    
+
     off(event, fn) {
       const handlers = this._handlers[event];
       if (handlers === undefined) return;
-      
-      // Traditional fast lookup index removal (avoids generating a new array like .filter() does)
+
       const idx = handlers.indexOf(fn);
       if (idx !== -1) {
         handlers.splice(idx, 1);
       }
     },
-    
+
     emit(event, data) {
       const handlers = this._handlers[event];
       if (handlers === undefined) return;
-      
-      // Standard indexed loop avoids creating ES6 implicit Iterator objects, protecting memory allocation rates
-      const len = handlers.length;
-      for (let i = 0; i < len; i++) {
-        try { 
-          handlers[i](data); 
-        } catch (e) { 
-          /* silent */ 
+
+      // Snapshot before iterating. If a handler calls off() on itself (or on a
+      // later handler) mid-emit, splicing the live array would shift indices
+      // and skip whoever was next in line.
+      const snapshot = handlers.slice();
+      for (let i = 0; i < snapshot.length; i++) {
+        try {
+          snapshot[i](data);
+        } catch (err) {
+          // Previously swallowed entirely — a throwing handler left zero trace
+          // anywhere. Route it through the logger so it's at least visible.
+          OS.logger.error(`Unhandled error in "${event}" listener`, err);
         }
       }
     }
@@ -90,40 +90,53 @@ const OS = {
 
   settings: {
     _cache: {},
-    
-    get(key) { 
-      // Direct bracket verification avoids the prototype traversal cost of the 'in' keyword
+
+    get(key) {
       const val = this._cache[key] !== undefined ? this._cache[key] : this.defaults[key];
-      // FIX: return a deep clone, never the live cached reference. Callers
-      // (e.g. desktop icon drag/swap) mutate the returned object in place
-      // and then pass that same object to set(). Since set() just assigns
-      // this._cache[key] = value, handing back a live reference makes that
-      // assignment a no-op — the mutation already happened directly on the
-      // cache before set() (and its persist call + settings:changed event)
-      // ever ran, causing one write of a two-step swap to be lost/raced.
-      // Cloning here guarantees every get() is a fresh, independently
-      // mutable snapshot, so set() always assigns a genuinely new object.
+      // Return a deep clone, never the live cached reference. Callers (e.g. desktop
+      // icon drag/swap) mutate the returned object in place and then pass that same
+      // object to set(). Since set() just assigns this._cache[key] = value, handing
+      // back a live reference makes that assignment a no-op — the mutation already
+      // happened directly on the cache before set() (and its persist call +
+      // settings:changed event) ever ran, causing one write of a two-step swap to
+      // be lost/raced. Cloning here guarantees every get() is a fresh,
+      // independently mutable snapshot, so set() always assigns a genuinely new
+      // object.
       if (val !== null && typeof val === 'object') {
-        try { return structuredClone(val); } catch { return JSON.parse(JSON.stringify(val)); }
+        try {
+          return structuredClone(val);
+        } catch {
+          // structuredClone throws on non-cloneable values (functions, etc).
+          // Shouldn't happen for a settings cache that's meant to hold plain
+          // JSON-shaped data, but this keeps a corrupted entry from taking
+          // down every settings read.
+          return JSON.parse(JSON.stringify(val));
+        }
       }
       return val;
     },
-    
+
     set(key, value) {
       this._cache[key] = value;
-      OS.workers.fs.call('putSetting', key, value).catch(() => { });
+      OS.workers.fs.call('putSetting', key, value).catch((err) => {
+        // Previously silent — a failed write left the cache and disk permanently
+        // out of sync with nothing telling anyone. Logging doesn't fix the
+        // divergence but at least it's no longer invisible.
+        OS.logger.error(`Failed to persist setting "${key}"`, err);
+      });
       OS.events.emit('settings:changed', { key, value });
     },
-    
+
     async load() {
       try {
         const all = await OS.workers.fs.call('getAllSettings');
         this._cache = all || {};
-      } catch (e) { 
-        this._cache = {}; 
+      } catch (err) {
+        OS.logger.error('Failed to load settings, falling back to defaults', err);
+        this._cache = {};
       }
     },
-    
+
     defaults: {
       theme: 'nova-dark',
       clockFormat: '12h',
@@ -145,7 +158,7 @@ const OS = {
         ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
         : 'UTC',
     },
-    
+
     applySafeModeDefaults() {
       // Safe Mode behaves like a clean default session without persisting changes.
       this._cache = {};
@@ -153,10 +166,14 @@ const OS = {
   },
 
   logger: {
-    debug() { },
-    info() { },
-    warn() { },
-    error() { }
+    // Were no-op stubs before, which meant errors (including the ones now
+    // surfaced from events.emit and settings.set above) had nowhere to go.
+    // Wiring these to console is the minimum bar for "observable when it
+    // fails in production" — swap for a real telemetry sink later if needed.
+    debug(...args) { console.debug('[OS]', ...args); },
+    info(...args) { console.info('[OS]', ...args); },
+    warn(...args) { console.warn('[OS]', ...args); },
+    error(...args) { console.error('[OS]', ...args); }
   }
 };
 
