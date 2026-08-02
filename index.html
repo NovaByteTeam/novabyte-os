@@ -2452,14 +2452,9 @@ npm start
 
   const reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
 
-  // GitHub PAT for authenticated API calls — needed for higher rate limits
-  // and to access private repo data if required.
-  const GITHUB_TOKEN = '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';
-
   function ghHeaders() {
     return {
       Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
     };
   }
 
@@ -2798,10 +2793,7 @@ npm start
 
     try {
       const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/releases/tags/NBOSP-PREBUILT', {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${GITHUB_TOKEN}`,
-        },
+        headers: ghHeaders(),
       });
 
       // covers rate-limit (403) and any other non-2xx without guessing at
@@ -3122,10 +3114,7 @@ npm start
 
     try {
       const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os', {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${GITHUB_TOKEN}`,
-        },
+        headers: ghHeaders(),
       });
       if (!res.ok) return;
       const repo = await res.json();
