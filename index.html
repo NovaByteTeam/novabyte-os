@@ -180,9 +180,9 @@
     }
 
     .site-header .bar {
-      display: flex;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      justify-content: flex-start;
       gap: 40px;
       padding-block: 16px;
       padding-inline: 24px;
@@ -191,6 +191,8 @@
     .brand {
       display: flex;
       align-items: center;
+      justify-content: center;
+      grid-column: 2;
       flex-shrink: 0;
 
       & svg {
@@ -208,7 +210,8 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      margin-inline-start: auto;
+      grid-column: 1;
+      justify-self: start;
       width: 36px;
       height: 36px;
       background: transparent;
@@ -222,11 +225,19 @@
     }
 
     .nav-panel {
-      display: none;
+      position: fixed;
+      inset-block: 0;
+      inset-inline-start: 0;
+      z-index: 30;
+      display: flex;
       flex-direction: column;
-      padding: 8px 24px 20px;
-      border-top: 1px solid var(--border-hairline);
+      width: min(320px, 85vw);
+      padding: 24px;
+      border-inline-end: 1px solid var(--border-hairline);
       background: var(--bg-void);
+      transform: translateX(-100%);
+      transition: transform var(--pace-normal) var(--ease-smooth);
+      overflow-y: auto;
 
       & a {
         position: relative;
@@ -244,7 +255,22 @@
     }
 
     .nav-panel.is-open {
-      display: flex;
+      transform: translateX(0);
+    }
+
+    .nav-panel-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 29;
+      background: color-mix(in oklch, var(--bg-void) 60%, transparent);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--pace-normal) var(--ease-smooth);
+    }
+
+    .nav-panel-backdrop.is-open {
+      opacity: 1;
+      pointer-events: auto;
     }
 
     /* ---------- hero ---------- */
@@ -1191,10 +1217,11 @@
 
     /* ---------- command palette trigger (header) ---------- */
     .palette-trigger {
-      display: none;
+      display: inline-flex;
       align-items: center;
       gap: 8px;
-      margin-inline-start: auto;
+      grid-column: 3;
+      justify-self: end;
       background: var(--bg-panel);
       border: 1px solid var(--border-hairline);
       border-radius: var(--radius-tight);
@@ -1209,10 +1236,6 @@
         border-color: var(--border-hairline-bright);
         color: var(--ink);
       }
-    }
-
-    @media (min-width: 860px) {
-      .palette-trigger { display: inline-flex; }
     }
 
     .palette-kbd {
@@ -1945,10 +1968,6 @@
         <text fill="url(#nb2g)" font-family="system-ui" font-size="30" font-weight="700" text-anchor="middle" x="60" y="68">NB</text>
       </svg>
     </div>
-    <button class="palette-trigger" type="button" data-palette-trigger aria-haspopup="dialog">
-      <span>Jump to…</span>
-      <kbd class="palette-kbd">⌘K</kbd>
-    </button>
     <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="nav-panel" aria-label="Toggle navigation menu">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-toggle-icon>
         <line x1="4" y1="6" x2="20" y2="6"></line>
@@ -1956,21 +1975,26 @@
         <line x1="4" y1="18" x2="20" y2="18"></line>
       </svg>
     </button>
+    <button class="palette-trigger" type="button" data-palette-trigger aria-haspopup="dialog">
+      <span>Jump to…</span>
+      <kbd class="palette-kbd">⌘K</kbd>
+    </button>
   </div>
-  <nav class="nav-panel" id="nav-panel" aria-label="Primary" data-nav-panel>
-    <a href="#what" data-nav-link>What it is</a>
-    <a href="#apps" data-nav-link>Apps</a>
-    <a href="#themes" data-nav-link>Themes</a>
-    <a href="#architecture" data-nav-link>Architecture</a>
-    <a href="#browse" data-nav-link>Browse</a>
-    <a href="#requirements" data-nav-link>Requirements</a>
-    <a href="#versions" data-nav-link>Versions</a>
-    <a href="#downloads" data-nav-link>Downloads</a>
-    <a href="#faq" data-nav-link>FAQ</a>
-    <a href="#license" data-nav-link>License</a>
-    <a href="#start" data-nav-link>Get started</a>
-  </nav>
 </header>
+<div class="nav-panel-backdrop" data-nav-panel-backdrop></div>
+<nav class="nav-panel" id="nav-panel" aria-label="Primary" data-nav-panel>
+  <a href="#what" data-nav-link>What it is</a>
+  <a href="#apps" data-nav-link>Apps</a>
+  <a href="#themes" data-nav-link>Themes</a>
+  <a href="#architecture" data-nav-link>Architecture</a>
+  <a href="#browse" data-nav-link>Browse</a>
+  <a href="#requirements" data-nav-link>Requirements</a>
+  <a href="#versions" data-nav-link>Versions</a>
+  <a href="#downloads" data-nav-link>Downloads</a>
+  <a href="#faq" data-nav-link>FAQ</a>
+  <a href="#license" data-nav-link>License</a>
+  <a href="#start" data-nav-link>Get started</a>
+</nav>
 
 <main>
 
@@ -2765,18 +2789,22 @@ npm start
   }
 
   function wireUpNav() {
-    const toggle = document.querySelector('[data-nav-toggle]');
-    const panel  = document.querySelector('[data-nav-panel]');
+    const toggle   = document.querySelector('[data-nav-toggle]');
+    const panel    = document.querySelector('[data-nav-panel]');
+    const backdrop = document.querySelector('[data-nav-panel-backdrop]');
     if (!toggle || !panel) return;
 
     function setOpen(open) {
       panel.classList.toggle('is-open', open);
+      backdrop?.classList.toggle('is-open', open);
       toggle.setAttribute('aria-expanded', String(open));
     }
 
     toggle.addEventListener('click', () => {
       setOpen(!panel.classList.contains('is-open'));
     });
+
+    backdrop?.addEventListener('click', () => setOpen(false));
 
     // every nav link routes through showSection instead of letting the
     // browser natively jump-scroll to the anchor, and closes the panel
