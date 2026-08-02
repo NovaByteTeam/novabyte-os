@@ -2363,6 +2363,13 @@ npm start
 
   const reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
 
+  // GitHub calls that need a higher rate limit (repo stats, changelog,
+  // file browser) go through a small server-side proxy instead of
+  // api.github.com directly — the proxy holds the token, this page never
+  // sees it. See /worker for the Cloudflare Worker source.
+  // set this to your deployed worker URL, e.g. 'https://nbosp-github-proxy.yourname.workers.dev'
+  const GITHUB_PROXY = 'https://nbosp-github-proxy.novabyteofficial.workers.dev';
+
   /* ----------------------------------------------------------------------
    * boot sequence: types the two hero commands out like someone's actually
    * typing them, THEN reveals the output lines, THEN starts the blinking
@@ -2978,7 +2985,7 @@ npm start
     if (!starsEl) return;
 
     try {
-      const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os', {
+      const res = await fetch(`${GITHUB_PROXY}/repo`, {
         headers: { Accept: 'application/vnd.github+json' },
       });
       if (!res.ok) return;
@@ -3010,7 +3017,7 @@ npm start
       loaded = true;
 
       try {
-        const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/commits?path=NBOSP&per_page=8', {
+        const res = await fetch(`${GITHUB_PROXY}/commits?path=NBOSP&per_page=8`, {
           headers: { Accept: 'application/vnd.github+json' },
         });
         if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
@@ -3051,20 +3058,12 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * live file browser: GitHub Contents API for the listing, then one
-   * Commits API call per entry for its "last commit" column — same
-   * shape as the real GitHub UI. Contents API alone doesn't include
-   * commit info, so this is N+1 requests per folder view; that's why
-   * authentication matters here (60/hr unauthenticated vs 5000/hr with
-   * a token).
-   *
-   * SECURITY NOTE: this token ships in the page source, visible to
-   * anyone who views it. Only ever put a fine-grained, read-only,
-   * public-repo-scoped token here — never one with write or admin
-   * scope. Leave GITHUB_TOKEN empty to fall back to the unauthenticated
-   * rate limit (fine for low traffic, will 403 faster under load).
+   * live file browser: proxy's /contents/... for the listing, then one
+   * proxy /commits call per entry for its "last commit" column — same
+   * shape as the real GitHub UI. The proxy holds the token server-side,
+   * so this is N+1 requests per folder view against the proxy's 5000/hr
+   * budget, not the page's own.
    * ------------------------------------------------------------------- */
-  const GITHUB_TOKEN = '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'; // fine-grained, read-only, public-repo-scoped
 
   function wireUpFileBrowser() {
     const root       = document.querySelector('[data-browser-root]');
@@ -3076,13 +3075,10 @@ npm start
     const bodyEl     = root.querySelector('[data-browser-body]');
     const pathEl     = root.querySelector('[data-browser-path-current]');
 
-    const REPO = 'NovaByteTeam/novabyte-os';
     const ROOT_PATH = 'NBOSP';
 
     function ghHeaders() {
-      const headers = { Accept: 'application/vnd.github+json' };
-      if (GITHUB_TOKEN) headers.Authorization = `Bearer ${GITHUB_TOKEN}`;
-      return headers;
+      return { Accept: 'application/vnd.github+json' };
     }
 
     function showLoading() {
@@ -3122,7 +3118,7 @@ npm start
     async function fetchLastCommit(path) {
       try {
         const res = await fetch(
-          `https://api.github.com/repos/${REPO}/commits?path=${encodeURIComponent(path)}&per_page=1`,
+          `${GITHUB_PROXY}/commits?path=${encodeURIComponent(path)}&per_page=1`,
           { headers: ghHeaders() }
         );
         if (!res.ok) return null;
@@ -3139,7 +3135,7 @@ npm start
 
       try {
         const res = await fetch(
-          `https://api.github.com/repos/${REPO}/contents/${path}`,
+          `${GITHUB_PROXY}/contents/${path}`,
           { headers: ghHeaders() }
         );
         if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
