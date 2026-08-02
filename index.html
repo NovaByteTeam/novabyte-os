@@ -1379,7 +1379,6 @@
       width: min(880px, calc(100vw - 40px));
       height: min(680px, calc(100vh - 80px));
       padding: 0;
-      display: flex;
       flex-direction: column;
       border: 1px solid var(--border-hairline-bright);
       border-radius: var(--radius-loose);
@@ -1390,7 +1389,15 @@
       box-shadow: 0 30px 80px -20px oklch(0% 0 0 / 0.7);
       overflow: hidden;
 
-      &[open] { display: flex; }
+      /* dialog is display:none by default in every browser's UA
+         stylesheet — only becomes visible (and gets its native centered
+         top-layer positioning) once showModal() sets [open]. scoping
+         display:flex to [open] here, instead of setting it unconditionally
+         on the base selector, is what makes native centering + the close
+         button's dialog.close() call actually have a visible effect */
+      &[open] {
+        display: flex;
+      }
 
       &::backdrop {
         background: oklch(10% 0.01 255 / 0.6);
@@ -1457,6 +1464,14 @@
       text-align: center;
       color: var(--ink-dim);
       font-size: 14px;
+
+      /* the class selector above sets display:flex unconditionally, which
+         beats the browser's own [hidden] { display: none } UA rule on
+         specificity — so without this, setting .hidden = true from JS did
+         nothing and every panel rendered stacked on top of each other */
+      &[hidden] {
+        display: none;
+      }
     }
 
     .file-preview-editor {
@@ -3360,6 +3375,7 @@ npm start
     let cmLoadPromise = null;
     let cmEditor = null;
     const loadedScripts = new Set();
+    const contentCache = new Map();
 
     function loadScript(src) {
       if (loadedScripts.has(src)) return Promise.resolve();
@@ -3433,12 +3449,16 @@ npm start
       }
 
       try {
-        const res = await fetch(
-          `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
-          { headers: ghHeaders() }
-        );
-        if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-        const data = await res.json();
+        let data = contentCache.get(path);
+        if (!data) {
+          const res = await fetch(
+            `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
+            { headers: ghHeaders() }
+          );
+          if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+          data = await res.json();
+          contentCache.set(path, data);
+        }
 
         if (typeof data.size === 'number' && data.size > MAX_PREVIEW_BYTES) {
           showPanel(toolargeEl);
@@ -3514,6 +3534,14 @@ npm start
 
     const ROOT_PATH = 'NBOSP';
 
+    // both caches persist for the whole page session — the repo's history
+    // for a given path doesn't change while someone's browsing, so there's
+    // no reason to ever fetch the same path twice. this is the actual fix
+    // for the rate limit problem: without it, revisiting a folder you've
+    // already opened costs another N+1 requests for no reason
+    const listingCache = new Map();
+    const commitCache = new Map();
+
     function showLoading() {
       loadingEl.hidden = false;
       errorEl.hidden = true;
@@ -3549,15 +3577,19 @@ npm start
     }
 
     async function fetchLastCommit(path) {
+      if (commitCache.has(path)) return commitCache.get(path);
       try {
         const res = await fetch(
           `https://api.github.com/repos/NovaByteTeam/novabyte-os/commits?path=${encodeURIComponent(path)}&per_page=1`,
           { headers: ghHeaders() }
         );
-        if (!res.ok) return null;
+        if (!res.ok) { commitCache.set(path, null); return null; }
         const commits = await res.json();
-        return commits[0] || null;
+        const result = commits[0] || null;
+        commitCache.set(path, result);
+        return result;
       } catch {
+        commitCache.set(path, null);
         return null;
       }
     }
@@ -3567,24 +3599,33 @@ npm start
       pathEl.textContent = path === ROOT_PATH ? '' : path.slice(ROOT_PATH.length + 1);
 
       try {
-        const res = await fetch(
-          `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
-          { headers: ghHeaders() }
-        );
-        if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-        const entries = await res.json();
+        let entries = listingCache.get(path);
+        if (!entries) {
+          const res = await fetch(
+            `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
+            { headers: ghHeaders() }
+          );
+          if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+          entries = await res.json();
+          listingCache.set(path, entries);
+        }
 
         // dirs first, then files, both alphabetical — matches the
         // convention every git host's file browser already uses
-        entries.sort((a, b) => {
+        // (sort a copy — entries may be the same cached array object
+        // returned on the next visit, don't want repeated in-place sorts
+        // silently relying on already-sorted input)
+        const sorted = [...entries].sort((a, b) => {
           if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
           return a.name.localeCompare(b.name);
         });
 
         // last-commit lookups run in parallel — sequential would mean
-        // a ~15-entry folder taking 15x one request's latency to paint
+        // a ~15-entry folder taking 15x one request's latency to paint.
+        // fetchLastCommit itself is cached per-path, so revisiting a
+        // folder costs zero additional requests here
         const withCommits = await Promise.all(
-          entries.map(async (entry) => ({ entry, commit: await fetchLastCommit(entry.path) }))
+          sorted.map(async (entry) => ({ entry, commit: await fetchLastCommit(entry.path) }))
         );
 
         bodyEl.innerHTML = '';
