@@ -1820,13 +1820,15 @@ npm start
 
     function showError() {
       loadingEl.hidden = true;
-      contentEl.hidden = true;
       errorEl.hidden = false;
     }
 
     function showContent() {
       loadingEl.hidden = true;
-      errorEl.hidden = true;
+      // remove the error banner outright rather than just hiding it — a
+      // hidden-attribute toggle is state that can regress; deleting the
+      // node means there's nothing left to accidentally show again
+      errorEl.remove();
       contentEl.hidden = false;
     }
 
