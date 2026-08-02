@@ -28,3 +28,4 @@
 /NBOSP/graphify-out
 /NBOSP/.graphifyignore
 server.log
+.wrangler

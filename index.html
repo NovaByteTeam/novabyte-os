@@ -204,67 +204,8 @@
       50% { opacity: 0.6; transform: scale(0.85); }
     }
 
-    .primary-nav {
-      display: flex;
-      gap: 28px;
-      flex-shrink: 1;
-      min-width: 0;
-      overflow-x: auto;
-      overflow-y: hidden;
-      scrollbar-width: none;
-      -ms-overflow-style: none;
-
-      &::-webkit-scrollbar { display: none; }
-
-      & a {
-        position: relative;
-        font-family: var(--font-mono);
-        font-size: 13px;
-        color: var(--ink-dim);
-        text-decoration: none;
-        padding-block: 4px;
-        white-space: nowrap;
-        flex-shrink: 0;
-        transition: color var(--pace-quick) var(--ease-smooth);
-
-        /* the little underline that grows in on hover/active instead of a
-           hard color swap — reads as more "alive" for basically free, and
-           it's transform-based so it never touches layout */
-        &::after {
-          content: '';
-          position: absolute;
-          inset-block-end: -2px;
-          inset-inline-start: 0;
-          width: 100%;
-          height: 1px;
-          background: var(--glow-primary);
-          transform: scaleX(0);
-          transform-origin: left;
-          transition: transform var(--pace-normal) var(--ease-smooth);
-        }
-
-        &:hover {
-          color: var(--ink);
-        }
-
-        &:hover::after,
-        &.is-active::after {
-          transform: scaleX(1);
-        }
-
-        &.is-active {
-          color: var(--glow-primary);
-        }
-      }
-    }
-
-    @media (max-width: 900px) {
-      .primary-nav { display: none; }
-      .nav-toggle { display: inline-flex; }
-    }
-
     .nav-toggle {
-      display: none;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
       margin-inline-start: auto;
@@ -280,7 +221,7 @@
       & svg { width: 18px; height: 18px; }
     }
 
-    .mobile-nav {
+    .nav-panel {
       display: none;
       flex-direction: column;
       padding: 8px 24px 20px;
@@ -288,24 +229,22 @@
       background: var(--bg-void);
 
       & a {
+        position: relative;
         font-family: var(--font-mono);
         font-size: 14px;
         color: var(--ink-dim);
         text-decoration: none;
         padding-block: 12px;
         border-bottom: 1px solid var(--border-hairline);
+        transition: color var(--pace-quick) var(--ease-smooth);
 
         &:last-child { border-bottom: none; }
         &:hover, &.is-active { color: var(--glow-primary); }
       }
     }
 
-    .mobile-nav.is-open {
+    .nav-panel.is-open {
       display: flex;
-    }
-
-    @media (min-width: 901px) {
-      .mobile-nav { display: none !important; }
     }
 
     /* ---------- hero ---------- */
@@ -1479,11 +1418,15 @@
     }
 
     .file-preview-editor {
-      flex: 1;
-      min-height: 0;
-      overflow: auto;
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
 
-      & .CodeMirror {
+      /* CM6 manages its own internal scroller — this just needs to be a
+         solidly-sized box for CM6 to measure against. position:absolute
+         gets a definite size straight from .file-preview-body without
+         depending on every ancestor in a flex chain resolving cleanly. */
+      & .cm-editor {
         height: 100%;
         font-family: var(--font-mono);
         font-size: 13px;
@@ -1976,8 +1919,6 @@
     }
   }
 </style>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
 </head>
 <body>
 
@@ -2004,24 +1945,11 @@
         <text fill="url(#nb2g)" font-family="system-ui" font-size="30" font-weight="700" text-anchor="middle" x="60" y="68">NB</text>
       </svg>
     </div>
-    <nav class="primary-nav" aria-label="Primary">
-      <a href="#what" data-nav-link>What it is</a>
-      <a href="#apps" data-nav-link>Apps</a>
-      <a href="#themes" data-nav-link>Themes</a>
-      <a href="#architecture" data-nav-link>Architecture</a>
-      <a href="#browse" data-nav-link>Browse</a>
-      <a href="#requirements" data-nav-link>Requirements</a>
-      <a href="#versions" data-nav-link>Versions</a>
-      <a href="#downloads" data-nav-link>Downloads</a>
-      <a href="#faq" data-nav-link>FAQ</a>
-      <a href="#license" data-nav-link>License</a>
-      <a href="#start" data-nav-link>Get started</a>
-    </nav>
     <button class="palette-trigger" type="button" data-palette-trigger aria-haspopup="dialog">
       <span>Jump to…</span>
       <kbd class="palette-kbd">⌘K</kbd>
     </button>
-    <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="mobile-nav" aria-label="Toggle navigation menu">
+    <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="nav-panel" aria-label="Toggle navigation menu">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-toggle-icon>
         <line x1="4" y1="6" x2="20" y2="6"></line>
         <line x1="4" y1="12" x2="20" y2="12"></line>
@@ -2029,7 +1957,7 @@
       </svg>
     </button>
   </div>
-  <nav class="mobile-nav" id="mobile-nav" aria-label="Primary (mobile)" data-mobile-nav>
+  <nav class="nav-panel" id="nav-panel" aria-label="Primary" data-nav-panel>
     <a href="#what" data-nav-link>What it is</a>
     <a href="#apps" data-nav-link>Apps</a>
     <a href="#themes" data-nav-link>Themes</a>
@@ -2778,37 +2706,107 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * scroll-spy nav: highlights whichever section is currently in view.
-   * IntersectionObserver instead of a scroll listener — no per-frame math
-   * on the main thread, the browser just tells us when a section crosses
-   * the line we care about.
+   * section navigation: the page shows exactly one of hero/[section] at a
+   * time instead of one long scroll. showSection() is the single source of
+   * truth — it drives visibility, which nav link is highlighted, and the
+   * URL hash — so every entry point (nav panel, command palette, in-page
+   * links, browser back/forward) goes through the same function rather
+   * than each having its own scroll-to or show/hide logic that can drift
+   * out of sync with the others.
    * ------------------------------------------------------------------- */
-  function wireUpScrollSpy() {
-    const navLinks = document.querySelectorAll('[data-nav-link]');
-    if (navLinks.length === 0) return;
+  const SECTION_IDS = ['what', 'apps', 'themes', 'architecture', 'browse',
+    'requirements', 'versions', 'downloads', 'faq', 'license', 'start'];
 
-    const linksBySectionId = new Map();
-    for (const link of navLinks) {
-      const targetId = link.getAttribute('href').replace('#', '');
-      linksBySectionId.set(targetId, link);
+  function showSection(id) {
+    const hero = document.querySelector('.hero');
+    const targetIsValid = SECTION_IDS.includes(id);
+
+    if (hero) hero.hidden = targetIsValid;
+    for (const sectionId of SECTION_IDS) {
+      const section = document.getElementById(sectionId);
+      if (section) section.hidden = sectionId !== id;
     }
 
-    const watcher = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        const link = linksBySectionId.get(entry.target.id);
-        if (!link) continue;
-        link.classList.toggle('is-active', entry.isIntersecting);
-      }
-    }, {
-      // trigger when a section occupies the middle band of the viewport,
-      // not the instant its top pixel appears — feels much less twitchy
-      rootMargin: '-40% 0px -55% 0px',
+    // sections start hidden, so anything inside them using the JS
+    // scroll-reveal fallback (browsers without animation-timeline: view()
+    // support) never intersects the viewport and never gets its
+    // IntersectionObserver-driven .is-revealed class. There's no actual
+    // scrolling happening when a section is switched in, so just reveal
+    // its content immediately rather than trying to re-trigger a
+    // scroll-based fade that no longer makes sense in this model.
+    const shownSection = targetIsValid ? document.getElementById(id) : hero;
+    shownSection?.querySelectorAll('.needs-js-reveal').forEach((el) => {
+      el.classList.add('is-revealed');
     });
 
-    for (const sectionId of linksBySectionId.keys()) {
-      const section = document.getElementById(sectionId);
-      if (section) watcher.observe(section);
+    for (const link of document.querySelectorAll('[data-nav-link]')) {
+      const linkId = link.getAttribute('href').replace('#', '');
+      link.classList.toggle('is-active', linkId === id);
     }
+
+    // pushState instead of assigning location.hash — assigning the hash
+    // directly triggers the browser's native "jump to anchor" scroll
+    // behavior, which we don't want since we're doing visibility instead
+    // of scrolling; pushState updates the URL without that side effect
+    const newHash = targetIsValid ? `#${id}` : '';
+    if (location.hash !== newHash) {
+      history.pushState({ sectionId: targetIsValid ? id : null }, '', newHash || location.pathname + location.search);
+    }
+
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  // shows whatever section matches the current URL hash, or the hero if
+  // the hash is empty/unrecognized — shared by initial page load and
+  // browser back/forward navigation so both paths stay in sync
+  function showSectionFromHash() {
+    const id = location.hash.replace('#', '');
+    showSection(SECTION_IDS.includes(id) ? id : null);
+  }
+
+  function wireUpNav() {
+    const toggle = document.querySelector('[data-nav-toggle]');
+    const panel  = document.querySelector('[data-nav-panel]');
+    if (!toggle || !panel) return;
+
+    function setOpen(open) {
+      panel.classList.toggle('is-open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+    }
+
+    toggle.addEventListener('click', () => {
+      setOpen(!panel.classList.contains('is-open'));
+    });
+
+    // every nav link routes through showSection instead of letting the
+    // browser natively jump-scroll to the anchor, and closes the panel
+    // after — same as before, just show/hide instead of scroll
+    for (const link of document.querySelectorAll('[data-nav-link]')) {
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showSection(link.getAttribute('href').replace('#', ''));
+        setOpen(false);
+      });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    });
+
+    // any other in-page anchor link (e.g. the hero's "Run it locally"
+    // button) needs the same treatment — anything with data-nav-link is
+    // already handled above, this catches the rest
+    document.querySelectorAll('a[href^="#"]:not([data-nav-link])').forEach((link) => {
+      const id = link.getAttribute('href').replace('#', '');
+      if (!SECTION_IDS.includes(id)) return;
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showSection(id);
+      });
+    });
+
+    window.addEventListener('popstate', showSectionFromHash);
+    showSectionFromHash();
   }
 
   /* ----------------------------------------------------------------------
@@ -3110,37 +3108,6 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * mobile nav: the 11-link primary nav has nowhere to go under ~900px,
-   * so it collapses into this hamburger-triggered panel instead of just
-   * vanishing (which is what used to happen — no nav at all on narrow
-   * viewports, desktop or not).
-   * ------------------------------------------------------------------- */
-  function wireUpMobileNav() {
-    const toggle = document.querySelector('[data-nav-toggle]');
-    const panel  = document.querySelector('[data-mobile-nav]');
-    if (!toggle || !panel) return;
-
-    function setOpen(open) {
-      panel.classList.toggle('is-open', open);
-      toggle.setAttribute('aria-expanded', String(open));
-    }
-
-    toggle.addEventListener('click', () => {
-      setOpen(!panel.classList.contains('is-open'));
-    });
-
-    // tapping a link should navigate AND close the panel, not leave it open
-    // hovering over the destination section
-    panel.querySelectorAll('a').forEach((link) => {
-      link.addEventListener('click', () => setOpen(false));
-    });
-
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') setOpen(false);
-    });
-  }
-
-  /* ----------------------------------------------------------------------
    * command palette: native <dialog>, opened via Cmd/Ctrl+K or the header
    * button. results are just the page's own sections — filtered client
    * side, arrow-key navigable, no framework needed for six items.
@@ -3194,7 +3161,7 @@ npm start
 
     function goTo(id) {
       dialog.close();
-      document.getElementById(id)?.scrollIntoView({ behavior: reduceMotionQuery.matches ? 'auto' : 'smooth' });
+      showSection(id);
     }
 
     const isMac = (() => {
@@ -3358,62 +3325,72 @@ npm start
     const editorEl   = document.querySelector('[data-file-preview-editor]');
     if (!dialog) return null;
 
-    const CM_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16';
     const MAX_PREVIEW_BYTES = 300_000;
 
-    // extension -> [mode script(s) to load, CodeMirror mode name]
-    // htmlmixed needs xml + css + javascript loaded first since cdnjs
-    // ships each mode as a separate file rather than one bundled blob
-    const MODE_MAP = {
-      js:   { scripts: ['mode/javascript/javascript.min.js'], mode: 'javascript' },
-      mjs:  { scripts: ['mode/javascript/javascript.min.js'], mode: 'javascript' },
-      jsx:  { scripts: ['mode/javascript/javascript.min.js'], mode: 'jsx' },
-      json: { scripts: ['mode/javascript/javascript.min.js'], mode: { name: 'javascript', json: true } },
-      css:  { scripts: ['mode/css/css.min.js'], mode: 'css' },
-      html: { scripts: ['mode/xml/xml.min.js', 'mode/javascript/javascript.min.js', 'mode/css/css.min.js', 'mode/htmlmixed/htmlmixed.min.js'], mode: 'htmlmixed' },
-      htm:  { scripts: ['mode/xml/xml.min.js', 'mode/javascript/javascript.min.js', 'mode/css/css.min.js', 'mode/htmlmixed/htmlmixed.min.js'], mode: 'htmlmixed' },
-      xml:  { scripts: ['mode/xml/xml.min.js'], mode: 'xml' },
-      md:   { scripts: ['mode/markdown/markdown.min.js'], mode: 'markdown' },
-      yml:  { scripts: ['mode/yaml/yaml.min.js'], mode: 'yaml' },
-      yaml: { scripts: ['mode/yaml/yaml.min.js'], mode: 'yaml' },
-      sh:   { scripts: ['mode/shell/shell.min.js'], mode: 'shell' },
+    // esm.sh bundles each package (and its deps) into one importable ESM
+    // module — no build step needed, works straight from a <script type="module">
+    // scope. Versions pinned to what was current on npm at time of writing;
+    // bump deliberately, don't float on `latest`.
+    const CM_IMPORTS = {
+      state: 'https://esm.sh/@codemirror/state@6.7.1',
+      view: 'https://esm.sh/@codemirror/view@6.43.7',
+      language: 'https://esm.sh/@codemirror/language@6.12.4',
+      oneDark: 'https://esm.sh/@codemirror/theme-one-dark@6.1.3',
+      javascript: 'https://esm.sh/@codemirror/lang-javascript@6.2.5',
+      css: 'https://esm.sh/@codemirror/lang-css@6.3.1',
+      html: 'https://esm.sh/@codemirror/lang-html@6.4.11',
+      json: 'https://esm.sh/@codemirror/lang-json@6.0.2',
+      markdown: 'https://esm.sh/@codemirror/lang-markdown@6.5.1',
+    };
+
+    // extension -> which CM_IMPORTS key + exported language function to call.
+    // yaml/shell have no official @codemirror/lang- package, so they fall
+    // back to plain-text (still gets line numbers, just no highlighting)
+    // rather than pulling in a third-party mode for two extensions.
+    const LANG_MAP = {
+      js:   { mod: 'javascript', fn: (m) => m.javascript() },
+      mjs:  { mod: 'javascript', fn: (m) => m.javascript() },
+      jsx:  { mod: 'javascript', fn: (m) => m.javascript({ jsx: true }) },
+      json: { mod: 'json', fn: (m) => m.json() },
+      css:  { mod: 'css', fn: (m) => m.css() },
+      html: { mod: 'html', fn: (m) => m.html() },
+      htm:  { mod: 'html', fn: (m) => m.html() },
+      md:   { mod: 'markdown', fn: (m) => m.markdown() },
     };
     const BINARY_EXTENSIONS = new Set([
       'png','jpg','jpeg','gif','webp','ico','svg','woff','woff2','ttf','eot',
       'mp3','mp4','wav','ogg','zip','gz','tar','pdf','exe','dll','wasm',
     ]);
 
-    let cmLoadPromise = null;
+    let cmCorePromise = null;
     let cmEditor = null;
-    const loadedScripts = new Set();
+    const langModuleCache = new Map();
     const contentCache = new Map();
 
-    function loadScript(src) {
-      if (loadedScripts.has(src)) return Promise.resolve();
-      return new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = () => { loadedScripts.add(src); resolve(); };
-        script.onerror = () => reject(new Error(`failed to load ${src}`));
-        document.head.appendChild(script);
-      });
-    }
-
-    function loadStyle(href) {
-      if (document.querySelector(`link[href="${href}"]`)) return;
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = href;
-      document.head.appendChild(link);
-    }
-
-    // core CM lib is shared across every file type, so it only ever loads
-    // once no matter how many different-language files get opened after
+    // core view/state/language/theme modules are shared across every file
+    // type, so they only ever get fetched once no matter how many
+    // different-language files get opened after
     function ensureCodeMirrorCore() {
-      if (!cmLoadPromise) {
-        cmLoadPromise = loadScript(`${CM_BASE}/codemirror.min.js`);
+      if (!cmCorePromise) {
+        cmCorePromise = Promise.all([
+          import(CM_IMPORTS.state),
+          import(CM_IMPORTS.view),
+          import(CM_IMPORTS.language),
+          import(CM_IMPORTS.oneDark),
+        ]).then(([state, view, language, oneDark]) => ({ state, view, language, oneDark }));
       }
-      return cmLoadPromise;
+      return cmCorePromise;
+    }
+
+    async function loadLanguageExtension(ext) {
+      const entry = LANG_MAP[ext];
+      if (!entry) return null; // no highlighting available, plain text is fine
+      let mod = langModuleCache.get(entry.mod);
+      if (!mod) {
+        mod = await import(CM_IMPORTS[entry.mod]);
+        langModuleCache.set(entry.mod, mod);
+      }
+      return entry.fn(mod);
     }
 
     function extensionOf(filename) {
@@ -3479,35 +3456,29 @@ npm start
 
         const text = decodeBase64Utf8(data.content);
 
-        await ensureCodeMirrorCore();
-        const modeInfo = MODE_MAP[ext];
-        if (modeInfo) {
-          loadStyle(`${CM_BASE}/theme/dracula.min.css`);
-          await Promise.all(modeInfo.scripts.map((s) => loadScript(`${CM_BASE}/${s}`)));
-        }
+        const { state, view, language, oneDark } = await ensureCodeMirrorCore();
+        const langExt = await loadLanguageExtension(ext);
 
         editorEl.innerHTML = '';
         showPanel(editorEl);
 
-        // CM wants a real textarea node to attach to — recreate it each
-        // time rather than reusing one, simplest way to fully reset state
-        // between files without CM's own API for "load a totally new doc"
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        editorEl.appendChild(textarea);
-
-        cmEditor = CodeMirror.fromTextArea(textarea, {
-          mode: modeInfo ? modeInfo.mode : null,
-          theme: 'dracula',
-          lineNumbers: true,
-          readOnly: true,
-          viewportMargin: Infinity,
+        // fresh EditorView each time rather than reusing one — simplest way
+        // to fully reset state between files without hand-rolling a
+        // "swap the document" dispatch that also has to reset extensions
+        cmEditor = new view.EditorView({
+          state: state.EditorState.create({
+            doc: text,
+            extensions: [
+              view.lineNumbers(),
+              language.syntaxHighlighting(language.defaultHighlightStyle, { fallback: true }),
+              oneDark.oneDark,
+              ...(langExt ? [langExt] : []),
+              state.EditorState.readOnly.of(true),
+              view.EditorView.editable.of(false),
+            ],
+          }),
+          parent: editorEl,
         });
-        // CM measures its container's height on init — inside a flex layout
-        // that can occasionally be a frame early, before the browser's
-        // settled the flex box's final size. refresh() re-measures and is
-        // a no-op if nothing actually changed, so it's safe to always call
-        requestAnimationFrame(() => cmEditor?.refresh());
       } catch (error) {
         console.error('[NovaByte] file preview failed:', error);
         showPanel(errorEl);
@@ -3516,6 +3487,7 @@ npm start
 
     function close() {
       dialog.close();
+      cmEditor?.destroy();
       cmEditor = null;
       editorEl.innerHTML = '';
     }
@@ -3716,7 +3688,7 @@ npm start
   if (bootContainer) typeOutBootSequence(bootContainer);
 
   wireUpGlowTracking();
-  wireUpScrollSpy();
+  wireUpNav();
   wireUpDevAccordion();
   wireUpScrollRevealFallback();
   wireUpCopyButton();
@@ -3724,7 +3696,6 @@ npm start
   wireUpAppFilter();
   wireUpThemePreview();
   wireUpCommandPalette();
-  wireUpMobileNav();
   wireUpRepoStats();
   wireUpChangelog();
   const filePreview = wireUpFilePreview();
