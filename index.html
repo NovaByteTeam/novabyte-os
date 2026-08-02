@@ -97,8 +97,16 @@
       --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
       --ease-smooth: cubic-bezier(0.65, 0, 0.35, 1);
 
-      --radius-tight: 6px;
-      --radius-normal: 10px;
+      --radius-tight: 10px;
+      --radius-normal: 16px;
+      --radius-loose: 22px;
+
+      /* glass surfaces: translucent panel bg + blur, so cards read as
+         "floating over" the grid texture instead of flat-painted on it */
+      --glass-bg: color-mix(in oklch, var(--bg-panel) 55%, transparent);
+      --glass-bg-raised: color-mix(in oklch, var(--bg-panel-raised) 60%, transparent);
+      --glass-border: color-mix(in oklch, var(--border-hairline-bright) 70%, transparent);
+      --glass-blur: blur(16px);
 
       --shell-max-width: 1080px;
     }
@@ -215,7 +223,7 @@
         color: var(--ink-dim);
         text-decoration: none;
         padding-block: 4px;
-        transition: color var(--pace-quick) ease;
+        transition: color var(--pace-quick) var(--ease-smooth);
 
         /* the little underline that grows in on hover/active instead of a
            hard color swap — reads as more "alive" for basically free, and
@@ -330,7 +338,7 @@
       border: 1px solid transparent;
       /* translate + filter only — never touches layout, stays smooth even
          if forty other things are happening on the page */
-      transition: translate var(--pace-quick) ease, filter var(--pace-quick) ease, border-color var(--pace-quick) ease;
+      transition: translate var(--pace-quick) var(--ease-smooth), filter var(--pace-quick) var(--ease-smooth), border-color var(--pace-quick) var(--ease-smooth);
 
       &:hover {
         translate: 0 -2px;
@@ -372,8 +380,10 @@
     .hero-warning {
       margin-block-start: 40px;
       border: 1px solid color-mix(in oklch, var(--signal-amber) 30%, transparent);
-      background: color-mix(in oklch, var(--signal-amber) 6%, transparent);
-      border-radius: 8px;
+      background: color-mix(in oklch, var(--signal-amber) 6%, var(--glass-bg));
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border-radius: var(--radius-loose);
       padding: 18px 20px;
       max-width: 640px;
       font-size: 14px;
@@ -420,7 +430,7 @@
           transparent 70%
         );
         opacity: 0;
-        transition: opacity var(--pace-normal) ease;
+        transition: opacity var(--pace-normal) var(--ease-smooth);
         pointer-events: none;
         z-index: -1;
       }
@@ -431,11 +441,24 @@
       }
     }
 
+    /*
+      ---------- glass surface ----------
+      translucent bg + backdrop blur so the card reads as sitting above the
+      grid texture rather than painted flat on the page. layered underneath
+      .glow-surface where both are used — glow stays on ::before (z-index -1)
+      so it still sits behind the blur, not fighting it.
+    */
+    .glass {
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border-color: var(--glass-border);
+    }
+
     .terminal {
       margin-block-start: 56px;
-      background: var(--bg-panel);
       border: 1px solid var(--border-hairline);
-      border-radius: var(--radius-normal);
+      border-radius: var(--radius-loose);
       overflow: hidden;
       max-width: 640px;
       box-shadow: 0 20px 60px -20px oklch(0% 0 0 / 0.6);
@@ -448,7 +471,9 @@
       align-items: center;
       gap: 8px;
       padding: 10px 14px;
-      background: var(--bg-panel-raised);
+      background: var(--glass-bg-raised);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
       border-bottom: 1px solid var(--border-hairline);
     }
 
@@ -501,7 +526,7 @@
       /* output fades in only once typing has actually reached it —
          the script toggles this class after the last keystroke of a line */
       opacity: 0;
-      transition: opacity var(--pace-normal) ease;
+      transition: opacity var(--pace-normal) var(--ease-smooth);
 
       &.is-visible {
         opacity: 1;
@@ -611,14 +636,14 @@
     }
 
     .split-card {
-      background: var(--bg-panel);
       border: 1px solid var(--border-hairline);
-      border-radius: var(--radius-normal);
+      border-radius: var(--radius-loose);
       padding: 24px;
-      transition: border-color var(--pace-normal) ease;
+      transition: border-color var(--pace-normal) var(--ease-smooth), translate var(--pace-normal) var(--ease-smooth);
 
       &:hover {
         border-color: var(--border-hairline-bright);
+        translate: 0 -3px;
       }
 
       & h3 {
@@ -643,7 +668,7 @@
         color: var(--ink-dim);
         display: flex;
         gap: 10px;
-        transition: translate var(--pace-quick) ease;
+        transition: translate var(--pace-quick) var(--ease-smooth);
 
         &:last-child { border-bottom: none; }
 
@@ -682,7 +707,7 @@
       grid-template-columns: 200px 1fr;
       border-bottom: 1px solid var(--border-hairline);
       position: relative;
-      transition: background-color var(--pace-quick) ease;
+      transition: background-color var(--pace-quick) var(--ease-smooth);
 
       &:last-child { border-bottom: none; }
       &:nth-child(odd) { background: var(--bg-panel); }
@@ -732,7 +757,7 @@
       width: 100%;
       text-align: center;
       cursor: pointer;
-      transition: border-color var(--pace-quick) ease, color var(--pace-quick) ease;
+      transition: border-color var(--pace-quick) var(--ease-smooth), color var(--pace-quick) var(--ease-smooth);
 
       &:hover {
         border-color: var(--glow-primary);
@@ -784,7 +809,7 @@
       background: color-mix(in oklch, var(--signal-red) 8%, transparent);
       border: 1px solid color-mix(in oklch, var(--signal-red) 25%, transparent);
       padding: 12px 16px;
-      border-radius: 8px;
+      border-radius: var(--radius-tight);
       margin: 16px;
     }
 
@@ -803,10 +828,10 @@
       padding: 16px 20px;
       background: var(--bg-panel);
       border: 1px solid var(--border-hairline);
-      border-radius: 8px;
+      border-radius: var(--radius-tight);
       font-family: var(--font-mono);
       font-size: 13.5px;
-      transition: border-color var(--pace-quick) ease;
+      transition: border-color var(--pace-quick) var(--ease-smooth);
 
       &:hover {
         border-color: var(--border-hairline-bright);
@@ -867,21 +892,23 @@
 
     .license-card {
       padding: 24px;
-      border-radius: var(--radius-normal);
+      border-radius: var(--radius-loose);
       border: 1px solid var(--border-hairline);
-      transition: translate var(--pace-normal) var(--ease-smooth);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      transition: translate var(--pace-normal) var(--ease-smooth), border-color var(--pace-normal) var(--ease-smooth);
 
       &:hover {
         translate: 0 -4px;
       }
 
       &.is-open {
-        background: var(--glow-primary-soft);
+        background: color-mix(in oklch, var(--glow-primary-soft) 70%, transparent);
         border-color: color-mix(in oklch, var(--glow-primary) 25%, transparent);
       }
 
       &.is-closed {
-        background: var(--bg-panel);
+        background: var(--glass-bg);
       }
 
       & .path {
@@ -902,6 +929,135 @@
 
       & p {
         font-size: 14px;
+        color: var(--ink-dim);
+      }
+    }
+
+    /* ---------- downloads ---------- */
+    .downloads-panel {
+      margin-block-start: 40px;
+      min-height: 120px;
+    }
+
+    .downloads-loading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--ink-dim);
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      padding: 32px 0;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid var(--border-hairline-bright);
+      border-top-color: var(--glow-primary);
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .downloads-error {
+      padding: 24px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-loose);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+
+      & p {
+        color: var(--ink-dim);
+        font-size: 14px;
+        margin: 0;
+      }
+    }
+
+    .downloads-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-block-end: 20px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+
+    .downloads-tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: var(--glow-primary-soft);
+      color: var(--glow-primary);
+      border: 1px solid color-mix(in oklch, var(--glow-primary) 25%, transparent);
+      font-weight: 700;
+    }
+
+    .downloads-date {
+      color: var(--ink-faint);
+    }
+
+    .downloads-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+      .downloads-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .downloads-grid { grid-template-columns: 1fr; }
+    }
+
+    .download-card {
+      padding: 22px;
+      border-radius: var(--radius-loose);
+      border: 1px solid var(--border-hairline);
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+      transition: translate var(--pace-normal) var(--ease-smooth), border-color var(--pace-normal) var(--ease-smooth);
+
+      &:hover {
+        translate: 0 -4px;
+        border-color: var(--border-hairline-bright);
+      }
+
+      & .platform {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--font-mono);
+        font-weight: 700;
+        font-size: 15px;
+      }
+
+      & .filename {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--ink-faint);
+        word-break: break-all;
+      }
+
+      & .filesize {
+        font-size: 13px;
         color: var(--ink-dim);
       }
     }
@@ -943,9 +1099,11 @@
     }
 
     .codeblock {
-      background: var(--bg-panel);
-      border: 1px solid var(--border-hairline);
-      border-radius: 8px;
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-normal);
       padding: 16px 18px;
       font-family: var(--font-mono);
       font-size: 13.5px;
@@ -971,10 +1129,10 @@
       font-family: var(--font-mono);
       font-size: 11px;
       padding: 5px 10px;
-      border-radius: 6px;
+      border-radius: var(--radius-tight);
       cursor: pointer;
       opacity: 0;
-      transition: opacity var(--pace-quick) ease, border-color var(--pace-quick) ease, color var(--pace-quick) ease;
+      transition: opacity var(--pace-quick) var(--ease-smooth), border-color var(--pace-quick) var(--ease-smooth), color var(--pace-quick) var(--ease-smooth);
 
       .codeblock:hover &,
       &:focus-visible {
@@ -1014,7 +1172,7 @@
     .site-footer a {
       text-decoration: none;
       color: var(--ink-dim);
-      transition: color var(--pace-quick) ease;
+      transition: color var(--pace-quick) var(--ease-smooth);
 
       &:hover {
         color: var(--glow-primary);
@@ -1039,6 +1197,7 @@
       <a href="#what" data-nav-link>What it is</a>
       <a href="#apps" data-nav-link>Apps</a>
       <a href="#versions" data-nav-link>Versions</a>
+      <a href="#downloads" data-nav-link>Downloads</a>
       <a href="#license" data-nav-link>License</a>
       <a href="#start" data-nav-link>Get started</a>
     </nav>
@@ -1052,7 +1211,7 @@
       <span class="eyebrow">Apache 2.0 · Fork-friendly · No telemetry</span>
       <h1>The <span class="accent">free, open</span> base of NovaByte OS.</h1>
       <p class="lede">
-        NBOSP is a browser-based operating system foundation you run, fork, and build on top of.
+        NovaByte Open Source Project (NBOSP) is a browser-based operating system foundation you run, fork, and build on top of.
         No edition system, no update pipeline, no bloat — just a minimal OS that gets out of your way.
       </p>
       <div class="hero-actions">
@@ -1065,7 +1224,7 @@
         NBOSP is a foundation, not a finished product. The apps are intentionally bare bones — if you open Files, you can browse files. That's roughly the level across the board. It's the raw skeleton you fork and build on, not a competitor to a polished consumer OS.
       </div>
 
-      <div class="terminal glow-surface" aria-hidden="true">
+      <div class="terminal glow-surface glass" aria-hidden="true">
         <div class="terminal-titlebar">
           <span class="traffic-light is-red"></span><span class="traffic-light is-yellow"></span><span class="traffic-light is-green"></span>
           <span class="title">nbosp — zsh</span>
@@ -1089,7 +1248,7 @@
       </div>
 
       <div class="split-grid">
-        <div class="split-card is-what glow-surface reveal-on-scroll needs-js-reveal">
+        <div class="split-card is-what glow-surface glass reveal-on-scroll needs-js-reveal">
           <h3>NBOSP is</h3>
           <ul>
             <li>A minimal, fast, stock OS with basic security built in</li>
@@ -1099,7 +1258,7 @@
             <li>Actively maintained — fixes ship faster than the full product</li>
           </ul>
         </div>
-        <div class="split-card is-not glow-surface reveal-on-scroll needs-js-reveal">
+        <div class="split-card is-not glow-surface glass reveal-on-scroll needs-js-reveal">
           <h3>NBOSP is not</h3>
           <ul>
             <li>A polished, consumer-ready daily driver</li>
@@ -1217,6 +1376,38 @@
           <span class="ver-num">v3.x.x</span>
           <span class="status-pill is-current">Current</span>
           <span class="note">Latest, recommended. Includes the built-in System Updates app.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="downloads">
+    <div class="shell">
+      <div class="section-head reveal-on-scroll needs-js-reveal">
+        <div class="section-label">Pre-built binaries</div>
+        <h2>Download and run — no clone, no npm install.</h2>
+        <p class="section-desc">
+          Pulled live from the latest GitHub release. Pick your platform, extract, and run the executable.
+        </p>
+      </div>
+
+      <div class="downloads-panel reveal-on-scroll needs-js-reveal" data-downloads-root>
+        <div class="downloads-loading" data-downloads-loading>
+          <span class="spinner" aria-hidden="true"></span>
+          Fetching the latest release from GitHub…
+        </div>
+
+        <div class="downloads-error" data-downloads-error hidden>
+          <p>Couldn't reach the GitHub API right now (rate limit or network hiccup).</p>
+          <a class="btn btn-ghost" href="https://github.com/NovaByteTeam/novabyte-os/releases/latest" target="_blank" rel="noopener noreferrer">View releases on GitHub</a>
+        </div>
+
+        <div class="downloads-content" data-downloads-content hidden>
+          <div class="downloads-meta">
+            <span class="downloads-tag" data-downloads-tag></span>
+            <span class="downloads-date" data-downloads-date></span>
+          </div>
+          <div class="downloads-grid" data-downloads-grid></div>
         </div>
       </div>
     </div>
@@ -1556,6 +1747,109 @@ npm start
     });
   }
 
+  /* ----------------------------------------------------------------------
+   * downloads: fetches the latest release straight from GitHub's public
+   * API client-side, so asset names/sizes/checksums/links stay accurate
+   * forever instead of being hand-typed here and going stale. GitHub's
+   * unauthenticated API caps out at 60 req/hour per visitor IP — fine for
+   * a low-traffic project page, but real people WILL occasionally hit it,
+   * so a failed or rate-limited call falls back to a plain link out to
+   * the releases page rather than showing a broken empty state.
+   * ------------------------------------------------------------------- */
+  const PLATFORM_MATCHERS = [
+    { test: /win/i,          label: 'Windows (x64)',       icon: '🪟' },
+    { test: /osx|mac|darwin/i, label: 'macOS (Apple Silicon)', icon: '🍎' },
+    { test: /linux/i,        label: 'Linux (x64)',         icon: '🐧' },
+  ];
+
+  function platformForAsset(name) {
+    const match = PLATFORM_MATCHERS.find((p) => p.test.test(name));
+    return match || { label: name, icon: '📦' };
+  }
+
+  function formatBytes(bytes) {
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(0)} MB`;
+  }
+
+  function formatReleaseDate(iso) {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+    });
+  }
+
+  async function wireUpDownloads() {
+    const root = document.querySelector('[data-downloads-root]');
+    if (!root) return;
+
+    const loadingEl = root.querySelector('[data-downloads-loading]');
+    const errorEl   = root.querySelector('[data-downloads-error]');
+    const contentEl = root.querySelector('[data-downloads-content]');
+    const tagEl     = root.querySelector('[data-downloads-tag]');
+    const dateEl    = root.querySelector('[data-downloads-date]');
+    const gridEl    = root.querySelector('[data-downloads-grid]');
+
+    function showError() {
+      loadingEl.hidden = true;
+      errorEl.hidden = false;
+    }
+
+    try {
+      const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/releases/latest', {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+
+      // covers rate-limit (403) and any other non-2xx without guessing at
+      // GitHub's exact error shape — we only need to know it didn't work
+      if (!res.ok) {
+        showError();
+        return;
+      }
+
+      const release = await res.json();
+      const assets = Array.isArray(release.assets) ? release.assets.filter(a => a.name.endsWith('.zip')) : [];
+
+      if (assets.length === 0) {
+        showError();
+        return;
+      }
+
+      tagEl.textContent = release.tag_name || 'Latest';
+      dateEl.textContent = release.published_at ? `Updated ${formatReleaseDate(release.published_at)}` : '';
+
+      gridEl.innerHTML = '';
+      for (const asset of assets) {
+        const platform = platformForAsset(asset.name);
+        const card = document.createElement('a');
+        card.className = 'download-card glow-surface';
+        card.href = asset.browser_download_url;
+        card.setAttribute('rel', 'noopener noreferrer');
+
+        const platformRow = document.createElement('div');
+        platformRow.className = 'platform';
+        platformRow.textContent = `${platform.icon} ${platform.label}`;
+
+        const filename = document.createElement('div');
+        filename.className = 'filename';
+        filename.textContent = asset.name;
+
+        const filesize = document.createElement('div');
+        filesize.className = 'filesize';
+        filesize.textContent = formatBytes(asset.size);
+
+        card.append(platformRow, filename, filesize);
+        gridEl.appendChild(card);
+      }
+
+      loadingEl.hidden = true;
+      contentEl.hidden = false;
+    } catch (error) {
+      // network failure, blocked request, malformed JSON — all land here
+      console.error('[NovaByte] downloads fetch failed:', error);
+      showError();
+    }
+  }
+
   // kick everything off
   const bootContainer = document.querySelector('[data-boot-sequence]');
   if (bootContainer) typeOutBootSequence(bootContainer);
@@ -1565,6 +1859,7 @@ npm start
   wireUpDevAccordion();
   wireUpScrollRevealFallback();
   wireUpCopyButton();
+  wireUpDownloads();
 </script>
 
 </body>
