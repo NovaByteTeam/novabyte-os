@@ -715,7 +715,7 @@ registerApp({
       mainContent.appendChild(userGroup);
 
       // Lock screen
-      // TODO: The UI on the lock screen for the pin enterin may need to be reimplemented, including the buttons for accessing the settings.js Set Pin or Change Pin UI to give it a much better UI and ease of use.
+      const lockGroup = createEl('div', { className: 'nook-group' });
       lockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Lock Screen' }));
       const pinRow = createEl('div', { className: 'nook-row' });
       pinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'PIN Lock' }));
