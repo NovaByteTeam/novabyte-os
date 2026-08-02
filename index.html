@@ -217,6 +217,14 @@
     .primary-nav {
       display: flex;
       gap: 28px;
+      flex-shrink: 1;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+
+      &::-webkit-scrollbar { display: none; }
 
       & a {
         position: relative;
@@ -225,6 +233,8 @@
         color: var(--ink-dim);
         text-decoration: none;
         padding-block: 4px;
+        white-space: nowrap;
+        flex-shrink: 0;
         transition: color var(--pace-quick) var(--ease-smooth);
 
         /* the little underline that grows in on hover/active instead of a
@@ -258,8 +268,53 @@
       }
     }
 
-    @media (max-width: 1300px) {
+    @media (max-width: 900px) {
       .primary-nav { display: none; }
+      .nav-toggle { display: inline-flex; }
+    }
+
+    .nav-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      background: transparent;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      color: var(--ink);
+      cursor: pointer;
+      flex-shrink: 0;
+
+      & svg { width: 18px; height: 18px; }
+    }
+
+    .mobile-nav {
+      display: none;
+      flex-direction: column;
+      padding: 8px 24px 20px;
+      border-top: 1px solid var(--border-hairline);
+      background: var(--bg-void);
+
+      & a {
+        font-family: var(--font-mono);
+        font-size: 14px;
+        color: var(--ink-dim);
+        text-decoration: none;
+        padding-block: 12px;
+        border-bottom: 1px solid var(--border-hairline);
+
+        &:last-child { border-bottom: none; }
+        &:hover, &.is-active { color: var(--glow-primary); }
+      }
+    }
+
+    .mobile-nav.is-open {
+      display: flex;
+    }
+
+    @media (min-width: 901px) {
+      .mobile-nav { display: none !important; }
     }
 
     /* ---------- hero ---------- */
@@ -1829,7 +1884,27 @@
       <span>Jump to…</span>
       <kbd class="palette-kbd">⌘K</kbd>
     </button>
+    <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="mobile-nav" aria-label="Toggle navigation menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-toggle-icon>
+        <line x1="4" y1="6" x2="20" y2="6"></line>
+        <line x1="4" y1="12" x2="20" y2="12"></line>
+        <line x1="4" y1="18" x2="20" y2="18"></line>
+      </svg>
+    </button>
   </div>
+  <nav class="mobile-nav" id="mobile-nav" aria-label="Primary (mobile)" data-mobile-nav>
+    <a href="#what" data-nav-link>What it is</a>
+    <a href="#apps" data-nav-link>Apps</a>
+    <a href="#themes" data-nav-link>Themes</a>
+    <a href="#architecture" data-nav-link>Architecture</a>
+    <a href="#browse" data-nav-link>Browse</a>
+    <a href="#requirements" data-nav-link>Requirements</a>
+    <a href="#versions" data-nav-link>Versions</a>
+    <a href="#downloads" data-nav-link>Downloads</a>
+    <a href="#faq" data-nav-link>FAQ</a>
+    <a href="#license" data-nav-link>License</a>
+    <a href="#start" data-nav-link>Get started</a>
+  </nav>
 </header>
 
 <main>
@@ -2878,6 +2953,37 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
+   * mobile nav: the 11-link primary nav has nowhere to go under ~900px,
+   * so it collapses into this hamburger-triggered panel instead of just
+   * vanishing (which is what used to happen — no nav at all on narrow
+   * viewports, desktop or not).
+   * ------------------------------------------------------------------- */
+  function wireUpMobileNav() {
+    const toggle = document.querySelector('[data-nav-toggle]');
+    const panel  = document.querySelector('[data-mobile-nav]');
+    if (!toggle || !panel) return;
+
+    function setOpen(open) {
+      panel.classList.toggle('is-open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+    }
+
+    toggle.addEventListener('click', () => {
+      setOpen(!panel.classList.contains('is-open'));
+    });
+
+    // tapping a link should navigate AND close the panel, not leave it open
+    // hovering over the destination section
+    panel.querySelectorAll('a').forEach((link) => {
+      link.addEventListener('click', () => setOpen(false));
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    });
+  }
+
+  /* ----------------------------------------------------------------------
    * command palette: native <dialog>, opened via Cmd/Ctrl+K or the header
    * button. results are just the page's own sections — filtered client
    * side, arrow-key navigable, no framework needed for six items.
@@ -2934,7 +3040,14 @@ npm start
       document.getElementById(id)?.scrollIntoView({ behavior: reduceMotionQuery.matches ? 'auto' : 'smooth' });
     }
 
-    const isMac = navigator.platform.toLowerCase().includes('mac');
+    const isMac = (() => {
+      // userAgentData is the modern, non-deprecated way to get this, but it's
+      // Chromium-only right now — Safari/Firefox fall through to the old fields
+      const uaPlatform = navigator.userAgentData?.platform;
+      if (uaPlatform) return uaPlatform.toLowerCase().includes('mac');
+      const legacy = (navigator.platform || navigator.userAgent || '').toLowerCase();
+      return legacy.includes('mac');
+    })();
 
     function open() {
       input.value = '';
@@ -3238,6 +3351,7 @@ npm start
   wireUpAppFilter();
   wireUpThemePreview();
   wireUpCommandPalette();
+  wireUpMobileNav();
   wireUpRepoStats();
   wireUpChangelog();
   wireUpFileBrowser();
