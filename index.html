@@ -1185,6 +1185,623 @@
       font-family: var(--font-mono);
       font-size: 13px;
     }
+
+    /* ---------- utility ---------- */
+    .sr-only {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* ---------- command palette trigger (header) ---------- */
+    .palette-trigger {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      color: var(--ink-dim);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      padding: 7px 10px;
+      cursor: pointer;
+      transition: border-color var(--pace-quick) var(--ease-smooth);
+
+      &:hover, &:focus-visible {
+        border-color: var(--border-hairline-bright);
+        color: var(--ink);
+      }
+    }
+
+    @media (min-width: 860px) {
+      .palette-trigger { display: inline-flex; }
+    }
+
+    .palette-kbd {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: var(--bg-panel-raised);
+      border: 1px solid var(--border-hairline);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+
+    /* ---------- command palette dialog ---------- */
+    .palette-dialog {
+      width: min(560px, calc(100vw - 40px));
+      padding: 0;
+      border: 1px solid var(--border-hairline-bright);
+      border-radius: var(--radius-loose);
+      background: var(--glass-bg-raised);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      color: var(--ink);
+      box-shadow: 0 30px 80px -20px oklch(0% 0 0 / 0.7);
+
+      &::backdrop {
+        background: oklch(10% 0.01 255 / 0.6);
+        backdrop-filter: blur(2px);
+      }
+    }
+
+    .palette-inner {
+      padding: 14px;
+    }
+
+    .palette-input {
+      width: 100%;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      padding: 12px 14px;
+      outline: none;
+
+      &:focus-visible {
+        border-color: var(--glow-primary);
+      }
+    }
+
+    .palette-results {
+      list-style: none;
+      margin-block-start: 10px;
+      max-height: 320px;
+      overflow-y: auto;
+      display: grid;
+      gap: 2px;
+    }
+
+    .palette-result {
+      padding: 10px 12px;
+      border-radius: var(--radius-tight);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+
+      & .palette-result-title {
+        font-size: 14px;
+        color: var(--ink);
+      }
+
+      & .palette-result-desc {
+        font-size: 12px;
+        color: var(--ink-faint);
+      }
+
+      &[aria-selected="true"] {
+        background: var(--glow-primary-soft);
+      }
+    }
+
+    .palette-hint {
+      margin-block-start: 10px;
+      padding-block-start: 10px;
+      border-top: 1px solid var(--border-hairline);
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+      color: var(--ink-faint);
+
+      & kbd {
+        font-family: var(--font-mono);
+        background: var(--bg-panel-raised);
+        border: 1px solid var(--border-hairline);
+        border-radius: 4px;
+        padding: 1px 5px;
+        margin-inline-end: 2px;
+      }
+    }
+
+    /* ---------- app search / filter ---------- */
+    .app-search {
+      margin-block-start: 40px;
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .app-filter-input {
+      width: 100%;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      padding: 12px 90px 12px 16px;
+      outline: none;
+      transition: border-color var(--pace-quick) var(--ease-smooth);
+
+      &::-webkit-search-cancel-button { display: none; }
+      &:focus-visible { border-color: var(--glow-primary); }
+      &::placeholder { color: var(--ink-faint); }
+    }
+
+    .app-filter-count {
+      position: absolute;
+      inset-inline-end: 14px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink-faint);
+      pointer-events: none;
+    }
+
+    .app-filter-empty {
+      margin-block-start: 20px;
+      color: var(--ink-faint);
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .manifest-row[hidden] { display: none; }
+
+    /* ---------- themes ---------- */
+    .theme-grid {
+      margin-block-start: 40px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+    }
+
+    .theme-swatch {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-normal);
+      padding: 12px;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color var(--pace-quick) var(--ease-smooth), transform var(--pace-quick) var(--ease-smooth);
+
+      &:hover { border-color: var(--border-hairline-bright); }
+      &:focus-visible { border-color: var(--glow-primary); }
+
+      &[aria-checked="true"] {
+        border-color: var(--glow-primary);
+        box-shadow: 0 0 0 1px var(--glow-primary);
+      }
+    }
+
+    .theme-swatch-preview {
+      display: block;
+      height: 56px;
+      border-radius: var(--radius-tight);
+      margin-block-end: 10px;
+      background: linear-gradient(135deg, var(--sw-base) 0%, var(--sw-base) 55%, var(--sw-elevated) 55%, var(--sw-elevated) 100%);
+      position: relative;
+      overflow: hidden;
+
+      &::after {
+        content: '';
+        position: absolute;
+        bottom: 8px;
+        left: 8px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--sw-accent);
+      }
+    }
+
+    .theme-swatch-name {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink-dim);
+    }
+
+    .accent-row {
+      margin-block-start: 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .accent-row-label {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--ink-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .accent-swatches {
+      display: flex;
+      gap: 10px;
+    }
+
+    .accent-swatch {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--sw-accent);
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: border-color var(--pace-quick) var(--ease-smooth), transform var(--pace-quick) var(--ease-smooth);
+
+      &:hover { transform: scale(1.1); }
+      &[aria-checked="true"] { border-color: var(--ink); }
+    }
+
+    .theme-disclaimer {
+      margin-block-start: 18px;
+      font-size: 12.5px;
+      color: var(--ink-faint);
+    }
+
+    /* ---------- architecture diagram ---------- */
+    .arch-diagram {
+      margin-block-start: 40px;
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+    }
+
+    .arch-tier {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .arch-node {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      padding: 14px 18px;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--ink);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 200px;
+      flex: 1 1 200px;
+      max-width: 320px;
+
+      &.is-security {
+        border-color: color-mix(in oklch, var(--signal-amber) 30%, var(--border-hairline));
+        background: color-mix(in oklch, var(--signal-amber) 5%, var(--bg-panel));
+      }
+
+      &.is-server {
+        border-color: color-mix(in oklch, var(--glow-primary) 30%, var(--border-hairline));
+        background: color-mix(in oklch, var(--glow-primary) 5%, var(--bg-panel));
+      }
+    }
+
+    .arch-sub {
+      font-family: var(--font-sans);
+      font-size: 11.5px;
+      font-weight: 400;
+      color: var(--ink-faint);
+    }
+
+    .arch-connector {
+      color: var(--ink-faint);
+      font-size: 16px;
+    }
+
+    /* ---------- requirements table ---------- */
+    .req-table {
+      margin-block-start: 40px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-normal);
+      overflow: hidden;
+    }
+
+    .req-row {
+      display: grid;
+      grid-template-columns: 160px 1fr 1fr;
+      border-bottom: 1px solid var(--border-hairline);
+
+      &:last-child { border-bottom: none; }
+      &:nth-child(even) { background: var(--bg-panel-raised); }
+      &:nth-child(odd) { background: var(--bg-panel); }
+    }
+
+    .req-row-head {
+      background: var(--bg-panel-raised) !important;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink-faint);
+
+      & > div { padding: 12px 18px; }
+    }
+
+    .req-row > div {
+      padding: 16px 18px;
+      font-size: 13.5px;
+      color: var(--ink-dim);
+    }
+
+    .req-label {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .req-est-tag {
+      font-size: 10px;
+      color: var(--glow-primary);
+      background: var(--glow-primary-soft);
+      border-radius: 20px;
+      padding: 2px 8px;
+      margin-inline-start: 6px;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+
+    @media (max-width: 720px) {
+      .req-row { grid-template-columns: 1fr; }
+      .req-row-head { display: none; }
+      .req-row > div { padding: 8px 18px; }
+      .req-label { padding-block-start: 16px !important; }
+    }
+
+    /* ---------- repo stats + changelog ---------- */
+    .repo-stats {
+      margin-block-start: 24px;
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    .repo-stat {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      padding: 14px 24px;
+      text-align: center;
+      min-width: 110px;
+    }
+
+    .repo-stat-num {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--glow-primary);
+    }
+
+    .repo-stat-label {
+      font-size: 11px;
+      color: var(--ink-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .changelog-drawer {
+      margin-block-start: 24px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-normal);
+      background: var(--bg-panel);
+      padding: 16px 20px;
+
+      & summary {
+        cursor: pointer;
+        font-family: var(--font-mono);
+        font-size: 13.5px;
+        color: var(--ink);
+        list-style: none;
+
+        &::-webkit-details-marker { display: none; }
+
+        &::before {
+          content: '▸ ';
+          color: var(--glow-primary);
+        }
+      }
+
+      &[open] summary::before {
+        content: '▾ ';
+      }
+    }
+
+    .changelog-list {
+      margin-block-start: 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .changelog-loading {
+      color: var(--ink-faint);
+      font-size: 13px;
+    }
+
+    .changelog-entry {
+      display: block;
+      padding: 10px 12px;
+      border-radius: var(--radius-tight);
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: border-color var(--pace-quick) var(--ease-smooth), background var(--pace-quick) var(--ease-smooth);
+
+      &:hover {
+        border-color: var(--border-hairline);
+        background: var(--bg-panel-raised);
+      }
+    }
+
+    .changelog-msg {
+      font-size: 13.5px;
+      color: var(--ink);
+    }
+
+    .changelog-meta {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--ink-faint);
+      margin-block-start: 3px;
+    }
+
+    /* ---------- live file browser ---------- */
+    .browser-panel {
+      margin-block-start: 40px;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-normal);
+      overflow: hidden;
+    }
+
+    .browser-path {
+      padding: 12px 20px;
+      background: var(--bg-panel-raised);
+      border-bottom: 1px solid var(--border-hairline);
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: var(--ink-faint);
+    }
+
+    .browser-path-label { color: var(--ink-dim); }
+
+    .browser-loading, .browser-error {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--ink-dim);
+      font-size: 14px;
+    }
+
+    .browser-error p { margin-block-end: 14px; }
+
+    .browser-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+
+    .browser-table th {
+      text-align: left;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink-faint);
+      padding: 10px 20px;
+      background: var(--bg-panel-raised);
+      border-bottom: 1px solid var(--border-hairline);
+    }
+
+    .browser-table td {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border-hairline);
+      vertical-align: middle;
+    }
+
+    .browser-table tr:last-child td { border-bottom: none; }
+    .browser-table tr:nth-child(even) td { background: var(--bg-panel); }
+    .browser-table tr:hover td { background: color-mix(in oklch, var(--glow-primary) 4%, var(--bg-panel)); }
+
+    .browser-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink);
+      font-family: var(--font-mono);
+    }
+
+    .browser-name.is-dir { cursor: pointer; }
+    .browser-name.is-dir:hover { color: var(--glow-primary); }
+
+    .browser-icon { flex-shrink: 0; }
+
+    .browser-commit-msg a {
+      color: var(--ink-dim);
+      text-decoration: none;
+
+      &:hover { color: var(--glow-primary); }
+    }
+
+    .browser-commit-date {
+      color: var(--ink-faint);
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    @media (max-width: 700px) {
+      .browser-table thead { display: none; }
+      .browser-table, .browser-table tbody, .browser-table tr, .browser-table td {
+        display: block;
+        width: 100%;
+      }
+      .browser-table td { border-bottom: none; padding: 4px 16px; }
+      .browser-table tr { padding-block: 10px; border-bottom: 1px solid var(--border-hairline); }
+      .browser-commit-date { text-align: left; }
+    }
+
+    /* ---------- FAQ ---------- */
+    .faq-list {
+      margin-block-start: 40px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .faq-item {
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-normal);
+      background: var(--bg-panel);
+      padding: 18px 22px;
+      transition: border-color var(--pace-quick) var(--ease-smooth);
+
+      &:hover { border-color: var(--border-hairline-bright); }
+
+      & summary {
+        cursor: pointer;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--ink);
+        list-style: none;
+
+        &::-webkit-details-marker { display: none; }
+
+        &::before {
+          content: '+ ';
+          color: var(--glow-primary);
+          font-family: var(--font-mono);
+        }
+      }
+
+      &[open] summary::before {
+        content: '− ';
+      }
+
+      & p {
+        margin-block-start: 12px;
+        font-size: 14px;
+        color: var(--ink-dim);
+        line-height: 1.65;
+      }
+    }
   }
 </style>
 </head>
@@ -1196,11 +1813,20 @@
     <nav class="primary-nav" aria-label="Primary">
       <a href="#what" data-nav-link>What it is</a>
       <a href="#apps" data-nav-link>Apps</a>
+      <a href="#themes" data-nav-link>Themes</a>
+      <a href="#architecture" data-nav-link>Architecture</a>
+      <a href="#browse" data-nav-link>Browse</a>
+      <a href="#requirements" data-nav-link>Requirements</a>
       <a href="#versions" data-nav-link>Versions</a>
       <a href="#downloads" data-nav-link>Downloads</a>
+      <a href="#faq" data-nav-link>FAQ</a>
       <a href="#license" data-nav-link>License</a>
       <a href="#start" data-nav-link>Get started</a>
     </nav>
+    <button class="palette-trigger" type="button" data-palette-trigger aria-haspopup="dialog">
+      <span>Jump to…</span>
+      <kbd class="palette-kbd">⌘K</kbd>
+    </button>
   </div>
 </header>
 
@@ -1283,40 +1909,48 @@
         </p>
       </div>
 
-      <div class="manifest reveal-on-scroll needs-js-reveal" role="table" aria-label="NBOSP standard apps">
-        <div class="manifest-row" role="row">
+      <search class="app-search reveal-on-scroll needs-js-reveal">
+        <label for="app-filter-input" class="sr-only">Filter apps</label>
+        <input type="search" id="app-filter-input" class="app-filter-input" placeholder="Filter apps — try “scanner” or “email”" autocomplete="off" data-app-filter-input>
+        <span class="app-filter-count" data-app-filter-count aria-live="polite"></span>
+      </search>
+
+      <div class="manifest reveal-on-scroll needs-js-reveal" role="table" aria-label="NBOSP standard apps" data-manifest-root>
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="files file manager icon list sort scanner drag drop trash restore">
           <div class="app-name" role="cell">📁 Files</div>
           <div class="app-desc" role="cell">Icon/list view, sort, search, copy/cut/paste, trash and restore, drag-and-drop import screened by the built-in scanner. <span class="caveat">No tabs, no split panes, no cloud sync.</span></div>
         </div>
-        <div class="manifest-row" role="row">
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="textedit text editor line numbers word count tab indentation brackets">
           <div class="app-name" role="cell">📝 TextEdit</div>
           <div class="app-desc" role="cell">Plain text editor with line numbers, word count, Tab indentation, auto-close brackets. <span class="caveat">Single file only — no tabs, no markdown preview.</span></div>
         </div>
-        <div class="manifest-row" role="row">
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="terminal shell ls cd grep pipes redirects aliases autocomplete vfs">
           <div class="app-name" role="cell">💻 Terminal</div>
           <div class="app-desc" role="cell">Real shell emulator — ls, cd, grep, pipes, redirects, aliases, tab autocomplete, multiple tabs. <span class="caveat">Runs against the VFS, not a real system shell.</span></div>
         </div>
-        <div class="manifest-row" role="row">
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="browser nwjs webview tabs bookmarks history incognito find popup blocker">
           <div class="app-name" role="cell">🌐 Browser</div>
           <div class="app-desc" role="cell">NW.js WebView rendering, tabs, bookmarks, history, incognito, find-in-page, popup blocker. <span class="caveat">No extensions, no sync, no password manager.</span></div>
         </div>
-        <div class="manifest-row" role="row">
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="email imap pop3 exchange search compose batch attachment tls">
           <div class="app-name" role="cell">📧 Email</div>
           <div class="app-desc" role="cell">Multi-account IMAP/POP3/Exchange, search, compose, batch-select. <span class="caveat">No filters, no tags, no offline cache.</span></div>
         </div>
-        <div class="manifest-row" role="row">
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="app manager novaapp package install scanner drag drop verified unverified signature trust store">
           <div class="app-name" role="cell">📦 App Manager</div>
           <div class="app-desc" role="cell">Install .novaapp packages by drag-and-drop, run every file through the built-in scanner first, manage web apps, verified/unverified badges. <span class="caveat">No app store, no update management.</span></div>
         </div>
-        <div class="manifest-row" role="row">
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="settings theme accent picker username storage privacy accessibility appearance">
           <div class="app-name" role="cell">⚙️ Settings</div>
           <div class="app-desc" role="cell">7 themes, accent picker, username, storage, privacy, accessibility. The one app still actively developed — it controls the OS's visual identity.</div>
         </div>
-        <div class="manifest-row" role="row">
+        <div class="manifest-row" role="row" data-app-row data-app-keywords="calendar gallery downloads contacts search clock calculator">
           <div class="app-name" role="cell">+ 7 more</div>
           <div class="app-desc" role="cell">Calendar, Gallery, Downloads, Contacts, Search, Clock, and Calculator — each doing the basics and stopping there, on purpose.</div>
         </div>
       </div>
+
+      <p class="app-filter-empty" data-app-filter-empty hidden>No apps match “<span data-app-filter-empty-term></span>”.</p>
 
       <button class="manifest-toggle" type="button" aria-expanded="false" aria-controls="dev-manifest-panel" data-accordion-trigger>
         <span data-toggle-label>Show Developer Mode apps</span> <span class="toggle-arrow" aria-hidden="true">→</span>
@@ -1328,27 +1962,200 @@
             <div class="dev-warning">
               ⚠ Hidden unless Developer Mode is enabled in Settings. Several of these can terminate apps, grant permissions, or run arbitrary code with no confirmation. Not part of the standard experience.
             </div>
-            <div class="manifest-row" role="row">
+            <div class="manifest-row" role="row" data-app-row data-app-keywords="console javascript eval os context sandbox dev mode">
               <div class="app-name" role="cell">🖥️ Console</div>
               <div class="app-desc" role="cell">Evaluate arbitrary JavaScript in the full OS context. <span class="caveat">No sandboxing — not a toy.</span></div>
             </div>
-            <div class="manifest-row" role="row">
+            <div class="manifest-row" role="row" data-app-row data-app-keywords="permissions grant revoke apps bulk trust">
               <div class="app-name" role="cell">🔐 Permissions</div>
               <div class="app-desc" role="cell">Review, grant, and revoke permissions across all registered apps, bulk operations supported. <span class="caveat">No confirmation prompts.</span></div>
             </div>
-            <div class="manifest-row" role="row">
+            <div class="manifest-row" role="row" data-app-row data-app-keywords="modules hot reload js runtime">
               <div class="app-name" role="cell">🧩 Modules</div>
               <div class="app-desc" role="cell">Hot-reload OS JS modules without restarting. <span class="caveat">Can execute arbitrary module paths at runtime.</span></div>
             </div>
-            <div class="manifest-row" role="row">
+            <div class="manifest-row" role="row" data-app-row data-app-keywords="packages sign verify novaapp manifest trust store keys">
               <div class="app-name" role="cell">📦 Packages</div>
               <div class="app-desc" role="cell">Sign and verify .novaapp packages, inspect manifests. <span class="caveat">Can add locally-generated keys to the trust store.</span></div>
             </div>
-            <div class="manifest-row" role="row">
+            <div class="manifest-row" role="row" data-app-row data-app-keywords="inspector window app state perf monitor fps memory system access vfs network proxy events timeline debug">
               <div class="app-name" role="cell">🔍 Inspector, 📊 Perf Monitor, 🌐 System Access, 📋 Events</div>
               <div class="app-desc" role="cell">Window/app state inspection, live FPS and memory tracking, VFS and network proxy inspection, unified event timeline — for debugging OS-level activity only.</div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="themes">
+    <div class="shell">
+      <div class="section-head reveal-on-scroll needs-js-reveal">
+        <div class="section-label">Appearance</div>
+        <h2>7 themes, 8 accents. Pulled from Settings source, not a mockup.</h2>
+        <p class="section-desc">
+          These are the exact <code class="mono">--bg-base</code> / <code class="mono">--accent</code> values
+          the Settings app applies via <code class="mono">applyTheme()</code>. Click one to preview it against this page.
+        </p>
+      </div>
+
+      <div class="theme-grid reveal-on-scroll needs-js-reveal" role="radiogroup" aria-label="Preview a theme" data-theme-grid>
+        <button type="button" class="theme-swatch" role="radio" aria-checked="true" data-theme="nova-dark" style="--sw-base:#07090f; --sw-elevated:#0e121c; --sw-accent:#58a6ff;">
+          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Nova Dark</span>
+        </button>
+        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="nova-light" data-is-light="true" data-ink="#24292f" data-ink-dim="#57606a" data-ink-faint="#8c959f" data-border="rgba(27,31,35,0.12)" style="--sw-base:#ffffff; --sw-elevated:#f6f8fa; --sw-accent:#0969da;">
+          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Nova Light</span>
+        </button>
+        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="nord" style="--sw-base:#2e3440; --sw-elevated:#3b4252; --sw-accent:#88c0d0;">
+          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Nord</span>
+        </button>
+        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="dracula" style="--sw-base:#282a36; --sw-elevated:#44475a; --sw-accent:#bd93f9;">
+          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Dracula</span>
+        </button>
+        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="catppuccin" style="--sw-base:#1e1e2e; --sw-elevated:#313244; --sw-accent:#cba6f7;">
+          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Catppuccin</span>
+        </button>
+        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="tokyo-night" style="--sw-base:#1a1b26; --sw-elevated:#24283b; --sw-accent:#7aa2f7;">
+          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Tokyo Night</span>
+        </button>
+        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="gruvbox" style="--sw-base:#282828; --sw-elevated:#3c3836; --sw-accent:#fabd2f;">
+          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Gruvbox</span>
+        </button>
+      </div>
+
+      <div class="accent-row reveal-on-scroll needs-js-reveal">
+        <span class="accent-row-label">Accent</span>
+        <div class="accent-swatches" role="radiogroup" aria-label="Preview an accent color" data-accent-grid>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="true" data-accent="#58a6ff" style="--sw-accent:#58a6ff;" aria-label="Blue"></button>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#3fb950" style="--sw-accent:#3fb950;" aria-label="Green"></button>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#f85149" style="--sw-accent:#f85149;" aria-label="Red"></button>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#d29922" style="--sw-accent:#d29922;" aria-label="Amber"></button>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#bc8cff" style="--sw-accent:#bc8cff;" aria-label="Purple"></button>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#ff7b72" style="--sw-accent:#ff7b72;" aria-label="Coral"></button>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#79c0ff" style="--sw-accent:#79c0ff;" aria-label="Sky"></button>
+          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#56d4dd" style="--sw-accent:#56d4dd;" aria-label="Teal"></button>
+        </div>
+      </div>
+      <p class="theme-disclaimer">Preview only — this tints the marketing page, not the actual OS. Colors are exact; layout and chrome are this site's, not NBOSP's window system.</p>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="shell">
+      <div class="section-head reveal-on-scroll needs-js-reveal">
+        <div class="section-label">Under the hood</div>
+        <h2>How the pieces actually talk to each other.</h2>
+        <p class="section-desc">
+          High-level, from the real folder layout — <code class="mono">js/core</code>, <code class="mono">js/platform/security</code>,
+          and <code class="mono">server/</code> — not an idealized diagram.
+        </p>
+      </div>
+
+      <div class="arch-diagram reveal-on-scroll needs-js-reveal" role="img" aria-label="Architecture diagram: apps and windows sit above the kernel and desktop shell, which route through the security runtime (sandbox, permissions, trust store) before reaching the virtual file system, package manager, and the NW.js WebView layer. The Node server handles TLS, sessions, and the event log underneath.">
+        <div class="arch-tier">
+          <div class="arch-node">Apps <span class="arch-sub">js/apps — Files, Terminal, Email, Settings…</span></div>
+        </div>
+        <div class="arch-connector" aria-hidden="true">↓</div>
+        <div class="arch-tier">
+          <div class="arch-node">Kernel &amp; Desktop Shell <span class="arch-sub">js/core/core, js/core/ui — windows, taskbar, events</span></div>
+        </div>
+        <div class="arch-connector" aria-hidden="true">↓</div>
+        <div class="arch-tier arch-tier-security">
+          <div class="arch-node is-security">App Sandbox <span class="arch-sub">app-sandbox.js</span></div>
+          <div class="arch-node is-security">Permission Manager <span class="arch-sub">app-permission-manager.js</span></div>
+          <div class="arch-node is-security">Trust Store <span class="arch-sub">trust-store.js — signature checks</span></div>
+        </div>
+        <div class="arch-connector" aria-hidden="true">↓</div>
+        <div class="arch-tier">
+          <div class="arch-node">VFS + .novaapp Package Manager <span class="arch-sub">Scanner runs before install/write</span></div>
+          <div class="arch-node">NW.js WebView Layer <span class="arch-sub">Browser &amp; Email rendering</span></div>
+        </div>
+        <div class="arch-connector" aria-hidden="true">↓</div>
+        <div class="arch-tier">
+          <div class="arch-node is-server">Node Server <span class="arch-sub">server/core — TLS, sessions, event log</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="browse">
+    <div class="shell">
+      <div class="section-head reveal-on-scroll needs-js-reveal">
+        <div class="section-label">Live from GitHub</div>
+        <h2>Browse the NBOSP source, right here.</h2>
+        <p class="section-desc">
+          Pulled from the GitHub Contents and Commits APIs on load — this is the real, current state of
+          <code class="mono">/NBOSP</code>, not a snapshot baked into the page.
+        </p>
+      </div>
+
+      <div class="browser-panel reveal-on-scroll needs-js-reveal" data-browser-root>
+        <div class="browser-path" data-browser-path aria-live="polite">
+          <span class="browser-path-label">NBOSP /</span>
+          <span data-browser-path-current></span>
+        </div>
+
+        <div class="browser-loading" data-browser-loading>
+          <span class="spinner" aria-hidden="true"></span>
+          Fetching the current tree from GitHub…
+        </div>
+
+        <div class="browser-error" data-browser-error hidden>
+          <p>Couldn't reach the GitHub API right now (rate limit or network hiccup).</p>
+          <a class="btn btn-ghost" href="https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP" target="_blank" rel="noopener noreferrer">Browse on GitHub instead</a>
+        </div>
+
+        <table class="browser-table" data-browser-table hidden>
+          <thead>
+            <tr><th>Name</th><th>Last commit message</th><th>Last commit date</th></tr>
+          </thead>
+          <tbody data-browser-body></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="requirements">
+    <div class="shell">
+      <div class="section-head reveal-on-scroll needs-js-reveal">
+        <div class="section-label">Before you clone</div>
+        <h2>System requirements.</h2>
+        <p class="section-desc">
+          Minimums are read straight from source. Recommended figures are our estimate based on the codebase
+          and are marked as such — NBOSP doesn't check or enforce these at runtime.
+        </p>
+      </div>
+
+      <div class="req-table reveal-on-scroll needs-js-reveal" role="table" aria-label="System requirements">
+        <div class="req-row req-row-head" role="row">
+          <div role="columnheader"></div>
+          <div role="columnheader">Minimum</div>
+          <div role="columnheader">Recommended <span class="req-est-tag">estimated</span></div>
+        </div>
+        <div class="req-row" role="row">
+          <div class="req-label" role="cell">Node.js</div>
+          <div role="cell">26.x <span class="caveat">(current, not LTS)</span></div>
+          <div role="cell">24.x LTS <span class="caveat">(latest Active LTS line)</span></div>
+        </div>
+        <div class="req-row" role="row">
+          <div class="req-label" role="cell">Rendering engine</div>
+          <div role="cell">NW.js 0.114.0-sdk <span class="caveat">(Chromium-based)</span></div>
+          <div role="cell">Same — pinned in package.json</div>
+        </div>
+        <div class="req-row" role="row">
+          <div class="req-label" role="cell">Disk space</div>
+          <div role="cell">~220 MB <span class="caveat">(measured node_modules + source)</span></div>
+          <div role="cell">500 MB free <span class="caveat">(room for the NW.js runtime + VFS data)</span></div>
+        </div>
+        <div class="req-row" role="row">
+          <div class="req-label" role="cell">RAM</div>
+          <div role="cell">2 GB</div>
+          <div role="cell">4 GB+ <span class="caveat">(V8 heap capped at 512 MB/window via chromium-args)</span></div>
+        </div>
+        <div class="req-row" role="row">
+          <div class="req-label" role="cell">OS</div>
+          <div role="cell">Windows, Linux, or macOS</div>
+          <div role="cell">Same — no platform is preferred in source</div>
         </div>
       </div>
     </div>
@@ -1409,6 +2216,55 @@
           </div>
           <div class="downloads-grid" data-downloads-grid></div>
         </div>
+      </div>
+
+      <div class="repo-stats" data-repo-stats aria-live="polite">
+        <div class="repo-stat"><span class="repo-stat-num" data-stat-stars>—</span><span class="repo-stat-label">Stars</span></div>
+        <div class="repo-stat"><span class="repo-stat-num" data-stat-forks>—</span><span class="repo-stat-label">Forks</span></div>
+        <div class="repo-stat"><span class="repo-stat-num" data-stat-issues>—</span><span class="repo-stat-label">Open issues</span></div>
+      </div>
+
+      <details class="changelog-drawer reveal-on-scroll needs-js-reveal" data-changelog-drawer>
+        <summary>Recent commits</summary>
+        <div class="changelog-list" data-changelog-list>
+          <p class="changelog-loading">Fetching recent commits from GitHub…</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="shell">
+      <div class="section-head reveal-on-scroll needs-js-reveal">
+        <div class="section-label">Questions</div>
+        <h2>Before you file an issue, check here.</h2>
+      </div>
+
+      <div class="faq-list reveal-on-scroll needs-js-reveal">
+        <details class="faq-item">
+          <summary>Why does NBOSP need <code class="mono">npm start</code> to run <code class="mono">nw .</code> instead of a normal Node server?</summary>
+          <p>NBOSP ships as an NW.js (Node-WebKit) app, not a browser-hosted page — <code class="mono">package.json</code>'s <code class="mono">start</code> script is <code class="mono">nw .</code>, which launches the bundled Chromium-based runtime with full Node access in the window context. A <code class="mono">prestart</code> hook runs <code class="mono">scripts/bootstrap.js</code> first, which checks if <code class="mono">node_modules</code> is missing or stale against <code class="mono">package-lock.json</code> and runs the install for you.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Do I need to trust a certificate every time I launch it?</summary>
+          <p>No — only once. On first launch NBOSP generates a local HTTPS certificate and CA under the hood; your OS prompts you to trust it a single time, and every launch after that is warning-free HTTPS.</p>
+        </details>
+        <details class="faq-item">
+          <summary>What actually happens when I install a <code class="mono">.novaapp</code> package?</summary>
+          <p>Every file inside the package is run through the built-in scanner before any trust or integrity checks happen. A flagged file blocks the install outright with no override — there's no way to force-install something the scanner rejects. Packages are also checked against the built-in trust store for a Verified/Unverified badge based on signature checks.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Is Developer Mode safe to leave on?</summary>
+          <p>Not by default — no. Apps like Console (arbitrary JS in the full OS context, no sandboxing) and Modules (hot-reload with the ability to execute arbitrary module paths at runtime) skip the confirmation prompts the standard app set has. Treat Developer Mode as a debugging posture, not a daily-driver setting.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Why does the App Manager have no update system?</summary>
+          <p>It's intentional, per the app's own scope: install by drag-and-drop or URL, pin/unpin, enable/disable, auto-launch on boot — no app store or catalogue, no update management. NBOSP's apps are feature-frozen by design; they get bug and security fixes, not new capability surface.</p>
+        </details>
+        <details class="faq-item">
+          <summary>What's the difference between NBOSP and the full NovaByte OS release (v1/v2/v3)?</summary>
+          <p>NBOSP (this repo, under <code class="mono">/NBOSP</code>) is the Apache 2.0 foundation — minimal, feature-frozen apps, no update pipeline, no telemetry, meant to be forked. The versioned <code class="mono">v1/</code>, <code class="mono">v2/</code>, <code class="mono">v3/</code> releases are the full closed-source product built on top of it, distributed as a compiled executable via Releases only.</p>
+        </details>
       </div>
     </div>
   </section>
@@ -1480,6 +2336,14 @@ npm start
   </section>
 
 </main>
+
+<dialog class="palette-dialog" data-palette-dialog aria-label="Command palette">
+  <div class="palette-inner">
+    <input type="text" class="palette-input" placeholder="Jump to a section…" autocomplete="off" data-palette-input aria-label="Search sections">
+    <ul class="palette-results" data-palette-results role="listbox" aria-label="Sections"></ul>
+    <div class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> close</div>
+  </div>
+</dialog>
 
 <footer class="site-footer">
   <div class="shell footer-row">
@@ -1887,6 +2751,477 @@ npm start
     }
   }
 
+  /* ----------------------------------------------------------------------
+   * app filter: plain substring match against each row's data-app-keywords
+   * (falls back to the visible name/desc text if keywords are missing).
+   * hides non-matching rows rather than re-rendering the list — the rows
+   * already exist in the DOM, so this is just a hidden-attribute toggle.
+   * ------------------------------------------------------------------- */
+  function wireUpAppFilter() {
+    const input = document.querySelector('[data-app-filter-input]');
+    const rows  = document.querySelectorAll('[data-app-row]');
+    const count = document.querySelector('[data-app-filter-count]');
+    const empty = document.querySelector('[data-app-filter-empty]');
+    const emptyTerm = document.querySelector('[data-app-filter-empty-term]');
+    if (!input || !rows.length) return;
+
+    function applyFilter() {
+      const term = input.value.trim().toLowerCase();
+      let visible = 0;
+
+      for (const row of rows) {
+        const haystack = (row.dataset.appKeywords || row.textContent).toLowerCase();
+        const matches = term === '' || haystack.includes(term);
+        row.hidden = !matches;
+        if (matches) visible++;
+      }
+
+      count.textContent = term ? `${visible} match${visible === 1 ? '' : 'es'}` : '';
+      if (empty) {
+        empty.hidden = visible !== 0 || term === '';
+        if (emptyTerm) emptyTerm.textContent = input.value.trim();
+      }
+    }
+
+    input.addEventListener('input', applyFilter);
+  }
+
+  /* ----------------------------------------------------------------------
+   * theme/accent preview: tints THIS page (not the real OS) using the
+   * exact --bg-base/--bg-elevated/--accent hex values pulled from
+   * NBOSP/js/core/ui/desktop.js. purely cosmetic — swaps a few of our own
+   * CSS variables, doesn't touch the site's actual token system.
+   * ------------------------------------------------------------------- */
+  function wireUpThemePreview() {
+    const themeGrid  = document.querySelector('[data-theme-grid]');
+    const accentGrid = document.querySelector('[data-accent-grid]');
+    if (!themeGrid || !accentGrid) return;
+
+    const root = document.documentElement;
+
+    // this page's own token system is dark-first (--ink is near-white,
+    // --bg-void is near-black), so previewing nova-light isn't just a
+    // background swap — text/border tokens need to invert too, or you
+    // get white text on a white background. these are the page's own
+    // *original* dark values, captured once, so we can restore them
+    // cleanly when the person switches back to any dark theme.
+    const darkInkDefaults = {
+      '--ink': getComputedStyle(root).getPropertyValue('--ink').trim(),
+      '--ink-dim': getComputedStyle(root).getPropertyValue('--ink-dim').trim(),
+      '--ink-faint': getComputedStyle(root).getPropertyValue('--ink-faint').trim(),
+      '--border-hairline': getComputedStyle(root).getPropertyValue('--border-hairline').trim(),
+      '--border-hairline-bright': getComputedStyle(root).getPropertyValue('--border-hairline-bright').trim(),
+    };
+
+    function setChecked(group, activeBtn) {
+      for (const btn of group.querySelectorAll('[role="radio"]')) {
+        btn.setAttribute('aria-checked', String(btn === activeBtn));
+      }
+    }
+
+    themeGrid.addEventListener('click', (event) => {
+      const btn = event.target.closest('.theme-swatch');
+      if (!btn) return;
+      const base = getComputedStyle(btn).getPropertyValue('--sw-base').trim();
+      const elevated = getComputedStyle(btn).getPropertyValue('--sw-elevated').trim();
+      const accent = getComputedStyle(btn).getPropertyValue('--sw-accent').trim();
+      const isLight = btn.dataset.isLight === 'true';
+
+      root.style.setProperty('--bg-void', base);
+      root.style.setProperty('--bg-panel', elevated);
+      root.style.setProperty('--bg-panel-raised', elevated);
+      root.style.setProperty('--glow-primary', accent);
+      root.style.setProperty('--glow-primary-soft', `color-mix(in oklch, ${accent} 12%, transparent)`);
+
+      if (isLight) {
+        root.style.setProperty('--ink', btn.dataset.ink);
+        root.style.setProperty('--ink-dim', btn.dataset.inkDim);
+        root.style.setProperty('--ink-faint', btn.dataset.inkFaint);
+        root.style.setProperty('--border-hairline', btn.dataset.border);
+        root.style.setProperty('--border-hairline-bright', btn.dataset.border);
+      } else {
+        for (const [prop, value] of Object.entries(darkInkDefaults)) {
+          root.style.setProperty(prop, value);
+        }
+      }
+
+      setChecked(themeGrid, btn);
+      // switching theme resets which accent reads as "active" back to
+      // that theme's own default, same behavior as the real Settings app
+      setChecked(accentGrid, accentGrid.querySelector(`[data-accent="${accent}"]`) || null);
+    });
+
+    accentGrid.addEventListener('click', (event) => {
+      const btn = event.target.closest('.accent-swatch');
+      if (!btn) return;
+      const accent = btn.dataset.accent;
+      root.style.setProperty('--glow-primary', accent);
+      root.style.setProperty('--glow-primary-soft', `color-mix(in oklch, ${accent} 12%, transparent)`);
+      setChecked(accentGrid, btn);
+    });
+  }
+
+  /* ----------------------------------------------------------------------
+   * command palette: native <dialog>, opened via Cmd/Ctrl+K or the header
+   * button. results are just the page's own sections — filtered client
+   * side, arrow-key navigable, no framework needed for six items.
+   * ------------------------------------------------------------------- */
+  function wireUpCommandPalette() {
+    const dialog  = document.querySelector('[data-palette-dialog]');
+    const trigger = document.querySelector('[data-palette-trigger]');
+    const input   = document.querySelector('[data-palette-input]');
+    const list    = document.querySelector('[data-palette-results]');
+    if (!dialog || !input || !list) return;
+
+    const sections = [
+      { id: 'what', title: 'What it is', desc: 'Who NBOSP is for' },
+      { id: 'apps', title: 'Apps', desc: 'Fourteen apps, pulled from source' },
+      { id: 'themes', title: 'Themes', desc: '7 themes, 8 accents — live preview' },
+      { id: 'architecture', title: 'Architecture', desc: 'How the pieces talk to each other' },
+      { id: 'browse', title: 'Browse', desc: 'Live file browser, pulled from GitHub' },
+      { id: 'requirements', title: 'Requirements', desc: 'Node, disk, RAM, OS' },
+      { id: 'versions', title: 'Versions', desc: 'What\'s current, what\'s dead' },
+      { id: 'downloads', title: 'Downloads', desc: 'Pre-built binaries + repo stats' },
+      { id: 'faq', title: 'FAQ', desc: 'Common questions' },
+      { id: 'license', title: 'License', desc: 'Apache 2.0 vs closed source' },
+      { id: 'start', title: 'Get started', desc: 'Clone and run' },
+    ];
+
+    let selectedIndex = 0;
+    let filtered = sections;
+
+    function render() {
+      list.innerHTML = '';
+      filtered.forEach((section, i) => {
+        const item = document.createElement('li');
+        item.className = 'palette-result';
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', String(i === selectedIndex));
+        item.dataset.sectionId = section.id;
+
+        const title = document.createElement('span');
+        title.className = 'palette-result-title';
+        title.textContent = section.title;
+
+        const desc = document.createElement('span');
+        desc.className = 'palette-result-desc';
+        desc.textContent = section.desc;
+
+        item.append(title, desc);
+        item.addEventListener('click', () => goTo(section.id));
+        list.appendChild(item);
+      });
+    }
+
+    function goTo(id) {
+      dialog.close();
+      document.getElementById(id)?.scrollIntoView({ behavior: reduceMotionQuery.matches ? 'auto' : 'smooth' });
+    }
+
+    function open() {
+      input.value = '';
+      filtered = sections;
+      selectedIndex = 0;
+      render();
+      dialog.showModal();
+      // showModal() moves focus to the dialog itself first; queue the
+      // input focus for the next frame so it actually sticks
+      requestAnimationFrame(() => input.focus());
+    }
+
+    trigger?.addEventListener('click', open);
+
+    document.addEventListener('keydown', (event) => {
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const modifierHeld = isMac ? event.metaKey : event.ctrlKey;
+      if (modifierHeld && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        dialog.open ? dialog.close() : open();
+      }
+    });
+
+    input.addEventListener('input', () => {
+      const term = input.value.trim().toLowerCase();
+      filtered = sections.filter((s) =>
+        s.title.toLowerCase().includes(term) || s.desc.toLowerCase().includes(term)
+      );
+      selectedIndex = 0;
+      render();
+    });
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
+        render();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+        render();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (filtered[selectedIndex]) goTo(filtered[selectedIndex].id);
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------------------
+   * live repo stats + changelog: same api.github.com pattern as
+   * wireUpDownloads() above, just two different endpoints. kept separate
+   * from wireUpDownloads() since either can fail without taking the
+   * other down with it.
+   * ------------------------------------------------------------------- */
+  async function wireUpRepoStats() {
+    const starsEl  = document.querySelector('[data-stat-stars]');
+    const forksEl  = document.querySelector('[data-stat-forks]');
+    const issuesEl = document.querySelector('[data-stat-issues]');
+    if (!starsEl) return;
+
+    try {
+      const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os', {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+      if (!res.ok) return;
+      const repo = await res.json();
+      starsEl.textContent  = formatCompactNumber(repo.stargazers_count);
+      forksEl.textContent  = formatCompactNumber(repo.forks_count);
+      issuesEl.textContent = formatCompactNumber(repo.open_issues_count);
+    } catch (error) {
+      console.error('[NovaByte] repo stats fetch failed:', error);
+    }
+  }
+
+  function formatCompactNumber(n) {
+    if (typeof n !== 'number') return '—';
+    if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+    return String(n);
+  }
+
+  async function wireUpChangelog() {
+    const drawer = document.querySelector('[data-changelog-drawer]');
+    const listEl = document.querySelector('[data-changelog-list]');
+    if (!drawer || !listEl) return;
+
+    // only fetch once the drawer is actually opened — no point spending
+    // the request budget on something most visitors won't expand
+    let loaded = false;
+    drawer.addEventListener('toggle', async () => {
+      if (!drawer.open || loaded) return;
+      loaded = true;
+
+      try {
+        const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/commits?path=NBOSP&per_page=8', {
+          headers: { Accept: 'application/vnd.github+json' },
+        });
+        if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+        const commits = await res.json();
+
+        listEl.innerHTML = '';
+        for (const commit of commits) {
+          const link = document.createElement('a');
+          link.className = 'changelog-entry';
+          link.href = commit.html_url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+
+          const msg = document.createElement('div');
+          msg.className = 'changelog-msg';
+          // first line only — commit bodies can run long and this is a
+          // summary list, not a full diff viewer
+          msg.textContent = (commit.commit?.message || '').split('\n')[0];
+
+          const meta = document.createElement('div');
+          meta.className = 'changelog-meta';
+          const sha = commit.sha ? commit.sha.slice(0, 7) : '';
+          const date = commit.commit?.author?.date ? formatReleaseDate(commit.commit.author.date) : '';
+          meta.textContent = [sha, date].filter(Boolean).join(' · ');
+
+          link.append(msg, meta);
+          listEl.appendChild(link);
+        }
+
+        if (commits.length === 0) {
+          listEl.innerHTML = '<p class="changelog-loading">No commits found.</p>';
+        }
+      } catch (error) {
+        console.error('[NovaByte] changelog fetch failed:', error);
+        listEl.innerHTML = '<p class="changelog-loading">Couldn\'t load recent commits — <a href="https://github.com/NovaByteTeam/novabyte-os/commits/main/NBOSP" target="_blank" rel="noopener noreferrer">view on GitHub</a>.</p>';
+      }
+    });
+  }
+
+  /* ----------------------------------------------------------------------
+   * live file browser: GitHub Contents API for the listing, then one
+   * Commits API call per entry for its "last commit" column — same
+   * shape as the real GitHub UI. Contents API alone doesn't include
+   * commit info, so this is N+1 requests per folder view; that's why
+   * authentication matters here (60/hr unauthenticated vs 5000/hr with
+   * a token).
+   *
+   * SECURITY NOTE: this token ships in the page source, visible to
+   * anyone who views it. Only ever put a fine-grained, read-only,
+   * public-repo-scoped token here — never one with write or admin
+   * scope. Leave GITHUB_TOKEN empty to fall back to the unauthenticated
+   * rate limit (fine for low traffic, will 403 faster under load).
+   * ------------------------------------------------------------------- */
+  const GITHUB_TOKEN = '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'; // fine-grained, read-only, public-repo-scoped
+
+  function wireUpFileBrowser() {
+    const root       = document.querySelector('[data-browser-root]');
+    if (!root) return;
+
+    const loadingEl  = root.querySelector('[data-browser-loading]');
+    const errorEl    = root.querySelector('[data-browser-error]');
+    const tableEl    = root.querySelector('[data-browser-table]');
+    const bodyEl     = root.querySelector('[data-browser-body]');
+    const pathEl     = root.querySelector('[data-browser-path-current]');
+
+    const REPO = 'NovaByteTeam/novabyte-os';
+    const ROOT_PATH = 'NBOSP';
+
+    function ghHeaders() {
+      const headers = { Accept: 'application/vnd.github+json' };
+      if (GITHUB_TOKEN) headers.Authorization = `Bearer ${GITHUB_TOKEN}`;
+      return headers;
+    }
+
+    function showLoading() {
+      loadingEl.hidden = false;
+      errorEl.hidden = true;
+      tableEl.hidden = true;
+    }
+
+    function showError() {
+      loadingEl.hidden = true;
+      errorEl.hidden = false;
+      tableEl.hidden = true;
+    }
+
+    function showTable() {
+      loadingEl.hidden = true;
+      errorEl.hidden = true;
+      tableEl.hidden = false;
+    }
+
+    // relative time to match GitHub's own "3 days ago" / "7 hours ago"
+    // style rather than a raw ISO date
+    function formatRelativeTime(iso) {
+      const then = new Date(iso).getTime();
+      const diffSeconds = Math.max(0, (Date.now() - then) / 1000);
+      const units = [
+        ['year', 31536000], ['month', 2592000], ['week', 604800],
+        ['day', 86400], ['hour', 3600], ['minute', 60],
+      ];
+      for (const [name, secondsInUnit] of units) {
+        const value = Math.floor(diffSeconds / secondsInUnit);
+        if (value >= 1) return `${value} ${name}${value === 1 ? '' : 's'} ago`;
+      }
+      return 'just now';
+    }
+
+    async function fetchLastCommit(path) {
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/${REPO}/commits?path=${encodeURIComponent(path)}&per_page=1`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) return null;
+        const commits = await res.json();
+        return commits[0] || null;
+      } catch {
+        return null;
+      }
+    }
+
+    async function loadPath(path) {
+      showLoading();
+      pathEl.textContent = path === ROOT_PATH ? '' : path.slice(ROOT_PATH.length + 1);
+
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/${REPO}/contents/${path}`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+        const entries = await res.json();
+
+        // dirs first, then files, both alphabetical — matches the
+        // convention every git host's file browser already uses
+        entries.sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+
+        // last-commit lookups run in parallel — sequential would mean
+        // a ~15-entry folder taking 15x one request's latency to paint
+        const withCommits = await Promise.all(
+          entries.map(async (entry) => ({ entry, commit: await fetchLastCommit(entry.path) }))
+        );
+
+        bodyEl.innerHTML = '';
+
+        if (path !== ROOT_PATH) {
+          const parentPath = path.split('/').slice(0, -1).join('/') || ROOT_PATH;
+          bodyEl.appendChild(buildRow({
+            name: '..', isDir: true, path: parentPath, commitMsg: '', commitUrl: '', relTime: '',
+          }));
+        }
+
+        for (const { entry, commit } of withCommits) {
+          bodyEl.appendChild(buildRow({
+            name: entry.name,
+            isDir: entry.type === 'dir',
+            path: entry.path,
+            commitMsg: commit?.commit?.message?.split('\n')[0] || '—',
+            commitUrl: commit?.html_url || '',
+            relTime: commit?.commit?.author?.date ? formatRelativeTime(commit.commit.author.date) : '—',
+          }));
+        }
+
+        showTable();
+      } catch (error) {
+        console.error('[NovaByte] file browser fetch failed:', error);
+        showError();
+      }
+    }
+
+    function buildRow({ name, isDir, path, commitMsg, commitUrl, relTime }) {
+      const tr = document.createElement('tr');
+
+      const nameTd = document.createElement('td');
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'browser-name' + (isDir ? ' is-dir' : '');
+      nameSpan.innerHTML = `<span class="browser-icon">${isDir ? '📁' : '📄'}</span>`;
+      nameSpan.append(name);
+      if (isDir) {
+        nameSpan.addEventListener('click', () => loadPath(path));
+      }
+      nameTd.appendChild(nameSpan);
+
+      const msgTd = document.createElement('td');
+      msgTd.className = 'browser-commit-msg';
+      if (commitUrl) {
+        const link = document.createElement('a');
+        link.href = commitUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = commitMsg;
+        msgTd.appendChild(link);
+      } else {
+        msgTd.textContent = commitMsg;
+      }
+
+      const dateTd = document.createElement('td');
+      dateTd.className = 'browser-commit-date';
+      dateTd.textContent = relTime;
+
+      tr.append(nameTd, msgTd, dateTd);
+      return tr;
+    }
+
+    loadPath(ROOT_PATH);
+  }
+
   // kick everything off
   const bootContainer = document.querySelector('[data-boot-sequence]');
   if (bootContainer) typeOutBootSequence(bootContainer);
@@ -1897,6 +3232,12 @@ npm start
   wireUpScrollRevealFallback();
   wireUpCopyButton();
   wireUpDownloads();
+  wireUpAppFilter();
+  wireUpThemePreview();
+  wireUpCommandPalette();
+  wireUpRepoStats();
+  wireUpChangelog();
+  wireUpFileBrowser();
 </script>
 
 </body>
