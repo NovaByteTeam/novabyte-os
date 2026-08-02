@@ -1399,7 +1399,7 @@
 
         <div class="downloads-error" data-downloads-error hidden>
           <p>Couldn't reach the GitHub API right now (rate limit or network hiccup).</p>
-          <a class="btn btn-ghost" href="https://github.com/NovaByteTeam/novabyte-os/releases/latest" target="_blank" rel="noopener noreferrer">View releases on GitHub</a>
+          <a class="btn btn-ghost" href="https://github.com/NovaByteTeam/novabyte-os/releases/tag/NBOSP-PREBUILT" target="_blank" rel="noopener noreferrer">View releases on GitHub</a>
         </div>
 
         <div class="downloads-content" data-downloads-content hidden>
@@ -1510,7 +1510,7 @@ npm start
     const bootScript = [
       { kind: 'command', text: 'git clone https://github.com/NovaByteTeam/novabyte-os.git' },
       { kind: 'command', text: 'cd novabyte-os/NBOSP && npm start' },
-      { kind: 'output', text: '✓ dependencies installed\n✓ local HTTPS certificate generated\n✓ NBOSP running on 127.0.0.1:3003' },
+      { kind: 'lines', text: '> novabyte-server@3.0.2 prestart\n> node scripts/bootstrap.js\n[bootstrap] Running npm ci...\n> novabyte-server@3.0.2 start\n> nw .' },
     ];
 
     if (reduceMotionQuery.matches) {
@@ -1525,6 +1525,11 @@ npm start
     for (const entry of bootScript) {
       if (entry.kind === 'command') {
         container.append(buildCommandLine(entry.text));
+      } else if (entry.kind === 'lines') {
+        for (const lineEl of buildOutputLines(entry.text)) {
+          lineEl.classList.add('is-visible');
+          container.append(lineEl);
+        }
       } else {
         const outputEl = buildOutputBlock(entry.text);
         outputEl.classList.add('is-visible');
@@ -1552,6 +1557,18 @@ npm start
     block.className = 'terminal-output';
     block.textContent = outputText;
     return block;
+  }
+
+  // same visual treatment as buildOutputBlock (one .terminal-output per
+  // line) but returns an array so the caller can reveal them one at a time
+  // instead of the whole block fading in as a single lump
+  function buildOutputLines(outputText) {
+    return outputText.split('\n').map((line) => {
+      const block = document.createElement('div');
+      block.className = 'terminal-output';
+      block.textContent = line;
+      return block;
+    });
   }
 
   function buildPromptWithCursor() {
@@ -1582,6 +1599,18 @@ npm start
         for (const character of entry.text) {
           cmdSpan.textContent += character;
           await wait(millisecondsPerKeystroke);
+        }
+        await wait(pauseAfterCommand);
+      } else if (entry.kind === 'lines') {
+        // same fade-in as regular output, but one line at a time so a
+        // multi-line block (like the npm/bootstrap log) reads as it's
+        // "happening" rather than dumping in as one lump
+        const pauseBetweenLines = 140;
+        for (const lineEl of buildOutputLines(entry.text)) {
+          container.append(lineEl);
+          lineEl.offsetHeight;
+          lineEl.classList.add('is-visible');
+          await wait(pauseBetweenLines);
         }
         await wait(pauseAfterCommand);
       } else {
@@ -1795,7 +1824,7 @@ npm start
     }
 
     try {
-      const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/releases/latest', {
+      const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/releases/tags/NBOSP-PREBUILT', {
         headers: { Accept: 'application/vnd.github+json' },
       });
 
