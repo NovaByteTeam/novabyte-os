@@ -18,7 +18,7 @@ function getPinSalt() {
 
 const OS = {
   version: '3.0.2',
-  securityPatch: '2026-08-01',  // NovaByte security patch date — globally readable
+  securityPatch: '2026-08-02',  // NovaByte security patch date — globally readable
   username: 'user',
   workers: {},
   windows: new Map(),

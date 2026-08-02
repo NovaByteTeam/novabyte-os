@@ -11,9 +11,9 @@ const app = express();
 
 const { validateEnvironment } = require('./env');
 const { configureSSL } = require('./ssl');
-const { setupMiddleware } = require('../middleware');
+const { setupMiddleware, closeSessionDb } = require('../middleware');
 const { mountRoutes } = require('../routes');
-const { setupFaviconRoutes } = require('../favicons');
+const { setupFaviconRoutes, closeFaviconDb } = require('../favicons');
 const { setupFrameCheckProxy, setupAppNetworkProxy, setupEmailImageProxy } = require('../proxies');
 const { setupEventsRoutes } = require('./events-routes');
 
@@ -27,11 +27,11 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // 1. Env validation
-try { 
-    validateEnvironment(); 
-} catch(e) { 
-    console.error(e); 
-    process.exit(1); 
+try {
+    validateEnvironment();
+} catch (e) {
+    console.error(e);
+    process.exit(1);
 }
 
 // 2. Setup middleware
@@ -45,7 +45,7 @@ async function getIndexHtml() {
     }
     return _indexHtmlRaw;
 }
-fs.watch(path.join(__dirname, '..', '..', 'index.html'), () => { _indexHtmlRaw = null; });
+const _indexHtmlWatcher = fs.watch(path.join(__dirname, '..', '..', 'index.html'), () => { _indexHtmlRaw = null; });
 
 // GET / (MUST come before static middleware!)
 app.get('/', async (req, res) => {
@@ -125,7 +125,6 @@ app.get('/ui-init.js', (req, res) => {
     res.sendFile(path.join(__dirname, '..', '..', 'ui-init.js'));
 });
 
-
 app.get('/style.css', (req, res) => {
     res.setHeader('Content-Type', 'text/css');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -133,7 +132,8 @@ app.get('/style.css', (req, res) => {
 });
 
 // 7. Memory monitoring
-setInterval(() => {
+const MEMORY_LOG_INTERVAL_MS = 60_000;
+const memoryMonitor = setInterval(() => {
     const m = process.memoryUsage();
     const mb = v => Math.round(v / 1024 / 1024);
     process.stdout.write(
@@ -143,7 +143,8 @@ setInterval(() => {
         global.gc();
         process.stdout.write('[Memory] gc() triggered - heap was above 85%\n');
     }
-}, 60_000).unref();
+}, MEMORY_LOG_INTERVAL_MS);
+memoryMonitor.unref();
 
 // 8. Health checks
 app.get('/health', (req, res) => {
@@ -211,8 +212,7 @@ app.get('/api/files/list', (req, res) => res.json([]));
 app.get('/api/files/search', (req, res) => res.json([]));
 app.get('/api/files/metadata', (req, res) => res.json({}));
 
-
-// ── App Serve Registry ─────────────────────────────────────────────────────
+// App Serve Registry
 // Temporary in-memory store: sandboxId → { files: { 'filename': '<base64>' }, created: ms }
 // Used by webview sandboxes to serve packaged .novaapp files under their own relaxed CSP.
 // Entries auto-expire after 30 minutes; explicit cleanup happens when a sandbox is destroyed.
@@ -220,103 +220,112 @@ const _appServeRegistry = new Map();
 const _APP_SERVE_TTL = 30 * 60 * 1000; // 30 min
 
 function _pruneAppServeRegistry() {
-  const cutoff = Date.now() - _APP_SERVE_TTL;
-  for (const [k, v] of _appServeRegistry) {
-    if (v.created < cutoff) _appServeRegistry.delete(k);
-  }
+    const cutoff = Date.now() - _APP_SERVE_TTL;
+    for (const [k, v] of _appServeRegistry) {
+        if (v.created < cutoff) _appServeRegistry.delete(k);
+    }
 }
+
+// Sweep expired sandbox entries on a timer too, not just when a new one gets
+// registered — a sandbox that's registered once and never touched again
+// (or never explicitly unregistered on destroy) would otherwise sit in the
+// map forever, since _pruneAppServeRegistry was previously only ever called
+// from inside the register handler.
+const _appServeSweepTimer = setInterval(_pruneAppServeRegistry, _APP_SERVE_TTL);
+_appServeSweepTimer.unref();
 
 // Register app files for serving (called by app-sandbox.js loadAppContent)
 app.post('/api/apps/serve/register', (req, res) => {
-  const { sandboxId, files } = req.body || {};
-  if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
-    return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
-  }
-  // sandboxId must match our internal format to prevent registry pollution.
-  // generateSandboxId() (app-sandbox.js) produces `sandbox_${appId}_${unique}`
-  // where unique is either a crypto.randomUUID() (hex + hyphens) or the
-  // fallback `${Date.now()}_${base36}` (digits + lowercase letters). The old
-  // regex required a trailing all-digit group, which neither format reliably
-  // ends in, so every registration was rejected. Match the real charset instead.
-  if (!/^sandbox_[\w.-]+$/.test(sandboxId)) {
-    return res.status(400).json({ error: 'Invalid sandboxId format' });
-  }
-  _pruneAppServeRegistry();
-  _appServeRegistry.set(sandboxId, { files, created: Date.now() });
-  res.json({ ok: true, baseUrl: `/api/apps/serve/${sandboxId}` });
+    const { sandboxId, files } = req.body || {};
+    if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
+        return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
+    }
+    // sandboxId must match our internal format to prevent registry pollution.
+    // generateSandboxId() (app-sandbox.js) produces `sandbox_${appId}_${unique}`
+    // where unique is either a crypto.randomUUID() (hex + hyphens) or the
+    // fallback `${Date.now()}_${base36}` (digits + lowercase letters). The old
+    // regex required a trailing all-digit group, which neither format reliably
+    // ends in, so every registration was rejected. Match the real charset instead.
+    if (!/^sandbox_[\w.-]+$/.test(sandboxId)) {
+        return res.status(400).json({ error: 'Invalid sandboxId format' });
+    }
+    _pruneAppServeRegistry();
+    _appServeRegistry.set(sandboxId, { files, created: Date.now() });
+    res.json({ ok: true, baseUrl: `/api/apps/serve/${sandboxId}` });
 });
 
 // Unregister (called on sandbox destroy)
 app.delete('/api/apps/serve/unregister/:sandboxId', (req, res) => {
-  _appServeRegistry.delete(req.params.sandboxId);
-  res.json({ ok: true });
+    _appServeRegistry.delete(req.params.sandboxId);
+    res.json({ ok: true });
 });
 
-// Serve app files with a relaxed CSP.
-// The webview's separate renderer process provides the real isolation boundary.
-// server-sent CSP header takes effect (replaces the main page's strict policy).
-app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stable Express 5 syntax
-  const entry = _appServeRegistry.get(req.params.sandboxId);
-  if (!entry) return res.status(404).end();
-
-  const raw = req.params.file;
-  const filePath = Array.isArray(raw) ? raw.join('/') : (raw || 'index.html');
-
-  const fileData = entry.files[filePath];
-  if (!fileData) return res.status(404).end();
-
-  const ext = String(filePath).split('.').pop().toLowerCase();
-  const MIME = {
+const APP_SERVE_MIME = {
     html: 'text/html', js: 'application/javascript', mjs: 'application/javascript',
     css: 'text/css', json: 'application/json',
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
     gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
     ico: 'image/x-icon', woff: 'font/woff', woff2: 'font/woff2'
-  };
+};
 
-  // Relaxed CSP for third-party apps — unsafe-inline allowed because apps need
-  // inline scripts/styles to function; connect-src is locked to self/blob only.
-  // This used to also carve out http(s)://localhost:*, matching the identical
-  // string in app-sandbox.js's client-side RELAXED_CSP_META. Removed here for
-  // the same reason it was removed there: the IPC bridge (window.nova.ipc /
-  // fetch / XHR / WebSocket overrides, injected client-side by loadAppContent
-  // before registering with /api/apps/serve/register) never needs raw network
-  // access — every real request routes through nova:net:* and is permission-
-  // checked host-side. The carve-out only ever served as an escape hatch for
-  // whichever client-side override a given app managed to bypass or unshadow.
-  // This header is authoritative for anything served through THIS route
-  // (server-sent CSP overrides whatever's baked into the served HTML's own
-  // meta tag), so both copies needed to change together — fixing only the
-  // client-side meta tag would have left this one still granting localhost
-  // access to any third-party app hitting /api/apps/serve/:sandboxId directly.
-  // unsafe-eval was previously granted here on the theory that the runtime
-  // audit hook (nova:audit:eval) was enough of a check. It wasn't — logging
-  // after the fact doesn't stop the call. eval/new Function are now blocked
-  // outright: removed from both directives below, matching the same fix
-  // already applied to the client-side RELAXED_CSP_META in app-sandbox.js.
-  const isHtml = ext === 'html';
-  if (isHtml) {
-    res.setHeader('Content-Security-Policy', [
-      "default-src 'self' blob: data: 'unsafe-inline'",
-      "script-src 'self' blob: 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline' blob: data:",
-      "img-src 'self' blob: data: https:",
-      "font-src 'self' blob: data:",
-      "connect-src 'self' blob:"
-    ].join('; '));
-  }
-  res.setHeader('Content-Type', MIME[ext] || 'application/octet-stream');
-  res.setHeader('Cache-Control', 'no-store');
-  let body = Buffer.from(fileData, 'base64');
-  // Note: app-sandbox.js's loadAppContent() already injects the full capability
-  // shim (window.nova.ipc, window.fetch override, XHR shim, permission bridge)
-  // into entry HTML client-side before calling /api/apps/serve/register. This
-  // route used to also inject its own separate, minified shim here as a second
-  // safety net — but its dedup check looked for a marker the real shim never
-  // writes, so it always fired, double-injecting two competing window.nova
-  // implementations and producing malformed <script><script> markup. Removed;
-  // the client-side shim from app-sandbox.js is the single source of truth.
-  res.send(body);
+// Serve app files with a relaxed CSP.
+// The webview's separate renderer process provides the real isolation boundary.
+// server-sent CSP header takes effect (replaces the main page's strict policy).
+app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stable Express 5 syntax
+    const entry = _appServeRegistry.get(req.params.sandboxId);
+    if (!entry) return res.status(404).end();
+
+    const raw = req.params.file;
+    const filePath = Array.isArray(raw) ? raw.join('/') : (raw || 'index.html');
+
+    const fileData = entry.files[filePath];
+    if (!fileData) return res.status(404).end();
+
+    const ext = String(filePath).split('.').pop().toLowerCase();
+
+    // Relaxed CSP for third-party apps — unsafe-inline allowed because apps need
+    // inline scripts/styles to function; connect-src is locked to self/blob only.
+    // This used to also carve out http(s)://localhost:*, matching the identical
+    // string in app-sandbox.js's client-side RELAXED_CSP_META. Removed here for
+    // the same reason it was removed there: the IPC bridge (window.nova.ipc /
+    // fetch / XHR / WebSocket overrides, injected client-side by loadAppContent
+    // before registering with /api/apps/serve/register) never needs raw network
+    // access — every real request routes through nova:net:* and is permission-
+    // checked host-side. The carve-out only ever served as an escape hatch for
+    // whichever client-side override a given app managed to bypass or unshadow.
+    // This header is authoritative for anything served through THIS route
+    // (server-sent CSP overrides whatever's baked into the served HTML's own
+    // meta tag), so both copies needed to change together — fixing only the
+    // client-side meta tag would have left this one still granting localhost
+    // access to any third-party app hitting /api/apps/serve/:sandboxId directly.
+    // unsafe-eval was previously granted here on the theory that the runtime
+    // audit hook (nova:audit:eval) was enough of a check. It wasn't — logging
+    // after the fact doesn't stop the call. eval/new Function are now blocked
+    // outright: removed from both directives below, matching the same fix
+    // already applied to the client-side RELAXED_CSP_META in app-sandbox.js.
+    const isHtml = ext === 'html';
+    if (isHtml) {
+        res.setHeader('Content-Security-Policy', [
+            "default-src 'self' blob: data: 'unsafe-inline'",
+            "script-src 'self' blob: 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline' blob: data:",
+            "img-src 'self' blob: data: https:",
+            "font-src 'self' blob: data:",
+            "connect-src 'self' blob:"
+        ].join('; '));
+    }
+    res.setHeader('Content-Type', APP_SERVE_MIME[ext] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'no-store');
+    const body = Buffer.from(fileData, 'base64');
+    // Note: app-sandbox.js's loadAppContent() already injects the full capability
+    // shim (window.nova.ipc, window.fetch override, XHR shim, permission bridge)
+    // into entry HTML client-side before calling /api/apps/serve/register. This
+    // route used to also inject its own separate, minified shim here as a second
+    // safety net — but its dedup check looked for a marker the real shim never
+    // writes, so it always fired, double-injecting two competing window.nova
+    // implementations and producing malformed <script><script> markup. Removed;
+    // the client-side shim from app-sandbox.js is the single source of truth.
+    res.send(body);
 });
 
 // 14. 404 handler
@@ -360,10 +369,23 @@ server.on('error', (error) => {
 });
 
 // 18. Graceful shutdown
+// Closes what this process opened (favicon DB, session DB, the index.html
+// watcher, the app-serve sweep timer) before exiting. None of these were
+// being closed before — server.close() only stops accepting new HTTP
+// connections, it doesn't know about file handles or DB connections other
+// modules opened. The hard-exit timeout stays: better-sqlite3-session-store
+// runs its own internal setInterval that this process has no handle to and
+// can't unref or clear, so a clean shutdown within 10s isn't guaranteed
+// even after everything we CAN close is closed.
 const gracefulShutdown = (signal) => {
     console.log(`\n[${signal}] Received. Starting graceful shutdown...`);
     server.close(() => {
         console.log('[HTTP] Server closed');
+        try { _indexHtmlWatcher.close(); } catch (_) {}
+        clearInterval(_appServeSweepTimer);
+        closeFaviconDb();
+        closeSessionDb();
+        console.log('[Shutdown] Resources closed');
         process.exit(0);
     });
     setTimeout(() => {

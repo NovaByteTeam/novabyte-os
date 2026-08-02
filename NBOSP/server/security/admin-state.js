@@ -1,61 +1,77 @@
 'use strict';
 
-const path = require('path');
-const fs = require('fs');
+const fs    = require('fs');
+const path  = require('path');
+const crypto = require('crypto');
 
-// Single-user desktop OS: there's no login/account system anywhere in this
-// codebase (confirmed — req.session is only ever used to stash email
-// credentials, never an identity). So "admin" here isn't a role among many
-// users; it's a single on/off flag for the one local operator of this
-// machine. This file is the only source of truth for that flag — everything
-// that previously checked `req.user?.role === 'admin'` and always got
-// `false` (req.user was never populated anywhere) now resolves against this.
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
+const DATA_DIR         = path.join(__dirname, '..', '..', 'data');
 const ADMIN_STATE_PATH = path.join(DATA_DIR, 'admin-state.json');
 
 const DEFAULT_STATE = {
-    // Defaults to false: granting admin-tier IPC permissions (audit log
-    // access, security policy read/write, session revocation for every
-    // session, not just the caller's own) should be an explicit opt-in the
-    // user flips in Settings, not something a fresh install silently has.
-    adminEnabled: false
+  adminEnabled: false,
 };
 
+// In-memory cache to eliminate synchronous disk reads on every HTTP request
+let cachedState = null;
+
 function ensureDataDir() {
+  try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (_) {}
 }
 
 function readState() {
-    try {
-        ensureDataDir();
-        const raw = fs.readFileSync(ADMIN_STATE_PATH, 'utf8');
-        const parsed = JSON.parse(raw);
-        return {
-            adminEnabled: typeof parsed.adminEnabled === 'boolean' ? parsed.adminEnabled : DEFAULT_STATE.adminEnabled
-        };
-    } catch (e) {
-        // Missing file (first run) or corrupt JSON both fall back to the
-        // safe default rather than throwing — this is read on every
-        // request via middleware, so it needs to never crash the server.
-        return { ...DEFAULT_STATE };
-    }
+  if (cachedState !== null) {
+    return cachedState;
+  }
+
+  try {
+    ensureDataDir();
+    const raw    = fs.readFileSync(ADMIN_STATE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    cachedState = {
+      adminEnabled: typeof parsed.adminEnabled === 'boolean' ? parsed.adminEnabled : DEFAULT_STATE.adminEnabled,
+    };
+  } catch (_) {
+    cachedState = { ...DEFAULT_STATE };
+  }
+
+  return cachedState;
 }
 
 function writeState(state) {
-    ensureDataDir();
-    const next = {
-        adminEnabled: !!state.adminEnabled
-    };
-    fs.writeFileSync(ADMIN_STATE_PATH, JSON.stringify(next, null, 2), 'utf8');
-    return next;
+  ensureDataDir();
+
+  const next = {
+    adminEnabled: Boolean(state.adminEnabled),
+  };
+
+  const rand     = crypto.randomBytes(4).toString('hex');
+  const tempPath = `${ADMIN_STATE_PATH}.${process.pid}.${Date.now()}.${rand}.tmp`;
+
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(next, null, 2), 'utf8');
+    fs.renameSync(tempPath, ADMIN_STATE_PATH);
+  } catch (err) {
+    try { fs.unlinkSync(tempPath); } catch (_) {}
+    console.error('[AdminState] Atomic state write failed:', err.message);
+  }
+
+  cachedState = next;
+  return cachedState;
 }
 
 function isAdminEnabled() {
-    return readState().adminEnabled;
+  return readState().adminEnabled;
 }
 
 function setAdminEnabled(enabled) {
-    return writeState({ adminEnabled: !!enabled });
+  return writeState({ adminEnabled: enabled });
 }
 
-module.exports = { isAdminEnabled, setAdminEnabled, readState };
+module.exports = {
+  isAdminEnabled,
+  setAdminEnabled,
+  readState,
+  writeState,
+};

@@ -8,14 +8,17 @@ const ServerEventLog = require('./core/server-event-log');
 // diagnosed. ServerEventLog is intentionally in-memory only (see
 // server-event-log.js), so this appends the same detail to a plain file
 // for post-mortem inspection across restarts.
+// Switched from fs.appendFileSync to fs.appendFile: the sync version blocks
+// the event loop for the duration of the disk write on every single proxy
+// request (this fires on every reject, every fetch attempt, every redirect
+// hop) — under the proxy's own rate limit of 300/min that's real, avoidable
+// stall time for every other concurrent request on the same process. Errors
+// are swallowed the same way the old version did (best-effort only, never
+// let debug logging break the request) — just async now instead of sync.
 const DEBUG_LOG_PATH = path.join(__dirname, '..', '..', 'server.log');
 function debugLog(label, details) {
-    try {
-        const line = `[${new Date().toISOString()}] ${label} ${JSON.stringify(details)}\n`;
-        fs.appendFileSync(DEBUG_LOG_PATH, line);
-    } catch (e) {
-        // best-effort only — never let debug logging break the request
-    }
+    const line = `[${new Date().toISOString()}] ${label} ${JSON.stringify(details)}\n`;
+    fs.appendFile(DEBUG_LOG_PATH, line, () => {});
 }
 
 // ── Frame-Embed Check Proxy ────────────────────────────────────────────────
@@ -149,10 +152,23 @@ async function _probeFrameEmbeddable(targetUrl, embedOrigin) {
         // Some servers don't send XFO/CSP on HEAD (or reject it). Fall back to GET.
         const hasSecurityHdr = resp.headers.get('x-frame-options') ||
             /frame-ancestors/i.test(resp.headers.get('content-security-policy') || '');
-        if (!hasSecurityHdr && resp.ok) return false;
+        if (!hasSecurityHdr && resp.ok) {
+            // HEAD responses shouldn't have a body per HTTP semantics, but some
+            // servers send Content-Length anyway — cancel defensively so undici
+            // doesn't hold the connection open waiting for a body we're not reading.
+            try { resp.body?.cancel(); } catch (_) {}
+            return false;
+        }
         if (resp.status === 405 || resp.status === 501 || resp.status === 400 || !resp.ok) {
+            // Cancel the HEAD response's body before we discard resp and reassign it —
+            // same reasoning as above, this path was previously the only one handled.
+            try { resp.body?.cancel(); } catch (_) {}
             resp = await _probeFetchValidated(targetUrl, 'GET', controller.signal);
             // Stream bodies are expensive; we only need headers, so cancel it.
+            try { resp.body?.cancel(); } catch (_) {}
+        } else {
+            // Falls through to _isBlockedByHeaders with the HEAD response still
+            // unconsumed — cancel it here too, this was the one path that never did.
             try { resp.body?.cancel(); } catch (_) {}
         }
         return _isBlockedByHeaders(resp, embedOrigin);
@@ -339,6 +355,13 @@ function _pinnedAgent(pinnedAddress, family) {
         },
     });
 }
+// Deliberately not pooled/reused across requests. A pinned agent's lookup
+// override always returns whatever IP it was constructed with — reusing one
+// across requests would mean a later request to the same host gets served
+// from a *stale* pin instead of a fresh DNS check, which is exactly the
+// rebinding gap this whole pinning scheme exists to close (validate now,
+// connect to something else later). One agent per request, closed right
+// after, is the correct trade-off here — not a missed pooling optimization.
 async function _pinnedFetch(urlString, opts, dnsResult) {
     if (!dnsResult || dnsResult.private || !dnsResult.address) {
         throw Object.assign(new Error('Refusing to fetch unvalidated/private address'), { code: 'SSRF_BLOCKED' });
@@ -408,6 +431,13 @@ function setupAppNetworkProxy(app) {
         const method = (rawMethod || 'GET').toUpperCase();
         if (!APP_PROXY_METHODS.has(method)) {
             return res.status(400).json({ error: `Method not allowed: ${method}` });
+        }
+
+        // Body must be a string (or absent) — fetch/undici can't serialize an
+        // arbitrary object, and letting one through just turns into a confusing
+        // 502 "Network error" later for what's actually a bad request now.
+        if (reqBody !== undefined && reqBody !== null && typeof reqBody !== 'string') {
+            return res.status(400).json({ error: 'body must be a string' });
         }
 
         // Strip hop-by-hop headers that must not be forwarded
@@ -499,6 +529,10 @@ function setupAppNetworkProxy(app) {
 
             if (hopResp.status >= 300 && hopResp.status < 400) {
                 const loc = hopResp.headers.get('location');
+                // Cancel hopResp's body before chasing the redirect — this response is
+                // about to be discarded, not the accumulated resp from a prior hop
+                // (resp is still unset on hop 0, which is why this has to check hopResp).
+                try { hopResp.body?.cancel(); } catch (_) {}
                 if (!loc) return res.status(502).json({ error: 'Redirect with no Location header' });
                 try { currentUrl = new URL(loc, currentUrl).toString(); }
                 catch (_) { return res.status(400).json({ error: 'Invalid redirect target' }); }
@@ -615,15 +649,22 @@ async function _fetchEmailImage(initialUrl) {
 
         if (resp.status >= 300 && resp.status < 400) {
             const loc = resp.headers.get('location');
+            try { resp.body?.cancel(); } catch (_) {}
             if (!loc) return null;
             try { currentUrl = new URL(loc, currentUrl).toString(); } catch { return null; }
             continue;
         }
 
-        if (!resp.ok) return null;
+        if (!resp.ok) {
+            try { resp.body?.cancel(); } catch (_) {}
+            return null;
+        }
 
         const contentType = (resp.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-        if (!contentType.startsWith('image/')) return null;
+        if (!contentType.startsWith('image/')) {
+            try { resp.body?.cancel(); } catch (_) {}
+            return null;
+        }
 
         const reader = resp.body.getReader();
         const chunks = [];

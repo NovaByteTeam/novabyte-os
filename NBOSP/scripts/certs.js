@@ -2,19 +2,15 @@
 
 const fs   = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
-// NW.js's wrapResolveFilename hook breaks named require() from subdirectories.
-// Absolute paths bypass it — Node loads the file directly without NW.js's hook.
-const _appDir = path.resolve(__dirname, '..');  // NBOSP/ from scripts/
+// Absolute paths bypass NW.js wrapResolveFilename hook from subdirectories
+const _appDir = path.resolve(__dirname, '..');
 require(path.join(_appDir, 'node_modules', 'reflect-metadata'));
 const x509 = require(path.join(_appDir, 'node_modules', '@peculiar', 'x509'));
 
-const crypto = require('crypto');
-
-const { toPem }        = require('./utils');
+const { toPem }          = require('./utils');
 const { installCaTrust } = require('./ca-trust');
-
-// ── Constants ─────────────────────────────────────────────────────────────────
 
 const CERT_MAX_AGE_MS = 10 * 365.25 * 24 * 60 * 60 * 1000;
 
@@ -28,7 +24,9 @@ function certPaths(appDir) {
   };
 }
 
-// ── Freshness check ───────────────────────────────────────────────────────────
+function randomSerial() {
+  return crypto.randomBytes(8).toString('hex');
+}
 
 async function certsAreFresh(paths) {
   try {
@@ -37,10 +35,10 @@ async function certsAreFresh(paths) {
     );
     const stat = await fs.promises.stat(paths.CERT_CRT);
     return (Date.now() - stat.mtimeMs) < CERT_MAX_AGE_MS;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
-
-// ── Certificate generation ────────────────────────────────────────────────────
 
 async function generateCerts() {
   const subtle    = crypto.subtle;
@@ -53,10 +51,10 @@ async function generateCerts() {
   const notBefore = new Date();
   const notAfter  = new Date(Date.now() + CERT_MAX_AGE_MS);
 
-  // 1. CA key pair + self-signed CA cert
+  // CA key pair and self-signed CA certificate
   const caKeys = await subtle.generateKey(keyParams, true, ['sign', 'verify']);
   const caCert = await x509.X509CertificateGenerator.createSelfSigned({
-    serialNumber: '01',
+    serialNumber: randomSerial(),
     name:         'CN=NovaByte Local CA',
     notBefore, notAfter,
     signingAlgorithm: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
@@ -67,10 +65,10 @@ async function generateCerts() {
     ],
   });
 
-  // 2. Server key pair + cert signed by CA
+  // Server key pair and certificate signed by CA
   const serverKeys = await subtle.generateKey(keyParams, true, ['sign', 'verify']);
   const serverCert = await x509.X509CertificateGenerator.create({
-    serialNumber: '02',
+    serialNumber: randomSerial(),
     subject:      'CN=localhost',
     issuer:       caCert.subject,
     notBefore, notAfter,
@@ -89,7 +87,6 @@ async function generateCerts() {
     ],
   });
 
-  // 3. Export to PEM
   const [caKeyDer, serverKeyDer] = await Promise.all([
     subtle.exportKey('pkcs8', caKeys.privateKey),
     subtle.exportKey('pkcs8', serverKeys.privateKey),
@@ -102,8 +99,6 @@ async function generateCerts() {
     serverKeyPem:  toPem(serverKeyDer, 'PRIVATE KEY'),
   };
 }
-
-// ── package.json cleanup ──────────────────────────────────────────────────────
 
 async function stripSpkiFromPackageJson(appDir) {
   try {
@@ -128,20 +123,22 @@ async function stripSpkiFromPackageJson(appDir) {
   }
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 /**
  * Ensure certs exist and are fresh, generate them if not, and install the CA
  * into the OS trust store if needed.
  *
  * @param {string} appDir
- * @returns {Promise<boolean>} true if HTTPS is ready, false if falling back to HTTP
+ * @returns {Promise<boolean>}
  */
 async function ensureCerts(appDir) {
   const paths   = certPaths(appDir);
   const fresh   = await certsAreFresh(paths);
   let   trusted = false;
-  try { await fs.promises.access(paths.CA_TRUSTED_FLAG); trusted = true; } catch (_) {}
+
+  try {
+    await fs.promises.access(paths.CA_TRUSTED_FLAG);
+    trusted = true;
+  } catch (_) {}
 
   if (fresh && trusted) {
     console.log('[NovaByte] Certs OK, CA already trusted — HTTPS ready.');
@@ -154,7 +151,6 @@ async function ensureCerts(appDir) {
     try {
       const { caCertPem, caKeyPem, serverCertPem, serverKeyPem } = await generateCerts();
 
-      // Write all four files in parallel
       await Promise.all([
         fs.promises.writeFile(paths.CA_CRT,   caCertPem,     { encoding: 'utf8', mode: 0o644 }),
         fs.promises.writeFile(paths.CA_KEY,   caKeyPem,      { encoding: 'utf8', mode: 0o600 }),
@@ -162,8 +158,10 @@ async function ensureCerts(appDir) {
         fs.promises.writeFile(paths.CERT_KEY, serverKeyPem,  { encoding: 'utf8', mode: 0o600 }),
       ]);
 
-      // New CA → invalidate trust flag so we re-install below
-      try { await fs.promises.unlink(paths.CA_TRUSTED_FLAG); } catch (_) {}
+      try {
+        await fs.promises.unlink(paths.CA_TRUSTED_FLAG);
+      } catch (_) {}
+
       console.log('[NovaByte] Certificates generated.');
     } catch (err) {
       console.error('[NovaByte] Certificate generation failed:', err.message);

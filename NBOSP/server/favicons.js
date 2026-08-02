@@ -2,11 +2,14 @@
 
 const path = require('path');
 const fs = require('fs');
+const dns = require('dns');
 const Database = require('better-sqlite3');
+const { Agent, fetch: undiciFetch } = require('undici');
 
 const FAVICON_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const FAVICON_MAX = 500; // max cached entries
 const FAVICON_FETCH_TIMEOUT = 4000; // 4s per attempt
+const FAVICON_MAX_REDIRECTS = 5;
 
 // Persistent favicon cache
 const FAVICON_DB_DIR = path.join(__dirname, '..', 'data');
@@ -14,6 +17,9 @@ const FAVICON_DB_PATH = path.join(FAVICON_DB_DIR, 'favicons.db');
 fs.mkdirSync(FAVICON_DB_DIR, { recursive: true });
 
 const faviconDb = new Database(FAVICON_DB_PATH);
+// WAL lets a read (cache hit) and a write (new entry landing) proceed without
+// blocking each other — matters once favicon lookups start overlapping under load.
+faviconDb.pragma('journal_mode = WAL');
 faviconDb.exec(`CREATE TABLE IF NOT EXISTS favicons (
     hostname TEXT PRIMARY KEY,
     buf      BLOB NOT NULL,
@@ -29,9 +35,14 @@ const _fav = {
     clean: faviconDb.prepare('DELETE FROM favicons WHERE ts < ?'),
 };
 
-// Clean stale entries
+// Clean stale entries on boot
 _fav.clean.run(Date.now() - FAVICON_TTL);
-console.log('[Favicon] Persistent cache:', FAVICON_DB_PATH);
+
+function log(level, message, context = {}) {
+    const line = JSON.stringify({ ts: new Date().toISOString(), level, scope: 'favicon', message, ...context });
+    (level === 'error' ? process.stderr : process.stdout).write(line + '\n');
+}
+log('info', 'Persistent cache ready', { path: FAVICON_DB_PATH });
 
 const FAVICON_DEFAULT = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -41,7 +52,7 @@ const FAVICON_DEFAULT = Buffer.from(
 const PRIVATE_PREFIXES = ['10.', '172.16.', '172.17.', '172.18.', '172.19.',
     '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
     '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
-    '192.168.', '169.254.', '100.64.'];
+    '192.168.', '169.254.', '100.64.', '127.'];
 const PRIVATE_EXACT = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0',
     '[::1]', '[::]']);
 
@@ -53,6 +64,69 @@ function isPrivateHost(hostname) {
     return false;
 }
 
+function isPrivateIpv4(ip) {
+    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) return false;
+    const parts = ip.split('.').map(Number);
+    if (parts.some(p => p > 255)) return false;
+    return parts[0] === 10 ||
+           parts[0] === 127 ||
+           parts[0] === 0 ||
+           (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+           (parts[0] === 192 && parts[1] === 168) ||
+           (parts[0] === 169 && parts[1] === 254) ||
+           (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127);
+}
+
+function extractMappedV4(ip) {
+    const m = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(ip);
+    return m ? m[1] : null;
+}
+
+function isPrivateIpv6(ip) {
+    const h = ip.toLowerCase().replace(/^\[|\]$/g, '');
+    if (h === '::1' || h === '::') return true;
+    const mapped = extractMappedV4(h);
+    if (mapped) return isPrivateIpv4(mapped);
+    if (/^f[cd][0-9a-f]{2}:/.test(h)) return true; // ULA fc00::/7
+    if (/^fe[89ab][0-9a-f]:/.test(h)) return true; // link-local fe80::/10
+    return false;
+}
+
+function isPrivateIpAddr(ip) {
+    if (!ip || typeof ip !== 'string') return true; // fail closed
+    return ip.includes(':') ? isPrivateIpv6(ip) : isPrivateIpv4(ip);
+}
+
+// hostname -> { private, address, family, ts }. Same shape and TTL as the
+// resolver in proxies.js — kept here as its own cache since favicons.js has
+// no dependency on that module and duplicating ~15 lines is cheaper than
+// wiring up a shared import for a one-off cache.
+const dnsPrivateCache = new Map();
+const DNS_TTL = 30_000;
+
+async function dnsResolvePrivate(hostname) {
+    if (!hostname || typeof hostname !== 'string') return { private: true, address: null, family: null };
+    const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (isPrivateHost(h)) return { private: true, address: null, family: null };
+
+    const cached = dnsPrivateCache.get(h);
+    if (cached && Date.now() - cached.ts < DNS_TTL) return cached;
+
+    let result;
+    try {
+        const { address, family } = await dns.promises.lookup(h);
+        result = { private: isPrivateIpAddr(address), address, family, ts: Date.now() };
+    } catch {
+        result = { private: true, address: null, family: null, ts: Date.now() }; // fail closed on DNS error
+    }
+
+    dnsPrivateCache.set(h, result);
+    if (dnsPrivateCache.size > 500) {
+        dnsPrivateCache.delete(dnsPrivateCache.keys().next().value);
+    }
+    return result;
+}
+
 function validateFaviconDomain(raw) {
     let host = raw.trim().toLowerCase();
     host = host.replace(/^https?:\/\//i, '').split('/')[0].split('?')[0];
@@ -62,13 +136,31 @@ function validateFaviconDomain(raw) {
     return host;
 }
 
-async function fetchWithTimeout(url, opts = {}) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FAVICON_FETCH_TIMEOUT);
+// Pins the TCP connection to the exact IP dnsResolvePrivate already validated.
+// Without this, fetch() re-resolves the hostname itself at connect time —
+// that second lookup is the DNS-rebinding gap: validation sees a public IP,
+// then a low-TTL attacker-controlled record flips to a private one before
+// the actual request goes out. Host header / TLS SNI still use the original
+// hostname; only the connect-time lookup is overridden.
+function pinnedAgent(pinnedAddress, family) {
+    return new Agent({
+        connect: {
+            lookup: (_hostname, _opts, cb) => {
+                cb(null, [{ address: pinnedAddress, family: family === 6 ? 6 : 4 }]);
+            },
+        },
+    });
+}
+
+async function pinnedFetch(urlString, opts, dnsResult) {
+    if (!dnsResult || dnsResult.private || !dnsResult.address) {
+        throw Object.assign(new Error('Refusing to fetch unvalidated/private address'), { code: 'SSRF_BLOCKED' });
+    }
+    const agent = pinnedAgent(dnsResult.address, dnsResult.family);
     try {
-        return await fetch(url, { ...opts, signal: controller.signal });
+        return await undiciFetch(urlString, { ...opts, dispatcher: agent });
     } finally {
-        clearTimeout(timer);
+        agent.close().catch(() => {});
     }
 }
 
@@ -134,21 +226,59 @@ function extractBestIcoImage(icoBuf) {
     } catch (_) { return null; }
 }
 
-async function fetchIconUrl(url) {
-    try {
-        const parsed = new URL(url);
-        if (!['http:', 'https:'].includes(parsed.protocol)) return null;
-        if (isPrivateHost(parsed.hostname)) return null;
-        const resp = await fetchWithTimeout(url, { headers: CLEAN_HEADERS, redirect: 'follow' });
-        if (!resp.ok) return null;
+// Fetches a candidate icon URL with per-hop SSRF revalidation and IP pinning.
+// redirect: 'manual' + our own loop replaces the old redirect: 'follow' +
+// after-the-fact hostname check — by the time you can inspect resp.url with
+// 'follow', fetch already connected to every hop along the way, so a private
+// IP on hop 2 would already have been hit before you ever get to reject it.
+async function fetchIconUrl(initialUrl) {
+    let currentUrl = initialUrl;
+    const visited = new Set();
+
+    for (let hop = 0; hop <= FAVICON_MAX_REDIRECTS; hop++) {
+        if (visited.has(currentUrl)) return null; // redirect loop
+        visited.add(currentUrl);
+
+        let urlObj;
+        try { urlObj = new URL(currentUrl); } catch { return null; }
+        if (!['http:', 'https:'].includes(urlObj.protocol)) return null;
+
+        const dnsResult = await dnsResolvePrivate(urlObj.hostname);
+        if (dnsResult.private) return null;
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FAVICON_FETCH_TIMEOUT);
+
+        let resp;
         try {
-            const finalHost = new URL(resp.url).hostname;
-            if (isPrivateHost(finalHost)) return null;
-        } catch (_) { return null; }
-        
+            resp = await pinnedFetch(currentUrl, {
+                headers: CLEAN_HEADERS,
+                redirect: 'manual',
+                signal: controller.signal,
+            }, dnsResult);
+        } catch {
+            return null;
+        } finally {
+            clearTimeout(timer);
+        }
+
+        if (resp.status >= 300 && resp.status < 400) {
+            const loc = resp.headers.get('location');
+            try { resp.body?.cancel(); } catch (_) {}
+            if (!loc) return null;
+            try { currentUrl = new URL(loc, currentUrl).toString(); } catch { return null; }
+            continue;
+        }
+
+        if (!resp.ok) {
+            try { resp.body?.cancel(); } catch (_) {}
+            return null;
+        }
+
         const contentType = resp.headers.get('content-type') || '';
         if (contentType && !contentType.startsWith('image/') &&
             !contentType.includes('text/xml') && !contentType.includes('application/xml')) {
+            try { resp.body?.cancel(); } catch (_) {}
             return null;
         }
 
@@ -166,7 +296,9 @@ async function fetchIconUrl(url) {
         }
 
         return { buf: bufNode, mime };
-    } catch (_) { return null; }
+    }
+
+    return null; // too many redirects
 }
 
 function setupFaviconRoutes(app) {
@@ -196,7 +328,7 @@ function setupFaviconRoutes(app) {
 
         // Try to fetch
         let icon = await fetchIconUrl(`https://${hostname}/favicon.ico`);
-        
+
         // Try common locations
         if (!icon) {
             icon = await fetchIconUrl(`https://${hostname}/apple-touch-icon.png`);
@@ -217,7 +349,9 @@ function setupFaviconRoutes(app) {
             if (_fav.count.get() > FAVICON_MAX) {
                 _fav.evict.run();
             }
-        } catch (_) { /* cache failure is non-fatal */ }
+        } catch (err) {
+            log('warn', 'Cache write failed (non-fatal)', { hostname, error: err.message });
+        }
 
         res.setHeader('Content-Type', icon.mime);
         res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -225,4 +359,10 @@ function setupFaviconRoutes(app) {
     });
 }
 
-module.exports = { setupFaviconRoutes };
+// Lets index.js close the DB handle cleanly on graceful shutdown, same as
+// the session DB in middleware.js — nothing was calling this before.
+function closeFaviconDb() {
+    try { faviconDb.close(); } catch (_) { /* already closed or never opened */ }
+}
+
+module.exports = { setupFaviconRoutes, closeFaviconDb };

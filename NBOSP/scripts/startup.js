@@ -4,24 +4,20 @@ const { spawn } = require('child_process');
 const fs        = require('fs');
 const path      = require('path');
 
-const { ensureEnv }                    = require('./env');
-const { ensureCerts }                  = require('./certs');
+const { ensureEnv }                              = require('./env');
+const { ensureCerts }                            = require('./certs');
 const { createLogStream, createConout, makeTee } = require('./logger');
 
-// ── Window reference ──────────────────────────────────────────────────────────
-// Module-scoped so it's available to hotkey handlers registered below.
+// Window reference module-scoped so it is accessible to global hotkey handlers
 let win = null;
-
-// ── Main export ───────────────────────────────────────────────────────────────
 
 /**
  * Full application startup sequence.
  *
- * @param {string} appDir  Absolute path to the NBOSP directory (client.js's __dirname)
+ * @param {string} appDir Absolute path to the NBOSP directory
  */
 async function bootstrap(appDir) {
-  // env and cert setup have no shared state — run in parallel for faster startup.
-  // ensureEnv merges into process.env, ensureCerts does file + OS trust work.
+  // Parallel initialization of environment and SSL certificates
   await Promise.all([ensureEnv(appDir), ensureCerts(appDir)]);
 
   if (process.env.HTTPS !== 'true') {
@@ -30,81 +26,127 @@ async function bootstrap(appDir) {
       const content = await fs.promises.readFile(envPath, 'utf8');
       if (!/^HTTPS=.*$/m.test(content)) {
         await fs.promises.appendFile(envPath, '\nHTTPS=true\n');
-        process.env.HTTPS = 'true';
       }
-    } catch (_) { /* best effort */ }
+    } catch (_) {
+      // Best effort fallback if .env is missing or unreadable
+    }
+    process.env.HTTPS = 'true';
   }
 
-  const port   = parseInt(process.env.PORT || '3003', 10);
+  // Validate port input to avoid NaN or invalid range URLs
+  const rawPort = parseInt(process.env.PORT, 10);
+  const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535 ? rawPort : 3003;
   const appUrl = `https://localhost:${port}`;
 
-  // ── Global rejection safety net ───────────────────────────────────────────
-  // Catches any promise rejection that escapes a try/catch — logs it cleanly
-  // rather than letting NW.js print an opaque "UnhandledPromiseRejection".
+  // Global rejection safety net with full stack trace observability
   process.on('unhandledRejection', (reason) => {
-    console.error('[NovaByte] Unhandled rejection:', reason instanceof Error ? reason.message : reason);
+    const detail = Error.isError(reason) ? (reason.stack || reason.message) : String(reason);
+    console.error('[NovaByte] Unhandled rejection:', detail);
   });
 
-  // ── Server spawn ──────────────────────────────────────────────────────────
+  // Server spawn setup
   const logStream = createLogStream(appDir);
   const conout    = createConout();
   const tee       = makeTee(logStream, conout);
 
-  // Heap: 4096 MB is overkill for a local server process.
-  // Default is 1024 MB; override with SERVER_HEAP_MB in .env if needed.
-  const nodeBin  = process.env.NODE_BIN_PATH || 'node';
-  const heapMb   = process.env.SERVER_HEAP_MB || '1024';
+  const nodeBin = process.env.NODE_BIN_PATH || 'node';
+  const rawHeap = process.env.SERVER_HEAP_MB;
+  // Sanitize heap flag to prevent flag injection vulnerabilities
+  const heapMb  = /^\d+$/.test(rawHeap) ? rawHeap : '1024';
 
+  const serverScript = path.join(appDir, 'server', 'core', 'index.js');
   const server = spawn(
     nodeBin,
-    [`--max-old-space-size=${heapMb}`, '--expose-gc', path.join(appDir, 'server', 'core', 'index.js')],
+    [`--max-old-space-size=${heapMb}`, '--expose-gc', serverScript],
     { cwd: appDir, stdio: ['ignore', 'pipe', 'pipe'], env: process.env }
   );
 
-  server.on('error', err  => tee(Buffer.from(`[NovaByte] Server spawn error: ${err.message}\n`), true));
-  server.on('exit', (code, signal) => {
-    tee(Buffer.from(`[NovaByte] Server exited (code=${code}, signal=${signal})\n`), false);
-    logStream.end();
-    if (conout) try { conout.end(); } catch (_) {}
-  });
-
-  // ── Window management ─────────────────────────────────────────────────────
   let opened = false;
+  let fallbackTimer = null;
 
   function openWindow() {
     if (opened) return;
     opened = true;
-    nw.Window.open(appUrl, { title: 'NovaByte', width: 1280, height: 720 }, window => {
-      win = window;
+
+    // Clear fallback timer immediately once window is triggered
+    if (fallbackTimer !== null) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+
+    nw.Window.open(appUrl, { title: 'NovaByte', width: 1280, height: 720 }, (createdWindow) => {
+      if (!createdWindow) return;
+      win = createdWindow;
+
       win.on('close', function () {
-        server.kill();
+        if (server && !server.killed) {
+          server.kill();
+        }
         this.close(true);
         nw.App.quit();
       });
     });
   }
 
-  server.stdout.on('data', d => {
-    tee(d, false);
-    // Short-circuit once open — no point inspecting every chunk forever
+  server.on('error', (err) => {
+    tee(`[NovaByte] Server spawn error: ${err.message}\n`, true);
+  });
+
+  server.on('exit', (code, signal) => {
+    // Prevent fallback timer from opening a window to a dead server if process exits early
+    if (fallbackTimer !== null) {
+      clearTimeout(fallbackTimer);
+      fallbackTimer = null;
+    }
+
+    tee(`[NovaByte] Server exited (code=${code}, signal=${signal})\n`, false);
+    logStream.end();
+    if (conout) {
+      try { conout.end(); } catch (_) {}
+    }
+  });
+
+  // Inspect server output to detect readiness using a rolling buffer to catch chunk-split tokens
+  let stdoutBuffer = '';
+
+  server.stdout.on('data', (chunk) => {
+    tee(chunk, false);
+
     if (!opened) {
-      const str = d.toString();
-      if (str.includes('Listening') || str.includes('https://localhost') || str.includes('Address')) {
+      stdoutBuffer += chunk.toString('utf8');
+      if (
+        stdoutBuffer.includes('Listening') ||
+        stdoutBuffer.includes('https://localhost') ||
+        stdoutBuffer.includes('Address')
+      ) {
+        stdoutBuffer = ''; // Release memory after trigger
         openWindow();
+      } else if (stdoutBuffer.length > 4096) {
+        // Keep a rolling tail buffer to avoid unbounded memory growth
+        stdoutBuffer = stdoutBuffer.slice(-2048);
       }
     }
   });
-  server.stderr.on('data', d => tee(d, true));
 
-  // Fallback: open the window after 8 s even if server never signals ready
-  setTimeout(openWindow, 8_000);
+  server.stderr.on('data', (chunk) => tee(chunk, true));
 
-  // Quit handler: kill server when NW.js quits (not recursive — no nw.App.quit() here)
-  nw.App.on('quit', () => server.kill());
+  // Fallback: open window after 8s if server signal isn't detected
+  fallbackTimer = setTimeout(openWindow, 8_000);
 
-  // ── Global hotkeys ────────────────────────────────────────────────────────
-  nw.App.registerGlobalHotKey(new nw.Shortcut({ key: 'F11', active: () => win?.toggleFullscreen() }));
-  nw.App.registerGlobalHotKey(new nw.Shortcut({ key: 'F12', active: () => win?.showDevTools()    }));
+  // Quit handler to terminate server process when NW.js exits
+  nw.App.on('quit', () => {
+    if (server && !server.killed) {
+      server.kill();
+    }
+  });
+
+  // Register global hotkeys safely to prevent unhandled registration errors
+  try {
+    nw.App.registerGlobalHotKey(new nw.Shortcut({ key: 'F11', active: () => win?.toggleFullscreen() }));
+    nw.App.registerGlobalHotKey(new nw.Shortcut({ key: 'F12', active: () => win?.showDevTools()    }));
+  } catch (err) {
+    console.warn('[NovaByte] Failed to register global hotkeys:', err.message);
+  }
 }
 
 module.exports = { bootstrap };

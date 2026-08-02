@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const session = require('express-session');
 const path = require('path');
+const fs = require('fs');
 const Database = require('better-sqlite3');
 const SqliteStore = require('better-sqlite3-session-store')(session);
 
@@ -14,7 +15,23 @@ const SqliteStore = require('better-sqlite3-session-store')(session);
 // Uses better-sqlite3 (already a dependency, via the favicon cache) instead
 // of session-file-store: SQLite's own locking avoids the Windows EPERM-on-
 // rename failures that file-based session storage hit in this project.
-const SESSION_DB_PATH = path.join(__dirname, '..', 'data', 'sessions.db');
+const SESSION_DB_DIR = path.join(__dirname, '..', 'data');
+const SESSION_DB_PATH = path.join(SESSION_DB_DIR, 'sessions.db');
+
+// This used to work only because favicons.js happened to create ../data
+// first and index.js requires favicons.js before setupMiddleware() runs —
+// an ordering coincidence, not a guarantee. Ensuring the dir exists here
+// too means this file no longer depends on another module having run first.
+fs.mkdirSync(SESSION_DB_DIR, { recursive: true });
+
+// Body size limit for express.json/urlencoded. The original had this set to
+// '4gb', which meant a single request could buffer up to 4GB in memory
+// before parsing even started — one request from anywhere could eat the
+// whole heap. Configurable via env for deployments that genuinely need
+// large payloads (e.g. bulk import), defaulting to something sane.
+const BODY_SIZE_LIMIT = process.env.BODY_SIZE_LIMIT || '10mb';
+
+let sessionDb = null;
 
 function setupMiddleware(app) {
     app.use((req, res, next) => {
@@ -51,7 +68,12 @@ function setupMiddleware(app) {
         originAgentCluster: false
     }));
 
-    const corsOrigins = process.env.CORS_ORIGIN?.split(',').filter(Boolean) || ['https://localhost:3003', 'https://127.0.0.1:3003'];
+    // .filter(Boolean) can leave an empty array (e.g. CORS_ORIGIN="," or a
+    // stray trailing comma), and `[] || fallback` doesn't trigger since []
+    // is truthy — that silently locked out every origin including the dev
+    // default. Check length explicitly instead of relying on truthiness.
+    const envOrigins = process.env.CORS_ORIGIN?.split(',').map(o => o.trim()).filter(Boolean);
+    const corsOrigins = envOrigins?.length ? envOrigins : ['https://localhost:3003', 'https://127.0.0.1:3003'];
 
     app.use(cors({
         origin: corsOrigins,
@@ -70,7 +92,7 @@ function setupMiddleware(app) {
         etag: true,
         immutable: !isDevelopment // Only immutable in production
     };
-    
+
     // JS files need no-cache in development for fresh loads
     const jsCacheOptions = {
         maxAge: isDevelopment ? 0 : '1d', // No cache in dev, 24h in production
@@ -79,6 +101,12 @@ function setupMiddleware(app) {
     };
 
     // Rate limiting
+    // Exact-path and prefix checks split apart so each list is a plain
+    // membership/startsWith scan instead of one long mixed chain — same
+    // number of comparisons, just easier to scan and extend.
+    const EXACT_SKIP_PATHS = new Set(['/health', '/favicon.ico', '/api/favicon', '/api/events/stream']);
+    const PREFIX_SKIP_PATHS = ['/js/', '/css/', '/public/', '/assets/'];
+
     const limiter = rateLimit({
         windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
         max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
@@ -89,25 +117,17 @@ function setupMiddleware(app) {
         standardHeaders: true,
         legacyHeaders: false,
         skip: (req) => {
-            if (req.path === '/health') return true;
-            if (req.path.startsWith('/js/')) return true;
-            if (req.path.startsWith('/css/')) return true;
-            if (req.path.startsWith('/public/')) return true;
-            if (req.path.startsWith('/assets/')) return true;
-            if (req.path === '/favicon.ico') return true;
-            // Has its own dedicated limiter and fires many times per page load
-            if (req.path === '/api/favicon') return true;
-            // Long-lived SSE stream — has its own dedicated limiter below.
-            // Counting it against the general request budget means every
-            // reconnect (tab backgrounding, sleep/wake, brief network blips)
-            // eats into the same quota as normal API calls, and once
-            // rate-limited the stream can never recover since reconnecting
-            // is the very thing being blocked.
-            if (req.path === '/api/events/stream') return true;
-            return false;
+            if (EXACT_SKIP_PATHS.has(req.path)) return true;
+            // '/api/favicon' and '/api/events/stream' have their own dedicated
+            // limiters below — /api/favicon fires many times per page load,
+            // and /api/events/stream is a long-lived SSE connection where
+            // reconnects (tab backgrounding, sleep/wake, brief network blips)
+            // shouldn't eat into the same budget as normal API calls, since
+            // once rate-limited the stream can never recover — reconnecting
+            // is the very thing that would be blocked.
+            return PREFIX_SKIP_PATHS.some(p => req.path.startsWith(p));
         }
     });
-
 
     // Tiered email rate limiters — split by frequency of legitimate use:
     //   connect/disconnect/preview: called on every folder switch and email open, needs headroom
@@ -173,12 +193,12 @@ function setupMiddleware(app) {
     app.use('/api/favicon', faviconLimiter);
     app.use('/api/events/stream', eventsStreamLimiter);
 
-    app.use(express.json({ limit: '4gb' }));
-    app.use(express.urlencoded({ extended: true, limit: '4gb' }));
+    app.use(express.json({ limit: BODY_SIZE_LIMIT }));
+    app.use(express.urlencoded({ extended: true, limit: BODY_SIZE_LIMIT }));
     app.use(cookieParser());
 
     // Session middleware (required for CSRF protection)
-    const sessionDb = new Database(SESSION_DB_PATH);
+    sessionDb = new Database(SESSION_DB_PATH);
     // WAL mode lets reads and writes proceed without blocking each other —
     // matters once multiple requests touch the session table concurrently.
     sessionDb.pragma('journal_mode = WAL');
@@ -233,7 +253,11 @@ function setupMiddleware(app) {
         next();
     });
 
-    // Apply security middleware from security-middleware.js if available
+    // Apply security middleware from security-middleware.js if available.
+    // One middleware that loops over all of them and checks the exclusion
+    // once, instead of the previous N wrapper layers (one per security
+    // middleware, each re-running its own identical exclusion check) —
+    // same behavior, fewer middleware hops per request.
     try {
         const securityMiddleware = require('../security/middleware');
         if (securityMiddleware?.createSecurityMiddleware) {
@@ -244,11 +268,20 @@ function setupMiddleware(app) {
                 enableInputSanitization: true
             });
             const securityExclusions = ['/bare/'];
-            securityMws.forEach(mw => {
-                app.use((req, res, next) => {
-                    if (securityExclusions.some(p => req.path === p || req.path.endsWith(p) || req.path.startsWith(p))) return next();
-                    return mw(req, res, next);
-                });
+            const isExcluded = (reqPath) => securityExclusions.some(
+                p => reqPath === p || reqPath.endsWith(p) || reqPath.startsWith(p)
+            );
+
+            app.use((req, res, next) => {
+                if (isExcluded(req.path)) return next();
+                const runFrom = (i) => {
+                    if (i >= securityMws.length) return next();
+                    securityMws[i](req, res, (err) => {
+                        if (err) return next(err);
+                        runFrom(i + 1);
+                    });
+                };
+                runFrom(0);
             });
         }
     } catch (e) {
@@ -266,4 +299,15 @@ function setupMiddleware(app) {
     });
 }
 
-module.exports = { setupMiddleware };
+// Lets index.js close the session DB cleanly during graceful shutdown.
+// Note: this closes the DB handle, but the SqliteStore's own internal
+// setInterval (its 15-min expired-session sweep) isn't unref'd by that
+// library and isn't something this file can reach to fix — it's why
+// index.js's shutdown handler still needs its hard-exit timeout fallback.
+function closeSessionDb() {
+    if (!sessionDb) return;
+    try { sessionDb.close(); } catch (_) { /* already closed or never opened */ }
+    sessionDb = null;
+}
+
+module.exports = { setupMiddleware, closeSessionDb };
