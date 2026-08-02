@@ -182,7 +182,8 @@
     .site-header .bar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
+      gap: 40px;
       padding-block: 16px;
       padding-inline: 24px;
     }
@@ -190,22 +191,11 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-family: var(--font-mono);
-      font-weight: 700;
-      font-size: 15px;
-      letter-spacing: 0.02em;
       flex-shrink: 0;
-      white-space: nowrap;
 
-      & .pulse-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--glow-primary);
-        box-shadow: 0 0 8px var(--glow-primary);
-        /* a slow, calm heartbeat rather than a blink — says "alive," not "alert" */
-        animation: heartbeat 2.4s ease-in-out infinite;
+      & svg {
+        width: 40px;
+        height: 40px;
       }
     }
 
@@ -277,6 +267,7 @@
       display: none;
       align-items: center;
       justify-content: center;
+      margin-inline-start: auto;
       width: 36px;
       height: 36px;
       background: transparent;
@@ -1259,6 +1250,7 @@
       display: none;
       align-items: center;
       gap: 8px;
+      margin-inline-start: auto;
       background: var(--bg-panel);
       border: 1px solid var(--border-hairline);
       border-radius: var(--radius-tight);
@@ -1866,7 +1858,27 @@
 
 <header class="site-header">
   <div class="shell bar">
-    <div class="brand"><span class="pulse-dot" aria-hidden="true"></span>NBOSP</div>
+    <div class="brand" aria-label="NBOSP">
+      <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="nb2g" x1="0%" x2="100%" y1="0%" y2="100%">
+            <stop offset="0%" stop-color="#58a6ff"></stop>
+            <stop offset="100%" stop-color="#a371f7"></stop>
+          </linearGradient>
+          <filter height="160%" id="nb2f" width="160%" x="-30%" y="-30%">
+            <feGaussianBlur result="b" stdDeviation="3.5"></feGaussianBlur>
+            <feMerge>
+              <feMergeNode in="b"></feMergeNode>
+              <feMergeNode in="SourceGraphic"></feMergeNode>
+            </feMerge>
+          </filter>
+        </defs>
+        <polygon fill="rgba(88,166,255,0.04)" filter="url(#nb2f)" opacity="0.9" points="60,5 110,30 110,85 60,115 10,85 10,30" stroke="url(#nb2g)" stroke-width="2.5"></polygon>
+        <polygon fill="none" opacity="0.40" points="60,15 100,35 100,80 60,105 20,80 20,35" stroke="url(#nb2g)" stroke-width="1.5"></polygon>
+        <polygon fill="rgba(163,113,247,0.06)" opacity="0.35" points="60,28 88,43 88,76 60,91 32,76 32,43" stroke="url(#nb2g)" stroke-width="1"></polygon>
+        <text fill="url(#nb2g)" font-family="system-ui" font-size="30" font-weight="700" text-anchor="middle" x="60" y="68">NB</text>
+      </svg>
+    </div>
     <nav class="primary-nav" aria-label="Primary">
       <a href="#what" data-nav-link>What it is</a>
       <a href="#apps" data-nav-link>Apps</a>
