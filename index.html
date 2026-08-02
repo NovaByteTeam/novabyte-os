@@ -425,6 +425,11 @@
       }
     }
 
+    .btn-small {
+      font-size: 12px;
+      padding: 6px 12px;
+    }
+
     .hero-warning {
       margin-block-start: 40px;
       border: 1px solid color-mix(in oklch, var(--signal-amber) 30%, transparent);
@@ -1369,6 +1374,101 @@
       }
     }
 
+    /* ---------- file preview modal ---------- */
+    .file-preview-dialog {
+      width: min(880px, calc(100vw - 40px));
+      height: min(680px, calc(100vh - 80px));
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border-hairline-bright);
+      border-radius: var(--radius-loose);
+      background: var(--glass-bg-raised);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      color: var(--ink);
+      box-shadow: 0 30px 80px -20px oklch(0% 0 0 / 0.7);
+      overflow: hidden;
+
+      &[open] { display: flex; }
+
+      &::backdrop {
+        background: oklch(10% 0.01 255 / 0.6);
+        backdrop-filter: blur(2px);
+      }
+    }
+
+    .file-preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-hairline);
+      flex-shrink: 0;
+    }
+
+    .file-preview-name {
+      font-size: 13px;
+      color: var(--ink);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-preview-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .file-preview-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      color: var(--ink-dim);
+      cursor: pointer;
+
+      &:hover { color: var(--ink); border-color: var(--border-hairline-bright); }
+    }
+
+    .file-preview-body {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .file-preview-loading,
+    .file-preview-error,
+    .file-preview-toolarge,
+    .file-preview-binary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 40px;
+      text-align: center;
+      color: var(--ink-dim);
+      font-size: 14px;
+    }
+
+    .file-preview-editor {
+      height: 100%;
+
+      & .CodeMirror {
+        height: 100%;
+        font-family: var(--font-mono);
+        font-size: 13px;
+      }
+    }
+
     /* ---------- app search / filter ---------- */
     .app-search {
       margin-block-start: 40px;
@@ -1781,6 +1881,8 @@
 
     .browser-name.is-dir { cursor: pointer; }
     .browser-name.is-dir:hover { color: var(--glow-primary); }
+    .browser-name.is-file { cursor: pointer; }
+    .browser-name.is-file:hover { color: var(--glow-primary); }
 
     .browser-icon { flex-shrink: 0; }
 
@@ -1853,6 +1955,8 @@
     }
   }
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
 </head>
 <body>
 
@@ -2431,6 +2535,29 @@ npm start
     <input type="text" class="palette-input" placeholder="Jump to a section…" autocomplete="off" data-palette-input aria-label="Search sections">
     <ul class="palette-results" data-palette-results role="listbox" aria-label="Sections"></ul>
     <div class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> close</div>
+  </div>
+</dialog>
+
+<dialog class="file-preview-dialog" data-file-preview-dialog aria-label="File preview">
+  <div class="file-preview-header">
+    <span class="file-preview-name mono" data-file-preview-name></span>
+    <div class="file-preview-actions">
+      <a class="btn btn-ghost btn-small" data-file-preview-download download>Download</a>
+      <button class="file-preview-close" type="button" data-file-preview-close aria-label="Close preview">✕</button>
+    </div>
+  </div>
+  <div class="file-preview-body">
+    <div class="file-preview-loading" data-file-preview-loading>Loading file…</div>
+    <div class="file-preview-error" data-file-preview-error hidden>
+      Couldn't load this file's contents from the GitHub API.
+    </div>
+    <div class="file-preview-toolarge" data-file-preview-toolarge hidden>
+      This file is too large to preview inline — use Download instead.
+    </div>
+    <div class="file-preview-binary" data-file-preview-binary hidden>
+      This doesn't look like a text file, so there's nothing to preview — use Download to grab it.
+    </div>
+    <div class="file-preview-editor" data-file-preview-editor hidden></div>
   </div>
 </dialog>
 
@@ -3186,11 +3313,196 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * live file browser: fetches directly from api.github.com using the
-   * embedded PAT for authenticated requests.
+   * file preview modal: lazy-loads CodeMirror (only on first file click,
+   * not on page load — no reason to ship a code editor to someone who
+   * never opens the browser section) and renders whatever text file the
+   * GitHub contents API handed back. Binaries and anything over ~300KB
+   * just get a "use Download instead" message rather than trying to
+   * syntax-highlight a font file or choke on a huge minified bundle.
+   * ------------------------------------------------------------------- */
+  function wireUpFilePreview() {
+    const dialog     = document.querySelector('[data-file-preview-dialog]');
+    const nameEl     = document.querySelector('[data-file-preview-name]');
+    const downloadEl = document.querySelector('[data-file-preview-download]');
+    const closeBtn   = document.querySelector('[data-file-preview-close]');
+    const loadingEl  = document.querySelector('[data-file-preview-loading]');
+    const errorEl    = document.querySelector('[data-file-preview-error]');
+    const toolargeEl = document.querySelector('[data-file-preview-toolarge]');
+    const binaryEl   = document.querySelector('[data-file-preview-binary]');
+    const editorEl   = document.querySelector('[data-file-preview-editor]');
+    if (!dialog) return null;
+
+    const CM_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16';
+    const MAX_PREVIEW_BYTES = 300_000;
+
+    // extension -> [mode script(s) to load, CodeMirror mode name]
+    // htmlmixed needs xml + css + javascript loaded first since cdnjs
+    // ships each mode as a separate file rather than one bundled blob
+    const MODE_MAP = {
+      js:   { scripts: ['mode/javascript/javascript.min.js'], mode: 'javascript' },
+      mjs:  { scripts: ['mode/javascript/javascript.min.js'], mode: 'javascript' },
+      jsx:  { scripts: ['mode/javascript/javascript.min.js'], mode: 'jsx' },
+      json: { scripts: ['mode/javascript/javascript.min.js'], mode: { name: 'javascript', json: true } },
+      css:  { scripts: ['mode/css/css.min.js'], mode: 'css' },
+      html: { scripts: ['mode/xml/xml.min.js', 'mode/javascript/javascript.min.js', 'mode/css/css.min.js', 'mode/htmlmixed/htmlmixed.min.js'], mode: 'htmlmixed' },
+      htm:  { scripts: ['mode/xml/xml.min.js', 'mode/javascript/javascript.min.js', 'mode/css/css.min.js', 'mode/htmlmixed/htmlmixed.min.js'], mode: 'htmlmixed' },
+      xml:  { scripts: ['mode/xml/xml.min.js'], mode: 'xml' },
+      md:   { scripts: ['mode/markdown/markdown.min.js'], mode: 'markdown' },
+      yml:  { scripts: ['mode/yaml/yaml.min.js'], mode: 'yaml' },
+      yaml: { scripts: ['mode/yaml/yaml.min.js'], mode: 'yaml' },
+      sh:   { scripts: ['mode/shell/shell.min.js'], mode: 'shell' },
+    };
+    const BINARY_EXTENSIONS = new Set([
+      'png','jpg','jpeg','gif','webp','ico','svg','woff','woff2','ttf','eot',
+      'mp3','mp4','wav','ogg','zip','gz','tar','pdf','exe','dll','wasm',
+    ]);
+
+    let cmLoadPromise = null;
+    let cmEditor = null;
+    const loadedScripts = new Set();
+
+    function loadScript(src) {
+      if (loadedScripts.has(src)) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => { loadedScripts.add(src); resolve(); };
+        script.onerror = () => reject(new Error(`failed to load ${src}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    function loadStyle(href) {
+      if (document.querySelector(`link[href="${href}"]`)) return;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      document.head.appendChild(link);
+    }
+
+    // core CM lib is shared across every file type, so it only ever loads
+    // once no matter how many different-language files get opened after
+    function ensureCodeMirrorCore() {
+      if (!cmLoadPromise) {
+        cmLoadPromise = loadScript(`${CM_BASE}/codemirror.min.js`);
+      }
+      return cmLoadPromise;
+    }
+
+    function extensionOf(filename) {
+      const parts = filename.split('.');
+      return parts.length > 1 ? parts.pop().toLowerCase() : '';
+    }
+
+    function resetPanels() {
+      loadingEl.hidden = true;
+      errorEl.hidden = true;
+      toolargeEl.hidden = true;
+      binaryEl.hidden = true;
+      editorEl.hidden = true;
+    }
+
+    function showPanel(el) {
+      resetPanels();
+      el.hidden = false;
+    }
+
+    // base64 from GitHub's API comes with embedded newlines and atob()
+    // chokes on those, so strip whitespace first
+    function decodeBase64Utf8(b64) {
+      const clean = b64.replace(/\s/g, '');
+      const binary = atob(clean);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    }
+
+    async function openFile(path, name) {
+      nameEl.textContent = name;
+      const rawUrl = `https://raw.githubusercontent.com/NovaByteTeam/novabyte-os/main/${path}`;
+      downloadEl.href = rawUrl;
+      downloadEl.setAttribute('download', name);
+
+      dialog.showModal();
+      showPanel(loadingEl);
+
+      const ext = extensionOf(name);
+      if (BINARY_EXTENSIONS.has(ext)) {
+        showPanel(binaryEl);
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
+          { headers: ghHeaders() }
+        );
+        if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
+        const data = await res.json();
+
+        if (typeof data.size === 'number' && data.size > MAX_PREVIEW_BYTES) {
+          showPanel(toolargeEl);
+          return;
+        }
+        if (!data.content) throw new Error('no content field in response');
+
+        const text = decodeBase64Utf8(data.content);
+
+        await ensureCodeMirrorCore();
+        const modeInfo = MODE_MAP[ext];
+        if (modeInfo) {
+          loadStyle(`${CM_BASE}/theme/dracula.min.css`);
+          await Promise.all(modeInfo.scripts.map((s) => loadScript(`${CM_BASE}/${s}`)));
+        }
+
+        editorEl.innerHTML = '';
+        showPanel(editorEl);
+
+        // CM wants a real textarea node to attach to — recreate it each
+        // time rather than reusing one, simplest way to fully reset state
+        // between files without CM's own API for "load a totally new doc"
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        editorEl.appendChild(textarea);
+
+        cmEditor = CodeMirror.fromTextArea(textarea, {
+          mode: modeInfo ? modeInfo.mode : null,
+          theme: 'dracula',
+          lineNumbers: true,
+          readOnly: true,
+          viewportMargin: Infinity,
+        });
+      } catch (error) {
+        console.error('[NovaByte] file preview failed:', error);
+        showPanel(errorEl);
+      }
+    }
+
+    function close() {
+      dialog.close();
+      cmEditor = null;
+      editorEl.innerHTML = '';
+    }
+
+    closeBtn?.addEventListener('click', close);
+    dialog.addEventListener('click', (event) => {
+      // clicking the ::backdrop lands directly on the dialog element itself
+      // (not a child), that's the standard way to detect a backdrop click
+      if (event.target === dialog) close();
+    });
+
+    // exposed so the file browser's row click handler can call it
+    return { openFile };
+  }
+
+  /* ----------------------------------------------------------------------
+   * live file browser: fetches directly from api.github.com. Requests are
+   * unauthenticated (60 req/hr per visitor IP) — this repo is public, so
+   * no token is needed, and a hardcoded one would just get auto-revoked
+   * by GitHub's push protection the moment it landed in a public commit.
    * ------------------------------------------------------------------- */
 
-  function wireUpFileBrowser() {
+  function wireUpFileBrowser(filePreview) {
     const root       = document.querySelector('[data-browser-root]');
     if (!root) return;
 
@@ -3312,6 +3624,9 @@ npm start
       nameSpan.append(name);
       if (isDir) {
         nameSpan.addEventListener('click', () => loadPath(path));
+      } else {
+        nameSpan.classList.add('is-file');
+        nameSpan.addEventListener('click', () => filePreview?.openFile(path, name));
       }
       nameTd.appendChild(nameSpan);
 
@@ -3355,7 +3670,8 @@ npm start
   wireUpMobileNav();
   wireUpRepoStats();
   wireUpChangelog();
-  wireUpFileBrowser();
+  const filePreview = wireUpFilePreview();
+  wireUpFileBrowser(filePreview);
 </script>
 
 </body>
