@@ -2363,12 +2363,9 @@ npm start
 
   const reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
 
-  // GitHub calls that need a higher rate limit (repo stats, changelog,
-  // file browser) go through a small server-side proxy instead of
-  // api.github.com directly — the proxy holds the token, this page never
-  // sees it. See /worker for the Cloudflare Worker source.
-  // set this to your deployed worker URL, e.g. 'https://nbosp-github-proxy.yourname.workers.dev'
-  const GITHUB_PROXY = 'https://nbosp-github-proxy.novabyteofficial.workers.dev';
+  // GitHub PAT for authenticated API calls — needed for higher rate limits
+  // and to access private repo data if required.
+  const GITHUB_TOKEN = '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';
 
   /* ----------------------------------------------------------------------
    * boot sequence: types the two hero commands out like someone's actually
@@ -2705,7 +2702,10 @@ npm start
 
     try {
       const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/releases/tags/NBOSP-PREBUILT', {
-        headers: { Accept: 'application/vnd.github+json' },
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${GITHUB_TOKEN}`,
+        },
       });
 
       // covers rate-limit (403) and any other non-2xx without guessing at
@@ -2973,10 +2973,8 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * live repo stats + changelog: same api.github.com pattern as
-   * wireUpDownloads() above, just two different endpoints. kept separate
-   * from wireUpDownloads() since either can fail without taking the
-   * other down with it.
+   * live repo stats + changelog: direct api.github.com calls using the
+   * embedded PAT for authenticated requests.
    * ------------------------------------------------------------------- */
   async function wireUpRepoStats() {
     const starsEl  = document.querySelector('[data-stat-stars]');
@@ -2985,8 +2983,11 @@ npm start
     if (!starsEl) return;
 
     try {
-      const res = await fetch(`${GITHUB_PROXY}/repo`, {
-        headers: { Accept: 'application/vnd.github+json' },
+      const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os', {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${GITHUB_TOKEN}`,
+        },
       });
       if (!res.ok) return;
       const repo = await res.json();
@@ -3017,8 +3018,8 @@ npm start
       loaded = true;
 
       try {
-        const res = await fetch(`${GITHUB_PROXY}/commits?path=NBOSP&per_page=8`, {
-          headers: { Accept: 'application/vnd.github+json' },
+        const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/commits?path=NBOSP&per_page=8', {
+          headers: ghHeaders(),
         });
         if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
         const commits = await res.json();
@@ -3058,11 +3059,8 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * live file browser: proxy's /contents/... for the listing, then one
-   * proxy /commits call per entry for its "last commit" column — same
-   * shape as the real GitHub UI. The proxy holds the token server-side,
-   * so this is N+1 requests per folder view against the proxy's 5000/hr
-   * budget, not the page's own.
+   * live file browser: fetches directly from api.github.com using the
+   * embedded PAT for authenticated requests.
    * ------------------------------------------------------------------- */
 
   function wireUpFileBrowser() {
@@ -3078,7 +3076,10 @@ npm start
     const ROOT_PATH = 'NBOSP';
 
     function ghHeaders() {
-      return { Accept: 'application/vnd.github+json' };
+      return {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+      };
     }
 
     function showLoading() {
@@ -3118,7 +3119,7 @@ npm start
     async function fetchLastCommit(path) {
       try {
         const res = await fetch(
-          `${GITHUB_PROXY}/commits?path=${encodeURIComponent(path)}&per_page=1`,
+          `https://api.github.com/repos/NovaByteTeam/novabyte-os/commits?path=${encodeURIComponent(path)}&per_page=1`,
           { headers: ghHeaders() }
         );
         if (!res.ok) return null;
@@ -3135,7 +3136,7 @@ npm start
 
       try {
         const res = await fetch(
-          `${GITHUB_PROXY}/contents/${path}`,
+          `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
           { headers: ghHeaders() }
         );
         if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
