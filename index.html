@@ -1820,7 +1820,14 @@ npm start
 
     function showError() {
       loadingEl.hidden = true;
+      contentEl.hidden = true;
       errorEl.hidden = false;
+    }
+
+    function showContent() {
+      loadingEl.hidden = true;
+      errorEl.hidden = true;
+      contentEl.hidden = false;
     }
 
     try {
@@ -1870,8 +1877,7 @@ npm start
         gridEl.appendChild(card);
       }
 
-      loadingEl.hidden = true;
-      contentEl.hidden = false;
+      showContent();
     } catch (error) {
       // network failure, blocked request, malformed JSON — all land here
       console.error('[NovaByte] downloads fetch failed:', error);
