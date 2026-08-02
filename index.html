@@ -180,24 +180,37 @@
     }
 
     .site-header .bar {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      align-items: center;
-      gap: 40px;
-      padding-block: 16px;
-      padding-inline: 24px;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      height: 56px !important;
+      padding-block: 0 !important;
+      padding-inline: 24px !important;
+      gap: 16px !important;
+      position: relative;
     }
 
     .brand {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      grid-column: 2;
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
       flex-shrink: 0;
 
       & svg {
-        width: 40px;
-        height: 40px;
+        width: 32px !important;
+        height: 32px !important;
+        display: block !important;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .site-header .bar {
+        padding-block: 6px;
+        padding-inline: 16px;
+        gap: 12px;
       }
     }
 
@@ -210,10 +223,10 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      grid-column: 1;
-      justify-self: start;
       width: 36px;
       height: 36px;
+      margin: 0 !important;
+      align-self: center !important;
       background: transparent;
       border: 1px solid var(--border-hairline);
       border-radius: var(--radius-tight);
@@ -344,6 +357,8 @@
       font-weight: 600;
       padding: 12px 20px;
       border-radius: var(--radius-tight);
+      margin: 0 !important;
+      align-self: center !important;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
@@ -680,7 +695,7 @@
       }
 
       & li {
-        padding-block: 8px;
+      padding-block: 16px;
         border-bottom: 1px solid var(--border-hairline);
         font-size: 14.5px;
         color: var(--ink-dim);
@@ -1220,6 +1235,8 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      margin: 0 !important;
+      align-self: center !important;
       grid-column: 3;
       justify-self: end;
       background: var(--bg-panel);
