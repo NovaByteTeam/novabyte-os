@@ -2600,6 +2600,11 @@ npm start
 
   const reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
 
+  // repo/contents/commits calls go through this Worker instead of hitting
+  // api.github.com directly — it holds the real GitHub token server-side
+  // and only forwards the three route shapes it allowlists (see worker.js)
+  const GH_PROXY = 'https://nbosp-github-proxy.novabyteofficial.workers.dev';
+
   function ghHeaders() {
     return {
       Accept: 'application/vnd.github+json',
@@ -3251,8 +3256,8 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * live repo stats + changelog: direct api.github.com calls using the
-   * embedded PAT for authenticated requests.
+   * live repo stats + changelog: routed through the Cloudflare Worker
+   * proxy (GH_PROXY), which holds the real token server-side.
    * ------------------------------------------------------------------- */
   async function wireUpRepoStats() {
     const starsEl  = document.querySelector('[data-stat-stars]');
@@ -3261,7 +3266,7 @@ npm start
     if (!starsEl) return;
 
     try {
-      const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os', {
+      const res = await fetch(`${GH_PROXY}/repo`, {
         headers: ghHeaders(),
       });
       if (!res.ok) return;
@@ -3293,7 +3298,7 @@ npm start
       loaded = true;
 
       try {
-        const res = await fetch('https://api.github.com/repos/NovaByteTeam/novabyte-os/commits?path=NBOSP&per_page=8', {
+        const res = await fetch(`${GH_PROXY}/commits?path=NBOSP&per_page=8`, {
           headers: ghHeaders(),
         });
         if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
@@ -3458,7 +3463,7 @@ npm start
         let data = contentCache.get(path);
         if (!data) {
           const res = await fetch(
-            `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
+            `${GH_PROXY}/contents/${path}`,
             { headers: ghHeaders() }
           );
           if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
@@ -3527,10 +3532,10 @@ npm start
   }
 
   /* ----------------------------------------------------------------------
-   * live file browser: fetches directly from api.github.com. Requests are
-   * unauthenticated (60 req/hr per visitor IP) — this repo is public, so
-   * no token is needed, and a hardcoded one would just get auto-revoked
-   * by GitHub's push protection the moment it landed in a public commit.
+   * live file browser: routed through the Cloudflare Worker proxy
+   * (GH_PROXY), which holds the real token server-side — visitors get
+   * the authenticated 5,000/hr rate limit without the token ever
+   * touching the client.
    * ------------------------------------------------------------------- */
 
   function wireUpFileBrowser(filePreview) {
@@ -3591,7 +3596,7 @@ npm start
       if (commitCache.has(path)) return commitCache.get(path);
       try {
         const res = await fetch(
-          `https://api.github.com/repos/NovaByteTeam/novabyte-os/commits?path=${encodeURIComponent(path)}&per_page=1`,
+          `${GH_PROXY}/commits?path=${encodeURIComponent(path)}&per_page=1`,
           { headers: ghHeaders() }
         );
         if (!res.ok) { commitCache.set(path, null); return null; }
@@ -3613,7 +3618,7 @@ npm start
         let entries = listingCache.get(path);
         if (!entries) {
           const res = await fetch(
-            `https://api.github.com/repos/NovaByteTeam/novabyte-os/contents/${path}`,
+            `${GH_PROXY}/contents/${path}`,
             { headers: ghHeaders() }
           );
           if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
