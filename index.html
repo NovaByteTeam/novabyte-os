@@ -195,6 +195,8 @@
       font-weight: 700;
       font-size: 15px;
       letter-spacing: 0.02em;
+      flex-shrink: 0;
+      white-space: nowrap;
 
       & .pulse-dot {
         width: 8px;
@@ -256,7 +258,7 @@
       }
     }
 
-    @media (max-width: 720px) {
+    @media (max-width: 1300px) {
       .primary-nav { display: none; }
     }
 
@@ -2932,6 +2934,8 @@ npm start
       document.getElementById(id)?.scrollIntoView({ behavior: reduceMotionQuery.matches ? 'auto' : 'smooth' });
     }
 
+    const isMac = navigator.platform.toLowerCase().includes('mac');
+
     function open() {
       input.value = '';
       filtered = sections;
@@ -2945,8 +2949,10 @@ npm start
 
     trigger?.addEventListener('click', open);
 
+    const kbd = trigger?.querySelector('.palette-kbd');
+    if (kbd && !isMac) kbd.textContent = 'Ctrl K';
+
     document.addEventListener('keydown', (event) => {
-      const isMac = navigator.platform.toLowerCase().includes('mac');
       const modifierHeld = isMac ? event.metaKey : event.ctrlKey;
       if (modifierHeld && event.key.toLowerCase() === 'k') {
         event.preventDefault();
