@@ -104,7 +104,7 @@ const Boot = {
 
   /**
    * @private
-   * Set up the stuck-boot watchdog timer.
+   * Set up the stuck-boot watchdog timer. //TODO: I might remove watchdog entirely or at least improve it; it doesn't work reliably, such as not even syntax error refreshes 2 times.
    * @returns {{ complete: Function }} Call complete() when boot finishes normally.
    */
   _setupWatchdog(bootStartTime, uaShort) {
