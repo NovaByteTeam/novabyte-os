@@ -1376,6 +1376,9 @@
 
     /* ---------- file preview modal ---------- */
     .file-preview-dialog {
+      position: fixed;
+      inset: 0;
+      margin: auto;
       width: min(880px, calc(100vw - 40px));
       height: min(680px, calc(100vh - 80px));
       padding: 0;
@@ -1389,12 +1392,11 @@
       box-shadow: 0 30px 80px -20px oklch(0% 0 0 / 0.7);
       overflow: hidden;
 
-      /* dialog is display:none by default in every browser's UA
-         stylesheet — only becomes visible (and gets its native centered
-         top-layer positioning) once showModal() sets [open]. scoping
-         display:flex to [open] here, instead of setting it unconditionally
-         on the base selector, is what makes native centering + the close
-         button's dialog.close() call actually have a visible effect */
+      /* explicit fixed + inset:0 + margin:auto above pins centering
+         ourselves rather than depending on the browser's own dialog UA
+         stylesheet default — that default can behave inconsistently once
+         display gets overridden (as it is here, flex instead of the
+         default block), so this makes centering independent of that */
       &[open] {
         display: flex;
       }
@@ -1449,7 +1451,9 @@
       position: relative;
       flex: 1;
       min-height: 0;
-      overflow: auto;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .file-preview-loading,
@@ -1459,7 +1463,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100%;
+      flex: 1;
       padding: 40px;
       text-align: center;
       color: var(--ink-dim);
@@ -1475,7 +1479,9 @@
     }
 
     .file-preview-editor {
-      height: 100%;
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
 
       & .CodeMirror {
         height: 100%;
@@ -3492,6 +3498,11 @@ npm start
           readOnly: true,
           viewportMargin: Infinity,
         });
+        // CM measures its container's height on init — inside a flex layout
+        // that can occasionally be a frame early, before the browser's
+        // settled the flex box's final size. refresh() re-measures and is
+        // a no-op if nothing actually changed, so it's safe to always call
+        requestAnimationFrame(() => cmEditor?.refresh());
       } catch (error) {
         console.error('[NovaByte] file preview failed:', error);
         showPanel(errorEl);
