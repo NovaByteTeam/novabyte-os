@@ -2367,6 +2367,13 @@ npm start
   // and to access private repo data if required.
   const GITHUB_TOKEN = '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';
 
+  function ghHeaders() {
+    return {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+    };
+  }
+
   /* ----------------------------------------------------------------------
    * boot sequence: types the two hero commands out like someone's actually
    * typing them, THEN reveals the output lines, THEN starts the blinking
@@ -3074,13 +3081,6 @@ npm start
     const pathEl     = root.querySelector('[data-browser-path-current]');
 
     const ROOT_PATH = 'NBOSP';
-
-    function ghHeaders() {
-      return {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-      };
-    }
 
     function showLoading() {
       loadingEl.hidden = false;
