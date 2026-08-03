@@ -6,8 +6,8 @@ import { transform as esbuildTransform } from 'esbuild';
 import { minify as minifyHtml } from 'html-minifier-next';
 import { PurgeCSS } from 'purgecss';
 
-const SRC_DIR = './src';
-const OUT_DIR = './dist';
+const SRC_DIR = '.';
+const OUT_DIR = '../dist';
 const OUT_FILE = `${OUT_DIR}/index.html`;
 
 const html = readFileSync(`${SRC_DIR}/markup.html`, 'utf8');
