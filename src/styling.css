@@ -1706,6 +1706,15 @@
       height: 100%;
       font-family: var(--font-mono);
       font-size: 13px;
+    }
+
+    /* the actual scrolling happens in CM6's internal .cm-scroller, not
+       .cm-editor itself — .cm-editor just sizes the box. without this,
+       overflow:hidden up on .file-preview-editor clips content instead
+       of ever handing it a scrollable box, so wheel/trackpad input has
+       nothing to scroll and just does nothing */
+    & .cm-scroller {
+      overflow: auto;
       overscroll-behavior: contain;
     }
   }
