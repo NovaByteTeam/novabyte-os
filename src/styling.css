@@ -1146,8 +1146,11 @@
     }
 
     &.is-open {
-      background: color-mix(in oklch, var(--glow-primary-soft) 70%, transparent);
       border-color: color-mix(in oklch, var(--glow-primary) 25%, transparent);
+    }
+
+    &.is-open.glass::before {
+      background: color-mix(in oklch, var(--glow-primary-soft) 35%, var(--glass-tint));
     }
 
     & .path {
