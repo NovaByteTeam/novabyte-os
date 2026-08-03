@@ -66,7 +66,7 @@ const finalHtml = await minifyHtml(outHtml, {
   removeEmptyAttributes: true,
   removeOptionalTags: false, // risky with your custom elements/data-attrs; skip
   sortAttributes: true,
-  sortClassName: true,
+  sortClassNames: true,
   // minifyCSS/minifyJS OFF: html-minifier-terser's internal CSS minifier (clean-css)
   // doesn't understand native `&` nesting inside @supports blocks and silently drops
   // those rules (this killed .is-revealed, the fallback path for browsers without
