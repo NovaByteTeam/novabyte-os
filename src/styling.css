@@ -1715,8 +1715,17 @@
        of ever handing it a scrollable box, so wheel/trackpad input has
        nothing to scroll and just does nothing */
     & .cm-scroller {
-      overflow: auto;
+      overflow-y: auto;
       overscroll-behavior: contain;
+      /* .cm-scroller is a flex child of .cm-editor (CM6's base theme sets
+         .cm-editor to display:flex;flex-direction:column !important) —
+         a flex item's default min-height is auto, meaning it refuses to
+         shrink below its content's height no matter what height/overflow
+         you set on it. that's why nothing scrolled: .cm-scroller was
+         just growing to fit the whole file instead of clipping to
+         .cm-editor's 100%. min-height:0 overrides that default so it
+         actually respects the parent's bounded height. */
+      min-height: 0;
     }
   }
 
