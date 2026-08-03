@@ -20,7 +20,7 @@
 <body>
 
 <!-- Liquid glass distortion filter — same soft refraction used on the OS windows -->
-<svg id="lg-svg-filters" style="display:none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<svg id="lg-svg-filters" style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
   <filter id="glass-distortion-soft" x="-8%" y="-8%" width="116%" height="116%" filterUnits="objectBoundingBox">
     <feTurbulence type="fractalNoise" baseFrequency="0.65 0.75" numOctaves="3" seed="17" result="turbulence"></feTurbulence>
     <feGaussianBlur in="turbulence" stdDeviation="2" result="softMap"></feGaussianBlur>
@@ -191,7 +191,7 @@
         <span class="app-filter-count" data-app-filter-count aria-live="polite"></span>
       </search>
 
-      <div class="manifest reveal-on-scroll needs-js-reveal" role="table" aria-label="NBOSP standard apps" data-manifest-root>
+      <div class="manifest glow-surface glass reveal-on-scroll needs-js-reveal" role="table" aria-label="NBOSP standard apps" data-manifest-root>
         <div class="manifest-row" role="row" data-app-row data-app-keywords="files file manager icon list sort scanner drag drop trash restore">
           <div class="app-name" role="cell">📁 Files</div>
           <div class="app-desc" role="cell">Icon/list view, sort, search, copy/cut/paste, trash and restore, drag-and-drop import screened by the built-in scanner. <span class="caveat">No tabs, no split panes, no cloud sync.</span></div>
@@ -386,7 +386,7 @@
         </p>
       </div>
 
-      <div class="browser-panel reveal-on-scroll needs-js-reveal" data-browser-root>
+      <div class="browser-panel glow-surface glass reveal-on-scroll needs-js-reveal" data-browser-root>
         <div class="browser-path" data-browser-path aria-live="polite">
           <span class="browser-path-label">NBOSP /</span>
           <span data-browser-path-current></span>
@@ -423,7 +423,7 @@
         </p>
       </div>
 
-      <div class="req-table reveal-on-scroll needs-js-reveal" role="table" aria-label="System requirements">
+      <div class="req-table glow-surface glass reveal-on-scroll needs-js-reveal" role="table" aria-label="System requirements">
         <div class="req-row req-row-head" role="row">
           <div role="columnheader"></div>
           <div role="columnheader">Minimum</div>
@@ -581,7 +581,7 @@
       </div>
 
       <div class="license-grid reveal-on-scroll needs-js-reveal">
-        <div class="license-card is-open">
+        <div class="license-card is-open glow-surface glass">
           <div class="path">NBOSP/</div>
           <div class="type">Apache 2.0</div>
           <p>Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text.</p>
