@@ -27,6 +27,14 @@ const purgeResult = await new PurgeCSS().purge({
   safelist: {
     // keep anything toggled purely via JS, plus scroll-triggered/state classes
     standard: [/^is-/, /^has-/, /^active$/, /^open$/, /^visible$/, /^lenis/],
+    // CodeMirror injects all of its own classes (cm-editor, cm-scroller,
+    // cm-content, cm-gutter, cm-line, etc.) into the DOM at runtime from
+    // the esm.sh import — they never appear as literal strings in
+    // markup.html or logic.js, so PurgeCSS was silently deleting every
+    // .cm-* rule from the built CSS, including the fix for the file
+    // preview's scroll container. "greedy" so it also keeps modifier
+    // classes CM6 appends dynamically (cm-focused, cm-gutters, etc.)
+    greedy: [/^cm-/],
   },
 });
 const purgedCss = purgeResult[0].css;
