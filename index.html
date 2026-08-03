@@ -1447,6 +1447,12 @@
       font-size: 11px;
       color: var(--ink-faint);
 
+      /* display:flex above beats the browser's default [hidden]{display:none} —
+         this rule needs to win that specificity fight or .hidden = true does nothing */
+      &[hidden] {
+        display: none;
+      }
+
       & kbd {
         font-family: var(--font-mono);
         background: var(--bg-panel-raised);
@@ -2154,7 +2160,7 @@
     </button>
     <button class="palette-trigger" type="button" data-palette-trigger aria-haspopup="dialog">
       <span>Jump to…</span>
-      <kbd class="palette-kbd">⌘K</kbd>
+      <kbd class="palette-kbd" hidden>⌘K</kbd>
     </button>
   </div>
 </header>
@@ -3438,6 +3444,11 @@ npm start
       return legacy.includes('mac');
     })();
 
+    // pointer:coarse = touch-primary input (phones, tablets). Deliberately not
+    // a screen-width check — a touchscreen laptop with a keyboard should still
+    // see the ⌘K/Ctrl K hint, and a small desktop window shouldn't lose it.
+    const noHardwareKeyboard = matchMedia('(pointer: coarse)').matches;
+
     function open() {
       input.value = '';
       filtered = sections;
@@ -3452,7 +3463,17 @@ npm start
     trigger?.addEventListener('click', open);
 
     const kbd = trigger?.querySelector('.palette-kbd');
-    if (kbd && !isMac) kbd.textContent = 'Ctrl K';
+    const triggerLabel = trigger?.querySelector('span');
+    if (kbd) {
+      kbd.textContent = noHardwareKeyboard ? '' : (isMac ? '⌘K' : 'Ctrl K');
+      kbd.hidden = noHardwareKeyboard;
+    }
+    if (triggerLabel && noHardwareKeyboard) triggerLabel.textContent = 'Search';
+
+    // the ↑↓ / ↵ / esc hint row is meaningless without a physical keyboard —
+    // hide it rather than show controls the person has no way to press
+    const paletteHint = document.querySelector('.palette-hint');
+    if (paletteHint) paletteHint.hidden = noHardwareKeyboard;
 
     document.addEventListener('keydown', (event) => {
       const modifierHeld = isMac ? event.metaKey : event.ctrlKey;
@@ -3964,6 +3985,12 @@ npm start
       wheelMultiplier: 1,
       autoRaf: true,
       anchors: true, // keeps in-page #hash links smooth too
+      // Lenis intercepts touch scrolling by default and re-drives it in JS,
+      // which fights the browser's native GPU-accelerated touch physics —
+      // that's what makes smooth-scroll libraries feel janky/rubber-bandy
+      // on mobile. syncTouch:false leaves touch scroll to the platform and
+      // only takes over wheel input + anchor-link jumps (still smooth there).
+      syncTouch: false,
       // data-lenis-prevent on .file-preview-body / .palette-results covers
       // the known scrollers; this is the fallback so any future scrollable
       // content added inside a <dialog> doesn't reopen this same bug.
