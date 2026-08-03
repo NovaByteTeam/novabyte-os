@@ -37,8 +37,10 @@ jobs:
           node-version: 24
       - name: Install build deps
         run: npm install
+        working-directory: ./src
       - name: Build (minify index.html)
         run: node build.mjs
+        working-directory: ./src
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

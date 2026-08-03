@@ -1,23 +1,18 @@
-// Static-site optimiser for a single-file index.html — no framework, just the
-// four things that actually apply here: CSS purge, CSS minify, JS minify, HTML minify.
+// Static-site optimiser for the split markup/styling/logic source — same four
+// steps as before (CSS purge, CSS minify, JS minify, HTML minify), just reading
+// from three files instead of regex-slicing one.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { transform as esbuildTransform } from 'esbuild';
 import { minify as minifyHtml } from 'html-minifier-next';
 import { PurgeCSS } from 'purgecss';
 
-const SRC = './index.html';
+const SRC_DIR = './src';
 const OUT_DIR = './dist';
 const OUT_FILE = `${OUT_DIR}/index.html`;
 
-const html = readFileSync(SRC, 'utf8');
-
-// --- 1. Pull out the single <style> block and each inline <script type="module"> block ---
-// (external scripts like the Lenis CDN tag are left completely alone)
-const styleMatch = html.match(/<style>([\s\S]*?)<\/style>/);
-const css = styleMatch[1];
-
-const scriptRe = /<script type="module">([\s\S]*?)<\/script>/g;
-const scripts = [...html.matchAll(scriptRe)].map(m => m[1]);
+const html = readFileSync(`${SRC_DIR}/markup.html`, 'utf8');
+const css = readFileSync(`${SRC_DIR}/styling.css`, 'utf8');
+const js = readFileSync(`${SRC_DIR}/logic.js`, 'utf8');
 
 // PurgeCSS's own CSS parser doesn't reliably handle native nesting (`&.is-revealed { ... }`
 // inside a parent rule) — it was silently dropping the whole nested block, which killed
@@ -25,9 +20,9 @@ const scripts = [...html.matchAll(scriptRe)].map(m => m[1]);
 // esbuild first (which DOES understand it) so PurgeCSS only ever sees plain flat selectors.
 const { code: flattenedCss } = await esbuildTransform(css, { loader: 'css', minify: false });
 
-// --- 2. Purge unused CSS rules (checks against tags/classes/ids actually used in the HTML + JS) ---
+// --- Purge unused CSS rules (checks against tags/classes/ids actually used in the HTML + JS) ---
 const purgeResult = await new PurgeCSS().purge({
-  content: [{ raw: html, extension: 'html' }, ...scripts.map(s => ({ raw: s, extension: 'js' }))],
+  content: [{ raw: html, extension: 'html' }, { raw: js, extension: 'js' }],
   css: [{ raw: flattenedCss }],
   safelist: {
     // keep anything toggled purely via JS, plus scroll-triggered/state classes
@@ -36,21 +31,18 @@ const purgeResult = await new PurgeCSS().purge({
 });
 const purgedCss = purgeResult[0].css;
 
-// --- 3. Minify the purged CSS and each JS module block via esbuild ---
+// --- Minify the purged CSS and the JS via esbuild ---
 const { code: minifiedCss } = await esbuildTransform(purgedCss, { loader: 'css', minify: true });
+const { code: minifiedJs } = await esbuildTransform(js, { loader: 'js', minify: true, target: 'es2019' });
 
-const minifiedScripts = [];
-for (const s of scripts) {
-  const { code } = await esbuildTransform(s, { loader: 'js', minify: true, target: 'es2019' });
-  minifiedScripts.push(code.trim());
-}
+// --- Inline both back into the HTML shell so production ships as one file ---
+// (keeps the deploy artifact identical in shape to the old single-file build —
+// one request instead of three, no separate cache invalidation to think about)
+let outHtml = html
+  .replace('<link rel="stylesheet" href="styling.css">', `<style>${minifiedCss}</style>`)
+  .replace('<script type="module" src="logic.js"></script>', `<script type="module">${minifiedJs.trim()}</script>`);
 
-// --- 4. Splice minified CSS/JS back into the HTML ---
-let outHtml = html.replace(/<style>[\s\S]*?<\/style>/, `<style>${minifiedCss}</style>`);
-let i = 0;
-outHtml = outHtml.replace(scriptRe, () => `<script type="module">${minifiedScripts[i++]}</script>`);
-
-// --- 5. Minify the HTML shell itself ---
+// --- Minify the HTML shell itself ---
 const finalHtml = await minifyHtml(outHtml, {
   collapseWhitespace: true,
   removeComments: true,
@@ -68,7 +60,7 @@ const finalHtml = await minifyHtml(outHtml, {
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(OUT_FILE, finalHtml);
 
-const before = Buffer.byteLength(html, 'utf8');
+const before = Buffer.byteLength(html, 'utf8') + Buffer.byteLength(css, 'utf8') + Buffer.byteLength(js, 'utf8');
 const after = Buffer.byteLength(finalHtml, 'utf8');
 console.log(`Before: ${(before / 1024).toFixed(1)} KB`);
 console.log(`After:  ${(after / 1024).toFixed(1)} KB`);
