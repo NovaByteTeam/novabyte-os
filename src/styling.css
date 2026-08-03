@@ -58,8 +58,11 @@
     /* dark values pushed several steps darker — void is near true black
        instead of charcoal, panel/raised follow the same relative spacing so
        contrast between layers doesn't collapse. light values mirror that
-       spacing in reverse rather than being a flat invert */
-    --bg-void: light-dark(oklch(98% 0.004 255), oklch(8% 0.008 255));
+       spacing in reverse rather than being a flat invert.
+       hue nudged from neutral 255 toward 258 in dark mode only — a hair
+       more blue in the void itself so the aurora blobs (below) sit on a
+       backdrop that already reads as "deep space navy" rather than grey */
+    --bg-void: light-dark(oklch(98% 0.004 255), oklch(6% 0.014 258));
     --bg-panel: light-dark(oklch(94% 0.006 255), oklch(12% 0.01 255));
     --bg-panel-raised: light-dark(oklch(90% 0.008 255), oklch(15% 0.012 255));
     --border-hairline: light-dark(oklch(85% 0.012 255), oklch(22% 0.018 255));
@@ -81,6 +84,16 @@
       color-mix(in oklch, var(--glow-primary) 65%, white),
       color-mix(in oklch, var(--glow-primary) 65%, black)
     );
+
+    /* second aurora hue — violet, a fixed hue-step away from the accent
+       rather than a separate arbitrary color, so it always reads as "the
+       same accent family" no matter which accent the theme picker sets.
+       kept out of any UI element (buttons/links stay --glow-primary only)
+       so it's purely a background-atmosphere color */
+    --aurora-violet: light-dark(oklch(62% 0.15 300), oklch(58% 0.16 300));
+    --aurora-violet-soft: color-mix(in oklch, var(--aurora-violet) 12%, transparent);
+    --aurora-cyan: light-dark(oklch(65% 0.13 220), oklch(66% 0.13 220));
+    --aurora-cyan-soft: color-mix(in oklch, var(--aurora-cyan) 10%, transparent);
 
     --signal-red: light-dark(oklch(55% 0.22 25), oklch(63% 0.21 25));
     --signal-amber: light-dark(oklch(62% 0.16 75), oklch(76% 0.15 75));
@@ -114,12 +127,11 @@
     --shadow-color: light-dark(oklch(40% 0.02 255 / 0.18), oklch(0% 0 0 / 0.6));
     --shadow-color-strong: light-dark(oklch(40% 0.02 255 / 0.22), oklch(0% 0 0 / 0.7));
 
-    /* the ambient glow blob and grid-line overlay behind the whole page
-       are tuned for near-black — same opacity on white makes the glow look
-       like a smudge and the grid look too heavy. lighter values keep the
-       same "presence" relative to the lighter backdrop */
-    --ambient-glow-opacity: light-dark(0.35, 0.5);
-    --ambient-grid-opacity: light-dark(0.08, 0.15);
+    /* ambient glow blobs (aurora) and starfield opacity — tuned for
+       near-black. light mode keeps the same "presence" relative to the
+       lighter backdrop without looking like a smudge */
+    --ambient-glow-opacity: light-dark(0.35, 0.55);
+    --ambient-star-opacity: light-dark(0.12, 0.85);
 
     --shell-max-width: 1080px;
   }
@@ -139,23 +151,25 @@
     overflow-x: clip;
   }
 
-  /* dynamic background, two layers instead of one static grid:
-     body::after — a big, soft, slow-drifting radial glow well behind
-     everything else. only `transform` is animated (compositor-only, no
-     layout/paint cost), so it stays free even on a page this animation-
-     heavy. this is the "dynamic" part — the page never looks static even
-     before you touch it.
-     body::before — the grid texture, on a much slower opacity breathe so
-     it doesn't compete with the glow or the per-card cursor glow. still
-     deliberately quiet */
+  /* dynamic background, two layers:
+     body::after — three soft, slow-drifting radial glows (blue/violet/cyan)
+     layered as separate radial-gradients on ONE element rather than three
+     separate pseudo-elements/divs, so it's still a single compositor layer.
+     only `transform` is animated, so it's compositor-only regardless of how
+     many gradient stops are stacked into the background.
+     body::before — a starfield (radial-gradient dot pattern, several sizes
+     mixed into one tile so it doesn't look like a uniform stamped grid),
+     replacing the old line-grid texture. drifts slowly + twinkles via a
+     gentle opacity breathe, same as the grid did, just less "graph paper" */
   body::after {
     content: '';
     position: fixed;
     inset: -20vmax;
     background:
-      radial-gradient(closest-side, var(--glow-primary-soft), transparent 70%);
+      radial-gradient(closest-side, var(--glow-primary-soft), transparent 70%) 20% 20% / 70vmax 70vmax,
+      radial-gradient(closest-side, var(--aurora-violet-soft), transparent 70%) 85% 75% / 65vmax 65vmax,
+      radial-gradient(closest-side, var(--aurora-cyan-soft), transparent 70%) 50% 105% / 60vmax 60vmax;
     background-repeat: no-repeat;
-    background-position: 20% 20%, 80% 70%;
     filter: blur(40px);
     opacity: var(--ambient-glow-opacity);
     pointer-events: none;
@@ -174,29 +188,38 @@
     content: '';
     position: fixed;
     inset: -64px;
+    /* three dot sizes at three offsets inside one 128px tile reads as
+       scattered stars rather than a repeating stamp — the tile is large
+       enough (128px) that the repeat period isn't obvious at normal
+       viewport widths */
     background-image:
-      linear-gradient(var(--border-hairline) 1px, transparent 1px),
-      linear-gradient(90deg, var(--border-hairline) 1px, transparent 1px);
-    background-size: 64px 64px;
-    opacity: var(--ambient-grid-opacity);
+      radial-gradient(1.6px 1.6px at 22px 38px, var(--ink) 0%, transparent 60%),
+      radial-gradient(1.2px 1.2px at 78px 12px, var(--ink) 0%, transparent 60%),
+      radial-gradient(1px 1px at 110px 90px, var(--ink) 0%, transparent 60%),
+      radial-gradient(1.4px 1.4px at 48px 104px, var(--ink) 0%, transparent 60%),
+      radial-gradient(1px 1px at 8px 70px, var(--ink) 0%, transparent 60%),
+      radial-gradient(1.2px 1.2px at 95px 55px, var(--ink) 0%, transparent 60%);
+    background-size: 128px 128px;
+    opacity: var(--ambient-star-opacity);
     pointer-events: none;
     z-index: 0;
-    animation: grid-breathe 12s ease-in-out infinite, grid-drift 40s linear infinite;
+    animation: star-breathe 5s ease-in-out infinite, star-drift 90s linear infinite;
     will-change: transform;
   }
 
-  /* inset: -64px (one full grid cell) + translate3d drifting exactly one
-     cell along each axis means the pattern always lines back up at the
-     loop boundary — no visible seam or jump when it repeats. transform
-     only, so this stays compositor-only same as the glow layer above */
-  @keyframes grid-drift {
+  /* inset: -64px + drifting one full tile (128px) along each axis means
+     the pattern always lines back up at the loop boundary — no visible
+     seam when it repeats. transform only, so this stays compositor-only
+     same as the aurora layer above. much slower than the old grid-drift
+     since a starfield reads as "distant" — fast motion here looks wrong */
+  @keyframes star-drift {
     0%   { transform: translate3d(0, 0, 0); }
-    100% { transform: translate3d(64px, 64px, 0); }
+    100% { transform: translate3d(128px, 128px, 0); }
   }
 
-  @keyframes grid-breathe {
-    0%, 100% { opacity: var(--ambient-grid-opacity); }
-    50%      { opacity: calc(var(--ambient-grid-opacity) + 0.05); }
+  @keyframes star-breathe {
+    0%, 100% { opacity: var(--ambient-star-opacity); }
+    50%      { opacity: calc(var(--ambient-star-opacity) * 0.6); }
   }
 
   @media (prefers-reduced-motion: reduce) {
