@@ -191,7 +191,8 @@
         <span class="app-filter-count" data-app-filter-count aria-live="polite"></span>
       </search>
 
-      <div class="manifest glow-surface glass reveal-on-scroll needs-js-reveal" role="table" aria-label="NBOSP standard apps" data-manifest-root>
+      <div class="reveal-on-scroll needs-js-reveal">
+      <div class="manifest glow-surface glass" role="table" aria-label="NBOSP standard apps" data-manifest-root>
         <div class="manifest-row" role="row" data-app-row data-app-keywords="files file manager icon list sort scanner drag drop trash restore">
           <div class="app-name" role="cell">📁 Files</div>
           <div class="app-desc" role="cell">Icon/list view, sort, search, copy/cut/paste, trash and restore, drag-and-drop import screened by the built-in scanner. <span class="caveat">No tabs, no split panes, no cloud sync.</span></div>
@@ -225,6 +226,7 @@
           <div class="app-desc" role="cell">Calendar, Gallery, Downloads, Contacts, Search, Clock, and Calculator — each doing the basics and stopping there, on purpose.</div>
         </div>
       </div>
+      </div>
 
       <p class="app-filter-empty" data-app-filter-empty hidden>No apps match “<span data-app-filter-empty-term></span>”.</p>
 
@@ -234,7 +236,7 @@
 
       <div class="accordion-shell" data-accordion-shell>
         <div class="accordion-inner">
-          <div class="manifest dev-manifest" id="dev-manifest-panel" role="table" aria-label="NBOSP developer mode apps">
+          <div class="manifest dev-manifest glow-surface glass" id="dev-manifest-panel" role="table" aria-label="NBOSP developer mode apps">
             <div class="dev-warning">
               ⚠ Hidden unless Developer Mode is enabled in Settings. Several of these can terminate apps, grant permissions, or run arbitrary code with no confirmation. Not part of the standard experience.
             </div>
@@ -386,7 +388,8 @@
         </p>
       </div>
 
-      <div class="browser-panel glow-surface glass reveal-on-scroll needs-js-reveal" data-browser-root>
+      <div class="reveal-on-scroll needs-js-reveal">
+        <div class="browser-panel glow-surface glass" data-browser-root>
         <div class="browser-path" data-browser-path aria-live="polite">
           <span class="browser-path-label">NBOSP /</span>
           <span data-browser-path-current></span>
@@ -408,6 +411,7 @@
           </thead>
           <tbody data-browser-body></tbody>
         </table>
+        </div>
       </div>
     </div>
   </section>
@@ -423,7 +427,8 @@
         </p>
       </div>
 
-      <div class="req-table glow-surface glass reveal-on-scroll needs-js-reveal" role="table" aria-label="System requirements">
+      <div class="reveal-on-scroll needs-js-reveal">
+        <div class="req-table glow-surface glass" role="table" aria-label="System requirements">
         <div class="req-row req-row-head" role="row">
           <div role="columnheader"></div>
           <div role="columnheader">Minimum</div>
@@ -454,6 +459,7 @@
           <div role="cell">Windows, Linux, or macOS</div>
           <div role="cell">Same — no platform is preferred in source</div>
         </div>
+      </div>
       </div>
     </div>
   </section>
