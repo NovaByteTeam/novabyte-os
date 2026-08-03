@@ -20,7 +20,7 @@
 <body>
 
 <!-- Liquid glass distortion filter — same soft refraction used on the OS windows -->
-<svg id="lg-svg-filters" style="position:absolute; width:0; height:0; overflow:hidden" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<svg id="lg-svg-filters" style="display:none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
   <filter id="glass-distortion-soft" x="-8%" y="-8%" width="116%" height="116%" filterUnits="objectBoundingBox">
     <feTurbulence type="fractalNoise" baseFrequency="0.65 0.75" numOctaves="3" seed="17" result="turbulence"></feTurbulence>
     <feGaussianBlur in="turbulence" stdDeviation="2" result="softMap"></feGaussianBlur>
