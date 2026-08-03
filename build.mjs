@@ -2,7 +2,7 @@
 // four things that actually apply here: CSS purge, CSS minify, JS minify, HTML minify.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { transform as esbuildTransform } from 'esbuild';
-import { minify as minifyHtml } from 'html-minifier-terser';
+import { minify as minifyHtml } from 'html-minifier-next';
 import { PurgeCSS } from 'purgecss';
 
 const SRC = './index.html';
@@ -55,7 +55,6 @@ const finalHtml = await minifyHtml(outHtml, {
   collapseWhitespace: true,
   removeComments: true,
   removeRedundantAttributes: true,
-  removeScriptTypeAttributes: false, // keep type="module", it's not redundant
   useShortDoctype: true,
   // minifyCSS/minifyJS OFF: html-minifier-terser's internal CSS minifier (clean-css)
   // doesn't understand native `&` nesting inside @supports blocks and silently drops
