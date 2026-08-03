@@ -1,0 +1,13 @@
+{
+  "name": "novabyte-os-site-build",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "html-minifier-terser": "^7.2.0",
+    "purgecss": "^8.0.0"
+  }
+}
