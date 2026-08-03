@@ -40,8 +40,13 @@ const purgeResult = await new PurgeCSS().purge({
 const purgedCss = purgeResult[0].css;
 
 // --- Minify the purged CSS and the JS via esbuild ---
-const { code: minifiedCss } = await esbuildTransform(purgedCss, { loader: 'css', minify: true });
-const { code: minifiedJs } = await esbuildTransform(js, { loader: 'js', minify: true, target: 'es2019' });
+const { code: minifiedCss } = await esbuildTransform(purgedCss, { loader: 'css', minify: true, legalComments: 'none', target: 'esnext' });
+const { code: minifiedJs } = await esbuildTransform(js, {
+  loader: 'js',
+  minify: true,
+  target: 'esnext',
+  legalComments: 'none',
+});
 
 // --- Inline both back into the HTML shell so production ships as one file ---
 // (keeps the deploy artifact identical in shape to the old single-file build —
@@ -56,6 +61,12 @@ const finalHtml = await minifyHtml(outHtml, {
   removeComments: true,
   removeRedundantAttributes: true,
   useShortDoctype: true,
+  collapseBooleanAttributes: true,
+  removeAttributeQuotes: true,
+  removeEmptyAttributes: true,
+  removeOptionalTags: false, // risky with your custom elements/data-attrs; skip
+  sortAttributes: true,
+  sortClassName: true,
   // minifyCSS/minifyJS OFF: html-minifier-terser's internal CSS minifier (clean-css)
   // doesn't understand native `&` nesting inside @supports blocks and silently drops
   // those rules (this killed .is-revealed, the fallback path for browsers without
