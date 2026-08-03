@@ -180,7 +180,7 @@
       let queue = [];
       let queueIdx = -1;
       let shuffle = Boolean(prefs.shuffle);
-      let repeat = Boolean(prefs.repeat);
+      let repeat = prefs.repeat === true;
       let volumeSaveTimer = null;
 
       // Object URLs we hand to <audio>. Cached per track id so flipping
@@ -361,12 +361,24 @@
       }
 
       function syncShuffleBtn() {
-        shuffleBtn.style.color = shuffle ? 'var(--accent)' : '';
+        if (shuffle) {
+          shuffleBtn.style.color = '#4ade80';
+          shuffleBtn.style.background = 'rgba(74,222,128,0.15)';
+        } else {
+          shuffleBtn.style.color = '';
+          shuffleBtn.style.background = '';
+        }
         shuffleBtn.setAttribute('aria-pressed', String(shuffle));
       }
 
       function syncRepeatBtn() {
-        repeatBtn.style.color = repeat ? 'var(--accent)' : '';
+        if (repeat) {
+          repeatBtn.style.color = '#4ade80';
+          repeatBtn.style.background = 'rgba(74,222,128,0.15)';
+        } else {
+          repeatBtn.style.color = '';
+          repeatBtn.style.background = '';
+        }
         repeatBtn.setAttribute('aria-pressed', String(repeat));
       }
 

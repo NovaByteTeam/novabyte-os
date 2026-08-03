@@ -259,6 +259,14 @@ const FS = {
     const node = this.files.get(id);
     if (!node) return null;
     const oldName = node.name;
+    if (oldName === newName) return node;
+    const siblings = this.listDir(node.parentId);
+    const collision = siblings.find(f => f.name === newName && f.id !== id);
+    if (collision) {
+      const err = new Error(`A file or folder named "${newName}" already exists in this location.`);
+      err.code = 'EEXIST';
+      throw err;
+    }
     node.name = newName;
     node.modified = Date.now();
     await OS.workers.fs.call('putFiles', [node]);

@@ -771,7 +771,7 @@ window.recoveryAction = function (action) {
   } else if (action === 'export') {
     recLog('');
     recLog('[ Export System Backup ]', 'info');
-    const backup = { exportedAt: new Date().toISOString(), version: '3.0.0', userAgent: navigator.userAgent, localStorage: {} };
+    const backup = { exportedAt: new Date().toISOString(), version: '3.0.2', userAgent: navigator.userAgent, localStorage: {} };
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       try {

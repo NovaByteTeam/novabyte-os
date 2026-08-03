@@ -698,24 +698,24 @@ const AppDirs = {
     };
 
     const APP_META = {
-      'com.nbosp.vault':       { name: 'Files',       version: '1.0.0', description: 'File Manager' },
-      'com.nbosp.quill':       { name: 'TextEdit',    version: '1.0.0', description: 'Text Editor' },
-      'com.nbosp.shell':       { name: 'Terminal',    version: '1.0.0', description: 'System Terminal' },
-      'com.nbosp.browser':     { name: 'Browser',     version: '1.0.0', description: 'Web Browser' },
-      'com.nbosp.calendar':    { name: 'Calendar',    version: '1.0.0', description: 'Calendar & Events' },
-      'com.nbosp.settings':    { name: 'Settings',    version: '1.0.0', description: 'System Settings' },
-      'com.nbosp.calculator':  { name: 'Calculator',  version: '1.0.0', description: 'Calculator' },
-      'com.nbosp.appmanager':  { name: 'App Manager', version: '1.0.0', description: 'Package Manager' },
-      'com.nbosp.clock':       { name: 'Clock',       version: '1.0.0', description: 'Clock & Alarms' },
-      'com.nbosp.email':       { name: 'Email',       version: '1.0.0', description: 'Email Client' },
-      'com.nbosp.gallery':     { name: 'Gallery',     version: '1.0.0', description: 'Image Viewer' },
-      'com.nbosp.downloads':   { name: 'Downloads',   version: '1.0.0', description: 'Download Manager' },
-      'com.nbosp.contacts':    { name: 'Contacts',    version: '1.0.0', description: 'Contacts' },
-      'com.nbosp.search':      { name: 'Search',      version: '1.0.0', description: 'System Search' },
-      'com.nbosp.music':       { name: 'Music',       version: '1.0.0', description: 'Music Player' },
-      'com.nbosp.devconsole':  { name: 'Console',     version: '1.0.0', description: 'Developer Console' },
-      'com.nbosp.events':      { name: 'Events',      version: '1.0.0', description: 'Event Log' },
-      'com.nbosp.permissions': { name: 'Permissions', version: '1.0.0', description: 'App Permissions' },
+      'com.nbosp.vault':       { name: 'Files',       version: '3.0.2', description: 'File Manager' },
+      'com.nbosp.quill':       { name: 'TextEdit',    version: '3.0.2', description: 'Text Editor' },
+      'com.nbosp.shell':       { name: 'Terminal',    version: '3.0.2', description: 'System Terminal' },
+      'com.nbosp.browser':     { name: 'Browser',     version: '3.0.2', description: 'Web Browser' },
+      'com.nbosp.calendar':    { name: 'Calendar',    version: '3.0.2', description: 'Calendar & Events' },
+      'com.nbosp.settings':    { name: 'Settings',    version: '3.0.2', description: 'System Settings' },
+      'com.nbosp.calculator':  { name: 'Calculator',  version: '3.0.2', description: 'Calculator' },
+      'com.nbosp.appmanager':  { name: 'App Manager', version: '3.0.2', description: 'Package Manager' },
+      'com.nbosp.clock':       { name: 'Clock',       version: '3.0.2', description: 'Clock & Alarms' },
+      'com.nbosp.email':       { name: 'Email',       version: '3.0.2', description: 'Email Client' },
+      'com.nbosp.gallery':     { name: 'Gallery',     version: '3.0.2', description: 'Image Viewer' },
+      'com.nbosp.downloads':   { name: 'Downloads',   version: '3.0.2', description: 'Download Manager' },
+      'com.nbosp.contacts':    { name: 'Contacts',    version: '3.0.2', description: 'Contacts' },
+      'com.nbosp.search':      { name: 'Search',      version: '3.0.2', description: 'System Search' },
+      'com.nbosp.music':       { name: 'Music',       version: '3.0.2', description: 'Music Player' },
+      'com.nbosp.devconsole':  { name: 'Console',     version: '3.0.2', description: 'Developer Console' },
+      'com.nbosp.events':      { name: 'Events',      version: '3.0.2', description: 'Event Log' },
+      'com.nbosp.permissions': { name: 'Permissions', version: '3.0.2', description: 'App Permissions' },
     };
 
     try {
@@ -725,7 +725,7 @@ const AppDirs = {
       // /System/ — OS identity visible in Files
       const systemNode = await mkVDir(FS.rootId, 'System');
       await updateVFile(systemNode.id, 'build.json', JSON.stringify({
-        os: 'NovaByte', layer: 'nbosp', version: '3.0.0',
+        os: 'NovaByte', layer: 'nbosp', version: '3.0.2',
         booted: new Date().toISOString()
       }, null, 2));
 
@@ -743,7 +743,7 @@ const AppDirs = {
           cache: cacheNode.id, databases: dbNode.id, shared_prefs: prefsNode.id
         };
 
-        const meta = APP_META[pkg] || { name: pkg, version: '1.0.0', description: '' };
+        const meta = APP_META[pkg] || { name: pkg, version: '3.0.2', description: '' };
         await mkVFile(filesNode.id, 'appinfo.json', JSON.stringify({
           packageId: pkg, name: meta.name, version: meta.version,
           description: meta.description, installedAt: new Date().toISOString(), layer: 'nbosp',

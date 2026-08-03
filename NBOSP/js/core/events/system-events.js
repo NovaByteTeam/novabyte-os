@@ -1052,7 +1052,7 @@ if (desktopEl) {
             try {
               const clip = OS.clipboard;
               await FS.pasteInto(clip, FS.specialFolders.desktop);
-              if (clip.type === 'cut') OS.clipboard = null;
+              OS.clipboard = null;
               renderDesktopIcons();
             } catch (err) {
               console.error('[Desktop] paste failed:', err);

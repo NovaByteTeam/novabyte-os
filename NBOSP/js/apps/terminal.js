@@ -378,8 +378,8 @@ function clearOutput(tab) {
 }
 
 function welcomeTab(tab) {
-  writeHTML(tab, `<span class="shell-bold shell-blue">Terminal</span>  <span class="shell-dim">NovaByte ${escapeHtml(OS.version)} — ${escapeHtml(OS.username)}@novabyteOS</span>`);
-  writeHTML(tab, `<span class="shell-dim">Type <span class="shell-green">help</span> for commands  ·  <span class="shell-green">Tab</span> autocomplete  ·  <span class="shell-green">Ctrl+Shift+T</span> new tab</span>`);
+  writeHTML(tab, `<span class="shell-bold shell-blue">Terminal</span>  <span class="shell-dim">NovaByte ${escapeHtml(OS.version)} — ${escapeHtml(OS.username)}@novabyte</span>`);
+  writeHTML(tab, `<span class="shell-dim">Type <span class="shell-green">help</span> for commands  ·  <span class="shell-green">Tab</span> autocomplete</span>`);
   writeLine(tab, '');
 }
 
@@ -433,11 +433,11 @@ const COMMANDS = {
       ['Math', 'expr  seq'],
       ['Fun', 'neofetch  fastfetch  yes  true  false  exit']
     ];
-    writeHTML(tab, `<span class="shell-bold shell-blue">Terminal</span> <span class="shell-dim">— ${escapeHtml(OS.username)}@novabyteOS</span>`);
+    writeHTML(tab, `<span class="shell-bold shell-blue">Terminal</span> <span class="shell-dim">— ${escapeHtml(OS.username)}@novabyte</span>`);
     for (const [s, cmds] of sections) {
       writeHTML(tab, `  <span class="shell-yellow">${s}:</span> <span class="shell-dim">${cmds}</span>`);
     }
-    writeHTML(tab, `\n  <span class="shell-dim">Shortcuts: <span class="shell-green">Tab</span>=autocomplete  <span class="shell-green">↑↓</span>=history  <span class="shell-green">Ctrl+L</span>=clear  <span class="shell-green">Ctrl+C</span>=cancel  <span class="shell-green">Ctrl+Shift+T</span>=new tab</span>`);
+    writeHTML(tab, `\n  <span class="shell-dim">Shortcuts: <span class="shell-green">Tab</span>=autocomplete  <span class="shell-green">↑↓</span>=history  <span class="shell-green">Ctrl+L</span>=clear  <span class="shell-green">Ctrl+C</span>=cancel</span>`);
     return '';
   },
 
@@ -998,10 +998,9 @@ const COMMANDS = {
     const ram = (navigator.deviceMemory || 4) + ' GB';
     const engine = navigator.userAgent.match(/(Chrome|Firefox|Safari|Edge)\/[\d.]+/)?.[0] || 'Browser';
     writeHTML(tab,
-      `  <span class="shell-blue shell-bold">  ╔══╗  </span>  <span class="shell-bold shell-green">${escapeHtml(OS.username)}</span><span class="shell-dim">@</span><span class="shell-bold">novabyteOS</span>\n` +
+      `  <span class="shell-blue shell-bold">  ╔══╗  </span>  <span class="shell-bold shell-green">${escapeHtml(OS.username)}</span><span class="shell-dim">@</span><span class="shell-bold">novabyte</span>\n` +
       `  <span class="shell-blue shell-bold">  ║NB║  </span>  <span class="shell-dim">────────────────────────</span>\n` +
       `  <span class="shell-blue shell-bold">  ╚══╝  </span>  <span class="shell-blue">OS:</span>      NovaByte <span class="shell-bold">${escapeHtml(OS.version)}</span>\n` +
-      `          <span class="shell-blue">Kernel:</span>  NovaKernel 5.15.0-nova\n` +
       `          <span class="shell-blue">Shell:</span>   Terminal\n` +
       `          <span class="shell-blue">CPU:</span>     ${cores} cores (logical)\n` +
       `          <span class="shell-blue">RAM:</span>     ${escapeHtml(ram)}\n` +

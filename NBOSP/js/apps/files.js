@@ -1106,7 +1106,7 @@
     }
 
     showEmptyAreaContextMenu(x, y) {
-      ContextMenu.show(x, y, [
+      const items = [
         {
           label: 'New File', icon: 'file', shortcut: 'Ctrl+N',
           action: () => this.promptCreate('untitled.txt', true),
@@ -1116,8 +1116,12 @@
           action: () => this.promptCreate('New Folder', false),
         },
         { separator: true },
-        { label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', action: () => this.pasteFromClipboard() },
-        { separator: true },
+      ];
+      if (OS.clipboard?.fileId) {
+        items.push({ label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', action: () => this.pasteFromClipboard() });
+        items.push({ separator: true });
+      }
+      items.push(
         { label: 'Sort by Name', action: () => { this.sortBy = 'name'; this.sortAsc = !this.sortAsc; this.renderFiles(); } },
         { label: 'Sort by Size', action: () => { this.sortBy = 'size'; this.sortAsc = !this.sortAsc; this.renderFiles(); } },
         { label: 'Sort by Type', action: () => { this.sortBy = 'mime'; this.sortAsc = !this.sortAsc; this.renderFiles(); } },
@@ -1126,8 +1130,9 @@
         { label: 'View: Icons', action: () => { this.viewMode = 'icon'; this.renderFiles(); } },
         { label: 'View: List', action: () => { this.viewMode = 'list'; this.renderFiles(); } },
         { separator: true },
-        { label: 'Select All', action: () => this.selectAll() },
-      ]);
+        { label: 'Select All', action: () => this.selectAll() }
+      );
+      ContextMenu.show(x, y, items);
     }
 
     async promptCreate(defaultName, isFile) {
@@ -1158,10 +1163,8 @@
       if (!clip?.fileId) return;
       try {
         await FS.pasteInto(clip, this.nav.cwd);
-        if (clip.type === 'cut') {
-          OS.clipboard = null;
-          this.clipboardOp = null;
-        }
+        OS.clipboard = null;
+        this.clipboardOp = null;
         this.renderFiles();
         if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
       } catch (err) {
