@@ -68,7 +68,10 @@
 
   @layer tokens {
     :root {
-      color-scheme: dark;
+      /* light dark = automatic: browser/OS decides which value each
+         light-dark() call below resolves to, based on prefers-color-scheme.
+         no toggle, no JS, no FOUC — resolved before first paint. */
+      color-scheme: light dark;
 
       /*
         moved the palette to oklch so we can derive lighter/darker steps with
@@ -76,28 +79,36 @@
         "slightly brighter green." equal lightness steps in oklch actually
         look equally bright too, unlike hsl.
       */
-      /* pushed the whole gray ramp several steps darker/blacker — void is
-         now near true black instead of charcoal, panel/raised follow the
-         same relative spacing so contrast between layers doesn't collapse */
-      --bg-void: oklch(8% 0.008 255);
-      --bg-panel: oklch(12% 0.01 255);
-      --bg-panel-raised: oklch(15% 0.012 255);
-      --border-hairline: oklch(22% 0.018 255);
-      --border-hairline-bright: oklch(32% 0.02 255);
+      /* dark values pushed several steps darker/blacker — void is near true
+         black instead of charcoal, panel/raised follow the same relative
+         spacing so contrast between layers doesn't collapse. light values
+         mirror that spacing in reverse (void is near-white, panels step
+         down in lightness) rather than being a flat invert. */
+      --bg-void: light-dark(oklch(98% 0.004 255), oklch(8% 0.008 255));
+      --bg-panel: light-dark(oklch(94% 0.006 255), oklch(12% 0.01 255));
+      --bg-panel-raised: light-dark(oklch(90% 0.008 255), oklch(15% 0.012 255));
+      --border-hairline: light-dark(oklch(85% 0.012 255), oklch(22% 0.018 255));
+      --border-hairline-bright: light-dark(oklch(72% 0.016 255), oklch(32% 0.02 255));
 
-      --ink: oklch(93% 0.005 255);
-      --ink-dim: oklch(68% 0.02 255);
-      --ink-faint: oklch(46% 0.02 255);
+      --ink: light-dark(oklch(18% 0.008 255), oklch(93% 0.005 255));
+      --ink-dim: light-dark(oklch(38% 0.018 255), oklch(68% 0.02 255));
+      --ink-faint: light-dark(oklch(54% 0.016 255), oklch(46% 0.02 255));
 
       /* default accent swapped green -> blue, matched to the "Blue" swatch
          (#58a6ff) already used in the theme-preview widget below, so the
-         page's own accent and the preview grid agree by default */
-      --glow-primary: oklch(70% 0.14 254);
+         page's own accent and the preview grid agree by default. light
+         mode drops it a touch in lightness/bumps chroma slightly so it still
+         has enough contrast against a white panel to read as "glowing"
+         instead of pastel. */
+      --glow-primary: light-dark(oklch(58% 0.17 254), oklch(70% 0.14 254));
       --glow-primary-soft: color-mix(in oklch, var(--glow-primary) 12%, transparent);
-      --glow-primary-dim: color-mix(in oklch, var(--glow-primary) 65%, black);
+      --glow-primary-dim: light-dark(
+        color-mix(in oklch, var(--glow-primary) 65%, white),
+        color-mix(in oklch, var(--glow-primary) 65%, black)
+      );
 
-      --signal-red: oklch(63% 0.21 25);
-      --signal-amber: oklch(76% 0.15 75);
+      --signal-red: light-dark(oklch(55% 0.22 25), oklch(63% 0.21 25));
+      --signal-amber: light-dark(oklch(62% 0.16 75), oklch(76% 0.15 75));
 
       --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
       --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
@@ -120,6 +131,19 @@
       --glass-bg-raised: color-mix(in oklch, var(--bg-panel-raised) 60%, transparent);
       --glass-border: color-mix(in oklch, var(--border-hairline-bright) 70%, transparent);
       --glass-blur: blur(16px);
+
+      /* shadows: a black shadow at dark-mode opacity reads as a harsh grey
+         smudge on a white panel. light mode uses a much softer, more tinted
+         shadow so cards still read as "lifted" without looking dirty. */
+      --shadow-color: light-dark(oklch(40% 0.02 255 / 0.18), oklch(0% 0 0 / 0.6));
+      --shadow-color-strong: light-dark(oklch(40% 0.02 255 / 0.22), oklch(0% 0 0 / 0.7));
+
+      /* the ambient glow blob and grid-line overlay behind the whole page
+         are tuned for near-black — same opacity on white makes the glow
+         look like a smudge and the grid look too heavy. lighter values
+         keep the same "presence" relative to the lighter backdrop. */
+      --ambient-glow-opacity: light-dark(0.35, 0.5);
+      --ambient-grid-opacity: light-dark(0.08, 0.15);
 
       --shell-max-width: 1080px;
     }
@@ -164,7 +188,7 @@
       background-repeat: no-repeat;
       background-position: 20% 20%, 80% 70%;
       filter: blur(40px);
-      opacity: 0.5;
+      opacity: var(--ambient-glow-opacity);
       pointer-events: none;
       z-index: 0;
       animation: ambient-drift 26s var(--ease-smooth) infinite alternate;
@@ -185,21 +209,21 @@
         linear-gradient(var(--border-hairline) 1px, transparent 1px),
         linear-gradient(90deg, var(--border-hairline) 1px, transparent 1px);
       background-size: 64px 64px;
-      opacity: 0.15;
+      opacity: var(--ambient-grid-opacity);
       pointer-events: none;
       z-index: 0;
       animation: grid-breathe 12s ease-in-out infinite;
     }
 
     @keyframes grid-breathe {
-      0%, 100% { opacity: 0.12; }
-      50%      { opacity: 0.2; }
+      0%, 100% { opacity: var(--ambient-grid-opacity); }
+      50%      { opacity: calc(var(--ambient-grid-opacity) + 0.05); }
     }
 
     @media (prefers-reduced-motion: reduce) {
       body::after {
         animation: none;
-        opacity: 0.3;
+        opacity: calc(var(--ambient-glow-opacity) * 0.6);
       }
       body::before {
         animation: none;
@@ -340,7 +364,7 @@
       border-start-end-radius: var(--radius-loose);
       border-end-end-radius: var(--radius-loose);
       background: var(--bg-void);
-      box-shadow: 0 20px 60px -20px oklch(0% 0 0 / 0.6);
+      box-shadow: 0 20px 60px -20px var(--shadow-color);
       transform: translateX(-100%);
       transition: transform var(--pace-normal) var(--ease-smooth);
       overflow-y: auto;
@@ -587,7 +611,7 @@
       border-radius: var(--radius-loose);
       overflow: hidden;
       max-width: 640px;
-      box-shadow: 0 20px 60px -20px oklch(0% 0 0 / 0.6);
+      box-shadow: 0 20px 60px -20px var(--shadow-color);
       opacity: 0;
       animation: settle-in var(--pace-slow) var(--ease-out-back) 0.85s forwards;
     }
@@ -1377,7 +1401,7 @@
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
       color: var(--ink);
-      box-shadow: 0 30px 80px -20px oklch(0% 0 0 / 0.7);
+      box-shadow: 0 30px 80px -20px var(--shadow-color-strong);
 
       &::backdrop {
         background: oklch(10% 0.01 255 / 0.6);
@@ -1387,6 +1411,12 @@
 
     .palette-inner {
       padding: 14px;
+    }
+
+    .palette-search-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .palette-input {
@@ -1402,6 +1432,26 @@
 
       &:focus-visible {
         border-color: var(--glow-primary);
+      }
+    }
+
+    .palette-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+      background: transparent;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-tight);
+      color: var(--ink-dim);
+      cursor: pointer;
+      transition: color var(--pace-quick) var(--ease-smooth), border-color var(--pace-quick) var(--ease-smooth);
+
+      &:hover {
+        color: var(--ink);
+        border-color: var(--border-hairline-bright);
       }
     }
 
@@ -1478,7 +1528,7 @@
       backdrop-filter: var(--glass-blur);
       -webkit-backdrop-filter: var(--glass-blur);
       color: var(--ink);
-      box-shadow: 0 30px 80px -20px oklch(0% 0 0 / 0.7);
+      box-shadow: 0 30px 80px -20px var(--shadow-color-strong);
       overflow: hidden;
 
       /* explicit fixed + inset:0 + margin:auto above pins centering
@@ -2742,7 +2792,10 @@ npm start
 
 <dialog class="palette-dialog" data-palette-dialog aria-label="Command palette">
   <div class="palette-inner">
-    <input type="text" class="palette-input" placeholder="Jump to a section…" autocomplete="off" data-palette-input aria-label="Search sections">
+    <div class="palette-search-row">
+      <input type="text" class="palette-input" placeholder="Jump to a section…" autocomplete="off" data-palette-input aria-label="Search sections">
+      <button class="palette-close" type="button" data-palette-close aria-label="Close search">✕</button>
+    </div>
     <ul class="palette-results" data-palette-results role="listbox" aria-label="Sections" data-lenis-prevent></ul>
     <div class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> close</div>
   </div>
@@ -3388,6 +3441,7 @@ npm start
     const trigger = document.querySelector('[data-palette-trigger]');
     const input   = document.querySelector('[data-palette-input]');
     const list    = document.querySelector('[data-palette-results]');
+    const closeBtn = document.querySelector('[data-palette-close]');
     if (!dialog || !input || !list) return;
 
     const sections = [
@@ -3481,6 +3535,17 @@ npm start
         event.preventDefault();
         dialog.open ? dialog.close() : open();
       }
+    });
+
+    closeBtn?.addEventListener('click', () => dialog.close());
+
+    // clicking the ::backdrop lands directly on the dialog element itself
+    // (not a child) — that's the standard way to detect a backdrop click.
+    // this was missing entirely before, which combined with no close button
+    // meant there was no way to dismiss the palette on a device with no
+    // keyboard (no Esc key, and Ctrl K/⌘K obviously isn't reachable either)
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
     });
 
     input.addEventListener('input', () => {
