@@ -354,7 +354,7 @@
     margin: 0;
     align-self: center;
     background: transparent;
-    border: 1px solid var(--border-hairline);
+    border: 1px solid color-mix(in oklch, var(--ink) 35%, transparent);
     border-radius: var(--radius-normal);
     color: var(--ink);
     cursor: pointer;
@@ -362,7 +362,7 @@
     flex-shrink: 0;
 
     &:hover {
-      border-color: var(--border-hairline-bright);
+      border-color: color-mix(in oklch, var(--ink) 55%, transparent);
       background: var(--bg-panel);
     }
 
