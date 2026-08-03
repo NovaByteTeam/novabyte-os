@@ -1057,7 +1057,11 @@
     margin-block-start: 20px;
 
     &.is-open {
-      grid-template-rows: 1fr;
+      /* plain 1fr collapses to min-content height on iOS Safari when the
+         grid container has no explicit height — minmax(0, 1fr) forces
+         WebKit to actually compute the fractional row instead of
+         shrinking it to (near) zero, so the panel renders there too */
+      grid-template-rows: minmax(0, 1fr);
     }
   }
 
