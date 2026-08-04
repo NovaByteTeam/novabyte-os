@@ -8,7 +8,16 @@ registerApp({
   minSize: [360, 260],
 
   init(content, state, options) {
-    // RUNTIME GUARD
+    const ctrl = new AbortController();
+    const { signal } = ctrl;
+    let rafId = 0;
+
+    // Register teardown immediately so cleanup works even if the directory guard fails early
+    content._destroy = () => {
+      ctrl.abort();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+
     if (!window.AppDirs?.getVFSDir('com.nbosp.quill', 'files')) {
       Object.assign(content.style, {
         display: 'flex',
@@ -25,29 +34,27 @@ registerApp({
       const msg = createEl('div', { style: 'font-size:14px;text-align:center' });
       const bold = createEl('b', { textContent: 'com.nbosp.quill' });
 
-      msg.append(bold, document.createElement('br'), 'App data directory missing.', document.createElement('br'), 'This app requires NovaByte OS.');
+      msg.append(
+        bold,
+        document.createElement('br'),
+        'App data directory missing.',
+        document.createElement('br'),
+        'This app requires NovaByte OS.'
+      );
       content.append(icon, msg);
       return;
     }
 
-    // CONSTANTS
     const PAIRS = Object.freeze({
       '(': ')', '{': '}', '[': ']', "'": "'", '"': '"', '`': '`'
     });
     const OPENERS = new Set(Object.keys(PAIRS));
     const ASYM_CLOSERS = new Set(
-      [...Object.values(PAIRS)].filter(c => !OPENERS.has(c))
+      Object.values(PAIRS).filter(c => !OPENERS.has(c))
     );
 
-    // STATE
     const file = { id: null, name: 'untitled.txt', content: '', modified: false };
 
-    // LIFECYCLE
-    const ctrl = new AbortController();
-    const { signal } = ctrl;
-    let rafId = 0;
-
-    // DOM BUILD
     const container = createEl('div', { className: 'quill-container' });
     const toolbar = createEl('div', { className: 'quill-toolbar' });
     const saveBtn = createEl('button', {
@@ -76,7 +83,6 @@ registerApp({
     container.append(toolbar, editorWrap, statusBar);
     content.appendChild(container);
 
-    // GUTTER
     let prevLineCount = 0;
 
     function syncGutter() {
@@ -93,7 +99,21 @@ registerApp({
       gutter.textContent = nums.join('\n') + '\n';
     }
 
-    // STATUS BAR
+    // Linear scan avoids allocating word arrays on every cursor movement or input event
+    function countWords(str) {
+      let count = 0;
+      let inWord = false;
+      for (let i = 0; i < str.length; i++) {
+        if (str.charCodeAt(i) <= 32) {
+          inWord = false;
+        } else if (!inWord) {
+          inWord = true;
+          count++;
+        }
+      }
+      return count;
+    }
+
     function syncStatus() {
       const val = textarea.value;
       const pos = textarea.selectionStart;
@@ -107,13 +127,12 @@ registerApp({
         }
       }
       const col = pos - lastNL;
+      const words = countWords(val);
 
-      const trimmed = val.trim();
-      const words = trimmed ? trimmed.split(/\s+/).length : 0;
       statusBar.textContent = `Ln ${line}, Col ${col}  ·  ${words} words`;
     }
 
-    // UPDATE SCHEDULER
+    // Batch UI updates into the next animation frame to avoid layout thrashing on fast input
     function scheduleUpdate() {
       if (rafId) return;
       rafId = requestAnimationFrame(() => {
@@ -123,38 +142,39 @@ registerApp({
       });
     }
 
-    // HELPERS
     function getFilesDir() {
       return AppDirs.getVFSDir('com.nbosp.quill', 'files') ?? FS.specialFolders.documents;
     }
 
     function spliceText(start, end, insert) {
-      const val = textarea.value;
-      textarea.value = val.slice(0, start) + insert + val.slice(end);
-      textarea.selectionStart = textarea.selectionEnd = start + insert.length;
+      textarea.setRangeText(insert, start, end, 'end');
       file.modified = true;
       scheduleUpdate();
     }
 
-    // CLIPBOARD
     async function doCopy() {
       const text = textarea.value.slice(textarea.selectionStart, textarea.selectionEnd);
-      if (!text) return;
+      if (!text) return false;
       try {
         await navigator.clipboard.writeText(text);
+        return true;
       } catch {
-        document.execCommand('copy');
+        textarea.focus();
+        return document.execCommand('copy');
       }
     }
 
     async function doCut() {
       const { selectionStart: s, selectionEnd: e } = textarea;
       if (s === e) return;
-      await doCopy();
-      spliceText(s, e, '');
+      const copied = await doCopy();
+      if (copied) {
+        spliceText(s, e, '');
+      }
     }
 
     async function doPaste() {
+      textarea.focus();
       try {
         const text = await navigator.clipboard.readText();
         const { selectionStart: s, selectionEnd: e } = textarea;
@@ -164,7 +184,6 @@ registerApp({
       }
     }
 
-    // INDENTATION
     function applyTab(shiftKey) {
       const { selectionStart: s, selectionEnd: e } = textarea;
       const val = textarea.value;
@@ -174,16 +193,16 @@ registerApp({
           const lineStart = val.lastIndexOf('\n', s - 1) + 1;
           const lead = val.slice(lineStart, s).match(/^( {1,2})/)?.[1].length ?? 0;
           if (!lead) return;
-          textarea.value = val.slice(0, lineStart) + val.slice(lineStart + lead);
+          textarea.setRangeText('', lineStart, lineStart + lead, 'ignore');
           textarea.selectionStart = textarea.selectionEnd = s - lead;
         } else {
-          textarea.value = val.slice(0, s) + '  ' + val.slice(s);
-          textarea.selectionStart = textarea.selectionEnd = s + 2;
+          textarea.setRangeText('  ', s, s, 'end');
         }
       } else {
         const lineStart = val.lastIndexOf('\n', s - 1) + 1;
         const lines = val.slice(lineStart, e).split('\n');
-        let totalDiff = 0, firstDiff = 0;
+        let totalDiff = 0;
+        let firstDiff = 0;
 
         const newLines = lines.map((ln, idx) => {
           if (ln === '' && idx === lines.length - 1) return ln;
@@ -200,7 +219,7 @@ registerApp({
           return '  ' + ln;
         });
 
-        textarea.value = val.slice(0, lineStart) + newLines.join('\n') + val.slice(e);
+        textarea.setRangeText(newLines.join('\n'), lineStart, e, 'ignore');
         textarea.selectionStart = Math.max(lineStart, s + firstDiff);
         textarea.selectionEnd = Math.max(textarea.selectionStart, e + totalDiff);
       }
@@ -209,24 +228,25 @@ registerApp({
       scheduleUpdate();
     }
 
-    // BRACKET MATCHING
     function handleBracket(key) {
       const close = PAIRS[key];
       const { selectionStart: s, selectionEnd: e } = textarea;
       const val = textarea.value;
 
-      if (key === close && val[s] === key) {
+      // Skip over existing closing char only if cursor is collapsed directly in front of it
+      if (s === e && key === close && val[s] === key) {
         textarea.selectionStart = textarea.selectionEnd = s + 1;
         syncStatus();
         return;
       }
 
       if (s !== e) {
-        textarea.value = val.slice(0, s) + key + val.slice(s, e) + close + val.slice(e);
+        const selected = val.slice(s, e);
+        textarea.setRangeText(key + selected + close, s, e, 'select');
         textarea.selectionStart = s + 1;
         textarea.selectionEnd = e + 1;
       } else {
-        textarea.value = val.slice(0, s) + key + close + val.slice(s);
+        textarea.setRangeText(key + close, s, s, 'end');
         textarea.selectionStart = textarea.selectionEnd = s + 1;
       }
 
@@ -234,7 +254,6 @@ registerApp({
       scheduleUpdate();
     }
 
-    // KEYBOARD HANDLER
     function onKeydown(e) {
       const { key, ctrlKey, metaKey, shiftKey } = e;
 
@@ -267,7 +286,6 @@ registerApp({
       }
     }
 
-    // FILE ACTIONS
     async function saveFile() {
       try {
         if (file.id) {
@@ -280,8 +298,10 @@ registerApp({
         }
       } catch (err) {
         Notify.show({
-          title: 'Save Failed', body: err?.message ?? 'Unknown error',
-          type: 'error', appName: 'TextEdit'
+          title: 'Save Failed',
+          body: err?.message ?? 'Unknown error occurred while saving.',
+          type: 'error',
+          appName: 'TextEdit'
         });
       }
     }
@@ -294,17 +314,25 @@ registerApp({
           startFolderId: getFilesDir()
         });
         if (!picked || !picked.name?.trim()) return;
+
         const node = await FS.createFile(picked.folderId, picked.name.trim(), textarea.value, 'text/plain');
         file.id = node.id;
         file.name = picked.name.trim();
         file.content = textarea.value;
         file.modified = false;
-        renderDesktopIcons();
+
+        // Optional call handles non-desktop window targets safely
+        if (typeof renderDesktopIcons === 'function') {
+          renderDesktopIcons();
+        }
+
         Notify.show({ title: 'Saved', body: file.name, type: 'success', appName: 'TextEdit' });
       } catch (err) {
         Notify.show({
-          title: 'Save Failed', body: err?.message ?? 'Unknown error',
-          type: 'error', appName: 'TextEdit'
+          title: 'Save Failed',
+          body: err?.message ?? 'Unknown error occurred while saving.',
+          type: 'error',
+          appName: 'TextEdit'
         });
       }
     }
@@ -317,23 +345,26 @@ registerApp({
           filter: (node) => (node.mimeType || '').startsWith('text/') || node.mimeType === 'application/json'
         });
         if (!picked) return;
+
         file.id = picked.id;
         file.name = picked.name;
         file.content = picked.content ?? '';
         file.modified = false;
+
         textarea.value = file.content;
         syncGutter();
         syncStatus();
         Notify.show({ title: 'Opened', body: picked.name, type: 'success', appName: 'TextEdit' });
       } catch (err) {
         Notify.show({
-          title: 'Open Failed', body: err?.message ?? 'Unknown error',
-          type: 'error', appName: 'TextEdit'
+          title: 'Open Failed',
+          body: err?.message ?? 'Unknown error occurred while opening.',
+          type: 'error',
+          appName: 'TextEdit'
         });
       }
     }
 
-    // CONTEXT MENU
     function onContextMenu(e) {
       e.preventDefault();
       ContextMenu.show(e.clientX, e.clientY, [
@@ -349,8 +380,7 @@ registerApp({
         {
           label: 'Word Count', icon: 'info',
           action: () => {
-            const t = textarea.value.trim();
-            const n = t ? t.split(/\s+/).length : 0;
+            const n = countWords(textarea.value);
             Notify.show({
               title: 'Word Count',
               body: `${n} word${n !== 1 ? 's' : ''}`,
@@ -361,7 +391,6 @@ registerApp({
       ]);
     }
 
-    // EVENT LISTENERS
     saveBtn.addEventListener('click', saveFile, { signal });
     saveAsBtn.addEventListener('click', saveFileAs, { signal });
     openBtn.addEventListener('click', openFile, { signal });
@@ -376,7 +405,6 @@ registerApp({
     textarea.addEventListener('keyup', syncStatus, { signal, passive: true });
     textarea.addEventListener('keydown', onKeydown, { signal });
 
-    // INITIALIZATION
     if (options?.fileId) {
       const f = FS.files.get(options.fileId);
       if (f) {
@@ -391,18 +419,12 @@ registerApp({
     syncGutter();
     syncStatus();
     requestAnimationFrame(() => textarea.focus());
-
-    // TEARDOWN
-    content._destroy = () => {
-      ctrl.abort();
-      if (rafId) cancelAnimationFrame(rafId);
-    };
   },
 
   async onDrop(droppedFile, _state) {
     try {
       const text = await droppedFile.text();
-      const fileId = generateId();
+      const fileId = globalThis.generateId?.() ?? crypto.randomUUID();
       FS.files.set(fileId, {
         id: fileId,
         name: droppedFile.name,
@@ -415,8 +437,10 @@ registerApp({
       Notify.show({ title: 'File Opened', body: droppedFile.name, type: 'success', appName: 'TextEdit' });
     } catch (err) {
       Notify.show({
-        title: 'Error', body: err?.message ?? 'Failed to open file.',
-        type: 'error', appName: 'TextEdit'
+        title: 'Error',
+        body: err?.message ?? 'Failed to open file.',
+        type: 'error',
+        appName: 'TextEdit'
       });
     }
   }
