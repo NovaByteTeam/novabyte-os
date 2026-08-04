@@ -74,6 +74,16 @@
  */
 
 const TrustStore = (() => {
+  // Grab this the moment the IIFE starts running, not lazily later —
+  // document.currentScript is only valid while THIS script is
+  // synchronously executing. By the time revoke() or isRevoked() gets
+  // called from a click handler or a later require(), the script has
+  // long finished loading and currentScript has reset to null. See
+  // _resolveOwnDirectory() below for why this is the fix and
+  // process.cwd() wasn't.
+  const OWN_SCRIPT_ELEMENT =
+    typeof document !== 'undefined' ? document.currentScript : null;
+
   // Real public key, matching NovaByte's own offline private signing
   // key (see the module-level comment above — swappable for your own
   // if this fork isn't NovaByte Services-licensed).
@@ -94,49 +104,73 @@ const TrustStore = (() => {
     // Additional trusted CAs / partners can be appended here.
   ];
 
-  // ── Revocation list — persisted to disk ──────────────────────────────
-  // Keyed by exact pkg.signature (a hex string). Lives in
-  // revoked-signatures.json, next to this file, so a revocation survives
-  // restarts and is visible to every NBOSP process that loads this
-  // module — not just the one that called revoke(). NW.js gives this
-  // file real `fs`/`path` access even though it's loaded like a browser
-  // script, so this works the same way it would in plain Node.
+  // ── Node/browser interop ──────────────────────────────────────────────
+  // This file is loaded as a plain <script src> tag (see index.html), not
+  // require()'d as a CommonJS module — but NW.js still gives script-tag
+  // code real require() access to Node's fs/path. What it does NOT give
+  // that code is __dirname/__filename: those are only set for modules
+  // actually loaded through require(), and NW.js's own docs confirm a
+  // script tag's code stays in "webkit context" regardless (see the
+  // module doc comment above for how that bit us before).
   //
-  // NOTE: this is single-machine persistence, not multi-machine sync —
-  // if you ever run multiple NBOSP instances against a shared/synced
-  // copy of this file (the way submission-queue.js shares Drive-synced
-  // submissions.json across dev machines), the same read-modify-write
-  // race caveat from that module applies here too. For a single install
-  // reading its own local file, that's not a concern.
+  // Split into two questions on purpose, unlike the previous version's
+  // single catch-and-ignore: "is fs unavailable" and "did require() fail
+  // for some other reason" want different responses. The first is
+  // routine (a sandboxed browser tab with no Node integration) and
+  // should fall back quietly. The second — fs existing but require()
+  // itself throwing something unexpected — is worth a console line,
+  // since silently eating it looks identical to case one and could hide
+  // a real environment problem.
   let _fs = null;
   let _path = null;
-  try {
-    // Only succeeds in a Node-capable context (NW.js renderer, Node
-    // itself). In a plain sandboxed browser tab, this throws and we fall
-    // back to in-memory-only behavior below — better to run without
-    // persistence than to crash the whole trust store on load.
-    _fs = require('fs');
-    _path = require('path');
-  } catch (_) { /* no filesystem access available; persistence disabled */ }
+  if (typeof require === 'function') {
+    try {
+      _fs = require('fs');
+      _path = require('path');
+    } catch (err) {
+      console.error(
+        `[TrustStore] require('fs'/'path') is available but threw unexpectedly: ${err.message}. Falling back to in-memory-only revocation (no persistence).`
+      );
+    }
+  }
+  // No `require` at all just means a plain sandboxed browser tab — the
+  // expected, unremarkable case. No fs, no persistence, nothing to log.
 
   const REVOCATION_FILENAME = 'revoked-signatures.json';
 
-  // This file relative to the NBOSP app root. Kept explicit rather than
-  // derived from __dirname: this module is loaded as a plain <script src>
-  // tag (see index.html), not require()'d as a CommonJS module, and
-  // __dirname/__filename are only ever defined for modules loaded via
-  // require() — NW.js does not set them for top-level page/script-tag
-  // scope even with Node integration on. `typeof __dirname` doesn't throw
-  // on that undeclared global, so the old code silently fell through to
-  // '.' (i.e. process.cwd()), which is the NBOSP root the server process
-  // was launched from — NOT this file's actual directory. That made
-  // every lookup miss the real revoked-signatures.json (ENOENT, silently
-  // swallowed as "no revocations yet"), so revocations never loaded and
-  // revoked signatures kept showing as verified with no popup.
-  const REVOCATION_RELATIVE_PATH = ['js', 'platform', 'security', REVOCATION_FILENAME];
+  /**
+   * Figure out the directory this file actually lives in, so
+   * revoked-signatures.json is read from next to trust-store.js — not
+   * from wherever the NBOSP process happened to be launched from.
+   *
+   * Preferred: document.currentScript.src, captured above while this
+   * script was still synchronously executing. That's the actual DOM
+   * script element for THIS file, so its resolved `src` is the real
+   * answer regardless of what launched the process or which directory
+   * it started in.
+   *
+   * Fallback: process.cwd(). Only reached if currentScript wasn't
+   * available when this module loaded (e.g. genuine plain-Node require(),
+   * as opposed to NW.js's script-tag-with-require hybrid). This is the
+   * same value the old code fell back into by accident via an
+   * undeclared __dirname — kept as a last resort, not silently, so
+   * anyone hitting it sees why.
+   */
+  function _resolveOwnDirectory() {
+    if (OWN_SCRIPT_ELEMENT && OWN_SCRIPT_ELEMENT.src) {
+      try {
+        return _path.dirname(new URL(OWN_SCRIPT_ELEMENT.src).pathname);
+      } catch (err) {
+        console.warn(
+          `[TrustStore] Couldn't parse currentScript.src (${OWN_SCRIPT_ELEMENT.src}): ${err.message}. Falling back to process.cwd(), which may not be this file's actual directory.`
+        );
+      }
+    }
+    return process.cwd();
+  }
 
   function _revocationFilePath() {
-    return _path.join(process.cwd(), ...REVOCATION_RELATIVE_PATH);
+    return _path.join(_resolveOwnDirectory(), REVOCATION_FILENAME);
   }
 
   function _loadRevokedFromDisk() {
@@ -149,9 +183,16 @@ const TrustStore = (() => {
       if (err.code === 'ENOENT') return []; // no revocations yet — normal on first run
       // A corrupt file is a real risk worth surfacing, not silently
       // swallowing — same reasoning as submission-queue.js's _readRaw().
-      console.error(`[TrustStore] revoked-signatures.json exists but couldn't be read/parsed: ${err.message}. Revocation list may be incomplete until this is fixed.`);
+      console.error(
+        `[TrustStore] revoked-signatures.json exists but couldn't be read/parsed: ${err.message}. Revocation list may be incomplete until this is fixed.`
+      );
       if (typeof EventLog !== 'undefined') {
-        EventLog.log({ app: 'TrustStore', category: 'security', severity: 'error', message: `Revocation list corrupt/unreadable: ${err.message}. List may be incomplete.` });
+        EventLog.log({
+          app: 'TrustStore',
+          category: 'security',
+          severity: 'error',
+          message: `Revocation list corrupt/unreadable: ${err.message}. List may be incomplete.`,
+        });
       }
       return [];
     }
@@ -162,28 +203,85 @@ const TrustStore = (() => {
     try {
       _fs.writeFileSync(_revocationFilePath(), JSON.stringify(list, null, 2));
     } catch (err) {
-      console.error(`[TrustStore] Failed to write revoked-signatures.json: ${err.message}. Revocation was applied in memory but will NOT survive a restart until this is fixed.`);
+      console.error(
+        `[TrustStore] Failed to write revoked-signatures.json: ${err.message}. Revocation was applied in memory but will NOT survive a restart until this is fixed.`
+      );
       if (typeof EventLog !== 'undefined') {
-        EventLog.log({ app: 'TrustStore', category: 'security', severity: 'error', message: `Failed to persist revocation list: ${err.message}. In-memory only, will not survive restart.` });
+        EventLog.log({
+          app: 'TrustStore',
+          category: 'security',
+          severity: 'error',
+          message: `Failed to persist revocation list: ${err.message}. In-memory only, will not survive restart.`,
+        });
       }
     }
   }
 
   // Loaded once at module init. If persistence isn't available, starts
   // empty and stays in-memory-only for this session (see revoke() below).
+  //
+  // Single-machine persistence, not multi-machine sync: if this file
+  // ever gets read from a Drive-synced (or similar) shared copy instead
+  // of a local one, the same read-modify-write race that applies to
+  // submission-queue.js's shared submissions.json would apply here too —
+  // two processes could both load, both revoke different signatures,
+  // and the second write would clobber the first's. For a normal local
+  // install reading its own local file, there's only ever one writer at
+  // a time, so this isn't a live concern; it would only become one if
+  // the deployment model changes to share this file across machines.
   const revoked = _loadRevokedFromDisk();
+
+  // Signature string → revocation record. isRevoked()/getRevocation()
+  // used to do a linear .some()/.find() over `revoked` on every call —
+  // fine when the list is small, but this file gets consulted on every
+  // single app install and launch, so a revocation list with any real
+  // size turns into a scan on every one of those checks. A Map keeps
+  // every lookup O(1) regardless of how long the list gets, at the cost
+  // of keeping both the array and the index in sync on every mutation.
+  const revokedIndex = new Map(revoked.map((record) => [record.signature, record]));
 
   function list() {
     return entries.slice();
   }
 
+  /**
+   * Basic shape check for a JWK — enough to catch "someone passed the
+   * wrong object" or a typo'd field name at add() time, rather than
+   * letting a malformed key sit in the trust store until the first
+   * verification attempt fails in a confusing way. This is a shape
+   * check, not a cryptographic validity check — it doesn't confirm the
+   * key material itself is well-formed, only that it looks like a JWK.
+   */
+  function _isPlausibleJwk(key) {
+    return (
+      key !== null &&
+      typeof key === 'object' &&
+      typeof key.kty === 'string' &&
+      key.kty.length > 0
+    );
+  }
+
   function add(entry) {
-    if (!entry || !entry.publicKey || !entry.name) {
+    if (!entry || typeof entry !== 'object') {
       throw new Error('Trust store entries need at least {name, publicKey}');
+    }
+    if (typeof entry.name !== 'string' || entry.name.trim() === '') {
+      throw new Error('Trust store entries need at least {name, publicKey}');
+    }
+    if (!_isPlausibleJwk(entry.publicKey)) {
+      throw new Error(
+        `Trust store entry "${entry.name}" has a publicKey that doesn't look like a JWK (expected an object with at least a "kty" field)`
+      );
     }
     entries.push(entry);
     if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: `Added trusted signing authority: ${entry.name}`, data: { name: entry.name, id: entry.id } });
+      EventLog.log({
+        app: 'TrustStore',
+        category: 'security',
+        severity: 'warn',
+        message: `Added trusted signing authority: ${entry.name}`,
+        data: { name: entry.name, id: entry.id },
+      });
     }
   }
 
@@ -204,7 +302,7 @@ const TrustStore = (() => {
     if (!signature || typeof signature !== 'string') {
       throw new Error('revoke() requires the exact pkg.signature string of the package being revoked');
     }
-    const existing = revoked.find((r) => r.signature === signature);
+    const existing = revokedIndex.get(signature);
     let record;
     if (existing) {
       existing.reason = reason || existing.reason;
@@ -213,16 +311,31 @@ const TrustStore = (() => {
     } else {
       record = { signature, reason: reason || null, revokedAt: Date.now() };
       revoked.push(record);
+      revokedIndex.set(signature, record);
     }
     if (!_fs) {
-      console.warn('[TrustStore] No filesystem access in this context — revocation applied for this session only and will NOT persist. Run this from an NW.js/Node context with fs access for it to stick.');
+      console.warn(
+        '[TrustStore] No filesystem access in this context — revocation applied for this session only and will NOT persist. Run this from an NW.js/Node context with fs access for it to stick.'
+      );
       if (typeof EventLog !== 'undefined') {
-        EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: 'Revocation applied in-memory only (no fs access) — will not persist across restart' });
+        EventLog.log({
+          app: 'TrustStore',
+          category: 'security',
+          severity: 'warn',
+          message: 'Revocation applied in-memory only (no fs access) — will not persist across restart',
+        });
       }
+    } else {
+      _saveRevokedToDisk(revoked);
     }
-    _saveRevokedToDisk(revoked);
     if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: `Revoked signature${reason ? ': ' + reason : ''}`, data: { signature, reason: reason || null } });
+      EventLog.log({
+        app: 'TrustStore',
+        category: 'security',
+        severity: 'warn',
+        message: `Revoked signature${reason ? ': ' + reason : ''}`,
+        data: { signature, reason: reason || null },
+      });
     }
     return record;
   }
@@ -232,19 +345,29 @@ const TrustStore = (() => {
    * needed if a revocation was applied by mistake.
    */
   function unrevoke(signature) {
+    if (!revokedIndex.has(signature)) return false;
     const idx = revoked.findIndex((r) => r.signature === signature);
-    if (idx === -1) return false;
+    // idx can't be -1 here — revokedIndex and revoked are kept in sync
+    // on every mutation (revoke/unrevoke), so a hit in one means a hit
+    // in the other.
     revoked.splice(idx, 1);
+    revokedIndex.delete(signature);
     _saveRevokedToDisk(revoked);
     if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'TrustStore', category: 'security', severity: 'warn', message: 'Un-revoked a previously revoked signature', data: { signature } });
+      EventLog.log({
+        app: 'TrustStore',
+        category: 'security',
+        severity: 'warn',
+        message: 'Un-revoked a previously revoked signature',
+        data: { signature },
+      });
     }
     return true;
   }
 
   function isRevoked(signature) {
     if (!signature) return false;
-    return revoked.some((r) => r.signature === signature);
+    return revokedIndex.has(signature);
   }
 
   /**
@@ -255,7 +378,7 @@ const TrustStore = (() => {
    */
   function getRevocation(signature) {
     if (!signature) return null;
-    return revoked.find((r) => r.signature === signature) || null;
+    return revokedIndex.get(signature) || null;
   }
 
   function listRevoked() {
