@@ -303,11 +303,21 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
     // after the fact doesn't stop the call. eval/new Function are now blocked
     // outright: removed from both directives below, matching the same fix
     // already applied to the client-side RELAXED_CSP_META in app-sandbox.js.
+    // 'wasm-unsafe-eval' added to script-src (same reasoning and same pairing
+    // requirement as app-sandbox.js's RELAXED_CSP_META, which this header
+    // must match): permits WebAssembly.instantiate()/.compile() for apps
+    // bundling compiled C/C++ (Emscripten) output, without reopening
+    // eval()/new Function() on arbitrary strings — that stays removed.
+    // Since this server-sent header overrides the client-side meta tag for
+    // anything served through this route, this is the change that actually
+    // takes effect for WASM apps; the app-sandbox.js copy exists so the
+    // policy is also correct/consistent for any path that isn't served
+    // through here. Update both together.
     const isHtml = ext === 'html';
     if (isHtml) {
         res.setHeader('Content-Security-Policy', [
             "default-src 'self' blob: data: 'unsafe-inline'",
-            "script-src 'self' blob: 'unsafe-inline'",
+            "script-src 'self' blob: 'unsafe-inline' 'wasm-unsafe-eval'",
             "style-src 'self' 'unsafe-inline' blob: data:",
             "img-src 'self' blob: data: https:",
             "font-src 'self' blob: data:",

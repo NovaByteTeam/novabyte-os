@@ -4667,7 +4667,22 @@ const AppSandbox = (() => {
   // couldn't be verified from this file alone — grep first-party app
   // source for direct localhost fetch/WebSocket calls before deploying,
   // and migrate any hits to the nova.* wrappers first.
-  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\'; script-src \'self\' blob: \'unsafe-inline\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob:">';
+  // 'wasm-unsafe-eval' added to script-src to allow WebAssembly.instantiate()/
+  // .compile() for apps bundling compiled C/C++ (Emscripten) output. This is
+  // deliberately NOT the same grant as 'unsafe-eval' (which stays removed,
+  // see the eval-removal history below) — it permits WASM module
+  // instantiation only, not eval()/new Function() on arbitrary strings. Must
+  // be changed together with the identical server-sent header in
+  // server/core/index.js (the /api/apps/serve/:sandboxId route) — that
+  // header is authoritative for anything served through it and overrides
+  // whatever's in this meta tag, so updating only one of the two leaves the
+  // other still blocking (or, if done in the wrong direction, still
+  // granting) WASM instantiation regardless of this change.
+  // unsafe-eval was previously granted here on the theory that the runtime
+  // audit hook (nova:audit:eval) was enough of a check. It wasn't — logging
+  // after the fact doesn't stop the call. eval/new Function are blocked
+  // outright now, and 'wasm-unsafe-eval' does not reopen that hole.
+  const RELAXED_CSP_META = '<meta http-equiv="Content-Security-Policy" content="default-src \'self\' blob: data: \'unsafe-inline\'; script-src \'self\' blob: \'unsafe-inline\' \'wasm-unsafe-eval\'; style-src \'self\' \'unsafe-inline\' blob: data:; img-src \'self\' blob: data: https:; font-src \'self\' blob: data:; connect-src \'self\' blob:">';
 
   // Prepend the capability shim as the very first bytes of the app's HTML,
   // unconditionally — not after a regex-matched <head> tag.
