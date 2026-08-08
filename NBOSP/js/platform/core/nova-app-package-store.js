@@ -43,6 +43,7 @@
     if (lower.endsWith('.gif')) return 'image/gif';
     if (lower.endsWith('.webp')) return 'image/webp';
     if (lower.endsWith('.txt') || lower.endsWith('.md')) return 'text/plain';
+    if (lower.endsWith('.wasm')) return 'application/wasm';
     return 'application/octet-stream';
   }
 

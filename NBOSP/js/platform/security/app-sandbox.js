@@ -4229,10 +4229,50 @@ const AppSandbox = (() => {
     console.error('nova:ready handshake failed:', e);
   });
 
+  // This guest page was loaded from window.location.origin + baseUrl + '/' +
+  // app.entry (see loadAppContent below), where baseUrl is
+  // '/api/apps/serve/<sandboxId>'. That means window.location.pathname
+  // already starts with this sandbox's own serve prefix — capture it once,
+  // here, before anything can reassign window.location, so novaFetchImpl
+  // can recognize "this app fetching one of its own bundled files" (e.g.
+  // Emscripten's glue code fetching its sibling module.wasm) as distinct
+  // from a genuine outbound network request, without needing any IPC
+  // round-trip or host-side lookup to tell the two apart.
+  const ownSandboxPrefixMatch = /^(\\/api\\/apps\\/serve\\/[^/]+\\/)/.exec(window.location.pathname);
+  const ownSandboxPrefix = ownSandboxPrefixMatch ? ownSandboxPrefixMatch[1] : null;
+
   // Override fetch — route through the IPC bridge.
   const novaFetchImpl = function(input, init) {
     init = init || {};
     const url = typeof input === 'string' ? input : (input && input.url) || String(input);
+
+    // Self-fetch exemption: a request the app is making for one of its own
+    // registered files (e.g. Emscripten's glue code loading module.wasm via
+    // plain fetch()) is not a network request — it's the same category of
+    // same-origin asset load a <script src> or <img src> tag already makes
+    // without any permission check. Without this, every app bundling
+    // Emscripten/WASM output fails silently: the fetch gets routed through
+    // nova:net:fetch, which requires a net:* permission grant for what is
+    // actually just reading a file already inside this sandbox's own
+    // package. Route those straight to the real fetch instead.
+    if (ownSandboxPrefix) {
+      let resolvedForSelfCheck;
+      // window.location.href (full current URL, including path), not
+      // window.location.origin (bare scheme+host) -- resolving a relative
+      // URL like 'module.wasm' against just the origin drops the page's own
+      // directory and produces '/module.wasm' at the server root instead of
+      // '<ownSandboxPrefix>module.wasm', which silently failed this check
+      // for every relative fetch (exactly the case Emscripten's glue makes).
+      try { resolvedForSelfCheck = new URL(url, window.location.href); } catch { resolvedForSelfCheck = null; }
+      if (
+        resolvedForSelfCheck &&
+        resolvedForSelfCheck.origin === window.location.origin &&
+        resolvedForSelfCheck.pathname.indexOf(ownSandboxPrefix) === 0
+      ) {
+        return nativeFetchForDownloads(input, init);
+      }
+    }
+
     const method = (init.method || (input && input.method) || 'GET').toUpperCase();
     const headers = init.headers || (input && input.headers) || {};
     const headerObj = {};
