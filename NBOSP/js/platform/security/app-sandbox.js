@@ -92,6 +92,29 @@ const AppSandbox = (() => {
     'calendar-app', 'calculator', 'nbosp-clock', 'quill', 'vault', 'shell',
   ]);
 
+  // A NovaApp gets full-scope VFS only when the package itself declares
+  // "system": true in its signed manifest AND NBOSP has verified it with
+  // the trusted NovaByte signing authority. The normal vfs:* permission
+  // prompt still gates each operation; this only removes the per-app path
+  // ownership restriction after that permission has been granted.
+  function hasUnrestrictedVfsAccess(appId) {
+    const id = String(appId || '');
+    const candidates = [];
+    try {
+      if (typeof OS !== 'undefined' && OS?.apps?.[id]) candidates.push(OS.apps[id]);
+      if (typeof AppRegistry !== 'undefined' && AppRegistry?.getApp?.(id)) candidates.push(AppRegistry.getApp(id));
+      if (typeof APP_REGISTRY !== 'undefined' && Array.isArray(APP_REGISTRY)) {
+        const live = APP_REGISTRY.find(a => a?.id === id);
+        if (live) candidates.push(live);
+      }
+    } catch (_) {}
+    return candidates.some(app =>
+      app?.verified === true &&
+      app?.signer === 'NovaByte Trusted Signing' &&
+      app?.manifest?.system === true
+    );
+  }
+
   // Shared TextEncoder for the base64 helpers — cheap to construct, but no
   // reason to allocate a new one per call when IPC traffic is high-frequency.
   const sharedTextEncoder = new TextEncoder();
@@ -506,9 +529,11 @@ const AppSandbox = (() => {
     if (id) {
       node = FS.files.get(id) || null;
     } else if (path) {
-      const rewritten = String(path).startsWith('/data/')
-        ? '/data/' + sanitizeAppIdSegment(appId) + String(path).slice('/data'.length)
-        : path;
+      const rawPath = String(path);
+      const unrestricted = hasUnrestrictedVfsAccess(appId);
+      const rewritten = (!unrestricted && rawPath.startsWith('/data/'))
+        ? '/data/' + sanitizeAppIdSegment(appId) + rawPath.slice('/data'.length)
+        : rawPath;
       node = FS.getByPath(rewritten);
     } else {
       return null;
@@ -519,16 +544,22 @@ const AppSandbox = (() => {
     const ownerAppId = ownerAppIdForPath(canonicalPath);
     const safeAppId = sanitizeAppIdSegment(appId);
 
-    if (ownerAppId !== null) {
-      // Node lives under some app's /data/ folder. Only that app may
-      // touch it, for read or otherwise.
-      if (ownerAppId !== safeAppId) return null;
-    } else if (requireOwnAppData) {
-      // Shared/general-area node, but this call is a mutation
-      // (write/delete/rename/move) — those are restricted to the
-      // calling app's own /data/<appId>/ subtree only, never the
-      // shared area, regardless of what vfs:read would allow.
-      return null;
+    // TextEdit and Music retain the normal vfs:* permission checks, but
+    // once the relevant permission is granted they intentionally bypass the
+    // per-app /data ownership sandbox. This is the compatibility bridge for
+    // the legacy first-party implementations, not a new grant for general
+    // third-party .novaapp packages.
+    if (!hasUnrestrictedVfsAccess(appId)) {
+      if (ownerAppId !== null) {
+        // Node lives under some app's /data/ folder. Only that app may
+        // touch it, for read or otherwise.
+        if (ownerAppId !== safeAppId) return null;
+      } else if (requireOwnAppData) {
+        // Shared/general-area node, but this call is a mutation
+        // (write/delete/rename/move) — these are restricted to the
+        // calling app's own /data/<appId>/ subtree only.
+        return null;
+      }
     }
     return node;
   }
@@ -559,6 +590,8 @@ const AppSandbox = (() => {
   function rewriteDataPath(rawPath, appId) {
     const p = String(rawPath || '');
     if (!p.startsWith('/data/')) return p;
+    // Full-scope VFS first-party apps may address any /data/<owner>/ path.
+    if (hasUnrestrictedVfsAccess(appId)) return p;
     return '/data/' + sanitizeAppIdSegment(appId) + p.slice('/data'.length);
   }
 
@@ -2265,6 +2298,7 @@ const AppSandbox = (() => {
     try {
       const appData = {
         ...pkg.manifest,
+        manifest: pkg.manifest,
         files: pkg.files,
         signature: pkg.signature,
         integrity: pkg.integrity,

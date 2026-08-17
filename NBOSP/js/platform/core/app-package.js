@@ -521,12 +521,20 @@ const AppPackage = (() => {
       throw new Error(msg);
     }
 
+    // A package may declare itself as a system app, but that declaration
+    // only has authority when the package has been cryptographically
+    // verified by NovaByte's trusted signing authority. The manifest flag
+    // is part of the signed payload, so it cannot be changed after signing.
+    const system = verified && signer === 'NovaByte Trusted Signing' && pkg.manifest?.system === true;
+
     const appConfig = {
       ...pkg.manifest,
+      manifest:      pkg.manifest,
       files:         pkg.files,
       signature:     pkg.signature,
       verified,
       signer,
+      system,
       source:        options.source || 'file',
       installedDate: new Date().toISOString()
     };
@@ -536,6 +544,8 @@ const AppPackage = (() => {
     if (registered && typeof window.NovaAppPackageStore !== 'undefined' && window.NovaAppPackageStore.installApp) {
       try {
         await window.NovaAppPackageStore.installApp({
+          novabyte_app: pkg.novabyte_app,
+          compiled_at: pkg.compiled_at,
           id: appConfig.id,
           name: appConfig.name,
           version: appConfig.version,

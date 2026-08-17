@@ -93,6 +93,21 @@ const TrustStore = (() => {
     x: 'Id_PakcUqjCM2k3i7mSkQy7LadrM_PwVz9S1ikYAzEY',
   };
 
+  // System-signer key is intentionally separate from the general trusted-
+  // signing key above. A package verified against THIS entry is eligible
+  // for the "System" badge in appmanager.js —
+  // that's a stronger claim than ordinary "Verified", so it gets its own
+  // signer identity rather than reusing NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK.
+  // Replace this JWK with your own Ed25519 public key before relying on
+  // the System badge for anything — as committed, this is a non-functional
+  // placeholder (no matching private key exists for it), so nothing will
+  // verify against it until you swap it out.
+  const NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK = {
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: 'REPLACE_WITH_YOUR_OWN_ED25519_PUBLIC_JWK_X_VALUE',
+  };
+
   const entries = [
     {
       name: 'NovaByte Trusted Signing',
@@ -100,6 +115,15 @@ const TrustStore = (() => {
       publicKey: NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK,
       // Shown in the "More Info" panel of the untrusted-app dialog.
       description: 'Reviewed and signed by NovaByte\u2019s trusted signing authority.',
+    },
+    {
+      name: 'NovaByte System',
+      id: 'novabyte-system-signing-v1',
+      publicKey: NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK,
+      // installPackage() in app-package.js checks signer === 'NovaByte System'
+      // to set appConfig.system — keep this `name` in sync with that check
+      // if it's ever renamed.
+      description: 'Signed by the NovaByte System key. Packages signed by this key may show a System badge; System status does not prevent user-initiated uninstall.',
     },
     // Additional trusted CAs / partners can be appended here.
   ];

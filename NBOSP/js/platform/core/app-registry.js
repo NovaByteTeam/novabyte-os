@@ -91,6 +91,10 @@ const AppRegistry = (() => {
         if ((app.source || 'local') !== 'local' && app.autoGrant) {
           app.autoGrant = false;
         }
+        const restoredSystem = app.verified === true &&
+          app.signer === 'NovaByte Trusted Signing' &&
+          app.manifest?.system === true;
+        app.system = restoredSystem;
         installedApps.set(app.id, app);
         if (typeof OS !== 'undefined' && OS?.apps) {
           // Always rebuild from the persisted record, even if a static
@@ -106,6 +110,18 @@ const AppRegistry = (() => {
             startMinimized: app.startMinimized || false, transparent: app.transparent || false,
             devOnly: app.devOnly || false,
             autoGrant: app.autoGrant || false,
+            source: app.source || 'local',
+            verified: app.verified === true,
+            signer: app.signer || null,
+            revoked: app.revoked === true,
+            tampered: app.tampered === true,
+            system: app.system === true,
+            signature: app.signature || null,
+            signing: app.signing || null,
+            integrity: app.integrity || null,
+            novabyte_app: app.novabyte_app,
+            compiled_at: app.compiled_at,
+            manifest: app.manifest || undefined,
             // See the matching comment in registerApp() below — same field,
             // same reason, needed here too since this is a second, separate
             // rebuild of OS.apps[app.id] (this one runs on every boot/reload
@@ -197,6 +213,13 @@ const AppRegistry = (() => {
       }
     }
 
+    // `system` is authoritative only when it is declared in the signed
+    // manifest and the package is verified by NovaByte Trusted Signing.
+    // Never trust a caller-supplied appConfig.system by itself.
+    const isSystemSigned = appConfig.verified === true &&
+      appConfig.signer === 'NovaByte Trusted Signing' &&
+      appConfig.manifest?.system === true;
+
     const app = {
       icon: '/assets/no_app_icon.svg', description: '', version: '1.0.0', author: 'Unknown',
       type: 'webapp', entry: 'index.html', permissions: [], optionalPermissions: [],
@@ -208,6 +231,7 @@ const AppRegistry = (() => {
       id: appConfig.id,
       name: appConfig.name,
       autoGrant: isBuiltinSource ? (appConfig.autoGrant || false) : false,
+      system: isSystemSigned,
     };
 
     if (typeof OS !== 'undefined' && OS?.apps) {
@@ -219,6 +243,18 @@ const AppRegistry = (() => {
         startMinimized: app.startMinimized || false, transparent: app.transparent || false,
         devOnly: appConfig.devOnly || false,
         autoGrant: app.autoGrant,
+        source: app.source || 'local',
+        verified: app.verified === true,
+        signer: app.signer || null,
+        revoked: app.revoked === true,
+        tampered: app.tampered === true,
+        system: app.system === true || isSystemSigned,
+        signature: app.signature || null,
+        signing: app.signing || null,
+        integrity: app.integrity || null,
+        novabyte_app: app.novabyte_app,
+        compiled_at: app.compiled_at,
+        manifest: app.manifest || undefined,
         // Capability manifest (js/core/services/default-apps.js reads this
         // to offer the app as a Default Apps candidate for any matching
         // protocol/extension). Optional — omitted rather than defaulted to

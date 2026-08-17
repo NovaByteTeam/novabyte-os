@@ -578,20 +578,109 @@ async function boot() {
     }
   }
 
+  async function refreshInstalledAppTrust(appData) {
+    if (!appData?.id || !appData?.signature) return { changed: false, app: appData };
+
+    // Older App Manager installs persisted only the manifest/files/signature and
+    // dropped the two top-level fields that are part of the canonical signed
+    // payload (`novabyte_app` and `compiled_at`). Reconstructing a signature
+    // without those exact values can never succeed. For NBOSP-bundled first-
+    // party packages, recover the missing envelope fields from the bundled
+    // signed package, but only when its signature is byte-for-byte identical
+    // to the installed record. This is a migration aid, not a trust bypass.
+    if (appData.novabyte_app == null || appData.compiled_at == null || !appData.manifest) {
+      try {
+        const safeId = String(appData.id).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const response = await fetch(`js/apps/${safeId}.novaapp`, { cache: 'no-store' });
+        if (response.ok) {
+          const bundled = await response.json();
+          if (bundled?.signature && bundled.signature === appData.signature) {
+            if (appData.novabyte_app == null && bundled.novabyte_app != null) appData.novabyte_app = bundled.novabyte_app;
+            if (appData.compiled_at == null && bundled.compiled_at != null) appData.compiled_at = bundled.compiled_at;
+            if (!appData.manifest && bundled.manifest) appData.manifest = bundled.manifest;
+          }
+        }
+      } catch (e) {
+        console.warn('[BOOT] Could not recover legacy package envelope for', appData.id, e);
+      }
+    }
+    if (typeof AppPackage === 'undefined' || typeof AppPackage.verifyAgainstTrustStore !== 'function' || typeof TrustStore === 'undefined' || typeof TrustStore.list !== 'function') {
+      return { changed: false, app: appData };
+    }
+
+    try {
+      const pkg = {
+        novabyte_app: appData.novabyte_app || 1,
+        manifest: appData.manifest || {
+          id: appData.id, name: appData.name, version: appData.version, entry: appData.entry,
+          description: appData.description, author: appData.author, icon: appData.icon,
+          type: appData.type, permissions: appData.permissions || [],
+          optionalPermissions: appData.optionalPermissions || [],
+          defaultSize: appData.defaultSize, minSize: appData.minSize, maxSize: appData.maxSize,
+          resizable: appData.resizable, frame: appData.frame, categories: appData.categories,
+          handles: appData.handles
+        },
+        files: appData.files || {},
+        signature: appData.signature,
+        compiled_at: appData.compiled_at,
+        signing: appData.signing || undefined,
+        integrity: appData.integrity || null,
+      };
+      const revocationCheck = typeof TrustStore.isRevoked === 'function' ? TrustStore.isRevoked : undefined;
+      const result = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list(), revocationCheck);
+      const verified = !!result.trusted && !result.revoked;
+      const signer = verified ? (result.signer || null) : null;
+      const system = verified && signer === 'NovaByte Trusted Signing' && appData?.manifest?.system === true;
+      const changed = appData.verified !== verified ||
+        (appData.signer || null) !== signer ||
+        (!!appData.revoked) !== !!result.revoked ||
+        appData.system !== system;
+      if (changed) {
+        appData.verified = verified;
+        appData.signer = signer;
+        appData.revoked = !!result.revoked;
+        appData.system = system;
+        if (verified) appData.tampered = false;
+      }
+      return { changed, app: appData };
+    } catch (e) {
+      console.warn('[BOOT] Trust refresh failed for', appData.id, e);
+      return { changed: false, app: appData };
+    }
+  }
+
   async function loadInstalledNovaApps() {
     const storedApps = Storage.get(KEYS.INSTALLED_APPS, []);
     const apps = window.NovaAppPackageStore?.hydrateApps
       ? await NovaAppPackageStore.hydrateApps(storedApps)
       : storedApps;
 
+    let trustRegistryChanged = false;
     for (let i = 0; i < apps.length; i++) {
       const appData = apps[i];
-      if (OS.apps[appData.id] && APP_REGISTRY.some(a => a.id === appData.id)) continue;
       if (!appData.files) {
         console.warn('[BOOT] Installed package files missing for', appData.id);
         continue;
       }
+
+      // Re-evaluate trust at startup instead of blindly trusting the cached
+      // `verified` boolean from a previous install. This repairs stale
+      // `verified:false` metadata after a correctly signed package is
+      // reinstalled, and catches a signature that no longer matches the
+      // stored package before the app is exposed as trusted.
+      const trust = await refreshInstalledAppTrust(appData);
+      trustRegistryChanged = trustRegistryChanged || trust.changed;
+
+      if (OS.apps[appData.id] && APP_REGISTRY.some(a => a.id === appData.id)) continue;
       registerWithFiles(appData);
+    }
+
+    if (trustRegistryChanged && window.NovaAppPackageStore?.saveRegistry) {
+      try {
+        NovaAppPackageStore.saveRegistry(apps);
+      } catch (e) {
+        console.warn('[BOOT] Failed to persist refreshed package trust state:', e);
+      }
     }
 
     // ── Post-install revocation re-check ──────────────────────────

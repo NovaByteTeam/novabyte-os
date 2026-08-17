@@ -549,6 +549,10 @@
       const appId = appData.id;
       console.log('[AppManager][DIAG] launch appId=', JSON.stringify(appId), 'partition=', 'persist:app_' + appId);
 
+      const isSystemSigned = appData.verified === true &&
+        appData.signer === 'NovaByte Trusted Signing' &&
+        appData.manifest?.system === true;
+
       return {
         id: appId,
         name: appData.name,
@@ -563,6 +567,23 @@
         files: appData.files || {},
         sandbox: appData.sandbox || { allowScripts: true, allowForms: true, allowPopups: false },
         type: appData.type || 'package',
+        // Preserve the package lifecycle/trust metadata on the live OS.app
+        // object. Boot and App Manager hydrate the same package record, but
+        // previously this config builder dropped verified/signer/source, so
+        // apps loaded from js/apps/*.novaapp appeared Unverified after restart
+        // and were treated as built-ins by IPC uninstall.
+        source: appData.source || 'file',
+        verified: appData.verified === true,
+        signer: appData.signer || null,
+        revoked: appData.revoked === true,
+        tampered: appData.tampered === true,
+        system: isSystemSigned,
+        signature: appData.signature || null,
+        signing: appData.signing || null,
+        integrity: appData.integrity || null,
+        novabyte_app: appData.novabyte_app,
+        compiled_at: appData.compiled_at,
+        manifest: appData.manifest || undefined,
         resizable: appData.resizable !== false,
         transparent: !!appData.transparent,
         alwaysOnTop: !!appData.alwaysOnTop,
@@ -1162,7 +1183,12 @@ registerApp({
         const list = PackageStore?.loadRegistry
           ? PackageStore.loadRegistry()
           : JSON.parse(localStorage.getItem(APPS_KEY) || '[]');
-        return list.map(a => a.id + ':' + (a.version || '')).sort().join('|');
+        return list.map(a => [
+          a.id || '', a.version || '', a.verified === true ? '1' : '0',
+          a.signer || '', a.system === true ? '1' : '0',
+          a.revoked === true ? '1' : '0', a.tampered === true ? '1' : '0',
+          a.signature || ''
+        ].join(':')).sort().join('|');
       } catch {
         return '';
       }
@@ -1308,6 +1334,21 @@ registerApp({
         const size = compact ? '9px' : '10px';
         const pad = compact ? '1px 6px' : '2px 7px';
         const badges = [];
+        const isSystemSigned = app?.verified === true &&
+          app?.signer === 'NovaByte Trusted Signing' &&
+          app?.manifest?.system === true;
+        // System status is derived from the signed manifest and current trust
+        // state rather than a separately cached boolean.
+ (app-package.js)
+        // from the verified signer identity — never read from the package's own
+        // manifest.json, same principle as app.verified/app.signer above. A package
+        // that declares "system": true in its manifest gets no special treatment;
+        // only a package that verifies against the dedicated 'NovaByte System'
+        // trust-store entry does. Shown independent of tampered/revoked state below
+        // since a system app can still be tampered or have its signer revoked.
+        if (isSystemSigned) {
+          badges.push(`<span title="Signed by the NovaByte System key" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:600;color:var(--text-accent,#5b9dff);background:rgba(91,157,255,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u2699\uFE0F System</span>`);
+        }
         if (app.tampered) {
           badges.push(`<span title="Files no longer match what was signed — this app may have been modified since install" style="display:inline-flex;align-items:center;gap:3px;font-size:${size};font-weight:700;color:var(--text-danger,#f85149);background:rgba(248,81,73,0.12);padding:${pad};border-radius:5px;white-space:nowrap;">\u26A0\uFE0F Tampered</span>`);
         }
@@ -1778,47 +1819,28 @@ registerApp({
               installedApps.splice(idx, 1);
             }
 
-            // ── Inline bundle CSS/JS into HTML for offline-ready blob ──
-            const entryKey = pkg.manifest.entry || 'index.html';
-            try {
-              const entryB64 = pkg.files[entryKey];
-              if (entryB64 && typeof entryB64 === 'string') {
-                let html = decodeURIComponent(escape(atob(entryB64)));
-                html = html
-                  .replace(/<link[^>]+rel=["']stylesheet["'][^>]*>/gi, '')
-                  .replace(/<script[^>]+src=["'][^"']+["'][^>]*><\/script>/gi, '');
+            // IMPORTANT: do not mutate pkg.files after signature verification.
+            // The package signature covers the exact manifest + file map. Older
+            // code inlined CSS/JS here after verification, which changed the
+            // signed file set and made a correctly signed package look
+            // unverified on the next startup. AppSandbox already serves the
+            // package files together, so no post-verification rewriting is
+            // necessary.
 
-                for (const [relPath, rawB64] of Object.entries(pkg.files)) {
-                  if (relPath === entryKey || !rawB64 || typeof rawB64 !== 'string') continue;
-                  const lower = relPath.toLowerCase();
-                  let tag = null;
-                  if (lower.endsWith('.css')) {
-                    const css = decodeURIComponent(escape(atob(rawB64)));
-                    tag = '<style data-ninline>\n' + css + '\n</style>';
-                  } else if (lower.endsWith('.js') || lower.endsWith('.mjs')) {
-                    const js = decodeURIComponent(escape(atob(rawB64)));
-                    tag = '<script data-ninline>\n' + js + '\n<\/script>';
-                  }
-                  if (!tag) continue;
-                  if (/<head(\s[^>]*)?>/i.test(html)) {
-                    html = html.replace(/<head(\s[^>]*)?>/i, (m) => m + '\n' + tag);
-                  } else {
-                    html = tag + '\n' + html;
-                  }
-                }
-                pkg.files[entryKey] = btoa(unescape(encodeURIComponent(html)));
-              }
-            } catch (inlineErr) {
-              console.warn('[AppManager] Inline bundling failed, using original files:', inlineErr);
-            }
-
+            const system = verified === true &&
+              signer === 'NovaByte Trusted Signing' &&
+              pkg.manifest?.system === true;
             const appData = {
+              novabyte_app: pkg.novabyte_app,
+              compiled_at: pkg.compiled_at,
               ...pkg.manifest,
+              manifest: pkg.manifest,
               files: pkg.files,
               signature: pkg.signature,
               integrity: pkg.integrity || null,
               verified,
               signer,
+              system,
               source: 'file',
               installedAt: Date.now(),
               revoked: result?.revoked || false,
