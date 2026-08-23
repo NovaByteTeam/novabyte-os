@@ -228,6 +228,20 @@
       ? registry.find(app => app.id === id) || { id, storagePath: storagePathForApp(id) }
       : appOrId;
 
+    // System apps are not user-removable, matching the original bundled-.js
+    // behavior before these were repackaged as .novaapp. Enforced HERE
+    // rather than only in individual UI call sites (App Manager, desktop
+    // right-click, Launchpad right-click, the nova:app:uninstall IPC
+    // handler) — every one of those funnels through this function, so a
+    // single check here holds regardless of which surface triggered it.
+    // options.force exists only for internal callers that need to replace
+    // a system app's own files during a legitimate re-install/upgrade of
+    // that same signed package — never wire this to anything user-facing.
+    if (meta.system === true && !options.force) {
+      console.warn(`[NovaAppPackageStore] Refusing to remove system app "${id}" — system apps cannot be uninstalled.`);
+      return false;
+    }
+
     await removeStoredFiles(meta);
 
     if (options.updateRegistry !== false) {

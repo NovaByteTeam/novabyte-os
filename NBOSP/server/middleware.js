@@ -104,8 +104,25 @@ function setupMiddleware(app) {
     // Exact-path and prefix checks split apart so each list is a plain
     // membership/startsWith scan instead of one long mixed chain — same
     // number of comparisons, just easier to scan and extend.
-    const EXACT_SKIP_PATHS = new Set(['/health', '/favicon.ico', '/api/favicon', '/api/events/stream']);
-    const PREFIX_SKIP_PATHS = ['/js/', '/css/', '/public/', '/assets/'];
+    const EXACT_SKIP_PATHS = new Set([
+        '/health',
+        '/favicon.ico',
+        '/api/favicon',
+        '/api/events/stream',
+        // App sandbox registration is local bookkeeping performed during every
+        // packaged-app launch. Counting it against the global API limiter lets
+        // a few rapid open/close/retry cycles exhaust the quota and turns the
+        // sandbox's own resource registration into a 429 failure.
+        '/api/apps/serve/register',
+    ]);
+    const PREFIX_SKIP_PATHS = [
+        '/js/',
+        '/css/',
+        '/public/',
+        '/assets/',
+        // Unregister calls are the matching teardown bookkeeping operation.
+        '/api/apps/serve/unregister/',
+    ];
 
     const limiter = rateLimit({
         windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,

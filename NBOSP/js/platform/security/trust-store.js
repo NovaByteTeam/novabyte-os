@@ -103,10 +103,10 @@ const TrustStore = (() => {
   // placeholder (no matching private key exists for it), so nothing will
   // verify against it until you swap it out.
   const NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK = {
-    kty: 'OKP',
-    crv: 'Ed25519',
-    x: 'REPLACE_WITH_YOUR_OWN_ED25519_PUBLIC_JWK_X_VALUE',
-  };
+  "kty": "OKP",
+  "crv": "Ed25519",
+  "x": "vAglEORayg7_dzvIe1hJ6_RJrLKlEin_77IFWa-8k_o"
+};
 
   const entries = [
     {

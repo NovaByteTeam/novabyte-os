@@ -2293,7 +2293,7 @@
     box-shadow: none;
   }
   .app-window--transparent::before {
-    display: none;
+    display: block;
   }
   .app-window--transparent .window-titlebar {
     background: transparent;
@@ -2472,6 +2472,17 @@
   }
   .ctx-item.danger {
     color: var(--text-danger);
+  }
+  .ctx-item.disabled,
+  .ctx-item:disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .ctx-item.disabled:hover,
+  .ctx-item:disabled:hover {
+    background: none;
+    transform: none;
   }
   .ctx-item .ctx-shortcut {
     margin-inline-start: auto;

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "com.nbosp.contacts",
+    "file": "js/apps/com.nbosp.contacts.novaapp"
+  },
+  {
+    "id": "com.nbosp.downloads",
+    "file": "js/apps/com.nbosp.downloads.novaapp"
+  },
+  {
+    "id": "com.nbosp.music",
+    "file": "js/apps/com.nbosp.music.novaapp"
+  },
+  {
+    "id": "com.nbosp.quill",
+    "file": "js/apps/com.nbosp.quill.novaapp"
+  }
+]

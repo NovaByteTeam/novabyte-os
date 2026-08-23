@@ -19,10 +19,12 @@ const ContextMenu = {
       }
       
       const btn = createEl('button', {
-        className: 'ctx-item' + (item.danger ? ' danger' : ''),
+        className: 'ctx-item' + (item.danger ? ' danger' : '') + (item.disabled ? ' disabled' : ''),
         role: 'menuitem',
-        'aria-label': item.label
+        'aria-label': item.label,
+        'aria-disabled': item.disabled ? 'true' : 'false'
       });
+      if (item.disabled) btn.disabled = true;
       
       // Store reference to the specific action directly on the DOM element for event delegation
       if (item.action) btn._action = item.action;

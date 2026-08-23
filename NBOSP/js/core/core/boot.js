@@ -468,43 +468,29 @@ async function boot() {
   Boot.initScreenReader();
   Boot.startServices();
 
-  // 8. Deferred Non-Critical Work ──────────────────────────────────
-  const scheduleIdle = window.requestIdleCallback
-    ? (fn) => requestIdleCallback(fn, { timeout: 3000 })
-    : (fn) => setTimeout(fn, 0);
-  scheduleIdle(() => {
-    loadInstalledNovaApps().catch(e => console.error('[BOOT] Failed to load installed Nova apps:', e)).finally(() => {
-      if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
-      // loadInstalledNovaApps() is fire-and-forget from an idle callback and
-      // races the fixed 800ms boot-finalize delay below — hydrateApps() does
-      // async per-file OPFS reads per installed app and can easily lose that
-      // race, especially right after an install/replace when OPFS state just
-      // changed. Desktop icons and the launchpad had nothing re-render them
-      // once this actually finished (only the taskbar did above), so a
-      // freshly-installed/replaced app's icon and content stayed stale until
-      // something unrelated (e.g. opening App Manager) happened to redraw
-      // them later against already-fresh OS.apps/APP_REGISTRY data.
-      if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
-      if (typeof renderLaunchpad === 'function') renderLaunchpad();
-      // Apps only launch here once they're guaranteed to be registered in
-      // AppRegistry/OS.apps (loadInstalledNovaApps has just finished above)
-      // — launchAutostartApps() checks disabled/permission state itself and
-      // is a no-op for anyone with nothing eligible, so it's safe to always
-      // call.
-      launchAutostartApps();
+  // 8. NovaApp Reconciliation ─────────────────────────────────────
+  // Bundled system packages are source-of-truth content. Reconcile and
+  // hydrate them BEFORE the desktop becomes launchable so a stale persisted
+  // AppRegistry record can never win the race and launch an older package.
+  try {
+    await reconcileBundledNovaApps();
+    await loadInstalledNovaApps();
+  } catch (e) {
+    console.error('[BOOT] Failed to reconcile/load Nova apps:', e);
+  }
 
-      // Tier-1 scheduled background wake (system:background). Started once
-      // here, not re-armed elsewhere — AppScheduler.start() is itself a
-      // no-op on repeat calls, so this is just the one place boot always
-      // reaches after apps are registered.
-      if (typeof AppScheduler !== 'undefined') {
-        AppScheduler.start();
-      }
-    });
-  });
+  if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
+  if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+  if (typeof renderLaunchpad === 'function') renderLaunchpad();
+
+  // Apps are now guaranteed to reflect the current bundled package contents.
+  launchAutostartApps();
+
+  if (typeof AppScheduler !== 'undefined') {
+    AppScheduler.start();
+  }
 
   // 9. Finalize ────────────────────────────────────────────────────
-  await new Promise(r => setTimeout(r, 800));
   bootScreen.classList.add('fade-out');
 
   await new Promise(r => setTimeout(r, 400));
@@ -544,6 +530,87 @@ async function boot() {
  * Re-register any .novaapp packages the user has previously installed.
  * Called at idle time after boot — safe to call manually if needed.
  */
+  async function reconcileBundledNovaApps() {
+    let bundles = [];
+    try {
+      const response = await fetch('js/apps/novaapp-manifest.json', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`manifest ${response.status}`);
+      const parsed = await response.json();
+      bundles = Array.isArray(parsed) ? parsed.filter(x => x && x.id && x.file) : [];
+    } catch (e) {
+      console.warn('[BOOT] Bundled NovaApp manifest unavailable:', e);
+      return;
+    }
+
+    const store = window.NovaAppPackageStore;
+    if (!store?.loadRegistry || !store?.saveRegistry) return;
+    const trustStore = typeof TrustStore !== 'undefined' && typeof TrustStore.list === 'function' ? TrustStore.list() : [];
+    const revocationCheck = typeof TrustStore !== 'undefined' && typeof TrustStore.isRevoked === 'function' ? TrustStore.isRevoked : undefined;
+    let registry = store.loadRegistry();
+    const bundleIds = new Set(bundles.map(b => b.id));
+
+    const removeBundledSystem = async (id, reason) => {
+      const stored = registry.find(a => a.id === id);
+      if (!stored) return;
+      const isBundledSystem = stored.system === true && (stored.signer === 'NovaByte System' || stored.source === 'system-bundle' || stored.manifest?.system === true);
+      if (!isBundledSystem) return;
+      console.warn(`[BOOT] Removing stale bundled system app (${reason}):`, id);
+      try { if (store.removeApp) await store.removeApp(id, { force: true }); } catch (e) { console.warn('[BOOT] Failed removing stored package', id, e); }
+      try { if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) AppRegistry.unregisterApp(id); } catch (e) { console.warn('[BOOT] Failed unregistering', id, e); }
+      registry = registry.filter(a => a.id !== id);
+      store.saveRegistry(registry);
+    };
+
+    // Anything previously installed as a bundled system package but no longer
+    // present in the current build manifest must disappear from the package
+    // registry. This is what makes deleting/moving a .novaapp actually matter.
+    for (const stored of registry.slice()) {
+      if (stored?.system === true && (stored.signer === 'NovaByte System' || stored.source === 'system-bundle' || stored.manifest?.system === true) && !bundleIds.has(stored.id)) {
+        await removeBundledSystem(stored.id, 'not present in bundled manifest');
+      }
+    }
+
+    for (const bundle of bundles) {
+      let pkg;
+      try {
+        const response = await fetch(bundle.file, { cache: 'no-store' });
+        if (response.status === 404) {
+          await removeBundledSystem(bundle.id, 'source file missing');
+          continue;
+        }
+        if (!response.ok) throw new Error(`package ${response.status}`);
+        pkg = await response.json();
+      } catch (e) {
+        console.warn('[BOOT] Failed to read bundled NovaApp', bundle.id, e);
+        continue;
+      }
+
+      if (!pkg?.manifest?.id || pkg.manifest.id !== bundle.id || pkg.manifest.system !== true) {
+        console.warn('[BOOT] Ignoring invalid bundled NovaApp manifest:', bundle.file);
+        continue;
+      }
+
+      const stored = registry.find(a => a.id === bundle.id);
+      const samePackage = stored && stored.signature === pkg.signature && stored.version === pkg.manifest.version;
+      if (samePackage) continue;
+
+      try {
+        console.log('[BOOT] Reconciling bundled NovaApp:', bundle.id, pkg.manifest.version);
+        await AppPackage.installPackage(pkg, { force: true, source: 'system-bundle', trustStore, revocationCheck });
+
+        const runtimeApp = typeof AppRegistry !== 'undefined' && AppRegistry.getApp
+          ? AppRegistry.getApp(bundle.id)
+          : null;
+        const metadata = store.toMetadata(runtimeApp || { ...pkg.manifest, files: pkg.files, signature: pkg.signature, verified: true, signer: 'NovaByte System', system: true, source: 'system-bundle', manifest: pkg.manifest, novabyte_app: pkg.novabyte_app, compiled_at: pkg.compiled_at });
+        registry = registry.filter(a => a.id !== bundle.id);
+        registry.push(metadata);
+        store.saveRegistry(registry);
+      } catch (e) {
+        console.error('[BOOT] Failed to reconcile bundled NovaApp', bundle.id, e);
+      }
+    }
+  }
+
   function registerWithFiles(appData) {
     if (!appData?.id || !appData.files) return;
 
@@ -630,7 +697,7 @@ async function boot() {
       const result = await AppPackage.verifyAgainstTrustStore(pkg, TrustStore.list(), revocationCheck);
       const verified = !!result.trusted && !result.revoked;
       const signer = verified ? (result.signer || null) : null;
-      const system = verified && signer === 'NovaByte Trusted Signing' && appData?.manifest?.system === true;
+      const system = verified && signer === 'NovaByte System' && appData?.manifest?.system === true;
       const changed = appData.verified !== verified ||
         (appData.signer || null) !== signer ||
         (!!appData.revoked) !== !!result.revoked ||

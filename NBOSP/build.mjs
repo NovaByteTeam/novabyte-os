@@ -148,6 +148,28 @@ async function main() {
   console.log("Staging clean copy of NBOSP...");
   copyClean(nbospDir, stageDir);
 
+  // 2a. Generate the runtime manifest of bundled system .novaapp packages
+  // from the actual staged files. The runtime uses this manifest as the
+  // source-of-truth list when reconciling persisted packages on boot.
+  const bundleAppsStageDir = path.join(stageDir, 'js', 'apps');
+  const bundleManifest = [];
+  if (fs.existsSync(bundleAppsStageDir)) {
+    for (const name of fs.readdirSync(bundleAppsStageDir)) {
+      if (!name.endsWith('.novaapp')) continue;
+      const fullPath = path.join(bundleAppsStageDir, name);
+      try {
+        const pkg = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+        if (pkg?.manifest?.id && pkg?.manifest?.system === true) {
+          bundleManifest.push({ id: pkg.manifest.id, file: `js/apps/${name}` });
+        }
+      } catch (e) {
+        console.warn(`Skipping invalid bundled .novaapp ${name}:`, e.message);
+      }
+    }
+  }
+  bundleManifest.sort((a, b) => a.id.localeCompare(b.id));
+  fs.writeFileSync(path.join(bundleAppsStageDir, 'novaapp-manifest.json'), JSON.stringify(bundleManifest, null, 2) + '\n');
+
   // 2b. package.json's window.icon/window.icons is the RUNTIME window icon
   // NW.js loads when the packaged app actually launches — separate from the
   // packaging-time icon passed to appExtra() below (which sets the .exe file

@@ -110,7 +110,7 @@ const AppSandbox = (() => {
     } catch (_) {}
     return candidates.some(app =>
       app?.verified === true &&
-      app?.signer === 'NovaByte Trusted Signing' &&
+      app?.signer === 'NovaByte System' &&
       app?.manifest?.system === true
     );
   }
@@ -448,6 +448,14 @@ const AppSandbox = (() => {
   // needs no further escaping. We embed it via JSON.stringify so the JS
   // string literal is well-formed regardless of base64 padding characters.
   function respond(webview, type, requestId, result, error = null) {
+    if (typeof webview?.__directResponder === 'function') {
+      try {
+        webview.__directResponder({ type: `${type}:response`, requestId, result, error });
+      } catch (e) {
+        log('error', `Failed to respond directly to ${type}:`, e);
+      }
+      return;
+    }
     try {
       const json = JSON.stringify({ type: `${type}:response`, requestId, result, error });
       const b64 = encodeBase64Utf8(json);
@@ -1917,6 +1925,144 @@ const AppSandbox = (() => {
   // (no _meta.editable, no full settings) but always 200s, so the leanest
   // honest check is a settings fetch and looking at whether the admin-only
   // fields came back.
+  // ── Settings-only unrestricted handlers ──────────────────────────────
+  // Everything below is gated by UnrestrictedGate before it's ever
+  // reached (see handleAPICall's dispatch) — these functions do NOT
+  // re-check app.id/system/verified/signer themselves, on purpose. That
+  // check lives in exactly one place (unrestricted-gate.js) so it can't
+  // drift out of sync between handlers the way isTrustedTransparentSystemApp
+  // and installPackage's system-flag logic almost did earlier. A handler
+  // reached via any other path (there isn't one — API_HANDLERS is the
+  // only dispatch table) would still be unprotected, which is exactly why
+  // the gate lives in handleAPICall itself, not in each handler.
+
+  async function handleSystemPermissionsList({ requestId, webview }) {
+    if (typeof AppPermissionManager === 'undefined' || typeof AppRegistry === 'undefined') {
+      return respondError(webview, 'nova:system:permissions:list', requestId, 'UNAVAILABLE', 'Permission system not available');
+    }
+    const apps = (typeof APP_REGISTRY !== 'undefined' && Array.isArray(APP_REGISTRY)) ? APP_REGISTRY : [];
+    const result = apps.map(a => ({
+      id: a.id,
+      name: a.name,
+      grants: typeof AppPermissionManager.getAppPermissions === 'function'
+        ? AppPermissionManager.getAppPermissions(a.id)
+        : [],
+    }));
+    return respond(webview, 'nova:system:permissions:list', requestId, { success: true, apps: result });
+  }
+
+  async function handleSystemPermissionsSet({ payload, requestId, webview }) {
+    if (typeof AppPermissionManager === 'undefined') {
+      return respondError(webview, 'nova:system:permissions:set', requestId, 'UNAVAILABLE', 'Permission system not available');
+    }
+    const { appId, permission, granted } = payload || {};
+    if (!appId || !permission || typeof granted !== 'boolean') {
+      return respondError(webview, 'nova:system:permissions:set', requestId, 'INVALID_ARGS', 'appId, permission, and a boolean granted are required');
+    }
+    try {
+      if (granted) {
+        await AppPermissionManager.grantPermission(permission, appId, { source: 'settings' });
+      } else {
+        await AppPermissionManager.revokePermission(permission, appId);
+      }
+    } catch (e) {
+      return respondError(webview, 'nova:system:permissions:set', requestId, 'INTERNAL_ERROR', e?.message || 'Failed to update permission');
+    }
+    return respond(webview, 'nova:system:permissions:set', requestId, { success: true, appId, permission, granted });
+  }
+
+  async function handleSystemPermissionsReset({ payload, requestId, webview }) {
+    if (typeof AppPermissionManager === 'undefined') {
+      return respondError(webview, 'nova:system:permissions:reset', requestId, 'UNAVAILABLE', 'Permission system not available');
+    }
+    const { appId, permission } = payload || {};
+    if (!appId) {
+      return respondError(webview, 'nova:system:permissions:reset', requestId, 'INVALID_ARGS', 'appId is required');
+    }
+    try {
+      if (permission) {
+        await AppPermissionManager.resetPermission(permission, appId);
+      } else if (typeof AppPermissionManager.revokeAllPermissions === 'function') {
+        await AppPermissionManager.revokeAllPermissions(appId);
+      }
+    } catch (e) {
+      return respondError(webview, 'nova:system:permissions:reset', requestId, 'INTERNAL_ERROR', e?.message || 'Failed to reset permission(s)');
+    }
+    return respond(webview, 'nova:system:permissions:reset', requestId, { success: true, appId, permission: permission || null });
+  }
+
+  // Mirrors settings.js's existing localStorage.length/key()/getItem() loop
+  // exactly (see renderPrivacy's backup path) — same data, just moved
+  // behind an IPC call instead of a direct host-global read.
+  async function handleSystemDataBackup({ requestId, webview }) {
+    if (typeof localStorage === 'undefined') {
+      return respondError(webview, 'nova:system:data:backup', requestId, 'UNAVAILABLE', 'localStorage not available in this context');
+    }
+    const localStorageData = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      localStorageData[key] = localStorage.getItem(key);
+    }
+    const settingsData = (typeof OS !== 'undefined' && OS.settings?._cache) ? { ...OS.settings._cache } : {};
+    return respond(webview, 'nova:system:data:backup', requestId, {
+      success: true,
+      localStorage: localStorageData,
+      settings: settingsData,
+      capturedAt: new Date().toISOString(),
+    });
+  }
+
+  // Mirrors settings.js's existing restore path (setItem per key, plus a
+  // clear-first option for full reset) — moved behind IPC the same way.
+  async function handleSystemDataRestore({ payload, requestId, webview }) {
+    if (typeof localStorage === 'undefined') {
+      return respondError(webview, 'nova:system:data:restore', requestId, 'UNAVAILABLE', 'localStorage not available in this context');
+    }
+    const { localStorage: dataToRestore, settings: settingsToRestore, clearFirst } = payload || {};
+    if (clearFirst) {
+      try { localStorage.clear(); } catch (e) { log('warn', 'localStorage.clear() failed during restore:', e); }
+    }
+    let restoredKeys = 0;
+    if (dataToRestore && typeof dataToRestore === 'object') {
+      for (const [k, v] of Object.entries(dataToRestore)) {
+        try { localStorage.setItem(k, v); restoredKeys++; }
+        catch (e) { log('warn', `localStorage.setItem failed for ${k}:`, e); }
+      }
+    }
+    if (settingsToRestore && typeof settingsToRestore === 'object' && typeof OS !== 'undefined' && OS.settings) {
+      for (const [k, v] of Object.entries(settingsToRestore)) {
+        try {
+          if (OS.settings._cache) OS.settings._cache[k] = v;
+          if (typeof OS.settings.set === 'function') OS.settings.set(k, v);
+        } catch (e) { log('warn', `OS.settings restore failed for ${k}:`, e); }
+      }
+    }
+    return respond(webview, 'nova:system:data:restore', requestId, { success: true, restoredKeys, cleared: !!clearFirst });
+  }
+
+  async function handleSystemPreferencesGet({ payload, requestId, webview }) {
+    if (typeof OS === 'undefined' || !OS.settings || typeof OS.settings.get !== 'function') {
+      return respondError(webview, 'nova:system:preferences:get', requestId, 'UNAVAILABLE', 'OS.settings not available');
+    }
+    const key = payload?.key;
+    if (key) {
+      return respond(webview, 'nova:system:preferences:get', requestId, { success: true, key, value: OS.settings.get(key) });
+    }
+    return respond(webview, 'nova:system:preferences:get', requestId, { success: true, all: { ...(OS.settings._cache || {}) } });
+  }
+
+  async function handleSystemPreferencesSet({ payload, requestId, webview }) {
+    if (typeof OS === 'undefined' || !OS.settings || typeof OS.settings.set !== 'function') {
+      return respondError(webview, 'nova:system:preferences:set', requestId, 'UNAVAILABLE', 'OS.settings not available');
+    }
+    const { key, value } = payload || {};
+    if (!key) {
+      return respondError(webview, 'nova:system:preferences:set', requestId, 'INVALID_ARGS', 'key is required');
+    }
+    OS.settings.set(key, value);
+    return respond(webview, 'nova:system:preferences:set', requestId, { success: true, key, value });
+  }
+
   async function isAdminEnabledClient() {
     try {
       const { json } = await authedJsonFetch('/api/security/settings');
@@ -2141,6 +2287,15 @@ const AppSandbox = (() => {
     // half-uninstall something that isn't really an installed package.
     if (target.source !== 'file') {
       return respondError(webview, 'nova:app:uninstall', requestId, 'NOT_UNINSTALLABLE', `"${target.name}" is a built-in system app and cannot be uninstalled`);
+    }
+    // System-signed .novaapp packages (verified against the dedicated
+    // 'NovaByte System' trust-store key, see app-package.js) are equally
+    // not user- or app-removable, same reasoning as the built-in check
+    // above — PackageStore.removeApp() enforces this too, but checking
+    // here first gives a clearer error code/message than letting it fall
+    // through to a generic UNAVAILABLE/silent-false from that call.
+    if (target.system === true) {
+      return respondError(webview, 'nova:app:uninstall', requestId, 'NOT_UNINSTALLABLE', `"${target.name}" is a system app and cannot be uninstalled`);
     }
 
     // Mirrors appmanager.js's doUninstall(): close open windows, then
@@ -3292,6 +3447,16 @@ const AppSandbox = (() => {
   // bridge. Unknown types get an UNKNOWN_API error response.
   async function handleAPICall(type, payload, requestId, app, webview, sandbox) {
     try {
+      if (typeof UnrestrictedGate !== 'undefined' && UnrestrictedGate.isUnrestrictedCall(type)) {
+        const verdict = await UnrestrictedGate.checkUnrestrictedCall(type, app);
+        if (!verdict.allowed) {
+          log('warn', `Blocked unrestricted call ${type} from ${app?.id || 'unknown'}: ${verdict.reason}`);
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'UnrestrictedGate', category: 'security', severity: 'error', message: `Blocked ${type} from ${app?.id || 'unknown'}`, data: { type, appId: app?.id, reason: verdict.reason } });
+          }
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', verdict.reason);
+        }
+      }
       const handler = API_HANDLERS[type];
       if (!handler) {
         return respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
@@ -3494,12 +3659,34 @@ const AppSandbox = (() => {
   // renderer-process boundary. Unrecognised permissions are denied by
   // default — fail-closed is the safe choice.
   function setupPermissionRequestGate(webview, app) {
+    // NW.js/Chromium can surface the same underlying permission request more
+    // than once. Calling allow()/deny() twice on that request throws
+    // `Permission has already been decided`. WeakSet keeps this one-shot
+    // without retaining request objects after Chromium releases them.
+    const decidedRequests = new WeakSet();
+
+    const decide = (e, allowed) => {
+      const request = e?.request;
+      if (!request || (typeof request.allow !== 'function' && typeof request.deny !== 'function')) return;
+      if (decidedRequests.has(request)) return;
+      decidedRequests.add(request);
+      try {
+        if (allowed && typeof request.allow === 'function') request.allow();
+        else if (!allowed && typeof request.deny === 'function') request.deny();
+      } catch (err) {
+        // Chromium may auto-resolve a request between the guard and the call.
+        // That is harmless; don't turn it into an uncaught app error.
+        log('debug', `Permission request for ${app?.id || 'unknown app'} was already decided`, err?.message || err);
+      }
+    };
+
     const handler = (e) => {
+      if (!e?.request || decidedRequests.has(e.request)) return;
       if (e.permission === 'geolocation') {
         if (AppPermissionManager?.isGranted('device:geolocation', app.id)) {
-          e.request.allow();
+          decide(e, true);
         } else {
-          e.request.deny();
+          decide(e, false);
         }
         return;
       }
@@ -3518,16 +3705,16 @@ const AppSandbox = (() => {
         const camOk = AppPermissionManager?.isGranted('device:camera', app.id);
         const micOk = AppPermissionManager?.isGranted('device:microphone', app.id);
         if (camOk || micOk) {
-          e.request.allow();
+          decide(e, true);
         } else {
-          e.request.deny();
+          decide(e, false);
         }
         return;
       }
       // Default-deny any permission we don't explicitly handle. The previous
       // implementation left these to the webview's default, which is
       // non-portable and can silently allow access.
-      if (typeof e.request.deny === 'function') e.request.deny();
+      decide(e, false);
     };
     webview.addEventListener('permissionrequest', handler);
     return () => webview.removeEventListener('permissionrequest', handler);
@@ -4830,7 +5017,32 @@ const AppSandbox = (() => {
         // Use UTF-8-safe base64 so non-ASCII content survives the round-trip.
         const shimmedFiles = Object.assign({}, app.files);
         const rawHtml = decodeBase64Utf8(shimmedFiles[app.entry]);
-        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(rawHtml, app));
+        const transparentHtml = app.transparent
+          ? rawHtml.replace(
+              /<head(\s[^>]*)?>/i,
+              (m) => `${m}<style id=\"novaapp-transparent-root\">html,body{background:transparent !important;}
+                /* The rule above only reaches html/body. Chromium/NW.js's
+                   <webview> guest paints its own root document with an
+                   opaque canvas independent of that — this was previously
+                   assumed to be covered by webview.style.backgroundColor
+                   (see createSandbox()), but that only affects the webview
+                   element itself, not the guest document painted inside it.
+                   Without a rule reaching every element, an app's own
+                   top-level wrapper (however it structures its markup —
+                   #app, #root, a bare body>div, etc.) still paints its
+                   default engine background and blocks the host window's
+                   glass backdrop, even though the app's own CSS never set
+                   an opaque background anywhere. Force every element
+                   transparent by default; anything the app explicitly
+                   colors (buttons, badges, hover states, deliberate
+                   opaque surfaces) still wins normally, since author
+                   styles loaded via <link>/inline <style> come later in
+                   the cascade and this uses the universal selector at
+                   equal specificity, not !important. */
+                *{background-color:transparent}</style>`
+            )
+          : rawHtml;
+        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(transparentHtml, app));
 
         const regRes = await fetch('/api/apps/serve/register', {
           method: 'POST',
@@ -5171,10 +5383,41 @@ const AppSandbox = (() => {
       width: 100%;
       height: 100%;
       border: none;
-      background: white;
+      background: transparent;
       display: flex;
       flex-direction: column;
     `;
+
+    // Transparent NovaApps must not paint an opaque webview canvas over the
+    // host window's glass backdrop.
+    //
+    // NW.js/Chromium's <webview> is a real embedder tag (not an <iframe>),
+    // and unlike the top-level BrowserWindow "transparent" feature (which
+    // is a documented, compositor-level NW.js feature — see
+    // "Transparent Window" in the NW.js docs), there is no equivalent
+    // documented guarantee that a nested <webview>'s own rendered surface
+    // composites transparently against whatever sits behind it in the
+    // embedder page. The `background: transparent` above only avoids the
+    // webview element's own CSS box painting a color — it does not by
+    // itself confirm the browser process is compositing the guest's
+    // rendered surface with per-pixel alpha rather than flattening it to
+    // opaque before handing it back to the embedder.
+    //
+    // `allowtransparency` is the older Chromium/WebKit iframe-family
+    // attribute for exactly this (it predates <webview> but the tag
+    // inherits from the same guest-view family) — setting it plus an
+    // explicit zero-alpha rgba() (rather than the `transparent` keyword,
+    // which some Chromium versions resolve differently for compositing
+    // purposes than an explicit alpha channel of 0) is the standard
+    // combination people reach for. Kept unconditional (not gated behind
+    // `if (app.transparent)`) since the base cssText above already always
+    // sets background:transparent regardless — there's no reason for this
+    // to be conditional on the same flag when it isn't gating anything
+    // additional.
+    if (app.transparent) {
+      webview.setAttribute('allowtransparency', 'true');
+      webview.style.backgroundColor = 'rgba(0, 0, 0, 0)';
+    }
 
     webview.dataset.sandboxId = sandboxId;
     webview.dataset.appId = app.id;
@@ -5246,12 +5489,222 @@ const AppSandbox = (() => {
     return webview;
   }
 
+  // Trusted System transparent NovaApps use an isolated iframe rather than the
+  // NW.js <webview> compositor surface. This preserves the host window's glass
+  // while keeping the app DOM isolated from NBOSP itself. The iframe is sandboxed
+  // without allow-same-origin, so the guest cannot reach the parent document.
+  function isTrustedTransparentSystemApp(app) {
+    return !!(
+      app &&
+      app.transparent === true &&
+      app.system === true &&
+      app.verified === true &&
+      app.signer === 'NovaByte System' &&
+      app.manifest?.system === true
+    );
+  }
+
+  function directSystemPackageFile(app, filePath) {
+    const files = app?.files || {};
+    const raw = String(filePath || '').replace(/^\.\//, '');
+    if (Object.prototype.hasOwnProperty.call(files, raw)) return { path: raw, data: files[raw] };
+    const decoded = raw.startsWith('/') ? raw.slice(1) : raw;
+    if (Object.prototype.hasOwnProperty.call(files, decoded)) return { path: decoded, data: files[decoded] };
+    return null;
+  }
+
+  function packageMime(pathname) {
+    const ext = String(pathname).split('.').pop()?.toLowerCase() || '';
+    return ({
+      html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
+      json: 'application/json', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon', avif: 'image/avif', webm: 'video/webm',
+      mp4: 'video/mp4', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', woff: 'font/woff',
+      woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf', bin: 'application/octet-stream'
+    })[ext] || 'application/octet-stream';
+  }
+
+  function packageDataUrl(app, filePath) {
+    const hit = directSystemPackageFile(app, filePath);
+    return hit ? `data:${packageMime(hit.path)};base64,${hit.data}` : null;
+  }
+
+  function rewriteSystemPackageUrls(root, app) {
+    for (const attr of ['src', 'poster', 'href']) {
+      root.querySelectorAll?.(`[${attr}]`).forEach(el => {
+        const raw = el.getAttribute(attr);
+        if (!raw || /^(?:[a-z][a-z0-9+.-]*:|#|\/|\/\/)/i.test(raw)) return;
+        const dataUrl = packageDataUrl(app, raw);
+        if (dataUrl) el.setAttribute(attr, dataUrl);
+      });
+    }
+    root.querySelectorAll?.('style').forEach(style => {
+      style.textContent = String(style.textContent || '').replace(
+        /url\((\s*)(['"]?)(?!data:|blob:|https?:|\/\/|#|\/)([^'")]+)\2(\s*)\)/gi,
+        (_m, ws, q, path, tail) => {
+          const dataUrl = packageDataUrl(app, path);
+          return dataUrl ? `url(${ws}${q}${dataUrl}${q}${tail})` : _m;
+        }
+      );
+    });
+  }
+
+  function buildTrustedTransparentIframeDocument(app, iframeToken) {
+    const entry = app.entry || 'index.html';
+    const entryFile = directSystemPackageFile(app, entry);
+    if (!entryFile) throw new Error(`Entry file not found: ${entry}`);
+
+    const parsed = new DOMParser().parseFromString(decodeBase64Utf8(entryFile.data), 'text/html');
+    if (!parsed?.documentElement) throw new Error('Invalid HTML document');
+
+    parsed.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]').forEach(meta => meta.remove());
+
+    const bridge = `(function(){
+      const TOKEN=${JSON.stringify(iframeToken)};
+      const pending=new Map();
+      let seq=0;
+      function request(type,payload){
+        return new Promise((resolve,reject)=>{
+          const requestId='nova-iframe-'+Date.now().toString(36)+'-'+(++seq);
+          pending.set(requestId,{resolve,reject});
+          parent.postMessage({__novaTransparentRequest:true,token:TOKEN,type,payload:payload||{},requestId},'*');
+        });
+      }
+      window.addEventListener('message',function(event){
+        const msg=event&&event.data;
+        if(!msg||msg.__novaTransparentResponse!==true||msg.token!==TOKEN)return;
+        const entry=pending.get(msg.requestId);
+        if(!entry)return;
+        pending.delete(msg.requestId);
+        if(msg.error){const err=new Error(msg.error.message||'Nova API error');if(msg.error.code)err.code=msg.error.code;entry.reject(err);}else entry.resolve(msg.result);
+      });
+      window.nova=window.nova||{};
+      window.nova.ipc=request;
+    })();`;
+
+    const csp = parsed.createElement('meta');
+    csp.httpEquiv = 'Content-Security-Policy';
+    csp.content = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data: blob: https:; connect-src https: blob:; frame-src 'none'; object-src 'none'";
+    parsed.head.insertBefore(csp, parsed.head.firstChild);
+
+    const bridgeScript = parsed.createElement('script');
+    bridgeScript.textContent = bridge;
+    parsed.head.insertBefore(bridgeScript, parsed.head.firstChild.nextSibling);
+
+    const transparencyStyle = parsed.createElement('style');
+    transparencyStyle.id = 'novaapp-transparent-root';
+    transparencyStyle.textContent = 'html,html body,body{background:transparent !important;background-color:transparent !important;}';
+    parsed.head.appendChild(transparencyStyle);
+
+    for (const link of Array.from(parsed.querySelectorAll('link[rel="stylesheet"]'))) {
+      const href = link.getAttribute('href');
+      const cssFile = href && directSystemPackageFile(app, href);
+      if (cssFile) {
+        const style = parsed.createElement('style');
+        style.textContent = decodeBase64Utf8(cssFile.data);
+        link.replaceWith(style);
+      }
+    }
+
+    for (const sourceScript of Array.from(parsed.querySelectorAll('script'))) {
+      if (!sourceScript.parentNode) continue;
+      const src = sourceScript.getAttribute('src');
+      if (src) {
+        const jsFile = directSystemPackageFile(app, src);
+        if (!jsFile) { sourceScript.remove(); continue; }
+        sourceScript.removeAttribute('src');
+        sourceScript.textContent = decodeBase64Utf8(jsFile.data);
+      }
+    }
+
+    rewriteSystemPackageUrls(parsed, app);
+    return '<!doctype html>\n' + parsed.documentElement.outerHTML;
+  }
+
+  async function launchTrustedTransparentSystemApp(app, container, state) {
+    container.innerHTML = '';
+
+    const iframe = document.createElement('iframe');
+    iframe.className = 'nova-system-transparent-frame';
+    iframe.setAttribute('title', app.manifest?.name || app.name || app.id || 'NovaByte App');
+    iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-modals');
+    iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;border:0;margin:0;padding:0;background:transparent;color-scheme:normal;';
+    iframe.style.setProperty('background-color', 'transparent', 'important');
+    container.style.background = 'transparent';
+    container.appendChild(iframe);
+
+    const iframeToken = `${app.id}:${state?.id || ''}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const fakeWebview = {
+      dataset: { appId: app.id, sandboxId: `transparent_${app.id}` },
+      __directResponder: null,
+      executeScript() { return undefined; },
+      addEventListener() {},
+      removeEventListener() {},
+      getAttribute() { return 'allow-scripts allow-forms allow-popups allow-modals'; },
+    };
+    const directSandbox = { appId: app.id, app, webview: fakeWebview, windowId: state?.id, transparentIframe: true };
+
+    const messageHandler = async (event) => {
+      const msg = event?.data;
+      if (!msg || msg.__novaTransparentRequest !== true || msg.token !== iframeToken || event.source !== iframe.contentWindow) return;
+      try {
+        await handleAPICall(msg.type, msg.payload || {}, msg.requestId, app, fakeWebview, directSandbox);
+      } catch (err) {
+        iframe.contentWindow?.postMessage({
+          __novaTransparentResponse: true,
+          token: iframeToken,
+          requestId: msg.requestId,
+          error: { code: err?.code || 'ERROR', message: err?.message || String(err) }
+        }, '*');
+      }
+    };
+
+    fakeWebview.__directResponder = (message) => {
+      iframe.contentWindow?.postMessage({
+        __novaTransparentResponse: true,
+        token: iframeToken,
+        requestId: message?.requestId,
+        result: message?.result,
+        error: message?.error || null
+      }, '*');
+    };
+
+    window.addEventListener('message', messageHandler);
+    try {
+      iframe.srcdoc = buildTrustedTransparentIframeDocument(app, iframeToken);
+    } catch (err) {
+      window.removeEventListener('message', messageHandler);
+      iframe.remove();
+      throw err;
+    }
+
+    return {
+      success: true,
+      trustedSystem: true,
+      isolated: true,
+      transparent: true,
+      sandboxId: null,
+      appId: app.id,
+      windowId: state?.id,
+      webview: null,
+      cleanup: () => {
+        window.removeEventListener('message', messageHandler);
+        try { iframe.srcdoc = ''; } catch (_) {}
+        try { iframe.remove(); } catch (_) {}
+      },
+    };
+  }
+
   // Public lifecycle
 
   // Launch an app in a sandboxed environment.
   function launch(app, container, state, options = {}) {
     if (!container) {
       throw new Error('Container element is required');
+    }
+
+    if (isTrustedTransparentSystemApp(app)) {
+      return launchTrustedTransparentSystemApp(app, container, state);
     }
 
     // Clear container — any previous webview (and its listeners) goes away.

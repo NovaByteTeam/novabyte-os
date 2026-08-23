@@ -49,7 +49,121 @@
       el.textContent = str;
       return el.innerHTML;
     }
-    function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
+    // ── System-impersonation gate ─────────────────────────────────────────
+// A package can claim `manifest.system === true` freely — that field is
+// just JSON the installer writes, anyone can set it. What actually makes
+// `system` meaningful downstream (isTrustedTransparentSystemApp in
+// app-sandbox.js, the System badge here) is verified===true AND
+// signer==='NovaByte System'. So an untrusted OR tampered package that
+// also claims system:true isn't an ordinary "unknown publisher" case —
+// there's no legitimate reason for a real NovaByte System package to
+// ever fail verification, since js/apps/novaapp-manifest.json (fetched
+// below) is the actual, non-installable list of ids allowed to carry that
+// claim; nothing an install flow does can add an entry to it. A failure
+// on that specific combination means either a bug in a real release, or
+// something pretending to be one — both warrant a hard stop, not a
+// one-click "Install Anyway" meant for ambiguous unknown-publisher cases.
+let _firstPartyManifestCache = null;
+async function _getFirstPartyAppIds() {
+  if (_firstPartyManifestCache) return _firstPartyManifestCache;
+  try {
+    const response = await fetch('js/apps/novaapp-manifest.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`manifest ${response.status}`);
+    const parsed = await response.json();
+    _firstPartyManifestCache = new Set(
+      Array.isArray(parsed) ? parsed.filter(x => x?.id).map(x => x.id) : []
+    );
+  } catch (e) {
+    console.warn('[AppManager] Could not load first-party manifest for impersonation check:', e);
+    // Fail closed: if the manifest can't be read, treat the id list as
+    // empty rather than skip the check — an empty set still catches any
+    // package claiming system:true, since none can match an empty list.
+    _firstPartyManifestCache = new Set();
+  }
+  return _firstPartyManifestCache;
+}
+
+/**
+ * Returns true if this package should be hard-blocked as a suspected
+ * system-app impersonation attempt, rather than routed through the
+ * ordinary untrusted/tamper dialogs.
+ *
+ * Fires when the package claims manifest.system===true AND either:
+ *   - its id matches a real first-party id but verification/integrity
+ *     failed (a genuine NovaByte System package should never fail this), or
+ *   - its id does NOT match any first-party id at all (nothing but the
+ *     four ids in novaapp-manifest.json has any legitimate claim to
+ *     system:true — a fifth id claiming it has no honest explanation).
+ */
+async function isSuspectedSystemImpersonation(pkg, { verified, integrityStatus }) {
+  if (pkg?.manifest?.system !== true) return false;
+  const firstPartyIds = await _getFirstPartyAppIds();
+  const claimedId = pkg?.manifest?.id;
+  const isKnownId = firstPartyIds.has(claimedId);
+  const trustOk = verified === true;
+  const integrityOk = integrityStatus !== 'failed';
+  if (!isKnownId) return true;
+  return !(trustOk && integrityOk);
+}
+
+function showSystemImpersonationDialog(appData) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
+
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.8);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:nb-fade-in 180ms ease-out;';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'position:relative;background:var(--bg-elevated,#1e1e1e);border:1px solid rgba(248,81,73,0.55);border-radius:14px;max-width:520px;width:94%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.65),0 0 0 1px rgba(255,255,255,0.04) inset,0 0 50px rgba(248,81,73,0.12);animation:nb-slide-up 220ms cubic-bezier(0.16,1,0.3,1);';
+
+    const safeName = escapeHtml(appData?.name || appData?.id || 'This package');
+    const safeId = escapeHtml(appData?.id || '(none)');
+
+    box.innerHTML = `
+      <div style="padding:20px 24px 16px;border-bottom:1px solid var(--border-subtle,rgba(255,255,255,0.06));display:flex;align-items:flex-start;gap:14px;">
+        <div style="width:44px;height:44px;border-radius:12px;background:rgba(248,81,73,0.14);border:1px solid rgba(248,81,73,0.5);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:20px;line-height:1;">\uD83D\uDEAB</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:15px;font-weight:700;color:var(--text-primary,#eee);margin-bottom:5px;letter-spacing:-0.01em;">Blocked — Suspected System Impersonation</div>
+          <div style="font-size:13px;color:var(--text-secondary,#bbb);line-height:1.55;">
+            <b>${safeName}</b> <span style="color:var(--text-muted,#888);">(${safeId})</span> declares itself a NovaByte System package but does not hold a valid, matching System signature and intact contents.
+          </div>
+        </div>
+      </div>
+      <div style="padding:16px 24px;display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;">
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.4);border-radius:8px;">
+          <div style="width:6px;height:6px;border-radius:50%;background:#f85149;flex-shrink:0;margin-top:7px;box-shadow:0 0 6px #f85149;"></div>
+          <div style="font-size:12.5px;color:var(--text-secondary,#ccc);line-height:1.55;">
+            <div style="font-weight:600;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted,#999);">Why this is blocked, not just a warning</div>
+            A real NovaByte System package has no legitimate reason to fail signature or integrity verification. This combination — claiming the System badge while failing that check — is a defining sign of an attempt to impersonate a trusted system component rather than an ordinary publishing mistake. NovaByte OS does not offer an override for this case.
+          </div>
+        </div>
+      </div>
+      <div style="padding:12px 24px 16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,0.06));background:var(--bg-sunken,rgba(0,0,0,0.15));display:flex;align-items:center;justify-content:flex-end;">
+        <button id="nb-impersonation-ack-btn" style="background:rgba(248,81,73,0.15);border:1px solid rgba(248,81,73,0.4);color:#f85149;padding:7px 16px;border-radius:7px;font-size:12.5px;cursor:pointer;transition:all 0.12s;font-weight:600;">Okay</button>
+      </div>
+    `;
+
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+      @keyframes nb-fade-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes nb-slide-up { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+      #nb-impersonation-ack-btn:hover { background:rgba(248,81,73,0.25);border-color:rgba(248,81,73,0.6); }
+      #nb-impersonation-ack-btn:active { transform:scale(0.97); }
+    `;
+    document.head.appendChild(styleEl);
+
+    overlay.appendChild(backdrop);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const cleanup = () => { overlay.remove(); styleEl.remove(); };
+    box.querySelector('#nb-impersonation-ack-btn').addEventListener('click', () => { cleanup(); resolve(false); });
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { cleanup(); resolve(false); } });
+  });
+}
+
+function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
       return new Promise(resolve => {
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;font-family:var(--font-ui,sans-serif);';
@@ -550,7 +664,7 @@
       console.log('[AppManager][DIAG] launch appId=', JSON.stringify(appId), 'partition=', 'persist:app_' + appId);
 
       const isSystemSigned = appData.verified === true &&
-        appData.signer === 'NovaByte Trusted Signing' &&
+        appData.signer === 'NovaByte System' &&
         appData.manifest?.system === true;
 
       return {
@@ -645,6 +759,19 @@
               // isNestedWebviewPermitted() in app-sandbox.js. Must also hold
               // the 'sandbox:nested-webview' grant; this alone doesn't enable it.
               allowNestedWebview: appData.allowNestedWebview === true,
+              // These three were previously dropped here, so app-sandbox.js's
+              // app.transparent check (the html/body background injection)
+              // and isTrustedTransparentSystemApp() gate (transparent + system
+              // + verified + signer) could never pass regardless of what the
+              // manifest declared — the window chrome (wm.js) reads a
+              // different, separately-populated app object and had these
+              // fields all along, which is why the titlebar alone looked
+              // right while the content stayed opaque.
+              transparent: appData.transparent === true,
+              system: appData.manifest?.system === true,
+              verified: appData.verified === true,
+              signer: appData.signer,
+              manifest: appData.manifest,
             };
             try {
               return await AppSandbox.launch(sandboxApp, contentEl, state || {}, options || {});
@@ -1335,11 +1462,10 @@ registerApp({
         const pad = compact ? '1px 6px' : '2px 7px';
         const badges = [];
         const isSystemSigned = app?.verified === true &&
-          app?.signer === 'NovaByte Trusted Signing' &&
+          app?.signer === 'NovaByte System' &&
           app?.manifest?.system === true;
         // System status is derived from the signed manifest and current trust
         // state rather than a separately cached boolean.
- (app-package.js)
         // from the verified signer identity — never read from the package's own
         // manifest.json, same principle as app.verified/app.signer above. A package
         // that declares "system": true in its manifest gets no special treatment;
@@ -1567,8 +1693,11 @@ registerApp({
         );
 
         const uninstBtn = makeActionBtn(
-          'Uninstall', 'trash',
-          'background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);color:#f85149;',
+          app.system ? 'System App' : 'Uninstall',
+          app.system ? 'lock' : 'trash',
+          app.system
+            ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
+            : 'background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);color:#f85149;',
           () => doUninstall(app.id)
         );
 
@@ -1771,6 +1900,17 @@ registerApp({
               }
             } catch (_) { verified = false; }
 
+            // ── System-impersonation hard block ──
+            // Checked BEFORE the ordinary trust/integrity dialogs below.
+            // Those dialogs assume ambiguity ("could be a legit unsigned
+            // dev app") and offer a bypass. A package claiming system:true
+            // that fails verification has no such ambiguous legitimate
+            // case, so it never reaches that bypass-capable branch at all.
+            if (await isSuspectedSystemImpersonation(pkg, { verified, integrityStatus })) {
+              await showSystemImpersonationDialog(pkg.manifest);
+              return;
+            }
+
             // Trust and/or integrity failure gate. Same four shapes as the
             // launch path, and for the same reason: a combo (both fail)
             // gets ONE dialog instead of two chained ones; either failing
@@ -1828,7 +1968,7 @@ registerApp({
             // necessary.
 
             const system = verified === true &&
-              signer === 'NovaByte Trusted Signing' &&
+              signer === 'NovaByte System' &&
               pkg.manifest?.system === true;
             const appData = {
               novabyte_app: pkg.novabyte_app,
@@ -1878,6 +2018,20 @@ registerApp({
       async function doUninstall(appId) {
         const app = installedApps.find(a => a.id === appId);
         if (!app) return;
+
+        // System apps are not user-removable, full stop — matches the
+        // original bundled-.js behavior before these were repackaged as
+        // .novaapp. This check lives here (not just in the button) so it
+        // holds regardless of what calls doUninstall.
+        if (app.system) {
+          Notify.show({
+            title: 'Cannot Uninstall',
+            body: `${app.name} is a system app and cannot be removed.`,
+            type: 'error', appName: 'App Manager'
+          });
+          return;
+        }
+
         const uninstallResult = await showModal(
           'Uninstall App',
           `Uninstall "${app.name}" v${app.version}? This cannot be undone.`,

@@ -92,7 +92,7 @@ const AppRegistry = (() => {
           app.autoGrant = false;
         }
         const restoredSystem = app.verified === true &&
-          app.signer === 'NovaByte Trusted Signing' &&
+          app.signer === 'NovaByte System' &&
           app.manifest?.system === true;
         app.system = restoredSystem;
         installedApps.set(app.id, app);
@@ -214,10 +214,12 @@ const AppRegistry = (() => {
     }
 
     // `system` is authoritative only when it is declared in the signed
-    // manifest and the package is verified by NovaByte Trusted Signing.
+    // manifest and the package is verified by the dedicated NovaByte
+    // System signing key (a separate, more tightly held key from the
+    // general trusted-signing one — see trust-store.js).
     // Never trust a caller-supplied appConfig.system by itself.
     const isSystemSigned = appConfig.verified === true &&
-      appConfig.signer === 'NovaByte Trusted Signing' &&
+      appConfig.signer === 'NovaByte System' &&
       appConfig.manifest?.system === true;
 
     const app = {

@@ -523,9 +523,14 @@ const AppPackage = (() => {
 
     // A package may declare itself as a system app, but that declaration
     // only has authority when the package has been cryptographically
-    // verified by NovaByte's trusted signing authority. The manifest flag
-    // is part of the signed payload, so it cannot be changed after signing.
-    const system = verified && signer === 'NovaByte Trusted Signing' && pkg.manifest?.system === true;
+    // verified against the dedicated System signing key — a separate,
+    // more tightly held key from the general trusted-signing one (see
+    // trust-store.js's 'NovaByte System' entry). Checking against the
+    // general trusted-signing entry here would let any reviewed
+    // third-party app claim system: true, which defeats the point of
+    // having a separate system key at all. The manifest flag is part of
+    // the signed payload, so it cannot be changed after signing.
+    const system = verified && signer === 'NovaByte System' && pkg.manifest?.system === true;
 
     const appConfig = {
       ...pkg.manifest,

@@ -1760,6 +1760,7 @@ function renderDesktopIcons() {
         try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
       })();
       const isUserApp = storedApps.some(a => a.id === app.id);
+      const isSystemApp = storedApps.some(a => a.id === app.id && a.system === true);
       const items = [
         { label: 'Open', icon: 'play', action: () => WM.createWindow(app.id) },
         { separator: true },
@@ -1786,7 +1787,11 @@ function renderDesktopIcons() {
           }
         }
       ];
-      if (isUserApp) {
+      if (isUserApp && isSystemApp) {
+        items.push({ separator: true }, {
+          label: 'System App', icon: 'lock', disabled: true
+        });
+      } else if (isUserApp) {
         items.push({ separator: true }, {
           label: 'Uninstall', icon: 'trash', danger: true,
           action: async () => {
@@ -2057,6 +2062,7 @@ function renderDesktopIcons() {
           try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
         })();
         const isUserApp = storedApps.some(a => a.id === shortcutData.target);
+        const isSystemApp = storedApps.some(a => a.id === shortcutData.target && a.system === true);
         const isWebApp = typeof shortcutData.target === 'string' && shortcutData.target.startsWith('webapp_');
         if (isWebApp) {
           // Web app shortcuts aren't in nova_installed_apps (that's only
@@ -2086,6 +2092,10 @@ function renderDesktopIcons() {
               renderDesktopIcons();
               Notify.show({ title: 'Removed', body: `${appName} has been removed.`, type: 'success', appName: 'Desktop' });
             }
+          });
+        } else if (isUserApp && isSystemApp) {
+          menuItems.push({
+            label: 'System App', icon: 'lock', disabled: true
           });
         } else if (isUserApp) {
           menuItems.push({

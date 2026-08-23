@@ -249,6 +249,7 @@ function showAppContextMenu(e, app) {
     try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
   })();
   const isUserApp = storedApps.some(a => a.id === app.id);
+  const isSystemApp = storedApps.some(a => a.id === app.id && a.system === true);
 
   const menuItems = [
     { label: 'Open', icon: 'play', action: () => { toggleLaunchpad(); WM.createWindow(app.id); } },
@@ -272,7 +273,11 @@ function showAppContextMenu(e, app) {
     });
   }
 
-  if (isUserApp) {
+  if (isUserApp && isSystemApp) {
+    menuItems.push({ separator: true }, {
+      label: 'System App', icon: 'lock', disabled: true
+    });
+  } else if (isUserApp) {
     menuItems.push({ separator: true }, {
       label: 'Uninstall', icon: 'trash', danger: true,
       action: () => uninstallApp(app)
