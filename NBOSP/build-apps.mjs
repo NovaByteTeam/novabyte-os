@@ -1,18 +1,23 @@
 #!/usr/bin/env node
 // Repackages every app under js/apps/<id>/ into a single js/apps/<id>.novaapp
-// file, then deletes the source folder. Only manifest.json, index.html,
-// app.js, and style.css are bundled — anything else in the folder (assets/,
-// images, etc.) is left out and reported as skipped, since a couple of these
-// apps do carry runtime assets that this script intentionally won't pull in.
+// file. Every file in the app folder is bundled (manifest, html, js, css,
+// assets/, images, fonts, whatever's there), recursing into subdirectories.
+//
+// The one exception is _package-meta.json — that's leftover metadata from a
+// previous build, not something the app loads at runtime, so re-bundling it
+// would embed a stale signature block inside the new package.
+//
+// This script never deletes or modifies the source folder. It only writes
+// the .novaapp file alongside it.
 //
 // Usage: node scripts/build-apps.mjs [apps-dir]
 // Defaults to js/apps relative to this script's location.
 
-import { readdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { readdir, readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const PACKAGED_FILES = ['manifest.json', 'index.html', 'app.js', 'style.css'];
+const EXCLUDED_FILES = new Set(['_package-meta.json']);
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const appsDir = path.resolve(process.argv[2] ?? path.join(scriptDir, '..', 'js', 'apps'));
@@ -22,28 +27,39 @@ async function findAppDirs(dir) {
   return entries.filter((e) => e.isDirectory()).map((e) => e.name);
 }
 
-async function packageApp(appId, appDir) {
+// Recursively collects every file under `dir`, returning paths relative to
+// `baseDir` using forward slashes (so the package's file keys are portable).
+async function collectFiles(dir, baseDir) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const out = [];
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      out.push(...(await collectFiles(fullPath, baseDir)));
+      continue;
+    }
+
+    if (EXCLUDED_FILES.has(entry.name)) continue;
+
+    const relPath = path.relative(baseDir, fullPath).split(path.sep).join('/');
+    out.push(relPath);
+  }
+
+  return out;
+}
+
+async function packageApp(appDir) {
   const manifestRaw = await readFile(path.join(appDir, 'manifest.json'), 'utf8');
   const manifest = JSON.parse(manifestRaw);
 
-  const files = {};
-  for (const name of PACKAGED_FILES) {
-    const filePath = path.join(appDir, name);
-    try {
-      const buf = await readFile(filePath);
-      files[name] = buf.toString('base64');
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
-      // Optional files (e.g. style.css) can legitimately be missing.
-    }
-  }
+  const relPaths = await collectFiles(appDir, appDir);
 
-  const allEntries = await readdir(appDir, { withFileTypes: true });
-  const skipped = allEntries
-    .map((e) => e.name)
-    .filter((name) => !PACKAGED_FILES.includes(name));
-  if (skipped.length > 0) {
-    console.warn(`  ! ${appId}: not packaged (outside js/manifest/html/css scope): ${skipped.join(', ')}`);
+  const files = {};
+  for (const relPath of relPaths) {
+    const buf = await readFile(path.join(appDir, relPath));
+    files[relPath] = buf.toString('base64');
   }
 
   return {
@@ -67,14 +83,14 @@ async function buildOne(appDirName) {
     return;
   }
 
-  const pkg = await packageApp(appDirName, appDir);
+  const pkg = await packageApp(appDir);
   const appId = pkg.manifest.id ?? appDirName;
   const outPath = path.join(appsDir, `${appId}.novaapp`);
+  const fileCount = Object.keys(pkg.files).length;
 
   await writeFile(outPath, JSON.stringify(pkg, null, 2));
-  await rm(appDir, { recursive: true, force: true });
 
-  console.log(`✓ ${appDirName} -> ${path.relative(appsDir, outPath)}`);
+  console.log(`✓ ${appDirName} -> ${path.relative(appsDir, outPath)} (${fileCount} file${fileCount === 1 ? '' : 's'}, source untouched)`);
 }
 
 async function main() {
