@@ -1,0 +1,36 @@
+/* Calculator — trimmed from the OS-wide style.css.
+   app.js builds every element with inline style.cssText, so the only
+   thing this file needs to supply is: the box-sizing reset (index.html
+   has no other reset in its chain), an html/body height chain (app.js
+   sets #app to height:100%, which needs an ancestor with a resolved
+   height or it collapses to content size, leaving blank space in the
+   window below it), and the custom-property tokens app.js reads:
+   --bg-base, --bg-elevated, --bg-overlay, --text-primary, --text-muted,
+   --accent, --border-default, --font-mono. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+:root {
+  --bg-base: #07090f;
+  --bg-elevated: rgba(14, 18, 28, 0.22);
+  --bg-overlay: rgba(20, 26, 40, 0.14);
+  --text-primary: #e6edf3;
+  --text-muted: #484f58;
+  --accent: #58a6ff;
+  --border-default: rgba(255, 255, 255, 0.12);
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono',
+               'Consolas', monospace;
+}

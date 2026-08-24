@@ -1,0 +1,45 @@
+{
+  "id": "com.nbosp.music",
+  "name": "Music",
+  "version": "3.0.3",
+  "description": "Music Player",
+  "author": "NovaByte",
+  "entry": "index.html",
+  "icon": "music",
+  "type": "blank",
+  "permissions": [
+    "vfs:read"
+  ],
+  "optionalPermissions": [
+    "device:notifications"
+  ],
+  "defaultSize": [
+    520,
+    520
+  ],
+  "minSize": [
+    360,
+    380
+  ],
+  "resizable": true,
+  "frame": true,
+  "categories": [
+    "media",
+    "entertainment"
+  ],
+  "handles": {
+    "protocols": [],
+    "extensions": [
+      ".mp3",
+      ".mp4",
+      ".m4a",
+      ".ogg",
+      ".wav",
+      ".flac",
+      ".aac",
+      ".opus",
+      ".weba",
+      ".webm"
+    ]
+  }
+}

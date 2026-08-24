@@ -1,0 +1,23 @@
+{
+  "id": "com.nbosp.downloads",
+  "name": "Downloads",
+  "version": "3.0.2",
+  "description": "Download Manager",
+  "author": "NovaByte",
+  "entry": "index.html",
+  "icon": "download",
+  "type": "blank",
+  "permissions": [
+    "vfs:read"
+  ],
+  "optionalPermissions": [
+    "vfs:delete"
+  ],
+  "defaultSize": [580, 460],
+  "minSize": [400, 300],
+  "resizable": true,
+  "frame": true,
+  "categories": ["utilities"],
+  "system": true,
+  "transparent": true
+}

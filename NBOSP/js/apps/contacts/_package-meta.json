@@ -1,0 +1,19 @@
+{
+  "novabyte_app": true,
+  "compiled_at": "2026-08-23T00:00:00.000Z",
+  "signature": "3f18ca2fcee3a54d5e2f881fc1798934f445f6d313a1252d184ccb15bb975d5625d15ea1b0281b7f1ef54ae8da6c4520f5365d4229a4037a0e9e00493274d809",
+  "signer": "NovaByte System",
+  "signing": {
+    "method": "ed25519"
+  },
+  "integrity": {
+    "method": "blake3",
+    "payloadHash": "35a3c33205076d51140a10e4fab62849a0fe1b4d80d9868c6be9e289c6f5e15f",
+    "fileHashes": {
+      "app.js": "301d59385d88f0d6837d05c00969a0c4beee4ab26e44e9a49c3fce51338d8a4d",
+      "index.html": "889b98c88a72d709571befeeecd43c322f3d4e023cb96187ee24904af2e155a3",
+      "style.css": "fba4c1c9364c3e86a0cef92d780a5e9fe3dbac172d24cf997193b6efbfae54af",
+      "manifest.json": "597d6635638635d7c7f01bba5d8abcc6463e044f60c28fe69f0542e37ae966d6"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "novabyte_app": true,
+  "compiled_at": 1787438083730,
+  "signature": "6f05c99b0db342170c3bbb3936188295638ec9eca2477745217dd293ae1d8a0786211fa0616da51a9f14f1c22fafe93f006b4e7a71824bf686df7ab6478e150c",
+  "signer": "NovaByte System",
+  "signing": {
+    "method": "ed25519"
+  },
+  "integrity": {
+    "method": "blake3",
+    "payloadHash": "49aa7ee3855455db46e91a1f8f706eb8857162af4e38d151194204ff9cc49d5b",
+    "fileHashes": {
+      "app.js": "249622194e7595d4dc7cd275230d6dea07118faf657cf22d3da9ee3847c5cafc",
+      "assets/icons8-archive-94.png": "001d308a001c0cf88441e582664744f6093c128f7ec35afbe01f7d36a8e6c17d",
+      "assets/icons8-document-94.png": "340cd2aa470c4801a6d0f78d766a6a94fbb7d072ddd534bd063b8db66d75c1b1",
+      "index.html": "1d8c858aa4c6cd8d6586238f62a4f40665c1e7b6a6162346dcd3e8a278565c41",
+      "manifest.json": "88fd87d9df4d7fc74c50621f90b0b5754078b66d62b57e1e0aea1f0aa76006a9",
+      "style.css": "46e02f192cab1011a95d44c59ae006b624e58340066e7731293f2558bada5e9e"
+    }
+  }
+}

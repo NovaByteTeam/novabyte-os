@@ -1,0 +1,26 @@
+{
+  "novabyte_app": true,
+  "compiled_at": "2026-08-17T15:05:00.000Z",
+  "signing": {
+    "method": "ed25519"
+  },
+  "integrity": {
+    "method": "blake3",
+    "payloadHash": "02cc9e2cbe5bc1329a87771c0301e3bda04a165b86038a898a9f4d699bece00d",
+    "fileHashes": {
+      "app.js": "317bacf8a7a16085f96df42e71d97700c9f0513b286131044a015b73df0da0c8",
+      "index.html": "4fbd0907783f9dbcd73a8f5dcf97e878bab02512e7a7904377ec003cdfdce7cc",
+      "manifest.json": "33a883b223aef51bff09f5345ec4557debd014aa0d5a7cdc48b39fc372aa5a78",
+      "music.png": "453236956b6725c14bc7a72b2f934d186fad4aadaeb3c7d038b469f59228c6ff",
+      "pause.png": "4fd7f026950f4ead5ea66b1f69ad5a5a73b6154f642db791921265d2a86334e0",
+      "play.png": "c2469b5db2fc07bf4eded36ad87bc0a5782797ebcda857d6310740f6dc3fa4dc",
+      "refresh.png": "81d1aa65b45c5f551ae21c74fb9309e3b2a0620b5d539271be1d5fb4c9839979",
+      "repeat.png": "6d06027635cd2b00fbbf5449a5f635fd9bfbf393f2dd8d4c4989f1064b55ef33",
+      "shuffle.png": "b4a143bb1d4a08dd5e5eb209b6dced0f7b5acf86c917536f17cb47b603450eb8",
+      "sound.png": "40c7689203b8656515f8ecfd7edde9c9c227dcfcdf6781a7d277843b1b50aa2d",
+      "style.css": "5550016bd5a5225a69db37d9733c18da81b3803bfce6d057ab5779e11d2a6d6d"
+    }
+  },
+  "signature": "b26ef0ef0d802c8018efe034385994a6ee71afc9019ee2ab9ef401b09818549ee47ea268a8017b19185f64ab367522f22934e9e57b79bcde6513539f6cb9e209",
+  "signer": "NovaByte System"
+}

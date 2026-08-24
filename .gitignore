@@ -29,3 +29,6 @@
 /NBOSP/.graphifyignore
 server.log
 .wrangler
+
+# prebuilt app packages — source lives in NBOSP/js/apps/<name>/, build with repackage.js
+/NBOSP/js/apps/*.novaapp

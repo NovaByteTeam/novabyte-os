@@ -1,0 +1,13 @@
+{
+  "id": "com.nbosp.calculator",
+  "name": "Calculator",
+  "version": "3.0.2",
+  "description": "High-efficiency, character-code driven arithmetic engine",
+  "entry": "index.html",
+  "icon": "calculator",
+  "system": true,
+  "defaultSize": [320, 440],
+  "minSize": [280, 380],
+  "permissions": [],
+  "categories": ["utilities"]
+}

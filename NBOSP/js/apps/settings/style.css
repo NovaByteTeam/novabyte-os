@@ -1,0 +1,841 @@
+/* Settings — style.css (sandboxed .novaapp build)
+ *
+ * Verbatim subset of the OS stylesheet, extracted rule-for-rule from the
+ * original (the built-in app styled itself with the host shell's global
+ * stylesheet, which is not reachable from the sandbox). Same convention as
+ * the shipped com.nbosp.contacts system app: original :root tokens, the
+ * component rules and the full Nook (settings) section this app's DOM uses.
+ *
+ * ONE intentional deviation, same as Contacts: html/body background is
+ * transparent instead of var(--bg-base), because this app's manifest
+ * declares transparent:true — the OS window glass shows through behind it.
+ *
+ * Note: .lens-bar / .lens-bar-fill (Storage tab) have no rules in the
+ * original stylesheet either — carried over unstyled, as-is.
+ */
+
+/* reset — verbatim */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* tokens — verbatim (complete original :root block) */
+:root {
+  /* Surface colours — base, elevated, overlay, sunken */
+  --bg-base: #07090f;
+  --bg-elevated: rgba(14, 18, 28, 0.22);
+  --bg-overlay: rgba(20, 26, 40, 0.14);
+  --bg-sunken: rgba(3, 5, 8, 0.35);
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-sidebar: rgba(4, 6, 12, 0.20);
+  --card-solid: #0d1117;
+
+  /* Text colours — primary, secondary, muted, semantic */
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #484f58;
+  --text-link: #58a6ff;
+  --text-danger: #f85149;
+  --text-success: #3fb950;
+  --text-warning: #d29922;
+
+  /* Accent — used everywhere for focus, highlights, brand */
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --accent-muted: rgba(88, 166, 255, 0.15);
+
+  /* Window surface tokens */
+  --window-bg: rgba(10, 14, 22, 0.12);
+  --window-border: rgba(255, 255, 255, 0.18);
+  --window-shadow:
+    0 32px 64px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
+    inset 1px 0 0 rgba(255, 255, 255, 0.07),
+    0 0 80px rgba(88, 166, 255, 0.08);
+  --window-blur: blur(40px) saturate(200%) brightness(108%);
+
+  /* Taskbar */
+  --taskbar-bg: rgba(6, 10, 18, 0.20);
+  --taskbar-border: rgba(255, 255, 255, 0.08);
+  --taskbar-height: 48px;
+
+  /* Border scale — subtle / default / strong */
+  --border: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.25);
+
+  /* Radius scale */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 24px;
+  --r-window: 20px;
+
+  /* Shadow scale */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+
+  /* Animation timing — macOS-like easing curves */
+  /* Fast: hover/focus, snappy */
+  --t-fast: 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  /* Normal: menus, panels */
+  --t-normal: 240ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  /* Slow: page transitions */
+  --t-slow: 380ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  /* Window: spring-like with slight overshoot */
+  --t-window: 320ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --ease-macos: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-macos-in-out: cubic-bezier(0.42, 0, 0.58, 1);
+  --ease-linear: cubic-bezier(0, 0, 1, 1);
+
+  /* Global animation speed multiplier — reduced-motion sets this near zero */
+  --anim-speed: 1;
+
+  /* Typography */
+  --font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+             Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono',
+               'Consolas', monospace;
+  --font-size: 14px;
+
+  /* Glassmorphism — legacy and "liquid glass" material variants */
+  --glass-bg: rgba(10, 14, 22, 0.38);
+  --glass-shine:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  --glass-glow:
+    0 0 60px rgba(88, 166, 255, 0.08),
+    0 0 120px rgba(163, 113, 247, 0.04);
+
+  --lg-bg: rgba(255, 255, 255, 0.04);
+  --lg-blur: blur(40px) saturate(280%) brightness(118%) contrast(105%);
+  --lg-border: rgba(255, 255, 255, 0.30);
+  --lg-highlight: rgba(255, 255, 255, 0.60);
+  --lg-shadow:
+    0 24px 56px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.25),
+    0 0 0 0.5px rgba(255, 255, 255, 0.10);
+  --lg-inner-glow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.60),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
+    inset 1px 0 0 rgba(255, 255, 255, 0.22),
+    inset -1px 0 0 rgba(255, 255, 255, 0.10);
+
+  /* Z-index scale — reserved ranges per concern */
+  --z-base: 1;
+  --z-float: 10;
+  --z-sticky: 100;
+  --z-windows: 1000;
+  --z-overlay: 9000;
+  --z-popup: 9500;
+  --z-notify: 9900;
+  --z-topmost: 99000;
+  --z-supreme: 999999;
+
+  /* Recovery-mode palette — distinct amber/orange so users always know */
+  /* they're outside the normal desktop. */
+  --recovery-amber: #ffd700;
+  --recovery-orange: #ff6b35;
+  --recovery-orange-soft: rgba(255, 107, 53, 0.06);
+  --recovery-orange-border: rgba(255, 107, 53, 0.22);
+  --recovery-text-dim: #6a7888;
+  --recovery-text-mid: #9aabb8;
+  --recovery-text-faint: #5a6878;
+}
+
+/* base — verbatim, except the one documented background swap above */
+/* html,body: transparent so the OS window glass (transparent:true) shows */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  overflow: hidden;
+  overflow-x: hidden;
+  overscroll-behavior: none;
+  font-family: var(--font-ui);
+  font-size: var(--font-size);
+  color: var(--text-primary);
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  cursor: auto;
+}
+
+/* base: cursor: pointer group — verbatim */
+a,
+button,
+[role="button"],
+input[type="button"],
+input[type="submit"],
+select,
+textarea {
+  cursor: pointer;
+}
+
+/* base: cursor: text group — verbatim */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+[contenteditable] {
+  cursor: text;
+}
+
+/* base: focus-visible — verbatim */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* base: selection — verbatim */
+::selection {
+  background: rgba(88, 166, 255, 0.3);
+  color: var(--text-primary);
+}
+
+/* base: scrollbars — verbatim */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  transition: background 200ms var(--ease-macos);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* @keyframes fadeIn — verbatim (used by inline styles in app.js) */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* @keyframes modalIn — verbatim (used by inline styles in app.js) */
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);    }
+}
+
+/* components: .btn family + .input family — verbatim */
+.btn {
+  padding: 6px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-overlay);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+.btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.btn:active {
+  transform: translateY(0) scale(0.98);
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(88, 166, 255, 0.3);
+}
+.btn-danger {
+  background: transparent;
+  border-color: var(--text-danger);
+  color: var(--text-danger);
+}
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Inputs */
+.input {
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-sunken);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--t-fast);
+  width: 100%;
+}
+.input:focus {
+  border-color: var(--accent);
+}
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* components: .toggle family + checkbox — verbatim (renderApps hand-builds checkbox toggles) */
+.toggle {
+  width: 44px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 200ms var(--ease-macos);
+  flex-shrink: 0;
+  min-width: 44px;
+  outline: none;
+}
+.toggle.active {
+  background: var(--accent);
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 250ms var(--ease-spring);
+}
+.toggle.active::after {
+  transform: translateX(22px);
+}
+.toggle:focus-visible {
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.4);
+}
+.toggle:active::after {
+  transform: scale(0.9);
+}
+.toggle.active:active::after {
+  transform: translateX(22px) scale(0.9);
+}
+
+/* Checkbox */
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+  transition: transform 150ms var(--ease-spring);
+  min-width: 16px;
+  min-height: 16px;
+}
+input[type="checkbox"]:hover {
+  transform: scale(1.1);
+}
+
+/* components: .empty-state — verbatim */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-muted);
+  gap: 12px;
+  height: 100%;
+}
+.empty-state-icon {
+  opacity: 0.3;
+}
+.empty-state-text {
+  font-size: 14px;
+}
+
+/* components: global button hover/active + focus ring — verbatim */
+button,
+.btn,
+[role="button"] {
+  transition: all 150ms var(--ease-macos);
+}
+button:hover,
+.btn:hover,
+[role="button"]:hover {
+  transform: translateY(-1px);
+}
+button:active,
+.btn:active,
+[role="button"]:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Smooth focus-ring animation on every focusable element. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  transition: outline-offset 150ms var(--ease-macos);
+}
+:focus-visible:focus {
+  outline-offset: 0;
+}
+
+/* ── Nook (settings) section — verbatim, complete ─────────────────── */
+/* ---- Nook (settings) -------------------------------------------------- */
+.nook-container {
+  display: flex;
+  height: 100%;
+}
+.nook-sidebar {
+  width: 200px;
+  background: rgba(0, 0, 0, 0.2);
+  border-right: 1px solid var(--border-subtle);
+  padding: 8px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.nook-section-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: background var(--t-fast), color var(--t-fast);
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  min-height: 36px;
+}
+.nook-section-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+.nook-section-btn.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+.nook-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 800px;
+}
+.nook-group {
+  margin-bottom: 24px;
+}
+.nook-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.nook-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.nook-row-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.nook-row-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* NovaByte version row — clicking it N times launches the snake game. */
+.nook-row.clickable {
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  border-radius: 6px;
+  padding-inline-start: 8px;
+  padding-inline-end: 8px;
+  margin: 2px 0;
+}
+.nook-row.clickable:hover {
+  background: rgba(88, 166, 255, 0.08);
+  border-bottom-color: transparent;
+}
+.nook-row.clickable:active {
+  transform: scale(0.99);
+}
+.nook-row.click-counter {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-inline-start: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.nook-row.clickable:hover .click-counter {
+  opacity: 1;
+}
+
+/* ---- Snake game (Easter egg) ----------------------------------------- */
+.snake-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  animation: fadeIn 0.2s ease-out;
+}
+.snake-modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 500px;
+  width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: snakeSlideUp 0.25s ease-out;
+}
+@keyframes snakeSlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.snake-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.snake-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.snake-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+.snake-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.snake-score-board {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--bg-sunken);
+  border-radius: 8px;
+}
+.snake-score-value {
+  font-weight: 700;
+  color: var(--accent);
+  font-family: monospace;
+  font-size: 14px;
+}
+.snake-canvas-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.snake-canvas {
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  image-rendering: pixelated;
+}
+.snake-controls {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.snake-controls kbd {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: system-ui, sans-serif;
+  font-size: 10px;
+}
+.snake-game-over {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.85);
+  padding: 20px 30px;
+  border-radius: 12px;
+  text-align: center;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.snake-game-over-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #f85149;
+}
+.snake-game-over-score {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.snake-restart-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.snake-restart-btn:hover {
+  opacity: 0.9;
+}
+
+/* ---- Nook — Accessibility tab ---------------------------------------- */
+.nook-accessibility-preview {
+  padding: 20px;
+  background: var(--bg-sunken);
+  border-radius: var(--r-md);
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.nook-focus-ring-subtle {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.nook-focus-ring-prominent {
+  outline: 4px solid var(--accent);
+  outline-offset: 4px;
+}
+.nook-cursor-normal,
+.nook-cursor-large,
+.nook-cursor-xlarge {
+  background: var(--accent);
+  border-radius: 50%;
+}
+.nook-cursor-normal  { width: 20px; height: 20px; }
+.nook-cursor-large   { width: 30px; height: 30px; }
+.nook-cursor-xlarge  { width: 40px; height: 40px; }
+.nook-high-contrast-preview {
+  padding: 20px;
+  border: 2px solid var(--text-primary);
+  border-radius: var(--r-md);
+  margin-bottom: 20px;
+}
+
+.nook-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.nook-toggle-label {
+  font-size: 14px;
+}
+.nook-toggle-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ---- Nook — Keyboard shortcuts tab ----------------------------------- */
+.nook-shortcuts-search {
+  margin-bottom: 16px;
+}
+.nook-shortcuts-search input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.nook-shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.nook-shortcuts-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.nook-shortcuts-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+}
+.nook-shortcuts-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.nook-shortcut-key {
+  display: inline-block;
+  padding: 4px 8px;
+  background: var(--bg-sunken);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.nook-rebind-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.nook-rebind-active {
+  border: 2px solid var(--accent);
+}
+
+/* ---- Nook — Privacy tab ---------------------------------------------- */
+.nook-privacy-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--card-solid);
+  border-radius: var(--r-md);
+}
+.nook-privacy-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.nook-data-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.nook-auto-lock-select {
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  min-width: 120px;
+}
+
+/* ---- Nook — About tab ------------------------------------------------ */
+.nook-about-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.nook-about-logo {
+  width: 64px;
+  height: 64px;
+}
+.nook-about-title {
+  font-size: 24px;
+  font-weight: 600;
+}
+.nook-about-subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.nook-about-version {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--accent-muted);
+  color: var(--accent);
+  border-radius: 12px;
+  font-size: 12px;
+  margin-inline-start: 12px;
+}
+.nook-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+.nook-feature-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-sunken);
+  border-radius: var(--r-sm);
+}
+.nook-feature-icon {
+  width: 24px;
+  height: 24px;
+}
+.nook-feature-icon.supported   { color: var(--text-success); }
+.nook-feature-icon.unsupported { color: var(--text-muted);   }
+.nook-feature-name {
+  font-size: 13px;
+}
+.nook-system-info {
+  margin-top: 20px;
+}
+.nook-system-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 13px;
+}
+.nook-system-label {
+  color: var(--text-muted);
+}
