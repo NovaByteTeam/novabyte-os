@@ -565,7 +565,6 @@ const AppDirs = {
     'shell': 'com.nbosp.shell',
     'browser': 'com.nbosp.browser',
     'calendar-app': 'com.nbosp.calendar',
-    'nook': 'com.nbosp.settings',
     'calculator': 'com.nbosp.calculator',
     'app-manager': 'com.nbosp.appmanager',
     'nbosp-clock': 'com.nbosp.clock',
@@ -2193,6 +2192,85 @@ function renderDesktopIcons() {
 }
 
 OS.events.on('settings:changed', async ({ key }) => {
+  // Apply settings in the running host immediately. The Settings app is a
+  // sandboxed webview, so it must never try to reach host-only DOM nodes itself.
+  try {
+    switch (key) {
+      case 'theme': {
+        applyTheme(OS.settings.get('theme') || 'nova-dark');
+        const accent = OS.settings.get('accentColor');
+        if (accent) {
+          document.documentElement.style.setProperty('--accent', accent);
+          document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
+          document.documentElement.style.setProperty('--accent-muted', accent + '22');
+        }
+        break;
+      }
+      case 'accentColor': {
+        const accent = OS.settings.get('accentColor');
+        if (accent) {
+          document.documentElement.style.setProperty('--accent', accent);
+          document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
+          document.documentElement.style.setProperty('--accent-muted', accent + '22');
+        }
+        break;
+      }
+      case 'reduceMotion':
+        Boot?.applyAccessibility?.(OS.settings.get.bind(OS.settings));
+        break;
+      case 'removeTransparency':
+      case 'highContrast':
+        Boot?.applyAccessibility?.(OS.settings.get.bind(OS.settings));
+        break;
+      case 'wallpaperId':
+      case 'customWallpaper':
+        Boot?.applyWallpaper?.(OS.settings.get.bind(OS.settings));
+        break;
+      case 'cursorSize':
+        Boot?.applyCursorSize?.(OS.settings.get.bind(OS.settings));
+        break;
+      case 'taskbarSize':
+      case 'taskbarPosition':
+      case 'taskbarAutoHide':
+        Boot?.configureTaskbar?.(OS.settings.get.bind(OS.settings));
+        break;
+      case 'desktopIconSize': {
+        const n = Number(OS.settings.get('desktopIconSize'));
+        if (Number.isFinite(n)) document.documentElement.style.setProperty('--desktop-icon-size', n + 'px');
+        break;
+      }
+      case 'desktopGridSpacing': {
+        const n = Number(OS.settings.get('desktopGridSpacing'));
+        if (Number.isFinite(n)) document.documentElement.style.setProperty('--desktop-grid-spacing', n + 'px');
+        break;
+      }
+      case 'showDesktopIcons':
+        renderDesktopIcons();
+        break;
+      case 'showTaskbarClock': {
+        const clock = document.getElementById('tray-clock');
+        if (clock) clock.style.display = OS.settings.get('showTaskbarClock') === false ? 'none' : 'flex';
+        break;
+      }
+      case 'username':
+        OS.username = OS.settings.get('username') || 'user';
+        document.getElementById('lock-username')?.replaceChildren(document.createTextNode(OS.username));
+        break;
+      case 'autoLock':
+        OS.idleTimeout = (parseInt(OS.settings.get('autoLock')) || 10) * 60000;
+        break;
+      case 'lockPin':
+        OS.lockPin = OS.settings.get('lockPin') || null;
+        break;
+      case 'devMode':
+        break;
+      default:
+        break;
+    }
+  } catch (e) {
+    console.warn('[Desktop] immediate settings apply failed:', key, e);
+  }
+
   if (key !== 'devMode') return;
 
   const devMode = OS.settings.get('devMode');
@@ -2214,7 +2292,7 @@ OS.events.on('settings:changed', async ({ key }) => {
             if (data?.type === 'app-shortcut' && devAppIds.has(data.target)) {
               devShortcutFileKeys.add('file:' + f.id);
             }
-          } catch { /* skip invalid shortcuts */ }
+          } catch { /* skip invalid */ }
         }
       }
     }

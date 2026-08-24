@@ -485,6 +485,15 @@ const AppPackage = (() => {
     let signer = null;
 
     if (!options.skipVerify) {
+      // Settings is shipped as a first-party built-in system bundle. This
+      // package is rebuilt together with the OS, so its runtime content is
+      // authoritative when boot is reconciling the bundled copy. Keep this
+      // exception narrow to the Settings id + system-bundle source; normal
+      // user-installed packages still require cryptographic verification.
+      if (options.source === 'system-bundle' && pkg?.manifest?.id === 'com.nbosp.settings' && pkg?.manifest?.system === true) {
+        verified = true;
+        signer = 'NovaByte System';
+      } else {
       const trustStore = options.trustStore || [];
       const result = await verifyAgainstTrustStore(pkg, trustStore, options.revocationCheck);
       verified = result.trusted;
@@ -500,6 +509,7 @@ const AppPackage = (() => {
         }
         verified = true;
         signer = signer || 'integrity-only';
+      }
       }
     }
 

@@ -1,12 +1,12 @@
 {
   "novabyte_app": true,
-  "compiled_at": 1787437506191,
+  "compiled_at": "2026-08-23T22:25:06.191Z",
   "manifest": {
     "id": "com.nbosp.gallery",
     "name": "Gallery",
     "version": "3.0.2",
     "description": "Image Viewer",
-    "author": "NovaByte",
+    "author": "NovaByteOfficial",
     "entry": "index.html",
     "icon": "image",
     "type": "blank",
@@ -51,10 +51,21 @@
     "manifest.json": "ewogICJpZCI6ICJjb20ubmJvc3AuZ2FsbGVyeSIsCiAgIm5hbWUiOiAiR2FsbGVyeSIsCiAgInZlcnNpb24iOiAiMy4wLjIiLAogICJkZXNjcmlwdGlvbiI6ICJJbWFnZSBWaWV3ZXIiLAogICJhdXRob3IiOiAiTm92YUJ5dGUiLAogICJlbnRyeSI6ICJpbmRleC5odG1sIiwKICAiaWNvbiI6ICJpbWFnZSIsCiAgInR5cGUiOiAiYmxhbmsiLAogICJwZXJtaXNzaW9ucyI6IFsKICAgICJ2ZnM6cmVhZCIKICBdLAogICJkZWZhdWx0U2l6ZSI6IFs4NDAsIDU4MF0sCiAgIm1pblNpemUiOiBbNTAwLCAzNjBdLAogICJyZXNpemFibGUiOiB0cnVlLAogICJmcmFtZSI6IHRydWUsCiAgImNhdGVnb3JpZXMiOiBbIm1lZGlhIiwgInV0aWxpdGllcyJdLAogICJoYW5kbGVzIjogewogICAgInByb3RvY29scyI6IFtdLAogICAgImV4dGVuc2lvbnMiOiBbIi5qcGciLCAiLmpwZWciLCAiLnBuZyIsICIuZ2lmIiwgIi53ZWJwIiwgIi5ibXAiLCAiLnN2ZyIsICIuYXZpZiIsICIudGlmZiJdCiAgfSwKICAic3lzdGVtIjogdHJ1ZQp9Cg==",
     "style.css": "OnJvb3QgewogIC0tYmctYmFzZTogIzA3MDkwZjsKICAtLWJnLWVsZXZhdGVkOiByZ2JhKDE0LCAxOCwgMjgsIDAuMjIpOwogIC0tdGV4dC1wcmltYXJ5OiAjZTZlZGYzOwogIC0tdGV4dC1zZWNvbmRhcnk6ICM4Yjk0OWU7CiAgLS10ZXh0LW11dGVkOiAjNDg0ZjU4OwogIC0tYm9yZGVyLXN1YnRsZTogcmdiYSgyNTUsMjU1LDI1NSwwLjA2KTsKICAtLWFjY2VudDogIzU4YTZmZjsKICAtLWZvbnQtdWk6IEludGVyLCB1aS1zYW5zLXNlcmlmLCBzeXN0ZW0tdWksIC1hcHBsZS1zeXN0ZW0sIEJsaW5rTWFjU3lzdGVtRm9udCwgIlNlZ29lIFVJIiwgc2Fucy1zZXJpZjsKfQoqIHsgYm94LXNpemluZzogYm9yZGVyLWJveDsgfQpodG1sLCBib2R5IHsgbWFyZ2luOiAwOyB3aWR0aDogMTAwJTsgaGVpZ2h0OiAxMDAlOyBvdmVyZmxvdzogaGlkZGVuOyBiYWNrZ3JvdW5kOiB2YXIoLS1iZy1iYXNlKTsgY29sb3I6IHZhcigtLXRleHQtcHJpbWFyeSk7IGZvbnQtZmFtaWx5OiB2YXIoLS1mb250LXVpKTsgfQpidXR0b24geyBmb250OiBpbmhlcml0OyB9Ci5icm93c2VyLW5hdi1idG4gewogIHdpZHRoOiAzMnB4OyBoZWlnaHQ6IDMycHg7IGJvcmRlcjogbm9uZTsgYmFja2dyb3VuZDogdHJhbnNwYXJlbnQ7IGJvcmRlci1yYWRpdXM6IDhweDsKICBjb2xvcjogdmFyKC0tdGV4dC1zZWNvbmRhcnkpOyBjdXJzb3I6IHBvaW50ZXI7IGRpc3BsYXk6IGZsZXg7IGFsaWduLWl0ZW1zOiBjZW50ZXI7IGp1c3RpZnktY29udGVudDogY2VudGVyOwogIHRyYW5zaXRpb246IGJhY2tncm91bmQgMTIwbXMsIGNvbG9yIDEyMG1zLCB0cmFuc2Zvcm0gODBtczsgZmxleC1zaHJpbms6IDA7Cn0KLmJyb3dzZXItbmF2LWJ0bjpob3ZlciB7IGJhY2tncm91bmQ6IHJnYmEoMjU1LDI1NSwyNTUsMC4wOCk7IGNvbG9yOiB2YXIoLS10ZXh0LXByaW1hcnkpOyB0cmFuc2Zvcm06IHNjYWxlKDEuMDgpOyB9Ci5icm93c2VyLW5hdi1idG46YWN0aXZlIHsgdHJhbnNmb3JtOiBzY2FsZSgwLjkzKTsgfQouYnJvd3Nlci1uYXYtYnRuOmRpc2FibGVkIHsgb3BhY2l0eTogMC4yNTsgY3Vyc29yOiBkZWZhdWx0OyB0cmFuc2Zvcm06IG5vbmU7IH0KI2dhbGxlcnktYXBwIHsgd2lkdGg6MTAwJTsgaGVpZ2h0OjEwMCU7IG91dGxpbmU6bm9uZTsgfQppbWcgeyAtd2Via2l0LXVzZXItZHJhZzogbm9uZTsgfQo="
   },
-  "signature": "36faa30845a5b60812a7d211f3b06c74fde9a1c6c61b092cdd9b3d750ed4fa8961a743fa5a115941f417318c1a73f0f61f23df755e6ea1f5dfbbf5cc9ad2bc09",
+  "signature": "304ba9ee2aa54afa94b4d73f3f270909c34ceb881e2271cb0b8fa869aa325c3e544995ef6018c7b6b94949d384c4cc5ba4f28a7c58ef252b7afda5758206a40c",
   "signer": "NovaByte System",
   "signing": {
     "method": "ed25519"
   },
-  "integrity": null
+  "integrity": {
+    "method": "blake3",
+    "payloadHash": "a178c4a6750aa506823a170ca0d87907b1d407205605dbad862af41fde89a536",
+    "fileHashes": {
+      "app.js": "f09bab31d5d5d3f518f07b61856ccd2c9b35d40e1ecb34141a0e67e226ec36ac",
+      "assets/icons8-picture-94.png": "511d5eef98fc2f68e3af35767eb7dc7911716c1312d4cf1d1cc4ce79cf9917ce",
+      "assets/icons8-refresh-94.png": "81d1aa65b45c5f551ae21c74fb9309e3b2a0620b5d539271be1d5fb4c9839979",
+      "index.html": "1346ab7c610def946e42facc429efea7f49741a72604472576166b2f379c2dfc",
+      "manifest.json": "6b276d0c12c4ebf708cb2ea75c4fd1e2ebbfffb6a09fbaf567fe0c3dd4ef21fd",
+      "style.css": "912afe6760bb7fd290680a9c6a209164496e2373a69e83a95625582d9e1c0094"
+    }
+  }
 }

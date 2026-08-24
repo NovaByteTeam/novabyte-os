@@ -95,9 +95,9 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
   it('rejects reserved IDs unless verified is true', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
-    expect(() => mod.registerApp({ id: 'nook', name: 'Nook' })).toThrow(/reserved/);
-    const result = mod.registerApp({ id: 'nook', name: 'Nook', verified: true });
-    expect(result.id).toBe('nook');
+    expect(() => mod.registerApp({ id: 'com.nbosp.settings', name: 'Settings' })).toThrow(/reserved/);
+    const result = mod.registerApp({ id: 'com.nbosp.settings', name: 'Settings', verified: true });
+    expect(result.id).toBe('com.nbosp.settings');
   });
 
   it('strips unknown permissions with a warning', () => {

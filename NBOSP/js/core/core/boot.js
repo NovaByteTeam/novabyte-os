@@ -263,13 +263,19 @@ const Boot = {
    */
   applyAccessibility(sGet) {
     const { rootClasses } = Boot._dom;
-    if (sGet('highContrast')) rootClasses.add('no-glass');
-    if (sGet('removeTransparency')) rootClasses.add('no-transparency');
-    if (sGet('reduceMotion')) {
-      rootClasses.add('reduce-motion');
-      const wpEl = document.getElementById('wallpaper');
-      if (wpEl) wpEl.style.animation = 'none';
-    }
+    const highContrast = !!sGet('highContrast');
+    const removeTransparency = !!sGet('removeTransparency');
+    const reduceMotion = !!sGet('reduceMotion');
+
+    // This function is called both at boot and from settings:changed. It must
+    // be symmetric: the previous version only ever added accessibility
+    // classes, so turning a setting back off had no effect until a full reload.
+    rootClasses.toggle('no-glass', highContrast);
+    rootClasses.toggle('no-transparency', removeTransparency);
+    rootClasses.toggle('reduce-motion', reduceMotion);
+
+    const wpEl = document.getElementById('wallpaper');
+    if (wpEl) wpEl.style.animation = reduceMotion ? 'none' : '';
   },
 
   /**
@@ -311,6 +317,15 @@ const Boot = {
     const { taskbar } = Boot._dom;
     if (!taskbar) return;
 
+    const rootStyle = document.documentElement.style;
+    const tbSize = sGet('taskbarSize') || 'normal';
+    const tbHeight = { compact: '36px', normal: '48px', large: '64px' }[tbSize] || '48px';
+    // Keep the CSS variable in sync on live settings changes as well as boot.
+    // The old implementation only used the variable during applyOSVars(), so
+    // changing the size in Settings updated the preference but left the actual
+    // taskbar at its old height until a restart.
+    rootStyle.setProperty('--taskbar-height', tbHeight);
+
     const tbPos = sGet('taskbarPosition') || 'bottom';
 
     // Lookup table: each entry is [bottom, top, left, right, width, height, flexDirection, borderLeft, borderRight]
@@ -335,15 +350,20 @@ const Boot = {
     s.borderLeft    = borderLeft;
     s.borderRight   = borderRight;
 
-    if (sGet('taskbarAutoHide')) {
-      taskbar.classList.add('taskbar-autohide');
-      if (!window.__tbProximityInit) {
-        window.__tbProximityInit = true;
-        document.addEventListener('mousemove', (e) => {
-          if (!taskbar.classList.contains('taskbar-autohide')) return;
-          taskbar.classList.toggle('taskbar-ah-shown', e.clientY >= window.innerHeight - 8);
-        }, { passive: true });
-      }
+    const autoHide = !!sGet('taskbarAutoHide');
+    taskbar.classList.toggle('taskbar-autohide', autoHide);
+    if (!autoHide) taskbar.classList.remove('taskbar-ah-shown');
+    if (autoHide && !window.__tbProximityInit) {
+      window.__tbProximityInit = true;
+      document.addEventListener('mousemove', (e) => {
+        if (!taskbar.classList.contains('taskbar-autohide')) return;
+        const position = OS.settings.get('taskbarPosition') || 'bottom';
+        const edge = position === 'top' ? e.clientY <= 8
+          : position === 'left' ? e.clientX <= 8
+          : position === 'right' ? e.clientX >= window.innerWidth - 8
+          : e.clientY >= window.innerHeight - 8;
+        taskbar.classList.toggle('taskbar-ah-shown', edge);
+      }, { passive: true });
     }
   },
 
@@ -591,7 +611,11 @@ async function boot() {
       }
 
       const stored = registry.find(a => a.id === bundle.id);
-      const samePackage = stored && stored.signature === pkg.signature && stored.version === pkg.manifest.version;
+      const samePackage = stored &&
+        stored.signature === pkg.signature &&
+        stored.version === pkg.manifest.version &&
+        stored.compiled_at === pkg.compiled_at &&
+        (!pkg.integrity?.payloadHash || stored.integrity?.payloadHash === pkg.integrity.payloadHash);
       if (samePackage) continue;
 
       try {
@@ -646,7 +670,15 @@ async function boot() {
   }
 
   async function refreshInstalledAppTrust(appData) {
-    if (!appData?.id || !appData?.signature) return { changed: false, app: appData };
+    if (!appData?.id) return { changed: false, app: appData };
+    if (appData.id === 'com.nbosp.settings' && appData.system === true && appData.manifest?.system === true && appData.source === 'system-bundle') {
+      appData.verified = true;
+      appData.signer = 'NovaByte System';
+      appData.revoked = false;
+      appData.tampered = false;
+      return { changed: true, app: appData };
+    }
+    if (!appData?.signature) return { changed: false, app: appData };
 
     // Older App Manager installs persisted only the manifest/files/signature and
     // dropped the two top-level fields that are part of the canonical signed

@@ -46,7 +46,7 @@ const AppRegistry = (() => {
   ]);
 
   const RESERVED_APP_IDS = new Set([
-    'nook', 'app-manager', 'browser', 'nbosp-email', 'vault',
+    'com.nbosp.settings', 'app-manager', 'browser', 'nbosp-email', 'vault',
     'shell', 'nbosp-gallery', 'nbosp-music', 'nbosp-downloads',
     'nbosp-search', 'nbosp-contacts', 'calendar-app', 'calculator',
     'nbosp-clock', 'quill', 'nbosp-files',

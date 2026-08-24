@@ -1068,7 +1068,7 @@ if (desktopEl) {
       ] : []),
       { separator: true },
       { label: 'Open Terminal', icon: 'terminal', action: () => WM.createWindow('shell') },
-      { label: 'Open Settings', icon: 'settings', action: () => WM.createWindow('nook') },
+      { label: 'Open Settings', icon: 'settings', action: () => WM.createWindow('com.nbosp.settings') },
       { separator: true },
       { label: 'Refresh', action: () => renderDesktopIcons() }
     ]);

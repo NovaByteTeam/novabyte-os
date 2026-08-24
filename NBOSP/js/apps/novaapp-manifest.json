@@ -1,5 +1,9 @@
 [
   {
+    "id": "com.nbosp.calculator",
+    "file": "js/apps/com.nbosp.calculator.novaapp"
+  },
+  {
     "id": "com.nbosp.contacts",
     "file": "js/apps/com.nbosp.contacts.novaapp"
   },
@@ -8,11 +12,19 @@
     "file": "js/apps/com.nbosp.downloads.novaapp"
   },
   {
+    "id": "com.nbosp.gallery",
+    "file": "js/apps/com.nbosp.gallery.novaapp"
+  },
+  {
     "id": "com.nbosp.music",
     "file": "js/apps/com.nbosp.music.novaapp"
   },
   {
     "id": "com.nbosp.quill",
     "file": "js/apps/com.nbosp.quill.novaapp"
+  },
+  {
+    "id": "com.nbosp.settings",
+    "file": "js/apps/com.nbosp.settings.novaapp"
   }
 ]

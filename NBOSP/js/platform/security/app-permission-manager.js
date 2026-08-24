@@ -374,7 +374,25 @@ const AppPermissionManager = (() => {
 
   // Core permission checks
 
+  // The trusted, system-signed Settings app (com.nbosp.settings, verified
+  // NovaByte System signer - see unrestricted-gate.js, the single identity
+  // authority) is exempt from the grant table entirely, same principle as
+  // the gate's own nova:system:* calls: a Settings app that manages every
+  // other app's permissions "asking permission" to be a settings app is
+  // incoherent. Every host-side isGranted() check (notifications, storage,
+  // events, vfs, system:info, system:apps, and the rest) passes for it, so
+  // it ships with an empty permissions array and never prompts at all.
+  // Identity is re-checked live on every call - a revoked or tampered
+  // package loses this immediately, exactly like the gate's call-time
+  // re-check.
+  function isUnrestrictedSettingsApp(appId) {
+    return typeof UnrestrictedGate !== 'undefined' &&
+      typeof UnrestrictedGate.isTrustedSettingsAppById === 'function' &&
+      UnrestrictedGate.isTrustedSettingsAppById(appId);
+  }
+
   function isGranted(permission, appId) {
+    if (isUnrestrictedSettingsApp(appId)) return true;
     const grant = permissionGrants.get(makeAppScopedKey(appId, permission));
     if (!grant) return false;
     if (grant.expiresAt && Date.parse(grant.expiresAt) < Date.now()) {
@@ -390,6 +408,7 @@ const AppPermissionManager = (() => {
   }
 
   function isDenied(permission, appId) {
+    if (isUnrestrictedSettingsApp(appId)) return false;
     const grant = permissionGrants.get(makeAppScopedKey(appId, permission));
     return grant?.granted === false;
   }

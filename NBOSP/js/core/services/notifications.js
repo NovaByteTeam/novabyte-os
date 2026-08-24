@@ -280,7 +280,7 @@ const Notify = {
           case 'open-settings':
           case 'openSettings':
             if (typeof WM !== 'undefined' && typeof WM.createWindow === 'function') {
-              WM.createWindow('nook');
+              WM.createWindow('com.nbosp.settings');
             } else {
               console.warn('[Notify] Cannot open settings — WM.createWindow unavailable');
               if (typeof EventLog !== 'undefined') {

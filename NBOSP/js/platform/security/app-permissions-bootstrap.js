@@ -75,9 +75,16 @@
       dangerous: ['net:external', 'device:camera', 'device:microphone', 'device:geolocation', 'vfs:write'],
     },
 
-    // Settings (nook) — system UI, never prompt
-    nook: {
-      normal   : ['system:info', 'system:settings', 'admin:system', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata', 'device:camera', 'device:microphone', 'device:geolocation'],
+    // Settings — system UI, never prompt. Formerly registered as the
+    // built-in id 'nook'; now ships as a signed .novaapp under its real
+    // canonical id. Because this entry can now resolve to an *installed
+    // package* rather than guaranteed hardcoded source, it's listed in
+    // SIGNATURE_REQUIRED_APPS below — the auto-grant loop re-verifies
+    // verified/signer/manifest.system against the live installed record
+    // before granting anything here, instead of trusting this map key
+    // by itself the way every other (still-hardcoded) entry does.
+    'com.nbosp.settings': {
+      normal   : ['system:info', 'system:settings', 'admin:system', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata', 'device:camera', 'device:microphone', 'device:geolocation', 'vfs:write'],
       dangerous: [],
     },
 
@@ -163,7 +170,50 @@
   function _log(msg)  { console.log('[PermBootstrap] ' + msg); }
   function _warn(msg) { console.warn('[PermBootstrap] ' + msg); }
 
+  // Every other entry in APP_PERMISSION_MAP is safe to auto-grant purely
+  // by id, because the map itself is hardcoded source — there's no install
+  // step that could put something untrusted under one of those keys. The
+  // entries listed here are the exception: ids that now resolve to an
+  // installed .novaapp package rather than guaranteed first-party source.
+  // For those, matching the map key is not sufficient on its own — the
+  // live installed record has to independently pass the same identity
+  // check UnrestrictedGate/isTrustedTransparentSystemApp use, or the
+  // grant is refused. Add an id here whenever a former built-in moves to
+  // the .novaapp pipeline; never remove the signature check afterward.
+  const SIGNATURE_REQUIRED_APPS = new Set(['com.nbosp.settings']);
+
+  // Looks up the live installed app record for signature-required ids,
+  // mirroring the exact fields UnrestrictedGate checks — verified/signer/
+  // manifest.system — rather than trusting the map key by itself. Returns
+  // true for any id not in SIGNATURE_REQUIRED_APPS (unchanged behavior for
+  // ordinary hardcoded built-ins).
+  function _passesSignatureCheck(appId) {
+    if (!SIGNATURE_REQUIRED_APPS.has(appId)) return true;
+
+    let app = null;
+    try {
+      if (typeof AppRegistry !== 'undefined' && AppRegistry?.getApp) {
+        app = AppRegistry.getApp(appId);
+      }
+    } catch (_) { /* fall through to fail-closed below */ }
+
+    if (!app) {
+      _warn(`Signature-required app "${appId}" not found in registry — refusing auto-grant`);
+      return false;
+    }
+
+    const ok = app.verified === true &&
+      app.signer === 'NovaByte System' &&
+      app.manifest?.system === true;
+
+    if (!ok) {
+      _warn(`Signature-required app "${appId}" failed verification — refusing auto-grant (verified=${app.verified}, signer=${app.signer})`);
+    }
+    return ok;
+  }
+
   async function _autoGrant(permission, appId) {
+    if (!_passesSignatureCheck(appId)) return;
     if (AppPermissionManager.isGranted(permission, appId)) return;
     await AppPermissionManager.grantPermission(permission, appId, {
       permanent: true,

@@ -3170,12 +3170,25 @@
     font-weight: 600;
   }
 
-  /* Modal dialog — centered overlay with backdrop blur. Used for */
+  
+/* Host-level modal portal. The root itself is pointer-transparent; each
+   .modal-overlay re-enables pointer input and sits above app/webview layers. */
+#system-modal-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 2147483000;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+/* Modal dialog — centered overlay with backdrop blur. Used for */
   /* confirmations, prompts, and the snake-game Easter egg. */
   .modal-overlay {
     position: fixed;
     inset: 0;
-    z-index: 99000;
+    z-index: 1;
     background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);

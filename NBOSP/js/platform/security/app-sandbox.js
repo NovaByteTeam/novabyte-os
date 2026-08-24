@@ -87,9 +87,9 @@ const AppSandbox = (() => {
   // without a separate permission grant. These are audited first-party apps
   // whose code ships with the OS, so the same-origin risk is acceptable.
   const SYSTEM_SANDBOX_APPS = new Set([
-    'nook', 'app-manager', 'browser', 'nbosp-email', 'nbosp-gallery',
-    'nbosp-downloads', 'nbosp-search', 'nbosp-music', 'nbosp-contacts',
-    'calendar-app', 'calculator', 'nbosp-clock', 'quill', 'vault', 'shell',
+    'com.nbosp.settings', 'app-manager', 'browser', 'nbosp-email', 'com.nbosp.gallery',
+    'com.nbosp.downloads', 'nbosp-search', 'com.nbosp.music', 'com.nbosp.contacts',
+    'calendar-app', 'com.nbosp.calculator', 'nbosp-clock', 'com.nbosp.quill', 'vault', 'com.nbosp.shell',
   ]);
 
   // A NovaApp gets full-scope VFS only when the package itself declares
@@ -609,9 +609,37 @@ const AppSandbox = (() => {
   // the NovaByte visual style. The visuals are kept identical to the original
   // implementation — only internal cleanup wiring has changed.
   function showFileDialog(mode, webview, type, requestId, app, payload) {
+    // Host-level surface: mount into the same portal ModalService uses
+    // (modals.js) rather than document.body directly. #launchpad and
+    // .app-window elements carry transform/backdrop-filter, which forms
+    // its own stacking context — a plain z-index on a document.body child
+    // doesn't reliably win against that. This root uses isolation:isolate
+    // and the max-safe z-index specifically to sit above every other
+    // layer regardless of what those layers set their own z-index to.
+    let modalRoot = document.getElementById('system-modal-root');
+    if (!modalRoot) {
+      modalRoot = document.createElement('div');
+      modalRoot.id = 'system-modal-root';
+      Object.assign(modalRoot.style, {
+        position: 'fixed',
+        inset: '0',
+        width: '100vw',
+        height: '100vh',
+        zIndex: '2147483000',
+        pointerEvents: 'none',
+        isolation: 'isolate',
+      });
+      document.body.appendChild(modalRoot);
+    }
+
     const overlay = document.createElement('div');
     overlay.className = 'nsec-overlay';
-    overlay.style.zIndex = '100001';
+    overlay.style.cssText = `
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.55);
+      pointer-events: auto;
+    `;
 
     const dialog = document.createElement('div');
     dialog.style.cssText = `
@@ -856,12 +884,33 @@ const AppSandbox = (() => {
       }
     });
 
+    // <webview> elements are composited by NW.js as a separate, out-of-
+    // process surface — they render above ordinary same-window DOM content
+    // regardless of z-index or stacking context, so #system-modal-root's
+    // isolation:isolate + max z-index (which correctly beats other host
+    // DOM layers like #launchpad) still loses to any running app's
+    // webview. The only thing that reliably wins against a webview is
+    // toggling its own visibility. Hide every active one for the
+    // duration of this dialog and restore exactly the ones we hid.
+    const hiddenWebviews = [];
+    for (const sandbox of activeSandboxes.values()) {
+      const wv = sandbox?.webview;
+      if (wv && wv.style.visibility !== 'hidden') {
+        hiddenWebviews.push(wv);
+        wv.style.visibility = 'hidden';
+      }
+    }
+    function restoreWebviews() {
+      for (const wv of hiddenWebviews) wv.style.visibility = '';
+    }
+
     // Closes the dialog overlay and unregisters it from the openDialogs map
     // so destroy() knows it's no longer pending.
     function closeDialog() {
       overlay.remove();
+      restoreWebviews();
       const sid = webview.dataset.sandboxId;
-      if (sid && openDialogs.get(sid) === overlay) {
+      if (sid && openDialogs.get(sid)?.overlay === overlay) {
         openDialogs.delete(sid);
       }
     }
@@ -870,12 +919,14 @@ const AppSandbox = (() => {
     btnContainer.appendChild(confirmBtn);
     dialog.appendChild(btnContainer);
     overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
+    modalRoot.appendChild(overlay);
 
-    // Track the open dialog so destroy() can clean it up if the sandbox is
-    // torn down while the user is still picking a file.
+    // Track the open dialog (plus its webview-restore callback) so destroy()
+    // can clean it up fully if the sandbox is torn down while the user is
+    // still picking a file — not just removing the overlay, but also
+    // un-hiding whatever other apps' webviews this dialog hid.
     const sandboxId = webview.dataset.sandboxId;
-    if (sandboxId) openDialogs.set(sandboxId, overlay);
+    if (sandboxId) openDialogs.set(sandboxId, { overlay, restore: restoreWebviews });
 
     renderBreadcrumb();
     renderFileList();
@@ -1685,7 +1736,7 @@ const AppSandbox = (() => {
       if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
         return respondError(webview, 'nova:app:openDefaultAppsSettings', requestId, 'UNAVAILABLE', 'Window manager not available');
       }
-      const win = WM.createWindow('nook', { section: 'default-apps', highlightCategory: category, requestingAppId: app.id });
+      const win = WM.createWindow('com.nbosp.settings', { section: 'default-apps', highlightCategory: category, requestingAppId: app.id });
       return respond(webview, 'nova:app:openDefaultAppsSettings', requestId, {
         success: !!win,
         windowId: win ? win.id : null,
@@ -2040,6 +2091,468 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:system:data:restore', requestId, { success: true, restoredKeys, cleared: !!clearFirst });
   }
 
+  async function handleSystemDialog({ payload, requestId, webview }) {
+    try {
+      const dialogService = (typeof window.ModalService?.show === 'function')
+        ? window.ModalService.show.bind(window.ModalService)
+        : (typeof window.showModal === 'function' ? window.showModal : null);
+      if (!dialogService) {
+        return respondError(webview, 'nova:system:dialog', requestId, 'UNAVAILABLE', 'System dialog service not available');
+      }
+      const buttons = Array.isArray(payload?.buttons) && payload.buttons.length
+        ? payload.buttons.map(b => ({
+            label: String(b?.label || 'OK'),
+            value: b?.value,
+            primary: !!b?.primary,
+            danger: !!b?.danger
+          }))
+        : [{ label: 'OK', value: true, primary: true }];
+      // Runs in the host page: the overlay is outside the Settings webview.
+      const value = await dialogService(
+        String(payload?.title || 'Settings'),
+        String(payload?.message || ''),
+        buttons,
+        payload?.inputType || null,
+      );
+      return respond(webview, 'nova:system:dialog', requestId, { success: true, value });
+    } catch (e) {
+      return respondError(webview, 'nova:system:dialog', requestId, 'DIALOG_ERROR', e?.message || 'Dialog failed');
+    }
+  }
+
+  async function handleSystemDeveloperModeConfirm({ requestId, webview }) {
+    try {
+      const dialogService = (typeof window.ModalService?.show === 'function')
+        ? window.ModalService.show.bind(window.ModalService)
+        : (typeof window.showModal === 'function' ? window.showModal : null);
+      if (!dialogService) {
+        return respondError(webview, 'nova:system:developer-mode:confirm', requestId, 'UNAVAILABLE', 'System dialog service not available');
+      }
+
+      // Match the original Settings warning verbatim, but construct it in the
+      // host dialog portal so it can never be trapped inside the Settings guest.
+      const body = document.createElement('div');
+      body.style.cssText = 'font-size:14px;color:var(--text-secondary,#aaa);line-height:1.55;';
+      const header = document.createElement('div');
+      header.style.cssText = 'display:flex;align-items:center;gap:12px;margin-bottom:16px;';
+      const warningIcon = document.createElement('span');
+      warningIcon.textContent = '\u26A0\uFE0F';
+      warningIcon.style.cssText = 'font-size:22px;line-height:1;';
+      const warningTitle = document.createElement('div');
+      warningTitle.textContent = 'Developer Mode — Security Warning';
+      warningTitle.style.cssText = 'font-size:17px;font-weight:700;color:var(--text-danger,#f85149);letter-spacing:0.2px;';
+      header.append(warningIcon, warningTitle);
+      body.appendChild(header);
+      const warningText = document.createElement('div');
+      warningText.style.cssText = 'white-space:pre-line;max-height:340px;overflow-y:auto;padding-right:4px;';
+      body.appendChild(warningText);
+      warningText.textContent =
+        'WARNING: Developer Mode lowers the system\'s security posture and grants elevated access to internal components.\n\n' +
+        'When enabled, the following restrictions are relaxed:\n' +
+        '\u2022 Unrestricted access to the filesystem, networks, and system APIs\n' +
+        '\u2022 Elevated permissions to internal system modules and runtime internals\n' +
+        '\u2022 Visibility into running processes, memory, and module state\n' +
+        '\u2022 The ability to inspect, alter, or revoke app permissions\n' +
+        '\u2022 The ability to install, remove, or modify system packages\n\n' +
+        'The following internal apps and tools become accessible:\n' +
+        '\u2022 Console — runs arbitrary JavaScript in the full OS context with no sandboxing\n' +
+        '\u2022 Inspector — can force-close arbitrary windows and export app state\n' +
+        '\u2022 Packages — can install unsigned or unverified packages into the live registry, and can add a locally-generated signing key to this device\'s trust store for the current session (only affects installs on this machine; never affects other clones, forks, or devices)\n' +
+        '\u2022 Modules — can dynamically import arbitrary module paths for live code execution\n' +
+        '\u2022 Permissions — can bulk-grant or revoke permissions for any app without user consent\n' +
+        '\u2022 Perf — exposes detailed runtime performance data, memory usage, and per-window DOM breakdowns\n' +
+        '\u2022 SysAccess — can read the virtual filesystem and probe internal network/SSRF configuration\n' +
+        '\u2022 Events — full visibility into all system-wide activity, including console output, permission checks, package operations, and app event data payloads across every app and OS component\n' +
+        '\u2022 Debug Overlay — persistent always-on-top diagnostics overlay exposing GPU, memory, URLs, and OS internals (F3)\n\n' +
+        'Developer Mode is intended solely for development, debugging, and system maintenance. Enable it only when you understand the risks. Leave it disabled during normal use.';
+
+      const value = await dialogService(
+        '',
+        body,
+        [
+          { label: 'Cancel', value: null },
+          { label: 'Turn On Anyway', danger: true, primary: true, value: 'confirm' }
+        ],
+        null,
+        '',
+        { variant: 'developer-warning' }
+      );
+      return respond(webview, 'nova:system:developer-mode:confirm', requestId, { success: true, value });
+    } catch (e) {
+      console.error('[Settings] developer-mode confirmation failed:', e);
+      return respondError(webview, 'nova:system:developer-mode:confirm', requestId, 'DIALOG_ERROR', e?.message || 'Developer mode confirmation failed');
+    }
+  }
+
+  async function handleSystemBootRecovery({ requestId, webview }) {
+    try {
+      localStorage.setItem('nova_manual_recovery', '1');
+      localStorage.removeItem('nova_safe_mode');
+      // Reload the HOST window, not the sandbox guest frame. The next boot
+      // sees nova_manual_recovery and opens the actual recovery environment.
+      setTimeout(() => {
+        try { location.reload(); } catch (e) { console.error('[Settings] recovery reload failed:', e); }
+      }, 120);
+      return respond(webview, 'nova:system:boot-recovery', requestId, { success: true });
+    } catch (e) {
+      return respondError(webview, 'nova:system:boot-recovery', requestId, 'ERROR', e?.message || 'Failed to reboot to recovery');
+    }
+  }
+
+  async function handleSystemStorageEstimate({ requestId, webview }) {
+    try {
+      // Settings is a first-party system app, so storage is measured from the
+      // host OS rather than the sandbox webview. navigator.storage.estimate()
+      // is renderer/partition scoped in NW.js and can be unavailable or report
+      // only the guest partition, which is why Settings previously showed an
+      // error even though the OS volume was healthy.
+      if (typeof require === 'function') {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const root = path.parse(process.cwd()).root || process.cwd();
+          if (typeof fs.statfsSync === 'function') {
+            const st = fs.statfsSync(root);
+            const blockSize = Number(st.bsize || st.frsize || 0);
+            const blocks = Number(st.blocks || 0);
+            const available = Number(st.bavail ?? st.bfree ?? 0);
+            if (blockSize > 0 && blocks > 0) {
+              const quota = blocks * blockSize;
+              const usage = Math.max(0, (blocks - available) * blockSize);
+              return respond(webview, 'nova:system:storage:estimate', requestId, {
+                success: true,
+                usage,
+                quota,
+                source: 'host-filesystem',
+              });
+            }
+          }
+
+          // Windows builds of Node/NW.js may not expose statfs. Use the native
+          // Win32 logical-disk provider through PowerShell as a host-only
+          // fallback. This reads the same volume that contains the OS runtime.
+          if (process.platform === 'win32') {
+            const cp = require('child_process');
+            const drive = String(root).replace(/\\+$/, '');
+            const ps = [
+              '$d = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID=\'' + drive.replace(/'/g, "''") + '\'";',
+              'if ($null -eq $d) { throw "Drive not found" };',
+              '[Console]::WriteLine((@{Size=[Int64]$d.Size; FreeSpace=[Int64]$d.FreeSpace} | ConvertTo-Json -Compress))'
+            ].join(' ');
+            const out = cp.execFileSync('powershell.exe', [
+              '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps
+            ], { encoding: 'utf8', windowsHide: true, timeout: 4000 });
+            const parsed = JSON.parse(String(out).trim());
+            const quota = Number(parsed?.Size || 0);
+            const free = Number(parsed?.FreeSpace || 0);
+            if (quota > 0 && free >= 0 && free <= quota) {
+              return respond(webview, 'nova:system:storage:estimate', requestId, {
+                success: true,
+                usage: quota - free,
+                quota,
+                source: 'host-windows-volume',
+              });
+            }
+          }
+        } catch (hostErr) {
+          console.warn('[Settings] host storage estimate fallback failed:', hostErr);
+        }
+      }
+
+      // Last fallback: if NW.js exposes a useful renderer estimate, return it.
+      if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.estimate === 'function') {
+        const est = await navigator.storage.estimate();
+        const usage = Number.isFinite(est?.usage) ? est.usage : 0;
+        const quota = Number.isFinite(est?.quota) ? est.quota : 0;
+        if (quota > 0 || usage > 0) {
+          return respond(webview, 'nova:system:storage:estimate', requestId, {
+            success: true, usage, quota, usageDetails: est?.usageDetails || null, source: 'webview-fallback'
+          });
+        }
+      }
+
+      return respondError(webview, 'nova:system:storage:estimate', requestId, 'UNAVAILABLE', 'Storage information is unavailable on this device');
+    } catch (e) {
+      console.error('[Settings] storage estimate failed:', e);
+      return respondError(webview, 'nova:system:storage:estimate', requestId, 'ERROR', e?.message || 'Failed to retrieve storage information');
+    }
+  }
+
+  async function deleteHostIndexedDBs(names) {
+    const results = [];
+    for (const name of names) {
+      const result = await new Promise(resolve => {
+        try {
+          const req = indexedDB.deleteDatabase(name);
+          req.onsuccess = () => resolve({ name, ok: true });
+          req.onerror = () => resolve({ name, ok: false, reason: 'error' });
+          req.onblocked = () => resolve({ name, ok: false, reason: 'blocked' });
+        } catch (e) {
+          resolve({ name, ok: false, reason: e?.message || 'error' });
+        }
+      });
+      results.push(result);
+    }
+    return results;
+  }
+
+  async function handleSystemDataClear({ payload, requestId, webview }) {
+    try {
+      const mode = payload?.mode === 'all' ? 'all' : 'cache';
+      const cleared = [];
+
+      if (mode === 'cache') {
+        try {
+          const cacheNames = await caches.keys();
+          if (cacheNames.length) {
+            await Promise.all(cacheNames.map(n => caches.delete(n)));
+            cleared.push(cacheNames.length + ' SW cache' + (cacheNames.length === 1 ? '' : 's'));
+          }
+        } catch (e) { console.warn('[Settings] cache clear failed:', e); }
+        try {
+          const tempKeys = Object.keys(localStorage).filter(k =>
+            k.includes('_cache') || k.includes('_temp') ||
+            k === 'nova_boot_attempts' || k === 'nova_force_recovery'
+          );
+          if (tempKeys.length) {
+            tempKeys.forEach(k => localStorage.removeItem(k));
+            cleared.push(tempKeys.length + ' temp key' + (tempKeys.length === 1 ? '' : 's'));
+          }
+        } catch (e) { console.warn('[Settings] temp key clear failed:', e); }
+        return respond(webview, 'nova:system:data:clear', requestId, { success: true, mode, cleared });
+      }
+
+      // Full wipe mirrors the recovery/factory-reset path and, critically,
+      // runs in the HOST context so it can reach every app partition.
+      try { localStorage.clear(); } catch {}
+      try { sessionStorage.clear(); } catch {}
+      try { if (typeof OPFS !== 'undefined' && OPFS.clear) await OPFS.clear(); } catch (e) { console.warn('[Settings] OPFS clear failed:', e); }
+
+      const appIds = (typeof OS !== 'undefined' && OS.apps) ? Object.keys(OS.apps) : [];
+      try {
+        if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartitions) {
+          await AppSandbox.clearAppPartitions(appIds);
+        }
+      } catch (e) { console.warn('[Settings] app partition wipe failed:', e); }
+      try {
+        if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAllStorage) {
+          await AppSandbox.clearAllStorage();
+        }
+      } catch (e) { console.warn('[Settings] app storage wipe failed:', e); }
+      const dbResults = await deleteHostIndexedDBs(['NovaByte_FS', 'novabyte_opfs_fallback', 'NovaByte_AppStorage']);
+      const blocked = dbResults.filter(r => !r.ok);
+
+      cleared.push('host settings', 'files', 'application data');
+      if (blocked.length) cleared.push(blocked.length + ' database(s) could not be deleted because they were blocked');
+
+      setTimeout(() => {
+        try { location.reload(); } catch {}
+      }, 350);
+      return respond(webview, 'nova:system:data:clear', requestId, { success: true, mode, cleared });
+    } catch (e) {
+      return respondError(webview, 'nova:system:data:clear', requestId, 'WIPE_ERROR', e?.message || 'Failed to clear data');
+    }
+  }
+
+  function systemDefaultAppsState() {
+    if (typeof DefaultApps === 'undefined' || !DefaultApps?.CATEGORIES) return null;
+    const categories = Object.entries(DefaultApps.CATEGORIES).map(([id, c]) => {
+      const apps = DefaultApps.getAppsForCategory(id);
+      const currentId = DefaultApps.getDefault(id) || null;
+      const chosen = apps.find(a => a.id === currentId) || apps[0] || null;
+      return { id, name: c.name, currentId: chosen?.id || null, currentName: chosen?.name || null, apps };
+    });
+    return { categories };
+  }
+
+  async function handleSystemDefaultAppsGet({ requestId, webview }) {
+    const state = systemDefaultAppsState();
+    if (!state) return respondError(webview, 'nova:system:default-apps:get', requestId, 'UNAVAILABLE', 'Default apps service not available');
+    return respond(webview, 'nova:system:default-apps:get', requestId, { success: true, ...state });
+  }
+
+  async function handleSystemDefaultAppsChoose({ payload, requestId, webview }) {
+    try {
+      if (typeof DefaultApps === 'undefined' || !DefaultApps?.CATEGORIES) {
+        return respondError(webview, 'nova:system:default-apps:choose', requestId, 'UNAVAILABLE', 'Default apps service not available');
+      }
+      const categoryId = String(payload?.categoryId || '');
+      const category = DefaultApps.CATEGORIES[categoryId];
+      if (!category) {
+        return respondError(webview, 'nova:system:default-apps:choose', requestId, 'INVALID_ARGS', 'Unknown default-app category');
+      }
+      const apps = DefaultApps.getAppsForCategory(categoryId) || [];
+      const currentId = DefaultApps.getDefault(categoryId) || apps[0]?.id || null;
+
+      const body = document.createElement('div');
+      body.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-height:60vh;overflow:auto;padding:2px;';
+
+      for (const app of apps) {
+        const row = document.createElement('div');
+        row.setAttribute('data-modal-value', String(app.id));
+        row.setAttribute('data-modal-selected', app.id === currentId ? 'true' : 'false');
+        row.dataset.modalSelectedStyle = 'radio';
+        row.setAttribute('role', 'radio');
+        row.setAttribute('aria-checked', app.id === currentId ? 'true' : 'false');
+        row.tabIndex = 0;
+        row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;cursor:pointer;user-select:none;border:1px solid ' + (app.id === currentId ? 'var(--accent)' : 'transparent') + ';background:' + (app.id === currentId ? 'var(--accent-muted)' : 'transparent') + ';';
+
+        const icon = document.createElement('div');
+        icon.style.cssText = 'width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;background:var(--accent-muted);color:var(--accent);font-size:14px;font-weight:700;';
+        if (typeof app.icon === 'string' && app.icon.startsWith('data:image/')) {
+          const img = document.createElement('img');
+          img.src = app.icon;
+          img.width = 18; img.height = 18;
+          img.alt = '';
+          img.draggable = false;
+          icon.appendChild(img);
+        } else if (typeof app.icon === 'string' && typeof svgIcon === 'function' && /^[a-z][a-z0-9-]*$/.test(app.icon)) {
+          // Built-in apps normally publish an icon key (e.g. "mail",
+          // "calendar", "settings"), not a data URI. The old chooser treated
+          // short keys as literal text, which produced a "mail" word inside
+          // the icon box instead of the actual application icon.
+          icon.innerHTML = svgIcon(app.icon, 18);
+        } else if (typeof app.icon === 'string' && app.icon.length <= 4) {
+          icon.textContent = app.icon;
+        } else {
+          icon.textContent = String(app.name || '?').charAt(0).toUpperCase();
+        }
+
+        const label = document.createElement('div');
+        label.textContent = String(app.name || app.id);
+        label.style.cssText = 'flex:1;font-size:13px;color:var(--text-primary);';
+
+        const radio = document.createElement('div');
+        radio.style.cssText = 'width:16px;height:16px;border-radius:50%;border:2px solid ' + (app.id === currentId ? 'var(--accent)' : 'var(--border)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+        const dot = document.createElement('div');
+        dot.setAttribute('data-modal-radio-dot', '');
+        dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:' + (app.id === currentId ? '1' : '0') + ';';
+        radio.appendChild(dot);
+        row.append(icon, label, radio);
+
+        const syncVisual = () => {
+          const selected = row.getAttribute('data-modal-selected') === 'true';
+          row.style.borderColor = selected ? 'var(--accent)' : 'transparent';
+          row.style.background = selected ? 'var(--accent-muted)' : 'transparent';
+          radio.style.borderColor = selected ? 'var(--accent)' : 'var(--border)';
+          dot.style.opacity = selected ? '1' : '0';
+        };
+        row.addEventListener('click', syncVisual);
+        row.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            row.click();
+          }
+        });
+        body.appendChild(row);
+      }
+
+      if (!apps.length) {
+        const empty = document.createElement('div');
+        empty.textContent = 'No installed apps support this category yet.';
+        empty.style.cssText = 'padding:16px;text-align:center;color:var(--text-muted);font-size:12.5px;';
+        body.appendChild(empty);
+      }
+
+      const dialogService = (typeof window.ModalService?.show === 'function')
+        ? window.ModalService.show.bind(window.ModalService)
+        : (typeof window.showModal === 'function' ? window.showModal : null);
+      if (!dialogService) {
+        return respondError(webview, 'nova:system:default-apps:choose', requestId, 'UNAVAILABLE', 'System dialog service not available');
+      }
+      const selected = await dialogService(
+        'Default ' + String(category.name || 'App'),
+        body,
+        [
+          { label: 'Cancel', value: null },
+          { label: 'Select', value: '__MODAL_SUBMIT_SELECTION__', primary: true }
+        ]
+      );
+      return respond(webview, 'nova:system:default-apps:choose', requestId, { success: !!selected, appId: selected || null });
+    } catch (e) {
+      return respondError(webview, 'nova:system:default-apps:choose', requestId, 'DIALOG_ERROR', e?.message || 'Default app chooser failed');
+    }
+  }
+
+  async function handleSystemLaunchSnake({ requestId, webview }) {
+    try {
+      if (typeof launchSnakeGame !== 'function') {
+        return respondError(webview, 'nova:system:launch-snake', requestId, 'UNAVAILABLE', 'Snake game service not available');
+      }
+      launchSnakeGame();
+      return respond(webview, 'nova:system:launch-snake', requestId, { success: true });
+    } catch (e) {
+      return respondError(webview, 'nova:system:launch-snake', requestId, 'ERROR', e?.message || 'Failed to launch Snake');
+    }
+  }
+
+  async function handleSystemDefaultAppsSet({ payload, requestId, webview }) {
+    try {
+      const categoryId = String(payload?.categoryId || '');
+      const appId = String(payload?.appId || '');
+      if (typeof DefaultApps === 'undefined' || !DefaultApps.setDefault) {
+        return respondError(webview, 'nova:system:default-apps:set', requestId, 'UNAVAILABLE', 'Default apps service not available');
+      }
+      if (!DefaultApps.setDefault(categoryId, appId)) {
+        return respondError(webview, 'nova:system:default-apps:set', requestId, 'INVALID_ARGS', 'Invalid category or app');
+      }
+      const apps = DefaultApps.getAppsForCategory(categoryId);
+      const chosen = apps.find(a => a.id === DefaultApps.getDefault(categoryId)) || null;
+      return respond(webview, 'nova:system:default-apps:set', requestId, { success: true, categoryId, appId, currentName: chosen?.name || null });
+    } catch (e) {
+      return respondError(webview, 'nova:system:default-apps:set', requestId, 'ERROR', e?.message || 'Failed to update default app');
+    }
+  }
+
+  function getAdminStateService() {
+    const loaders = [];
+    if (typeof require === 'function') loaders.push(require);
+    if (typeof window !== 'undefined' && window.nw && typeof window.nw.require === 'function') {
+      loaders.push(window.nw.require.bind(window.nw));
+    }
+    if (!loaders.length) throw new Error('Node host module loader unavailable');
+
+    let pathModule = null;
+    for (const load of loaders) {
+      try { pathModule = load('path'); break; } catch (_) {}
+    }
+    if (!pathModule) throw new Error('Node path module unavailable');
+
+    const root = (typeof process !== 'undefined' && typeof process.cwd === 'function')
+      ? process.cwd() : null;
+    const absolute = root
+      ? pathModule.resolve(root, 'server/security/admin-state.js')
+      : 'server/security/admin-state.js';
+
+    let lastError = null;
+    for (const load of loaders) {
+      try { return load(absolute); } catch (e) { lastError = e; }
+    }
+    throw new Error(lastError?.message || 'Unable to load admin state service');
+  }
+
+  async function handleSystemAdminModeGet({ requestId, webview }) {
+    try {
+      const adminState = await getAdminStateService();
+      return respond(webview, 'nova:system:admin-mode:get', requestId, { success: true, adminEnabled: !!adminState.isAdminEnabled() });
+    } catch (e) {
+      console.error('[Settings] admin-mode:get failed:', e);
+      return respondError(webview, 'nova:system:admin-mode:get', requestId, 'ERROR', e?.message || 'Failed to read admin mode');
+    }
+  }
+
+  async function handleSystemAdminModeSet({ payload, requestId, webview }) {
+    try {
+      const adminState = await getAdminStateService();
+      const enabled = !!payload?.enabled;
+      const state = adminState.setAdminEnabled(enabled);
+      return respond(webview, 'nova:system:admin-mode:set', requestId, { success: true, adminEnabled: !!state.adminEnabled });
+    } catch (e) {
+      console.error('[Settings] admin-mode:set failed:', e);
+      return respondError(webview, 'nova:system:admin-mode:set', requestId, 'ERROR', e?.message || 'Failed to set admin mode');
+    }
+  }
+
   async function handleSystemPreferencesGet({ payload, requestId, webview }) {
     if (typeof OS === 'undefined' || !OS.settings || typeof OS.settings.get !== 'function') {
       return respondError(webview, 'nova:system:preferences:get', requestId, 'UNAVAILABLE', 'OS.settings not available');
@@ -2060,6 +2573,14 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:system:preferences:set', requestId, 'INVALID_ARGS', 'key is required');
     }
     OS.settings.set(key, value);
+    // Settings runs sandboxed (no window.parent/host reference — see
+    // app-sandbox.js's <webview> guest notes), so its own "window.DebugOverlay
+    // && enable()/disable()" call is always a no-op: that global simply isn't
+    // reachable from inside the guest. Drive the overlay from here instead,
+    // where we're already running in the host context that owns it.
+    if (key === 'devMode' && typeof window !== 'undefined' && window.DebugOverlay) {
+      value ? window.DebugOverlay.enable() : window.DebugOverlay.disable();
+    }
     return respond(webview, 'nova:system:preferences:set', requestId, { success: true, key, value });
   }
 
@@ -2256,8 +2777,12 @@ const AppSandbox = (() => {
       description: a.description || '',
       categories: a.categories || [],
       verified: !!a.verified,
+      system: a.system === true || a.manifest?.system === true,
+      signer: a.signer || null,
+      manifest: a.manifest ? { system: a.manifest.system === true } : undefined,
       source: a.source || 'local',
       builtin: a.source !== 'file',
+      devOnly: a.devOnly === true,
     }));
     return respond(webview, 'nova:app:list', requestId, { success: true, apps });
   }
@@ -3433,6 +3958,31 @@ const AppSandbox = (() => {
     'nova:contacts:write': handleContactsWrite,
     'nova:contacts:delete': handleContactsDelete,
     'nova:system:info': handleSystemInfo,
+    // Settings-only channels (see UnrestrictedGate) — routing them here is
+    // necessary but not sufficient: handleAPICall dispatches to these for
+    // ANY caller, same as every other entry in this table. The actual
+    // identity/signature restriction to com.nbosp.settings happens inside
+    // UnrestrictedGate.checkUnrestrictedCall, called before dispatch — see
+    // its call site earlier in handleAPICall. Without that prior gate,
+    // registering these here would let any sandboxed app reach them.
+    'nova:system:permissions:list': handleSystemPermissionsList,
+    'nova:system:permissions:set': handleSystemPermissionsSet,
+    'nova:system:permissions:reset': handleSystemPermissionsReset,
+    'nova:system:data:backup': handleSystemDataBackup,
+    'nova:system:data:restore': handleSystemDataRestore,
+    'nova:system:dialog': handleSystemDialog,
+    'nova:system:developer-mode:confirm': handleSystemDeveloperModeConfirm,
+    'nova:system:boot-recovery': handleSystemBootRecovery,
+    'nova:system:data:clear': handleSystemDataClear,
+    'nova:system:default-apps:get': handleSystemDefaultAppsGet,
+    'nova:system:default-apps:choose': handleSystemDefaultAppsChoose,
+    'nova:system:default-apps:set': handleSystemDefaultAppsSet,
+    'nova:system:launch-snake': handleSystemLaunchSnake,
+    'nova:system:storage:estimate': handleSystemStorageEstimate,
+    'nova:system:admin-mode:get': handleSystemAdminModeGet,
+    'nova:system:admin-mode:set': handleSystemAdminModeSet,
+    'nova:system:preferences:get': handleSystemPreferencesGet,
+    'nova:system:preferences:set': handleSystemPreferencesSet,
     'nova:ready': handleReady,
     'nova:dialog:open': handleDialogOpen,
     'nova:dialog:save': handleDialogSave,
@@ -3600,10 +4150,13 @@ const AppSandbox = (() => {
         sandbox.wsConnections.clear();
       }
 
-      // Close any open file dialog so the overlay doesn't linger in the DOM.
+      // Close any open file dialog so the overlay doesn't linger in the DOM,
+      // and restore any other apps' webviews it had hidden to render above
+      // them (see showFileDialog's restoreWebviews).
       const dialog = openDialogs.get(sandboxId);
       if (dialog) {
-        dialog.remove();
+        dialog.overlay.remove();
+        dialog.restore?.();
         openDialogs.delete(sandboxId);
       }
 
@@ -5020,26 +5573,19 @@ const AppSandbox = (() => {
         const transparentHtml = app.transparent
           ? rawHtml.replace(
               /<head(\s[^>]*)?>/i,
-              (m) => `${m}<style id=\"novaapp-transparent-root\">html,body{background:transparent !important;}
-                /* The rule above only reaches html/body. Chromium/NW.js's
-                   <webview> guest paints its own root document with an
-                   opaque canvas independent of that — this was previously
-                   assumed to be covered by webview.style.backgroundColor
-                   (see createSandbox()), but that only affects the webview
-                   element itself, not the guest document painted inside it.
-                   Without a rule reaching every element, an app's own
-                   top-level wrapper (however it structures its markup —
-                   #app, #root, a bare body>div, etc.) still paints its
-                   default engine background and blocks the host window's
-                   glass backdrop, even though the app's own CSS never set
-                   an opaque background anywhere. Force every element
-                   transparent by default; anything the app explicitly
-                   colors (buttons, badges, hover states, deliberate
-                   opaque surfaces) still wins normally, since author
-                   styles loaded via <link>/inline <style> come later in
-                   the cascade and this uses the universal selector at
-                   equal specificity, not !important. */
-                *{background-color:transparent}</style>`
+              (m) => `${m}<style id=\"novaapp-transparent-root\">
+                /* transparent: true enables an alpha-capable app surface; it
+                   must not force the app's own UI to become transparent. Only
+                   the document roots start transparent, and explicit app CSS
+                   (including solid backgrounds on body, #app, cards, etc.) is
+                   free to paint an opaque surface normally. */
+                html,body{background:transparent;}
+                /* Descendant elements keep their normal CSS backgrounds. The
+                   transparent app surface comes from the document roots, so an
+                   app can leave its surrounding canvas glassy while explicitly
+                   painting a child surface (search bar, card, toolbar, etc.)
+                   with any solid background it wants. */
+              </style>`
             )
           : rawHtml;
         shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(transparentHtml, app));
@@ -5383,7 +5929,7 @@ const AppSandbox = (() => {
       width: 100%;
       height: 100%;
       border: none;
-      background: transparent;
+      background: ${app.transparent ? 'rgba(0,0,0,0)' : 'transparent'};
       display: flex;
       flex-direction: column;
     `;
@@ -5489,212 +6035,6 @@ const AppSandbox = (() => {
     return webview;
   }
 
-  // Trusted System transparent NovaApps use an isolated iframe rather than the
-  // NW.js <webview> compositor surface. This preserves the host window's glass
-  // while keeping the app DOM isolated from NBOSP itself. The iframe is sandboxed
-  // without allow-same-origin, so the guest cannot reach the parent document.
-  function isTrustedTransparentSystemApp(app) {
-    return !!(
-      app &&
-      app.transparent === true &&
-      app.system === true &&
-      app.verified === true &&
-      app.signer === 'NovaByte System' &&
-      app.manifest?.system === true
-    );
-  }
-
-  function directSystemPackageFile(app, filePath) {
-    const files = app?.files || {};
-    const raw = String(filePath || '').replace(/^\.\//, '');
-    if (Object.prototype.hasOwnProperty.call(files, raw)) return { path: raw, data: files[raw] };
-    const decoded = raw.startsWith('/') ? raw.slice(1) : raw;
-    if (Object.prototype.hasOwnProperty.call(files, decoded)) return { path: decoded, data: files[decoded] };
-    return null;
-  }
-
-  function packageMime(pathname) {
-    const ext = String(pathname).split('.').pop()?.toLowerCase() || '';
-    return ({
-      html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
-      json: 'application/json', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-      gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon', avif: 'image/avif', webm: 'video/webm',
-      mp4: 'video/mp4', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', woff: 'font/woff',
-      woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf', bin: 'application/octet-stream'
-    })[ext] || 'application/octet-stream';
-  }
-
-  function packageDataUrl(app, filePath) {
-    const hit = directSystemPackageFile(app, filePath);
-    return hit ? `data:${packageMime(hit.path)};base64,${hit.data}` : null;
-  }
-
-  function rewriteSystemPackageUrls(root, app) {
-    for (const attr of ['src', 'poster', 'href']) {
-      root.querySelectorAll?.(`[${attr}]`).forEach(el => {
-        const raw = el.getAttribute(attr);
-        if (!raw || /^(?:[a-z][a-z0-9+.-]*:|#|\/|\/\/)/i.test(raw)) return;
-        const dataUrl = packageDataUrl(app, raw);
-        if (dataUrl) el.setAttribute(attr, dataUrl);
-      });
-    }
-    root.querySelectorAll?.('style').forEach(style => {
-      style.textContent = String(style.textContent || '').replace(
-        /url\((\s*)(['"]?)(?!data:|blob:|https?:|\/\/|#|\/)([^'")]+)\2(\s*)\)/gi,
-        (_m, ws, q, path, tail) => {
-          const dataUrl = packageDataUrl(app, path);
-          return dataUrl ? `url(${ws}${q}${dataUrl}${q}${tail})` : _m;
-        }
-      );
-    });
-  }
-
-  function buildTrustedTransparentIframeDocument(app, iframeToken) {
-    const entry = app.entry || 'index.html';
-    const entryFile = directSystemPackageFile(app, entry);
-    if (!entryFile) throw new Error(`Entry file not found: ${entry}`);
-
-    const parsed = new DOMParser().parseFromString(decodeBase64Utf8(entryFile.data), 'text/html');
-    if (!parsed?.documentElement) throw new Error('Invalid HTML document');
-
-    parsed.querySelectorAll('meta[http-equiv="Content-Security-Policy" i]').forEach(meta => meta.remove());
-
-    const bridge = `(function(){
-      const TOKEN=${JSON.stringify(iframeToken)};
-      const pending=new Map();
-      let seq=0;
-      function request(type,payload){
-        return new Promise((resolve,reject)=>{
-          const requestId='nova-iframe-'+Date.now().toString(36)+'-'+(++seq);
-          pending.set(requestId,{resolve,reject});
-          parent.postMessage({__novaTransparentRequest:true,token:TOKEN,type,payload:payload||{},requestId},'*');
-        });
-      }
-      window.addEventListener('message',function(event){
-        const msg=event&&event.data;
-        if(!msg||msg.__novaTransparentResponse!==true||msg.token!==TOKEN)return;
-        const entry=pending.get(msg.requestId);
-        if(!entry)return;
-        pending.delete(msg.requestId);
-        if(msg.error){const err=new Error(msg.error.message||'Nova API error');if(msg.error.code)err.code=msg.error.code;entry.reject(err);}else entry.resolve(msg.result);
-      });
-      window.nova=window.nova||{};
-      window.nova.ipc=request;
-    })();`;
-
-    const csp = parsed.createElement('meta');
-    csp.httpEquiv = 'Content-Security-Policy';
-    csp.content = "default-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; font-src 'self' data: blob: https:; connect-src https: blob:; frame-src 'none'; object-src 'none'";
-    parsed.head.insertBefore(csp, parsed.head.firstChild);
-
-    const bridgeScript = parsed.createElement('script');
-    bridgeScript.textContent = bridge;
-    parsed.head.insertBefore(bridgeScript, parsed.head.firstChild.nextSibling);
-
-    const transparencyStyle = parsed.createElement('style');
-    transparencyStyle.id = 'novaapp-transparent-root';
-    transparencyStyle.textContent = 'html,html body,body{background:transparent !important;background-color:transparent !important;}';
-    parsed.head.appendChild(transparencyStyle);
-
-    for (const link of Array.from(parsed.querySelectorAll('link[rel="stylesheet"]'))) {
-      const href = link.getAttribute('href');
-      const cssFile = href && directSystemPackageFile(app, href);
-      if (cssFile) {
-        const style = parsed.createElement('style');
-        style.textContent = decodeBase64Utf8(cssFile.data);
-        link.replaceWith(style);
-      }
-    }
-
-    for (const sourceScript of Array.from(parsed.querySelectorAll('script'))) {
-      if (!sourceScript.parentNode) continue;
-      const src = sourceScript.getAttribute('src');
-      if (src) {
-        const jsFile = directSystemPackageFile(app, src);
-        if (!jsFile) { sourceScript.remove(); continue; }
-        sourceScript.removeAttribute('src');
-        sourceScript.textContent = decodeBase64Utf8(jsFile.data);
-      }
-    }
-
-    rewriteSystemPackageUrls(parsed, app);
-    return '<!doctype html>\n' + parsed.documentElement.outerHTML;
-  }
-
-  async function launchTrustedTransparentSystemApp(app, container, state) {
-    container.innerHTML = '';
-
-    const iframe = document.createElement('iframe');
-    iframe.className = 'nova-system-transparent-frame';
-    iframe.setAttribute('title', app.manifest?.name || app.name || app.id || 'NovaByte App');
-    iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-modals');
-    iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;border:0;margin:0;padding:0;background:transparent;color-scheme:normal;';
-    iframe.style.setProperty('background-color', 'transparent', 'important');
-    container.style.background = 'transparent';
-    container.appendChild(iframe);
-
-    const iframeToken = `${app.id}:${state?.id || ''}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-    const fakeWebview = {
-      dataset: { appId: app.id, sandboxId: `transparent_${app.id}` },
-      __directResponder: null,
-      executeScript() { return undefined; },
-      addEventListener() {},
-      removeEventListener() {},
-      getAttribute() { return 'allow-scripts allow-forms allow-popups allow-modals'; },
-    };
-    const directSandbox = { appId: app.id, app, webview: fakeWebview, windowId: state?.id, transparentIframe: true };
-
-    const messageHandler = async (event) => {
-      const msg = event?.data;
-      if (!msg || msg.__novaTransparentRequest !== true || msg.token !== iframeToken || event.source !== iframe.contentWindow) return;
-      try {
-        await handleAPICall(msg.type, msg.payload || {}, msg.requestId, app, fakeWebview, directSandbox);
-      } catch (err) {
-        iframe.contentWindow?.postMessage({
-          __novaTransparentResponse: true,
-          token: iframeToken,
-          requestId: msg.requestId,
-          error: { code: err?.code || 'ERROR', message: err?.message || String(err) }
-        }, '*');
-      }
-    };
-
-    fakeWebview.__directResponder = (message) => {
-      iframe.contentWindow?.postMessage({
-        __novaTransparentResponse: true,
-        token: iframeToken,
-        requestId: message?.requestId,
-        result: message?.result,
-        error: message?.error || null
-      }, '*');
-    };
-
-    window.addEventListener('message', messageHandler);
-    try {
-      iframe.srcdoc = buildTrustedTransparentIframeDocument(app, iframeToken);
-    } catch (err) {
-      window.removeEventListener('message', messageHandler);
-      iframe.remove();
-      throw err;
-    }
-
-    return {
-      success: true,
-      trustedSystem: true,
-      isolated: true,
-      transparent: true,
-      sandboxId: null,
-      appId: app.id,
-      windowId: state?.id,
-      webview: null,
-      cleanup: () => {
-        window.removeEventListener('message', messageHandler);
-        try { iframe.srcdoc = ''; } catch (_) {}
-        try { iframe.remove(); } catch (_) {}
-      },
-    };
-  }
-
   // Public lifecycle
 
   // Launch an app in a sandboxed environment.
@@ -5703,9 +6043,23 @@ const AppSandbox = (() => {
       throw new Error('Container element is required');
     }
 
-    if (isTrustedTransparentSystemApp(app)) {
-      return launchTrustedTransparentSystemApp(app, container, state);
-    }
+    // Trusted transparent system apps used to launch through a bespoke
+    // sandboxed <iframe> path (launchTrustedTransparentSystemApp, removed)
+    // instead of the normal <webview> flow below. That fork existed to keep
+    // trusted apps isolated from the parent document, but createSandbox()
+    // already isolates every app via a per-app storage partition plus the
+    // `sandbox` webview attribute — a stronger boundary than an iframe's
+    // same-origin restriction — so the fork bought no real isolation.
+    //
+    // What it did buy, by accident, was breaking transparency: Chromium
+    // composites a sandboxed iframe (no allow-same-origin) as opaque
+    // regardless of the guest document's own background:transparent rules,
+    // while <webview> honors `allowtransparency` + an explicit zero-alpha
+    // background. Signed/trusted transparent apps went through the iframe
+    // path and rendered as solid white; unsigned ones went through
+    // createSandbox() below and rendered correctly. Routing both through
+    // the same path fixes that, and app.transparent (handled inside
+    // createSandbox) still applies regardless of app.system/verified/signer.
 
     // Clear container — any previous webview (and its listeners) goes away.
     container.innerHTML = '';

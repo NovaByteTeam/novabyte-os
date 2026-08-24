@@ -95,7 +95,7 @@ registerApp({
     // declare a `permissions` array on their own registerApp() call —
     // Clock, Calculator, Browser, Calendar, Contacts, etc. That map is
     // keyed by each app's *internal* id (confirmed against each app file:
-    // Settings -> 'nook', TextEdit -> 'quill', Terminal -> 'shell',
+    // Settings -> 'com.nbosp.settings', TextEdit -> 'quill', Terminal -> 'shell',
     // Files -> 'vault', not the display name), split into `normal`
     // (auto-granted, never prompts) and `dangerous` (prompts via
     // requestAll, user-revocable) tiers.
