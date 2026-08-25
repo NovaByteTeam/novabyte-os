@@ -1,0 +1,36 @@
+{
+  "id": "com.nbosp.email",
+  "name": "Email",
+  "version": "3.0.6",
+  "description": "IMAP · POP3 · Exchange",
+  "author": "NovaByteOfficial",
+  "entry": "index.html",
+  "icon": "mail",
+  "type": "blank",
+  "permissions": [
+    "mail:read",
+    "mail:write",
+    "mail:send",
+    "mail:delete"
+  ],
+  "optionalPermissions": [
+    "device:notifications"
+  ],
+  "defaultSize": [
+    860,
+    580
+  ],
+  "minSize": [
+    600,
+    420
+  ],
+  "resizable": true,
+  "frame": true,
+  "categories": [
+    "communication",
+    "utilities"
+  ],
+  "system": true,
+  "transparent": true,
+  "packagedAt": "2026-08-25T15:53:00.000Z"
+}

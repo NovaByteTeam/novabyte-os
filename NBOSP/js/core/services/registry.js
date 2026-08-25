@@ -166,7 +166,7 @@ const APP_REGISTRY = [];
       // ── Opens email compose — overridden by email app when it is running ──
       OS.openMailto = function (url) {
         if (!url) return;
-        WM.createWindow('nbosp-email', { compose: parseMailto(url) });
+        WM.createWindow('com.nbosp.email', { compose: parseMailto(url) });
       };
 
       // Intercept <a> clicks anywhere in the NovaByte UI

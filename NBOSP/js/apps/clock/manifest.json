@@ -1,0 +1,28 @@
+{
+  "id": "com.nbosp.clock",
+  "name": "Clock",
+  "version": "3.0.5",
+  "description": "Alarm · Clock · Timer · Stopwatch",
+  "author": "NovaByte",
+  "entry": "index.html",
+  "icon": "alarm-clock",
+  "type": "blank",
+  "system": true,
+  "permissions": [],
+  "optionalPermissions": [],
+  "defaultSize": [
+    400,
+    600
+  ],
+  "minSize": [
+    340,
+    480
+  ],
+  "resizable": true,
+  "frame": true,
+  "categories": [
+    "utilities"
+  ],
+  "packagedAt": "2026-08-25T15:53:00.000Z",
+  "transparent": true
+}

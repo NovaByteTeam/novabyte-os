@@ -252,8 +252,8 @@ function getBootConfig() {
       const id = src.split('/js/apps/').pop().split('.')[0];
       const map = {
         search: 'nbosp-search', browser: 'com.nbosp.browser', contacts: 'nbosp-contacts',
-        email: 'nbosp-email', calendar: 'nbosp-calendar', settings: 'nbosp-settings',
-        clock: 'nbosp-clock', appmanager: 'nbosp-app-manager', calculator: 'nbosp-calculator',
+        email: 'com.nbosp.email', calendar: 'nbosp-calendar', settings: 'nbosp-settings',
+        clock: 'com.nbosp.clock', appmanager: 'nbosp-app-manager', calculator: 'nbosp-calculator',
         files: 'nbosp-files', gallery: 'nbosp-gallery', downloads: 'nbosp-downloads',
         textedit: 'nbosp-textedit', terminal: 'nbosp-terminal', music: 'nbosp-music'
       };

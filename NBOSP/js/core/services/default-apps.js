@@ -71,7 +71,7 @@ const CATEGORIES = Object.freeze({
   email: Object.freeze({
     name: 'Email',
     apps: Object.freeze([
-      Object.freeze({ id: 'nbosp-email', name: 'Email', icon: 'mail' }),
+      Object.freeze({ id: 'com.nbosp.email', name: 'Email', icon: 'mail' }),
     ]),
   }),
   calendar: Object.freeze({

@@ -1,0 +1,36 @@
+{
+  "id": "com.nbosp.shell",
+  "name": "Terminal",
+  "version": "3.0.2",
+  "description": "NovaByte OS Terminal",
+  "author": "NovaByte",
+  "entry": "index.html",
+  "icon": "terminal",
+  "type": "blank",
+  "permissions": [
+    "vfs:read",
+    "vfs:write",
+    "vfs:delete"
+  ],
+  "optionalPermissions": [
+    "clipboard:read",
+    "clipboard:write",
+    "device:notifications",
+    "system:info"
+  ],
+  "defaultSize": [
+    700,
+    460
+  ],
+  "minSize": [
+    420,
+    260
+  ],
+  "resizable": true,
+  "frame": true,
+  "categories": [
+    "utilities",
+    "development"
+  ],
+  "system": true
+}

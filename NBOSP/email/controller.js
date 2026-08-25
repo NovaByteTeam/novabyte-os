@@ -299,13 +299,35 @@ router.post('/send', requireCreds, uploadAttachments, async (req, res) => {
     const { to, cc, bcc, subject, text, body, html } = req.body || {};
     if (!to) return res.status(400).json({ error: 'No recipients defined' });
 
-    // req.files comes from multer's memoryStorage — each entry already
-    // has its full content as a Buffer, nothing left to read off disk.
-    const attachments = (req.files || []).map(f => ({
+    // Multipart uploads keep the original path for browser clients. Packaged
+    // NovaApps use the authenticated host IPC bridge, which serializes small
+    // attachments as base64 JSON so credentials and files never cross into an
+    // unrestricted renderer fetch path. The same 25MB total / 10-file limit is
+    // enforced for both representations.
+    const multipartAttachments = (req.files || []).map(f => ({
       filename: f.originalname,
       content: f.buffer,
       contentType: f.mimetype || 'application/octet-stream',
     }));
+    let jsonAttachments = [];
+    if (Array.isArray(req.body?.attachments)) {
+      const total = req.body.attachments.reduce((sum, a) => {
+        try { return sum + Buffer.byteLength(String(a?.contentBase64 || ''), 'base64'); } catch { return sum; }
+      }, 0);
+      if (req.body.attachments.length > 10 || total > MAX_ATTACHMENT_BYTES) {
+        return res.status(400).json({ error: 'Attachment limit exceeded (max 10 files / 25MB total)' });
+      }
+      try {
+        jsonAttachments = req.body.attachments.map(a => ({
+          filename: String(a?.filename || 'attachment'),
+          content: Buffer.from(String(a?.contentBase64 || ''), 'base64'),
+          contentType: String(a?.contentType || 'application/octet-stream'),
+        }));
+      } catch {
+        return res.status(400).json({ error: 'Invalid attachment encoding' });
+      }
+    }
+    const attachments = multipartAttachments.length ? multipartAttachments : jsonAttachments;
 
     const info = await transporter.sendMail({
       from: user,

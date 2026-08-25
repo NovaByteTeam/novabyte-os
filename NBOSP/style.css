@@ -3207,6 +3207,35 @@
     width: 90%;
     animation: modalIn calc(200ms * var(--anim-speed)) ease-out;
   }
+  .modal-dialog[data-modal-variant="clock-alarm"] {
+    width: 320px;
+    max-width: calc(100vw - 32px);
+    padding: 22px;
+  }
+  .modal-dialog[data-modal-variant="clock-alarm"] .modal-body {
+    margin-bottom: 18px;
+    padding: 0;
+  }
+  .clock-native-alarm-body { width: 320px; max-width: 100%; }
+  .clock-native-alarm-body > .input { width: 100%; box-sizing: border-box; margin: 0 0 14px 0; }
+  .clock-native-alarm-time {
+    width: 100%; height: 54px; text-align: center; font-size: 30px; font-weight: 200;
+    letter-spacing: 2px; font-variant-numeric: tabular-nums;
+  }
+  .clock-native-alarm-repeat-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-muted); margin: 0 0 8px;
+  }
+  .clock-native-alarm-days { display: flex; gap: 5px; margin: 0 0 0; }
+  .clock-native-alarm-day {
+    flex: 1; min-width: 0; padding: 7px 0; aspect-ratio: 1; border-radius: 50%;
+    font-size: 11px; font-weight: 700; cursor: pointer;
+    border: 1px solid var(--border-subtle); background: transparent; color: var(--text-muted);
+    transition: all .12s; display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font-ui);
+  }
+  .clock-native-alarm-day:hover { transform: none; box-shadow: none; }
+  .clock-native-alarm-day:active { transform: scale(.98); }
   .modal-title {
     font-size: 16px;
     font-weight: 600;

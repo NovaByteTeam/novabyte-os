@@ -46,10 +46,10 @@ const AppRegistry = (() => {
   ]);
 
   const RESERVED_APP_IDS = new Set([
-    'com.nbosp.settings', 'app-manager', 'browser', 'nbosp-email', 'vault',
+    'com.nbosp.settings', 'app-manager', 'browser', 'com.nbosp.email', 'vault',
     'shell', 'nbosp-gallery', 'nbosp-music', 'nbosp-downloads',
     'nbosp-search', 'nbosp-contacts', 'calendar-app', 'calculator',
-    'nbosp-clock', 'quill', 'nbosp-files',
+    'com.nbosp.clock', 'quill', 'nbosp-files',
   ]);
 
   // ── Storage ────────────────────────────────────────────────────────────────
@@ -388,11 +388,16 @@ const AppRegistry = (() => {
         } else {
           const allGranted = await mgr.requestAll(missing, appId, app.name);
           if (!allGranted) {
-            console.warn(`[AppRegistry] Launch aborted — permissions denied for ${appId}`);
+            // A permission denial must not prevent a system app from opening.
+            // The sandbox gate re-checks the same required permissions and will
+            // deliberately keep the renderer restricted when any are denied.
+            // This preserves the policy: deny capability -> sandbox, rather than
+            // turning a normal denial into a launch failure.
+            app.__deniedPermissionsAtLaunch = missing.filter((p) => !mgr.isGranted(p, appId));
+            console.warn(`[AppRegistry] Launch continuing in restricted mode — permissions denied for ${appId}: ${app.__deniedPermissionsAtLaunch.join(', ')}`);
             if (typeof EventLog !== 'undefined') {
-              EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Launch aborted — permissions denied for ${appId}`, data: { appId, missing } });
+              EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Launch continuing in restricted mode — permissions denied for ${appId}`, data: { appId, missing: app.__deniedPermissionsAtLaunch } });
             }
-            return null;
           }
         }
       }

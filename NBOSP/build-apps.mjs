@@ -1,65 +1,322 @@
 #!/usr/bin/env node
-// Repackages every app under js/apps/<id>/ into a single js/apps/<id>.novaapp
-// file. Every file in the app folder is bundled (manifest, html, js, css,
-// assets/, images, fonts, whatever's there), recursing into subdirectories.
-//
-// The one exception is _package-meta.json — that's leftover metadata from a
-// previous build, not something the app loads at runtime, so re-bundling it
-// would embed a stale signature block inside the new package.
-//
-// This script never deletes or modifies the source folder. It only writes
-// the .novaapp file alongside it.
-//
-// Usage: node scripts/build-apps.mjs [apps-dir]
-// Defaults to js/apps relative to this script's location.
 
-import { readdir, readFile, writeFile, stat } from 'node:fs/promises';
+/**
+ * NBOSP App Builder
+ * ────────────────────────────────────────────────────────────
+ * Repackages every app under js/apps/<id>/ into a single
+ * js/apps/<id>.novaapp file.
+ *
+ * Every file in the app folder is bundled (manifest, html, js, css,
+ * assets/, images, fonts, whatever's there), recursing into
+ * subdirectories.
+ *
+ * The one exception is _package-meta.json — that's leftover metadata
+ * from a previous build, not something the app loads at runtime, so
+ * re-bundling it would embed a stale signature block inside the new
+ * package.
+ *
+ * This script never deletes or modifies the source folder. It only
+ * writes the .novaapp file alongside it.
+ *
+ * ── Signing ─────────────────────────────────────────────────
+ *
+ * Generated packages are signed using the Ed25519 private key stored at:
+ *
+ *   NBOSP/keys/test-system-key.json
+ *
+ * The signer identity is:
+ *
+ *   NovaByte System
+ *
+ * The package signing payload is first hashed with SHA-512 using
+ * Node's built-in crypto implementation, then the resulting digest
+ * is signed using Ed25519.
+ *
+ * IMPORTANT:
+ *
+ * The bundled test-system-key.json contains a deliberately public
+ * development/test private key. Anyone building upon NBOSP can use it
+ * to test the System signing flow.
+ *
+ * Because the private key is intentionally distributed, signatures
+ * produced with this key MUST NOT be considered proof of genuine
+ * production System authorization.
+ *
+ * For actual System privilege protection, replace the test key with
+ * your own privately-held Ed25519 key pair.
+ *
+ * Keep your private key outside the repository and commit ONLY the
+ * corresponding public key to trust-store.js.
+ *
+ * You can also change DEFAULT_SIGNER if your fork uses a different
+ * signer identity, but it must match the identity expected by the
+ * package verification logic.
+ *
+ * Usage:
+ *
+ *   node scripts/build-apps.mjs [apps-dir]
+ *
+ * Defaults to js/apps relative to this script's location.
+ */
+
+import {
+  readdir,
+  readFile,
+  writeFile,
+  stat,
+} from 'node:fs/promises';
+
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  createHash,
+  createPrivateKey,
+  sign,
+} from 'node:crypto';
 
-const EXCLUDED_FILES = new Set(['_package-meta.json']);
+const EXCLUDED_FILES = new Set([
+  '_package-meta.json',
+]);
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const appsDir = path.resolve(process.argv[2] ?? path.join(scriptDir, '..', 'js', 'apps'));
+const scriptDir = path.dirname(
+  fileURLToPath(import.meta.url)
+);
 
-async function findAppDirs(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-}
+const projectRoot = path.resolve(
+  scriptDir,
+  '..'
+);
 
-// Recursively collects every file under `dir`, returning paths relative to
-// `baseDir` using forward slashes (so the package's file keys are portable).
+const appsDir = path.resolve(
+  process.argv[2] ??
+    path.join(projectRoot, 'js', 'apps')
+);
+
+/*
+ * ── Signing configuration ─────────────────────────────────────────────
+ *
+ * This is the intentionally-public NBOSP development/test key.
+ *
+ * The matching private key is located at:
+ *
+ *   NBOSP/keys/test-system-key.json
+ *
+ * Anyone building upon NBOSP may use it for development and testing.
+ *
+ * For real System privilege protection, replace the test private key
+ * with your own privately-held Ed25519 key and replace the public key
+ * in trust-store.js with the corresponding public key.
+ */
+const DEFAULT_SIGNER = 'NovaByte System';
+
+const TEST_SIGNING_KEY_PATH = path.join(
+  projectRoot,
+  'keys',
+  'test-system-key.json'
+);
+
+/**
+ * Recursively collects every file under `dir`.
+ *
+ * Paths returned by this function are relative to `baseDir` and always
+ * use forward slashes so the package's file keys remain portable.
+ */
 async function collectFiles(dir, baseDir) {
-  const entries = await readdir(dir, { withFileTypes: true });
+  const entries = await readdir(dir, {
+    withFileTypes: true,
+  });
+
   const out = [];
 
   for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
+    const fullPath = path.join(
+      dir,
+      entry.name
+    );
 
     if (entry.isDirectory()) {
-      out.push(...(await collectFiles(fullPath, baseDir)));
+      out.push(
+        ...(await collectFiles(
+          fullPath,
+          baseDir
+        ))
+      );
+
       continue;
     }
 
-    if (EXCLUDED_FILES.has(entry.name)) continue;
+    if (EXCLUDED_FILES.has(entry.name)) {
+      continue;
+    }
 
-    const relPath = path.relative(baseDir, fullPath).split(path.sep).join('/');
+    const relPath = path
+      .relative(baseDir, fullPath)
+      .split(path.sep)
+      .join('/');
+
     out.push(relPath);
   }
 
-  return out;
+  /*
+   * Sorting makes the package deterministic with respect to filesystem
+   * enumeration order.
+   */
+  return out.sort();
 }
 
-async function packageApp(appDir) {
-  const manifestRaw = await readFile(path.join(appDir, 'manifest.json'), 'utf8');
-  const manifest = JSON.parse(manifestRaw);
+/**
+ * Loads the Ed25519 private signing key from the test-key JSON file.
+ *
+ * The test key is intentionally distributed with NBOSP so developers
+ * can immediately test package signing.
+ *
+ * Production forks should replace this with a private key that is NOT
+ * committed to the repository.
+ */
+async function loadSigningKey() {
+  let raw;
 
-  const relPaths = await collectFiles(appDir, appDir);
+  try {
+    raw = await readFile(
+      TEST_SIGNING_KEY_PATH,
+      'utf8'
+    );
+  } catch (err) {
+    throw new Error(
+      `Unable to read signing key at ${TEST_SIGNING_KEY_PATH}: ${err.message}`
+    );
+  }
+
+  let jwk;
+
+  try {
+    jwk = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `Signing key is not valid JSON: ${err.message}`
+    );
+  }
+
+  if (!jwk || typeof jwk !== 'object') {
+    throw new Error(
+      'Signing key must contain a JWK object.'
+    );
+  }
+
+  if (
+    jwk.kty !== 'OKP' ||
+    jwk.crv !== 'Ed25519'
+  ) {
+    throw new Error(
+      'Signing key must be an Ed25519 OKP JWK.'
+    );
+  }
+
+  if (
+    typeof jwk.x !== 'string' ||
+    !jwk.x
+  ) {
+    throw new Error(
+      'Signing key does not contain an Ed25519 public `x` value.'
+    );
+  }
+
+  if (
+    typeof jwk.d !== 'string' ||
+    !jwk.d
+  ) {
+    throw new Error(
+      'Signing key does not contain an Ed25519 private `d` value.'
+    );
+  }
+
+  return createPrivateKey({
+    key: jwk,
+    format: 'jwk',
+  });
+}
+
+/**
+ * Creates the exact deterministic byte representation that is signed.
+ *
+ * IMPORTANT:
+ *
+ * The `signing` field is deliberately excluded because it contains
+ * the signature itself. Including it would create a circular signing
+ * dependency.
+ *
+ * The verifier MUST construct this same payload before verification.
+ */
+function createSigningPayload(pkg) {
+  return JSON.stringify({
+    novabyte_app: pkg.novabyte_app,
+    compiled_at: pkg.compiled_at,
+    manifest: pkg.manifest,
+    files: pkg.files,
+  });
+}
+
+/**
+ * SHA-512 hash of the canonical signing payload.
+ */
+function hashSigningPayload(payload) {
+  return createHash('sha512')
+    .update(payload, 'utf8')
+    .digest();
+}
+
+/**
+ * Signs the SHA-512 digest using Ed25519.
+ */
+function signPackage(pkg, privateKey) {
+  const payload = createSigningPayload(pkg);
+
+  const digest = hashSigningPayload(
+    payload
+  );
+
+  const signature = sign(
+    null,
+    digest,
+    privateKey
+  );
+
+  return {
+    method: 'Ed25519',
+    hash: 'SHA-512',
+    signer: DEFAULT_SIGNER,
+    signature: signature.toString('hex'),
+  };
+}
+
+/**
+ * Builds one application package in memory.
+ */
+async function packageApp(appDir) {
+  const manifestRaw = await readFile(
+    path.join(appDir, 'manifest.json'),
+    'utf8'
+  );
+
+  const manifest = JSON.parse(
+    manifestRaw
+  );
+
+  const relPaths = await collectFiles(
+    appDir,
+    appDir
+  );
 
   const files = {};
+
   for (const relPath of relPaths) {
-    const buf = await readFile(path.join(appDir, relPath));
-    files[relPath] = buf.toString('base64');
+    const buf = await readFile(
+      path.join(appDir, relPath)
+    );
+
+    files[relPath] = buf.toString(
+      'base64'
+    );
   }
 
   return {
@@ -67,46 +324,146 @@ async function packageApp(appDir) {
     compiled_at: Date.now(),
     manifest,
     files,
-    signing: { method: 'none' },
-    integrity: { method: 'none' },
+
+    /*
+     * Filled after the package has been assembled and before it is
+     * written to disk.
+     */
+    signing: {
+      method: 'none',
+    },
+
+    integrity: {
+      method: 'none',
+    },
   };
 }
 
-async function buildOne(appDirName) {
-  const appDir = path.join(appsDir, appDirName);
-  const manifestPath = path.join(appDir, 'manifest.json');
+async function buildOne(
+  appDirName,
+  privateKey
+) {
+  const appDir = path.join(
+    appsDir,
+    appDirName
+  );
+
+  const manifestPath = path.join(
+    appDir,
+    'manifest.json'
+  );
 
   try {
     await stat(manifestPath);
   } catch {
-    console.log(`- skip ${appDirName}: no manifest.json, not an app dir`);
+    console.log(
+      `- skip ${appDirName}: no manifest.json, not an app dir`
+    );
+
     return;
   }
 
-  const pkg = await packageApp(appDir);
-  const appId = pkg.manifest.id ?? appDirName;
-  const outPath = path.join(appsDir, `${appId}.novaapp`);
-  const fileCount = Object.keys(pkg.files).length;
+  const pkg = await packageApp(
+    appDir
+  );
 
-  await writeFile(outPath, JSON.stringify(pkg, null, 2));
+  const appId =
+    pkg.manifest.id ??
+    appDirName;
 
-  console.log(`✓ ${appDirName} -> ${path.relative(appsDir, outPath)} (${fileCount} file${fileCount === 1 ? '' : 's'}, source untouched)`);
+  /*
+   * Sign the package before writing it.
+   *
+   * `signing` itself is excluded from the signing payload, so the
+   * signature does not end up signing itself.
+   */
+  pkg.signing = signPackage(
+    pkg,
+    privateKey
+  );
+
+  const outPath = path.join(
+    appsDir,
+    `${appId}.novaapp`
+  );
+
+  const fileCount =
+    Object.keys(pkg.files).length;
+
+  await writeFile(
+    outPath,
+    JSON.stringify(pkg, null, 2)
+  );
+
+  console.log(
+    `✓ ${appDirName} -> ${path.relative(
+      appsDir,
+      outPath
+    )} (${fileCount} file${
+      fileCount === 1 ? '' : 's'
+    }, signed as ${pkg.signing.signer}, source untouched)`
+  );
 }
 
 async function main() {
-  const dirs = await findAppDirs(appsDir);
+  const entries = await readdir(
+    appsDir,
+    {
+      withFileTypes: true,
+    }
+  );
+
+  const dirs = entries
+    .filter(
+      (entry) => entry.isDirectory()
+    )
+    .map(
+      (entry) => entry.name
+    );
+
   if (dirs.length === 0) {
-    console.log(`No app directories found in ${appsDir}`);
+    console.log(
+      `No app directories found in ${appsDir}`
+    );
+
     return;
   }
 
-  console.log(`Building ${dirs.length} app(s) from ${appsDir}\n`);
+  console.log(
+    `Loading signing key: ${path.relative(
+      projectRoot,
+      TEST_SIGNING_KEY_PATH
+    )}`
+  );
+
+  console.log(
+    `Signer: ${DEFAULT_SIGNER}`
+  );
+
+  console.log(
+    'Hash: SHA-512'
+  );
+
+  console.log(
+    `Building ${dirs.length} app(s) from ${appsDir}\n`
+  );
+
+  const privateKey =
+    await loadSigningKey();
+
   for (const dirName of dirs) {
-    await buildOne(dirName);
+    await buildOne(
+      dirName,
+      privateKey
+    );
   }
 }
 
 main().catch((err) => {
-  console.error('Build failed:', err);
+  console.error(
+    'Build failed:',
+    err
+  );
+
   process.exitCode = 1;
 });

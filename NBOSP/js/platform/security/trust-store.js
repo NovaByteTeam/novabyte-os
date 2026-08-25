@@ -21,36 +21,76 @@
  *    as "Unverified" to end users — which is correct: nobody but the
  *    developer themselves vouches for a self-signed app.
  *
- * NOTE on the key below: this is a real public key, not a placeholder.
- * It corresponds to NovaByte's own private signing key, held offline
- * and never distributed to developers — that's what the "Verified"
- * badge means for a stock/NovaByte-signed install (see the README's
- * Security section).
+ * NOTE on the NovaByte Trusted Signing key below: this is a real public
+ * key, not a placeholder. It corresponds to NovaByte's own private
+ * signing key, held offline and never distributed to developers.
+ * That is what the "Verified" badge means for a stock/NovaByte-signed
+ * install (see the README's Security section).
  *
- * Swapping it out: if your fork isn't licensed for NovaByte Services,
- * this key is yours to replace like any other trust store entry —
- * point it at your own offline signing key and your fork's "Verified"
- * badge will mean packages reviewed and signed by you instead. The
- * key only has to stay as-is (unmodified, unremoved, still checked)
- * if your fork is NovaByte Services-licensed — see below.
+ * Swapping the NovaByte Trusted Signing key:
+ * if your fork isn't licensed for NovaByte Services, this key is yours
+ * to replace like any other trust store entry — point it at your own
+ * offline signing key and your fork's "Verified" badge will mean packages
+ * reviewed and signed by you instead. The key only has to stay as-is
+ * (unmodified, unremoved, still checked) if your fork is NovaByte
+ * Services-licensed — see below.
+ *
+ * System test key:
+ * The "NovaByte System" entry below intentionally uses a PUBLIC TEST KEY.
+ * Its corresponding private key is deliberately distributed with NBOSP
+ * for development/testing purposes.
+ *
+ * This test key is NOT a production NovaByte signing key and must never
+ * be treated as proof that a package was reviewed or approved by NovaByte.
+ * Anyone building upon NBOSP can use the test private key to test the
+ * System signing/verification flow.
+ *
+ * The matching test private key is available at:
+ *
+ *   NBOSP/keys/test-system-key.json
+ *
+ * Developers may use that test key directly for local development.
+ * However, because this private key is intentionally public, packages
+ * signed with it provide NO meaningful protection against unauthorized
+ * System packages.
+ *
+ * For actual System privilege protection, we STRONGLY RECOMMEND replacing
+ * this public test key with your own privately-held Ed25519 key pair.
+ * Keep your private key secret and outside the repository, and commit
+ * ONLY your replacement public key to this trust store.
+ *
+ * This is the recommended configuration for production forks:
+ *
+ *   1. Generate your own Ed25519 signing key pair.
+ *   2. Keep the private key secret and outside the repository.
+ *   3. Replace NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK below with your public key.
+ *   4. Sign System packages using your private key.
+ *
+ * This gives your fork genuine System-signer protection. The distributed
+ * test key is intended only to make NBOSP easy for developers to build,
+ * test, and experiment with without requiring them to generate a key pair
+ * immediately.
+ *
+ * The real NovaByte production System/private signing key is NOT included
+ * in NBOSP and must never be committed to the repository or distributed
+ * to developers.
  *
  * This file is part of NBOSP itself (Apache 2.0) — it's bundled in
  * every clone and fork, no separate license needed to have it or fork
  * it as-is.
  *
  * The one condition: if your fork wants a NovaByte Services license
- * (see the README's Licensing section — this covers Nova Core
- * Services, NovaBridge, Sentinel, and the other bundled components),
- * this check — verifying package signatures against the trust store —
- * has to stay intact: not removed, not bypassed, not turned into a
- * no-op, and the NovaByte key above has to stay the one it verifies
- * against. We won't issue a NovaByte Services license to a fork where
- * this has been altered, because a fork that hands out "Trusted"
- * badges to unreviewed/unsigned packages breaks verification for
- * users and for us. Forking NBOSP without a NovaByte Services license
- * is unaffected either way — do what you want with your fork,
- * including swapping this key for your own; this condition only bites
- * if you also want that license.
+ * (see the README's Licensing section — this covers Nova Core Services,
+ * NovaBridge, Sentinel, and the other bundled components), this check —
+ * verifying package signatures against the trust store — has to stay
+ * intact: not removed, not bypassed, not turned into a no-op, and the
+ * NovaByte key above has to stay the one it verifies against. We won't
+ * issue a NovaByte Services license to a fork where a fork hands out
+ * "Trusted" badges to unreviewed/unsigned packages breaks verification
+ * for users and for us. Forking NBOSP without a NovaByte Services license
+ * is unaffected either way — do what you want with your fork, including
+ * swapping this key for your own; this condition only bites if you also
+ * want that license.
  *
  * Revocation:
  *  - A signature can be individually revoked without touching the signing
@@ -98,33 +138,73 @@ const TrustStore = (() => {
   // for the "System" badge in appmanager.js —
   // that's a stronger claim than ordinary "Verified", so it gets its own
   // signer identity rather than reusing NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK.
-  // Replace this JWK with your own Ed25519 public key before relying on
-  // the System badge for anything — as committed, this is a non-functional
-  // placeholder (no matching private key exists for it), so nothing will
-  // verify against it until you swap it out.
+  //
+  // IMPORTANT:
+  // This is a PUBLIC TEST KEY intentionally distributed with NBOSP.
+  // Anyone building upon NBOSP may use the matching test private key to
+  // exercise the System signing and verification flow.
+  //
+  // Matching test private key:
+  //
+  //   NBOSP/keys/test-system-key.json
+  //
+  // This is NOT NovaByte's real production System private key.
+  // The real production private key must remain withheld, offline, and
+  // must never be committed to NBOSP or distributed to developers.
+  //
+  // Because the test private key is intentionally public, packages signed
+  // with it provide NO meaningful protection against unauthorized System
+  // packages.
+  //
+  // For actual System privilege protection, we STRONGLY RECOMMEND replacing
+  // this public test key with your own privately-held Ed25519 key pair.
+  // Keep your private key secret and outside the repository, and commit
+  // ONLY your replacement public key to this trust store.
+  //
+  // Recommended setup for production forks:
+  //
+  //   1. Generate your own Ed25519 signing key pair.
+  //   2. Keep the private key secret and outside the repository.
+  //   3. Replace NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK below with your public key.
+  //   4. Sign System packages using your private key.
+  //
+  // This gives your fork genuine System-signer protection. The distributed
+  // test key exists only to make NBOSP easy for developers to build, test,
+  // and experiment with without requiring them to generate a key pair
+  // immediately.
   const NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK = {
-  "kty": "OKP",
-  "crv": "Ed25519",
-  "x": "vAglEORayg7_dzvIe1hJ6_RJrLKlEin_77IFWa-8k_o"
-};
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: 'vAglEORayg7_dzvIe1hJ6_RJrLKlEin_77IFWa-8k_o',
+  };
 
   const entries = [
     {
       name: 'NovaByte Trusted Signing',
       id: 'novabyte-trusted-signing-v1',
       publicKey: NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK,
+
       // Shown in the "More Info" panel of the untrusted-app dialog.
-      description: 'Reviewed and signed by NovaByte\u2019s trusted signing authority.',
+      description:
+        'Reviewed and signed by NovaByte’s trusted signing authority.',
     },
+
     {
       name: 'NovaByte System',
       id: 'novabyte-system-signing-v1',
       publicKey: NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK,
-      // installPackage() in app-package.js checks signer === 'NovaByte System'
-      // to set appConfig.system — keep this `name` in sync with that check
-      // if it's ever renamed.
-      description: 'Signed by the NovaByte System key. Packages signed by this key may show a System badge; System status does not prevent user-initiated uninstall.',
+
+      // installPackage() in app-package.js checks signer ===
+      // 'NovaByte System' to set appConfig.system — keep this `name`
+      // in sync with that check if it's ever renamed.
+      //
+      // This signer uses a publicly distributed TEST key in NBOSP.
+      // Anyone can use NBOSP/keys/test-system-key.json for development,
+      // or replace this public key with their own key pair.
+      description:
+        'Test System signing key for NBOSP development. The matching private key is publicly available at NBOSP/keys/test-system-key.json. This key is not a production NovaByte signing key. Because the private key is intentionally public, packages signed with it do not provide meaningful System privilege protection. For real System privilege protection, replace this public key with your own privately-held Ed25519 public key. Packages signed by the System key may show a System badge; System status does not prevent user-initiated uninstall.',
     },
+
     // Additional trusted CAs / partners can be appended here.
   ];
 
@@ -147,6 +227,7 @@ const TrustStore = (() => {
   // a real environment problem.
   let _fs = null;
   let _path = null;
+
   if (typeof require === 'function') {
     try {
       _fs = require('fs');
@@ -157,6 +238,7 @@ const TrustStore = (() => {
       );
     }
   }
+
   // No `require` at all just means a plain sandboxed browser tab — the
   // expected, unremarkable case. No fs, no persistence, nothing to log.
 
@@ -183,33 +265,47 @@ const TrustStore = (() => {
   function _resolveOwnDirectory() {
     if (OWN_SCRIPT_ELEMENT && OWN_SCRIPT_ELEMENT.src) {
       try {
-        return _path.dirname(new URL(OWN_SCRIPT_ELEMENT.src).pathname);
+        return _path.dirname(
+          new URL(OWN_SCRIPT_ELEMENT.src).pathname
+        );
       } catch (err) {
         console.warn(
           `[TrustStore] Couldn't parse currentScript.src (${OWN_SCRIPT_ELEMENT.src}): ${err.message}. Falling back to process.cwd(), which may not be this file's actual directory.`
         );
       }
     }
+
     return process.cwd();
   }
 
   function _revocationFilePath() {
-    return _path.join(_resolveOwnDirectory(), REVOCATION_FILENAME);
+    return _path.join(
+      _resolveOwnDirectory(),
+      REVOCATION_FILENAME
+    );
   }
 
   function _loadRevokedFromDisk() {
     if (!_fs) return [];
+
     try {
-      const raw = _fs.readFileSync(_revocationFilePath(), 'utf8');
+      const raw = _fs.readFileSync(
+        _revocationFilePath(),
+        'utf8'
+      );
+
       const parsed = JSON.parse(raw);
+
       return Array.isArray(parsed) ? parsed : [];
     } catch (err) {
-      if (err.code === 'ENOENT') return []; // no revocations yet — normal on first run
+      if (err.code === 'ENOENT') return [];
+
       // A corrupt file is a real risk worth surfacing, not silently
       // swallowing — same reasoning as submission-queue.js's _readRaw().
       console.error(
         `[TrustStore] revoked-signatures.json exists but couldn't be read/parsed: ${err.message}. Revocation list may be incomplete until this is fixed.`
       );
+
       if (typeof EventLog !== 'undefined') {
         EventLog.log({
           app: 'TrustStore',
@@ -218,18 +314,24 @@ const TrustStore = (() => {
           message: `Revocation list corrupt/unreadable: ${err.message}. List may be incomplete.`,
         });
       }
+
       return [];
     }
   }
 
   function _saveRevokedToDisk(list) {
-    if (!_fs) return; // no persistence available; caller already has the in-memory update
+    if (!_fs) return;
+
     try {
-      _fs.writeFileSync(_revocationFilePath(), JSON.stringify(list, null, 2));
+      _fs.writeFileSync(
+        _revocationFilePath(),
+        JSON.stringify(list, null, 2)
+      );
     } catch (err) {
       console.error(
         `[TrustStore] Failed to write revoked-signatures.json: ${err.message}. Revocation was applied in memory but will NOT survive a restart until this is fixed.`
       );
+
       if (typeof EventLog !== 'undefined') {
         EventLog.log({
           app: 'TrustStore',
@@ -262,7 +364,12 @@ const TrustStore = (() => {
   // size turns into a scan on every one of those checks. A Map keeps
   // every lookup O(1) regardless of how long the list gets, at the cost
   // of keeping both the array and the index in sync on every mutation.
-  const revokedIndex = new Map(revoked.map((record) => [record.signature, record]));
+  const revokedIndex = new Map(
+    revoked.map((record) => [
+      record.signature,
+      record,
+    ])
+  );
 
   function list() {
     return entries.slice();
@@ -287,24 +394,38 @@ const TrustStore = (() => {
 
   function add(entry) {
     if (!entry || typeof entry !== 'object') {
-      throw new Error('Trust store entries need at least {name, publicKey}');
+      throw new Error(
+        'Trust store entries need at least {name, publicKey}'
+      );
     }
-    if (typeof entry.name !== 'string' || entry.name.trim() === '') {
-      throw new Error('Trust store entries need at least {name, publicKey}');
+
+    if (
+      typeof entry.name !== 'string' ||
+      entry.name.trim() === ''
+    ) {
+      throw new Error(
+        'Trust store entries need at least {name, publicKey}'
+      );
     }
+
     if (!_isPlausibleJwk(entry.publicKey)) {
       throw new Error(
         `Trust store entry "${entry.name}" has a publicKey that doesn't look like a JWK (expected an object with at least a "kty" field)`
       );
     }
+
     entries.push(entry);
+
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'TrustStore',
         category: 'security',
         severity: 'warn',
         message: `Added trusted signing authority: ${entry.name}`,
-        data: { name: entry.name, id: entry.id },
+        data: {
+          name: entry.name,
+          id: entry.id,
+        },
       });
     }
   }
@@ -318,49 +439,67 @@ const TrustStore = (() => {
    * integration), the revocation still applies for THIS process's
    * lifetime, but will not survive a restart or be visible to other
    * processes — check the console warning if that happens.
+   *
    * @param {string} signature - the exact pkg.signature hex string
    * @param {string} [reason]
    * @returns {object} the revocation record
    */
   function revoke(signature, reason) {
     if (!signature || typeof signature !== 'string') {
-      throw new Error('revoke() requires the exact pkg.signature string of the package being revoked');
+      throw new Error(
+        'revoke() requires the exact pkg.signature string of the package being revoked'
+      );
     }
+
     const existing = revokedIndex.get(signature);
     let record;
+
     if (existing) {
       existing.reason = reason || existing.reason;
       existing.revokedAt = Date.now();
       record = existing;
     } else {
-      record = { signature, reason: reason || null, revokedAt: Date.now() };
+      record = {
+        signature,
+        reason: reason || null,
+        revokedAt: Date.now(),
+      };
+
       revoked.push(record);
       revokedIndex.set(signature, record);
     }
+
     if (!_fs) {
       console.warn(
         '[TrustStore] No filesystem access in this context — revocation applied for this session only and will NOT persist. Run this from an NW.js/Node context with fs access for it to stick.'
       );
+
       if (typeof EventLog !== 'undefined') {
         EventLog.log({
           app: 'TrustStore',
           category: 'security',
           severity: 'warn',
-          message: 'Revocation applied in-memory only (no fs access) — will not persist across restart',
+          message:
+            'Revocation applied in-memory only (no fs access) — will not persist across restart',
         });
       }
     } else {
       _saveRevokedToDisk(revoked);
     }
+
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'TrustStore',
         category: 'security',
         severity: 'warn',
         message: `Revoked signature${reason ? ': ' + reason : ''}`,
-        data: { signature, reason: reason || null },
+        data: {
+          signature,
+          reason: reason || null,
+        },
       });
     }
+
     return record;
   }
 
@@ -370,22 +509,31 @@ const TrustStore = (() => {
    */
   function unrevoke(signature) {
     if (!revokedIndex.has(signature)) return false;
-    const idx = revoked.findIndex((r) => r.signature === signature);
+
+    const idx = revoked.findIndex(
+      (r) => r.signature === signature
+    );
+
     // idx can't be -1 here — revokedIndex and revoked are kept in sync
     // on every mutation (revoke/unrevoke), so a hit in one means a hit
     // in the other.
     revoked.splice(idx, 1);
     revokedIndex.delete(signature);
+
     _saveRevokedToDisk(revoked);
+
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'TrustStore',
         category: 'security',
         severity: 'warn',
         message: 'Un-revoked a previously revoked signature',
-        data: { signature },
+        data: {
+          signature,
+        },
       });
     }
+
     return true;
   }
 
@@ -409,8 +557,21 @@ const TrustStore = (() => {
     return revoked.slice();
   }
 
-  return { list, add, revoke, unrevoke, isRevoked, getRevocation, listRevoked };
+  return {
+    list,
+    add,
+    revoke,
+    unrevoke,
+    isRevoked,
+    getRevocation,
+    listRevoked,
+  };
 })();
 
-if (typeof module !== 'undefined' && module.exports) module.exports = TrustStore;
-if (typeof window !== 'undefined') window.TrustStore = TrustStore;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = TrustStore;
+}
+
+if (typeof window !== 'undefined') {
+  window.TrustStore = TrustStore;
+}

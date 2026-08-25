@@ -4,12 +4,20 @@
     "file": "js/apps/com.nbosp.calculator.novaapp"
   },
   {
+    "id": "com.nbosp.clock",
+    "file": "js/apps/com.nbosp.clock.novaapp"
+  },
+  {
     "id": "com.nbosp.contacts",
     "file": "js/apps/com.nbosp.contacts.novaapp"
   },
   {
     "id": "com.nbosp.downloads",
     "file": "js/apps/com.nbosp.downloads.novaapp"
+  },
+  {
+    "id": "com.nbosp.email",
+    "file": "js/apps/com.nbosp.email.novaapp"
   },
   {
     "id": "com.nbosp.gallery",
@@ -26,5 +34,9 @@
   {
     "id": "com.nbosp.settings",
     "file": "js/apps/com.nbosp.settings.novaapp"
+  },
+  {
+    "id": "com.nbosp.shell",
+    "file": "js/apps/com.nbosp.shell.novaapp"
   }
 ]

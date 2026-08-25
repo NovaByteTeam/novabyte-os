@@ -68,6 +68,20 @@ const UnrestrictedGate = (() => {
     'nova:system:storage:estimate':     'com.nbosp.settings',
     'nova:system:admin-mode:get':        'com.nbosp.settings',
     'nova:system:admin-mode:set':        'com.nbosp.settings',
+    'nova:clock:state:get':              'com.nbosp.clock',
+    'nova:clock:state:persist':           'com.nbosp.clock',
+    'nova:clock:alarms:get':              'com.nbosp.clock',
+    'nova:clock:alarms:set':              'com.nbosp.clock',
+    'nova:clock:alarm:dialog':             'com.nbosp.clock',
+    'nova:clock:timer:set-preset':        'com.nbosp.clock',
+    'nova:clock:timer:start':             'com.nbosp.clock',
+    'nova:clock:timer:pause':             'com.nbosp.clock',
+    'nova:clock:timer:restart':           'com.nbosp.clock',
+    'nova:clock:timer:reset':             'com.nbosp.clock',
+    'nova:clock:stopwatch:start':         'com.nbosp.clock',
+    'nova:clock:stopwatch:pause':         'com.nbosp.clock',
+    'nova:clock:stopwatch:reset':         'com.nbosp.clock',
+    'nova:clock:stopwatch:lap':           'com.nbosp.clock',
   });
 
   function isUnrestrictedCall(type) {
@@ -183,7 +197,64 @@ const UnrestrictedGate = (() => {
     return { allowed: true };
   }
 
-  return { isUnrestrictedCall, checkUnrestrictedCall, isTrustedSettingsAppById, UNRESTRICTED_CALLS };
+  /**
+   * Gate for an app's sandbox tier. This is intentionally separate from the
+   * Settings-only unrestricted IPC call map: the sandbox decision needs a
+   * package-level answer, while individual nova:system:* calls still retain
+   * their narrower per-call allowlist.
+   *
+   * Bundled first-party system packages are trusted by provenance (the file
+   * is named by the build-generated first-party manifest and is reconciled
+   * from the immutable OS bundle), while their integrity is still checked.
+   * User-installed packages cannot satisfy this path merely by copying an id
+   * or setting system:true.
+   */
+  async function checkUnrestrictedApp(app) {
+    if (!app || typeof app.id !== 'string') {
+      return { allowed: false, reason: 'missing app identity' };
+    }
+    if (app.system !== true || app.verified !== true || app.signer !== 'NovaByte System') {
+      return { allowed: false, reason: 'app is not a trusted NovaByte System package' };
+    }
+    if (app.source !== 'system-bundle') {
+      return { allowed: false, reason: 'package is not running from the trusted system bundle' };
+    }
+    if (app.manifest?.system !== true) {
+      return { allowed: false, reason: 'package manifest is not marked as a system app' };
+    }
+
+    const firstPartyIds = await _getFirstPartyAppIds();
+    if (!firstPartyIds.has(app.id)) {
+      return { allowed: false, reason: 'app id is not present in the build-time first-party manifest' };
+    }
+
+    // Bundled system code must carry an integrity record. Unlike a user app,
+    // there is no reason for a first-party system package to omit one.
+    if (!app.integrity) {
+      return { allowed: false, reason: 'system package has no integrity record' };
+    }
+    const integrityOk = await _integrityStillHolds(app);
+    if (!integrityOk) {
+      return { allowed: false, reason: 'package integrity check failed' };
+    }
+
+    // Required permissions remain user-grantable. A trusted system package
+    // only gets the unsandboxed renderer while every required capability is
+    // currently granted; a user denial therefore forces the normal sandbox.
+    const requiredPermissions = Array.isArray(app.permissions) ? app.permissions : [];
+    if (requiredPermissions.length && typeof AppPermissionManager !== 'undefined') {
+      const denied = requiredPermissions.filter((perm) => {
+        try { return !AppPermissionManager.isGranted(perm, app.id); } catch (_) { return true; }
+      });
+      if (denied.length) {
+        return { allowed: false, reason: `required permission(s) not granted: ${denied.join(', ')}` };
+      }
+    }
+
+    return { allowed: true };
+  }
+
+  return { isUnrestrictedCall, checkUnrestrictedCall, checkUnrestrictedApp, isTrustedSettingsAppById, UNRESTRICTED_CALLS };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = UnrestrictedGate;

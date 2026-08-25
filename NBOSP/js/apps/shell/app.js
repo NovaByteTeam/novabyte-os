@@ -1,3 +1,331 @@
+/* NovaApp compatibility bridge for the original Terminal implementation.
+ * The original terminal.js expects the built-in OS globals (OS/FS/Notify/
+ * ContextMenu/registerApp). In a .novaapp those capabilities are supplied over
+ * window.nova.ipc, while the terminal command code itself remains unchanged.
+ */
+(async () => {
+  'use strict';
+
+  const IPC = () => window.nova?.ipc;
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function ensureCreateEl() {
+    if (typeof window.createEl === 'function') return;
+    window.createEl = function createEl(tag, attrs, children) {
+      const el = document.createElement(tag);
+      if (attrs) {
+        for (const [key, value] of Object.entries(attrs)) {
+          if (value == null) continue;
+          if (key === 'className' || key === 'class') el.className = value;
+          else if (key === 'textContent') el.textContent = String(value);
+          else if (key === 'innerHTML') el.innerHTML = String(value);
+          else if (key === 'style') el.style.cssText = typeof value === 'object'
+            ? Object.entries(value).map(([k,v]) => `${k}:${v}`).join(';')
+            : String(value);
+          else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2), value);
+          else if (typeof value === 'boolean') { if (value) el.setAttribute(key, ''); }
+          else el.setAttribute(key, String(value));
+        }
+      }
+      if (children != null) {
+        if (Array.isArray(children)) for (const child of children) {
+          if (child || child === 0) el.append(child instanceof Node ? child : document.createTextNode(String(child)));
+        }
+        else el.append(children instanceof Node ? children : document.createTextNode(String(children)));
+      }
+      return el;
+    };
+  }
+
+  async function rpc(type, payload) {
+    const fn = IPC();
+    if (typeof fn !== 'function') throw new Error('Nova IPC bridge is unavailable');
+    return fn(type, payload ?? {});
+  }
+
+  const nodes = new Map();
+  const children = new Map();
+  let rootId = null;
+  let desktopId = null;
+
+  function addNode(n) {
+    if (!n?.id) return;
+    const node = {
+      ...n,
+      path: n.path || '/',
+      content: n.content ?? '',
+      parentId: n.parentId ?? null
+    };
+    nodes.set(node.id, node);
+    if (!children.has(node.id)) children.set(node.id, []);
+    if (node.parentId) {
+      const arr = children.get(node.parentId) || [];
+      if (!arr.some(x => x.id === node.id)) arr.push(node);
+      children.set(node.parentId, arr);
+    }
+    if (node.path === '/') rootId = node.id;
+    if (node.path === '/Desktop' && node.type === 'folder') desktopId = node.id;
+  }
+
+  async function loadNode(idOrPath) {
+    const result = await rpc('nova:vfs:read', typeof idOrPath === 'string' && idOrPath.startsWith('/')
+      ? { path: idOrPath }
+      : { id: idOrPath });
+    if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'VFS read failed');
+
+    const node = {
+      id: result.id,
+      name: result.name,
+      type: result.isFolder ? 'folder' : 'file',
+      mimeType: result.mimeType || 'application/octet-stream',
+      size: result.size || 0,
+      path: result.path || '/',
+      parentId: null,
+      content: result.data ?? '',
+      modified: result.modified,
+      created: result.created
+    };
+    addNode(node);
+
+    if (result.isFolder && Array.isArray(result.children)) {
+      const childIds = [];
+      for (const child of result.children) {
+        const cn = {
+          ...child,
+          parentId: node.id,
+          path: child.path || `${node.path.replace(/\/$/, '')}/${child.name}`,
+          content: '',
+        };
+        addNode(cn);
+        childIds.push(cn.id);
+      }
+      children.set(node.id, childIds.map(cid => nodes.get(cid)));
+      for (const child of result.children) {
+        if (child.type === 'folder') await loadNode(child.id);
+      }
+    }
+    return nodes.get(node.id);
+  }
+
+  async function loadFullTree() {
+    nodes.clear();
+    children.clear();
+    rootId = null;
+    desktopId = null;
+    await loadNode('/');
+    // Load file contents only after the directory topology is known.
+    const fileIds = [...nodes.values()].filter(n => n.type !== 'folder').map(n => n.id);
+    const BATCH = 12;
+    for (let i = 0; i < fileIds.length; i += BATCH) {
+      const batch = fileIds.slice(i, i + BATCH);
+      await Promise.all(batch.map(async (id) => {
+        try {
+          const result = await rpc('nova:vfs:read', { id });
+          if (result?.success && !result.isFolder) {
+            const n = nodes.get(id);
+            if (n) Object.assign(n, {
+              content: result.data ?? '',
+              size: result.size || 0,
+              mimeType: result.mimeType || n.mimeType,
+              modified: result.modified || n.modified,
+              created: result.created || n.created,
+            });
+          }
+        } catch (_) {}
+      }));
+    }
+  }
+
+  function rebuildChildren() {
+    children.clear();
+    for (const n of nodes.values()) children.set(n.id, []);
+    for (const n of nodes.values()) {
+      if (n.parentId && children.has(n.parentId)) children.get(n.parentId).push(n);
+    }
+    for (const [, arr] of children) arr.sort((a,b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  const FS = {
+    get rootId() { return rootId; },
+    files: nodes,
+    specialFolders: {
+      get desktop() { return desktopId || rootId; }
+    },
+    getPath(id) {
+      return nodes.get(id)?.path || '/';
+    },
+    getByPath(path) {
+      const wanted = String(path || '/').replace(/\/+/g, '/').replace(/\/$/, '') || '/';
+      for (const n of nodes.values()) if (n.path === wanted) return n;
+      return null;
+    },
+    listDir(id) {
+      return [...(children.get(id) || [])];
+    },
+    async createFolder(parentId, name) {
+      const parent = nodes.get(parentId);
+      if (!parent) throw new Error('Parent folder not found');
+      const result = await rpc('nova:vfs:mkdir', { path: parent.path, name });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'mkdir failed');
+      await loadFullTree();
+      const created = nodes.get(result.id) || FS.getByPath(`${parent.path.replace(/\/$/, '')}/${name}`);
+      return created;
+    },
+    async createFile(parentId, name, content, mimeType = 'text/plain') {
+      const parent = nodes.get(parentId);
+      if (!parent) throw new Error('Parent folder not found');
+      const path = `${parent.path.replace(/\/$/, '')}/${name}`;
+      const result = await rpc('nova:vfs:write', { path, content, mimeType });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'write failed');
+      await loadFullTree();
+      return nodes.get(result.id) || FS.getByPath(path);
+    },
+    async writeFile(id, content) {
+      const n = nodes.get(id);
+      if (!n) throw new Error('File not found');
+      const result = await rpc('nova:vfs:write', { path: n.path, content, mimeType: n.mimeType });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'write failed');
+      n.content = String(content);
+      n.size = String(content).length;
+    },
+    async deleteToTrash(id) {
+      const result = await rpc('nova:vfs:delete', { id, permanent: false });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'delete failed');
+      await loadFullTree();
+    },
+    async permanentDelete(id) {
+      const result = await rpc('nova:vfs:delete', { id, permanent: true });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'delete failed');
+      await loadFullTree();
+    },
+    async rename(id, name) {
+      const result = await rpc('nova:vfs:rename', { id, name });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'rename failed');
+      await loadFullTree();
+    },
+    async move(id, destParentId) {
+      const result = await rpc('nova:vfs:move', { id, destPath: this.getPath(destParentId) });
+      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'move failed');
+      await loadFullTree();
+      return nodes.get(id) || null;
+    }
+  };
+  window.FS = FS;
+
+  const readyFallback = { osVersion: 'NovaByte', securityPatch: '', username: 'user', permissions: [] };
+  let readyInfo = { ...readyFallback };
+  let appList = [];
+  const readyPromise = (async () => {
+    try {
+      const info = await rpc('nova:ready', {});
+      if (info && typeof info === 'object') readyInfo = { ...readyInfo, ...info };
+    } catch (_) {}
+    try {
+      const apps = await rpc('nova:app:list', {});
+      appList = Array.isArray(apps?.apps) ? apps.apps : Array.isArray(apps) ? apps : [];
+    } catch (_) {}
+    window.OS.version = readyInfo?.osVersion || 'NovaByte';
+    window.OS.username = readyInfo?.username || 'user';
+    window.OS.securityPatch = readyInfo?.securityPatch || '';
+    window.OS.apps = Object.fromEntries(appList.map(a => [a.id, a]));
+  })();
+
+  // Define the legacy OS facade synchronously so terminal.js can register its
+  // app immediately. The real OS identity is filled in by readyPromise above.
+  window.OS = {
+    version: readyInfo.osVersion,
+    username: readyInfo.username,
+    securityPatch: readyInfo.securityPatch,
+    windows: new Map(),
+    apps: {},
+    workers: null
+  };
+  window.renderDesktopIcons = () => {};
+
+  window.Notify = {
+    show(payload) {
+      return rpc('nova:notifications:show', {
+        title: payload?.title || 'Terminal',
+        body: payload?.body || '',
+        type: payload?.type || 'info',
+        appName: payload?.appName || 'Terminal'
+      }).catch(() => {});
+    }
+  };
+
+  window.ContextMenu = {
+    show(x, y, items) {
+      document.querySelectorAll('.nova-terminal-context-menu').forEach(e => e.remove());
+      const menu = document.createElement('div');
+      menu.className = 'nova-terminal-context-menu';
+      Object.assign(menu.style, {
+        position: 'fixed', left: `${x}px`, top: `${y}px`, zIndex: '2147483647',
+        minWidth: '150px', padding: '4px', background: '#0e121c',
+        border: '1px solid rgba(255,255,255,.12)', borderRadius: '8px',
+        boxShadow: '0 12px 30px rgba(0,0,0,.45)', color: 'var(--text-primary)'
+      });
+      for (const item of items || []) {
+        if (item.separator) {
+          const sep = document.createElement('div');
+          sep.style.cssText = 'height:1px;background:rgba(255,255,255,.08);margin:4px 0;';
+          menu.appendChild(sep);
+          continue;
+        }
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.textContent = item.label || '';
+        row.style.cssText = 'display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:7px 9px;border-radius:5px;font:12px var(--font-ui);cursor:pointer;';
+        row.addEventListener('mouseenter', () => row.style.background = 'rgba(255,255,255,.06)');
+        row.addEventListener('mouseleave', () => row.style.background = 'transparent');
+        row.addEventListener('click', () => { try { item.action?.(); } finally { menu.remove(); } });
+        menu.appendChild(row);
+      }
+      document.body.appendChild(menu);
+      const dismiss = () => { menu.remove(); document.removeEventListener('pointerdown', dismiss, true); };
+      setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
+    }
+  };
+
+  window.AppDirs = { getVFSDir() { return {}; } };
+  window.OS.workers = {
+    fs: {
+      async call(method, args) {
+        if (method !== 'putFiles') return null;
+        const list = Array.isArray(args?.[0]) ? args[0] : [];
+        for (const item of list) {
+          if (!item?.id) continue;
+          await FS.writeFile(item.id, item.content ?? '');
+        }
+        return { success: true };
+      }
+    }
+  };
+
+  ensureCreateEl();
+
+  // The legacy terminal calls registerApp({...}); capture that callback, then
+  // instantiate it inside the current NovaApp document after the IPC bridge
+  // and VFS cache have initialized.
+  window.registerApp = function registerApp(config) {
+    window.__novaTerminalRegistration = config;
+    (async () => {
+      try {
+        await readyPromise;
+        await loadFullTree();
+        const root = document.getElementById('terminal-app') || document.body;
+        const state = { cleanups: [] };
+        config.init(root, state);
+      } catch (error) {
+        const root = document.getElementById('terminal-app') || document.body;
+        root.textContent = `Terminal failed to start: ${error?.message || error}`;
+      }
+    })();
+  };
+})(); 
+
 'use strict';
 
 // NovaByte OS Terminal app.
@@ -419,10 +747,50 @@ function resolvePath(cwd, arg) {
   return node;
 }
 
+// Resolve both files and folders. The original path resolver intentionally
+// handled directory traversal only, which made commands such as `cat path/file`
+// and `rm path/file` fail even though the node existed.
+function resolveNodePath(cwd, arg) {
+  if (!arg || arg === '~') return FS.specialFolders.desktop;
+  if (arg === '.') return cwd;
+  const isAbsolute = arg.startsWith('/');
+  const parts = arg.split('/').filter(Boolean);
+  let node = isAbsolute ? FS.rootId : cwd;
+  for (const part of parts) {
+    if (part === '..') {
+      const n = FS.files.get(node);
+      if (n?.parentId) node = n.parentId;
+      else if (!isAbsolute) return false;
+      continue;
+    }
+    if (part === '.') continue;
+    const ch = FS.listDir(node);
+    const found = ch.find(c => c.name === part);
+    if (!found) return false;
+    node = found.id;
+  }
+  return node;
+}
+
+function nodeFromArg(tab, arg) {
+  const id = resolveNodePath(tab.cwd, arg);
+  return id === false ? null : (FS.files.get(id) || null);
+}
+
 // --- Command implementations --------------------------------------------------
 // Each command is (tab, args, pipeIn) => string | Promise<string>.
 // Returning a string sends it through writeLine (textContent — XSS-safe).
 // Commands that need coloured output call writeHTML directly and return ''.
+
+
+async function copyNodeRecursive(node, destParentId) {
+  if (node.type === 'folder') {
+    const folder = await FS.createFolder(destParentId, node.name);
+    for (const child of FS.listDir(node.id)) await copyNodeRecursive(child, folder.id);
+    return folder;
+  }
+  return FS.createFile(destParentId, node.name, node.content || '', node.mimeType || 'text/plain');
+}
 
 const COMMANDS = {
   help(tab) {
@@ -599,7 +967,7 @@ const COMMANDS = {
       src = pipeIn;
     } else {
       const fname = positional[0];
-      const file = fname && FS.listDir(tab.cwd).find(f => f.name === fname);
+      const file = fname ? nodeFromArg(tab, fname) : null;
       src = file ? (file.content || '') : positional.join(' ');
     }
     if (args.includes('-d') || args.includes('--decode')) {
@@ -692,30 +1060,39 @@ const COMMANDS = {
   },
 
   async mkdir(tab, args) {
+    const recursive = args.includes('-p');
     const name = args.filter(a => !a.startsWith('-'))[0];
     if (!name) return 'mkdir: missing operand';
-    if (args.includes('-p')) {
-      const parts = name.split('/').filter(Boolean);
-      let cur = tab.cwd;
-      for (const p of parts) {
-        const ch = FS.listDir(cur);
-        const ex = ch.find(f => f.name === p && f.type === 'folder');
-        if (ex) cur = ex.id;
-        else { const nf = await FS.createFolder(cur, p); cur = nf.id || cur; }
+
+    const isAbsolute = name.startsWith('/');
+    const parts = name.split('/').filter(Boolean);
+    let cur = isAbsolute ? FS.rootId : tab.cwd;
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const children = FS.listDir(cur);
+      const existing = children.find(x => x.name === part);
+      if (existing) {
+        if (existing.type !== 'folder') return `mkdir: cannot create directory '${name}': File exists`;
+        if (!recursive && i === parts.length - 1) return `mkdir: cannot create directory '${name}': File exists`;
+        cur = existing.id;
+        continue;
       }
-    } else {
-      await FS.createFolder(tab.cwd, name);
+      if (!recursive && i !== parts.length - 1) {
+        return `mkdir: cannot create directory '${name}': No such file or directory`;
+      }
+      const nf = await FS.createFolder(cur, part);
+      cur = nf?.id || cur;
     }
     refreshDesktop();
     return '';
   },
 
   async rmdir(tab, args) {
-    const name = args[0];
+    const name = args.find(a => !a.startsWith('-'));
     if (!name) return 'rmdir: missing operand';
-    const ch = FS.listDir(tab.cwd);
-    const t = ch.find(f => f.name === name && f.type === 'folder');
-    if (!t) return `rmdir: failed to remove '${name}': No such file or directory`;
+    const t = nodeFromArg(tab, name);
+    if (!t || t.type !== 'folder') return `rmdir: failed to remove '${name}': No such file or directory`;
     if (FS.listDir(t.id).length) return `rmdir: failed to remove '${name}': Directory not empty`;
     await FS.permanentDelete(t.id);
     refreshDesktop();
@@ -723,31 +1100,43 @@ const COMMANDS = {
   },
 
   async touch(tab, args) {
-    if (!args[0]) return 'touch: missing file operand';
-    const ch = FS.listDir(tab.cwd);
-    const ex = ch.find(f => f.name === args[0]);
-    if (ex) {
-      ex.modified = Date.now();
-      // Persist the touched mtime — original forgot to, leaving the change
-      // in memory only.
-      try { await OS.workers.fs.call('putFiles', [ex]); } catch {}
+    const name = args.find(a => !a.startsWith('-'));
+    if (!name) return 'touch: missing file operand';
+    const existing = nodeFromArg(tab, name);
+    if (existing) {
+      if (existing.type === 'folder') return `touch: cannot touch '${name}': Is a directory`;
+      // The VFS has a write channel, but it intentionally does not expose a
+      // separate mtime mutation operation. Rewriting the same contents through
+      // vfs:write is the supported persistence path for a touched file.
+      await FS.writeFile(existing.id, existing.content || '');
     } else {
-      await FS.createFile(tab.cwd, args[0], '', 'text/plain');
+      const slash = name.lastIndexOf('/');
+      const parentArg = slash >= 0 ? (name.slice(0, slash) || '/') : '.';
+      const leaf = name.slice(slash + 1);
+      const parentId = resolvePath(tab.cwd, parentArg);
+      if (parentId === false || !FS.files.get(parentId) || FS.files.get(parentId).type !== 'folder') {
+        return `touch: cannot touch '${name}': No such file or directory`;
+      }
+      await FS.createFile(parentId, leaf, '', 'text/plain');
     }
     refreshDesktop();
     return '';
   },
 
   async rm(tab, args) {
+    const force = args.includes('-f') || args.includes('--force');
+    const recursive = args.includes('-r') || args.includes('-R') || args.includes('-rf') || args.includes('-fr');
     const names = args.filter(a => !a.startsWith('-'));
     if (!names.length) return 'rm: missing operand';
-    const recursive = args.includes('-rf') || args.includes('-r') || args.includes('-f');
+
     for (const name of names) {
-      const ch = FS.listDir(tab.cwd);
-      const t = ch.find(f => f.name === name);
+      const t = nodeFromArg(tab, name);
       if (!t) {
-        if (!args.includes('-f')) return `rm: cannot remove '${name}': No such file or directory`;
+        if (!force) return `rm: cannot remove '${name}': No such file or directory`;
         continue;
+      }
+      if (t.type === 'folder' && !recursive) {
+        return `rm: cannot remove '${name}': Is a directory`;
       }
       if (recursive) await FS.permanentDelete(t.id);
       else await FS.deleteToTrash(t.id);
@@ -759,16 +1148,41 @@ const COMMANDS = {
   async cp(tab, args) {
     const names = args.filter(a => !a.startsWith('-'));
     if (names.length < 2) return 'cp: missing destination file operand';
-    const [srcName, ...rest] = names;
-    const dst = rest[rest.length - 1];
-    const ch = FS.listDir(tab.cwd);
-    const src = ch.find(f => f.name === srcName);
-    if (!src) return `cp: cannot stat '${srcName}': No such file or directory`;
-    const dstFolder = resolvePath(tab.cwd, dst);
-    if (dstFolder !== false) {
-      await FS.createFile(dstFolder, srcName, src.content, src.mimeType);
-    } else {
-      await FS.createFile(tab.cwd, dst, src.content, src.mimeType);
+    const dstArg = names.at(-1);
+    const srcNames = names.slice(0, -1);
+    const dstNode = nodeFromArg(tab, dstArg);
+
+    for (const srcName of srcNames) {
+      const src = nodeFromArg(tab, srcName);
+      if (!src) return `cp: cannot stat '${srcName}': No such file or directory`;
+      
+      let destParentId = tab.cwd;
+      let destName = src.name;
+      if (dstNode?.type === 'folder') {
+        destParentId = dstNode.id;
+      } else if (srcNames.length === 1) {
+        const slash = dstArg.lastIndexOf('/');
+        if (slash >= 0) {
+          const parentArg = dstArg.slice(0, slash) || '/';
+          destParentId = resolvePath(tab.cwd, parentArg);
+          destName = dstArg.slice(slash + 1);
+        } else {
+          destName = dstArg;
+        }
+        if (destParentId === false) return `cp: cannot create regular file '${dstArg}': No such file or directory`;
+      } else {
+        return `cp: target '${dstArg}' is not a directory`;
+      }
+
+      if (src.type === 'folder') {
+        if (!args.includes('-r') && !args.includes('-R')) return `cp: -r not specified; omitting directory '${srcName}'`;
+        const newFolder = await FS.createFolder(destParentId, destName);
+        for (const child of FS.listDir(src.id)) {
+          await copyNodeRecursive(child, newFolder.id);
+        }
+      } else {
+        await FS.createFile(destParentId, destName, src.content || '', src.mimeType || 'text/plain');
+      }
     }
     refreshDesktop();
     return '';
@@ -777,18 +1191,29 @@ const COMMANDS = {
   async mv(tab, args) {
     const names = args.filter(a => !a.startsWith('-'));
     if (names.length < 2) return 'mv: missing destination file operand';
-    const srcName = names[0];
-    const dst = names[1];
-    const ch = FS.listDir(tab.cwd);
-    const src = ch.find(f => f.name === srcName);
-    if (!src) return `mv: cannot stat '${srcName}': No such file or directory`;
-    const dstFolder = resolvePath(tab.cwd, dst);
-    if (dstFolder !== false) {
-      src.parentId = dstFolder;
-      FS.files.set(src.id, src);
-      try { await OS.workers.fs.call('putFiles', [src]); } catch {}
-    } else {
-      await FS.rename(src.id, dst);
+    const srcNames = names.slice(0, -1);
+    const dstArg = names.at(-1);
+    const dstNode = nodeFromArg(tab, dstArg);
+    if (srcNames.length > 1 && (!dstNode || dstNode.type !== 'folder')) {
+      return `mv: target '${dstArg}' is not a directory`;
+    }
+
+    for (const srcName of srcNames) {
+      const src = nodeFromArg(tab, srcName);
+      if (!src) return `mv: cannot stat '${srcName}': No such file or directory`;
+      let destParentId;
+      let newName = src.name;
+      if (dstNode?.type === 'folder') {
+        destParentId = dstNode.id;
+      } else {
+        const slash = dstArg.lastIndexOf('/');
+        const parentArg = slash >= 0 ? (dstArg.slice(0, slash) || '/') : '.';
+        destParentId = resolvePath(tab.cwd, parentArg);
+        newName = slash >= 0 ? dstArg.slice(slash + 1) : dstArg;
+        if (destParentId === false) return `mv: cannot move '${srcName}' to '${dstArg}': No such file or directory`;
+      }
+      await FS.move(src.id, destParentId);
+      if (newName !== src.name) await FS.rename(src.id, newName);
     }
     refreshDesktop();
     return '';
@@ -801,7 +1226,7 @@ const COMMANDS = {
     const results = [];
     for (const n of names) {
       const ch = FS.listDir(tab.cwd);
-      const t = ch.find(f => f.name === n);
+      const t = nodeFromArg(tab, n);
       if (!t) return `cat: ${n}: No such file or directory`;
       if (t.type === 'folder') return `cat: ${n}: Is a directory`;
       if (args.includes('-n')) {
@@ -817,7 +1242,7 @@ const COMMANDS = {
     const fname = args.find(a => !a.startsWith('-'));
     const nFlag = args.find(a => a.startsWith('-'))?.slice(1);
     const n = nFlag && !isNaN(nFlag) ? parseInt(nFlag, 10) : 10;
-    const text = pipeIn || (fname && FS.listDir(tab.cwd).find(f => f.name === fname)?.content) || '';
+    const text = pipeIn || (fname ? nodeFromArg(tab, fname)?.content : '') || '';
     return text.split('\n').slice(0, n).join('\n');
   },
 
@@ -825,13 +1250,13 @@ const COMMANDS = {
     const fname = args.find(a => !a.startsWith('-'));
     const nFlag = args.find(a => a.startsWith('-'))?.slice(1);
     const n = nFlag && !isNaN(nFlag) ? parseInt(nFlag, 10) : 10;
-    const text = pipeIn || (fname && FS.listDir(tab.cwd).find(f => f.name === fname)?.content) || '';
+    const text = pipeIn || (fname ? nodeFromArg(tab, fname)?.content : '') || '';
     return text.split('\n').slice(-n).join('\n');
   },
 
   wc(tab, args, pipeIn) {
     const fname = args.find(a => !a.startsWith('-'));
-    const text = pipeIn || (fname && FS.listDir(tab.cwd).find(f => f.name === fname)?.content) || '';
+    const text = pipeIn || (fname ? nodeFromArg(tab, fname)?.content : '') || '';
     if (args.includes('-l')) return String(text.split('\n').length);
     if (args.includes('-w')) return String(text.split(/\s+/).filter(Boolean).length);
     if (args.includes('-c')) return String(new TextEncoder().encode(text).length);
@@ -865,7 +1290,7 @@ const COMMANDS = {
 
   sort(tab, args, pipeIn) {
     const fname = args.find(a => !a.startsWith('-'));
-    const text = pipeIn || (fname && FS.listDir(tab.cwd).find(f => f.name === fname)?.content) || '';
+    const text = pipeIn || (fname ? nodeFromArg(tab, fname)?.content : '') || '';
     let lines = text.split('\n');
     const rev = args.includes('-r');
     const num = args.includes('-n');
@@ -894,7 +1319,7 @@ const COMMANDS = {
   stat(tab, args) {
     if (!args[0]) return 'stat: missing operand';
     const ch = FS.listDir(tab.cwd);
-    const t = ch.find(f => f.name === args[0]);
+    const t = nodeFromArg(tab, args[0]);
     if (!t) return `stat: cannot statx '${args[0]}': No such file or directory`;
     const dt = new Date(t.modified || Date.now());
     return `  File: ${t.name}\n  Size: ${t.size || 0}\t\tBlocks: ${Math.ceil((t.size || 0) / 512)}\tIO Block: 4096  ${t.type === 'folder' ? 'directory' : 'regular file'}\nDevice: nova0\t\tInode: ${t.id.slice(-8) || 0}\tLinks: 1\nAccess: ${dt.toISOString()}\nModify: ${dt.toISOString()}\nChange: ${dt.toISOString()}`;
@@ -932,8 +1357,8 @@ const COMMANDS = {
     if (args.length < 2) return 'diff: missing operand after diff';
     const [a1, a2] = args.filter(a => !a.startsWith('-'));
     const ch = FS.listDir(tab.cwd);
-    const f1 = ch.find(f => f.name === a1);
-    const f2 = ch.find(f => f.name === a2);
+    const f1 = nodeFromArg(tab, a1);
+    const f2 = nodeFromArg(tab, a2);
     if (!f1) return `diff: ${a1}: No such file or directory`;
     if (!f2) return `diff: ${a2}: No such file or directory`;
     const L1 = (f1.content || '').split('\n');
@@ -1095,6 +1520,65 @@ async function runCommand(tab, line) {
 
 // --- Input handler ------------------------------------------------------------
 
+async function clipboardRead() {
+  if (typeof window.nova?.ipc === 'function') {
+    try {
+      let result = await window.nova.ipc('nova:clipboard:read', {});
+      if (result?.success) return result.text || '';
+      const code = result?.error?.code || result?.errorCode || result?.code;
+      if (code === 'PERMISSION_DENIED') {
+        const granted = await window.nova.requestPermission?.('clipboard:read', 'Terminal wants to read from the clipboard.');
+        if (granted?.granted === true || granted === true) {
+          result = await window.nova.ipc('nova:clipboard:read', {});
+          if (result?.success) return result.text || '';
+        }
+      }
+    } catch (err) {
+      if (err?.code === 'PERMISSION_DENIED') {
+        const granted = await window.nova.requestPermission?.('clipboard:read', 'Terminal wants to read from the clipboard.');
+        if (granted?.granted === true || granted === true) {
+          const result = await window.nova.ipc('nova:clipboard:read', {});
+          if (result?.success) return result.text || '';
+        }
+      } else if (!navigator.clipboard?.readText) {
+        throw err;
+      }
+    }
+  }
+  if (navigator.clipboard?.readText) return navigator.clipboard.readText();
+  throw new Error('Clipboard read unavailable');
+}
+
+async function clipboardWrite(text) {
+  if (typeof window.nova?.ipc === 'function') {
+    try {
+      let result = await window.nova.ipc('nova:clipboard:write', { text: String(text) });
+      if (result?.success) return true;
+      const code = result?.error?.code || result?.errorCode || result?.code;
+      if (code === 'PERMISSION_DENIED') {
+        const granted = await window.nova.requestPermission?.('clipboard:write', 'Terminal wants to write to the clipboard.');
+        if (granted?.granted === true || granted === true) {
+          result = await window.nova.ipc('nova:clipboard:write', { text: String(text) });
+          if (result?.success) return true;
+        }
+      }
+    } catch (err) {
+      if (err?.code === 'PERMISSION_DENIED') {
+        const granted = await window.nova.requestPermission?.('clipboard:write', 'Terminal wants to write to the clipboard.');
+        if (granted?.granted === true || granted === true) {
+          const result = await window.nova.ipc('nova:clipboard:write', { text: String(text) });
+          if (result?.success) return true;
+        }
+      } else if (!navigator.clipboard?.writeText) {
+        throw err;
+      }
+    }
+  }
+  if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(String(text)); return true; }
+  throw new Error('Clipboard write unavailable');
+}
+
+
 function setupInput(tab, signal) {
   let completions = [];
   let compIdx = 0;
@@ -1166,6 +1650,18 @@ function setupInput(tab, signal) {
         tab.input.value = words.join(' ');
       }
 
+    } else if (e.key === 'v' && e.ctrlKey) {
+      e.preventDefault();
+      try {
+        const text = await clipboardRead();
+        const start = tab.input.selectionStart ?? tab.input.value.length;
+        const end = tab.input.selectionEnd ?? start;
+        tab.input.value = tab.input.value.slice(0, start) + text + tab.input.value.slice(end);
+        const caret = start + text.length;
+        tab.input.setSelectionRange(caret, caret);
+      } catch (err) {
+        writeLine(tab, `Paste failed: ${err?.message || err}`, 'shell-red');
+      }
     } else if (e.key === 'l' && e.ctrlKey) {
       e.preventDefault();
       clearOutput(tab);
@@ -1216,7 +1712,7 @@ function selectAllInOutput(tab) {
 // --- App registration ---------------------------------------------------------
 
 registerApp({
-  id: 'shell',
+  id: 'com.nbosp.shell',
   name: 'Terminal',
   version: '3.0.2',
   icon: 'terminal',
@@ -1324,7 +1820,7 @@ registerApp({
         items.push({
           label: 'Copy', icon: 'copy',
           action() {
-            const p = navigator.clipboard?.writeText(sel);
+            const p = clipboardWrite(sel);
             if (p) p.then(
               () => Notify.show({ title: 'Copied', body: 'Text copied', type: 'info', appName: 'Terminal' }),
               () => Notify.show({ title: 'Copy failed', body: 'Clipboard write denied', type: 'error', appName: 'Terminal' })
@@ -1336,7 +1832,7 @@ registerApp({
       items.push({
         label: 'Paste', icon: 'documents',
         action() {
-          const p = navigator.clipboard?.readText();
+          const p = clipboardRead();
           if (p) p.then(
             (text) => {
               const t = tabs[activeTabIdx];
@@ -1365,7 +1861,7 @@ registerApp({
     // Global keyboard shortcuts (only active when this app's window is focused).
     function onKeyDown(e) {
       const win = content.closest('.app-window');
-      if (!win || win.dataset.appId !== 'shell') return;
+      if (!win || win.dataset.appId !== 'com.nbosp.shell') return;
       if (e.ctrlKey && e.shiftKey && e.key === 'T') {
         e.preventDefault();
         const t = createTab('Terminal ' + (tabs.length + 1));

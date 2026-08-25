@@ -52,7 +52,7 @@ registerApp({
 
       // Look up each window's friendly display name (matching what
       // Registered Apps shows) instead of the raw appId string — 'Clock'
-      // vs 'nbosp-clock' was the same app shown two different ways.
+      // vs 'com.nbosp.clock' was the same app shown two different ways.
       const appNameById = new Map(apps.map(a => [a.id, a.name || a.id]));
 
       const filteredApps = q ? apps.filter(a => (a.id || '').toLowerCase().includes(q) || (a.name || '').toLowerCase().includes(q)) : apps;

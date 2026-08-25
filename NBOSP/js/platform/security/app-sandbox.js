@@ -87,10 +87,17 @@ const AppSandbox = (() => {
   // without a separate permission grant. These are audited first-party apps
   // whose code ships with the OS, so the same-origin risk is acceptable.
   const SYSTEM_SANDBOX_APPS = new Set([
-    'com.nbosp.settings', 'app-manager', 'browser', 'nbosp-email', 'com.nbosp.gallery',
+    'com.nbosp.settings', 'app-manager', 'browser', 'com.nbosp.email', 'com.nbosp.gallery',
     'com.nbosp.downloads', 'nbosp-search', 'com.nbosp.music', 'com.nbosp.contacts',
-    'calendar-app', 'com.nbosp.calculator', 'nbosp-clock', 'com.nbosp.quill', 'vault', 'com.nbosp.shell',
+    'calendar-app', 'com.nbosp.calculator', 'com.nbosp.clock', 'com.nbosp.quill', 'vault', 'com.nbosp.shell',
   ]);
+
+  // This set is retained only for legacy sandbox-token behavior (same-origin,
+  // popup escape, nested webview). It is NOT the authority for removing the
+  // sandbox itself. Full sandbox removal is decided by UnrestrictedGate.
+  function isFullyUnrestricted(app) {
+    return app?.__unrestrictedSandbox === true;
+  }
 
   // A NovaApp gets full-scope VFS only when the package itself declares
   // "system": true in its signed manifest AND NBOSP has verified it with
@@ -1764,6 +1771,173 @@ const AppSandbox = (() => {
     });
   }
 
+
+  async function clockService() {
+    for (let i = 0; i < 20; i++) {
+      const svc = window.__NBOSP_BG?.clock;
+      if (svc) { svc.ensureBooted?.(); return svc; }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('Clock background service unavailable');
+  }
+  async function clockSnapshot() {
+    const svc = await clockService();
+    const st = svc.state || {};
+    return {
+      timer: { ...(st.timer || {}) },
+      stopwatch: { ...(st.stopwatch || {}), laps: Array.isArray(st.stopwatch?.laps) ? st.stopwatch.laps.slice() : [] },
+      lastAlarmMinute: typeof st.lastAlarmMinute === 'string' ? st.lastAlarmMinute : ''
+    };
+  }
+  async function handleClockStateGet({ requestId, webview }) {
+    return respond(webview, 'nova:clock:state:get', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockStatePersist({ requestId, webview }) {
+    const svc = await clockService();
+    svc.persist?.();
+    return respond(webview, 'nova:clock:state:persist', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockAlarmsGet({ requestId, webview }) {
+    const alarms = (await clockService()).loadAlarms?.() || [];
+    return respond(webview, 'nova:clock:alarms:get', requestId, { success: true, alarms });
+  }
+  async function handleClockAlarmsSet({ payload, requestId, webview }) {
+    const alarms = Array.isArray(payload?.alarms) ? payload.alarms : [];
+    const svc = await clockService();
+    svc.saveAlarms?.(alarms);
+    return respond(webview, 'nova:clock:alarms:set', requestId, { success: true, alarms: svc.loadAlarms?.() || [] });
+  }
+
+  async function handleClockAlarmDialog({ payload, requestId, webview }) {
+    try {
+      const src = payload?.alarm && typeof payload.alarm === 'object' ? payload.alarm : {};
+      const body = document.createElement('div');
+      body.className = 'clock-native-alarm-body';
+      body.style.cssText = 'display:flex;flex-direction:column;width:320px;max-width:100%;';
+
+      const time = document.createElement('input');
+      time.type = 'time';
+      time.className = 'input clock-native-alarm-time';
+      time.value = /^\d{2}:\d{2}$/.test(src.time || '') ? src.time : '07:00';
+      time.setAttribute('aria-label', 'Alarm time');
+
+      const label = document.createElement('input');
+      label.type = 'text';
+      label.className = 'input';
+      label.maxLength = 64;
+      label.value = typeof src.label === 'string' ? src.label : '';
+      label.placeholder = 'Label (optional)';
+      label.setAttribute('aria-label', 'Alarm label');
+
+      const repeat = document.createElement('div');
+      repeat.className = 'clock-native-alarm-repeat-title';
+      repeat.textContent = 'Repeat';
+
+      const daysWrap = document.createElement('div');
+      daysWrap.className = 'clock-native-alarm-days';
+      const days = ['S','M','T','W','T','F','S'];
+      const fullDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const selected = Array.isArray(src.days) ? src.days.map(Number) : [];
+      for (let i = 0; i < 7; i++) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'clock-native-alarm-day';
+        b.title = fullDays[i];
+        b.textContent = days[i];
+        b.dataset.clockDay = String(i);
+        b.dataset.clockSelected = selected.includes(i) ? 'true' : 'false';
+        const paint = () => {
+          const on = b.dataset.clockSelected === 'true';
+          b.style.background = on ? 'var(--accent)' : 'transparent';
+          b.style.color = on ? '#fff' : 'var(--text-muted)';
+          b.style.borderColor = on ? 'var(--accent)' : 'var(--border-subtle)';
+        };
+        paint();
+        b.addEventListener('click', () => {
+          b.dataset.clockSelected = b.dataset.clockSelected === 'true' ? 'false' : 'true';
+          paint();
+        });
+        daysWrap.appendChild(b);
+      }
+
+      body.append(time, label, repeat, daysWrap);
+
+      const actions = [];
+      if (payload?.editing) actions.push({ label: 'Delete', danger: true, value: '__CLOCK_DELETE__' });
+      actions.push({ label: 'Cancel', value: '__CLOCK_CANCEL__' });
+      actions.push({ label: 'Save', primary: true, value: '__MODAL_SUBMIT_CUSTOM__' });
+
+      const result = await ModalService.show(
+        payload?.editing ? 'Edit Alarm' : 'Add Alarm',
+        body,
+        actions,
+        null,
+        '',
+        {
+          variant: 'clock-alarm',
+          collect(root) {
+            const chosen = [...root.querySelectorAll('[data-clock-day][data-clock-selected="true"]')]
+              .map(x => Number(x.dataset.clockDay));
+            return {
+              time: time.value,
+              label: label.value.trim().slice(0, 64),
+              days: chosen,
+              enabled: true,
+            };
+          }
+        }
+      );
+      return respond(webview, 'nova:clock:alarm:dialog', requestId, { success: true, result });
+    } catch (e) {
+      return respondError(webview, 'nova:clock:alarm:dialog', requestId, 'ERROR', e?.message || 'Clock dialog unavailable');
+    }
+  }
+  async function handleClockTimerSetPreset({ payload, requestId, webview }) {
+    const svc = await clockService();
+    svc.setTimerPreset?.(payload?.ms);
+    return respond(webview, 'nova:clock:timer:set-preset', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockTimerStart({ payload, requestId, webview }) {
+    const svc = await clockService();
+    svc.startTimer?.(payload?.ms);
+    return respond(webview, 'nova:clock:timer:start', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockTimerPause({ requestId, webview }) {
+    const svc = await clockService();
+    svc.pauseTimer?.();
+    return respond(webview, 'nova:clock:timer:pause', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockTimerRestart({ requestId, webview }) {
+    const svc = await clockService();
+    svc.restartTimer?.();
+    return respond(webview, 'nova:clock:timer:restart', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockTimerReset({ requestId, webview }) {
+    const svc = await clockService();
+    svc.resetTimer?.();
+    return respond(webview, 'nova:clock:timer:reset', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockStopwatchStart({ requestId, webview }) {
+    const svc = await clockService();
+    svc.startStopwatch?.();
+    return respond(webview, 'nova:clock:stopwatch:start', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockStopwatchPause({ requestId, webview }) {
+    const svc = await clockService();
+    svc.pauseStopwatch?.();
+    return respond(webview, 'nova:clock:stopwatch:pause', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockStopwatchReset({ requestId, webview }) {
+    const svc = await clockService();
+    svc.resetStopwatch?.();
+    return respond(webview, 'nova:clock:stopwatch:reset', requestId, { success: true, state: await clockSnapshot() });
+  }
+  async function handleClockStopwatchLap({ requestId, webview }) {
+    const svc = await clockService();
+    const lap = svc.lapStopwatch?.();
+    return respond(webview, 'nova:clock:stopwatch:lap', requestId, { success: true, lap, state: await clockSnapshot() });
+  }
+
   // Admin: audit / system / apps / users
   //
   // admin:* is the only permission category gated by something below the
@@ -2595,6 +2769,62 @@ const AppSandbox = (() => {
 
   function mailNotConnectedError(webview, channel, requestId) {
     return respondError(webview, channel, requestId, 'UNAVAILABLE', 'No email account connected — open the Email app and connect an account first');
+  }
+
+  // mail:session — connection/session lifecycle for the bundled Email app.
+  // This keeps credential-bearing operations on the host side and out of the
+  // guest renderer. Connecting/disconnecting is still permission-gated via
+  // mail:write; only the destination server, protocol and credentials supplied
+  // by the user are forwarded to the existing Email controller.
+  async function handleMailSession({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('mail:write', app.id)) {
+      return respondError(webview, 'nova:mail:session', requestId, 'PERMISSION_DENIED', 'mail:write permission required');
+    }
+    const action = payload?.action;
+    try {
+      if (action === 'connect') {
+        const q = payload?.account || {};
+        if (!q.type || !q.host || !q.user || !q.pass) {
+          return respondError(webview, 'nova:mail:session', requestId, 'INVALID_ARGS', 'type, host, user and pass are required');
+        }
+        const ssl = q.ssl === undefined ? true : !!q.ssl;
+        if (!ssl) {
+          return respondError(webview, 'nova:mail:session', requestId, 'INVALID_ARGS', 'Plaintext connections are not supported');
+        }
+        const { status, json } = await authedJsonFetch('/api/email/connect', {
+          method: 'POST',
+          body: {
+            type: String(q.type).toLowerCase(),
+            host: String(q.host),
+            port: q.port,
+            ssl: true,
+            user: String(q.user),
+            pass: String(q.pass),
+          },
+        });
+        if (!json || json.error) {
+          return respondError(webview, 'nova:mail:session', requestId, 'UNAVAILABLE', json?.error || `Connect failed (${status})`);
+        }
+        return respond(webview, 'nova:mail:session', requestId, { success: true, action, data: json });
+      }
+      if (action === 'disconnect') {
+        const { status, json } = await authedJsonFetch('/api/email/disconnect', { method: 'POST', body: {} });
+        if (!json || json.error) {
+          return respondError(webview, 'nova:mail:session', requestId, 'UNAVAILABLE', json?.error || `Disconnect failed (${status})`);
+        }
+        return respond(webview, 'nova:mail:session', requestId, { success: true, action, data: json });
+      }
+      if (action === 'restore') {
+        const { status, json } = await authedJsonFetch('/api/email/restore');
+        if (!json || json.error) {
+          return respondError(webview, 'nova:mail:session', requestId, 'UNAVAILABLE', json?.error || `Restore failed (${status})`);
+        }
+        return respond(webview, 'nova:mail:session', requestId, { success: true, action, data: json });
+      }
+      return respondError(webview, 'nova:mail:session', requestId, 'INVALID_ARGS', 'Unknown session action');
+    } catch (e) {
+      return respondError(webview, 'nova:mail:session', requestId, 'UNAVAILABLE', e?.message || 'Mail session request failed');
+    }
   }
 
   // mail:read — folders, message lists, single messages, search. All GET,
@@ -3774,6 +4004,13 @@ const AppSandbox = (() => {
       optionalPermissions: optionalGranted,
       osVersion: OS?.version,
       securityPatch: OS?.securityPatch,
+      // System-bundled apps legitimately need the same OS identity that the
+      // host UI uses (for example Terminal's `whoami`, prompt, and `$USER`).
+      // A webview is a separate JS realm, so it cannot read the host `OS`
+      // object directly. Expose the username through the authenticated ready
+      // handshake instead of leaving the guest-side compatibility facade at
+      // its fallback value of `user`. Non-system apps do not receive it.
+      username: app.system === true ? OS?.username : undefined,
     };
     // Some apps (see the capability shim / createDefaultAppShell) read the
     // handshake fields directly off the top-level response object rather
@@ -3933,6 +4170,7 @@ const AppSandbox = (() => {
     'nova:admin:apps': handleAdminApps,
     'nova:mail:read': handleMailRead,
     'nova:mail:write': handleMailWrite,
+    'nova:mail:session': handleMailSession,
     'nova:mail:send': handleMailSend,
     'nova:mail:delete': handleMailDelete,
     'nova:events:subscribe': handleEventsSubscribe,
@@ -3958,6 +4196,20 @@ const AppSandbox = (() => {
     'nova:contacts:write': handleContactsWrite,
     'nova:contacts:delete': handleContactsDelete,
     'nova:system:info': handleSystemInfo,
+    'nova:clock:state:get': handleClockStateGet,
+    'nova:clock:state:persist': handleClockStatePersist,
+    'nova:clock:alarms:get': handleClockAlarmsGet,
+    'nova:clock:alarms:set': handleClockAlarmsSet,
+    'nova:clock:alarm:dialog': handleClockAlarmDialog,
+    'nova:clock:timer:set-preset': handleClockTimerSetPreset,
+    'nova:clock:timer:start': handleClockTimerStart,
+    'nova:clock:timer:pause': handleClockTimerPause,
+    'nova:clock:timer:restart': handleClockTimerRestart,
+    'nova:clock:timer:reset': handleClockTimerReset,
+    'nova:clock:stopwatch:start': handleClockStopwatchStart,
+    'nova:clock:stopwatch:pause': handleClockStopwatchPause,
+    'nova:clock:stopwatch:reset': handleClockStopwatchReset,
+    'nova:clock:stopwatch:lap': handleClockStopwatchLap,
     // Settings-only channels (see UnrestrictedGate) — routing them here is
     // necessary but not sufficient: handleAPICall dispatches to these for
     // ANY caller, same as every other entry in this table. The actual
@@ -4555,6 +4807,7 @@ const AppSandbox = (() => {
     'nova:dialog:save': true,
     'nova:sysdialog:open': true,
     'nova:sysdialog:save': true,
+    'nova:clock:alarm:dialog': true,
   };
   const pendingRequests = new Map();
   // Must exactly match BRIDGE_MARKER in app-sandbox.js's
@@ -4981,6 +5234,9 @@ const AppSandbox = (() => {
     // Email app (session-scoped) — there's no separate per-app mail
     // identity. Fails with UNAVAILABLE if nothing is connected.
     mail: {
+      connect: function(account) { return ipc('nova:mail:session', { action: 'connect', account: account || {} }); },
+      disconnect: function() { return ipc('nova:mail:session', { action: 'disconnect' }); },
+      restore: function() { return ipc('nova:mail:session', { action: 'restore' }); },
       account: function() { return ipc('nova:mail:read', { action: 'account' }); },
       folders: function() { return ipc('nova:mail:read', { action: 'folders' }); },
       messages: function(opts) { return ipc('nova:mail:read', Object.assign({ action: 'messages' }, opts || {})); },
@@ -5782,7 +6038,8 @@ const AppSandbox = (() => {
   //     their manifest AND hold the `sandbox:same-origin` permission, so the
   //     user has a real opportunity to deny the elevated trust. Previously
   //     the manifest flag alone bypassed the permission system entirely.
-  function sanitizeSandboxAttr(sandboxConfig, appId) {
+  function sanitizeSandboxAttr(sandboxConfig, appId, fullyUnrestricted = false) {
+    if (fullyUnrestricted) return '';
     const isSystemApp = SYSTEM_SANDBOX_APPS.has(appId);
     const isExplicitOptIn = sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowSameOrigin === true;
     const sameOriginPermitted = isSystemApp
@@ -5881,9 +6138,14 @@ const AppSandbox = (() => {
     const partitionId = `app_${app.id}`;
     webview.setAttribute('partition', `persist:${partitionId}`);
 
-    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id);
+    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app));
     if (sandboxAttr) {
       webview.setAttribute('sandbox', sandboxAttr);
+    } else if (isFullyUnrestricted(app)) {
+      // Deliberately no sandbox attribute: this is the exact hand-off from
+      // UnrestrictedGate. Keep nodeintegration disabled and the isolated IPC
+      // transport intact, so "unsandboxed" does not mean "uncontrolled".
+      webview.removeAttribute('sandbox');
     }
 
     // Register the isolated-world IPC transport before any navigation
@@ -6038,9 +6300,28 @@ const AppSandbox = (() => {
   // Public lifecycle
 
   // Launch an app in a sandboxed environment.
-  function launch(app, container, state, options = {}) {
+  async function launch(app, container, state, options = {}) {
     if (!container) {
       throw new Error('Container element is required');
+    }
+
+    // Re-run the package-level security gate at every launch. Never trust a
+    // cached boolean supplied by the caller: the gate re-checks bundle
+    // provenance, first-party membership, integrity, and required grants.
+    app.__unrestrictedSandbox = false;
+    if (typeof UnrestrictedGate !== 'undefined' && typeof UnrestrictedGate.checkUnrestrictedApp === 'function') {
+      try {
+        const verdict = await UnrestrictedGate.checkUnrestrictedApp(app);
+        if (verdict.allowed) {
+          app.__unrestrictedSandbox = true;
+          log('debug', `Unrestricted sandbox granted for ${app.id}`);
+        } else {
+          log('debug', `Sandbox retained for ${app.id}: ${verdict.reason}`);
+        }
+      } catch (err) {
+        app.__unrestrictedSandbox = false;
+        log('warn', `Unrestricted sandbox check failed for ${app.id}; retaining sandbox`, { error: err?.message });
+      }
     }
 
     // Trusted transparent system apps used to launch through a bespoke

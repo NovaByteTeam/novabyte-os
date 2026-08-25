@@ -671,12 +671,29 @@ async function boot() {
 
   async function refreshInstalledAppTrust(appData) {
     if (!appData?.id) return { changed: false, app: appData };
-    if (appData.id === 'com.nbosp.settings' && appData.system === true && appData.manifest?.system === true && appData.source === 'system-bundle') {
-      appData.verified = true;
-      appData.signer = 'NovaByte System';
-      appData.revoked = false;
-      appData.tampered = false;
-      return { changed: true, app: appData };
+    if (appData.system === true && appData.manifest?.system === true && appData.source === 'system-bundle') {
+      // Bundled system packages are re-trusted by provenance, but integrity
+      // still has to match the package before the trusted runtime metadata is
+      // restored. A modified bundle therefore cannot become unrestricted.
+      try {
+        const ok = !appData.integrity || await AppPackage.verifyIntegrity({
+          novabyte_app: appData.novabyte_app,
+          manifest: appData.manifest,
+          files: appData.files || {},
+          compiled_at: appData.compiled_at,
+          integrity: appData.integrity,
+        });
+        if (ok) {
+          appData.verified = true;
+          appData.signer = 'NovaByte System';
+          appData.revoked = false;
+          appData.tampered = false;
+          appData.system = true;
+          return { changed: true, app: appData };
+        }
+      } catch (e) {
+        console.warn('[BOOT] Bundled system integrity refresh failed for', appData.id, e);
+      }
     }
     if (!appData?.signature) return { changed: false, app: appData };
 

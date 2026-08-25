@@ -151,6 +151,12 @@ const ModalService = {
           if (actionValue === '__MODAL_SUBMIT_SELECTION__') {
             return terminateModal(bodySelection ?? null);
           }
+          if (actionValue === '__MODAL_SUBMIT_CUSTOM__') {
+            let value = null;
+            try { value = typeof options?.collect === 'function' ? options.collect(bodyDiv) : null; }
+            catch { value = null; }
+            return terminateModal(value);
+          }
           return terminateModal(actionValue);
         }
       });

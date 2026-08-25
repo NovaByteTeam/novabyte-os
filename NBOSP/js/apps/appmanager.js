@@ -2729,6 +2729,19 @@ registerApp({
           bgBeep(880, 0.8);
           setTimeout(() => bgBeep(1047, 0.8), 400);
           setTimeout(() => bgBeep(1319, 1.2), 800);
+          try {
+            if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
+              Notify.show({
+                title: al.label || 'Alarm',
+                body: `Alarm for ${al.time}`,
+                type: 'info',
+                appName: 'Clock',
+                appId: 'com.nbosp.clock',
+                category: 'alarm',
+                icon: 'bell'
+              });
+            }
+          } catch { /* notification UI is best effort; the alarm tone still fires */ }
           if (al.days.length === 0) {
             al.enabled = false;
             saveAlarms(alarms);

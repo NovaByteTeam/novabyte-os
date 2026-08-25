@@ -40,9 +40,9 @@
     },
 
     // Terminal (shell)
-    shell: {
+    'com.nbosp.shell': {
       normal   : ['vfs:read', 'system:info'],
-      dangerous: ['vfs:write', 'vfs:delete', 'admin:system'],
+      dangerous: ['vfs:write', 'vfs:delete'],
     },
 
     // Text Editor (quill) — id confirmed from textedit.js com.nbosp.quill
@@ -52,11 +52,6 @@
     },
 
     // Email
-    'nbosp-email': {
-      normal   : ['net:internal'],
-      dangerous: ['mail:read', 'mail:write', 'mail:send', 'mail:delete', 'net:external', 'vfs:write'],
-    },
-
     // Calendar
     'calendar-app': {
       normal   : [],
@@ -86,6 +81,11 @@
     'com.nbosp.settings': {
       normal   : ['system:info', 'system:settings', 'admin:system', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata', 'device:camera', 'device:microphone', 'device:geolocation', 'vfs:write'],
       dangerous: [],
+    },
+
+    'com.nbosp.email': {
+      normal   : [],
+      dangerous: ['mail:read', 'mail:write', 'mail:send', 'mail:delete'],
     },
 
     // Gallery
@@ -125,7 +125,7 @@
     },
 
     // Clock
-    'nbosp-clock': {
+    'com.nbosp.clock': {
       normal   : [],
       dangerous: [],
     },
@@ -180,7 +180,7 @@
   // check UnrestrictedGate/isTrustedTransparentSystemApp use, or the
   // grant is refused. Add an id here whenever a former built-in moves to
   // the .novaapp pipeline; never remove the signature check afterward.
-  const SIGNATURE_REQUIRED_APPS = new Set(['com.nbosp.settings']);
+  const SIGNATURE_REQUIRED_APPS = new Set(['com.nbosp.settings', 'com.nbosp.email']);
 
   // Looks up the live installed app record for signature-required ids,
   // mirroring the exact fields UnrestrictedGate checks — verified/signer/
