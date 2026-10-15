@@ -1,4 +1,5 @@
 const rateLimit = require('express-rate-limit');
+const { isTrustedSystemAppRequest } = require('./rate-limit-auth');
 const dns = require('dns');
 const fs = require('fs');
 const path = require('path');
@@ -101,6 +102,7 @@ const frameCheckLimiter = rateLimit({
     message: { error: 'Too many frame-check requests, slow down.' },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: isTrustedSystemAppRequest,
 });
 
 // Fetches targetUrl with manual, per-hop SSRF revalidation + IP pinning
@@ -380,6 +382,7 @@ const appProxyLimiter = rateLimit({
     message: { error: 'Too many proxy requests, slow down.' },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: isTrustedSystemAppRequest,
 });
 
 function setupAppNetworkProxy(app) {
@@ -691,6 +694,7 @@ const emailImgLimiter = rateLimit({
     message: { error: 'Too many image requests, slow down.' },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: isTrustedSystemAppRequest,
 });
 
 // 1×1 transparent PNG returned on any validation/fetch failure — never leak

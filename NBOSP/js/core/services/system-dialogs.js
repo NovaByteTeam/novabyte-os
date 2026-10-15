@@ -51,10 +51,27 @@ const SystemDialogs = {
         resolve(value);
       };
 
+      let modalRoot = document.getElementById('system-modal-root');
+      if (!modalRoot) {
+        modalRoot = document.createElement('div');
+        modalRoot.id = 'system-modal-root';
+        Object.assign(modalRoot.style, {
+          position: 'fixed',
+          inset: '0',
+          width: '100vw',
+          height: '100vh',
+          zIndex: '2147483000',
+          pointerEvents: 'none',
+          isolation: 'isolate',
+        });
+        document.body.appendChild(modalRoot);
+      }
+
       // ── Overlay + dialog shell (matches the rest of the OS's modals) ─────
       const overlay = createEl('div', {
         className: 'modal-overlay', role: 'dialog', 'aria-modal': 'true',
       });
+      overlay.style.pointerEvents = 'auto';
       const dialog = createEl('div', {
         className: 'modal-dialog',
         style: 'max-width:640px;width:94%;padding:0;display:flex;flex-direction:column;max-height:78vh;',
@@ -274,7 +291,7 @@ const SystemDialogs = {
         overlay.remove();
       }
 
-      document.body.appendChild(overlay);
+      modalRoot.appendChild(overlay);
       pushHistory(cwd);
       renderPathBar();
       renderGrid();

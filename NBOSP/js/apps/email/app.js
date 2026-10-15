@@ -601,6 +601,32 @@ const appConfig = {
     // Reader pane
     const readerEl = createEl('div', { className: 'em-reader' });
     mainEl.appendChild(readerEl);
+    window.addEventListener('message', (event) => {
+      const iframe = readerEl.querySelector('iframe[title="Email body"]');
+      const link = event.data;
+      if (event.source !== iframe?.contentWindow || link?.type !== 'nbosp:email-link' || typeof link.href !== 'string') return;
+
+      let url;
+      try {
+        url = new URL(link.href);
+      } catch {
+        return;
+      }
+      if (url.protocol === 'mailto:') {
+        ourMailto(url.href);
+        return;
+      }
+      if (!['http:', 'https:'].includes(url.protocol)) return;
+      const openLink = window.nova?.mail?.openLink;
+      if (typeof openLink !== 'function') {
+        notify('Could not open this link in Browser.', 'error');
+        return;
+      }
+      openLink(url.href).catch((error) => {
+        logError('Could not open message link', error);
+        notify('Could not open this link in Browser.', 'error');
+      });
+    }, { signal: appSignal });
 
     // Setup screen (overlays main)
     const setupScreen = createEl('div', { className: 'em-setup', style: 'display:none;' });
@@ -1192,23 +1218,25 @@ const appConfig = {
       const rowEl = msgListEl.querySelector('.em-msg-row[data-uid="' + CSS.escape(String(msg.uid)) + '"]');
       delBtn.addEventListener('click', () => doDeleteMsg(msg, rowEl), { signal: appSignal });
 
-      // Body — render HTML inside a sandboxed iframe (no scripts, no
-      // same-origin), or plain text in a div.
+      // Body — render HTML inside a sandboxed iframe; only the injected link
+      // bridge can execute, and the iframe never gets same-origin access.
       const bodyEl = createEl('div', { className: 'em-reader-body' });
       if (full.html) {
         // The server sanitises full.html in GET /message before returning it.
-        // We run DOMPurify again client-side as defence-in-depth, and add a
-        // hook to force all links to open in a new tab with noopener.
+        // We run DOMPurify again client-side as defence-in-depth and keep
+        // safe target/rel attributes; link navigation is forwarded by the
+        // sandboxed iframe bridge below.
         const sanitized = sanitizeEmailHtml(full.html);
         const hasDoc = /^<!doctype/i.test(sanitized.trimStart()) || /^<html[\s>]/i.test(sanitized.trimStart());
         const iframe = createEl('iframe', {
-          sandbox: 'allow-popups allow-popups-to-escape-sandbox',
+          sandbox: 'allow-scripts',
           title: 'Email body',
           referrerpolicy: 'no-referrer',
         });
-        iframe.srcdoc = hasDoc
+        const emailDocument = hasDoc
           ? sanitized
           : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + sanitized + '</body></html>';
+        iframe.srcdoc = injectEmailLinkBridge(emailDocument);
         bodyEl.appendChild(iframe);
         readerEl.appendChild(bodyEl);
       } else {
@@ -1248,6 +1276,13 @@ const appConfig = {
       } finally {
         DOMPurify.removeHook('afterSanitizeAttributes');
       }
+    }
+
+    function injectEmailLinkBridge(html) {
+      const bridge = '<script>(function(){document.addEventListener("click",function(event){var link=event.target.closest&&event.target.closest("a[href]");if(!link)return;event.preventDefault();parent.postMessage({type:"nbosp:email-link",href:link.href},"*");},true);})();</script>';
+      return /<\/body\s*>/i.test(html)
+        ? html.replace(/<\/body\s*>/i, bridge + '</body>')
+        : html + bridge;
     }
 
     function forceSafeLinks(node) {

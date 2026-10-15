@@ -1,0 +1,45 @@
+{
+  "id": "com.nbosp.browser",
+  "name": "Browser",
+  "version": "3.0.8",
+  "description": "Web Browser",
+  "author": "NovaByte",
+  "entry": "index.html",
+  "icon": "globe",
+  "type": "blank",
+  "permissions": [
+    "net:internal",
+    "vfs:read",
+    "sandbox:nested-webview"
+  ],
+  "optionalPermissions": [
+    "net:external",
+    "device:camera",
+    "device:microphone",
+    "device:geolocation",
+    "vfs:write"
+  ],
+  "defaultSize": [
+    900,
+    600
+  ],
+  "minSize": [
+    500,
+    350
+  ],
+  "resizable": true,
+  "frame": true,
+  "categories": [
+    "network",
+    "utilities"
+  ],
+  "system": true,
+  "transparent": true,
+  "allowNestedWebview": true,
+  "sandbox": {
+    "allowScripts": true,
+    "allowForms": true,
+    "allowPopups": true
+  },
+  "unrestrictedEntry": "legacy-browser.js"
+}

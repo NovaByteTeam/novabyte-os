@@ -54,7 +54,7 @@
  *
  * Usage:
  *
- *   node scripts/build-apps.mjs [apps-dir]
+ *   node build-apps.mjs [apps-dir] [app-directory ...]
  *
  * Defaults to js/apps relative to this script's location.
  */
@@ -82,15 +82,13 @@ const scriptDir = path.dirname(
   fileURLToPath(import.meta.url)
 );
 
-const projectRoot = path.resolve(
-  scriptDir,
-  '..'
-);
+const projectRoot = scriptDir;
 
 const appsDir = path.resolve(
   process.argv[2] ??
     path.join(projectRoot, 'js', 'apps')
 );
+const requestedApps = process.argv.slice(3);
 
 /*
  * ── Signing configuration ─────────────────────────────────────────────
@@ -319,6 +317,28 @@ async function packageApp(appDir) {
     );
   }
 
+  // Preserve a manifest-declared alternate entry from the existing package
+  // only when that entry has no source copy in the app directory.
+  if (manifest.unrestrictedEntry && !files[manifest.unrestrictedEntry]) {
+    const appId = manifest.id ?? path.basename(appDir);
+    const existingPackagePath = path.join(appsDir, `${appId}.novaapp`);
+    let existingPackage;
+    try {
+      existingPackage = JSON.parse(await readFile(existingPackagePath, 'utf8'));
+    } catch (err) {
+      throw new Error(
+        `Cannot preserve manifest unrestrictedEntry "${manifest.unrestrictedEntry}" from ${existingPackagePath}: ${err.message}`
+      );
+    }
+    const bundledEntry = existingPackage.files?.[manifest.unrestrictedEntry];
+    if (typeof bundledEntry !== 'string') {
+      throw new Error(
+        `Manifest unrestrictedEntry "${manifest.unrestrictedEntry}" is missing from both ${appDir} and ${existingPackagePath}`
+      );
+    }
+    files[manifest.unrestrictedEntry] = bundledEntry;
+  }
+
   return {
     novabyte_app: true,
     compiled_at: Date.now(),
@@ -413,13 +433,24 @@ async function main() {
     }
   );
 
-  const dirs = entries
+  const availableDirs = entries
     .filter(
       (entry) => entry.isDirectory()
     )
     .map(
       (entry) => entry.name
     );
+  const missingApps = requestedApps.filter(
+    (name) => !availableDirs.includes(name)
+  );
+  if (missingApps.length > 0) {
+    throw new Error(
+      `App directory not found: ${missingApps.join(', ')}`
+    );
+  }
+  const dirs = requestedApps.length > 0
+    ? availableDirs.filter((name) => requestedApps.includes(name))
+    : availableDirs;
 
   if (dirs.length === 0) {
     console.log(

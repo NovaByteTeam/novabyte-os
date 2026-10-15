@@ -6,6 +6,7 @@
 
 const crypto = require('crypto');
 const ServerEventLog = require('../server/core/server-event-log');
+const { isTrustedSystemAppRequest } = require('../server/rate-limit-auth');
 
 // auditService — every call site here passes a consistent
 // { action, resource, success, ipAddress?, userId?, metadata? } shape.
@@ -122,6 +123,10 @@ function ipBlocking(req, res, next) {
  * IP Throttling middleware (stricter than general rate limiting)
  */
 function ipThrottleMiddleware(req, res, next) {
+    if (isTrustedSystemAppRequest(req)) {
+        return next();
+    }
+
     // Exclude static assets and Process Inspector polling from strict throttling
     if (
         req.path.startsWith('/assets/') ||

@@ -3,6 +3,7 @@
 const { spawn } = require('child_process');
 const fs        = require('fs');
 const path      = require('path');
+const crypto    = require('crypto');
 
 const { ensureEnv }                              = require('./env');
 const { ensureCerts }                            = require('./certs');
@@ -55,6 +56,10 @@ async function bootstrap(appDir) {
   const heapMb  = /^\d+$/.test(rawHeap) ? rawHeap : '1024';
 
   const serverScript = path.join(appDir, 'server', 'core', 'index.js');
+  // Share an unguessable, per-launch credential with the host renderer and
+  // server child so verified system-app API calls can bypass IP rate limits
+  // without trusting a client-supplied app-id header.
+  process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = crypto.randomBytes(32).toString('hex');
   const server = spawn(
     nodeBin,
     [`--max-old-space-size=${heapMb}`, '--expose-gc', serverScript],

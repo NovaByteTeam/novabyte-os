@@ -701,7 +701,7 @@ const AppDirs = {
       'com.nbosp.vault':       { name: 'Files',       version: '3.0.2', description: 'File Manager' },
       'com.nbosp.quill':       { name: 'TextEdit',    version: '3.0.2', description: 'Text Editor' },
       'com.nbosp.shell':       { name: 'Terminal',    version: '3.0.2', description: 'System Terminal' },
-      'com.nbosp.browser':     { name: 'Browser',     version: '3.0.2', description: 'Web Browser' },
+      'com.nbosp.browser':     { name: 'Browser',     version: '3.0.3', description: 'Web Browser' },
       'com.nbosp.calendar':    { name: 'Calendar',    version: '3.0.2', description: 'Calendar & Events' },
       'com.nbosp.settings':    { name: 'Settings',    version: '3.0.2', description: 'System Settings' },
       'com.nbosp.calculator':  { name: 'Calculator',  version: '3.0.2', description: 'Calculator' },
@@ -1076,7 +1076,7 @@ function openFileWithDefaultApp(fileNode) {
 
   let appId = 'quill'; // fallback default
 
-  if (mime === 'text/html' || fileNode.name.endsWith('.html') || fileNode.name.endsWith('.htm')) appId = 'browser';
+  if (mime === 'text/html' || fileNode.name.endsWith('.html') || fileNode.name.endsWith('.htm')) appId = 'com.nbosp.browser';
   else if (mime.startsWith('image/')) appId = 'nbosp-gallery';
   else if (mime.startsWith('audio/')) appId = 'nbosp-music';
   // NOTE: no built-in app declares a .pdf handler (the previous 'lumina'

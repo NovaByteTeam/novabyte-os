@@ -47,7 +47,7 @@ const CATEGORIES = Object.freeze({
   browser: Object.freeze({
     name: 'Web Browser',
     apps: Object.freeze([
-      Object.freeze({ id: 'browser', name: 'Browser', icon: 'globe' }),
+      Object.freeze({ id: 'com.nbosp.browser', name: 'Browser', icon: 'globe' }),
     ]),
   }),
   texteditor: Object.freeze({

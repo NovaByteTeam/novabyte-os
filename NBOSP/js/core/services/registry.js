@@ -144,7 +144,7 @@ const APP_REGISTRY = [];
         if (/^(javascript|data|vbscript):/i.test(url.trim())) return;
         // Block localhost / private / loopback addresses at the OS level too
         if (typeof isLocalAddress === 'function' && isLocalAddress(url)) return;
-        WM.createWindow('browser', { url });
+        WM.createWindow('com.nbosp.browser', { url });
       };
 
       // ── Parse mailto: URIs into compose-prefill objects ─────────────────

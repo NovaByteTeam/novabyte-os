@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const SqliteStore = require('better-sqlite3-session-store')(session);
+const { isTrustedSystemAppRequest } = require('./rate-limit-auth');
 
 // Sessions persist to disk here so they survive server restarts —
 // without this, express-session falls back to MemoryStore, which is
@@ -17,6 +18,35 @@ const SqliteStore = require('better-sqlite3-session-store')(session);
 // rename failures that file-based session storage hit in this project.
 const SESSION_DB_DIR = path.join(__dirname, '..', 'data');
 const SESSION_DB_PATH = path.join(SESSION_DB_DIR, 'sessions.db');
+
+const EXACT_SKIP_PATHS = new Set([
+    '/health',
+    '/favicon.ico',
+    '/api/favicon',
+    '/api/events/stream',
+    // App sandbox registration is local bookkeeping performed during every
+    // packaged-app launch, not a user-facing API request.
+    '/api/apps/serve/register',
+]);
+const PREFIX_SKIP_PATHS = [
+    '/js/',
+    '/css/',
+    '/public/',
+    '/assets/',
+    '/api/apps/serve/unregister/',
+];
+
+function shouldSkipGlobalApiRateLimit(req) {
+    if (isTrustedSystemAppRequest(req)) return true;
+    // Express removes the mounted `/api/` prefix from req.path. Check both
+    // forms so full API routes match without breaking existing mounted-path
+    // exemptions.
+    const fullPath = (req.originalUrl || req.path).split('?')[0];
+    const mountedPath = req.path || fullPath;
+    return EXACT_SKIP_PATHS.has(fullPath) ||
+        EXACT_SKIP_PATHS.has(mountedPath) ||
+        PREFIX_SKIP_PATHS.some(p => fullPath.startsWith(p) || mountedPath.startsWith(p));
+}
 
 // This used to work only because favicons.js happened to create ../data
 // first and index.js requires favicons.js before setupMiddleware() runs —
@@ -79,7 +109,10 @@ function setupMiddleware(app) {
         origin: corsOrigins,
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
+        allowedHeaders: [
+            'Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token',
+            'X-Nova-System-App', 'X-Nova-System-Time', 'X-Nova-System-Signature',
+        ],
         exposedHeaders: ['X-CSRF-Token'],
         maxAge: 86400
     }));
@@ -101,29 +134,6 @@ function setupMiddleware(app) {
     };
 
     // Rate limiting
-    // Exact-path and prefix checks split apart so each list is a plain
-    // membership/startsWith scan instead of one long mixed chain — same
-    // number of comparisons, just easier to scan and extend.
-    const EXACT_SKIP_PATHS = new Set([
-        '/health',
-        '/favicon.ico',
-        '/api/favicon',
-        '/api/events/stream',
-        // App sandbox registration is local bookkeeping performed during every
-        // packaged-app launch. Counting it against the global API limiter lets
-        // a few rapid open/close/retry cycles exhaust the quota and turns the
-        // sandbox's own resource registration into a 429 failure.
-        '/api/apps/serve/register',
-    ]);
-    const PREFIX_SKIP_PATHS = [
-        '/js/',
-        '/css/',
-        '/public/',
-        '/assets/',
-        // Unregister calls are the matching teardown bookkeeping operation.
-        '/api/apps/serve/unregister/',
-    ];
-
     const limiter = rateLimit({
         windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
         max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
@@ -133,17 +143,7 @@ function setupMiddleware(app) {
         },
         standardHeaders: true,
         legacyHeaders: false,
-        skip: (req) => {
-            if (EXACT_SKIP_PATHS.has(req.path)) return true;
-            // '/api/favicon' and '/api/events/stream' have their own dedicated
-            // limiters below — /api/favicon fires many times per page load,
-            // and /api/events/stream is a long-lived SSE connection where
-            // reconnects (tab backgrounding, sleep/wake, brief network blips)
-            // shouldn't eat into the same budget as normal API calls, since
-            // once rate-limited the stream can never recover — reconnecting
-            // is the very thing that would be blocked.
-            return PREFIX_SKIP_PATHS.some(p => req.path.startsWith(p));
-        }
+        skip: shouldSkipGlobalApiRateLimit
     });
 
     // Tiered email rate limiters — split by frequency of legitimate use:
@@ -157,6 +157,7 @@ function setupMiddleware(app) {
         message: { error: 'Too many connection requests, please slow down.' },
         standardHeaders: true,
         legacyHeaders: false,
+        skip: isTrustedSystemAppRequest,
     });
 
     const emailReadLimiter = rateLimit({
@@ -165,6 +166,7 @@ function setupMiddleware(app) {
         message: { error: 'Too many email requests, please slow down.' },
         standardHeaders: true,
         legacyHeaders: false,
+        skip: isTrustedSystemAppRequest,
     });
 
     const emailWriteLimiter = rateLimit({
@@ -173,6 +175,7 @@ function setupMiddleware(app) {
         message: { error: 'Too many email write requests, please slow down.' },
         standardHeaders: true,
         legacyHeaders: false,
+        skip: isTrustedSystemAppRequest,
     });
 
     const faviconLimiter = rateLimit({
@@ -181,6 +184,7 @@ function setupMiddleware(app) {
         message: { error: 'Too many favicon requests, please slow down.' },
         standardHeaders: true,
         legacyHeaders: false,
+        skip: isTrustedSystemAppRequest,
     });
 
     // The SSE stream is long-lived, but reconnects (tab backgrounding,
@@ -194,6 +198,7 @@ function setupMiddleware(app) {
         message: { error: 'Too many event stream connections, please slow down.' },
         standardHeaders: true,
         legacyHeaders: false,
+        skip: isTrustedSystemAppRequest,
     });
 
     app.use('/api/', limiter);
@@ -327,4 +332,4 @@ function closeSessionDb() {
     sessionDb = null;
 }
 
-module.exports = { setupMiddleware, closeSessionDb };
+module.exports = { setupMiddleware, closeSessionDb, shouldSkipGlobalApiRateLimit };

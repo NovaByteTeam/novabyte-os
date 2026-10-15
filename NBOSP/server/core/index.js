@@ -236,7 +236,7 @@ _appServeSweepTimer.unref();
 
 // Register app files for serving (called by app-sandbox.js loadAppContent)
 app.post('/api/apps/serve/register', (req, res) => {
-    const { sandboxId, files } = req.body || {};
+    const { sandboxId, files, allowExternalFrames } = req.body || {};
     if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
         return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
     }
@@ -250,7 +250,11 @@ app.post('/api/apps/serve/register', (req, res) => {
         return res.status(400).json({ error: 'Invalid sandboxId format' });
     }
     _pruneAppServeRegistry();
-    _appServeRegistry.set(sandboxId, { files, created: Date.now() });
+    _appServeRegistry.set(sandboxId, {
+        files,
+        allowExternalFrames: allowExternalFrames === true,
+        created: Date.now()
+    });
     res.json({ ok: true, baseUrl: `/api/apps/serve/${sandboxId}` });
 });
 
@@ -320,14 +324,16 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
     // through here. Update both together.
     const isHtml = ext === 'html';
     if (isHtml) {
-        res.setHeader('Content-Security-Policy', [
+        const policy = [
             "default-src 'self' blob: data: 'unsafe-inline'",
             "script-src 'self' blob: 'unsafe-inline' 'wasm-unsafe-eval'",
             "style-src 'self' 'unsafe-inline' blob: data:",
             "img-src 'self' blob: data: https:",
             "font-src 'self' blob: data:",
             "connect-src 'self' blob:"
-        ].join('; '));
+        ];
+        if (entry.allowExternalFrames) policy.push('frame-src http: https:');
+        res.setHeader('Content-Security-Policy', policy.join('; '));
     }
     res.setHeader('Content-Type', APP_SERVE_MIME[ext] || 'application/octet-stream');
     res.setHeader('Cache-Control', 'no-store');

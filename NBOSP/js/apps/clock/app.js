@@ -452,7 +452,7 @@
       };
       try {
         const response = await ipc('nova:clock:alarm:dialog', { alarm: src, editing: isEdit });
-        const result = response?.result;
+        const result = response?.result?.result ?? response?.result;
         if (!result || result === '__CLOCK_CANCEL__') return;
         if (result === '__CLOCK_DELETE__') {
           db.alarms.splice(idx, 1);

@@ -1,6 +1,7 @@
 const ContextMenu = {
   current: null,
   _activeDismiss: null, // Track the current event handler for absolute safety
+  _coveredWebviews: [],
 
   show(x, y, items) {
     ContextMenu.hide();
@@ -57,6 +58,17 @@ const ContextMenu = {
     
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
+
+    const menuRight = x + rect.width;
+    const menuBottom = y + rect.height;
+    for (const webview of document.querySelectorAll('webview, nova-nested-webview')) {
+      const viewRect = webview.getBoundingClientRect();
+      const overlaps = viewRect.left < menuRight && viewRect.right > x
+        && viewRect.top < menuBottom && viewRect.bottom > y;
+      if (!overlaps || getComputedStyle(webview).visibility === 'hidden') continue;
+      ContextMenu._coveredWebviews.push([webview, webview.style.visibility]);
+      webview.style.visibility = 'hidden';
+    }
 
     // Sample background behind the menu to decide text color
     try {
@@ -127,6 +139,10 @@ const ContextMenu = {
       ContextMenu.current.remove();
       ContextMenu.current = null;
     }
+    for (const [webview, visibility] of ContextMenu._coveredWebviews) {
+      if (webview.isConnected) webview.style.visibility = visibility;
+    }
+    ContextMenu._coveredWebviews.length = 0;
     if (ContextMenu._activeDismiss) {
       document.removeEventListener('pointerdown', ContextMenu._activeDismiss, { capture: true });
       ContextMenu._activeDismiss = null;

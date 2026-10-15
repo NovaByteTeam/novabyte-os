@@ -30,6 +30,7 @@ faviconDb.exec(`CREATE TABLE IF NOT EXISTS favicons (
 const _fav = {
     get:   faviconDb.prepare('SELECT buf, mime, ts FROM favicons WHERE hostname = ?'),
     set:   faviconDb.prepare('INSERT OR REPLACE INTO favicons (hostname, buf, mime, ts) VALUES (?, ?, ?, ?)'),
+    delete: faviconDb.prepare('DELETE FROM favicons WHERE hostname = ?'),
     count: faviconDb.prepare('SELECT COUNT(*) as n FROM favicons').pluck(),
     evict: faviconDb.prepare('DELETE FROM favicons WHERE hostname = (SELECT hostname FROM favicons ORDER BY ts ASC LIMIT 1)'),
     clean: faviconDb.prepare('DELETE FROM favicons WHERE ts < ?'),
@@ -312,22 +313,44 @@ function setupFaviconRoutes(app) {
 
     // Favicon proxy
     app.get('/api/favicon', async (req, res) => {
-        const domain = req.query.domain;
-        if (!domain) return res.status(400).json({ error: 'domain required' });
-
-        const hostname = validateFaviconDomain(domain);
+        const requestedUrl = req.query.url;
+        let hostname;
+        let iconUrl = null;
+        if (requestedUrl) {
+            try {
+                const parsed = new URL(requestedUrl);
+                hostname = validateFaviconDomain(parsed.hostname);
+                if (!['http:', 'https:'].includes(parsed.protocol) || !hostname
+                    || parsed.username || parsed.password || parsed.port) {
+                    return res.status(400).json({ error: 'Invalid favicon URL' });
+                }
+                iconUrl = parsed.href;
+            } catch (_) {
+                return res.status(400).json({ error: 'Invalid favicon URL' });
+            }
+        } else {
+            const domain = req.query.domain;
+            if (!domain) return res.status(400).json({ error: 'domain or url required' });
+            hostname = validateFaviconDomain(domain);
+        }
         if (!hostname) return res.status(400).json({ error: 'Invalid domain' });
 
-        // Check cache
-        const cached = _fav.get.get(hostname);
+        // URL-specific icons cannot share the hostname cache because a site
+        // may declare several distinct icon paths.
+        const cached = iconUrl ? null : _fav.get.get(hostname);
         if (cached && cached.ts > Date.now() - FAVICON_TTL) {
-            res.setHeader('Content-Type', cached.mime);
-            res.setHeader('Cache-Control', 'public, max-age=86400');
-            return res.send(cached.buf);
+            if (!cached.buf.equals(FAVICON_DEFAULT)) {
+                res.setHeader('Content-Type', cached.mime);
+                res.setHeader('Cache-Control', 'public, max-age=86400');
+                return res.send(cached.buf);
+            }
+            // Older versions cached the transparent placeholder as if it
+            // were a real icon, making a temporary fetch failure last a day.
+            _fav.delete.run(hostname);
         }
 
-        // Try to fetch
-        let icon = await fetchIconUrl(`https://${hostname}/favicon.ico`);
+        let icon = iconUrl ? await fetchIconUrl(iconUrl) : null;
+        if (!icon) icon = await fetchIconUrl(`https://${hostname}/favicon.ico`);
 
         // Try common locations
         if (!icon) {
@@ -340,17 +363,19 @@ function setupFaviconRoutes(app) {
         }
 
         if (!icon) {
-            icon = { buf: FAVICON_DEFAULT, mime: 'image/png' };
+            res.setHeader('Cache-Control', 'no-store');
+            return res.status(404).json({ error: 'Favicon not found' });
         }
 
-        // Cache it
-        try {
-            _fav.set.run(hostname, icon.buf, icon.mime, Date.now());
-            if (_fav.count.get() > FAVICON_MAX) {
-                _fav.evict.run();
+        if (!iconUrl) {
+            try {
+                _fav.set.run(hostname, icon.buf, icon.mime, Date.now());
+                if (_fav.count.get() > FAVICON_MAX) {
+                    _fav.evict.run();
+                }
+            } catch (err) {
+                log('warn', 'Cache write failed (non-fatal)', { hostname, error: err.message });
             }
-        } catch (err) {
-            log('warn', 'Cache write failed (non-fatal)', { hostname, error: err.message });
         }
 
         res.setHeader('Content-Type', icon.mime);
