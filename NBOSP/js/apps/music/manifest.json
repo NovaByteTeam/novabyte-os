@@ -2,17 +2,12 @@
   "id": "com.nbosp.music",
   "name": "Music",
   "version": "3.0.2",
-  "description": "Music Player",
   "author": "NovaByteOfficial",
+  "description": "Music Player",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "music",
   "type": "blank",
-  "permissions": [
-    "vfs:read"
-  ],
-  "optionalPermissions": [
-    "device:notifications"
-  ],
   "defaultSize": [
     520,
     520
@@ -27,6 +22,7 @@
     "media",
     "entertainment"
   ],
+  "system": true,
   "handles": {
     "protocols": [],
     "extensions": [
@@ -41,5 +37,6 @@
       ".weba",
       ".webm"
     ]
-  }
+  },
+  "transparent": true
 }

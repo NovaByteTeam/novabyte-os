@@ -2,22 +2,40 @@
   "id": "com.nbosp.gallery",
   "name": "Gallery",
   "version": "3.0.2",
-  "description": "Image Viewer",
   "author": "NovaByteOfficial",
+  "description": "Image Viewer",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "image",
   "type": "blank",
-  "permissions": [
-    "vfs:read"
+  "defaultSize": [
+    840,
+    580
   ],
-  "defaultSize": [840, 580],
-  "minSize": [500, 360],
+  "minSize": [
+    500,
+    360
+  ],
   "resizable": true,
   "frame": true,
-  "categories": ["media", "utilities"],
+  "categories": [
+    "media",
+    "utilities"
+  ],
+  "system": true,
   "handles": {
     "protocols": [],
-    "extensions": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".tiff"]
+    "extensions": [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".webp",
+      ".bmp",
+      ".svg",
+      ".avif",
+      ".tiff"
+    ]
   },
-  "system": true
+  "transparent": true
 }

@@ -1473,6 +1473,12 @@ registerApp({
       catch (err) { devLog('nova_installed_apps parse failed:', err); novaApps = []; }
       const novaAppIds = new Set(novaApps.map(a => a.id));
 
+      // System apps (manifest.system === true) are part of the OS image, not
+      // user-installed packages. They render under BUILT-IN APPS (where the
+      // rest of the built-ins live) rather than under INSTALLED PACKAGES,
+      // so the user isn't misled into thinking they installed them.
+      const systemNovaApps = novaApps.filter(a => a.system === true);
+      const userNovaApps  = novaApps.filter(a => a.system !== true);
       const builtIns = [...appIds].filter(id => !id.startsWith('wa_') && !novaAppIds.has(id)).sort();
       const webApps  = [...appIds].filter(id =>  id.startsWith('wa_')).sort();
 
@@ -1482,6 +1488,14 @@ registerApp({
         const entry = OS.apps?.[id];
         return !entry?.devOnly;
       });
+
+      // Dev-only apps (devconsole, sysaccess, packages, perf, …) are hidden
+      // from every section unless Developer Mode is on — same rule the
+      // launchpad and WM.createWindow use, applied here too so they don't
+      // surface in the Permissions UI just because they're installed.
+      const filterDev = list => devMode ? list : list.filter(a => !a.devOnly);
+      const visibleSystemNovaApps = filterDev(systemNovaApps);
+      const visibleUserNovaApps  = filterDev(userNovaApps);
 
       function buildAppCard(appId, novaData) {
         const entry   = (typeof OS !== 'undefined' && OS.apps) ? OS.apps[appId] : null;
@@ -1697,17 +1711,23 @@ registerApp({
         return card;
       }
 
-      if (visibleBuiltIns.length > 0) {
+      if (visibleBuiltIns.length > 0 || visibleSystemNovaApps.length > 0) {
         mainContent.appendChild(createEl('div', { textContent: 'BUILT-IN APPS', style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:10px;' }));
         for (const id of visibleBuiltIns) {
           const card = buildAppCard(id);
           if (card) mainContent.appendChild(card);
         }
+        // Bundled .novaapp packages (manifest.system === true) are shipped
+        // with the OS image — same tier as the built-ins, not user-installed.
+        for (const novaData of visibleSystemNovaApps) {
+          const card = buildAppCard(novaData.id, novaData);
+          if (card) mainContent.appendChild(card);
+        }
       }
 
-      if (novaApps.length > 0) {
+      if (visibleUserNovaApps.length > 0) {
         mainContent.appendChild(createEl('div', { textContent: 'INSTALLED PACKAGES', style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin:16px 0 10px;' }));
-        for (const novaData of novaApps) {
+        for (const novaData of visibleUserNovaApps) {
           const card = buildAppCard(novaData.id, novaData);
           if (card) mainContent.appendChild(card);
         }
@@ -1721,7 +1741,7 @@ registerApp({
         }
       }
 
-      if (visibleBuiltIns.length === 0 && webApps.length === 0 && novaApps.length === 0) {
+      if (visibleBuiltIns.length === 0 && webApps.length === 0 && visibleSystemNovaApps.length === 0 && visibleUserNovaApps.length === 0) {
         const empty = createEl('div', { style: 'text-align:center;color:var(--text-muted);padding:40px 0;font-size:13px;' });
         empty.textContent = 'No apps found.';
         mainContent.appendChild(empty);

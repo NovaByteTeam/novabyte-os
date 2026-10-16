@@ -1,7 +1,19 @@
 [
   {
+    "id": "com.nbosp.appmanager",
+    "file": "js/apps/com.nbosp.appmanager.novaapp"
+  },
+  {
+    "id": "com.nbosp.browser",
+    "file": "js/apps/com.nbosp.browser.novaapp"
+  },
+  {
     "id": "com.nbosp.calculator",
     "file": "js/apps/com.nbosp.calculator.novaapp"
+  },
+  {
+    "id": "com.nbosp.calendar",
+    "file": "js/apps/com.nbosp.calendar.novaapp"
   },
   {
     "id": "com.nbosp.clock",
@@ -12,6 +24,10 @@
     "file": "js/apps/com.nbosp.contacts.novaapp"
   },
   {
+    "id": "com.nbosp.devconsole",
+    "file": "js/apps/com.nbosp.devconsole.novaapp"
+  },
+  {
     "id": "com.nbosp.downloads",
     "file": "js/apps/com.nbosp.downloads.novaapp"
   },
@@ -20,16 +36,44 @@
     "file": "js/apps/com.nbosp.email.novaapp"
   },
   {
+    "id": "com.nbosp.events",
+    "file": "js/apps/com.nbosp.events.novaapp"
+  },
+  {
     "id": "com.nbosp.gallery",
     "file": "js/apps/com.nbosp.gallery.novaapp"
+  },
+  {
+    "id": "com.nbosp.inspector",
+    "file": "js/apps/com.nbosp.inspector.novaapp"
+  },
+  {
+    "id": "com.nbosp.modules",
+    "file": "js/apps/com.nbosp.modules.novaapp"
   },
   {
     "id": "com.nbosp.music",
     "file": "js/apps/com.nbosp.music.novaapp"
   },
   {
+    "id": "com.nbosp.packages",
+    "file": "js/apps/com.nbosp.packages.novaapp"
+  },
+  {
+    "id": "com.nbosp.perf",
+    "file": "js/apps/com.nbosp.perf.novaapp"
+  },
+  {
+    "id": "com.nbosp.permissions",
+    "file": "js/apps/com.nbosp.permissions.novaapp"
+  },
+  {
     "id": "com.nbosp.quill",
     "file": "js/apps/com.nbosp.quill.novaapp"
+  },
+  {
+    "id": "com.nbosp.search",
+    "file": "js/apps/com.nbosp.search.novaapp"
   },
   {
     "id": "com.nbosp.settings",
@@ -40,11 +84,11 @@
     "file": "js/apps/com.nbosp.shell.novaapp"
   },
   {
-    "id": "com.nbosp.browser",
-    "file": "js/apps/com.nbosp.browser.novaapp"
+    "id": "com.nbosp.sysaccess",
+    "file": "js/apps/com.nbosp.sysaccess.novaapp"
   },
   {
-    "id": "com.nbosp.appmanager",
-    "file": "js/apps/com.nbosp.appmanager.novaapp"
+    "id": "com.nbosp.vault",
+    "file": "js/apps/com.nbosp.vault.novaapp"
   }
 ]

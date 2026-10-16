@@ -718,6 +718,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         files: appData.files || {},
         sandbox: appData.sandbox || { allowScripts: true, allowForms: true, allowPopups: false },
         type: appData.type || 'package',
+        // Keep developer tools hidden and unlaunchable unless Developer Mode is enabled.
+        devOnly: appData.devOnly === true || appData.manifest?.devOnly === true,
         // Preserve the package lifecycle/trust metadata on the live OS.app
         // object. Boot and App Manager hydrate the same package record, but
         // previously this config builder dropped verified/signer/source, so
@@ -794,6 +796,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               permissions: appData.permissions || [],
               optionalPermissions: appData.optionalPermissions || [],
               type: appData.type || 'package',
+              // Keep developer tools hidden and unlaunchable unless Developer Mode is enabled.
+              devOnly: appData.devOnly === true || appData.manifest?.devOnly === true,
               // Preserve the signed-package identity required by the unrestricted
               // gate. Without these fields the gate rejects the app and silently
               // leaves the sandboxed entry active.
@@ -1563,7 +1567,7 @@ registerApp({
         listEl.innerHTML = '';
         const q = searchEl.value.trim().toLowerCase();
         const disabledSet = new Set(getDisabled());
-        let visible = installedApps.filter(app => app.id !== APP_MANAGER_ID);
+        let visible = installedApps;
 
         if (q) {
           visible = visible.filter(a =>
@@ -1717,31 +1721,36 @@ registerApp({
         }
 
         const launchBtn = makeActionBtn(
-          isDis ? 'Disabled' : 'Launch', 'play',
-          isDis
+          (app.id === APP_MANAGER_ID) ? 'Already Running' : (isDis ? 'Disabled' : 'Launch'),
+          'play',
+          (app.id === APP_MANAGER_ID || isDis)
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
             : 'background:var(--accent);border:1px solid transparent;color:#fff;',
-          () => { if (!isDis) WM.createWindow(app.id); }
+          () => { if (!isDis && app.id !== APP_MANAGER_ID) WM.createWindow(app.id); }
         );
 
         const toggleBtn = makeActionBtn(
           isDis ? 'Enable' : 'Disable',
           isDis ? 'done' : 'no-entry',
-          isDis
-            ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
-            : 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
-          () => {
-            const d = getDisabled();
-            setDisabled(isDis ? d.filter(id => id !== app.id) : [...d, app.id]);
-            selectedPkgId = app.id;
-            renderList();
-            renderDetail();
-            Notify.show({
-              title: isDis ? 'App Enabled' : 'App Disabled',
-              body: `${app.name} ${isDis ? 'enabled' : 'disabled'}`,
-              type: 'success', appName: 'App Manager'
-            });
-          }
+          app.id === APP_MANAGER_ID
+            ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;opacity:0.5;'
+            : isDis
+              ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
+              : 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
+          app.id === APP_MANAGER_ID
+            ? () => {}
+            : () => {
+                const d = getDisabled();
+                setDisabled(isDis ? d.filter(id => id !== app.id) : [...d, app.id]);
+                selectedPkgId = app.id;
+                renderList();
+                renderDetail();
+                Notify.show({
+                  title: isDis ? 'App Enabled' : 'App Disabled',
+                  body: `${app.name} ${isDis ? 'enabled' : 'disabled'}`,
+                  type: 'success', appName: 'App Manager'
+                });
+              }
         );
 
         const uninstBtn = makeActionBtn(

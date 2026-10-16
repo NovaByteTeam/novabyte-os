@@ -2,20 +2,12 @@
   "id": "com.nbosp.quill",
   "name": "TextEdit",
   "version": "3.0.2",
-  "description": "Plain text editor with line numbers, bracket matching, and word count.",
   "author": "NovaByteOfficial",
+  "description": "Plain text editor with line numbers, bracket matching, and word count.",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "pen-tool",
   "type": "blank",
-  "permissions": [
-    "vfs:read",
-    "vfs:write"
-  ],
-  "optionalPermissions": [
-    "clipboard:read",
-    "clipboard:write",
-    "device:notifications"
-  ],
   "defaultSize": [
     680,
     500
@@ -30,6 +22,7 @@
     "utilities",
     "productivity"
   ],
+  "system": true,
   "handles": {
     "protocols": [],
     "extensions": [
@@ -41,5 +34,5 @@
       ".log"
     ]
   },
-  "system": true
+  "transparent": true
 }

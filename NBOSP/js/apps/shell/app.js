@@ -1224,26 +1224,14 @@ async function runCommand(tab, line) {
 async function clipboardRead() {
   if (typeof window.nova?.ipc === 'function') {
     try {
-      let result = await window.nova.ipc('nova:clipboard:read', {});
+      const result = await window.nova.ipc('nova:clipboard:read', {});
       if (result?.success) return result.text || '';
       const code = result?.error?.code || result?.errorCode || result?.code;
-      if (code === 'PERMISSION_DENIED') {
-        const granted = await window.nova.requestPermission?.('clipboard:read', 'Terminal wants to read from the clipboard.');
-        if (granted?.granted === true || granted === true) {
-          result = await window.nova.ipc('nova:clipboard:read', {});
-          if (result?.success) return result.text || '';
-        }
+      if (code && code !== 'PERMISSION_DENIED' && !navigator.clipboard?.readText) {
+        throw new Error(result?.error?.message || String(code));
       }
     } catch (err) {
-      if (err?.code === 'PERMISSION_DENIED') {
-        const granted = await window.nova.requestPermission?.('clipboard:read', 'Terminal wants to read from the clipboard.');
-        if (granted?.granted === true || granted === true) {
-          const result = await window.nova.ipc('nova:clipboard:read', {});
-          if (result?.success) return result.text || '';
-        }
-      } else if (!navigator.clipboard?.readText) {
-        throw err;
-      }
+      if (err?.code !== 'PERMISSION_DENIED' && !navigator.clipboard?.readText) throw err;
     }
   }
   if (navigator.clipboard?.readText) return navigator.clipboard.readText();
@@ -1253,26 +1241,14 @@ async function clipboardRead() {
 async function clipboardWrite(text) {
   if (typeof window.nova?.ipc === 'function') {
     try {
-      let result = await window.nova.ipc('nova:clipboard:write', { text: String(text) });
+      const result = await window.nova.ipc('nova:clipboard:write', { text: String(text) });
       if (result?.success) return true;
       const code = result?.error?.code || result?.errorCode || result?.code;
-      if (code === 'PERMISSION_DENIED') {
-        const granted = await window.nova.requestPermission?.('clipboard:write', 'Terminal wants to write to the clipboard.');
-        if (granted?.granted === true || granted === true) {
-          result = await window.nova.ipc('nova:clipboard:write', { text: String(text) });
-          if (result?.success) return true;
-        }
+      if (code && code !== 'PERMISSION_DENIED' && !navigator.clipboard?.writeText) {
+        throw new Error(result?.error?.message || String(code));
       }
     } catch (err) {
-      if (err?.code === 'PERMISSION_DENIED') {
-        const granted = await window.nova.requestPermission?.('clipboard:write', 'Terminal wants to write to the clipboard.');
-        if (granted?.granted === true || granted === true) {
-          const result = await window.nova.ipc('nova:clipboard:write', { text: String(text) });
-          if (result?.success) return true;
-        }
-      } else if (!navigator.clipboard?.writeText) {
-        throw err;
-      }
+      if (err?.code !== 'PERMISSION_DENIED' && !navigator.clipboard?.writeText) throw err;
     }
   }
   if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(String(text)); return true; }

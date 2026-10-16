@@ -2,19 +2,25 @@
   "id": "com.nbosp.contacts",
   "name": "Contacts",
   "version": "3.0.2",
-  "description": "Contact Book",
   "author": "NovaByteOfficial",
+  "description": "Contact Book",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "users",
   "type": "blank",
-  "permissions": [
-    "device:notifications"
+  "defaultSize": [
+    640,
+    500
   ],
-  "defaultSize": [640, 500],
-  "minSize": [440, 320],
+  "minSize": [
+    440,
+    320
+  ],
   "resizable": true,
   "frame": true,
-  "categories": ["utilities"],
+  "categories": [
+    "utilities"
+  ],
   "system": true,
   "transparent": true
 }

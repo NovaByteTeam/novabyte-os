@@ -250,13 +250,9 @@ function getBootConfig() {
   function disableAppByPath(src) {
     try {
       const id = src.split('/js/apps/').pop().split('.')[0];
-      const map = {
-        search: 'nbosp-search', browser: 'com.nbosp.browser', contacts: 'nbosp-contacts',
-        email: 'com.nbosp.email', calendar: 'nbosp-calendar', settings: 'nbosp-settings',
-        clock: 'com.nbosp.clock', appmanager: 'com.nbosp.appmanager', calculator: 'nbosp-calculator',
-        files: 'nbosp-files', gallery: 'nbosp-gallery', downloads: 'nbosp-downloads',
-        textedit: 'nbosp-textedit', terminal: 'nbosp-terminal', music: 'nbosp-music'
-      };
+      // Only classic developer-tool scripts still load from js/apps/*.js.
+      // Migrated first-party apps are loaded from their signed .novaapp packages.
+      const map = { console: 'devconsole' };
       const appId = id ? (map[id] || id) : null;
       if (!appId) return;
 

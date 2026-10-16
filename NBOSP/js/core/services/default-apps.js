@@ -53,19 +53,19 @@ const CATEGORIES = Object.freeze({
   texteditor: Object.freeze({
     name: 'Text Editor',
     apps: Object.freeze([
-      Object.freeze({ id: 'quill', name: 'TextEdit', icon: 'pen-tool' }),
+      Object.freeze({ id: 'com.nbosp.quill', name: 'TextEdit', icon: 'pen-tool' }),
     ]),
   }),
   music: Object.freeze({
     name: 'Music Player',
     apps: Object.freeze([
-      Object.freeze({ id: 'nbosp-music', name: 'Music', icon: 'music' }),
+      Object.freeze({ id: 'com.nbosp.music', name: 'Music', icon: 'music' }),
     ]),
   }),
   gallery: Object.freeze({
     name: 'Photo Viewer',
     apps: Object.freeze([
-      Object.freeze({ id: 'nbosp-gallery', name: 'Gallery', icon: 'image' }),
+      Object.freeze({ id: 'com.nbosp.gallery', name: 'Gallery', icon: 'image' }),
     ]),
   }),
   email: Object.freeze({
@@ -77,7 +77,7 @@ const CATEGORIES = Object.freeze({
   calendar: Object.freeze({
     name: 'Calendar',
     apps: Object.freeze([
-      Object.freeze({ id: 'calendar-app', name: 'Calendar', icon: 'calendar' }),
+      Object.freeze({ id: 'com.nbosp.calendar', name: 'Calendar', icon: 'calendar' }),
     ]),
   }),
 });

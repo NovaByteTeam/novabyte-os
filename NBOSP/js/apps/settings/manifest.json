@@ -8,13 +8,19 @@
   "unrestrictedEntry": "app.js",
   "icon": "settings",
   "type": "blank",
-  "permissions": [],
-  "optionalPermissions": [],
-  "defaultSize": [700, 500],
-  "minSize": [500, 400],
+  "defaultSize": [
+    700,
+    500
+  ],
+  "minSize": [
+    500,
+    400
+  ],
   "resizable": true,
   "frame": true,
-  "categories": ["utilities"],
+  "categories": [
+    "utilities"
+  ],
   "system": true,
   "transparent": true
 }

@@ -1,24 +1,6 @@
-*,:before,:after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg-base:#07090f;--bg-elevated:rgba(14,18,28,.22);--bg-overlay:rgba(20,26,40,.14);--bg-sunken:rgba(3,5,8,.35);--bg-hover:rgba(255,255,255,.06);
-  --text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#484f58;--text-link:#58a6ff;--text-danger:#f85149;--text-success:#3fb950;--text-warning:#d29922;
-  --accent:#58a6ff;--accent-hover:#79b8ff;--border:rgba(255,255,255,.12);--border-subtle:rgba(255,255,255,.06);--border-default:rgba(255,255,255,.12);--border-strong:rgba(255,255,255,.25);
-  --bg-overlay:rgba(20,26,40,.14);--r-sm:10px;--font-ui:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;--font-size:14px;--ease-macos:cubic-bezier(.25,.46,.45,.94);
+/* Downloads-only hover treatments; shared buttons and tokens stay in the OS stylesheet. */
+@layer apps {
+  .app-window[data-app-id="com.nbosp.downloads"] .dl-row:hover { background: var(--bg-hover); }
+  .app-window[data-app-id="com.nbosp.downloads"] .dl-delbtn { color: var(--text-muted); transition: color 0.1s; }
+  .app-window[data-app-id="com.nbosp.downloads"] .dl-row:hover .dl-delbtn { color: var(--text-danger); }
 }
-/* background:transparent, not var(--bg-base) (opaque) — this app declares
-   transparent:true in its manifest, so the OS's window glass shows through
-   behind it instead of getting blocked by a solid page background. */
-html,body{width:100%;height:100%;max-width:100vw;overflow:hidden;overscroll-behavior:none;font-family:var(--font-ui);font-size:var(--font-size);color:var(--text-primary);background:transparent;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;user-select:none;-webkit-user-select:none;touch-action:none}
-button{font:inherit}
-.btn{padding:6px 14px;border-radius:var(--r-sm);border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--text-primary);font-family:var(--font-ui);font-size:13px;cursor:pointer;transition:all .2s cubic-bezier(.34,1.56,.64,1);display:inline-flex;align-items:center;gap:6px;min-height:32px}
-.btn:hover{background:rgba(255,255,255,.1);border-color:var(--border-strong);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.2)}
-.btn:active{transform:translateY(0) scale(.98)}
-.btn-sm{padding:4px 10px;font-size:12px}
-button,.btn{transition:all 150ms var(--ease-macos)}
-button:hover,.btn:hover{transform:translateY(-1px)}
-button:active,.btn:active{transform:translateY(0) scale(.98)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:10px;border:3px solid transparent;background-clip:padding-box}
-::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.18);background-clip:padding-box}

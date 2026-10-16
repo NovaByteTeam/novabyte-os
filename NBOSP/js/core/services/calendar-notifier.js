@@ -3,7 +3,7 @@
 // Notify.show() reminder shortly before each event starts.
 //
 // The calendar app itself only ever shows a toast at the moment an event is
-// *saved* (see js/apps/calendar.js handleSave) — nothing previously polled
+// *saved* (see js/apps/calendar/app.js handleSave) — nothing previously polled
 // events to warn about them as they approached. This service closes that
 // gap without touching the calendar app's own storage format.
 //
@@ -61,14 +61,6 @@ const CalendarNotifier = {
   },
 
   _tick() {
-    // Respect the same read permission the calendar app itself checks —
-    // if the user hasn't granted calendar:read, we have no business
-    // reading their events in the background either.
-    if (typeof AppPermissionManager !== 'undefined' &&
-        !AppPermissionManager?.isGranted?.('calendar:read', 'calendar-app')) {
-      return;
-    }
-
     const events = CalendarNotifier._loadEvents();
     if (!events.length) return;
 

@@ -83,43 +83,11 @@ const AppSandbox = (() => {
   // appId -> array of timestamps (ms) within the current window.
   const notifRateLimitLog = new Map();
 
-  // Built-in apps allowed to use allow-same-origin in their sandbox attr
-  // without a separate permission grant. These are audited first-party apps
-  // whose code ships with the OS, so the same-origin risk is acceptable.
-  const SYSTEM_SANDBOX_APPS = new Set([
-    'com.nbosp.settings', 'app-manager', 'com.nbosp.appmanager', 'browser', 'com.nbosp.browser', 'com.nbosp.email', 'com.nbosp.gallery',
-    'com.nbosp.downloads', 'nbosp-search', 'com.nbosp.music', 'com.nbosp.contacts',
-    'calendar-app', 'com.nbosp.calculator', 'com.nbosp.clock', 'com.nbosp.quill', 'vault', 'com.nbosp.shell',
-  ]);
-
-  // This set is retained only for legacy sandbox-token behavior (same-origin,
-  // popup escape, nested webview). It is NOT the authority for removing the
-  // sandbox itself. Full sandbox removal is decided by UnrestrictedGate.
+  // Only an app which passes UnrestrictedGate may execute in the host
+  // document. Any package that falls back to a sandbox gets the same
+  // permission-gated capabilities as every other sandboxed app.
   function isFullyUnrestricted(app) {
     return app?.__unrestrictedSandbox === true;
-  }
-
-  // A NovaApp gets full-scope VFS only when the package itself declares
-  // "system": true in its signed manifest AND NBOSP has verified it with
-  // the trusted NovaByte signing authority. The normal vfs:* permission
-  // prompt still gates each operation; this only removes the per-app path
-  // ownership restriction after that permission has been granted.
-  function hasUnrestrictedVfsAccess(appId) {
-    const id = String(appId || '');
-    const candidates = [];
-    try {
-      if (typeof OS !== 'undefined' && OS?.apps?.[id]) candidates.push(OS.apps[id]);
-      if (typeof AppRegistry !== 'undefined' && AppRegistry?.getApp?.(id)) candidates.push(AppRegistry.getApp(id));
-      if (typeof APP_REGISTRY !== 'undefined' && Array.isArray(APP_REGISTRY)) {
-        const live = APP_REGISTRY.find(a => a?.id === id);
-        if (live) candidates.push(live);
-      }
-    } catch (_) {}
-    return candidates.some(app =>
-      app?.verified === true &&
-      app?.signer === 'NovaByte System' &&
-      app?.manifest?.system === true
-    );
   }
 
   // Shared TextEncoder for the base64 helpers — cheap to construct, but no
@@ -545,8 +513,7 @@ const AppSandbox = (() => {
       node = FS.files.get(id) || null;
     } else if (path) {
       const rawPath = String(path);
-      const unrestricted = hasUnrestrictedVfsAccess(appId);
-      const rewritten = (!unrestricted && rawPath.startsWith('/data/'))
+      const rewritten = rawPath.startsWith('/data/')
         ? '/data/' + sanitizeAppIdSegment(appId) + rawPath.slice('/data'.length)
         : rawPath;
       node = FS.getByPath(rewritten);
@@ -559,22 +526,13 @@ const AppSandbox = (() => {
     const ownerAppId = ownerAppIdForPath(canonicalPath);
     const safeAppId = sanitizeAppIdSegment(appId);
 
-    // TextEdit and Music retain the normal vfs:* permission checks, but
-    // once the relevant permission is granted they intentionally bypass the
-    // per-app /data ownership sandbox. This is the compatibility bridge for
-    // the legacy first-party implementations, not a new grant for general
-    // third-party .novaapp packages.
-    if (!hasUnrestrictedVfsAccess(appId)) {
-      if (ownerAppId !== null) {
-        // Node lives under some app's /data/ folder. Only that app may
-        // touch it, for read or otherwise.
-        if (ownerAppId !== safeAppId) return null;
-      } else if (requireOwnAppData) {
-        // Shared/general-area node, but this call is a mutation
-        // (write/delete/rename/move) — these are restricted to the
-        // calling app's own /data/<appId>/ subtree only.
-        return null;
-      }
+    // Enforce VFS ownership for every sandboxed caller: reads may access
+    // shared files or the caller's own /data/<appId>/ subtree, while writes
+    // and other mutations must stay inside the caller's own subtree.
+    if (ownerAppId !== null) {
+      if (ownerAppId !== safeAppId) return null;
+    } else if (requireOwnAppData) {
+      return null;
     }
     return node;
   }
@@ -605,8 +563,6 @@ const AppSandbox = (() => {
   function rewriteDataPath(rawPath, appId) {
     const p = String(rawPath || '');
     if (!p.startsWith('/data/')) return p;
-    // Full-scope VFS first-party apps may address any /data/<owner>/ path.
-    if (hasUnrestrictedVfsAccess(appId)) return p;
     return '/data/' + sanitizeAppIdSegment(appId) + p.slice('/data'.length);
   }
 
@@ -941,54 +897,6 @@ const AppSandbox = (() => {
     if (mode === 'save' && filenameInput) {
       setTimeout(() => filenameInput.focus(), DIALOG_FOCUS_DELAY_MS);
     }
-  }
-
-  // Browser host-surface bridge. These operations deliberately never expose
-  // the host DOM to the Browser guest; they only invoke existing OS services.
-  async function handleBrowserWindow({ payload, requestId, app, webview }) {
-    if (app.id !== 'com.nbosp.browser' || app.verified !== true || app.signer !== 'NovaByte System' || app.manifest?.system !== true) {
-      return respondError(webview, 'nova:browser:window', requestId, 'PERMISSION_DENIED', 'Browser host bridge denied');
-    }
-    const action = payload?.action;
-    try {
-      if (action === 'create') {
-        const target = payload?.appId === 'nbosp-downloads' ? 'com.nbosp.downloads' : payload?.appId;
-        if (!target || target !== 'com.nbosp.downloads') return respondError(webview, 'nova:browser:window', requestId, 'INVALID_ARGS', 'Unsupported Browser window target');
-        const w = WM.createWindow(target, payload?.options || {});
-        return respond(webview, 'nova:browser:window', requestId, { success: true, windowId: w?.id || null });
-      }
-      if (action === 'closeAll') {
-        const ids = [];
-        if (typeof OS !== 'undefined' && Array.isArray(OS.windows)) {
-          for (const w of [...OS.windows]) if (w?.appId === 'com.nbosp.browser' || w?.appId === 'browser') ids.push(w.id);
-        }
-        for (const id of ids) { try { WM.closeWindow(id); } catch {} }
-        return respond(webview, 'nova:browser:window', requestId, { success: true, closed: ids.length });
-      }
-      return respondError(webview, 'nova:browser:window', requestId, 'INVALID_ARGS', 'Unknown Browser window action');
-    } catch (e) {
-      return respondError(webview, 'nova:browser:window', requestId, 'ERROR', e?.message || 'Browser window operation failed');
-    }
-  }
-
-  async function handleBrowserDownloadRecord({ payload, requestId, app, webview }) {
-    if (app.id !== 'com.nbosp.browser' || !AppPermissionManager.isGranted('net:external', app.id)) {
-      return respondError(webview, 'nova:browser:download-record', requestId, 'PERMISSION_DENIED', 'External network permission required');
-    }
-    const key = 'nova_downloads';
-    let items = [];
-    try { items = JSON.parse(localStorage.getItem(key) || '[]'); } catch { items = []; }
-    if (payload?.action === 'add') {
-      items.push({ id: String(payload.id || ''), name: String(payload.name || ''), url: String(payload.url || ''), size: Number(payload.size || 0), mime: String(payload.mime || ''), status: 'downloading', ts: Date.now() });
-      localStorage.setItem(key, JSON.stringify(items.slice(-500)));
-      return respond(webview, 'nova:browser:download-record', requestId, { success: true });
-    }
-    if (payload?.action === 'status') {
-      const idx = items.findIndex(x => x.id === payload.id);
-      if (idx >= 0) { items[idx].status = String(payload.status || items[idx].status); if (payload.size != null) items[idx].size = Number(payload.size) || 0; localStorage.setItem(key, JSON.stringify(items)); }
-      return respond(webview, 'nova:browser:download-record', requestId, { success: true });
-    }
-    return respondError(webview, 'nova:browser:download-record', requestId, 'INVALID_ARGS', 'Unknown download record action');
   }
 
   // IPC handlers
@@ -1410,13 +1318,9 @@ const AppSandbox = (() => {
       child.setAttribute('nodeintegration', 'false');
       child.setAttribute('nodeintegrationsubframes', 'false');
       child.setAttribute('enableremotemodule', 'false');
-      const requestedPartition = attrs.partition;
-      if (SYSTEM_SANDBOX_APPS.has(app.id) && typeof requestedPartition === 'string'
-          && /^(?:persist:)?[a-zA-Z0-9_-]{1,100}$/.test(requestedPartition.replace(/^persist:/, ''))) {
-        child.setAttribute('partition', requestedPartition);
-      } else {
-        child.setAttribute('partition', `persist:app_${app.id}`);
-      }
+      // Sandboxed guests never choose a shared or custom Chromium storage
+      // partition; each remains confined to its own per-app partition.
+      child.setAttribute('partition', `persist:app_${app.id}`);
       const sandboxAttr = webview.getAttribute('sandbox');
       if (sandboxAttr) child.setAttribute('sandbox', sandboxAttr);
       child.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;border:0;display:none;z-index:1;';
@@ -1548,14 +1452,6 @@ const AppSandbox = (() => {
 
     if (action === 'attribute') {
       const name = payload.name;
-      if (name === 'partition' && SYSTEM_SANDBOX_APPS.has(app.id)) {
-        const partition = payload.value;
-        if (typeof partition !== 'string' || !/^(?:persist:)?[a-zA-Z0-9_-]{1,100}$/.test(partition.replace(/^persist:/, ''))) {
-          return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid webview partition');
-        }
-        child.setAttribute('partition', partition);
-        return respond(webview, 'nova:nested-webview', requestId, { success: true });
-      }
       if (!['allowfullscreen', 'allowpopups', 'src'].includes(name)) {
         return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'Attribute is not available on nested webviews');
       }
@@ -2458,14 +2354,11 @@ const AppSandbox = (() => {
       // Built-in apps never declare permissions on their registerApp()
       // config — that's not a gap in this handler, it's a real second
       // source of truth: js/platform/security/app-permissions-bootstrap.js
-      // defines a separate NORMAL/DANGEROUS permission map
-      // (window.AppPermissionsMap) per built-in app id, auto-granting
-      // NORMAL ones and prompting for DANGEROUS ones on first use. A
-      // file-installed .novaapp, by contrast, genuinely does declare
-      // permissions/optionalPermissions on its manifest, which is what
-      // ends up on the registry config object. Report whichever source
-      // actually applies rather than showing an always-empty array for
-      // every built-in app.
+      // provides legacy developer-tool declarations only. Trusted .novaapp
+      // system apps intentionally declare no app-level permissions, while a
+      // third-party package's manifest remains the source of its declarations.
+      // Report whichever source applies rather than inventing a list for a
+      // trusted system package.
       const bootstrapEntry = (typeof window.AppPermissionsMap === 'object' && window.AppPermissionsMap)
         ? window.AppPermissionsMap[a.id]
         : null;
@@ -3340,8 +3233,7 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:app:list', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
     }
     // AppRegistry.installedApps is NOT what built-in apps register into —
-    // all 22+ built-in apps (calendar-app, nbosp-contacts, etc.) call the
-    // global registerApp() in js/core/services/registry.js, which writes
+    // built-in apps call the global registerApp() in js/core/services/registry.js, which writes
     // to OS.apps + the module-level APP_REGISTRY array. AppRegistry's own
     // store only ever gets entries from its initialize() localStorage
     // restore, so it's effectively empty for the running OS's actual app
@@ -4165,13 +4057,10 @@ const AppSandbox = (() => {
 
   // Calendar
   //
-  // Same host-shell context as nova:storage: this handler runs in the shell,
-  // reading/writing the SAME localStorage key ('calendar_events_v2') the
-  // first-party Calendar app (id 'calendar-app') uses — this is the shared,
-  // real user calendar, not a per-app isolated store, per product decision.
-  // Sanitization mirrors js/apps/calendar.js's sanitizeEvent() exactly so a
-  // sandboxed app can't write a malformed/malicious event (e.g. a bad
-  // `color` value) that the host Calendar UI would then render unsafely.
+  // Shared calendar service for sandboxed third-party apps. The trusted host
+  // Calendar app (com.nbosp.calendar) reads/writes this same store directly;
+  // these IPC handlers retain per-app permission checks and input validation.
+  // Sanitization prevents malformed events from reaching the Calendar UI.
 
   const CALENDAR_STORE_KEY = 'calendar_events_v2';
   const CALENDAR_COLORS = Object.freeze(['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#ff7b72','#79c0ff','#56d364']);
@@ -4529,8 +4418,6 @@ const AppSandbox = (() => {
     'nova:admin:system': handleAdminSystem,
     'nova:admin:users': handleAdminUsers,
     'nova:admin:apps': handleAdminApps,
-    'nova:browser:window': handleBrowserWindow,
-    'nova:browser:download-record': handleBrowserDownloadRecord,
     'nova:mail:read': handleMailRead,
     'nova:mail:write': handleMailWrite,
     'nova:mail:session': handleMailSession,
@@ -4851,7 +4738,8 @@ const AppSandbox = (() => {
     const handler = (e) => {
       if (!e?.request || decidedRequests.has(e.request)) return;
       if (e.permission === 'fullscreen' || e.permission === 'pointerLock') {
-        decide(e, SYSTEM_SANDBOX_APPS.has(app?.id));
+        // These capabilities are not granted automatically to sandboxed apps.
+        decide(e, false);
         return;
       }
       if (e.permission === 'geolocation') {
@@ -4903,16 +4791,11 @@ const AppSandbox = (() => {
   // The shim also exposes window.nova for apps that want to call the IPC
   // bridge directly (e.g. to request permissions or subscribe to events).
 
-  // Whether this app's guest content is allowed to instantiate its own
-  // nested <webview> tag. System apps (SYSTEM_SANDBOX_APPS) are exempt by
-  // appId, same as the allow-same-origin exemption below — everyone else
-  // (i.e. every .novaapp third-party package) needs the manifest to opt in
-  // AND hold the 'sandbox:nested-webview' permission, checked fresh at
-  // load time. Fail-closed: any error, missing manager, or ungranted state
-  // defaults to blocked.
+  // Whether sandboxed guest content may instantiate its own nested
+  // <webview>. Every sandboxed package must opt in in its manifest and hold
+  // the separate sandbox:nested-webview grant. Fail closed on errors.
   function isNestedWebviewPermitted(app) {
     if (!app) return false;
-    if (SYSTEM_SANDBOX_APPS.has(app.id)) return true;
     // NOTE: flattened top-level field (app.allowNestedWebview), matching how
     // `sandbox`/`permissions`/etc. are flattened onto the sandboxApp object
     // in nova-app-launcher.js's buildNovaAppConfig() — NOT app.manifest.allowNestedWebview.
@@ -4930,8 +4813,7 @@ const AppSandbox = (() => {
   }
 
   function isExternalFramesPermitted(app) {
-    return !!app && isNestedWebviewPermitted(app) &&
-      (app.id === 'com.nbosp.browser' || !SYSTEM_SANDBOX_APPS.has(app.id));
+    return isNestedWebviewPermitted(app);
   }
 
   // Marker used ONLY on the one-shot handshake that hands a MessagePort
@@ -6618,18 +6500,14 @@ const AppSandbox = (() => {
   // between the parent and the webview. Without allow-same-origin the origin
   // becomes opaque and postMessage silently drops.
   //
-  // To balance these concerns:
-  //   - System apps (in the audited allowlist) receive allow-same-origin for IPC.
-  //   - Third-party apps must explicitly opt in via `allowSameOrigin: true` in
-  //     their manifest AND hold the `sandbox:same-origin` permission, so the
-  //     user has a real opportunity to deny the elevated trust. Previously
-  //     the manifest flag alone bypassed the permission system entirely.
+  // Sandboxed apps must explicitly opt in via allowSameOrigin and hold the
+  // separate sandbox:same-origin grant. Packages approved for unrestricted
+  // host execution return before this function is needed.
   function sanitizeSandboxAttr(sandboxConfig, appId, fullyUnrestricted = false) {
     if (fullyUnrestricted) return '';
-    const isSystemApp = SYSTEM_SANDBOX_APPS.has(appId);
     const isExplicitOptIn = sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowSameOrigin === true;
-    const sameOriginPermitted = isSystemApp
-      || (isExplicitOptIn && AppPermissionManager?.isGranted('sandbox:same-origin', appId));
+    const sameOriginPermitted = isExplicitOptIn
+      && AppPermissionManager?.isGranted('sandbox:same-origin', appId);
 
     const tokens = new Set();
     if (sameOriginPermitted) {
@@ -6647,10 +6525,9 @@ const AppSandbox = (() => {
     // unrestricted browsing context, arguably comparable risk to
     // allow-same-origin, so it now goes through the same double-gate:
     // manifest opt-in AND sandbox:escape-popups granted.
-    const popupsEscapePermitted = isSystemApp
-      || (sandboxConfig && typeof sandboxConfig === 'object'
-          && sandboxConfig.allowPopupsToEscapeSandbox === true
-          && AppPermissionManager?.isGranted('sandbox:escape-popups', appId));
+    const popupsEscapePermitted = sandboxConfig && typeof sandboxConfig === 'object'
+      && sandboxConfig.allowPopupsToEscapeSandbox === true
+      && AppPermissionManager?.isGranted('sandbox:escape-popups', appId);
 
     const requestedTokens = new Set();
     if (sandboxConfig && typeof sandboxConfig === 'object') {
@@ -6931,10 +6808,8 @@ const AppSandbox = (() => {
     const scriptSelector = `script[data-nova-unrestricted-app=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
     document.querySelectorAll(scriptSelector).forEach(node => node.remove());
 
-    // Browser's styles are already part of the OS global style.css. For
-    // completeness, make the packaged stylesheet available to the host too,
-    // but only insert it once so we don't double the cascade on repeated
-    // launches.
+    // Install the package-local stylesheet in the host document once. System
+    // app styles live beside their .novaapp entry rather than in global style.css.
     const styleMarker = `style[data-novaapp-style=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
     if (!document.querySelector(styleMarker)) {
       const styleEncoded = app?.files?.['style.css'];
@@ -7159,22 +7034,12 @@ const AppSandbox = (() => {
     // Only wipe for apps that weren't granted allow-same-origin at
     // creation. Best-effort: a failure here shouldn't block teardown.
     const appId = sandbox.appId;
-    const isSystemApp = SYSTEM_SANDBOX_APPS.has(appId);
-    // sanitizeSandboxAttr() only adds 'allow-same-origin' when isSystemApp
-    // OR (manifest allowSameOrigin===true AND the permission is granted) —
-    // so the token's presence on the actual webview is a direct readout of
-    // that combined decision. Reading it back here (rather than
-    // re-deriving the rule with a second isGranted() check, which is what
-    // caused the original bug: it dropped the manifest-opt-in half, so an
-    // app with a stale/leftover grant but no opt-in — which never got the
-    // token at creation and is genuinely opaque-origin — was wrongly
-    // treated as exempt and skipped the wipe below) means the two checks
-    // can't drift apart again, since this one isn't a second copy of the
-    // logic at all.
+    // Read the actual token on the webview instead of re-deriving the grant;
+    // this keeps teardown consistent with the decision made at creation.
     const webviewHasSameOrigin = !!sandbox.webview
       && typeof sandbox.webview.getAttribute === 'function'
       && (sandbox.webview.getAttribute('sandbox') || '').split(/\s+/).includes('allow-same-origin');
-    const sameOriginPermitted = isSystemApp || webviewHasSameOrigin;
+    const sameOriginPermitted = webviewHasSameOrigin;
     if (appId && !sameOriginPermitted) {
       clearAppPartition(appId).catch(e => {
         log('warn', 'destroy() — failed to clear storage partition for', appId, e);

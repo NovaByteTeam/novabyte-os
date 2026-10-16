@@ -1,113 +1,13 @@
+registerApp({
+  id: 'com.nbosp.clock',
+  name: 'Clock',
+  version: '3.0.2',
+  icon: 'alarm-clock',
+  description: 'Alarm · Clock · Timer · Stopwatch',
+  defaultSize: [400, 600],
+  minSize: [340, 480],
 
-'use strict';
-(() => {
-  const content = document.getElementById('app') || document.body;
-  const state = { cleanups: [] };
-
-  window.createEl = function createEl(tag, attrs, children) {
-    const el = document.createElement(tag);
-    if (attrs) for (const [key, value] of Object.entries(attrs)) {
-      if (value == null) continue;
-      if (key === 'className' || key === 'class') el.className = value;
-      else if (key === 'textContent') el.textContent = value;
-      else if (key === 'innerHTML') el.innerHTML = value;
-      else if (key === 'style') el.style.cssText = typeof value === 'object' ? Object.entries(value).map(([k,v]) => `${k}:${v}`).join(';') : String(value);
-      else if (key === 'dataset' && typeof value === 'object') for (const [dk,dv] of Object.entries(value)) el.dataset[dk] = dv;
-      else if (key === 'htmlFor') el.htmlFor = value;
-      else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2).toLowerCase(), value);
-      else if (typeof value === 'boolean') { if (value) el.setAttribute(key, ''); }
-      else el[key] = value;
-    }
-    if (children != null) {
-      const xs = Array.isArray(children) ? children : [children];
-      for (const child of xs) if (child || child === 0) el.append(child instanceof Node ? child : document.createTextNode(String(child)));
-    }
-    return el;
-  };
-
-  const inlineIcons = {
-    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
-    x: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>'
-  };
-  window.svgIcon = function svgIcon(name, size = 16) {
-    const d = inlineIcons[name];
-    if (!d) return '';
-    const s = Number(size) || 16;
-    return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-  };
-
-  // The old built-in app only used this for the presence check. The actual
-  // privileged filesystem path is still enforced by the Nova IPC layer.
-  window.AppDirs = { getVFSDir() { return '/data/com.nbosp.clock/files'; } };
-
-  const remoteState = {
-    timer: { running: false, done: false, presetMs: 0, remainingMs: 0, endAt: 0 },
-    stopwatch: { running: false, elapsedMs: 0, startedAt: 0, laps: [] },
-    lastAlarmMinute: ''
-  };
-  let alarmDbCache = { alarms: [] };
-
-  function applyState(s) {
-    if (!s || typeof s !== 'object') return;
-    if (s.timer) Object.assign(remoteState.timer, s.timer);
-    if (s.stopwatch) {
-      Object.assign(remoteState.stopwatch, s.stopwatch);
-      remoteState.stopwatch.laps = Array.isArray(s.stopwatch.laps) ? s.stopwatch.laps.slice() : [];
-    }
-    if (typeof s.lastAlarmMinute === 'string') remoteState.lastAlarmMinute = s.lastAlarmMinute;
-  }
-
-  async function ipc(type, payload = {}) {
-    if (!window.nova?.ipc) throw new Error('Nova IPC bridge unavailable');
-    const result = await window.nova.ipc(type, payload);
-    if (result?.state) applyState(result.state);
-    return result;
-  }
-
-  function localTimerMs() {
-    if (remoteState.timer.running && remoteState.timer.endAt) {
-      return Math.max(0, remoteState.timer.endAt - Date.now());
-    }
-    return Math.max(0, Number(remoteState.timer.remainingMs) || 0);
-  }
-  function localStopwatchMs() {
-    return remoteState.stopwatch.running
-      ? Math.max(0, Number(remoteState.stopwatch.elapsedMs) || 0) + Math.max(0, Date.now() - (Number(remoteState.stopwatch.startedAt) || 0))
-      : Math.max(0, Number(remoteState.stopwatch.elapsedMs) || 0);
-  }
-
-  const clockSvc = {
-    state: remoteState,
-    timerMs: localTimerMs,
-    stopwatchMs: localStopwatchMs,
-    ensureBooted() { return true; },
-    persist() { ipc('nova:clock:state:persist').catch(() => {}); },
-    setTimerPreset(ms) { ipc('nova:clock:timer:set-preset', { ms }).catch(() => {}); },
-    startTimer(ms) { ipc('nova:clock:timer:start', { ms }).catch(() => {}); },
-    pauseTimer() { ipc('nova:clock:timer:pause').catch(() => {}); },
-    restartTimer() { ipc('nova:clock:timer:restart').catch(() => {}); },
-    resetTimer() { ipc('nova:clock:timer:reset').catch(() => {}); },
-    startStopwatch() { ipc('nova:clock:stopwatch:start').catch(() => {}); },
-    pauseStopwatch() { ipc('nova:clock:stopwatch:pause').catch(() => {}); },
-    resetStopwatch() { ipc('nova:clock:stopwatch:reset').catch(() => {}); },
-    lapStopwatch() { ipc('nova:clock:stopwatch:lap').catch(() => {}); },
-  };
-
-  async function main() {
-    try {
-      const [stateResult, alarmResult] = await Promise.all([
-        ipc('nova:clock:state:get'),
-        ipc('nova:clock:alarms:get')
-      ]);
-      if (stateResult?.state) applyState(stateResult.state);
-      if (Array.isArray(alarmResult?.alarms)) alarmDbCache = { alarms: alarmResult.alarms };
-    } catch (err) {
-      console.warn('[Clock] Background service handshake failed; using local fallback state:', err);
-      try {
-        alarmDbCache = JSON.parse(localStorage.getItem('nbosp_clock_v1') || '{"alarms":[]}');
-      } catch { alarmDbCache = { alarms: [] }; }
-    }
-
+  init(content, state) {
     if (!window.AppDirs?.getVFSDir('com.nbosp.clock', 'files')) {
       content.style.cssText =
         'display:flex;align-items:center;justify-content:center;height:100%;' +
@@ -123,20 +23,16 @@
 
     function loadDb() {
       try {
-        return alarmDbCache || { alarms: [] };
+        return JSON.parse(localStorage.getItem(SK) || '{}');
       } catch {
         return {};
       }
     }
 
-    async function saveDb() {
-      alarmDbCache = { alarms: db.alarms.map(sanitiseAlarm) };
-      const r = await ipc('nova:clock:alarms:set', alarmDbCache);
-      if (Array.isArray(r?.alarms)) {
-        alarmDbCache = { alarms: r.alarms.map(sanitiseAlarm) };
-        db.alarms = alarmDbCache.alarms.map(sanitiseAlarm);
-      }
-      return r;
+    function saveDb() {
+      try {
+        localStorage.setItem(SK, JSON.stringify(db));
+      } catch {}
     }
 
     const TIME_RE = /^\d{2}:\d{2}$/;
@@ -159,6 +55,7 @@
 
     function pad(n) { return String(Math.floor(n)).padStart(2, '0'); }
 
+    const clockSvc = window.__NBOSP_BG?.clock;
 
     function syncClockState() {
       const s = clockSvc?.state;
@@ -445,35 +342,129 @@
     // Track the open modal for teardown.
     let _activeModal = null;
 
-    async function openAlarmModal(idx) {
+    function openAlarmModal(idx) {
+      _activeModal?.remove();
+
       const isEdit = idx !== null && idx >= 0 && idx < db.alarms.length;
-      const src = isEdit ? sanitiseAlarm(db.alarms[idx]) : {
-        time: '07:00', label: '', days: [1, 2, 3, 4, 5], enabled: true
-      };
-      try {
-        const response = await ipc('nova:clock:alarm:dialog', { alarm: src, editing: isEdit });
-        const result = response?.result?.result ?? response?.result;
-        if (!result || result === '__CLOCK_CANCEL__') return;
-        if (result === '__CLOCK_DELETE__') {
-          db.alarms.splice(idx, 1);
-          await saveDb();
-          renderAlarms();
-          return;
-        }
-        if (!result?.time || !TIME_RE.test(result.time)) return;
-        const payload = {
-          time: result.time,
-          label: String(result.label || '').trim().slice(0, 64),
-          days: Array.isArray(result.days) ? result.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [],
-          enabled: true,
-        };
-        if (isEdit) Object.assign(db.alarms[idx], payload);
-        else db.alarms.push({ id: Date.now().toString(36), ...payload });
-        await saveDb();
-        renderAlarms();
-      } catch (e) {
-        console.warn('[Clock] Alarm dialog failed:', e);
+      const src = isEdit
+        ? db.alarms[idx]
+        : { time: '07:00', label: '', days: [1, 2, 3, 4, 5], enabled: true };
+      const al = { ...src, days: [...src.days] };
+
+      const ov = createEl('div', {
+        style: 'position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;',
+      });
+
+      function closeModal() {
+        ov.remove();
+        _activeModal = null;
       }
+
+      const box = createEl('div', {
+        style: 'background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:16px;padding:22px;width:320px;max-width:95%;box-shadow:0 24px 48px rgba(0,0,0,0.4);',
+      });
+
+      const hdr = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;' });
+      hdr.appendChild(createEl('span', { textContent: isEdit ? 'Edit Alarm' : 'Add Alarm', style: 'font-size:15px;font-weight:700;' }));
+      const xBtn = createEl('button', { className: 'btn btn-icon btn-sm' });
+      xBtn.innerHTML = svgIcon('x', 14);
+      xBtn.addEventListener('click', closeModal);
+      hdr.appendChild(xBtn);
+      box.appendChild(hdr);
+
+      const timeInp = createEl('input', {
+        type: 'time',
+        className: 'input',
+        id: `alarm-time-${Date.now()}`,
+        name: 'alarm-time',
+        style: 'width:100%;font-size:30px;font-weight:200;height:54px;text-align:center;margin-bottom:14px;letter-spacing:2px;font-variant-numeric:tabular-nums;',
+      });
+      timeInp.value = al.time;
+      box.appendChild(timeInp);
+
+      const labelInp = createEl('input', {
+        type: 'text',
+        className: 'input',
+        id: `alarm-label-${Date.now()}`,
+        name: 'alarm-label',
+        placeholder: 'Label (optional)',
+        style: 'width:100%;margin-bottom:14px;',
+      });
+      labelInp.value = al.label;
+      box.appendChild(labelInp);
+
+      box.appendChild(createEl('div', {
+        textContent: 'Repeat',
+        style: 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;',
+      }));
+
+      const daysRow = createEl('div', { style: 'display:flex;gap:5px;margin-bottom:18px;' });
+      const dayBtns = DOW_FULL.map((d, i) => {
+        const on = al.days.includes(i);
+        const btn = createEl('button', {
+          title: d,
+          style: `flex:1;padding:7px 0;border-radius:50%;font-size:11px;font-weight:700;cursor:pointer;border:1px solid ${on ? 'var(--accent)' : 'var(--border-subtle)'};background:${on ? 'var(--accent)' : 'transparent'};color:${on ? '#fff' : 'var(--text-muted)'};aspect-ratio:1;transition:all 0.12s;`,
+        });
+        btn.textContent = d.charAt(0);
+        btn.dataset.i  = i;
+        btn.dataset.on = on ? '1' : '0';
+        btn.addEventListener('click', () => {
+          const isOn = btn.dataset.on === '1';
+          btn.dataset.on    = isOn ? '0' : '1';
+          btn.style.background   = isOn ? 'transparent' : 'var(--accent)';
+          btn.style.color        = isOn ? 'var(--text-muted)' : '#fff';
+          btn.style.borderColor  = isOn ? 'var(--border-subtle)' : 'var(--accent)';
+        });
+        daysRow.appendChild(btn);
+        return btn;
+      });
+      box.appendChild(daysRow);
+
+      const acts = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;' });
+
+      if (isEdit) {
+        const delBtn = createEl('button', { textContent: 'Delete', className: 'btn btn-sm', style: 'color:#f85149;border-color:#f85149;' });
+        delBtn.addEventListener('click', () => {
+          db.alarms.splice(idx, 1);
+          saveDb();
+          renderAlarms();
+          closeModal();
+        });
+        acts.appendChild(delBtn);
+      } else {
+        acts.appendChild(createEl('div'));
+      }
+
+      const rightActs  = createEl('div', { style: 'display:flex;gap:8px;' });
+      const cancelBtn  = createEl('button', { textContent: 'Cancel', className: 'btn btn-sm' });
+      cancelBtn.addEventListener('click', closeModal);
+
+      const saveBtn = createEl('button', { textContent: 'Save', className: 'btn btn-sm btn-primary' });
+      saveBtn.addEventListener('click', () => {
+        const t = timeInp.value;
+        if (!t || !TIME_RE.test(t)) return;
+        const selDays = dayBtns.filter(b => b.dataset.on === '1').map(b => +b.dataset.i);
+        const payload = { time: t, label: labelInp.value.trim().slice(0, 64), days: selDays, enabled: true };
+        if (isEdit) {
+          Object.assign(db.alarms[idx], payload);
+        } else {
+          db.alarms.push({ id: Date.now().toString(36), ...payload });
+        }
+        saveDb();
+        renderAlarms();
+        closeModal();
+      });
+
+      ov.addEventListener('click', e => { if (e.target === ov) closeModal(); });
+
+      rightActs.append(cancelBtn, saveBtn);
+      acts.appendChild(rightActs);
+      box.appendChild(acts);
+      ov.appendChild(box);
+      content.appendChild(ov);
+      _activeModal = ov;
+
+      requestAnimationFrame(() => timeInp.focus());
     }
 
     addAlarmBtn.addEventListener('click', () => openAlarmModal(null));
@@ -519,14 +510,8 @@
         (parseInt(tiM.value, 10) || 0) * 60  +
         (parseInt(tiS.value, 10) || 0)
       ) * 1000;
-      remoteState.timer.presetMs = tiSet;
-      if (!remoteState.timer.running) {
-        remoteState.timer.remainingMs = tiSet;
-        remoteState.timer.done = false;
-        remoteState.timer.endAt = 0;
-      }
-      clockSvc?.setTimerPreset?.(tiSet).catch(() => {});
-      clockSvc?.persist?.().catch(() => {});
+      clockSvc?.setTimerPreset?.(tiSet);
+      clockSvc?.persist?.();
       renderTiDisplay();
     }
 
@@ -555,18 +540,16 @@
       tiReset.style.display     = (tiMs !== tiSet || tiDone) ? 'block' : 'none';
     }
 
-    tiStart.addEventListener('click', async () => {
+    tiStart.addEventListener('click', () => {
       const st = syncClockState();
       if (!st.timer.presetMs && !st.timer.remainingMs && !tiSet) return;
-      try {
-        if (st.timer.running) {
-          await clockSvc?.pauseTimer?.();
-        } else if (st.timer.done) {
-          await clockSvc?.restartTimer?.();
-        } else {
-          await clockSvc?.startTimer?.(st.timer.remainingMs || tiSet || 0);
-        }
-      } catch {}
+      if (st.timer.running) {
+        clockSvc?.pauseTimer?.();
+      } else if (st.timer.done) {
+        clockSvc?.restartTimer?.();
+      } else {
+        clockSvc?.startTimer?.(st.timer.remainingMs || tiSet || 0);
+      }
       renderTiDisplay();
       renderTiBtns();
     });
@@ -759,10 +742,5 @@
     swDisplay.textContent = fmtSw(swCurrentMs());
     renderSwLaps();
     switchTab('clock');
-  }
-
-  main().catch((err) => {
-    console.error('[Clock] Fatal startup error:', err);
-    content.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-family:var(--font-ui);color:var(--text-muted);">Clock failed to start.</div>';
-  });
-})();
+  },
+});

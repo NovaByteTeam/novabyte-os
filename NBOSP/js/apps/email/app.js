@@ -801,12 +801,6 @@ registerApp({
       loadController = new AbortController();
       const { signal } = loadController;
 
-      if (!AppPermissionManager?.isGranted('mail:read', 'com.nbosp.email')) {
-        notify('Email needs mail:read permission.', 'error', 'Permission denied');
-        messages = [];
-        renderMsgList();
-        return;
-      }
       if (!accounts.length) return;
 
       loading = true;
@@ -1167,10 +1161,6 @@ registerApp({
 
     // DELETE / ARCHIVE
     async function doDeleteMsg(msg, rowEl) {
-      if (!AppPermissionManager?.isGranted('mail:delete', 'com.nbosp.email')) {
-        notify('Email needs mail:delete to remove messages.', 'error', 'Permission denied');
-        return;
-      }
       try {
         const acct = msg._acctId ? accounts.find(a => a.id === msg._acctId) : getActiveAcct();
         if (!acct) return;
@@ -1189,10 +1179,6 @@ registerApp({
     }
 
     async function doArchiveMsg(msg, rowEl) {
-      if (!AppPermissionManager?.isGranted('mail:delete', 'com.nbosp.email')) {
-        notify('Email needs mail:delete to archive messages.', 'error', 'Permission denied');
-        return;
-      }
       try {
         const acct = msg._acctId ? accounts.find(a => a.id === msg._acctId) : getActiveAcct();
         if (!acct) return;
@@ -1219,10 +1205,6 @@ registerApp({
 
     // COMPOSE
     function openCompose(prefill = {}, fromAcct = null) {
-      if (!AppPermissionManager?.isGranted('mail:write', 'com.nbosp.email')) {
-        notify('Email needs mail:write to compose.', 'error', 'Permission denied');
-        return;
-      }
       root.querySelector('.em-compose-overlay')?.remove();
       const overlay = createEl('div', { className: 'em-compose-overlay' });
       const win = createEl('div', { className: 'em-compose-win' });
@@ -1334,14 +1316,6 @@ registerApp({
       attachBtn.addEventListener('click', () => fileInp.click(), { signal: appSignal });
 
       sendBtn.addEventListener('click', async () => {
-        if (!AppPermissionManager?.isGranted('mail:send', 'com.nbosp.email')) {
-          notify('Email needs mail:send permission.', 'error', 'Permission denied');
-          return;
-        }
-        if (!AppPermissionManager?.isGranted('mail:write', 'com.nbosp.email')) {
-          notify('Email needs mail:write permission to compose.', 'error', 'Permission denied');
-          return;
-        }
         const to = toInp.value.trim();
         if (!to) { errSpan.textContent = 'Recipient required.'; return; }
         if (!acct) { errSpan.textContent = 'No account selected.'; return; }

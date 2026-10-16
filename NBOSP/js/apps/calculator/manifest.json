@@ -5,10 +5,21 @@
   "author": "NovaByteOfficial",
   "description": "High-efficiency, character-code driven arithmetic engine",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "calculator",
-  "system": true,
-  "defaultSize": [320, 440],
-  "minSize": [280, 380],
-  "permissions": [],
-  "categories": ["utilities"]
+  "type": "blank",
+  "defaultSize": [
+    320,
+    440
+  ],
+  "minSize": [
+    280,
+    380
+  ],
+  "resizable": true,
+  "frame": true,
+  "categories": [
+    "utilities"
+  ],
+  "system": true
 }

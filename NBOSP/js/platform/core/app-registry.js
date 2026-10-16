@@ -46,10 +46,20 @@ const AppRegistry = (() => {
   ]);
 
   const RESERVED_APP_IDS = new Set([
-    'com.nbosp.settings', 'app-manager', 'com.nbosp.appmanager', 'browser', 'com.nbosp.browser', 'com.nbosp.email', 'vault',
-    'shell', 'nbosp-gallery', 'nbosp-music', 'nbosp-downloads',
-    'nbosp-search', 'nbosp-contacts', 'calendar-app', 'calculator',
-    'com.nbosp.clock', 'quill', 'nbosp-files',
+    'app-manager', 'browser', 'calculator', 'calendar-app', 'quill', 'shell', 'vault',
+    'nbosp-contacts', 'nbosp-downloads', 'nbosp-gallery', 'nbosp-music', 'nbosp-search',
+    'com.nbosp.appmanager', 'com.nbosp.browser', 'com.nbosp.calculator', 'com.nbosp.calendar',
+    'com.nbosp.clock', 'com.nbosp.contacts', 'com.nbosp.downloads', 'com.nbosp.email',
+    'com.nbosp.gallery', 'com.nbosp.music', 'com.nbosp.quill', 'com.nbosp.search',
+    'com.nbosp.settings', 'com.nbosp.shell', 'com.nbosp.vault',
+    'com.nbosp.devconsole',
+    'com.nbosp.events',
+    'com.nbosp.inspector',
+    'com.nbosp.modules',
+    'com.nbosp.packages',
+    'com.nbosp.perf',
+    'com.nbosp.permissions',
+    'com.nbosp.sysaccess',
   ]);
 
   // ── Storage ────────────────────────────────────────────────────────────────

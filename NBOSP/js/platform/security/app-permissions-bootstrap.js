@@ -1,8 +1,9 @@
 /**
  * NovaByte — Built-in App Permissions Bootstrap
  * ─────────────────────────────────────────────────────────────
- * Applies the AOSP-style permission model to all built-in apps
- * without touching any individual app file.
+ * Preserves permission bootstrap for any remaining legacy built-ins. Trusted
+ * first-party .novaapp system apps do not declare per-app permissions; the
+ * separate third-party/web-app gate below remains enabled.
  *
  * How it works:
  *  1. Defines the canonical permission map for every built-in app,
@@ -29,141 +30,11 @@
 
   const BOOTSTRAP_KEY = 'nova_perms_bootstrapped';
 
-  // ── Permission tier definitions ──────────────────────────────────────────
-
-  const APP_PERMISSION_MAP = Object.freeze({
-
-    // Files (vault)
-    vault: {
-      normal   : ['vfs:read', 'vfs:metadata'],
-      dangerous: ['vfs:write', 'vfs:delete'],
-    },
-
-    // Terminal (shell)
-    'com.nbosp.shell': {
-      normal   : ['vfs:read', 'system:info'],
-      dangerous: ['vfs:write', 'vfs:delete'],
-    },
-
-    // Text Editor (quill) — id confirmed from textedit.js com.nbosp.quill
-    quill: {
-      normal   : ['vfs:read'],
-      dangerous: ['vfs:write'],
-    },
-
-    // Email
-    // Calendar
-    'calendar-app': {
-      normal   : [],
-      dangerous: ['calendar:read', 'calendar:write', 'calendar:delete', 'vfs:write'],
-    },
-
-    // Contacts
-    'nbosp-contacts': {
-      normal   : [],
-      dangerous: ['contacts:read', 'contacts:write', 'contacts:delete', 'vfs:write'],
-    },
-
-    // Browser
-    'com.nbosp.browser': {
-      normal   : ['net:internal', 'vfs:read', 'sandbox:nested-webview'],
-      dangerous: ['net:external', 'device:camera', 'device:microphone', 'device:geolocation', 'vfs:write'],
-    },
-
-    // Settings — system UI, never prompt. Formerly registered as the
-    // built-in id 'nook'; now ships as a signed .novaapp under its real
-    // canonical id. Because this entry can now resolve to an *installed
-    // package* rather than guaranteed hardcoded source, it's listed in
-    // SIGNATURE_REQUIRED_APPS below — the auto-grant loop re-verifies
-    // verified/signer/manifest.system against the live installed record
-    // before granting anything here, instead of trusting this map key
-    // by itself the way every other (still-hardcoded) entry does.
-    'com.nbosp.settings': {
-      normal   : ['system:info', 'system:settings', 'admin:system', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata', 'device:camera', 'device:microphone', 'device:geolocation', 'vfs:write'],
-      dangerous: [],
-    },
-
-    'com.nbosp.email': {
-      normal   : [],
-      dangerous: ['mail:read', 'mail:write', 'mail:send', 'mail:delete'],
-    },
-
-    // Gallery
-    'nbosp-gallery': {
-      normal   : ['vfs:read', 'vfs:metadata'],
-      dangerous: [],
-    },
-
-    // Music
-    'nbosp-music': {
-      normal   : ['vfs:read', 'vfs:metadata'],
-      dangerous: ['vfs:write'],
-    },
-
-    // Downloads
-    'nbosp-downloads': {
-      normal   : ['vfs:read', 'vfs:metadata'],
-      dangerous: ['vfs:write', 'vfs:delete', 'net:external'],
-    },
-
-    // Search
-    'nbosp-search': {
-      normal   : ['vfs:read', 'vfs:metadata'],
-      dangerous: [],
-    },
-
-    // App Manager — system UI, never prompt
-    'com.nbosp.appmanager': {
-      normal   : ['system:apps', 'vfs:read', 'vfs:write', 'vfs:delete', 'net:external'],
-      dangerous: [],
-    },
-
-    // Calculator
-    calculator: {
-      normal   : [],
-      dangerous: [],
-    },
-
-    // Clock
-    'com.nbosp.clock': {
-      normal   : [],
-      dangerous: [],
-    },
-
-    // Developer tools — all permissions auto-granted, never prompt
-    sysaccess: {
-      normal   : ['system:info', 'vfs:read', 'vfs:write', 'net:internal'],
-      dangerous: [],
-    },
-    devconsole: {
-      normal   : ['system:info', 'system:settings'],
-      dangerous: [],
-    },
-    perf: {
-      normal   : ['system:info', 'system:settings', 'vfs:write'],
-      dangerous: [],
-    },
-    packages: {
-      normal   : ['system:info', 'system:settings', 'vfs:write'],
-      dangerous: [],
-    },
-    permissions: {
-      normal   : ['system:apps', 'system:settings', 'vfs:write'],
-      dangerous: [],
-    },
-    modules: {
-      normal   : ['system:info', 'system:settings', 'net:internal', 'vfs:write'],
-      dangerous: [],
-    },
-    inspector: {
-      normal   : ['system:info', 'system:apps', 'system:settings', 'vfs:write'],
-      dangerous: [],
-    },
-    events: {
-      normal   : ['system:info', 'system:settings', 'vfs:write'],
-      dangerous: [],
-    },
-  });
+  // ── Legacy built-in permission tier definitions ─────────────────────────
+  // Trusted system .novaapp packages run in the host tier and use no permission
+  // list. This map intentionally stays empty; third-party/web-app gating below
+  // still requests the relevant grants and is not changed.
+  const APP_PERMISSION_MAP = Object.freeze({});
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 

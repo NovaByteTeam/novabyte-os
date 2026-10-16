@@ -717,6 +717,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         files: appData.files || {},
         sandbox: appData.sandbox || { allowScripts: true, allowForms: true, allowPopups: false },
         type: appData.type || 'package',
+        // Keep developer tools hidden and unlaunchable unless Developer Mode is enabled.
+        devOnly: appData.devOnly === true || appData.manifest?.devOnly === true,
         // Preserve the package lifecycle/trust metadata on the live OS.app
         // object. Boot and App Manager hydrate the same package record, but
         // previously this config builder dropped verified/signer/source, so
@@ -793,6 +795,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               permissions: appData.permissions || [],
               optionalPermissions: appData.optionalPermissions || [],
               type: appData.type || 'package',
+              // Keep developer tools hidden and unlaunchable unless Developer Mode is enabled.
+              devOnly: appData.devOnly === true || appData.manifest?.devOnly === true,
               // Preserve the signed-package identity required by the unrestricted
               // gate. Without these fields the gate rejects the app and silently
               // leaves the sandboxed entry active.

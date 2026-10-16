@@ -1,34 +1,15 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>TextEdit</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>TextEdit</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="quill-container">
-  <div class="quill-toolbar">
-    <button id="save-btn" class="btn btn-sm btn-primary" title="Save (Ctrl+S)">Save</button>
-    <button id="save-as-btn" class="btn btn-sm" title="Save a copy with a new name">Save As&hellip;</button>
-    <button id="open-btn" class="btn btn-sm" title="Open a file">Open&hellip;</button>
-  </div>
-  <div class="quill-editor-wrap" id="editor-wrap">
-    <div class="quill-gutter" id="gutter" aria-hidden="true"></div>
-    <textarea
-      class="quill-textarea"
-      id="quill-text-editor"
-      name="quill-editor"
-      spellcheck="false"
-      autocomplete="off"
-      autocorrect="off"
-      autocapitalize="off"
-      aria-label="Text editor"
-      role="textbox"
-      aria-multiline="true"
-    ></textarea>
-  </div>
-  <div class="quill-statusbar" id="status-bar" role="status" aria-live="polite" aria-atomic="true"></div>
-</div>
-<script src="app.js"></script>
+  <main role="status" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;box-sizing:border-box;text-align:center;font:13px system-ui,sans-serif;color:var(--text-muted,#8b949e)">
+    TextEdit needs its trusted NovaByte host runtime.
+  </main>
 </body>
 </html>

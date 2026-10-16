@@ -1,18 +1,24 @@
-// Calculator — arithmetic engine. Runs as a plain page script inside this
-// app's own index.html; the OS drives the window shell, not this script.
-// No permissions or storage needed: expression state lives in memory only
-// and resets on relaunch, same as a physical calculator.
-(function () {
-  'use strict';
+registerApp({
+  id: 'com.nbosp.calculator',
+  name: 'Calculator',
+  version: '3.0.2',
+  icon: 'calculator',
+  description: 'High-efficiency, character-code driven arithmetic engine',
+  defaultSize: [320, 440],
+  minSize: [280, 380],
 
-  function main() {
-    const content = document.getElementById('app');
+  init(content) {
+    // ── NovaByte runtime guard ──────────────────────────────────────────────
+    if (!window.AppDirs?.getVFSDir('com.nbosp.calculator', 'files')) {
+      content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
+      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.calculator</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+      return;
+    }
 
     let isEvaluated = false;
     let expr = '';
 
-    // Allocation-light character-code parser: avoids building a token array
-    // or AST, walking the raw string directly with a cursor instead.
+    // ── Allocation-Light Character-Code Parser ───────────────────────────────
     class HardcoreParser {
       #s = '';
       #len = 0;
@@ -116,19 +122,7 @@
 
     const parser = new HardcoreParser();
 
-    function createEl(tag, attrs, children) {
-      const el = document.createElement(tag);
-      if (attrs) {
-        for (const [k, v] of Object.entries(attrs)) {
-          if (k === 'className') el.className = v;
-          else if (k.startsWith('data-')) el.setAttribute(k, v);
-          else el[k] = v;
-        }
-      }
-      if (children) el.append(...[].concat(children));
-      return el;
-    }
-
+    // ── DOM construction ─────────────────────────────────────────────────────
     content.style.cssText = 'display:flex;flex-direction:column;height:100%;padding:14px;background:var(--bg-base);gap:10px;';
 
     const display = createEl('input', {
@@ -151,13 +145,17 @@
       style: 'display:grid;grid-template-columns:repeat(4,1fr);gap:6px;flex:none;align-content:start;'
     });
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Fix #4: Single scroll helper — was duplicated in update() and equals()
     const scrollEnd = () => { display.scrollLeft = 9999; };
 
-    // Unified result-line formatter so it always reads as "= value" or "= Error: …"
+    // Fix #5: Unified result line formatter — prefixes both success and error
+    // consistently so the display line always reads as "= value" or "= Error: …"
     const setResult = (text, isError = false) => {
       result.textContent = isError ? `= Error: ${text}` : `= ${text}`;
     };
 
+    // ── Action logic ──────────────────────────────────────────────────────────
     const update = () => {
       display.value = expr;
       scrollEnd();
@@ -205,6 +203,7 @@
       }
     };
 
+    // ── Button layout ─────────────────────────────────────────────────────────
     const labels = [
       'C', '⌫', '%', '÷',
       '7', '8', '9', '×',
@@ -230,6 +229,7 @@
 
     buttons.appendChild(fragment);
 
+    // ── Event wiring ─────────────────────────────────────────────────────────
     const ac = new AbortController();
     const { signal } = ac;
 
@@ -285,19 +285,12 @@
       }
     }, { signal });
 
+    // ── Mount ─────────────────────────────────────────────────────────────────
     content.append(display, result, buttons);
     content.tabIndex = 0;
     requestAnimationFrame(() => content.focus());
     update();
 
-    // No unmount hook exists in this runtime (unlike the original
-    // registerApp() return-a-cleanup-function convention) — the webview
-    // is torn down wholesale on app close, taking these listeners with it.
+    return () => ac.abort();
   }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', main);
-  } else {
-    main();
-  }
-})();
+});

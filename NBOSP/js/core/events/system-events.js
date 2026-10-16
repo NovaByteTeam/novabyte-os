@@ -41,6 +41,34 @@ const _THREAT_PATTERNS = Object.freeze([
 // it — the previous code referenced an undeclared maxWorkspaces and crashed.
 const MAX_WORKSPACES = 9;
 
+// Stable display order for the launchpad grid. Apps not listed here sort
+// alphabetically after the pinned entries. Built-in apps were previously
+// rendered in registration order, which followed module-load order and
+// drifted whenever a hot-reload reordered them — the grid was effectively
+// random across boots.
+const LAUNCHPAD_ORDER = Object.freeze([
+  'com.nbosp.vault',        // Files
+  'com.nbosp.quill',        // Notes / TextEdit
+  'com.nbosp.shell',        // Terminal
+  'com.nbosp.browser',      // Browser
+  'com.nbosp.calendar',     // Calendar
+  'com.nbosp.settings',     // Settings
+  'com.nbosp.calculator',   // Calculator
+  'com.nbosp.appmanager',   // App Manager
+  'com.nbosp.clock',        // Clock
+  'com.nbosp.email',        // Email
+  'com.nbosp.gallery',      // Gallery
+  'com.nbosp.downloads',    // Downloads
+  'com.nbosp.contacts',     // Contacts
+  'com.nbosp.search',       // Search
+  'com.nbosp.music',        // Music
+]);
+
+function launchpadRank(appId) {
+  const idx = LAUNCHPAD_ORDER.indexOf(appId);
+  return idx === -1 ? LAUNCHPAD_ORDER.length : idx;
+}
+
 // Look up whether an app already has a desktop .lnk shortcut. Used by the
 // launchpad context menu to decide between "Pin to Desktop" and "Unpin from
 // Desktop". Tolerates any FS failure and just reports "no shortcut".
@@ -143,6 +171,15 @@ function renderLaunchpad() {
   if (!grid) return;
   const devMode = OS.settings.get('devMode');
   const apps = devMode ? APP_REGISTRY : APP_REGISTRY.filter(app => !app.devOnly);
+  // Stable sort: pinned order first, everything else alphabetical. This keeps
+  // the grid layout consistent across reloads instead of tracking module
+  // load order, which drifts whenever a hot-reload reorders registration.
+  const orderedApps = [...apps].sort((a, b) => {
+    const ra = launchpadRank(a.id);
+    const rb = launchpadRank(b.id);
+    if (ra !== rb) return ra - rb;
+    return a.name.localeCompare(b.name);
+  });
   const webApps = (typeof WebAppManager !== 'undefined' && WebAppManager.getAllApps)
     ? WebAppManager.getAllApps()
     : [];
@@ -150,7 +187,7 @@ function renderLaunchpad() {
   // Signature tracks the set of apps currently rendered so we only rebuild the
   // grid when something actually changes — not on every open.
   const signature = [
-    ...apps.map(app => `${app.id}:${app.name}:${app.icon}`),
+    ...orderedApps.map(app => `${app.id}:${app.name}:${app.icon}`),
     ...webApps.map(wa => `web:${wa.id}:${wa.name}:${wa.icon}:${wa.url}`)
   ].join('||');
 
@@ -160,7 +197,7 @@ function renderLaunchpad() {
     grid.innerHTML = '';
     grid.dataset.renderedSignature = signature;
 
-    apps.forEach(app => appendAppItem(app, grid));
+    orderedApps.forEach(app => appendAppItem(app, grid));
 
     if (typeof WebAppManager !== 'undefined') {
       webApps.forEach(webApp => appendWebAppItem(webApp, grid));
@@ -802,7 +839,7 @@ if (volumeBtn && volumePopup && volumeSlider && volumeValue) {
 
     if (!OS.windows) return;
     for (const state of OS.windows.values()) {
-      if (state.appId !== 'browser') continue;
+      if (state.appId !== 'com.nbosp.browser') continue;
       const webviews = state.element?.querySelectorAll?.('webview');
       if (!webviews) continue;
       for (const webview of webviews) pushTo(webview);
@@ -1093,7 +1130,7 @@ document.addEventListener('keydown', (e) => {
     if (conflicting) return;
   }
 
-  if ((e.metaKey || e.ctrlKey) && e.key === 'e') { e.preventDefault(); WM.createWindow('vault'); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'e') { e.preventDefault(); WM.createWindow('com.nbosp.vault'); }
   if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === 't') { e.preventDefault(); WM.createWindow('shell'); }
   if ((e.metaKey || e.ctrlKey) && e.key === ' ') { e.preventDefault(); toggleLaunchpad(); }
   if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); lockScreen(); }

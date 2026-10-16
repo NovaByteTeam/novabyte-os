@@ -58,27 +58,21 @@ const AppPermissionManager = (() => {
     // e.g. an in-app browser feature). This is NOT about the outer sandbox
     // webview app-sandbox.js already creates for every app (that one isn't
     // gated by permission at all, it's how apps run). This is specifically
-    // for third-party app HTML that wants to create its OWN <webview>
-    // inside that sandbox. Deliberately excluded from SYSTEM_SANDBOX_APPS'
-    // same-origin exemption pattern: system apps are skipped entirely by
-    // appId allowlist in app-sandbox.js (see SYSTEM_SANDBOX_APPS), not by
-    // holding this permission, so this entry only ever applies to
-    // .novaapp third-party packages.
+    // for app HTML that wants to create its OWN <webview> inside that
+    // sandbox. Any app that falls back to sandbox execution must opt in and
+    // hold this grant; trusted apps approved for host execution do not use
+    // the sandbox path.
     SANDBOX_NESTED_WEBVIEW : 'sandbox:nested-webview',
-    // Lets a third-party .novaapp's outer sandbox webview receive
-    // allow-same-origin, giving the guest access to its own cookies,
-    // localStorage, and sessionStorage on the shared origin. System apps
-    // never need this entry — they're exempted by appId via
-    // SYSTEM_SANDBOX_APPS in app-sandbox.js, not by holding this
-    // permission. For everyone else, sanitizeSandboxAttr() requires BOTH
-    // `allowSameOrigin: true` in the manifest AND this grant before adding
-    // allow-same-origin to the sandbox attribute — see app-sandbox.js.
+    // Lets a sandboxed .novaapp receive allow-same-origin, giving the guest
+    // access to its own cookies, localStorage, and sessionStorage on the
+    // shared origin. The sandbox path requires BOTH allowSameOrigin: true in
+    // the manifest and this separate grant before adding the token.
     SANDBOX_SAME_ORIGIN : 'sandbox:same-origin',
-    // Same double-gate pattern as SANDBOX_SAME_ORIGIN just above: system
-    // apps are exempted by appId (SYSTEM_SANDBOX_APPS), everyone else needs
-    // BOTH `allowPopupsToEscapeSandbox: true` in the manifest AND this grant
-    // before sanitizeSandboxAttr() adds allow-popups-to-escape-sandbox to
-    // the sandbox attribute. Previously the manifest flag alone was enough —
+    // Same double-gate pattern as SANDBOX_SAME_ORIGIN just above: a
+    // sandboxed app needs BOTH allowPopupsToEscapeSandbox: true in the
+    // manifest AND this grant before sanitizeSandboxAttr() adds
+    // allow-popups-to-escape-sandbox to the sandbox attribute. Previously
+    // the manifest flag alone was enough —
     // a popup that escapes the sandbox is a fully unrestricted browsing
     // context, comparable risk to allow-same-origin, with none of the same
     // gating. See app-sandbox.js.

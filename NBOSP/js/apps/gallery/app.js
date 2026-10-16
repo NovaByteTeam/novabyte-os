@@ -1,60 +1,22 @@
-// Gallery — image viewer. Recursively scans the VFS for images and renders
-// a grid + lightbox. Runs as a plain page script inside this app's own
-// index.html; the OS drives the window shell, not this script.
-(() => {
-  const IMG_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'tiff']);
-  const SKIP_FOLDERS = new Set(['/System']);
+registerApp({
+  id: 'com.nbosp.gallery', name: 'Gallery', icon: 'image',
+  version: '3.0.2',
+  description: 'Image Viewer',
+  defaultSize: [840, 580], minSize: [500, 360],
+  init(content, state) {
 
-  // Two icon names (refresh, image) are only available as bundled PNGs in
-  // this package — see assets/. Everything else is inline SVG built here
-  // directly, since there's no host-injected svgIcon() inside a packaged
-  // app's own guest page.
-  const ICONS = {
-    x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
-    'chevron-left': '<polyline points="15 18 9 12 15 6"/>',
-    'chevron-right': '<polyline points="9 18 15 12 9 6"/>',
-  };
-  function svgIcon(name, size) {
-    const s = Number(size) || 16;
-    return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
-  }
-  const PACKAGED_ICONS = {
-    refresh: 'assets/icons8-refresh-94.png',
-    image: 'assets/icons8-picture-94.png',
-  };
-  function packagedIcon(name, size) {
-    const path = PACKAGED_ICONS[name];
-    if (!path) return svgIcon(name, size);
-    return `<img src="${path}" width="${size}" height="${size}" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;" draggable="false" alt="" aria-hidden="true">`;
-  }
-
-  function createEl(tag, attrs, children) {
-    const el = document.createElement(tag);
-    if (attrs) for (const [key, value] of Object.entries(attrs)) {
-      if (value == null) continue;
-      if (key === 'className' || key === 'class') el.className = value;
-      else if (key === 'textContent') el.textContent = value;
-      else if (key === 'innerHTML') el.innerHTML = value;
-      else if (key === 'style') el.style.cssText = typeof value === 'object' ? Object.entries(value).map(([k, v]) => `${k}:${v}`).join(';') : String(value);
-      else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2).toLowerCase(), value);
-      else if (typeof value === 'boolean') { if (value) el.setAttribute(key, ''); }
-      else el.setAttribute(key, value);
+    // ── NovaByte runtime guard ──────────────────────────────────────────────
+    if (!window.AppDirs?.getVFSDir('com.nbosp.gallery', 'files')) {
+      content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
+      const warn = createEl('div', { style: 'font-size:32px' });
+      warn.textContent = '⚠️';
+      const msg = createEl('div', { style: 'font-size:14px;text-align:center' });
+      const bold = createEl('b');
+      bold.textContent = 'com.nbosp.gallery';
+      msg.append(bold, document.createElement('br'), 'App data directory missing.', document.createElement('br'), 'This app requires NovaByte OS.');
+      content.append(warn, msg);
+      return;
     }
-    if (children != null) {
-      const arr = Array.isArray(children) ? children : [children];
-      for (const child of arr) if (child || child === 0) el.append(child instanceof Node ? child : document.createTextNode(String(child)));
-    }
-    return el;
-  }
-
-  const extOf = name => {
-    const i = (name || '').lastIndexOf('.');
-    return i > 0 ? name.slice(i + 1).toLowerCase() : '';
-  };
-  const isImageNode = node => node?.type === 'file' && ((node.mimeType && node.mimeType.startsWith('image/')) || IMG_EXTS.has(extOf(node.name)));
-
-  function main() {
-    const content = document.getElementById('gallery-app');
 
     // ── Root ────────────────────────────────────────────────────────────────
     const root = createEl('div', { style: 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);overflow:hidden;' });
@@ -65,7 +27,7 @@
     const titleEl = createEl('span', { textContent: 'Gallery', style: 'font-size:13px;font-weight:600;flex:1;color:var(--text-primary);' });
     const countEl = createEl('span', { style: 'font-size:11px;color:var(--text-muted);' });
     const refreshBtn = createEl('button', { className: 'browser-nav-btn', title: 'Refresh' });
-    refreshBtn.innerHTML = packagedIcon('refresh', 15);
+    refreshBtn.innerHTML = svgIcon('refresh', 15);
     toolbar.append(titleEl, countEl, refreshBtn);
     root.appendChild(toolbar);
 
@@ -113,16 +75,35 @@
     // ── State ────────────────────────────────────────────────────────────────
     let images = [];
     let lbIdx = 0;
-    const blobCache = new Map();  // path → object-URL
+
+    // blobCache: fileId → object-URL
+    // Separate revoke-pending set tracks URLs orphaned after re-render so they
+    // are revoked lazily on the next render pass rather than immediately
+    // (avoids revoking a URL that is still being painted).
+    const blobCache = new Map();
     const revokeQueue = new Set();
 
+    // Recognised image extensions — defined once, never re-allocated.
+    const IMG_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif', 'tiff']);
+
+    // ── toBufferData ─────────────────────────────────────────────────────────
+    // Normalises whatever the FS layer hands back into something Blob() accepts.
+    // ArrayBuffer or TypedArray: pass straight through.
+    // String: try native Uint8Array.fromBase64 (ES2026), fall back to atob,
+    //         fall back to TextEncoder for plain text.
+    // Plain object (IndexedDB round-trip mangling): reconstruct Uint8Array by
+    //   reading numeric keys in order. Use a pre-existing keys array so we
+    //   don't allocate twice.
     function toBufferData(raw) {
       if (!raw) return null;
       if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return raw;
+
       if (typeof raw === 'string') {
+        // Native path (ES2026 baseline)
         if (typeof Uint8Array.fromBase64 === 'function') {
           try { return Uint8Array.fromBase64(raw); } catch { /* not base64 */ }
         }
+        // atob fallback
         try {
           const bin = atob(raw);
           const u8 = new Uint8Array(bin.length);
@@ -131,18 +112,37 @@
         } catch { /* not base64 */ }
         return new TextEncoder().encode(raw);
       }
+
+      if (typeof raw === 'object') {
+        // Plain-object mangling: keys are '0', '1', … but may be sparse or
+        // non-contiguous. Sort numerically for correctness.
+        const keys = Object.keys(raw);
+        const len = keys.length;
+        if (len === 0) return null;
+        const u8 = new Uint8Array(len);
+        // Sort once, then iterate — avoids repeated property lookup in hot path.
+        keys.sort((a, b) => a - b);
+        for (let i = 0; i < len; i++) u8[i] = raw[keys[i]] ?? 0;
+        return u8;
+      }
+
       return null;
     }
 
+    // ── getUrl ───────────────────────────────────────────────────────────────
+    // Returns a cached object-URL for a file, creating one if needed.
+    // Null results are NOT cached so transient failures can recover on refresh.
     function getUrl(f) {
-      const cached = blobCache.get(f.path);
+      const cached = blobCache.get(f.id);
       if (cached !== undefined) return cached;
-      const data = toBufferData(f.data);
+
+      const data = toBufferData(f.content);
       if (!data) return null;
+
       try {
         const blob = new Blob([data], { type: f.mimeType || 'image/png' });
         const url = URL.createObjectURL(blob);
-        blobCache.set(f.path, url);
+        blobCache.set(f.id, url);
         return url;
       } catch {
         return null;
@@ -154,7 +154,7 @@
       const atStart = lbIdx <= 0;
       const atEnd = lbIdx >= images.length - 1;
       lbPrev.style.opacity = atStart ? '0.25' : '1';
-      lbNext.style.opacity = atEnd ? '0.25' : '1';
+      lbNext.style.opacity = atEnd  ? '0.25' : '1';
       lbPrev.disabled = atStart;
       lbNext.disabled = atEnd;
       lbPrev.setAttribute('aria-disabled', String(atStart));
@@ -175,7 +175,7 @@
 
     function closeLb() {
       lb.style.display = 'none';
-      lbImg.src = '';
+      lbImg.src = '';        // free the decoded image from GPU/RAM immediately
     }
 
     lbClose.addEventListener('click', closeLb);
@@ -183,72 +183,46 @@
     lbPrev.addEventListener('click', () => { if (lbIdx > 0) openLb(lbIdx - 1); });
     lbNext.addEventListener('click', () => { if (lbIdx < images.length - 1) openLb(lbIdx + 1); });
 
+    // Keyboard navigation — scoped to `content`, not `document`, so it doesn't
+    // bleed into other apps running in the same global scope.
     const onKey = e => {
       if (lb.style.display === 'none') return;
-      if (e.key === 'ArrowLeft') { e.preventDefault(); if (lbIdx > 0) openLb(lbIdx - 1); }
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); if (lbIdx > 0) openLb(lbIdx - 1); }
       if (e.key === 'ArrowRight') { e.preventDefault(); if (lbIdx < images.length - 1) openLb(lbIdx + 1); }
-      if (e.key === 'Escape') closeLb();
+      if (e.key === 'Escape')     closeLb();
     };
     content.addEventListener('keydown', onKey);
 
-    // ── VFS scan ─────────────────────────────────────────────────────────────
-    // Recursive walk from root via the real IPC channels. Requires
-    // vfs:read (declared in manifest.json) plus, for full unrestricted
-    // reach outside this app's own /data folder, the system-signed trust
-    // grant tied to this package's signature.
-    async function walk(path, out) {
-      const normalized = path === '/' ? '/' : String(path).replace(/\/+$/, '');
-      if (SKIP_FOLDERS.has(normalized)) return;
-      let listed;
-      try {
-        listed = await window.nova.ipc('nova:vfs:list', { path: normalized });
-      } catch (err) {
-        console.warn('[Gallery] Could not list', normalized, err);
-        return;
-      }
-      for (const item of (listed?.files || [])) {
-        const childPath = normalized === '/' ? `/${item.name}` : `${normalized}/${item.name}`;
-        if (item.type === 'folder') {
-          if (!SKIP_FOLDERS.has(childPath)) await walk(childPath, out);
-        } else if (isImageNode(item)) {
-          try {
-            const detail = await window.nova.ipc('nova:vfs:read', { path: childPath });
-            if (detail?.success) {
-              out.push({ ...item, ...detail, path: childPath });
-            }
-          } catch (err) {
-            console.warn('[Gallery] Could not read', item.name, err);
-          }
-        }
-      }
-    }
-
-    async function scan() {
-      const found = [];
-      try {
-        await walk('/', found);
-      } catch (err) {
-        console.warn('[Gallery] VFS scan failed:', err);
-      }
-      found.sort((a, b) => (b.modified || 0) - (a.modified || 0));
-
-      const nextPaths = new Set(found.map(f => f.path));
-      for (const [path, url] of blobCache) {
-        if (!nextPaths.has(path)) {
-          revokeQueue.add(url);
-          blobCache.delete(path);
-        }
-      }
-
-      images = found;
-      render();
-    }
-
     // ── render ───────────────────────────────────────────────────────────────
     function render() {
+      // Flush any blob URLs orphaned by the previous render pass.
       for (const url of revokeQueue) URL.revokeObjectURL(url);
       revokeQueue.clear();
 
+      const trashId = FS.specialFolders?.trash;
+
+      // Single-pass collect + filter; sort afterwards.
+      const next = [];
+      for (const f of FS.files.values()) {
+        if (f.type !== 'file' || f.parentId === trashId) continue;
+        if (f.mimeType?.startsWith('image/')) { next.push(f); continue; }
+        const ext = (f.name || '').split('.').pop().toLowerCase();
+        if (IMG_EXTS.has(ext)) next.push(f);
+      }
+      next.sort((a, b) => b.modified - a.modified);
+
+      // Queue blob URLs for files that are no longer present.
+      const nextIds = new Set(next.map(f => f.id));
+      for (const [id, url] of blobCache) {
+        if (!nextIds.has(id)) {
+          revokeQueue.add(url);
+          blobCache.delete(id);
+        }
+      }
+
+      images = next;
+
+      // Rebuild grid using a DocumentFragment to avoid repeated reflows.
       const frag = document.createDocumentFragment();
 
       countEl.textContent = images.length
@@ -257,14 +231,14 @@
 
       if (!images.length) {
         const empty = createEl('div', { style: 'grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 24px;color:var(--text-muted);gap:8px;text-align:center;' });
-        empty.innerHTML = packagedIcon('image', 38);
+        empty.innerHTML = svgIcon('image', 38);
         const noImg = createEl('div', { style: 'font-size:13px;margin-top:10px;color:var(--text-secondary);' });
         noImg.textContent = 'No images found';
         const hint = createEl('div', { style: 'font-size:11px;margin-top:4px;' });
         hint.textContent = 'Save image files via Files to view them here';
         empty.append(noImg, hint);
         frag.appendChild(empty);
-        grid.textContent = '';
+        grid.textContent = '';  // fast clear
         grid.appendChild(frag);
         return;
       }
@@ -279,6 +253,7 @@
           'aria-label': f.name,
         });
 
+        // Use event delegation via `idx` closure capture — one listener per card.
         const openThisCard = () => openLb(idx);
         card.addEventListener('click', openThisCard);
         card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openThisCard(); } });
@@ -294,41 +269,130 @@
             loading: 'lazy',
           });
           img.addEventListener('error', () => {
+            // Remove broken img cleanly; append fallback icon without wiping label.
             img.remove();
             const icon = createEl('div', { style: 'color:var(--text-muted);' });
-            icon.innerHTML = packagedIcon('image', 24);
+            icon.innerHTML = svgIcon('image', 24);
             card.insertBefore(icon, card.firstChild);
           });
           img.src = url;
           card.appendChild(img);
         } else {
           const icon = createEl('div', { style: 'color:var(--text-muted);' });
-          icon.innerHTML = packagedIcon('image', 24);
+          icon.innerHTML = svgIcon('image', 24);
           card.appendChild(icon);
         }
 
         const label = createEl('div', {
           style: 'position:absolute;bottom:0;left:0;right:0;padding:4px 6px;background:linear-gradient(transparent,rgba(0,0,0,0.7));color:#fff;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;',
         });
-        label.textContent = f.name;
+        label.textContent = f.name;  // textContent — never innerHTML for user data
         card.appendChild(label);
         frag.appendChild(card);
       }
 
-      grid.textContent = '';
+      grid.textContent = '';  // fast clear (no innerHTML parser overhead)
       grid.appendChild(frag);
     }
 
-    refreshBtn.addEventListener('click', () => { void scan(); });
+    refreshBtn.addEventListener('click', render);
 
-    // ── Initial scan ─────────────────────────────────────────────────────────
+    // ── Cleanup ──────────────────────────────────────────────────────────────
+    state.cleanups = state.cleanups || [];
+    state.cleanups.push(() => {
+      content.removeEventListener('keydown', onKey);
+      for (const url of blobCache.values()) URL.revokeObjectURL(url);
+      blobCache.clear();
+      for (const url of revokeQueue) URL.revokeObjectURL(url);
+      revokeQueue.clear();
+    });
+
+    // ── Initial render ───────────────────────────────────────────────────────
+    // Single render call regardless of whether state.fileId is set.
     render();
-    void scan();
+    if (state.fileId) {
+      const startIdx = images.findIndex(f => f.id === state.fileId);
+      if (startIdx !== -1) openLb(startIdx);
+    }
+  }
+});
+
+
+
+/* ── Global Downloads API ──────────────────────────────────────────────────
+   Persists even when the Downloads app window is closed.
+   ─────────────────────────────────────────────────────────────────────────*/
+(function () {
+  const SK = 'nova_downloads';
+  const MAX_ENTRIES = 500;
+
+  function _load() {
+    try {
+      const raw = localStorage.getItem(SK);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', main, { once: true });
-  } else {
-    main();
+  function _save(arr) {
+    try {
+      localStorage.setItem(SK, JSON.stringify(arr.length > MAX_ENTRIES ? arr.slice(0, MAX_ENTRIES) : arr));
+    } catch { /* storage full or blocked — fail silently */ }
   }
+
+  // Collision-resistant ID: crypto random beats Date.now() + Math.random()
+  // because Date.now() has millisecond resolution and Math.random() is not
+  // guaranteed unique. Falls back gracefully if crypto is unavailable.
+  function _uid() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    // Fallback: 64-bit hex from getRandomValues
+    try {
+      const buf = new Uint8Array(8);
+      crypto.getRandomValues(buf);
+      return Array.from(buf, b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+  }
+
+  window.Downloads = {
+    _renderFn: null,  // set by Downloads app when its window is open
+
+    add(name, url, size, mimeType) {
+      const entry = {
+        id:       _uid(),
+        name:     name     || 'Unknown file',
+        url:      url      || '',
+        size:     size     || 0,
+        mimeType: mimeType || '',
+        ts:       Date.now(),
+        status:   'done',
+      };
+      const arr = _load();
+      arr.unshift(entry);
+      _save(arr);
+      window.Downloads._renderFn?.();
+      return entry;
+    },
+
+    setStatus(id, status, size) {
+      const arr = _load();
+      const it = arr.find(x => x.id === id);
+      if (it) {
+        it.status = status;
+        if (size != null) it.size = size;
+        _save(arr);
+      }
+      window.Downloads._renderFn?.();
+    },
+
+    getAll() {
+      return _load();
+    },
+  };
 })();

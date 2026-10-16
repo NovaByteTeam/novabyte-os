@@ -1376,38 +1376,6 @@ registerApp({
       if (existing) existing.remove();
     }
 
-    // Permission gate for downloads — checks AppPermissionManager for the
-    // 'vfs:write' capability, prompting the user if not yet decided.
-    // Hoisted out of getOrCreateWebview because it has no per-webview state;
-    // defining it once at init scope avoids recreating it on every webview.
-    async function ensureBrowserFsWritePermission() {
-      const mgr = window.AppPermissionManager;
-      if (!mgr) return true;
-      const appId = BROWSER_APP_ID;
-      if (mgr.isGranted('vfs:write', appId)) return true;
-      if (mgr.isDenied?.('vfs:write', appId)) {
-        Notify.show({
-          title: 'Download blocked',
-          body: 'Browser does not have permission to write files. Grant "vfs:write" in Settings → Apps.',
-          type: 'error', appName: 'Browser',
-        });
-        return false;
-      }
-      const granted = await mgr.requestPermission('vfs:write', appId, {
-        appName: 'Browser',
-        reason: 'Browser needs to save downloaded files to your Downloads folder.',
-      });
-      if (!granted) {
-        Notify.show({
-          title: 'Download blocked',
-          body: 'Browser was denied permission to write files.',
-          type: 'error', appName: 'Browser',
-        });
-        return false;
-      }
-      return true;
-    }
-
     // Sanitise a filename for saving to disk: strip path separators, control
     // characters, and truncate to MAX_DL_NAME_LEN. Returns a non-empty name.
     function sanitizeDownloadName(rawName) {
@@ -1710,57 +1678,38 @@ registerApp({
       // our own fetch+save pipeline so the file lands in the OS Downloads
       // folder with a Downloads manager entry.
       wv.addEventListener('permissionrequest', e => {
-        if (e.permission === 'fullscreen') { e.request.allow(); return; }
-        if (e.permission === 'pointerLock') { e.request.allow(); return; }
-        if (e.permission === 'download') {
+        // Built-in Browser uses its own explicit privacy toggles, not the
+        // third-party app-permission catalog. Location and media default off.
+        if (e.permission === 'geolocation') {
+          const allowed = getSetting('enable_geolocation', false);
+          if (!allowed) {
+            Notify.show({
+              title: 'Location blocked',
+              body: 'Enable location in Browser → Settings → Privacy & Security to allow site requests.',
+              type: 'info', appName: 'Browser'
+            });
+            e.request.deny();
+            return;
+          }
+          e.request.allow();
+        } else if (e.permission === 'media') {
+          const allowed = getSetting('enable_media', false);
+          if (!allowed) {
+            Notify.show({
+              title: 'Camera and microphone blocked',
+              body: 'Enable camera and microphone in Browser → Settings → Privacy & Security to allow site requests.',
+              type: 'info', appName: 'Browser'
+            });
+            e.request.deny();
+            return;
+          }
+          e.request.allow();
+        } else if (e.permission === 'pointerLock') {
+          e.request.allow();
+        } else {
           e.request.deny();
-          // Promise.try (ES2025) unifies sync-throw and async-reject into a
-          // single catchable chain.
-          Promise.try(async () => {
-            const _url = e.request.url;
-            if (!_url || !/^https?:\/\//i.test(_url)) return;
-            if (!(await ensureBrowserFsWritePermission())) return;
-            try {
-              const finalName = sanitizeDownloadName(_url);
-              const ext = finalName.includes('.') ? '' : '.bin';
-              const dlFolderId = FS.specialFolders.downloads;
-              if (!dlFolderId) throw new Error('Downloads folder missing');
-              const adjusted = pickUniqueDownloadName(dlFolderId, finalName, ext);
-              const entry = window.Downloads?.add(adjusted + ext, _url, 0, '');
-              const entryId = entry?.id;
-              if (entryId) window.Downloads?.setStatus(entryId, 'downloading');
-              WM.createWindow('nbosp-downloads');
-              const resp = await fetch(_url);
-              if (!resp.ok) throw new Error('HTTP ' + resp.status);
-              const cl = resp.headers.get('content-length');
-              if (cl && +cl > DOWNLOAD_MAX_BYTES) throw new Error('File too large');
-              const buf = await resp.arrayBuffer();
-              if (buf.byteLength > DOWNLOAD_MAX_BYTES) throw new Error('File too large');
-              // Encode as base64 for storage. Uint8Array.toBase64 (ES2026)
-              // is the native, non-looping way; node.content has to survive
-              // JSON.stringify inside app-sandbox.js's respond() when a
-              // sandboxed app later reads this file via nova:vfs:read —
-              // JSON.stringify flattens a raw Uint8Array into an
-              // index-keyed object that silently corrupts binary data,
-              // so base64 is required regardless of encoding approach.
-              const base64Content = new Uint8Array(buf).toBase64();
-              await FS.createFile(dlFolderId, adjusted + ext, base64Content, 'application/octet-stream');
-              if (entryId) window.Downloads?.setStatus(entryId, 'done', buf.byteLength);
-              Notify.show({
-                title: 'Download complete', body: adjusted + ext,
-                type: 'success', appName: 'Downloads'
-              });
-              OS.events.emit('fs:created', {});
-            } catch (err) {
-              console.error('Download handler error:', err);
-              Notify.show({
-                title: 'Download failed', body: String(err.message || err),
-                type: 'error', appName: 'Downloads'
-              });
-            }
-          });
         }
-      });
+      });;
 
       // Popup / new-window support (NW.js Chrome Apps webview API).
       wv.addEventListener('newwindow', e => {
@@ -1860,17 +1809,8 @@ registerApp({
               .replace(/[\s\u0000-\u001f\u007f-\u009f]/g, '')
               .trim();
             if (!/^(javascript|data|vbscript|about):/i.test(_bgCanonical) && !isLocalAddress(url)) {
-              // Bypasses navigate() entirely (sets wv.src directly), so the
-              // net:external gate there doesn't apply here — check it again.
-              if (/^https?:\/\//i.test(url) && !AppPermissionManager?.isGranted('net:external', BROWSER_APP_ID)) {
-                Notify.show({
-                  title: 'Permission denied',
-                  body: 'Browser needs the "External network" permission to load websites. Grant it in Settings → Apps.',
-                  type: 'error', appName: 'Browser'
-                });
-              } else {
-                bgWv.src = url;
-              }
+              // Trusted built-in Browser loads external pages without an app-level permission gate.
+              bgWv.src = url;
             }
           } else {
             switchToTab(newTab.id);
@@ -2093,7 +2033,7 @@ registerApp({
       });
 
       wv.addEventListener('permissionrequest', e => {
-        const appId = 'browser';
+        const appId = BROWSER_APP_ID;
         if (e.permission === 'geolocation') {
           const osAllowed = AppPermissionManager?.isGranted('device:geolocation', appId);
           const browserAllowed = getSetting('enable_geolocation', true);
@@ -2584,7 +2524,7 @@ registerApp({
         panelInner.appendChild(seList);
 
       } else if (activeCategory === 'privacy') {
-        panelTitle('Privacy & Security', 'Control cookies, passwords, location and browsing data.');
+        panelTitle('Privacy & Security', 'Control cookies, passwords, location, camera/microphone and browsing data.');
         panelInner.appendChild(mkRow('Show security warnings', 'Show a warning indicator for non-HTTPS pages in the address bar',
           mkToggle('show_security_warnings', true, () => updateUrlIcon(currentUrl))));
 
@@ -2600,7 +2540,8 @@ registerApp({
         panelInner.appendChild(mkRow('Clear form data', '', mkClearBtn('Clear Form Data', () => clearWebviewData({ localStorage: true, indexedDB: true, webSQL: true }, 'Form data cleared', 'Saved form data has been deleted.'))));
 
         panelInner.appendChild(mkSubHdr('Location'));
-        panelInner.appendChild(mkRow('Enable location', 'Allow sites to request your location', mkToggle('enable_geolocation', true)));
+        panelInner.appendChild(mkRow('Enable location', 'Allow sites to request your location (off by default)', mkToggle('enable_geolocation', false)));
+        panelInner.appendChild(mkRow('Enable camera & microphone', 'Allow sites to request camera or microphone access (off by default)', mkToggle('enable_media', false))); 
         panelInner.appendChild(mkRow('Clear location access', '', mkClearBtn('Clear Location', () => Notify.show({ title: 'Location access cleared', body: 'All site location permissions have been revoked.', type: 'info', appName: 'Browser' }))));
 
         panelInner.appendChild(mkSubHdr('Passwords'));
@@ -2789,13 +2730,6 @@ registerApp({
 
       // vault:// URL handling — open a file from the OS virtual filesystem.
       if (url.startsWith('vault:')) {
-        if (!AppPermissionManager?.isGranted('vfs:write', BROWSER_APP_ID)) {
-          Notify.show({
-            title: 'Permission denied', body: 'Browser needs fs:write to access vault files.',
-            type: 'error', appName: 'Browser'
-          });
-          return;
-        }
         const targetTabId = activeTabId;
         const vaultRel = url.replace(/^vault:\/\/+/, '').replace(/^\//, '');
         let targetNode = null;
@@ -2884,21 +2818,8 @@ registerApp({
         url = (url.includes('.') && !url.includes(' ')) ? 'https://' + url : getSearchUrl(url);
       }
 
-      // Real network fetch about to happen (http/https to an actual site,
-      // not blob:/file:/data: which are local content already produced by
-      // this app — see the branches above). Gate on net:external the same
-      // way vault:// above gates on vfs:write: check first, notify + bail
-      // if missing, rather than letting the webview/iframe silently load
-      // the URL regardless of what the user actually granted.
-      if (/^https?:\/\//i.test(url) && !AppPermissionManager?.isGranted('net:external', BROWSER_APP_ID)) {
-        urlBar.value = stripHttps(url);
-        Notify.show({
-          title: 'Permission denied',
-          body: 'Browser needs the "External network" permission to load websites. Grant it in Settings → Apps.',
-          type: 'error', appName: 'Browser'
-        });
-        return;
-      }
+      // External navigation is a core built-in Browser capability; third-party apps
+      // remain subject to the normal net:external permission controls.
 
       urlBar.value = stripHttps(url); currentUrl = url; updateUrlIcon(url);
       const activeT = activeTab();
@@ -3137,13 +3058,6 @@ registerApp({
     // Open HTML file from vault — triggered when the browser is launched
     // with options.fileId (e.g. double-clicking an HTML file in Files app).
     if (options?.fileId) {
-      if (!AppPermissionManager?.isGranted('vfs:write', BROWSER_APP_ID)) {
-        Notify.show({
-          title: 'Permission denied', body: 'Browser needs fs:write to open vault files.',
-          type: 'error', appName: 'Browser'
-        });
-        return;
-      }
       const fileNode = FS.files.get(options.fileId);
       if (fileNode != null && fileNode.content != null) {
         function getVaultPath(node) {
