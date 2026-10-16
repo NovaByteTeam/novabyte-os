@@ -8,18 +8,6 @@
   "unrestrictedEntry": "app.js",
   "icon": "globe",
   "type": "blank",
-  "permissions": [
-    "net:internal",
-    "vfs:read",
-    "sandbox:nested-webview"
-  ],
-  "optionalPermissions": [
-    "net:external",
-    "device:camera",
-    "device:microphone",
-    "device:geolocation",
-    "vfs:write"
-  ],
   "defaultSize": [900, 600],
   "minSize": [500, 350],
   "resizable": true,

@@ -8,15 +8,6 @@
   "unrestrictedEntry": "app.js",
   "icon": "mail",
   "type": "blank",
-  "permissions": [
-    "mail:read",
-    "mail:write",
-    "mail:send",
-    "mail:delete"
-  ],
-  "optionalPermissions": [
-    "device:notifications"
-  ],
   "defaultSize": [860, 580],
   "minSize": [600, 420],
   "resizable": true,

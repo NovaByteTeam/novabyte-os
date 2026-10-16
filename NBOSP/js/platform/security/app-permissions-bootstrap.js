@@ -312,8 +312,9 @@
     // Gate third-party / web apps
     _gateThirdPartyApps();
 
-    // Wrap FS methods to enforce fs:write and fs:delete at the operation level
-    _wrapFsMethods();
+    // Do not enforce VFS permissions by guessing from the focused window.
+    // System writes can run while an app is focused, so that check blamed
+    // unrelated apps; sandbox VFS requests are checked with their explicit app id.
 
     // First boot: pre-grant normal permissions silently
     let isFirstBoot = false;
@@ -334,73 +335,6 @@
     Promise.resolve().then(bootstrap);
   }
 
-
-  // ── FS permission enforcement ─────────────────────────────────────────────
-  //
-  // Wraps dangerous FS methods so any app that calls them is checked against
-  // AppPermissionManager. Caller identity comes from OS.focusedWindowId →
-  // WM windows map → state.appId. Falls back to allowing if context is
-  // unavailable (e.g. system calls during boot).
-
-  const FS_PERMISSION_MAP = Object.freeze({
-    deleteToTrash   : 'vfs:delete',
-    permanentDelete : 'vfs:delete',
-    emptyTrash      : 'vfs:delete',
-    createFile      : 'vfs:write',
-    createFolder    : 'vfs:write',
-    writeFile       : 'vfs:write',
-    move            : 'vfs:write',
-    rename          : 'vfs:write',
-  });
-
-  function _getCallerAppId() {
-    try {
-      // OS.windows is a Map of windowId → state (set by WM.createWindow)
-      // OS.focusedWindowId is the currently focused window id
-      const winId = OS.focusedWindowId;
-      if (!winId || !OS?.windows) return null;
-      return OS.windows.get(winId)?.appId ?? null;
-    } catch { return null; }
-  }
-
-  function _wrapFsMethods() {
-    if (typeof FS === 'undefined') { _warn('FS not loaded — skipping FS enforcement'); return; }
-    if (FS.__permWrapped) return;
-
-    for (const [method, permission] of Object.entries(FS_PERMISSION_MAP)) {
-      if (typeof FS[method] !== 'function') continue;
-      const original = FS[method].bind(FS);
-
-      FS[method] = async function (...args) {
-        const appId = _getCallerAppId();
-
-        // No caller context (system call) — allow through
-        if (!appId) return original(...args);
-
-        const mgr = AppPermissionManager;
-        if (!mgr.isGranted(permission, appId)) {
-          const appName = OS.apps?.[appId]?.name ?? appId;
-          _warn(`${appId} attempted ${method} without ${permission}`);
-
-          // Notify the user instead of silently failing
-          if (typeof Notify !== 'undefined') {
-            Notify.show({
-              title  : 'Permission Denied',
-              body   : `${appName} doesn't have permission to do that. Grant "${permission}" in Settings → Apps.`,
-              type   : 'error',
-              appName: 'Security',
-            });
-          }
-          return; // block the operation
-        }
-
-        return original(...args);
-      };
-    }
-
-    FS.__permWrapped = true;
-    _log('FS methods wrapped for permission enforcement');
-  }
 
   // ── Third-party / web app permission gating ─────────────────────────────────
   //

@@ -8,17 +8,6 @@
   "unrestrictedEntry": "app.js",
   "icon": "terminal",
   "type": "blank",
-  "permissions": [
-    "vfs:read",
-    "vfs:write",
-    "vfs:delete"
-  ],
-  "optionalPermissions": [
-    "clipboard:read",
-    "clipboard:write",
-    "device:notifications",
-    "system:info"
-  ],
   "defaultSize": [700, 460],
   "minSize": [420, 260],
   "resizable": true,
