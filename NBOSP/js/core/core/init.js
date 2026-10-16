@@ -253,7 +253,7 @@ function getBootConfig() {
       const map = {
         search: 'nbosp-search', browser: 'com.nbosp.browser', contacts: 'nbosp-contacts',
         email: 'com.nbosp.email', calendar: 'nbosp-calendar', settings: 'nbosp-settings',
-        clock: 'com.nbosp.clock', appmanager: 'nbosp-app-manager', calculator: 'nbosp-calculator',
+        clock: 'com.nbosp.clock', appmanager: 'com.nbosp.appmanager', calculator: 'nbosp-calculator',
         files: 'nbosp-files', gallery: 'nbosp-gallery', downloads: 'nbosp-downloads',
         textedit: 'nbosp-textedit', terminal: 'nbosp-terminal', music: 'nbosp-music'
       };

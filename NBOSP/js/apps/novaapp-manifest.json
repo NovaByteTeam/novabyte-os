@@ -41,7 +41,10 @@
   },
   {
     "id": "com.nbosp.browser",
-    "file": "js/apps/com.nbosp.browser.novaapp",
-    "version": "3.0.7"
+    "file": "js/apps/com.nbosp.browser.novaapp"
+  },
+  {
+    "id": "com.nbosp.appmanager",
+    "file": "js/apps/com.nbosp.appmanager.novaapp"
   }
 ]

@@ -1,9 +1,9 @@
 {
   "id": "com.nbosp.clock",
   "name": "Clock",
-  "version": "3.0.5",
+  "version": "3.0.2",
   "description": "Alarm · Clock · Timer · Stopwatch",
-  "author": "NovaByte",
+  "author": "NovaByteOfficial",
   "entry": "index.html",
   "icon": "alarm-clock",
   "type": "blank",

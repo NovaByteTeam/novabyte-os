@@ -3,8 +3,9 @@
   "name": "Terminal",
   "version": "3.0.2",
   "description": "NovaByte OS Terminal",
-  "author": "NovaByte",
+  "author": "NovaByteOfficial",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "terminal",
   "type": "blank",
   "permissions": [
@@ -18,19 +19,10 @@
     "device:notifications",
     "system:info"
   ],
-  "defaultSize": [
-    700,
-    460
-  ],
-  "minSize": [
-    420,
-    260
-  ],
+  "defaultSize": [700, 460],
+  "minSize": [420, 260],
   "resizable": true,
   "frame": true,
-  "categories": [
-    "utilities",
-    "development"
-  ],
+  "categories": ["utilities", "development"],
   "system": true
 }

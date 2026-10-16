@@ -796,7 +796,7 @@ registerApp({
             categories: [appData.category || 'other'],
             permissions: appData.permissions,
             optionalPermissions: appData.optionalPermissions,
-            // See the matching comment in appmanager.js's buildNovaAppConfig —
+            // See the matching comment in nova-app-launcher.js's buildNovaAppConfig —
             // same missing field, this install path builds its own separate
             // config object instead of sharing that one.
             handles: appData.handles ?? undefined,

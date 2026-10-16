@@ -29,7 +29,7 @@
  * is no legitimate reason for a real, unmodified Settings package to
  * ever fail this, so a failure here is treated as a suspected
  * impersonation attempt, same posture as
- * isSuspectedSystemImpersonation() in appmanager.js's install flow.
+ * isSuspectedSystemImpersonation() in the App Manager package's install flow.
  * This module re-checks at CALL time (not just install time) so a
  * package that was valid when installed but has since been tampered
  * with on disk, or had its trust-store entry revoked, loses access
@@ -113,7 +113,7 @@ const UnrestrictedGate = (() => {
     );
   }
 
-  // Cached the same way appmanager.js's install-time impersonation check
+  // Cached the same way the App Manager package's install-time impersonation check
   // caches it — this file is fetched once and only changes on a real
   // deploy, so there is no reason to refetch it on every single call.
   let _firstPartyIdsCache = null;
@@ -138,7 +138,7 @@ const UnrestrictedGate = (() => {
 
   /**
    * Re-verify a package's integrity against its own stamped hash, the
-   * same check appmanager.js runs at install time — but run here again
+   * same check the App Manager package runs at install time — but run here again
    * at call time, since a package that verified cleanly at install could
    * have been modified on disk (or in the in-memory app registry) since.
    * Returns true if there's no integrity block to check at all (nothing

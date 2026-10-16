@@ -1,1206 +1,36 @@
-'use strict';
-
-// base-utils.js — shared utilities for the flat-module architecture.
-// Every public function below is also attached to window.* at the bottom of
-// the file so other scripts can call them without an ES module loader.
-//
-// Design notes:
-// - The file is loaded as a classic <script>, so top-level function and class
-//   declarations already become properties of window. The explicit assignments
-//   at the end are documentation of the intended public surface.
-// - DOM access is feature-detected so the file can be imported in Node/jsdom
-//   for testing without throwing at parse time.
-// - Hot paths (HTML escaping, icon lookup) avoid per-call allocation.
-
-(function () {
-  const hasDocument = (typeof document !== 'undefined') && (typeof document.createElement === 'function');
-  const hasWindow = (typeof window !== 'undefined');
-  const hasRAF = (typeof requestAnimationFrame === 'function');
-  const hasCAF = (typeof cancelAnimationFrame === 'function');
-
-  // Pooled element used by the DOM-based escapers. Allocating a fresh <div>
-  // on every escape call shows up in profiles when escapeText is called inside
-  // list-render loops; one shared element is enough because we only read
-  // innerHTML back synchronously.
-  const escaperEl = hasDocument ? document.createElement('div') : null;
-
-  // Module-level lookup tables. The original file rebuilt these objects on
-  // every svgIcon call, which is both slow and forces the JS engine to keep
-  // a fresh object alive for the lifetime of the returned HTML string.
-  const BYTE_UNITS = Object.freeze(['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']);
-  const DAY_NAMES = Object.freeze(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
-  const MONTH_NAMES = Object.freeze(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
-
-  // Inline SVG paths for the small UI icon set. These return crisp scalable
-  // SVGs with no extra HTTP request, so they are checked first.
-  const UI_ICONS = Object.freeze({
-    'x': '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
-    'plus': '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
-    'minus': '<line x1="5" y1="12" x2="19" y2="12"/>',
-    'check': '<polyline points="20 6 9 17 4 12"/>',
-    'chevron-left': '<polyline points="15 18 9 12 15 6"/>',
-    'chevron-right': '<polyline points="9 18 15 12 9 6"/>',
-    'chevron-up': '<polyline points="18 15 12 9 6 15"/>',
-    'chevron-down': '<polyline points="6 9 12 15 18 9"/>',
-    'arrow-left': '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
-    'arrow-right': '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
-    'more-horizontal': '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
-    'corner-up-left': '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
-    'corner-up-right': '<polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/>',
-    'maximize-2': '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
-    'minimize-2': '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/>',
-    'align-left': '<line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/>',
-    'align-center': '<line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/>',
-    'align-right': '<line x1="21" y1="7" x2="3" y2="7"/><line x1="21" y1="17" x2="3" y2="17"/><line x1="21" y1="12" x2="3" y2="12"/>',
-    'square': '<rect x="3" y="3" width="18" height="18" rx="2"/>',
-    'layout': '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
-    'skip-back': '<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/>',
-    'skip-forward': '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>',
-    'external-link': '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
-  });
-
-  // Aliases for icons that are served as PNGs from /assets/icons8-*.png.
-  // Names that already resolve via UI_ICONS or ICON_SPECIAL above are omitted
-  // here because they would be unreachable.
-  const ICON_MAP = Object.freeze({
-    'folder-open': 'safe',
-    'pen-tool': 'pen',
-    'globe': 'globe',
-    'music': 'music',
-    'image': 'picture',
-    'calendar': 'calendar',
-    'mail': 'mail',
-    'monitor': 'monitor',
-    'settings': 'gear',
-    'alarm-clock': 'alarm-clock',
-    'bell': 'bell',
-    'shield': 'shield',
-    'sliders': 'adjust',
-    'users': 'people',
-    'wifi': 'wi-fi',
-    'clock': 'calendar',
-    'database': 'server',
-    'terminal': 'command-line',
-    'trash': 'trash',
-    'trash-2': 'trash',
-    'folder': 'opened-folder',
-    'file': 'document',
-    'file-text': 'document',
-    'document': 'document',
-    'play': 'play',
-    'volume-2': 'sound',
-    'archive': 'archive',
-    'search': 'magnifying-glass',
-    'download': 'download',
-    'save': 'save',
-    'copy': 'copy',
-    'star': 'star',
-    'star-filled': 'rating',
-    'rating': 'rating',
-    'favorite': 'rating',
-    'bookmark-filled': 'rating',
-    'bookmark': 'bookmark',
-    'refresh': 'refresh',
-    'maximize': 'fullscreen',
-    'info': 'info',
-    'eye': 'eye',
-    'zap': 'lightning',
-    'shutdown': 'shutdown',
-    'tag': 'tag',
-    'edit-3': 'edit',
-    'edit-pencil': 'edit-pencil',
-    'edit-property': 'edit-property',
-    'filter': 'filter',
-    'bar-chart-2': 'bar-chart',
-    'list-ordered': 'numbered-list',
-    'message-square': 'chat',
-    'check-circle': 'checkmark',
-    'check-square': 'checkmark',
-    'x-circle': 'cancel',
-    'keyboard': 'keyboard',
-    'layers': 'layers',
-    'clipboard-list': 'paste',
-    'clip-board': 'paste',
-    'clipboard': 'paste',
-    'paste': 'paste',
-    'user': 'profile',
-    'groups': 'people',
-    'key': 'key',
-    'hard-drive': 'database',
-    'attention': 'info',
-    'alert-triangle': 'info',
-    'lock': 'lock',
-    'plus-math': 'plus-math',
-    'add': 'plus-math',
-    'cpu': 'processor',
-    'processor': 'processor',
-    'command-line': 'command-line',
-    'console': 'command-line',
-    'administrative-tools': 'document',
-    'maintenance': 'document',
-    'registry-editor': 'document',
-    'quill-pen': 'pen',
-    'pen': 'pen',
-    'reading-book-and-apple': 'document',
-    'incognito': 'incognito',
-    'gamepad-2': 'dice',
-    'box': 'dice',
-    'circle': 'dice',
-    'bomb': 'bomb',
-    'clover': 'clover',
-    'timer': 'counter',
-    'wallet': 'wallet',
-    'file-code': 'document',
-    'palette': 'color-palette',
-    'type': 'quote',
-    'qr-code': 'qr-code',
-    'metronome': 'counter',
-    'binary': 'barcode',
-    'hash': 'barcode',
-    'regex': 'document',
-    'text': 'quote',
-    'diff': 'layers',
-    'briefcase': 'briefcase',
-    'list': 'document',
-    'move': 'arrow-right',
-    'shuffle': 'shuffle-96',
-    'repeat': 'repeat',
-    'default-apps': 'services'
-  });
-
-  // Icons that need a non-standard PNG filename suffix. Checked before
-  // ICON_MAP so the special path wins when present.
-  const ICON_SPECIAL = Object.freeze({
-    'shuffle': 'shuffle-96',
-    'repeat': 'repeat-button-96',
-    'pause': 'pause-96',
-    'rename': 'rename-96'
-  });
-
-  // Cache of already-rendered icon HTML keyed by `${name}|${size}`. The output
-  // of svgIcon is a pure function of its inputs, so memoising it avoids both
-  // repeated string concatenation and repeated Map lookups for the common
-  // case of rendering the same icon many times in a list.
-  const iconCache = new Map();
-  const ICON_CACHE_LIMIT = 500;
-
-  // Structured error type for the arithmetic evaluator. Callers can use
-  // `err instanceof ArithmeticError` (or the cross-realm-safe `Error.isError`
-  // plus name check) to distinguish parse failures from other thrown errors.
-  class ArithmeticError extends Error {
-    constructor(message, { position, input } = {}) {
-      super(message);
-      this.name = 'ArithmeticError';
-      if (position !== undefined) this.position = position;
-      if (input !== undefined) this.input = input;
-    }
-  }
-
-  // --- Internal helpers ---------------------------------------------------
-
-  // Canonical HTML escaper. Uses the DOM when available because it correctly
-  // handles characters the regex would miss (NBSP -> &nbsp;, etc.). Falls back
-  // to a regex in non-DOM environments. Always escapes the five characters
-  // that matter for text content and both single- and double-quoted
-  // attributes: & < > " '. The DOM only escapes four of those (and jsdom
-  // escapes none of ", '), so we force-escape " and ' afterwards for
-  // cross-browser consistency.
-  function domEscape(value) {
-    const s = String(value);
-    if (!escaperEl) {
-      return s
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-    escaperEl.textContent = s;
-    return escaperEl.innerHTML
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  // Coerce a size argument for svgIcon into a safe positive number. The
-  // original code used `size || 18`, which kept negative numbers and string
-  // values that would later be interpolated raw into HTML.
-  function coerceIconSize(size) {
-    const n = Number(size);
-    if (Number.isFinite(n) && n > 0) return n;
-    return 18;
-  }
-
-  // One-time delegated listener that hides <img data-hide-on-error> elements
-  // when their src fails to load. This replaces the inline onerror handlers
-  // the original file embedded in every svgIcon output, which were both a
-  // CSP violation (script-src 'unsafe-inline') and an unnecessary per-image
-  // attribute. The visual outcome is identical: broken icons disappear.
-  function installHideOnErrorListener() {
-    if (!hasWindow || !hasDocument) return;
-    if (window.__baseUtilsHideOnErrorInstalled) return;
-    window.__baseUtilsHideOnErrorInstalled = true;
-    // Capture phase: error events on <img> do not bubble.
-    document.addEventListener('error', (event) => {
-      const target = event.target;
-      if (target && target.tagName === 'IMG' && target.hasAttribute('data-hide-on-error')) {
-        target.style.visibility = 'hidden';
-      }
-    }, true);
-  }
-
-  // --- Public functions ---------------------------------------------------
-
-  // Generate a UUID. Prefers the native crypto.randomUUID for cryptographic
-  // quality; falls back to a Math.random-based RFC 4122 v4 layout for
-  // non-secure contexts (e.g. HTTP, sandboxed iframes without crypto).
-  function generateId() {
-    if (hasWindow && window.crypto && typeof window.crypto.randomUUID === 'function') {
-      return window.crypto.randomUUID();
-    }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
-
-  // Escape a value for safe insertion as HTML text or attribute value.
-  // Treats null/undefined as empty string; everything else is stringified.
-  function sanitiseHTML(str) {
-    if (str == null) return '';
-    return domEscape(str);
-  }
-
-  // String-only variant kept for backward compatibility with existing
-  // callers. Non-strings return empty string.
-  function escapeText(str) {
-    if (typeof str !== 'string') return '';
-    return domEscape(str);
-  }
-
-  // Regex-only escaper for cases where the caller already knows the input is
-  // a primitive. Same five-character escape set as domEscape.
-  function escapeHtml(s) {
-    return domEscape(s);
-  }
-
-  // Evaluate a string containing + - * / % and parentheses without ever
-  // calling eval or new Function. Throws ArithmeticError on any parse or
-  // runtime failure (unbalanced parens, divide-by-zero producing Infinity,
-  // input too long, nesting too deep).
-  function safeEvaluateArithmetic(input) {
-    if (input == null) {
-      throw new ArithmeticError('Input is required');
-    }
-    const source = String(input).replace(/\s+/g, '');
-    if (source.length === 0) {
-      throw new ArithmeticError('Empty expression', { input: String(input) });
-    }
-    if (source.length > 10000) {
-      throw new ArithmeticError('Expression too long (max 10000 chars)', { input: String(input) });
-    }
-
-    let pos = 0;
-    let depth = 0;
-    const MAX_DEPTH = 200;
-
-    function consume(ch) {
-      if (source[pos] === ch) {
-        pos += 1;
-        return true;
-      }
-      return false;
-    }
-
-    function parseNumber() {
-      const start = pos;
-      let sawDigit = false;
-      let sawDot = false;
-      while (pos < source.length) {
-        const ch = source[pos];
-        if (ch >= '0' && ch <= '9') {
-          sawDigit = true;
-          pos += 1;
-        } else if (ch === '.' && !sawDot) {
-          sawDot = true;
-          pos += 1;
-        } else {
-          break;
-        }
-      }
-      if (!sawDigit) {
-        throw new ArithmeticError('Expected number', { position: pos, input: source });
-      }
-      return Number(source.slice(start, pos));
-    }
-
-    function parsePrimary() {
-      depth += 1;
-      if (depth > MAX_DEPTH) {
-        throw new ArithmeticError('Expression nested too deeply', { position: pos, input: source });
-      }
-      try {
-        // Iterate unary +/- instead of recursing so that arbitrarily long
-        // chains like "+++++++1" do not blow the stack.
-        let sign = 1;
-        for (;;) {
-          if (consume('+')) continue;
-          if (consume('-')) { sign = -sign; continue; }
-          break;
-        }
-        if (consume('(')) {
-          const value = parseAddSub();
-          if (!consume(')')) {
-            throw new ArithmeticError('Expected )', { position: pos, input: source });
-          }
-          return sign * value;
-        }
-        return sign * parseNumber();
-      } finally {
-        depth -= 1;
-      }
-    }
-
-    function parseMulDiv() {
-      let left = parsePrimary();
-      while (pos < source.length) {
-        if (consume('*')) {
-          left *= parsePrimary();
-        } else if (consume('/')) {
-          left /= parsePrimary();
-        } else if (consume('%')) {
-          left %= parsePrimary();
-        } else {
-          break;
-        }
-      }
-      return left;
-    }
-
-    function parseAddSub() {
-      let left = parseMulDiv();
-      while (pos < source.length) {
-        if (consume('+')) {
-          left += parseMulDiv();
-        } else if (consume('-')) {
-          left -= parseMulDiv();
-        } else {
-          break;
-        }
-      }
-      return left;
-    }
-
-    const value = parseAddSub();
-    if (pos !== source.length) {
-      throw new ArithmeticError('Unexpected trailing token', { position: pos, input: source });
-    }
-    if (!Number.isFinite(value)) {
-      throw new ArithmeticError('Result is not finite (divide by zero?)', { input: source });
-    }
-    return value;
-  }
-
-  // Best-effort browser detection. Uses navigator.userAgentData.brands when
-  // available, then falls back to UA-string sniffing with the ordering bugs
-  // from the original fixed (Opera and Brave are now checked before Chrome).
-  // Returns one of: Edge, Brave, Chrome, Firefox, Safari, Opera, Chromium,
-  // Unknown.
-  function detectBrowser() {
-    // User-Agent Client Hints are the modern, less-spoofable path.
-    const uaData = (typeof navigator !== 'undefined') ? navigator.userAgentData : null;
-    if (uaData && Array.isArray(uaData.brands)) {
-      const brands = uaData.brands.map((b) => b.brand.toLowerCase());
-      if (brands.includes('microsoft edge')) return 'Edge';
-      if (brands.includes('opera')) return 'Opera';
-      if (brands.includes('brave')) return 'Brave';
-      if (brands.includes('chromium')) return 'Chromium';
-      if (brands.includes('google chrome')) return 'Chrome';
-    }
-
-    // Brave is detectable via navigator.brave (an async boolean). We can't
-    // await here, so we accept the synchronous shape and skip if it is a
-    // promise — the UA string never contains "Brave/".
-    if (typeof navigator !== 'undefined' && typeof navigator.brave === 'object' && navigator.brave !== null && typeof navigator.brave.isBrave === 'function') {
-      // navigator.brave.isBrave() resolves to true on Brave. We cannot wait,
-      // but its mere presence is a strong signal.
-      return 'Brave';
-    }
-
-    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
-
-    if (ua.includes('Edg/')) return 'Edge';
-    if (ua.includes('OPR/') || ua.includes('Opera/')) return 'Opera';
-    if (ua.includes('Brave/')) return 'Brave';
-    if (ua.includes('Firefox/')) return 'Firefox';
-    if (ua.includes('Chrome/') && !ua.includes('Chromium/')) return 'Chrome';
-    if (ua.includes('Chromium/')) return 'Chromium';
-    // Safari's UA contains "Safari/" but also "Chrome/" when spoofing; the
-    // Chrome branch above already filtered that out.
-    if (ua.includes('Safari/')) return 'Safari';
-
-    return 'Unknown';
-  }
-
-  // Format a byte count into a human-readable string with binary units
-  // (1024-based). Handles zero, negatives, and values larger than 1 YB
-  // without producing "NaN undefined".
-  function formatBytes(bytes) {
-    const n = Number(bytes);
-    if (!Number.isFinite(n)) {
-      throw new TypeError('formatBytes: expected a finite number, got ' + String(bytes));
-    }
-    if (n === 0) return '0 B';
-    const sign = n < 0 ? '-' : '';
-    const abs = Math.abs(n);
-    const k = 1024;
-    const i = Math.min(Math.floor(Math.log(abs) / Math.log(k)), BYTE_UNITS.length - 1);
-    return sign + parseFloat((abs / Math.pow(k, i)).toFixed(1)) + ' ' + BYTE_UNITS[i];
-  }
-
-  // Cross-realm Date validator. `instanceof Date` fails for dates created in
-  // a different realm (iframes, jsdom tests), so we use the toString tag and
-  // check the time is not NaN.
-  function isValidDate(value) {
-    if (value == null || typeof value !== 'object') return false;
-    if (Object.prototype.toString.call(value) !== '[object Date]') return false;
-    return !Number.isNaN(value.getTime());
-  }
-
-  // Format a Date as HH:MM (24h) or H:MM AM/PM (12h), honouring the
-  // clockFormat and timezone settings from the global OS object when present.
-  function formatTime(date) {
-    if (!isValidDate(date)) {
-      throw new TypeError('formatTime: expected a valid Date');
-    }
-    const use24 = (typeof OS !== 'undefined')
-      && OS
-      && OS.settings
-      && typeof OS.settings.get === 'function'
-      && OS.settings.get('clockFormat') === '24h';
-
-    try {
-      const tz = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
-        ? OS.settings.get('timezone')
-        : undefined;
-      const opts = { hour: 'numeric', minute: '2-digit', hour12: !use24 };
-      if (tz) opts.timeZone = tz;
-      const parts = new Intl.DateTimeFormat((typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function') ? OS.settings.get('region') || navigator.language : navigator.language, opts).formatToParts(date);
-      const hourPart = parts.find(p => p.type === 'hour');
-      const minutePart = parts.find(p => p.type === 'minute');
-      const dayPeriodPart = parts.find(p => p.type === 'dayPeriod');
-      if (!hourPart || !minutePart) throw new Error('missing parts');
-      if (use24) {
-        return String(hourPart.value).padStart(2, '0') + ':' + minutePart.value;
-      }
-      return hourPart.value + ':' + minutePart.value + (dayPeriodPart ? ' ' + dayPeriodPart.value : '');
-    } catch {
-      const h = date.getHours();
-      const m = date.getMinutes();
-      if (use24) {
-        return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-      }
-      const h12 = h % 12 || 12;
-      const ampm = h < 12 ? 'AM' : 'PM';
-      return h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
-    }
-  }
-
-  // Format a Date as locale-aware "short weekday short day short month",
-  // honouring the stored region and timezone when available.
-  function formatDate(date) {
-    if (!isValidDate(date)) {
-      throw new TypeError('formatDate: expected a valid Date');
-    }
-    try {
-      const locale = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
-        ? OS.settings.get('region') || navigator.language
-        : navigator.language;
-      const tz = (typeof OS !== 'undefined' && OS.settings && typeof OS.settings.get === 'function')
-        ? OS.settings.get('timezone')
-        : undefined;
-      const opts = { weekday: 'short', day: 'numeric', month: 'short' };
-      if (tz) opts.timeZone = tz;
-      return new Intl.DateTimeFormat(locale, opts).format(date);
-    } catch {
-      return DAY_NAMES[date.getDay()] + ' ' + date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
-    }
-  }
-
-  // Debounce fn by ms milliseconds. The returned function exposes .cancel()
-  // (drop pending call) and .flush() (fire pending call immediately) so
-  // callers can clean up on unmount or before navigation. Preserves `this`
-  // and arguments of the most recent invocation.
-  function debounce(fn, ms) {
-    let timer = null;
-    let pendingArgs = null;
-    let pendingThis = null;
-
-    function fire() {
-      timer = null;
-      const args = pendingArgs;
-      const thisArg = pendingThis;
-      pendingArgs = null;
-      pendingThis = null;
-      fn.apply(thisArg, args);
-    }
-
-    function debounced(...args) {
-      pendingArgs = args;
-      pendingThis = this;
-      if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(fire, ms);
-    }
-
-    debounced.cancel = function cancel() {
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      pendingArgs = null;
-      pendingThis = null;
-    };
-
-    debounced.flush = function flush() {
-      if (timer !== null) {
-        clearTimeout(timer);
-        fire();
-      }
-    };
-
-    return debounced;
-  }
-
-  // Throttle fn to one invocation per animation frame. Uses the latest
-  // arguments and `this` (the original used the first call's arguments,
-  // which gave stale scroll positions for scroll handlers). Exposes .cancel()
-  // to drop a pending frame. Falls back to setTimeout(16ms) when RAF is
-  // unavailable (SSR, jsdom).
-  function throttleRAF(fn) {
-    const scheduleFrame = hasRAF ? requestAnimationFrame : (cb) => setTimeout(cb, 16);
-    const cancelFrame = hasCAF ? cancelAnimationFrame : clearTimeout;
-
-    let scheduledId = null;
-    let pendingArgs = null;
-    let pendingThis = null;
-
-    function run() {
-      scheduledId = null;
-      const args = pendingArgs;
-      const thisArg = pendingThis;
-      pendingArgs = null;
-      pendingThis = null;
-      fn.apply(thisArg, args);
-    }
-
-    function throttled(...args) {
-      pendingArgs = args;
-      pendingThis = this;
-      if (scheduledId !== null) return;
-      scheduledId = scheduleFrame(run);
-    }
-
-    throttled.cancel = function cancel() {
-      if (scheduledId !== null) {
-        cancelFrame(scheduledId);
-        scheduledId = null;
-      }
-      pendingArgs = null;
-      pendingThis = null;
-    };
-
-    return throttled;
-  }
-
-  // Best-effort localStorage write. Operational storage failures (quota,
-  // private mode, disabled storage) are swallowed because the app must
-  // continue. Programmer errors (bad key, non-serialisable value) are
-  // rethrown so they surface during development. If the AppDirs VFS sync
-  // helper exists, it is invoked fire-and-forget so a slow sync never blocks
-  // the caller.
-  function lsSave(key, value) {
-    const stored = typeof value === 'string' ? value : JSON.stringify(value);
-
-    try {
-      localStorage.setItem(key, stored);
-    } catch (err) {
-      const isStorageError = err instanceof DOMException && (
-        err.name === 'QuotaExceededError' ||
-        err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-        err.name === 'SecurityError'
-      );
-      if (isStorageError) {
-        // Best-effort: log and continue. The app degrades gracefully when
-        // persistence is unavailable.
-        if (hasWindow && window.console && typeof window.console.warn === 'function') {
-          console.warn('lsSave: storage unavailable (' + err.name + ') for key ' + key);
-        }
-        return;
-      }
-      throw err;
-    }
-
-    if (hasWindow && window.AppDirs && window.AppDirs.vfsFolders && typeof window.AppDirs.syncKey === 'function') {
-      try {
-        const maybePromise = window.AppDirs.syncKey(key, value);
-        if (maybePromise && typeof maybePromise.catch === 'function') {
-          maybePromise.catch(() => { /* sync is best-effort */ });
-        }
-      } catch (_) {
-        // Synchronous failure setting up the sync — ignore.
-      }
-    }
-  }
-
-  // Tiny DOM builder. Supports className/class, textContent, style (object
-  // or string), on* event handlers, boolean attributes, and arbitrary
-  // attributes. Uses setAttribute('class', ...) so the same call works for
-  // HTML and SVG elements (el.className is read-only on SVG).
-  function createEl(tag, attrs, children) {
-    const el = document.createElement(tag);
-
-    if (attrs) {
-      for (const [key, value] of Object.entries(attrs)) {
-        if (value == null) continue;
-
-        if (key === 'className' || key === 'class') {
-          el.setAttribute('class', value);
-        } else if (key === 'textContent') {
-          el.textContent = value;
-        } else if (key === 'style') {
-          if (typeof value === 'object') {
-            Object.assign(el.style, value);
-          } else {
-            el.style.cssText = String(value);
-          }
-        } else if (key === 'dataset' && typeof value === 'object') {
-          for (const [dk, dv] of Object.entries(value)) {
-            el.dataset[dk] = dv;
-          }
-        } else if (key.startsWith('on') && typeof value === 'function') {
-          el.addEventListener(key.slice(2).toLowerCase(), value);
-        } else if (typeof value === 'boolean') {
-          if (value) el.setAttribute(key, '');
-          else el.removeAttribute(key);
-        } else {
-          el.setAttribute(key, value);
-        }
-      }
-    }
-
-    if (children != null) {
-      if (Array.isArray(children)) {
-        // Batch appends via a fragment so we trigger a single reflow.
-        const frag = document.createDocumentFragment();
-        for (const child of children) {
-          // Preserve original falsy-skip behaviour so visuals stay identical
-          // for callers that pass sparse arrays.
-          if (!child && child !== 0) continue;
-          if (typeof child === 'string' || typeof child === 'number') {
-            frag.appendChild(document.createTextNode(String(child)));
-          } else if (child instanceof Node) {
-            frag.appendChild(child);
-          }
-          // else: silently skip unknown types — matches original behaviour.
-        }
-        el.appendChild(frag);
-      } else if (typeof children === 'string' || typeof children === 'number') {
-        el.textContent = String(children);
-      } else if (children instanceof Node) {
-        el.appendChild(children);
-      } else {
-        // Unknown child type — coerce to string for safety.
-        el.textContent = String(children);
-      }
-    }
-
-    return el;
-  }
-
-  // Return HTML markup for an icon. Three cases:
-  //   1. Inline SVG (UI_ICONS) — scalable, no HTTP request.
-  //   2. data: URL — escaped and embedded as <img>.
-  //   3. icons8 PNG — fallback for the broad icon set.
-  //
-  // All <img> output uses data-hide-on-error instead of an inline onerror
-  // handler so the file is CSP-compliant (script-src without 'unsafe-inline').
-  // Matches a string that is (mostly) emoji rather than an icon-set key name
-  // like 'settings' or 'browser'. Icon keys are always plain ASCII letters/
-  // hyphens, so any string containing emoji/pictographic codepoints is
-  // unambiguously an emoji icon, not a lookup key.
-  const EMOJI_RE = /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F]/u;
-  function isEmoji(str) {
-    return EMOJI_RE.test(str);
-  }
-
-  function svgIcon(name, size) {
-    const safeSize = coerceIconSize(size);
-
-    if (typeof name === 'string' && name.startsWith('data:')) {
-      // Escape characters that would break out of the src attribute. Valid
-      // data: URLs never contain raw " or <, but we defend against malformed
-      // input.
-      const safeSrc = String(name)
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;');
-      return '<img src="' + safeSrc + '" width="' + safeSize + '" height="' + safeSize +
-        '" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;"' +
-        ' draggable="false" alt="" aria-hidden="true" data-hide-on-error>';
-    }
-
-    if (typeof name === 'string' && name.startsWith('/assets/')) {
-      return '<img src="' + name + '" width="' + safeSize + '" height="' + safeSize +
-        '" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;"' +
-        ' draggable="false" alt="" aria-hidden="true">';
-    }
-
-    // Web apps (WebAppManager) store their icon as a plain emoji character
-    // (e.g. the '🌐' default) rather than a UI_ICONS key or icons8 name.
-    // Without this check that string falls through to the icons8 <img>
-    // branch below, requests a nonexistent '/assets/icons8-🌐-94.png', 404s,
-    // and gets hidden by data-hide-on-error — leaving pinned web apps with
-    // no icon on the desktop/taskbar. Render emoji as text instead.
-    if (typeof name === 'string' && isEmoji(name)) {
-      return '<span style="display:inline-flex;align-items:center;justify-content:center;' +
-        'width:' + safeSize + 'px;height:' + safeSize + 'px;font-size:' + Math.round(safeSize * 0.82) +
-        'px;line-height:1;" aria-hidden="true">' + name + '</span>';
-    }
-
-    const cacheKey = name + '|' + safeSize;
-    const cached = iconCache.get(cacheKey);
-    if (cached !== undefined) return cached;
-
-    let html;
-    if (UI_ICONS[name]) {
-      html = '<svg width="' + safeSize + '" height="' + safeSize +
-        '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
-        ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
-        UI_ICONS[name] + '</svg>';
-    } else {
-      const specialName = ICON_SPECIAL[name];
-      const i8name = specialName || ICON_MAP[name] || name;
-      const localPath = specialName
-        ? '/assets/icons8-' + specialName + '.png'
-        : '/assets/icons8-' + i8name + '-94.png';
-      html = '<img src="' + localPath + '" width="' + safeSize + '" height="' + safeSize +
-        '" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;"' +
-        ' draggable="false" alt="" aria-hidden="true" data-hide-on-error>';
-    }
-
-    if (iconCache.size < ICON_CACHE_LIMIT) {
-      iconCache.set(cacheKey, html);
-    }
-    return html;
-  }
-
-  // Install the delegated error listener on first script load. Idempotent
-  // across multiple inclusions of this file on the same page.
-  installHideOnErrorListener();
-
-  // --- Public surface -----------------------------------------------------
-  // Every function above is also assigned to window here so the intended
-  // public API is explicit, and so the file remains usable if it is ever
-  // migrated to an ES module wrapper (where top-level declarations would no
-  // longer auto-attach to window).
-  if (hasWindow) {
-    window.generateId = generateId;
-    window.sanitiseHTML = sanitiseHTML;
-    window.escapeText = escapeText;
-    window.escapeHtml = escapeHtml;
-    window.safeEvaluateArithmetic = safeEvaluateArithmetic;
-    window.ArithmeticError = ArithmeticError;
-    window.detectBrowser = detectBrowser;
-    window.formatBytes = formatBytes;
-    window.formatTime = formatTime;
-    window.formatDate = formatDate;
-    window.debounce = debounce;
-    window.throttleRAF = throttleRAF;
-    window.lsSave = lsSave;
-    window.createEl = createEl;
-    window.svgIcon = svgIcon;
-
-    window.detectLightBackground = function(x, y) {
-      try {
-        const el = document.elementFromPoint(x, y);
-        if (!el) return false;
-        if (el.tagName === 'WEBVIEW' || el.closest('webview')) return true;
-        if (el.closest('canvas')) return true;
-        const bg = getComputedStyle(el).backgroundColor;
-        const m = bg.match(/\d+/g);
-        if (!m || m.length < 3) return false;
-        const r = parseInt(m[0], 10);
-        const g = parseInt(m[1], 10);
-        const b = parseInt(m[2], 10);
-        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-        return luminance > 160;
-      } catch (e) {
-        return false;
-      }
-    };
-
-    window.applyContrastClass = function(element, x, y) {
-      if (!element) return;
-      if (window.detectLightBackground(x, y)) {
-        element.classList.add('light-bg');
-      } else {
-        element.classList.remove('light-bg');
-      }
-    };
-  }
-})();
-const ContextMenu = {
-  current: null,
-  _activeDismiss: null, // Track the current event handler for absolute safety
-  _coveredWebviews: [],
-
-  show(x, y, items) {
-    ContextMenu.hide();
-    
-    const menu = createEl('div', { className: 'context-menu', role: 'menu' });
-    const fragment = document.createDocumentFragment();
-    const len = items.length;
-
-    // Use a high-performance indexed loop instead of for...of
-    for (let i = 0; i < len; i++) {
-      const item = items[i];
-      
-      if (item.separator) {
-        fragment.appendChild(createEl('div', { className: 'ctx-separator' }));
-        continue;
-      }
-      
-      const btn = createEl('button', {
-        className: 'ctx-item' + (item.danger ? ' danger' : '') + (item.disabled ? ' disabled' : ''),
-        role: 'menuitem',
-        'aria-label': item.label,
-        'aria-disabled': item.disabled ? 'true' : 'false'
-      });
-      if (item.disabled) btn.disabled = true;
-      
-      // Store reference to the specific action directly on the DOM element for event delegation
-      if (item.action) btn._action = item.action;
-
-      if (item.icon) {
-        const iconEl = createEl('span');
-        iconEl.innerHTML = svgIcon(item.icon, 14);
-        btn.appendChild(iconEl);
-      }
-      
-      btn.appendChild(createEl('span', { textContent: item.label }));
-      
-      if (item.shortcut) {
-        btn.appendChild(createEl('span', { className: 'ctx-shortcut', textContent: item.shortcut }));
-      }
-      
-      fragment.appendChild(btn);
-    }
-
-    menu.appendChild(fragment);
-    menu.style.visibility = 'hidden';
-    document.body.appendChild(menu);
-
-    const rect = menu.getBoundingClientRect();
-    const winW = window.innerWidth;
-    const winH = window.innerHeight;
-
-    if (x + rect.width > winW) x = winW - rect.width - 8;
-    if (y + rect.height > winH) y = winH - rect.height - 8;
-    
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
-
-    // Sample background behind the menu to decide text color
-    try {
-      const samplePoints = [];
-      const step = 20;
-      for (let sx = x + 5; sx < x + rect.width - 5; sx += step) {
-        for (let sy = y + 5; sy < y + rect.height - 5; sy += step) {
-          samplePoints.push({ x: sx, y: sy });
-        }
-      }
-      if (samplePoints.length > 0) {
-        let lightSample = false;
-        let validSamples = 0;
-        for (const pt of samplePoints) {
-          const el = document.elementFromPoint(pt.x, pt.y);
-          if (!el) continue;
-          if (el.tagName === 'WEBVIEW' || el.closest('webview')) {
-            lightSample = true;
-            break;
-          }
-          const bg = getComputedStyle(el).backgroundColor;
-          const m = bg.match(/\d+/g);
-          if (!m || m.length < 3) continue;
-          validSamples++;
-          const r = parseInt(m[0], 10);
-          const g = parseInt(m[1], 10);
-          const b = parseInt(m[2], 10);
-          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-          if (luminance > 160) {
-            lightSample = true;
-            break;
-          }
-        }
-        if (lightSample || validSamples === 0) {
-          menu.classList.add('light-bg');
-        }
-      } else {
-        menu.classList.add('light-bg');
-      }
-    } catch (e) {
-      // If sampling fails, keep default dark text
-    }
-
-    const menuRight = x + rect.width;
-    const menuBottom = y + rect.height;
-    for (const webview of document.querySelectorAll('webview, nova-nested-webview')) {
-      const viewRect = webview.getBoundingClientRect();
-      const overlaps = viewRect.left < menuRight && viewRect.right > x
-        && viewRect.top < menuBottom && viewRect.bottom > y;
-      if (!overlaps || getComputedStyle(webview).visibility === 'hidden') continue;
-      ContextMenu._coveredWebviews.push([webview, webview.style.visibility]);
-      webview.style.visibility = 'hidden';
-    }
-
-    menu.style.visibility = '';
-    ContextMenu.current = menu;
-
-    menu.addEventListener('click', (e) => {
-      const btn = e.target.closest('.ctx-item');
-      if (btn) {
-        ContextMenu.hide();
-        if (btn._action) btn._action();
-      }
-    });
-
-    // Optimized dismiss handler using capture phase to avoid setTimeout lag
-    const dismiss = (e) => {
-      if (!menu.contains(e.target)) {
-        ContextMenu.hide();
-      }
-    };
-    
-    ContextMenu._activeDismiss = dismiss;
-    document.addEventListener('pointerdown', dismiss, { capture: true, passive: true });
-  },
-
-  hide() {
-    if (ContextMenu.current) {
-      ContextMenu.current.remove();
-      ContextMenu.current = null;
-    }
-    for (const [webview, visibility] of ContextMenu._coveredWebviews) {
-      if (webview.isConnected) webview.style.visibility = visibility;
-    }
-    ContextMenu._coveredWebviews.length = 0;
-    if (ContextMenu._activeDismiss) {
-      document.removeEventListener('pointerdown', ContextMenu._activeDismiss, { capture: true });
-      ContextMenu._activeDismiss = null;
-    }
-  }
-};
-
-window.ContextMenu = ContextMenu;
-(() => {
-  'use strict';
-  const APP_ID = 'com.nbosp.browser';
-  const call = (type, payload = {}) => window.nova?.ipc?.(type, payload);
-
-  // Launch options are injected by AppSandbox; keep a safe local copy.
-  const launchOptions = (window.__NOVA_APP_OPTIONS__ && typeof window.__NOVA_APP_OPTIONS__ === 'object')
-    ? window.__NOVA_APP_OPTIONS__ : {};
-
-  // Browser is a first-party package, but its guest is still isolated from
-  // host globals. Provide the same public surfaces that the original app used.
-  window.AppDirs = { getVFSDir: () => '/data/' + APP_ID + '/files' };
-  window.OS = {
-    volume: 80,
-    settings: {
-      get(key) {
-        try { return JSON.parse(localStorage.getItem('nbosp.browser.setting.' + key) || 'null'); } catch { return null; }
-      },
-      set(key, value) {
-        try { localStorage.setItem('nbosp.browser.setting.' + key, JSON.stringify(value)); return true; } catch { return false; }
-      }
-    },
-    events: { emit() {}, on() {}, off() {} },
-    applyVolumeToWebviews() {}
-  };
-
-  const permissionReady = new Promise(resolve => {
-    const started = Date.now();
-    (function poll() {
-      const r = window.__novaPermResponse;
-      if (r && Array.isArray(r.permissions)) return resolve(r);
-      if (Date.now() - started > 15000) return resolve({ permissions: [], deniedPermissions: [] });
-      setTimeout(poll, 20);
-    })();
-  });
-  const normalizeId = id => id === 'browser' ? APP_ID : id;
-  window.AppPermissionManager = {
-    async ready() { return permissionReady; },
-    isGranted(permission, id = APP_ID) {
-      const r = window.__novaPermResponse;
-      return normalizeId(id) === APP_ID && !!r?.permissions?.includes(permission);
-    },
-    isDenied(permission, id = APP_ID) {
-      const r = window.__novaPermResponse;
-      return normalizeId(id) === APP_ID && !!r?.deniedPermissions?.includes(permission);
-    },
-    async requestPermission(permission, id = APP_ID, opts = {}) {
-      if (normalizeId(id) !== APP_ID) return false;
-      const permissionState = await permissionReady;
-      const response = await call('nova:request-permission', {
-        permission,
-        reason: opts.reason || `Browser needs ${permission}.`,
-        permanent: opts.permanent !== false
-      });
-      const granted = response?.granted === true;
-      if (granted) {
-        const currentState = window.__novaPermResponse || permissionState;
-        window.__novaPermResponse = currentState;
-        if (Array.isArray(currentState.permissions) && !currentState.permissions.includes(permission)) {
-          currentState.permissions.push(permission);
-        }
-        if (Array.isArray(currentState.deniedPermissions)) {
-          currentState.deniedPermissions = currentState.deniedPermissions.filter(p => p !== permission);
-        }
-      }
-      return granted;
-    }
-  };
-
-  window.Notify = { show: opts => call('nova:notifications:show', opts).catch(() => {}) };
-
-  // The Browser's context menus remain inside the Browser document, so use the
-  // exact OS menu implementation rather than moving them into the parent DOM.
-  // menu.js is loaded immediately before this shim's app adapter below.
-
-  window.WM = {
-    createWindow(id, options) {
-      const appId = id === 'nbosp-downloads' ? 'com.nbosp.downloads' : id;
-      return call('nova:browser:window', { action: 'create', appId, options: options || {} }).catch(() => null);
-    }
-  };
-
-  window.ipc = {
-    postMessage(msg) {
-      try {
-        const m = typeof msg === 'string' ? JSON.parse(msg) : msg;
-        if (m?.type === 'browser:closeAll') return call('nova:browser:window', { action: 'closeAll' });
-      } catch {}
-    }
-  };
-
-  window.Downloads = {
-    add(name, url, size = 0, mime = '') {
-      const id = 'dl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-      call('nova:browser:download-record', { action: 'add', id, name, url, size, mime }).catch(() => {});
-      return { id };
-    },
-    setStatus(id, status, size) {
-      call('nova:browser:download-record', { action: 'status', id, status, size }).catch(() => {});
-    }
-  };
-
-  // Host-backed VFS mirror. Metadata is loaded once; file contents are fetched
-  // only when the Browser actually needs them.
-  const nodes = new Map();
-  function pathJoin(parent, name) { return (parent === '/' ? '' : parent) + '/' + name; }
-  const FS = {
-    files: nodes, rootId: null, specialFolders: {},
-    listDir(id) {
-      const out = [];
-      for (const n of nodes.values()) if (n.parentId === id) out.push(n);
-      return out.sort((a,b) => a.type !== b.type ? (a.type === 'folder' ? -1 : 1) : a.name.localeCompare(b.name));
-    },
-    getPath(id) { return nodes.get(id)?.path || ''; },
-    getByPath(path) {
-      if (path === '/') return nodes.get(this.rootId) || null;
-      for (const n of nodes.values()) if (n.path === path) return n;
-      return null;
-    },
-    async refresh() {
-      nodes.clear();
-      const root = await call('nova:vfs:stat', { path: '/' });
-      if (!root?.success) throw new Error(root?.message || 'Unable to access filesystem');
-      const add = n => { nodes.set(n.id, {...n, content: undefined}); };
-      add(root.stat); this.rootId = root.stat.id;
-      const queue = [this.rootId];
-      while (queue.length) {
-        const id = queue.shift();
-        const r = await call('nova:vfs:list', { id });
-        if (!r?.success) continue;
-        for (const c of (r.files || [])) {
-          add({...c, path: pathJoin(r.path || '/', c.name), parentId: id});
-          if (c.type === 'folder') queue.push(c.id);
-        }
-      }
-      for (const n of nodes.values()) {
-        if (n.parentId === this.rootId && n.type === 'folder') {
-          const key = n.name.toLowerCase();
-          if (['desktop','documents','downloads','music','pictures','videos','trash'].includes(key)) this.specialFolders[key] = n.id;
-        }
-      }
-      return this;
-    },
-    async getFile(id) {
-      const r = await call('nova:vfs:read', { id });
-      if (!r?.success) return null;
-      const n = nodes.get(id);
-      if (n) n.content = r.data;
-      return n ? {...n} : null;
-    },
-    async createFile(parentId, name, content, mimeType) {
-      const parent = nodes.get(parentId);
-      if (!parent) throw new Error('Parent folder not found');
-      const r = await call('nova:vfs:write', { path: pathJoin(parent.path || '/', name), content, mimeType: mimeType || 'text/plain' });
-      if (!r?.success) throw new Error(r?.message || 'Failed to create file');
-      await this.refresh();
-      return nodes.get(r.id) || this.getByPath(r.path);
-    }
-  };
-  window.FS = FS;
-
-  // Browser source uses a few legacy NW-only calls defensively. They are
-  // intentionally left absent so its existing feature detection handles them.
-
-  window.registerApp = function(config) {
-    window.__NOVA_APP_CONFIG__ = config;
-    const state = { cleanups: [] };
-    window.__NOVA_APP_STATE__ = state;
-    const run = async () => {
-      try {
-        // Never block initial UI rendering on the permission handshake or
-        // the full VFS metadata walk. Privileged operations remain host-gated
-        // and the VFS mirror is populated in parallel.
-        const fsReady = FS.refresh().catch((err) => {
-          console.warn('[Browser] VFS mirror unavailable during startup:', err);
-          return null;
-        });
-        await config.init(document.getElementById('app') || document.body, state, launchOptions);
-        await fsReady;
-      } catch (err) {
-        console.error('[Browser] init failed:', err);
-        const content = document.getElementById('app') || document.body;
-        content.innerHTML = '<div style="padding:24px;font-family:var(--font-ui,sans-serif);color:var(--text-danger);">Browser failed to start: ' + String(err?.message || err) + '</div>';
-      }
-    };
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, { once: true }); else queueMicrotask(run);
-  };
-})();
-
 // Shared network activity log, read by Perf Monitor's Network tab.
 //
-// Defined at true top level (script-eval time), not inside init(), so the
+// Defined during script evaluation, not inside init(), so the
 // log exists the moment this script evaluates regardless of which windows
 // are open. Perf Monitor could open before Browser, or Browser traffic
 // could fire before Perf Monitor ever opens, and neither app controls the
-// other's load order — a top-level definition is the only safe option.
+// other's load order — synchronous script evaluation is the safe option.
 //
 // Guarded with `window.NetworkLog ||` so re-including this script doesn't
 // clobber entries already pushed.
+(function () {
+  const BROWSER_APP_ID = 'com.nbosp.browser';
+  const packageFiles = window.__novaUnrestrictedPackage?.files || {};
+  const osSvgIcon = window.svgIcon;
+
+  function svgIcon(name, size = 16) {
+    if (name === 'unlock') {
+      return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>`;
+    }
+
+    if (typeof osSvgIcon !== 'function') {
+      throw new Error('NovaByte icon renderer is unavailable');
+    }
+
+    return osSvgIcon(name, size).replace(/src="\/assets\/([^"]+)"/g, (attribute, fileName) => {
+      const encoded = packageFiles[`icons/${fileName}`];
+      if (!encoded) {
+        throw new Error(`Browser package is missing icon asset icons/${fileName}`);
+      }
+      return `src="data:image/png;base64,${encoded}"`;
+    });
+  }
+
 window.NetworkLog = window.NetworkLog || {
   entries: [],
   MAX_ENTRIES: 500, // ring buffer — a busy session could otherwise grow unbounded
@@ -1223,8 +53,8 @@ window.NetworkLog = window.NetworkLog || {
 };
 
 registerApp({
-  id: 'com.nbosp.browser', name: 'Browser', icon: 'globe',
-  version: '3.0.3',
+  id: BROWSER_APP_ID, name: 'Browser', icon: 'globe',
+  version: '3.0.2',
   description: 'Web Browser',
   defaultSize: [900, 600], minSize: [500, 350],
 
@@ -1256,14 +86,11 @@ registerApp({
     }
   },
 
-  async init(content, state, options) {
+  init(content, state, options) {
     'use strict';
 
-    content.style.overflow = 'hidden';
-    content.style.minHeight = '0';
-
     // NovaByte runtime guard — refuses to launch without AppDirs.
-    if (!window.AppDirs?.getVFSDir('com.nbosp.browser', 'files')) {
+    if (!window.AppDirs?.getVFSDir(BROWSER_APP_ID, 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML =
         '<div style="font-size:32px">⚠️</div>' +
@@ -1387,7 +214,8 @@ registerApp({
       // Any other external URL — proxy it via the favicon endpoint using the URL's hostname.
       if (/^https?:\/\//i.test(favicon)) {
         try {
-          result = '/api/favicon?url=' + encodeURIComponent(favicon);
+          const domain = new URL(favicon).hostname;
+          result = '/api/favicon?domain=' + encodeURIComponent(domain);
         } catch (err) {
           console.debug('[NB Browser] favicon domain extract failed:', favicon, err);
           result = favicon;
@@ -1626,12 +454,9 @@ registerApp({
         const faviconSpan = createEl('span', { className: 'tab-icon' });
         if (tab.favicon) {
           const img = createEl('img', {
-            src: normFavicon(tab.favicon, tab.url),
+            src: normFavicon(tab.favicon),
             style: { width: '14px', height: '14px', borderRadius: '2px' }
           });
-          img.addEventListener('error', () => {
-            faviconSpan.innerHTML = svgIcon('globe', 14);
-          }, { once: true });
           faviconSpan.appendChild(img);
         } else {
           faviconSpan.innerHTML = svgIcon('globe', 14);
@@ -2558,7 +1383,7 @@ registerApp({
     async function ensureBrowserFsWritePermission() {
       const mgr = window.AppPermissionManager;
       if (!mgr) return true;
-      const appId = 'com.nbosp.browser';
+      const appId = BROWSER_APP_ID;
       if (mgr.isGranted('vfs:write', appId)) return true;
       if (mgr.isDenied?.('vfs:write', appId)) {
         Notify.show({
@@ -2642,19 +1467,11 @@ registerApp({
         }
         // Fetch title + href together and save history after each load.
         try {
-          wv.executeScript({
-            code: `[
-              document.title,
-              location.href,
-              Array.from(document.querySelectorAll('link[rel]'))
-                .find(link => /(?:^|\\s)(?:icon|shortcut icon|apple-touch-icon)(?:\\s|$)/i.test(link.rel))
-                ?.href || ''
-            ]`
-          }, r => {
+          wv.executeScript({ code: '[document.title, location.href]' }, r => {
             if (chrome.runtime?.lastError) return;
             const result = Array.isArray(r) ? r[0] : null;
             if (!Array.isArray(result)) return;
-            const [title, url, iconUrl] = result;
+            const [title, url] = result;
             const tab = tabs.find(t => t.id === tabId);
             if (!tab) return;
             if (title) {
@@ -2665,9 +1482,7 @@ registerApp({
             }
             try {
               const hostname = new URL(url || tab.url).hostname;
-              tab.favicon = typeof iconUrl === 'string' && iconUrl
-                ? iconUrl
-                : '/api/favicon?domain=' + encodeURIComponent(hostname);
+              tab.favicon = '/api/favicon?domain=' + hostname;
               if (tabId === activeTabId) renderTabs(); // re-render for favicon
             } catch { /* ignore */ }
             if (url && !url.startsWith('novabyte:') && !url.startsWith('file://')) {
@@ -2948,7 +1763,7 @@ registerApp({
       });
 
       // Popup / new-window support (NW.js Chrome Apps webview API).
-      wv.addEventListener('newwindow', async e => {
+      wv.addEventListener('newwindow', e => {
         const url = e.targetUrl;
         if (!url || url === 'about:blank' || url.startsWith('javascript:')) return;
 
@@ -3047,7 +1862,15 @@ registerApp({
             if (!/^(javascript|data|vbscript|about):/i.test(_bgCanonical) && !isLocalAddress(url)) {
               // Bypasses navigate() entirely (sets wv.src directly), so the
               // net:external gate there doesn't apply here — check it again.
-              if (!/^https?:\/\//i.test(url) || await ensureExternalNetworkPermission()) bgWv.src = url;
+              if (/^https?:\/\//i.test(url) && !AppPermissionManager?.isGranted('net:external', BROWSER_APP_ID)) {
+                Notify.show({
+                  title: 'Permission denied',
+                  body: 'Browser needs the "External network" permission to load websites. Grant it in Settings → Apps.',
+                  type: 'error', appName: 'Browser'
+                });
+              } else {
+                bgWv.src = url;
+              }
             }
           } else {
             switchToTab(newTab.id);
@@ -3270,7 +2093,7 @@ registerApp({
       });
 
       wv.addEventListener('permissionrequest', e => {
-        const appId = 'com.nbosp.browser';
+        const appId = 'browser';
         if (e.permission === 'geolocation') {
           const osAllowed = AppPermissionManager?.isGranted('device:geolocation', appId);
           const browserAllowed = getSetting('enable_geolocation', true);
@@ -3337,7 +2160,7 @@ registerApp({
               const _tabId = wv._nbTabId;
               const tab = tabs.find(t => t.id === _tabId);
               window.NetworkLog?.push({
-                source: 'com.nbosp.browser',
+                source: 'browser',
                 tabId: _tabId,
                 tabTitle: tab?.title || 'Tab ' + _tabId,
                 method: details.method,
@@ -3361,7 +2184,7 @@ registerApp({
               const _tabId = wv._nbTabId;
               const tab = tabs.find(t => t.id === _tabId);
               window.NetworkLog?.push({
-                source: 'com.nbosp.browser',
+                source: 'browser',
                 tabId: _tabId,
                 tabTitle: tab?.title || 'Tab ' + _tabId,
                 method: details.method,
@@ -3383,8 +2206,7 @@ registerApp({
       // Per-page CSS: inverted colours + min font size + text zoom.
       // Injected after every loadstop so SPA navigations stay styled.
       wv.addEventListener('loadstop', () => {
-        let css = '* { scrollbar-width: none !important; } '
-          + '*::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; } ';
+        let css = '';
         if (getSetting('inverted', false))
           css += 'html { filter: invert(1) hue-rotate(180deg) !important; } img, video { filter: invert(1) hue-rotate(180deg) !important; } ';
         const minFont = getSetting('min_font_size', 0);
@@ -3931,35 +2753,7 @@ registerApp({
     // Navigate the active tab to a URL. Handles all URL schemes the browser
     // supports: browser://, vault:, http/https, plus search-query fallback
     // for inputs that aren't URLs.
-    async function ensureExternalNetworkPermission() {
-      if (AppPermissionManager?.isGranted('net:external', 'com.nbosp.browser')) return true;
-      let granted = false;
-      try {
-        granted = typeof AppPermissionManager?.requestPermission === 'function'
-          && await AppPermissionManager.requestPermission('net:external', 'com.nbosp.browser', {
-            appName: 'Browser',
-            reason: 'Browser needs permission to connect to external websites.'
-          });
-      } catch (error) {
-        console.error('[NB Browser] External network permission request failed:', error);
-        Notify.show({
-          title: 'Permission request failed',
-          body: error?.message || 'Browser could not request external network access.',
-          type: 'error', appName: 'Browser'
-        });
-        return false;
-      }
-      if (!granted) {
-        Notify.show({
-          title: 'Permission denied',
-          body: 'External network access is required to load websites. You can grant it in Settings → Apps.',
-          type: 'error', appName: 'Browser'
-        });
-      }
-      return !!granted;
-    }
-
-    async function navigate(rawUrl) {
+    function navigate(rawUrl) {
       if (!rawUrl) return;
       let url = rawUrl.trim();
       // Canonicalize: strip ALL control chars before scheme checks.
@@ -3995,7 +2789,7 @@ registerApp({
 
       // vault:// URL handling — open a file from the OS virtual filesystem.
       if (url.startsWith('vault:')) {
-        if (!AppPermissionManager?.isGranted('vfs:write', 'com.nbosp.browser')) {
+        if (!AppPermissionManager?.isGranted('vfs:write', BROWSER_APP_ID)) {
           Notify.show({
             title: 'Permission denied', body: 'Browser needs fs:write to access vault files.',
             type: 'error', appName: 'Browser'
@@ -4018,7 +2812,6 @@ registerApp({
           const nodePath = parts.join('/');
           if (nodePath === vaultRel || node.name === vaultRel) { targetNode = node; break; }
         }
-        if (targetNode && targetNode.content == null) await FS.getFile(targetNode.id);
         if (targetNode && targetNode.content != null) {
           urlBar.value = stripHttps(url); currentUrl = url; updateUrlIcon(url);
           const activeT = activeTab();
@@ -4097,8 +2890,13 @@ registerApp({
       // way vault:// above gates on vfs:write: check first, notify + bail
       // if missing, rather than letting the webview/iframe silently load
       // the URL regardless of what the user actually granted.
-      if (/^https?:\/\//i.test(url) && !(await ensureExternalNetworkPermission())) {
+      if (/^https?:\/\//i.test(url) && !AppPermissionManager?.isGranted('net:external', BROWSER_APP_ID)) {
         urlBar.value = stripHttps(url);
+        Notify.show({
+          title: 'Permission denied',
+          body: 'Browser needs the "External network" permission to load websites. Grant it in Settings → Apps.',
+          type: 'error', appName: 'Browser'
+        });
         return;
       }
 
@@ -4339,7 +3137,7 @@ registerApp({
     // Open HTML file from vault — triggered when the browser is launched
     // with options.fileId (e.g. double-clicking an HTML file in Files app).
     if (options?.fileId) {
-      if (!AppPermissionManager?.isGranted('vfs:write', 'com.nbosp.browser')) {
+      if (!AppPermissionManager?.isGranted('vfs:write', BROWSER_APP_ID)) {
         Notify.show({
           title: 'Permission denied', body: 'Browser needs fs:write to open vault files.',
           type: 'error', appName: 'Browser'
@@ -4347,7 +3145,6 @@ registerApp({
         return;
       }
       const fileNode = FS.files.get(options.fileId);
-      if (fileNode != null && fileNode.content == null) await FS.getFile(options.fileId);
       if (fileNode != null && fileNode.content != null) {
         function getVaultPath(node) {
           const parts = [node.name];
@@ -4447,3 +3244,4 @@ registerApp({
     })();
   }
 });
+})();

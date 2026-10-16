@@ -3,7 +3,7 @@
   "name": "TextEdit",
   "version": "3.0.2",
   "description": "Plain text editor with line numbers, bracket matching, and word count.",
-  "author": "NovaByte",
+  "author": "NovaByteOfficial",
   "entry": "index.html",
   "icon": "pen-tool",
   "type": "blank",

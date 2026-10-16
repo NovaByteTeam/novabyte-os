@@ -1957,7 +1957,7 @@ function renderDesktopIcons() {
         // alone only renders content for apps that already define .init(),
         // and a web app shortcut's target has never had one set at this
         // point unless the app happened to be launched earlier this session
-        // from somewhere that did (only appmanager.js's Open button did).
+        // from somewhere that did (only the App Manager's Open button did).
         // Without this, double-clicking the shortcut opened a blank window.
         if (typeof shortcutData.target === 'string' && shortcutData.target.startsWith('webapp_') && typeof window.openWebApp === 'function') {
           window.openWebApp(shortcutData.target.slice('webapp_'.length));

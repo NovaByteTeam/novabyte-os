@@ -8,7 +8,7 @@
  *
  * Currently wired into:
  *   - Desktop / Files vault drag-and-drop (js/core/ui/wm.js, js/apps/files.js)
- *   - App Manager package install (js/apps/appmanager.js)
+ *   - App Manager package install (js/apps/appmanager/app.js)
  *
  * Exposed globally as window.Scanner so any other app/feature can call into
  * it before trusting file content it receives from outside the OS.

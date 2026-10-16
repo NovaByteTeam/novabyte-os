@@ -42,9 +42,9 @@ const APP_REGISTRY = [];
 
       /* ── Shared web app launch/removal — single source of truth ──
        * There used to be two independent "launch a web app" implementations
-       * (appmanager.js and system-events.js) plus two more code paths that
+       * (the App Manager package and system-events.js) plus two more code paths that
        * opened a web app window without building one at all (desktop
-       * shortcut double-click, taskbar pin click). Only the appmanager.js
+       * shortcut double-click, taskbar pin click). Only the App Manager package
        * version worked, because WM.createWindow() only renders content for
        * an app if OS.apps[id].init() is defined — the other paths built (or
        * tried to build) the <webview> by hand after the fact, which either

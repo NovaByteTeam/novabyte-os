@@ -1,9 +1,9 @@
 {
   "id": "com.nbosp.music",
   "name": "Music",
-  "version": "3.0.3",
+  "version": "3.0.2",
   "description": "Music Player",
-  "author": "NovaByte",
+  "author": "NovaByteOfficial",
   "entry": "index.html",
   "icon": "music",
   "type": "blank",

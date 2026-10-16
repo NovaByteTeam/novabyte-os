@@ -87,7 +87,7 @@ const AppSandbox = (() => {
   // without a separate permission grant. These are audited first-party apps
   // whose code ships with the OS, so the same-origin risk is acceptable.
   const SYSTEM_SANDBOX_APPS = new Set([
-    'com.nbosp.settings', 'app-manager', 'browser', 'com.nbosp.browser', 'com.nbosp.email', 'com.nbosp.gallery',
+    'com.nbosp.settings', 'app-manager', 'com.nbosp.appmanager', 'browser', 'com.nbosp.browser', 'com.nbosp.email', 'com.nbosp.gallery',
     'com.nbosp.downloads', 'nbosp-search', 'com.nbosp.music', 'com.nbosp.contacts',
     'calendar-app', 'com.nbosp.calculator', 'com.nbosp.clock', 'com.nbosp.quill', 'vault', 'com.nbosp.shell',
   ]);
@@ -1420,6 +1420,48 @@ const AppSandbox = (() => {
       const sandboxAttr = webview.getAttribute('sandbox');
       if (sandboxAttr) child.setAttribute('sandbox', sandboxAttr);
       child.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;border:0;display:none;z-index:1;';
+
+      // The Browser hides page scrollbars for a consistent viewport, but its
+      // old loadstop-only insertCSS ran after the first paint and let the
+      // site's native scrollbar flash during navigation. Install the same
+      // suppression at document_start for every Browser guest navigation;
+      // loadstop's insertCSS remains as a final cascade override and still
+      // applies the user's other page settings (zoom, inversion, font size).
+      if (app.id === 'com.nbosp.browser' && typeof child.addContentScripts === 'function') {
+        try {
+          child.addContentScripts([{
+            name: `nova-browser-scrollbar-guard-${id}`,
+            matches: ['<all_urls>'],
+            js: { code: `(() => {
+              const css = 'html,body,*{scrollbar-width:none!important;-ms-overflow-style:none!important}' +
+                '*::-webkit-scrollbar,*::-webkit-scrollbar-thumb,*::-webkit-scrollbar-track,*::-webkit-scrollbar-corner{' +
+                'display:none!important;width:0!important;height:0!important;min-width:0!important;min-height:0!important}';
+              const install = () => {
+                const root = document.documentElement;
+                if (!root) return false;
+                let style = root.querySelector('style[data-nbosp-scrollbar-guard]');
+                if (!style) {
+                  style = document.createElement('style');
+                  style.setAttribute('data-nbosp-scrollbar-guard', '');
+                  style.textContent = css;
+                  (root.head || root).appendChild(style);
+                }
+                return true;
+              };
+              if (!install()) {
+                const observer = new MutationObserver(() => {
+                  if (install()) observer.disconnect();
+                });
+                observer.observe(document, { childList: true, subtree: true });
+              }
+            })();` },
+            run_at: 'document_start',
+            all_frames: false,
+          }]);
+        } catch (error) {
+          log('warn', 'Browser early scrollbar guard registration failed:', error);
+        }
+      }
 
       const cleanups = [];
       const sendEvent = (name, event) => {
@@ -3281,8 +3323,8 @@ const AppSandbox = (() => {
   //
   // These, together with launch (above) and info, are what 'system:apps'
   // actually gates. list/uninstall are straightforward reads/writes on
-  // AppRegistry. install is the interesting one: appmanager.js's real
-  // install flow (processFile in js/apps/appmanager.js) can require up to
+  // AppRegistry. install is the interesting one: the App Manager package's real
+  // install flow (processFile in js/apps/appmanager/app.js) can require up to
   // three human confirmation dialogs — untrusted signer, tampered
   // contents, or "already installed, replace?" — none of which a
   // sandboxed app calling this over IPC can click through. Rather than
@@ -3346,7 +3388,7 @@ const AppSandbox = (() => {
     }
     // Built-in apps (source !== 'file') were never installed as a
     // .novaapp package — there's no package files, storage partition, or
-    // app-data directory to clean up, and appmanager.js's own uninstall
+    // app-data directory to clean up, and the App Manager package's own uninstall
     // UI has no path for removing them either. Refuse rather than
     // half-uninstall something that isn't really an installed package.
     if (target.source !== 'file') {
@@ -3362,7 +3404,7 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:app:uninstall', requestId, 'NOT_UNINSTALLABLE', `"${target.name}" is a system app and cannot be uninstalled`);
     }
 
-    // Mirrors appmanager.js's doUninstall(): close open windows, then
+    // Mirrors the App Manager package's doUninstall(): close open windows, then
     // clean up package files, the app's storage partition, and its app
     // data directory, then remove from every registry/list that tracks
     // it. Each cleanup step is independently best-effort (matching the
@@ -3405,7 +3447,7 @@ const AppSandbox = (() => {
     const ri = APP_REGISTRY.findIndex(a => a.id === appId);
     if (ri > -1) APP_REGISTRY.splice(ri, 1);
 
-    // appmanager.js's own local installedApps array + its persisted copy
+    // the App Manager package's own local installedApps array + its persisted copy
     // is a THIRD place tracking installed-from-file apps, independent of
     // APP_REGISTRY/OS.apps — remove from there too if it's reachable from
     // this scope, same as the manual uninstall path does.
@@ -3416,9 +3458,9 @@ const AppSandbox = (() => {
         if (typeof saveStoredApps === 'function') saveStoredApps(installedApps);
       }
     } catch (e) {
-      // appmanager.js's local state isn't in scope here — APP_REGISTRY/
+      // the App Manager's local state isn't in scope here — APP_REGISTRY/
       // OS.apps removal above is the part that actually matters.
-      log('debug', 'nova:app:uninstall — could not sync appmanager.js local state for', appId, e);
+      log('debug', 'nova:app:uninstall — could not sync App Manager local state for', appId, e);
     }
 
     OS.settings?.set?.('pinnedApps', (OS.settings?.get?.('pinnedApps') || []).filter(id => id !== appId));
@@ -3512,7 +3554,7 @@ const AppSandbox = (() => {
     }
 
     // All gates passed: signed, trusted, unmodified, not a duplicate.
-    // Register it the same way appmanager.js's manual path ultimately
+    // Register it the same way the App Manager package's manual path ultimately
     // does — via AppRegistry, not by hand-rolling a second code path.
     try {
       const appData = {
@@ -4873,11 +4915,11 @@ const AppSandbox = (() => {
     if (SYSTEM_SANDBOX_APPS.has(app.id)) return true;
     // NOTE: flattened top-level field (app.allowNestedWebview), matching how
     // `sandbox`/`permissions`/etc. are flattened onto the sandboxApp object
-    // in appmanager.js's buildNovaAppConfig() — NOT app.manifest.allowNestedWebview.
+    // in nova-app-launcher.js's buildNovaAppConfig() — NOT app.manifest.allowNestedWebview.
     // The app object AppSandbox.launch() receives is built from an explicit
     // field allowlist there and never carries a `manifest` property, so
     // checking app.manifest would always silently read undefined and fail
-    // closed. See appmanager.js's sandboxApp construction.
+    // closed. See nova-app-launcher.js's sandboxApp construction.
     const manifestOptIn = app.allowNestedWebview === true;
     if (!manifestOptIn) return false;
     try {
@@ -6912,7 +6954,17 @@ const AppSandbox = (() => {
     script.type = 'text/javascript';
     script.dataset.novaUnrestrictedApp = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
     script.textContent = source + `\n//# sourceURL=novaapp:${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}/${String(entryName)}\n`;
-    (document.body || document.documentElement).appendChild(script);
+    const previousUnrestrictedPackage = window.__novaUnrestrictedPackage;
+    window.__novaUnrestrictedPackage = app;
+    try {
+      (document.body || document.documentElement).appendChild(script);
+    } finally {
+      if (previousUnrestrictedPackage === undefined) {
+        delete window.__novaUnrestrictedPackage;
+      } else {
+        window.__novaUnrestrictedPackage = previousUnrestrictedPackage;
+      }
+    }
 
     const registered = (typeof OS !== 'undefined' && OS?.apps?.[app.id]) ||
       (typeof AppRegistry !== 'undefined' && AppRegistry?.getApp?.(app.id)) || null;
@@ -6924,6 +6976,7 @@ const AppSandbox = (() => {
     // registered object. The legacy script predates .novaapp metadata and its
     // registerApp() config does not carry these fields.
     Object.assign(registered, {
+      icon: app.icon || registered.icon,
       source: app.source,
       verified: app.verified === true,
       signer: app.signer || null,

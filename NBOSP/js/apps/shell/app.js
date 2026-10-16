@@ -1,331 +1,4 @@
-/* NovaApp compatibility bridge for the original Terminal implementation.
- * The original terminal.js expects the built-in OS globals (OS/FS/Notify/
- * ContextMenu/registerApp). In a .novaapp those capabilities are supplied over
- * window.nova.ipc, while the terminal command code itself remains unchanged.
- */
-(async () => {
-  'use strict';
-
-  const IPC = () => window.nova?.ipc;
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-  function ensureCreateEl() {
-    if (typeof window.createEl === 'function') return;
-    window.createEl = function createEl(tag, attrs, children) {
-      const el = document.createElement(tag);
-      if (attrs) {
-        for (const [key, value] of Object.entries(attrs)) {
-          if (value == null) continue;
-          if (key === 'className' || key === 'class') el.className = value;
-          else if (key === 'textContent') el.textContent = String(value);
-          else if (key === 'innerHTML') el.innerHTML = String(value);
-          else if (key === 'style') el.style.cssText = typeof value === 'object'
-            ? Object.entries(value).map(([k,v]) => `${k}:${v}`).join(';')
-            : String(value);
-          else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2), value);
-          else if (typeof value === 'boolean') { if (value) el.setAttribute(key, ''); }
-          else el.setAttribute(key, String(value));
-        }
-      }
-      if (children != null) {
-        if (Array.isArray(children)) for (const child of children) {
-          if (child || child === 0) el.append(child instanceof Node ? child : document.createTextNode(String(child)));
-        }
-        else el.append(children instanceof Node ? children : document.createTextNode(String(children)));
-      }
-      return el;
-    };
-  }
-
-  async function rpc(type, payload) {
-    const fn = IPC();
-    if (typeof fn !== 'function') throw new Error('Nova IPC bridge is unavailable');
-    return fn(type, payload ?? {});
-  }
-
-  const nodes = new Map();
-  const children = new Map();
-  let rootId = null;
-  let desktopId = null;
-
-  function addNode(n) {
-    if (!n?.id) return;
-    const node = {
-      ...n,
-      path: n.path || '/',
-      content: n.content ?? '',
-      parentId: n.parentId ?? null
-    };
-    nodes.set(node.id, node);
-    if (!children.has(node.id)) children.set(node.id, []);
-    if (node.parentId) {
-      const arr = children.get(node.parentId) || [];
-      if (!arr.some(x => x.id === node.id)) arr.push(node);
-      children.set(node.parentId, arr);
-    }
-    if (node.path === '/') rootId = node.id;
-    if (node.path === '/Desktop' && node.type === 'folder') desktopId = node.id;
-  }
-
-  async function loadNode(idOrPath) {
-    const result = await rpc('nova:vfs:read', typeof idOrPath === 'string' && idOrPath.startsWith('/')
-      ? { path: idOrPath }
-      : { id: idOrPath });
-    if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'VFS read failed');
-
-    const node = {
-      id: result.id,
-      name: result.name,
-      type: result.isFolder ? 'folder' : 'file',
-      mimeType: result.mimeType || 'application/octet-stream',
-      size: result.size || 0,
-      path: result.path || '/',
-      parentId: null,
-      content: result.data ?? '',
-      modified: result.modified,
-      created: result.created
-    };
-    addNode(node);
-
-    if (result.isFolder && Array.isArray(result.children)) {
-      const childIds = [];
-      for (const child of result.children) {
-        const cn = {
-          ...child,
-          parentId: node.id,
-          path: child.path || `${node.path.replace(/\/$/, '')}/${child.name}`,
-          content: '',
-        };
-        addNode(cn);
-        childIds.push(cn.id);
-      }
-      children.set(node.id, childIds.map(cid => nodes.get(cid)));
-      for (const child of result.children) {
-        if (child.type === 'folder') await loadNode(child.id);
-      }
-    }
-    return nodes.get(node.id);
-  }
-
-  async function loadFullTree() {
-    nodes.clear();
-    children.clear();
-    rootId = null;
-    desktopId = null;
-    await loadNode('/');
-    // Load file contents only after the directory topology is known.
-    const fileIds = [...nodes.values()].filter(n => n.type !== 'folder').map(n => n.id);
-    const BATCH = 12;
-    for (let i = 0; i < fileIds.length; i += BATCH) {
-      const batch = fileIds.slice(i, i + BATCH);
-      await Promise.all(batch.map(async (id) => {
-        try {
-          const result = await rpc('nova:vfs:read', { id });
-          if (result?.success && !result.isFolder) {
-            const n = nodes.get(id);
-            if (n) Object.assign(n, {
-              content: result.data ?? '',
-              size: result.size || 0,
-              mimeType: result.mimeType || n.mimeType,
-              modified: result.modified || n.modified,
-              created: result.created || n.created,
-            });
-          }
-        } catch (_) {}
-      }));
-    }
-  }
-
-  function rebuildChildren() {
-    children.clear();
-    for (const n of nodes.values()) children.set(n.id, []);
-    for (const n of nodes.values()) {
-      if (n.parentId && children.has(n.parentId)) children.get(n.parentId).push(n);
-    }
-    for (const [, arr] of children) arr.sort((a,b) => {
-      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  }
-
-  const FS = {
-    get rootId() { return rootId; },
-    files: nodes,
-    specialFolders: {
-      get desktop() { return desktopId || rootId; }
-    },
-    getPath(id) {
-      return nodes.get(id)?.path || '/';
-    },
-    getByPath(path) {
-      const wanted = String(path || '/').replace(/\/+/g, '/').replace(/\/$/, '') || '/';
-      for (const n of nodes.values()) if (n.path === wanted) return n;
-      return null;
-    },
-    listDir(id) {
-      return [...(children.get(id) || [])];
-    },
-    async createFolder(parentId, name) {
-      const parent = nodes.get(parentId);
-      if (!parent) throw new Error('Parent folder not found');
-      const result = await rpc('nova:vfs:mkdir', { path: parent.path, name });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'mkdir failed');
-      await loadFullTree();
-      const created = nodes.get(result.id) || FS.getByPath(`${parent.path.replace(/\/$/, '')}/${name}`);
-      return created;
-    },
-    async createFile(parentId, name, content, mimeType = 'text/plain') {
-      const parent = nodes.get(parentId);
-      if (!parent) throw new Error('Parent folder not found');
-      const path = `${parent.path.replace(/\/$/, '')}/${name}`;
-      const result = await rpc('nova:vfs:write', { path, content, mimeType });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'write failed');
-      await loadFullTree();
-      return nodes.get(result.id) || FS.getByPath(path);
-    },
-    async writeFile(id, content) {
-      const n = nodes.get(id);
-      if (!n) throw new Error('File not found');
-      const result = await rpc('nova:vfs:write', { path: n.path, content, mimeType: n.mimeType });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'write failed');
-      n.content = String(content);
-      n.size = String(content).length;
-    },
-    async deleteToTrash(id) {
-      const result = await rpc('nova:vfs:delete', { id, permanent: false });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'delete failed');
-      await loadFullTree();
-    },
-    async permanentDelete(id) {
-      const result = await rpc('nova:vfs:delete', { id, permanent: true });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'delete failed');
-      await loadFullTree();
-    },
-    async rename(id, name) {
-      const result = await rpc('nova:vfs:rename', { id, name });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'rename failed');
-      await loadFullTree();
-    },
-    async move(id, destParentId) {
-      const result = await rpc('nova:vfs:move', { id, destPath: this.getPath(destParentId) });
-      if (!result?.success) throw new Error(result?.error?.message || result?.error || result?.message || 'move failed');
-      await loadFullTree();
-      return nodes.get(id) || null;
-    }
-  };
-  window.FS = FS;
-
-  const readyFallback = { osVersion: 'NovaByte', securityPatch: '', username: 'user', permissions: [] };
-  let readyInfo = { ...readyFallback };
-  let appList = [];
-  const readyPromise = (async () => {
-    try {
-      const info = await rpc('nova:ready', {});
-      if (info && typeof info === 'object') readyInfo = { ...readyInfo, ...info };
-    } catch (_) {}
-    try {
-      const apps = await rpc('nova:app:list', {});
-      appList = Array.isArray(apps?.apps) ? apps.apps : Array.isArray(apps) ? apps : [];
-    } catch (_) {}
-    window.OS.version = readyInfo?.osVersion || 'NovaByte';
-    window.OS.username = readyInfo?.username || 'user';
-    window.OS.securityPatch = readyInfo?.securityPatch || '';
-    window.OS.apps = Object.fromEntries(appList.map(a => [a.id, a]));
-  })();
-
-  // Define the legacy OS facade synchronously so terminal.js can register its
-  // app immediately. The real OS identity is filled in by readyPromise above.
-  window.OS = {
-    version: readyInfo.osVersion,
-    username: readyInfo.username,
-    securityPatch: readyInfo.securityPatch,
-    windows: new Map(),
-    apps: {},
-    workers: null
-  };
-  window.renderDesktopIcons = () => {};
-
-  window.Notify = {
-    show(payload) {
-      return rpc('nova:notifications:show', {
-        title: payload?.title || 'Terminal',
-        body: payload?.body || '',
-        type: payload?.type || 'info',
-        appName: payload?.appName || 'Terminal'
-      }).catch(() => {});
-    }
-  };
-
-  window.ContextMenu = {
-    show(x, y, items) {
-      document.querySelectorAll('.nova-terminal-context-menu').forEach(e => e.remove());
-      const menu = document.createElement('div');
-      menu.className = 'nova-terminal-context-menu';
-      Object.assign(menu.style, {
-        position: 'fixed', left: `${x}px`, top: `${y}px`, zIndex: '2147483647',
-        minWidth: '150px', padding: '4px', background: '#0e121c',
-        border: '1px solid rgba(255,255,255,.12)', borderRadius: '8px',
-        boxShadow: '0 12px 30px rgba(0,0,0,.45)', color: 'var(--text-primary)'
-      });
-      for (const item of items || []) {
-        if (item.separator) {
-          const sep = document.createElement('div');
-          sep.style.cssText = 'height:1px;background:rgba(255,255,255,.08);margin:4px 0;';
-          menu.appendChild(sep);
-          continue;
-        }
-        const row = document.createElement('button');
-        row.type = 'button';
-        row.textContent = item.label || '';
-        row.style.cssText = 'display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:7px 9px;border-radius:5px;font:12px var(--font-ui);cursor:pointer;';
-        row.addEventListener('mouseenter', () => row.style.background = 'rgba(255,255,255,.06)');
-        row.addEventListener('mouseleave', () => row.style.background = 'transparent');
-        row.addEventListener('click', () => { try { item.action?.(); } finally { menu.remove(); } });
-        menu.appendChild(row);
-      }
-      document.body.appendChild(menu);
-      const dismiss = () => { menu.remove(); document.removeEventListener('pointerdown', dismiss, true); };
-      setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
-    }
-  };
-
-  window.AppDirs = { getVFSDir() { return {}; } };
-  window.OS.workers = {
-    fs: {
-      async call(method, args) {
-        if (method !== 'putFiles') return null;
-        const list = Array.isArray(args?.[0]) ? args[0] : [];
-        for (const item of list) {
-          if (!item?.id) continue;
-          await FS.writeFile(item.id, item.content ?? '');
-        }
-        return { success: true };
-      }
-    }
-  };
-
-  ensureCreateEl();
-
-  // The legacy terminal calls registerApp({...}); capture that callback, then
-  // instantiate it inside the current NovaApp document after the IPC bridge
-  // and VFS cache have initialized.
-  window.registerApp = function registerApp(config) {
-    window.__novaTerminalRegistration = config;
-    (async () => {
-      try {
-        await readyPromise;
-        await loadFullTree();
-        const root = document.getElementById('terminal-app') || document.body;
-        const state = { cleanups: [] };
-        config.init(root, state);
-      } catch (error) {
-        const root = document.getElementById('terminal-app') || document.body;
-        root.textContent = `Terminal failed to start: ${error?.message || error}`;
-      }
-    })();
-  };
-})(); 
-
+(function () {
 'use strict';
 
 // NovaByte OS Terminal app.
@@ -336,6 +9,13 @@
 
 // App bundle id used for the AppDirs runtime guard.
 const APP_BUNDLE_ID = 'com.nbosp.shell';
+const SHELL_PACKAGE_FILES = window.__novaUnrestrictedPackage?.files || {};
+
+function shellPackagedIcon(fileName) {
+  const encoded = SHELL_PACKAGE_FILES[`icons/${fileName}`];
+  if (!encoded) throw new Error(`Terminal package is missing icon asset icons/${fileName}`);
+  return `data:image/png;base64,${encoded}`;
+}
 
 // Builtin command names. Shared between `help`, `which`, and tab completion.
 // Frozen so we can safely reuse one instance per tab without defensive copies.
@@ -1007,8 +687,14 @@ const COMMANDS = {
     const targetArg = args.find(a => !a.startsWith('-'));
     let tid = tab.cwd;
     if (targetArg) {
-      const r = resolvePath(tab.cwd, targetArg);
+      const r = resolveNodePath(tab.cwd, targetArg);
       if (r === false) return `ls: cannot access '${targetArg}': No such file or directory`;
+      const target = FS.files.get(r);
+      if (!target) return `ls: cannot access '${targetArg}': No such file or directory`;
+      if (target.type !== 'folder') {
+        writeLine(tab, target.name);
+        return '';
+      }
       tid = r;
     }
     let files = FS.listDir(tid);
@@ -1181,7 +867,13 @@ const COMMANDS = {
           await copyNodeRecursive(child, newFolder.id);
         }
       } else {
-        await FS.createFile(destParentId, destName, src.content || '', src.mimeType || 'text/plain');
+        const existing = FS.listDir(destParentId).find(x => x.name === destName);
+        if (existing) {
+          if (existing.type === 'folder') return `cp: cannot overwrite directory '${destName}'`;
+          await FS.writeFile(existing.id, src.content || '');
+        } else {
+          await FS.createFile(destParentId, destName, src.content || '', src.mimeType || 'text/plain');
+        }
       }
     }
     refreshDesktop();
@@ -1212,6 +904,11 @@ const COMMANDS = {
         newName = slash >= 0 ? dstArg.slice(slash + 1) : dstArg;
         if (destParentId === false) return `mv: cannot move '${srcName}' to '${dstArg}': No such file or directory`;
       }
+      const existing = FS.listDir(destParentId).find(x => x.name === newName && x.id !== src.id);
+      if (existing) {
+        if (existing.type === 'folder') return `mv: cannot overwrite directory '${newName}'`;
+        await FS.permanentDelete(existing.id);
+      }
       await FS.move(src.id, destParentId);
       if (newName !== src.name) await FS.rename(src.id, newName);
     }
@@ -1225,7 +922,6 @@ const COMMANDS = {
     if (!names.length) return pipeIn || '';
     const results = [];
     for (const n of names) {
-      const ch = FS.listDir(tab.cwd);
       const t = nodeFromArg(tab, n);
       if (!t) return `cat: ${n}: No such file or directory`;
       if (t.type === 'folder') return `cat: ${n}: Is a directory`;
@@ -1271,7 +967,8 @@ const COMMANDS = {
     if (!patternArg) return 'grep: missing PATTERN';
     const patternIdx = args.indexOf(patternArg);
     const fileArg = args.find((a, i) => !a.startsWith('-') && i !== patternIdx);
-    const text = pipeIn || (fileArg && FS.listDir(tab.cwd).find(f => f.name === fileArg)?.content) || '';
+    if (!pipeIn && fileArg && !nodeFromArg(tab, fileArg)) return `grep: ${fileArg}: No such file or directory`;
+    const text = pipeIn || (fileArg ? nodeFromArg(tab, fileArg)?.content : '') || '';
     const flags = (args.includes('-i') ? 'i' : '') + (args.includes('-m') ? 'm' : '');
     const invert = args.includes('-v');
     const count = args.includes('-c');
@@ -1318,7 +1015,6 @@ const COMMANDS = {
 
   stat(tab, args) {
     if (!args[0]) return 'stat: missing operand';
-    const ch = FS.listDir(tab.cwd);
     const t = nodeFromArg(tab, args[0]);
     if (!t) return `stat: cannot statx '${args[0]}': No such file or directory`;
     const dt = new Date(t.modified || Date.now());
@@ -1334,8 +1030,9 @@ const COMMANDS = {
     const startArg = args.find(a => !a.startsWith('-')) || '.';
     const nameArg = args.includes('-name') ? args[args.indexOf('-name') + 1] : null;
     const typeArg = args.includes('-type') ? args[args.indexOf('-type') + 1] : null;
-    const startId = startArg === '.' ? tab.cwd : resolvePath(tab.cwd, startArg);
+    const startId = startArg === '.' ? tab.cwd : resolveNodePath(tab.cwd, startArg);
     if (startId === false) return `find: '${startArg}': No such file or directory`;
+    if (!FS.files.get(startId) || FS.files.get(startId).type !== 'folder') return `find: '${startArg}': Not a directory`;
     // Proper glob match (original used a broken substring heuristic).
     const nameRx = nameArg ? globToRegExp(nameArg) : null;
     const results = [];
@@ -1356,7 +1053,6 @@ const COMMANDS = {
   diff(tab, args) {
     if (args.length < 2) return 'diff: missing operand after diff';
     const [a1, a2] = args.filter(a => !a.startsWith('-'));
-    const ch = FS.listDir(tab.cwd);
     const f1 = nodeFromArg(tab, a1);
     const f2 = nodeFromArg(tab, a2);
     if (!f1) return `diff: ${a1}: No such file or directory`;
@@ -1466,8 +1162,7 @@ async function execOne(tab, cmdStr, pipeIn) {
   }
   // Unknown command — check if it's a file in cwd (→ Permission denied) or
   // truly unknown (→ command not found).
-  const ch = FS.listDir(tab.cwd);
-  const ex = ch.find(f => f.name === cmd);
+  const ex = nodeFromArg(tab, cmd);
   if (ex) return `bash: ${cmd}: Permission denied`;
   return `bash: ${cmd}: command not found`;
 }
@@ -1497,13 +1192,19 @@ async function runCommand(tab, line) {
     const out = await runCommand(tab, before);
     const filename = after.split('>')[0].trim();
     if (filename) {
-      const ch = FS.listDir(tab.cwd);
-      const ex = ch.find(f => f.name === filename);
+      const ex = nodeFromArg(tab, filename);
       if (ex) {
-        ex.content = out;
-        try { await OS.workers.fs.call('putFiles', [ex]); } catch {}
+        if (ex.type === 'folder') return `bash: ${filename}: Is a directory`;
+        await FS.writeFile(ex.id, out);
       } else {
-        await FS.createFile(tab.cwd, filename, out, 'text/plain');
+        const slash = filename.lastIndexOf('/');
+        const parentArg = slash >= 0 ? (filename.slice(0, slash) || '/') : '.';
+        const leaf = filename.slice(slash + 1);
+        const parentId = resolvePath(tab.cwd, parentArg);
+        if (parentId === false || !FS.files.get(parentId) || FS.files.get(parentId).type !== 'folder') {
+          return `bash: ${filename}: No such file or directory`;
+        }
+        await FS.createFile(parentId, leaf, out, 'text/plain');
       }
       return '';
     }
@@ -1818,7 +1519,7 @@ registerApp({
       const items = [];
       if (sel) {
         items.push({
-          label: 'Copy', icon: 'copy',
+          label: 'Copy', icon: shellPackagedIcon('icons8-copy-94.png'),
           action() {
             const p = clipboardWrite(sel);
             if (p) p.then(
@@ -1830,7 +1531,7 @@ registerApp({
         items.push({ separator: true });
       }
       items.push({
-        label: 'Paste', icon: 'documents',
+        label: 'Paste', icon: shellPackagedIcon('icons8-document-94.png'),
         action() {
           const p = clipboardRead();
           if (p) p.then(
@@ -1843,7 +1544,7 @@ registerApp({
         }
       });
       items.push({
-        label: 'Clear', icon: 'trash-2',
+        label: 'Clear', icon: shellPackagedIcon('icons8-trash-94.png'),
         action() {
           const t = tabs[activeTabIdx];
           if (t?.output) t.output.innerHTML = '';
@@ -1885,3 +1586,4 @@ registerApp({
     requestAnimationFrame(focusInitial);
   }
 });
+})();

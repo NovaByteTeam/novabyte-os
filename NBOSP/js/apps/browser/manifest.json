@@ -1,10 +1,11 @@
 {
   "id": "com.nbosp.browser",
   "name": "Browser",
-  "version": "3.0.8",
+  "version": "3.0.2",
   "description": "Web Browser",
-  "author": "NovaByte",
+  "author": "NovaByteOfficial",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "globe",
   "type": "blank",
   "permissions": [
@@ -19,20 +20,11 @@
     "device:geolocation",
     "vfs:write"
   ],
-  "defaultSize": [
-    900,
-    600
-  ],
-  "minSize": [
-    500,
-    350
-  ],
+  "defaultSize": [900, 600],
+  "minSize": [500, 350],
   "resizable": true,
   "frame": true,
-  "categories": [
-    "network",
-    "utilities"
-  ],
+  "categories": ["network", "utilities"],
   "system": true,
   "transparent": true,
   "allowNestedWebview": true,
@@ -40,6 +32,5 @@
     "allowScripts": true,
     "allowForms": true,
     "allowPopups": true
-  },
-  "unrestrictedEntry": "legacy-browser.js"
+  }
 }

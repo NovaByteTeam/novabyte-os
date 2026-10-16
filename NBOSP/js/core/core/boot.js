@@ -640,11 +640,11 @@ async function boot() {
 
     try {
       if (typeof window.buildNovaAppConfig !== 'function') {
-        // appmanager.js loads before boot.js in index.html, so this should
+        // nova-app-launcher.js loads before boot.js in index.html, so this should
         // never actually happen — but if script order ever changes, fail
         // loudly instead of silently falling back to the old incomplete
         // registration path (which is exactly how this bug shipped once).
-        console.error('[BOOT] window.buildNovaAppConfig unavailable — cannot register', appData.id, 'with full launch config. Check that appmanager.js loads before boot.js.');
+        console.error('[BOOT] window.buildNovaAppConfig unavailable — cannot register', appData.id, 'with full launch config. Check that nova-app-launcher.js loads before boot.js.');
         return;
       }
 
@@ -812,7 +812,7 @@ async function boot() {
 
   /**
    * Launch every app the user has opted into "start at boot" (nova_boot_apps,
-   * set via App Manager's boot toggle — see appmanager.js getBootApps/
+   * set via App Manager's boot toggle — see the App Manager package's getBootApps/
    * setBootApps) AND that separately holds the system:autostart grant.
    *
    * Both conditions matter and neither substitutes for the other:
@@ -984,7 +984,7 @@ async function boot() {
 
   /**
    * Dialog shown when boot discovers an app whose signature has been
-   * revoked SINCE it was installed (as opposed to appmanager.js's
+   * revoked SINCE it was installed (as opposed to the App Manager's
    * showUntrustedAppDialog, which only ever runs at install time and
    * offers "Cancel" / "Install Anyway"). This one only ever offers
    * "Remove" / "Cancel" — there's no "install anyway" equivalent here,

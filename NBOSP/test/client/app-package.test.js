@@ -276,6 +276,34 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       }
       expect(threw).toBe(true);
     });
+
+    it('preserves package trust metadata on the registered bundled app', async () => {
+      const { installPackage } = await import('../../js/platform/core/app-package.js');
+      const pkg = {
+        novabyte_app: '1.0',
+        compiled_at: 123456789,
+        manifest: { ...validManifest, system: true },
+        files: { 'index.html': '' },
+        signature: null,
+        signing: null,
+        integrity: { method: 'none' },
+      };
+
+      await installPackage(pkg, { source: 'system-bundle' });
+
+      const registeredApp = globalThis.AppRegistry.registerApp.mock.calls[0][0];
+      expect(registeredApp).toMatchObject({
+        source: 'system-bundle',
+        verified: true,
+        signer: 'NovaByte System',
+        system: true,
+        manifest: pkg.manifest,
+        integrity: pkg.integrity,
+        signing: pkg.signing,
+        novabyte_app: pkg.novabyte_app,
+        compiled_at: pkg.compiled_at,
+      });
+    });
   });
 });
 

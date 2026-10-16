@@ -1,10 +1,11 @@
 {
   "id": "com.nbosp.email",
   "name": "Email",
-  "version": "3.0.6",
+  "version": "3.0.2",
   "description": "IMAP · POP3 · Exchange",
   "author": "NovaByteOfficial",
   "entry": "index.html",
+  "unrestrictedEntry": "app.js",
   "icon": "mail",
   "type": "blank",
   "permissions": [
@@ -16,21 +17,11 @@
   "optionalPermissions": [
     "device:notifications"
   ],
-  "defaultSize": [
-    860,
-    580
-  ],
-  "minSize": [
-    600,
-    420
-  ],
+  "defaultSize": [860, 580],
+  "minSize": [600, 420],
   "resizable": true,
   "frame": true,
-  "categories": [
-    "communication",
-    "utilities"
-  ],
+  "categories": ["communication", "utilities"],
   "system": true,
-  "transparent": true,
-  "packagedAt": "2026-08-25T15:53:00.000Z"
+  "transparent": true
 }

@@ -1,119 +1,54 @@
-
 (function () {
-  'use strict';
-  // Guest compatibility shims. These deliberately expose only the small API
-  // surface Email already used; privileged mail operations are implemented by
-  // the host-side nova:mail handlers and remain permission-gated.
-  const _openMailto = (url) => {
-    try {
-      const u = new URL(url, location.href);
-      if (u.protocol === 'mailto:' && typeof window.nova?.mail?.compose === 'function') {
-        return window.nova.mail.compose({ to: u.pathname, subject: u.searchParams.get('subject') || '', body: u.searchParams.get('body') || '' });
-      }
-    } catch {}
-  };
-  window.OS = window.OS || {};
-  if (typeof window.OS.openMailto !== 'function') window.OS.openMailto = _openMailto;
-  window.Notify = window.Notify || { show: (opts) => window.nova.ipc('nova:notifications:show', opts || {}) };
-  window.__NBOSP_BG = window.__NBOSP_BG || { email: { ensureBooted() {}, setAccounts() {}, onChange: null } };
-
-const appConfig = {
+'use strict';
+registerApp({
   id: 'com.nbosp.email',
   name: 'Email',
   icon: 'mail',
-  version: '3.0.3',
+  version: '3.0.2',
   description: 'IMAP · POP3 · Exchange',
   defaultSize: [860, 580],
   minSize: [600, 420],
 
   init(content, state, options) {
-    // Guest-local permission facade. NovaApps run in an isolated webview and
-    // cannot access the host AppPermissionManager global directly. The host
-    // authenticated nova:ready handshake exposes the granted permission set.
-    const permissionReady = new Promise(resolve => {
-      const started = Date.now();
-      const poll = () => {
-        const r = window.__novaPermResponse;
-        if (r && Array.isArray(r.permissions)) return resolve(r);
-        if (Date.now() - started >= 10000) return resolve({ permissions: [], optionalPermissions: [] });
-        setTimeout(poll, 25);
-      };
-      poll();
-    });
-    const hasPermission = async permission => {
-      const r = await permissionReady;
-      return Array.isArray(r.permissions) && r.permissions.includes(permission);
-    };
-    // Guest-local DOM helper. The standalone OS app previously inherited
-    // createEl from the host runtime; .novaapp guests do not share those
-    // globals, so define the exact small helper the Email UI expects.
-    function createEl(tag, attrs, children) {
-      const el = document.createElement(tag);
-      if (attrs) {
-        for (const [k, v] of Object.entries(attrs)) {
-          if (k === 'className') el.className = v;
-          else if (k === 'htmlFor') el.htmlFor = v;
-          else if (k === 'style' && v && typeof v === 'object') Object.assign(el.style, v);
-          else if (k.startsWith('data-')) el.setAttribute(k, v);
-          else el[k] = v;
-        }
-      }
-      if (children) el.append(...[].concat(children));
-      return el;
+    // NovaByte runtime guard — refuse to launch without AppDirs.
+    if (!window.AppDirs?.getVFSDir('com.nbosp.email', 'files')) {
+      const guardStyle = document.createElement('style');
+      guardStyle.setAttribute('nonce', window.__cspNonce || '');
+      guardStyle.textContent =
+        '.em-guard{display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888)}' +
+        '.em-guard>div:first-child{font-size:32px}' +
+        '.em-guard>div:last-child{font-size:14px;text-align:center}';
+      document.head.appendChild(guardStyle);
+
+      content.className = 'em-guard';
+      const iconDiv = document.createElement('div');
+      iconDiv.textContent = '⚠️';
+      const msgDiv = document.createElement('div');
+      const b = document.createElement('b');
+      b.textContent = 'com.nbosp.email';
+      msgDiv.append(
+        b,
+        document.createElement('br'),
+        document.createTextNode('App data directory missing.'),
+        document.createElement('br'),
+        document.createTextNode('This app requires NovaByte OS.'),
+      );
+      content.append(iconDiv, msgDiv);
+      return;
     }
 
-    // Guest-local svgIcon helper. The standalone Email app inherited this
-    // from the host's base-utils.js; novaapp guests do not share host globals.
-    // Keep the same Lucide-style SVG markup for the icons Email actually uses.
-    function svgIcon(name, size = 16) {
-      const safeSize = Math.max(8, Math.min(96, Number(size) || 16));
-      const paths = {
-        refresh: '<path d=\"M20 11a8.1 8.1 0 0 0-15.5-3.1L3 10\"/><path d=\"M3 4v6h6\"/><path d=\"M4 13a8.1 8.1 0 0 0 15.5 3.1L21 14\"/><path d=\"M21 20v-6h-6\"/>',
-        'corner-up-left': '<polyline points=\"9 14 4 9 9 4\"/><path d=\"M20 20v-7a4 4 0 0 0-4-4H4\"/>',
-        'corner-up-right': '<polyline points=\"15 14 20 9 15 4\"/><path d=\"M4 20v-7a4 4 0 0 1 4-4h12\"/>',
-        x: '<line x1=\"18\" y1=\"6\" x2=\"6\" y2=\"18\"/><line x1=\"6\" y1=\"6\" x2=\"18\" y2=\"18\"/>'
-      };
-      const body = paths[name];
-      if (!body) return '';
-      return '<svg width=\"' + safeSize + '\" height=\"' + safeSize + '\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\">' + body + '</svg>';
-    }
     // CSS — injected once per app open. The shell owns the design tokens
     // (--bg-elevated, --accent, --border, --text-primary, …); we only scope
     // local styles under the .em-* prefix.
     const styleEl = document.createElement('style');
     styleEl.setAttribute('nonce', window.__cspNonce || '');
     styleEl.textContent = `
-
-    :root {
-      --bg-base:#07090f; --bg-elevated:rgba(14,18,28,.22); --bg-overlay:rgba(20,26,40,.14);
-      --bg-sunken:rgba(3,5,8,.35); --bg-hover:rgba(255,255,255,.06); --bg-sidebar:rgba(4,6,12,.20);
-      --text-primary:#e6edf3; --text-secondary:#8b949e; --text-muted:#484f58; --text-link:#58a6ff;
-      --text-danger:#f85149; --text-success:#3fb950; --text-warning:#d29922;
-      --accent:#58a6ff; --accent-hover:#79b8ff; --accent-muted:rgba(88,166,255,.15);
-      --border:rgba(255,255,255,.12); --border-subtle:rgba(255,255,255,.06); --border-default:rgba(255,255,255,.12); --border-strong:rgba(255,255,255,.25);
-      --r-xs:6px; --r-sm:10px; --r-md:14px; --r-lg:20px; --r-xl:24px;
-      --ease-macos:cubic-bezier(.25,.46,.45,.94); --font-ui:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; --font-size:14px;
-      --bg-elevated-2:rgba(255,255,255,.10);
-    }
-    html,body,#app { width:100%; height:100%; margin:0; padding:0; overflow:hidden; background:transparent !important; font-family:var(--font-ui); color:var(--text-primary); }
-    *,*::before,*::after { box-sizing:border-box; }
-    button,.btn,[role=button] {
-      font-family:var(--font-ui); font-size:13px; cursor:pointer; transition:all .2s cubic-bezier(.34,1.56,.64,1);
-    }
-    .btn { padding:6px 14px; border-radius:var(--r-sm); border:1px solid var(--border-default); background:var(--bg-overlay); color:var(--text-primary); min-height:32px; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
-    .btn:hover { background:rgba(255,255,255,.10); border-color:var(--border-strong); transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.20); }
-    .btn:active { transform:translateY(0) scale(.98); }
-    .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-    .btn-primary:hover { background:var(--accent-hover); transform:translateY(-2px); box-shadow:0 6px 16px rgba(88,166,255,.30); }
-    .btn-danger { background:transparent; border-color:var(--text-danger); color:var(--text-danger); }
-    .btn-sm { padding:4px 10px; font-size:12px; }
-    .btn-icon { width:32px; height:32px; min-width:44px; min-height:44px; padding:0; display:inline-flex; align-items:center; justify-content:center; }
-    input,textarea,select { font-family:var(--font-ui); }
-    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
       .em-root{display:flex;flex-direction:column;height:100%;overflow:hidden;font-size:13px;}
       .em-toolbar{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--border);background:var(--bg-elevated);flex-shrink:0;}
-      .em-tb-btn{min-height:32px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
-      .em-tb-btn.em-primary{color:#fff;}
+      .em-tb-btn{background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:5px 8px;border-radius:6px;font-size:12px;display:flex;align-items:center;gap:4px;white-space:nowrap;transition:background .12s,color .12s;}
+      .em-tb-btn:hover{background:var(--bg-elevated-2,rgba(255,255,255,.06));color:var(--text-primary);}
+      .em-tb-btn.em-primary{background:var(--accent);color:#fff;}
+      .em-tb-btn.em-primary:hover{opacity:.88;}
       .em-tb-sep{flex:1;}
       .em-main{display:flex;flex:1;overflow:hidden;}
       /* Sidebar */
@@ -160,8 +95,8 @@ const appConfig = {
       @keyframes em-spin{to{transform:rotate(360deg);}}
       .em-spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:em-spin .6s linear infinite;}
       /* Buttons */
-      .em-btn{min-height:32px;color:var(--text-primary);}
-      .em-btn:hover{color:var(--text-primary);}
+      .em-btn{background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-secondary);padding:5px 10px;border-radius:6px;font-size:11px;cursor:pointer;transition:background .1s;}
+      .em-btn:hover{background:var(--bg-elevated-2,rgba(255,255,255,.08));color:var(--text-primary);}
       .em-btn:disabled{opacity:.4;cursor:default;}
       .em-btn.danger{color:#e55;border-color:rgba(229,85,85,.4);}
       .em-btn.danger:hover{background:rgba(229,85,85,.1);}
@@ -425,97 +360,70 @@ const appConfig = {
       }
     }
 
-    // Packaged-app API bridge. Keep the original /api/email call shape inside
-    // the app so the UI/logic stays functionally identical, while privileged
-    // mail operations cross the authenticated nova:mail IPC boundary.
-    async function api(method, path, body, params, signal) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const m = method.toUpperCase();
-      const p = String(path || '');
-      let result;
-      if (m === 'GET' && p === '/restore') {
-        result = await window.nova.mail.account();
-        return result?.data || result;
-      }
-      if (m === 'GET' && p === '/folders') {
-        result = await window.nova.mail.folders();
-        return result?.data || result;
-      }
-      if (m === 'GET' && p === '/messages') {
-        result = await window.nova.mail.messages({ ...(params || {}) });
-        return result?.data || result;
-      }
-      if (m === 'GET' && p === '/search') {
-        result = await window.nova.mail.search(params?.q || params?.query || '', params?.folder);
-        return result?.data || result;
-      }
-      if (m === 'GET' && p === '/message') {
-        result = await window.nova.mail.message(params?.uid, params?.folder);
-        return result?.data || result;
-      }
-      if (m === 'POST' && p === '/connect') {
-        result = await window.nova.mail.connect(body || {});
-        return result?.data || result;
-      }
-      if (m === 'POST' && p === '/disconnect') {
-        result = await window.nova.mail.disconnect();
-        return result?.data || result;
-      }
-      if (m === 'POST' && p === '/batch') {
-        const q = body || {};
-        if (q.op === 'delete') result = await window.nova.mail.remove(q.uids || [], q.folder || 'INBOX');
-        else if (q.op === 'move') result = await window.nova.mail.move(q.uids || [], q.dest, q.folder || 'INBOX');
-        else result = await window.nova.mail.markRead(q.uids || [], q.folder || 'INBOX');
-        return result?.data || result;
-      }
-      if (m === 'POST' && p === '/send') {
-        const q = body instanceof FormData ? (() => {
-          const out = {};
-          for (const [k, v] of body.entries()) {
-            if (k === 'attachments' && v instanceof File) {
-              out.attachments = out.attachments || [];
-              out.attachments.push(v);
-            } else {
-              out[k] = v;
-            }
+    // CSRF token — read once from the server-injected meta tag. If absent,
+    // fetch from the API endpoint. csrfReady resolves once the token is
+    // available (or the fetch failed); every non-GET request awaits it so
+    // we never send an empty X-CSRF-Token header on a race with the token
+    // fetch.
+    let csrfToken =
+      document.querySelector('meta[name="csrf-token"]')?.content ||
+      window.__csrfToken ||
+      '';
+    let csrfReady;
+    if (csrfToken) {
+      csrfReady = Promise.resolve();
+    } else {
+      csrfReady = fetch('/api/email/csrf-token', { credentials: 'include' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => {
+          if (d?.csrfToken) {
+            csrfToken = d.csrfToken;
+            window.__csrfToken = d.csrfToken;
           }
-          return out;
-        })() : { ...(body || {}) };
+        })
+        .catch(() => {});
+    }
 
-        if (Array.isArray(q.attachments)) {
-          q.attachments = await Promise.all(q.attachments.map(async file => ({
-            filename: file.name,
-            contentType: file.type || 'application/octet-stream',
-            contentBase64: await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-              reader.onerror = () => reject(reader.error || new Error('Unable to read attachment'));
-              reader.readAsDataURL(file);
-            }),
-          })));
-        }
-        result = await window.nova.mail.send(q);
-        return result?.data || result;
+    // API helper — supports JSON and FormData bodies, optional query params,
+    // and an AbortSignal for cancellation. GETs skip the CSRF await so they
+    // fire immediately even before the token has resolved.
+    async function api(method, path, body, params, signal) {
+      let url = '/api/email' + path;
+      if (params) {
+        const qs = new URLSearchParams(params).toString();
+        if (qs) url += '?' + qs;
       }
-      throw new Error(`Unsupported email API route: ${m} ${p}`);
+      const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase());
+      if (isWrite) await csrfReady;
+      const headers = {};
+      if (isWrite) headers['X-CSRF-Token'] = csrfToken;
+      if (body != null && !(body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json';
+      }
+      const opts = { method, credentials: 'include', headers };
+      if (signal) opts.signal = signal;
+      if (body instanceof FormData) {
+        opts.body = body;
+      } else if (body != null) {
+        opts.body = JSON.stringify(body);
+      }
+      const r = await fetch(url, opts);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || r.statusText || 'HTTP ' + r.status);
+      return d;
     }
 
     async function ensureConnected(acct, signal) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      // Use credCache if available (fresh login). If not (e.g. after page
+      // refresh), skip re-connecting — the server session is already warm
+      // from /restore. If the session has actually expired, the subsequent
+      // API call will 401 and the error surfaces naturally.
       const pass = credCache[acct.id]?.pass;
-      if (pass) {
-        await api('POST', '/connect', {
-          type: acct.type, host: acct.host, port: acct.port,
-          ssl: acct.ssl, user: acct.user, pass,
-        }, null, signal);
-        return;
-      }
-      // Passwords intentionally live only in-memory. On a later launch, restore
-      // the authenticated host-side email session before asking for messages.
-      const restored = await api('GET', '/restore', null, null, signal);
-      if (!restored?.restored && restored?.connected !== true) {
-        throw new Error('Email session expired — reconnect this account');
-      }
+      if (!pass) return;
+      await api('POST', '/connect', {
+        type: acct.type, host: acct.host, port: acct.port,
+        ssl: acct.ssl, user: acct.user, pass,
+      }, null, signal);
     }
 
     function getActiveAcct() {
@@ -530,7 +438,7 @@ const appConfig = {
     // TOOLBAR
     const toolbar = createEl('div', { className: 'em-toolbar' });
     const menuBtn = createEl('button', {
-      className: 'btn btn-sm em-tb-btn',
+      className: 'em-tb-btn',
       title: 'Toggle sidebar',
       innerHTML: '&#9776;',
     });
@@ -539,12 +447,12 @@ const appConfig = {
     });
     const tbSep = createEl('div', { className: 'em-tb-sep' });
     const refreshBtn = createEl('button', {
-      className: 'btn btn-sm em-tb-btn',
+      className: 'em-tb-btn',
       title: 'Refresh',
       innerHTML: svgIcon('refresh', 14),
     });
     const composeBtn = createEl('button', {
-      className: 'btn btn-primary em-tb-btn em-primary',
+      className: 'em-tb-btn em-primary',
       innerHTML: '&#9998; Compose',
     });
     toolbar.append(menuBtn, acctLabel, tbSep, refreshBtn, composeBtn);
@@ -583,8 +491,8 @@ const appConfig = {
 
     const batchBar = createEl('div', { className: 'em-batch-bar' });
     const batchLbl = createEl('span', { style: 'flex:1' });
-    const batchReadBtn = createEl('button', { className: 'btn btn-sm em-btn', textContent: 'Mark read' });
-    const batchTrashBtn = createEl('button', { className: 'btn btn-danger btn-sm em-btn danger', textContent: 'Delete' });
+    const batchReadBtn = createEl('button', { className: 'em-btn', textContent: 'Mark read' });
+    const batchTrashBtn = createEl('button', { className: 'em-btn danger', textContent: 'Delete' });
     batchBar.append(batchLbl, batchReadBtn, batchTrashBtn);
     listCol.appendChild(batchBar);
 
@@ -592,41 +500,15 @@ const appConfig = {
     listCol.appendChild(msgListEl);
 
     const paginationEl = createEl('div', { className: 'em-pagination' });
-    const prevBtn = createEl('button', { className: 'btn btn-sm em-btn', textContent: '‹ Prev' });
+    const prevBtn = createEl('button', { className: 'em-btn', textContent: '‹ Prev' });
     const pageLbl = createEl('span');
-    const nextBtn = createEl('button', { className: 'btn btn-sm em-btn', textContent: 'Next ›' });
+    const nextBtn = createEl('button', { className: 'em-btn', textContent: 'Next ›' });
     paginationEl.append(prevBtn, pageLbl, nextBtn);
     listCol.appendChild(paginationEl);
 
     // Reader pane
     const readerEl = createEl('div', { className: 'em-reader' });
     mainEl.appendChild(readerEl);
-    window.addEventListener('message', (event) => {
-      const iframe = readerEl.querySelector('iframe[title="Email body"]');
-      const link = event.data;
-      if (event.source !== iframe?.contentWindow || link?.type !== 'nbosp:email-link' || typeof link.href !== 'string') return;
-
-      let url;
-      try {
-        url = new URL(link.href);
-      } catch {
-        return;
-      }
-      if (url.protocol === 'mailto:') {
-        ourMailto(url.href);
-        return;
-      }
-      if (!['http:', 'https:'].includes(url.protocol)) return;
-      const openLink = window.nova?.mail?.openLink;
-      if (typeof openLink !== 'function') {
-        notify('Could not open this link in Browser.', 'error');
-        return;
-      }
-      openLink(url.href).catch((error) => {
-        logError('Could not open message link', error);
-        notify('Could not open this link in Browser.', 'error');
-      });
-    }, { signal: appSignal });
 
     // Setup screen (overlays main)
     const setupScreen = createEl('div', { className: 'em-setup', style: 'display:none;' });
@@ -739,7 +621,7 @@ const appConfig = {
       let proto = existing?.type || 'imap';
       ['imap', 'pop3', 'exchange'].forEach(p => {
         const b = createEl('button', {
-          className: 'btn btn-sm em-proto-btn' + (proto === p ? ' active' : ''),
+          className: 'em-proto-btn' + (proto === p ? ' active' : ''),
           textContent: p === 'exchange' ? 'Exchange' : p.toUpperCase(),
         });
         b.addEventListener('click', () => {
@@ -802,7 +684,7 @@ const appConfig = {
       const errEl = createEl('div', { style: 'color:#e55;font-size:12px;min-height:14px;' });
       const footRow = createEl('div', { style: 'display:flex;gap:8px;' });
       const cancelBtn = createEl('button', {
-        className: 'btn btn-sm em-btn',
+        className: 'em-btn',
         textContent: 'Cancel',
         style: 'flex-shrink:0;',
       });
@@ -813,7 +695,7 @@ const appConfig = {
 
       if (existing) {
         const delBtn = createEl('button', {
-          className: 'btn btn-danger btn-sm em-btn danger',
+          className: 'em-btn danger',
           textContent: 'Remove',
           style: 'flex-shrink:0;',
         });
@@ -919,7 +801,7 @@ const appConfig = {
       loadController = new AbortController();
       const { signal } = loadController;
 
-      if (!(await hasPermission('mail:read'))) {
+      if (!AppPermissionManager?.isGranted('mail:read', 'com.nbosp.email')) {
         notify('Email needs mail:read permission.', 'error', 'Permission denied');
         messages = [];
         renderMsgList();
@@ -1192,11 +1074,11 @@ const appConfig = {
       hdr.appendChild(meta);
 
       const acts = createEl('div', { className: 'em-reader-actions' });
-      const replyBtn = createEl('button', { className: 'btn btn-sm em-btn' });
+      const replyBtn = createEl('button', { className: 'em-btn' });
       replyBtn.innerHTML = svgIcon('corner-up-left', 13) + ' Reply';
-      const fwdBtn = createEl('button', { className: 'btn btn-sm em-btn' });
+      const fwdBtn = createEl('button', { className: 'em-btn' });
       fwdBtn.innerHTML = svgIcon('corner-up-right', 13) + ' Forward';
-      const delBtn = createEl('button', { className: 'btn btn-danger btn-sm em-btn danger' });
+      const delBtn = createEl('button', { className: 'em-btn danger' });
       delBtn.innerHTML = svgIcon('x', 13) + ' Delete';
       acts.append(replyBtn, fwdBtn, delBtn);
       hdr.appendChild(acts);
@@ -1218,25 +1100,23 @@ const appConfig = {
       const rowEl = msgListEl.querySelector('.em-msg-row[data-uid="' + CSS.escape(String(msg.uid)) + '"]');
       delBtn.addEventListener('click', () => doDeleteMsg(msg, rowEl), { signal: appSignal });
 
-      // Body — render HTML inside a sandboxed iframe; only the injected link
-      // bridge can execute, and the iframe never gets same-origin access.
+      // Body — render HTML inside a sandboxed iframe (no scripts, no
+      // same-origin), or plain text in a div.
       const bodyEl = createEl('div', { className: 'em-reader-body' });
       if (full.html) {
         // The server sanitises full.html in GET /message before returning it.
-        // We run DOMPurify again client-side as defence-in-depth and keep
-        // safe target/rel attributes; link navigation is forwarded by the
-        // sandboxed iframe bridge below.
+        // We run DOMPurify again client-side as defence-in-depth, and add a
+        // hook to force all links to open in a new tab with noopener.
         const sanitized = sanitizeEmailHtml(full.html);
         const hasDoc = /^<!doctype/i.test(sanitized.trimStart()) || /^<html[\s>]/i.test(sanitized.trimStart());
         const iframe = createEl('iframe', {
-          sandbox: 'allow-scripts',
+          sandbox: 'allow-popups allow-popups-to-escape-sandbox',
           title: 'Email body',
           referrerpolicy: 'no-referrer',
         });
-        const emailDocument = hasDoc
+        iframe.srcdoc = hasDoc
           ? sanitized
           : '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}body{margin:0;padding:0;word-wrap:break-word}</style></head><body>' + sanitized + '</body></html>';
-        iframe.srcdoc = injectEmailLinkBridge(emailDocument);
         bodyEl.appendChild(iframe);
         readerEl.appendChild(bodyEl);
       } else {
@@ -1278,13 +1158,6 @@ const appConfig = {
       }
     }
 
-    function injectEmailLinkBridge(html) {
-      const bridge = '<script>(function(){document.addEventListener("click",function(event){var link=event.target.closest&&event.target.closest("a[href]");if(!link)return;event.preventDefault();parent.postMessage({type:"nbosp:email-link",href:link.href},"*");},true);})();</script>';
-      return /<\/body\s*>/i.test(html)
-        ? html.replace(/<\/body\s*>/i, bridge + '</body>')
-        : html + bridge;
-    }
-
     function forceSafeLinks(node) {
       if (node.tagName === 'A') {
         node.setAttribute('target', '_blank');
@@ -1294,7 +1167,7 @@ const appConfig = {
 
     // DELETE / ARCHIVE
     async function doDeleteMsg(msg, rowEl) {
-      if (!(await hasPermission('mail:delete'))) {
+      if (!AppPermissionManager?.isGranted('mail:delete', 'com.nbosp.email')) {
         notify('Email needs mail:delete to remove messages.', 'error', 'Permission denied');
         return;
       }
@@ -1316,7 +1189,7 @@ const appConfig = {
     }
 
     async function doArchiveMsg(msg, rowEl) {
-      if (!(await hasPermission('mail:delete'))) {
+      if (!AppPermissionManager?.isGranted('mail:delete', 'com.nbosp.email')) {
         notify('Email needs mail:delete to archive messages.', 'error', 'Permission denied');
         return;
       }
@@ -1346,7 +1219,7 @@ const appConfig = {
 
     // COMPOSE
     function openCompose(prefill = {}, fromAcct = null) {
-      if (!true) {
+      if (!AppPermissionManager?.isGranted('mail:write', 'com.nbosp.email')) {
         notify('Email needs mail:write to compose.', 'error', 'Permission denied');
         return;
       }
@@ -1399,7 +1272,7 @@ const appConfig = {
       ccRow.style.display = 'none';
       bccRow.style.display = 'none';
       const ccToggle = createEl('button', {
-        className: 'btn btn-sm em-btn',
+        className: 'em-btn',
         textContent: 'Cc/Bcc',
         style: 'font-size:10px;padding:2px 6px;',
       });
@@ -1453,7 +1326,7 @@ const appConfig = {
         style: 'background:var(--accent);color:#fff;border:none;border-radius:7px;padding:6px 16px;font-size:13px;font-weight:600;cursor:pointer;',
       });
       const attachBtn = createEl('button', {
-        className: 'btn btn-sm em-btn',
+        className: 'em-btn',
         innerHTML: '&#128206;',
         title: 'Attach file',
       });
@@ -1461,11 +1334,11 @@ const appConfig = {
       attachBtn.addEventListener('click', () => fileInp.click(), { signal: appSignal });
 
       sendBtn.addEventListener('click', async () => {
-        if (!true) {
+        if (!AppPermissionManager?.isGranted('mail:send', 'com.nbosp.email')) {
           notify('Email needs mail:send permission.', 'error', 'Permission denied');
           return;
         }
-        if (!true) {
+        if (!AppPermissionManager?.isGranted('mail:write', 'com.nbosp.email')) {
           notify('Email needs mail:write permission to compose.', 'error', 'Permission denied');
           return;
         }
@@ -1601,9 +1474,7 @@ const appConfig = {
       showEmpty();
     }
 
-    // Guest-local compatibility for the original app's token binding.
-    // Mail writes remain authorized by the host IPC permission boundary.
-    const csrfToken = window.__csrfToken || document.querySelector('meta[name="csrf-token"]')?.content || '';
+    // Expose the resolved token for any other code on the page that needs it.
     window.__csrfToken = csrfToken;
 
     accounts = loadAccts();
@@ -1641,8 +1512,7 @@ const appConfig = {
           loadMessages();
         });
     }
-  }
-};
+  },
+});
 
-  appConfig.init(document.getElementById('app'), {}, {});
 })();

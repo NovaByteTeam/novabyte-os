@@ -551,6 +551,10 @@ const AppPackage = (() => {
       manifest:      pkg.manifest,
       files:         pkg.files,
       signature:     pkg.signature,
+      signing:       pkg.signing,
+      integrity:     pkg.integrity,
+      novabyte_app:  pkg.novabyte_app,
+      compiled_at:   pkg.compiled_at,
       verified,
       signer,
       system,
@@ -673,7 +677,7 @@ const AppPackage = (() => {
   // mistake (wrong file embedded) or a deliberate attempt to bloat the
   // manifest / waste memory on every render of the app list, launcher,
   // taskbar, etc. — icon strings get parsed and rendered repeatedly across
-  // many UI surfaces (see appmanager.js svgIcon()/createEl() call sites),
+  // many UI surfaces (see the App Manager package's svgIcon()/createEl() call sites),
   // so an oversized one has an outsized cost relative to its purpose.
   const MAX_ICON_DATA_URI_BYTES = 512 * 1024; // 512KB
 

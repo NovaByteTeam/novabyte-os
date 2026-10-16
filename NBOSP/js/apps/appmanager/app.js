@@ -1,3 +1,39 @@
+(function () {
+  const APP_MANAGER_ID = 'com.nbosp.appmanager';
+  const appManagerPackageFiles = window.__novaUnrestrictedPackage?.files || {};
+  const osSvgIcon = window.svgIcon;
+
+  function svgIcon(name, size = 16) {
+    if (typeof osSvgIcon !== 'function') {
+      throw new Error('NovaByte icon renderer is unavailable');
+    }
+
+    return osSvgIcon(name, size).replace(/src="\/assets\/([^"]+)"/g, (attribute, fileName) => {
+      const encoded = appManagerPackageFiles[`icons/${fileName}`];
+      if (!encoded) return attribute;
+      const mime = fileName.toLowerCase().endsWith('.svg') ? 'image/svg+xml' : 'image/png';
+      return `src="data:${mime};base64,${encoded}"`;
+    });
+  }
+
+  function resolvePackageIcon(appData) {
+    const icon = appData?.icon;
+    if (typeof icon !== 'string' || !icon || /^(?:data:|https?:\/\/|\/)/i.test(icon)) {
+      return icon || '/assets/no_app_icon.svg';
+    }
+
+    const encoded = appData.files?.[icon];
+    if (!encoded) return icon;
+
+    const extension = icon.split('.').pop()?.toLowerCase();
+    const mime = extension === 'svg' ? 'image/svg+xml'
+      : extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg'
+      : extension === 'gif' ? 'image/gif'
+      : extension === 'webp' ? 'image/webp'
+      : 'image/png';
+    return `data:${mime};base64,${encoded}`;
+  }
+
 // ── Shared Nova app launch config (hoisted to module scope) ──────────────
 // buildNovaAppConfig() and its helpers used to live entirely inside
 // init(content) below, meaning they only existed once a user actually
@@ -670,7 +706,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
       return {
         id: appId,
         name: appData.name,
-        icon: appData.icon || '/assets/no_app_icon.svg',
+        icon: resolvePackageIcon(appData),
         description: appData.description || '',
         defaultSize: appData.defaultSize || [800, 560],
         minSize: appData.minSize || [400, 300],
@@ -750,6 +786,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             const sandboxApp = {
               id: appId,
               name: appData.name,
+              icon: resolvePackageIcon(appData),
               entry: appData.entry || 'index.html',
               unrestrictedEntry: appData.unrestrictedEntry || appData.manifest?.unrestrictedEntry || null,
               files: appData.files || {},
@@ -757,6 +794,19 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               permissions: appData.permissions || [],
               optionalPermissions: appData.optionalPermissions || [],
               type: appData.type || 'package',
+              // Preserve the signed-package identity required by the unrestricted
+              // gate. Without these fields the gate rejects the app and silently
+              // leaves the sandboxed entry active.
+              source: appData.source || 'file',
+              verified: appData.verified === true,
+              signer: appData.signer || null,
+              revoked: appData.revoked === true,
+              tampered: appData.tampered === true,
+              integrity: appData.integrity || null,
+              signature: appData.signature || null,
+              signing: appData.signing || null,
+              novabyte_app: appData.novabyte_app,
+              compiled_at: appData.compiled_at,
               // Manifest opt-in for nested <webview> creation — see
               // isNestedWebviewPermitted() in app-sandbox.js. Must also hold
               // the 'sandbox:nested-webview' grant; this alone doesn't enable it.
@@ -1107,7 +1157,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
     // through. See the header comment above for the full story.
     window.buildNovaAppConfig = buildNovaAppConfig;
 registerApp({
-  id: 'app-manager',
+  id: APP_MANAGER_ID,
   name: 'App Manager',
   version: '3.0.2',
   icon: 'package',
@@ -1138,7 +1188,7 @@ registerApp({
   },
   async init(content) {
     // ── NovaByte runtime guard — refuses to launch without AppDirs ──
-    if (!window.AppDirs?.getVFSDir('com.nbosp.appmanager', 'files')) {
+    if (!window.AppDirs?.getVFSDir(APP_MANAGER_ID, 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML = '<div style="font-size:32px">\u26A0\uFE0F</div><div style="font-size:14px;text-align:center"><b>com.nbosp.appmanager</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
       return;
@@ -1513,7 +1563,7 @@ registerApp({
         listEl.innerHTML = '';
         const q = searchEl.value.trim().toLowerCase();
         const disabledSet = new Set(getDisabled());
-        let visible = installedApps;
+        let visible = installedApps.filter(app => app.id !== APP_MANAGER_ID);
 
         if (q) {
           visible = visible.filter(a =>
@@ -2489,436 +2539,4 @@ registerApp({
     switchTab('packages');
   }
 });
-
-/* ── Background services: Clock + Email ───────────────────────────────── */
-(function () {
-  'use strict';
-
-  const bgRoot = window.__NBOSP_BG = window.__NBOSP_BG || {};
-
-  // ── Shared AudioContext (reused instead of creating new one per beep) ──
-  let sharedAudioCtx = null;
-
-  function getAudioContext() {
-    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
-      try {
-        sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      } catch { return null; }
-    }
-    // Resume if suspended (browser autoplay policy)
-    if (sharedAudioCtx.state === 'suspended') {
-      sharedAudioCtx.resume().catch(() => {});
-    }
-    return sharedAudioCtx;
-  }
-
-  function bgBeep(freq, dur) {
-    try {
-      const actx = getAudioContext();
-      if (!actx) return;
-      const osc = actx.createOscillator();
-      const gn = actx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq || 880;
-      gn.gain.setValueAtTime(0.25, actx.currentTime);
-      gn.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + (dur || 1.0));
-      osc.connect(gn);
-      gn.connect(actx.destination);
-      osc.start();
-      osc.stop(actx.currentTime + (dur || 1.0));
-      // No setTimeout to close — we reuse the AudioContext
-    } catch { /* audio not available */ }
-  }
-
-  function safeJSONParse(raw, fallback) {
-    try { return JSON.parse(raw); }
-    catch { return fallback; }
-  }
-
-  /* ---------------------------- Clock service ---------------------------- */
-  if (!bgRoot.clock) {
-    const STATE_KEY = 'nbosp_clock_state_v2';
-    const ALARMS_KEY = 'nbosp_clock_v1';
-
-    const defaults = () => ({
-      timer: { running: false, done: false, presetMs: 0, remainingMs: 0, endAt: 0 },
-      stopwatch: { running: false, elapsedMs: 0, startedAt: 0, laps: [] },
-      lastAlarmMinute: ''
-    });
-
-    let state = safeJSONParse(localStorage.getItem(STATE_KEY), null) || defaults();
-
-    function normaliseState() {
-      state.timer = state.timer || {};
-      state.stopwatch = state.stopwatch || {};
-      state.timer.running = !!state.timer.running;
-      state.timer.done = !!state.timer.done;
-      state.timer.presetMs = Math.max(0, Number(state.timer.presetMs) || 0);
-      state.timer.remainingMs = Math.max(0, Number(state.timer.remainingMs) || 0);
-      state.timer.endAt = Math.max(0, Number(state.timer.endAt) || 0);
-
-      state.stopwatch.running = !!state.stopwatch.running;
-      state.stopwatch.elapsedMs = Math.max(0, Number(state.stopwatch.elapsedMs) || 0);
-      state.stopwatch.startedAt = Math.max(0, Number(state.stopwatch.startedAt) || 0);
-      state.stopwatch.laps = Array.isArray(state.stopwatch.laps)
-        ? state.stopwatch.laps.filter(n => Number.isFinite(n) && n >= 0).map(n => Math.floor(n))
-        : [];
-      state.lastAlarmMinute = typeof state.lastAlarmMinute === 'string' ? state.lastAlarmMinute : '';
-    }
-
-    function persist() {
-      normaliseState();
-      lsSave(STATE_KEY, state);
-    }
-
-    function loadAlarms() {
-      const raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
-      const alarms = Array.isArray(raw?.alarms) ? raw.alarms : [];
-      return alarms
-        .map(al => ({
-          id: al?.id ?? Date.now().toString(36),
-          time: typeof al?.time === 'string' ? al.time : '07:00',
-          label: typeof al?.label === 'string' ? al.label : '',
-          days: Array.isArray(al?.days) ? al.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [],
-          enabled: al?.enabled !== false
-        }))
-        .filter(al => /^\d{2}:\d{2}$/.test(al.time));
-    }
-
-    function saveAlarms(alarms) {
-      const raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
-      raw.alarms = alarms;
-      lsSave(ALARMS_KEY, raw);
-    }
-
-    function nowMs() { return Date.now(); }
-
-    function timerMs() {
-      normaliseState();
-      if (state.timer.running && state.timer.endAt) {
-        const rem = Math.max(0, state.timer.endAt - nowMs());
-        if (rem <= 0) {
-          state.timer.running = false;
-          state.timer.done = true;
-          state.timer.remainingMs = 0;
-          state.timer.endAt = 0;
-          persist();
-          bgBeep(880, 0.7);
-          setTimeout(() => bgBeep(1047, 0.7), 350);
-          setTimeout(() => bgBeep(1319, 1.0), 700);
-          return 0;
-        }
-        return rem;
-      }
-      return state.timer.remainingMs || 0;
-    }
-
-    function stopwatchMs() {
-      normaliseState();
-      return state.stopwatch.running
-        ? state.stopwatch.elapsedMs + Math.max(0, nowMs() - state.stopwatch.startedAt)
-        : state.stopwatch.elapsedMs;
-    }
-
-    bgRoot.clock = {
-      state,
-      persist,
-      loadAlarms,
-      saveAlarms,
-      timerMs,
-      stopwatchMs,
-
-      startTimer(ms) {
-        const amount = Math.max(0, Math.floor(Number(ms) || 0));
-        state.timer.presetMs = amount;
-        state.timer.remainingMs = amount;
-        state.timer.endAt = nowMs() + amount;
-        state.timer.running = amount > 0;
-        state.timer.done = false;
-        persist();
-      },
-
-      pauseTimer() {
-        state.timer.remainingMs = timerMs();
-        state.timer.running = false;
-        state.timer.done = false;
-        state.timer.endAt = 0;
-        persist();
-      },
-
-      resetTimer() {
-        state.timer.running = false;
-        state.timer.done = false;
-        state.timer.remainingMs = state.timer.presetMs || 0;
-        state.timer.endAt = 0;
-        persist();
-      },
-
-      restartTimer() {
-        const amount = state.timer.presetMs || state.timer.remainingMs || 0;
-        state.timer.remainingMs = amount;
-        state.timer.endAt = nowMs() + amount;
-        state.timer.running = amount > 0;
-        state.timer.done = false;
-        persist();
-      },
-
-      setTimerPreset(ms) {
-        const amount = Math.max(0, Math.floor(Number(ms) || 0));
-        state.timer.presetMs = amount;
-        if (!state.timer.running) state.timer.remainingMs = amount;
-        persist();
-      },
-
-      startStopwatch() {
-        if (!state.stopwatch.running) {
-          state.stopwatch.startedAt = nowMs();
-          state.stopwatch.running = true;
-          persist();
-        }
-      },
-
-      pauseStopwatch() {
-        if (state.stopwatch.running) {
-          state.stopwatch.elapsedMs = stopwatchMs();
-          state.stopwatch.running = false;
-          state.stopwatch.startedAt = 0;
-          persist();
-        }
-      },
-
-      resetStopwatch() {
-        state.stopwatch.running = false;
-        state.stopwatch.elapsedMs = 0;
-        state.stopwatch.startedAt = 0;
-        state.stopwatch.laps = [];
-        persist();
-      },
-
-      lapStopwatch() {
-        const current = Math.floor(stopwatchMs());
-        const laps = state.stopwatch.laps;
-        if (!laps.length || laps[laps.length - 1] !== current) {
-          laps.push(current);
-          persist();
-        }
-        return current;
-      },
-
-      getStopwatchLaps() {
-        normaliseState();
-        return state.stopwatch.laps.slice();
-      },
-
-      alarmTick(checkFn) {
-        const now = new Date();
-        const minuteKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}:${now.getMinutes()}`;
-        if (state.lastAlarmMinute === minuteKey) return;
-        const seconds = now.getSeconds();
-        const ms = now.getMilliseconds();
-        if (seconds !== 0 || ms > 1400) return;
-        state.lastAlarmMinute = minuteKey;
-        persist();
-        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const dow = now.getDay();
-        const alarms = loadAlarms();
-        alarms.forEach((al, i) => {
-          if (!al.enabled || al.time !== timeStr) return;
-          if (al.days.length > 0 && !al.days.includes(dow)) return;
-          if (typeof checkFn === 'function') {
-            try { checkFn(al, i); } catch { /* observer error — don't block */ }
-          }
-          bgBeep(880, 0.8);
-          setTimeout(() => bgBeep(1047, 0.8), 400);
-          setTimeout(() => bgBeep(1319, 1.2), 800);
-          try {
-            if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
-              Notify.show({
-                title: al.label || 'Alarm',
-                body: `Alarm for ${al.time}`,
-                type: 'info',
-                appName: 'Clock',
-                appId: 'com.nbosp.clock',
-                category: 'alarm',
-                icon: 'bell'
-              });
-            }
-          } catch { /* notification UI is best effort; the alarm tone still fires */ }
-          if (al.days.length === 0) {
-            al.enabled = false;
-            saveAlarms(alarms);
-          }
-        });
-      },
-
-      ensureBooted() { return true; },
-
-      // ── Cleanup method for clock interval ──
-      destroy() {
-        if (bgRoot._clockTimer) {
-          clearInterval(bgRoot._clockTimer);
-          bgRoot._clockTimer = null;
-        }
-        if (sharedAudioCtx) {
-          sharedAudioCtx.close().catch(() => {});
-          sharedAudioCtx = null;
-        }
-      }
-    };
-
-    normaliseState();
-    persist();
-
-    if (!bgRoot._clockTimer) {
-      bgRoot._clockTimer = setInterval(() => {
-        timerMs();
-        bgRoot.clock.alarmTick();
-      }, 250);
-    }
-  }
-
-  /* ---------------------------- Email service ---------------------------- */
-  if (!bgRoot.email) {
-    const ACCTS_KEY = 'nbosp_email_accts_v2';
-
-    const state = {
-      started: false,
-      accounts: [],
-      syncTimers: {},
-      onChange: null,
-      lastBootAt: 0
-    };
-
-    const rawLoad = () => {
-      try { return JSON.parse(localStorage.getItem(ACCTS_KEY) || '[]'); }
-      catch { return []; }
-    };
-
-    function saveAccounts() {
-      lsSave(ACCTS_KEY, state.accounts);
-    }
-
-    function clearTimers() {
-      for (const id of Object.keys(state.syncTimers)) {
-        clearInterval(state.syncTimers[id]);
-        delete state.syncTimers[id];
-      }
-    }
-
-    async function api(path, opts) {
-      const r = await fetch('/api/email' + path, Object.assign({ credentials: 'include' }, opts || {}));
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || r.statusText);
-      return d;
-    }
-
-    async function connectAccount(acct) {
-      if (!acct || !acct.host || !acct.user || !acct.pass) return;
-      await api('/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: acct.type, host: acct.host, port: acct.port,
-          ssl: acct.ssl, user: acct.user, pass: acct.pass
-        })
-      });
-    }
-
-    function renderHook() {
-      if (typeof state.onChange === 'function') {
-        try { state.onChange(); } catch { /* observer error */ }
-      }
-    }
-
-    // ── AbortController for cancelling in-flight sync requests ──
-    let syncAbortController = null;
-
-    async function syncAccount(acct) {
-      // ── Create per-sync abort signal ──
-      const localAc = new AbortController();
-
-      try {
-        await connectAccount(acct);
-        const d = await api('/messages?folder=INBOX&page=1&limit=10', { method: 'GET', signal: localAc.signal });
-        const unread = (d.messages || []).filter(m => !m.seen).length;
-        acct._unread = unread;
-        acct._lastSync = Date.now();
-        state.accounts = rawLoad();
-        const target = state.accounts.find(a => a.id === acct.id);
-        if (target) {
-          target._unread = unread;
-          target._lastSync = acct._lastSync;
-          saveAccounts();
-        }
-        if (unread > 0 && window.Notify?.show) {
-          Notify.show({ title: 'Email', body: `${unread} new in ${acct.name || acct.email || 'Email'}`, type: 'info', appName: 'Email' });
-        }
-        renderHook();
-      } catch {
-        // Network error or abort — silently handled
-      }
-    }
-
-    function schedule() {
-      clearTimers();
-      state.accounts = rawLoad();
-      state.accounts.forEach(acct => {
-        const mins = parseInt(acct.syncInterval) || 0;
-        if (!mins) return;
-        state.syncTimers[acct.id] = setInterval(() => { syncAccount(acct); }, mins * 60000);
-      });
-    }
-
-    bgRoot.email = {
-      state,
-
-      ensureBooted() {
-        if (state.started) return;
-        state.started = true;
-        state.lastBootAt = Date.now();
-        state.accounts = rawLoad();
-        schedule();
-        state.accounts.forEach(acct => {
-          const mins = parseInt(acct.syncInterval) || 0;
-          if (mins) syncAccount(acct);
-        });
-      },
-
-      refreshAccounts: schedule,
-
-      getAccounts() {
-        state.accounts = rawLoad();
-        return state.accounts.slice();
-      },
-
-      saveAccounts,
-
-      setAccounts(next) {
-        state.accounts = Array.isArray(next) ? next : [];
-        saveAccounts();
-        schedule();
-        renderHook();
-      },
-
-      syncNow(acctId) {
-        const list = rawLoad();
-        if (acctId) {
-          const acct = list.find(a => a.id === acctId);
-          if (acct) return syncAccount(acct);
-          return Promise.resolve();
-        }
-        return Promise.allSettled(list.map(acct => syncAccount(acct)));
-      },
-
-      stop() {
-        clearTimers();
-        // ── Cancel any in-flight sync requests ──
-        if (syncAbortController) {
-          syncAbortController.abort();
-          syncAbortController = null;
-        }
-        state.started = false;
-      }
-    };
-  }
 })();

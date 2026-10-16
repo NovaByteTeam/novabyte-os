@@ -113,7 +113,7 @@
     },
 
     // App Manager — system UI, never prompt
-    'app-manager': {
+    'com.nbosp.appmanager': {
       normal   : ['system:apps', 'vfs:read', 'vfs:write', 'vfs:delete', 'net:external'],
       dangerous: [],
     },

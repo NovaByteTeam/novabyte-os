@@ -95,7 +95,7 @@ const TrustStore = (() => {
 
   // System-signer key is intentionally separate from the general trusted-
   // signing key above. A package verified against THIS entry is eligible
-  // for the "System" badge in appmanager.js —
+  // for the "System" badge in the App Manager package —
   // that's a stronger claim than ordinary "Verified", so it gets its own
   // signer identity rather than reusing NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK.
   // Replace this JWK with your own Ed25519 public key before relying on
