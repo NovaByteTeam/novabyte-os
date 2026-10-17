@@ -13,17 +13,6 @@ const KEYS = Object.freeze({
   OS_VERSION    : 'novabyte_os_version',
 });
 
-const WALLPAPER_PRESETS = Object.freeze({
-  'stock-blue'  : 'radial-gradient(ellipse at 28% 38%, #1a5fbf 0%, #0a3070 35%, transparent 65%), linear-gradient(160deg, #020c1e 0%, #041428 45%, #061830 75%, #020c1e 100%)',
-  'stock-dark'  : 'radial-gradient(ellipse at 70% 25%, #160a28 0%, transparent 55%), radial-gradient(ellipse at 25% 75%, #0c0818 0%, transparent 50%), linear-gradient(150deg, #080810 0%, #0e0818 50%, #08080e 100%)',
-  'stock-light' : 'radial-gradient(ellipse at 40% 30%, #ffffff 0%, #e8f0ff 45%, transparent 70%), linear-gradient(160deg, #dde8f8 0%, #eaf0ff 45%, #d8e6f5 100%)',
-  'stock-green' : 'radial-gradient(ellipse at 30% 40%, #0a5c2a 0%, #043818 38%, transparent 65%), linear-gradient(155deg, #020c06 0%, #040e08 45%, #060e06 75%, #020c06 100%)',
-  'stock-purple': 'radial-gradient(ellipse at 62% 32%, #4a1272 0%, #2c0858 40%, transparent 65%), radial-gradient(ellipse at 22% 70%, #1e084a 0%, transparent 50%), linear-gradient(155deg, #0a0414 0%, #140628 50%, #0a0414 100%)',
-  'stock-red'   : 'radial-gradient(ellipse at 35% 42%, #8c1a10 0%, #5c0808 40%, transparent 65%), radial-gradient(ellipse at 75% 70%, #3a0c0c 0%, transparent 50%), linear-gradient(155deg, #0e0404 0%, #180808 45%, #0e0404 100%)',
-  'stock-gray'  : 'radial-gradient(ellipse at 50% 32%, #2c3c4e 0%, #1a2838 40%, transparent 65%), linear-gradient(155deg, #0c1018 0%, #16202c 45%, #0c1218 75%, #0c1018 100%)',
-  'stock-teal'  : 'radial-gradient(ellipse at 38% 36%, #0a5e70 0%, #044050 40%, transparent 65%), radial-gradient(ellipse at 72% 68%, #042835 0%, transparent 50%), linear-gradient(155deg, #020c10 0%, #041520 45%, #021018 100%)',
-});
-
 // ── Storage Helpers ────────────────────────────────────────────────
 const Storage = {
   get(key, fallback = null) {
@@ -192,6 +181,14 @@ const Boot = {
     Boot._patchSettingsSet();
   },
 
+  migrateLegacyAppIds() {
+    const aliases = window.NovaAppIdAliases;
+    if (typeof aliases?.migratePersistentReferences !== 'function') return false;
+    const changed = aliases.migratePersistentReferences(OS.settings, localStorage);
+    if (changed) console.info('[BOOT] Migrated legacy built-in app IDs');
+    return changed;
+  },
+
   /**
    * Apply core OS variables from settings.
    * @returns {Function} sGet — bound OS.settings.get, reused by subsequent stages.
@@ -232,20 +229,7 @@ const Boot = {
    * @param {Function} sGet
    */
   applyWallpaper(sGet) {
-    const wallpaper = document.getElementById('wallpaper');
-    if (!wallpaper) return;
-
-    const customBg = sGet('customWallpaper');
-    if (customBg) {
-      const s = wallpaper.style;
-      s.backgroundImage    = `url(${customBg})`;
-      s.backgroundSize     = 'cover';
-      s.backgroundPosition = 'center';
-      s.backgroundRepeat   = 'no-repeat';
-    } else {
-      wallpaper.style.backgroundImage =
-        WALLPAPER_PRESETS[sGet('wallpaperId')] ?? WALLPAPER_PRESETS['stock-blue'];
-    }
+    return window.WallpaperService?.apply(sGet) ?? false;
   },
 
   /**
@@ -406,6 +390,8 @@ async function boot() {
     return;
   }
 
+  Boot.migrateLegacyAppIds();
+
   // Subsystems initialised cleanly — this is not a crash loop. Clear attempts now
   // so a subsequent fast restart doesn't accumulate toward the threshold.
   Storage.remove(KEYS.ATTEMPTS);
@@ -430,6 +416,16 @@ async function boot() {
     await loadInstalledNovaApps();
   } catch (e) {
     console.error('[BOOT] Failed to reconcile/load Nova apps:', e);
+  }
+
+  for (const legacyId of ['com.nbosp.quill', 'com.nbosp.shell', 'com.nbosp.vault']) {
+    try {
+      if (typeof AppRegistry !== 'undefined' && AppRegistry.getApp?.(legacyId)) {
+        AppRegistry.unregisterApp(legacyId);
+      }
+    } catch (error) {
+      console.warn('[BOOT] Failed to remove stale legacy app registration', legacyId, error);
+    }
   }
 
   try {
@@ -458,7 +454,7 @@ async function boot() {
   WM.updateTaskbar();
 
   if (OS.lockPin) {
-    lockScreen();
+    window.LockScreenService.lockScreen();
   } else {
     renderDesktopIcons();
   }
@@ -554,6 +550,16 @@ async function startConfiguredHomeApp() {
     if (!app || !DefaultApps.getAppsForCategory('home').some(candidate => candidate.id === selectedId)) {
       console.error(`[BOOT] Selected Home app "${selectedId}" is unavailable or no longer declares the Home role; using ${bundledLauncherId}`);
       window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
+      await startBundledLauncher();
+    } else if ((app.permissions || app.manifest?.permissions || []).includes('system:root')
+      && (typeof AppPermissionManager === 'undefined'
+        || AppPermissionManager.isGranted('system:root', app.id) !== true)) {
+      console.warn(`[BOOT] Selected Home app "${selectedId}" requires unavailable root access; using ${bundledLauncherId}`);
+      if (typeof DefaultApps.setDefault === 'function' && !DefaultApps.setDefault('home', null)) {
+        console.error(`[BOOT] Could not clear unavailable Home app "${selectedId}" from the default-app settings`);
+      }
+      window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
+      root.replaceChildren();
       await startBundledLauncher();
     } else if (typeof AppSandbox === 'undefined' || typeof AppSandbox.launchHome !== 'function') {
       throw new Error('AppSandbox Home surface runtime is unavailable');
@@ -666,6 +672,7 @@ async function startConfiguredHomeApp() {
         console.error('[BOOT] Failed to reconcile bundled NovaApp', bundle.id, e);
       }
     }
+
   }
 
   function registerWithFiles(appData) {
@@ -1120,6 +1127,340 @@ async function startConfiguredHomeApp() {
       // a casual install prompt; it should require an explicit choice.
     });
   }
+
+// RECOVERY MODE
+
+function triggerRecovery(reason) {
+  if (document.body.classList.contains('os-booted')) return false;
+
+  const KEY = 'nova_boot_attempts';
+  const attempts = (() => {
+    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; }
+  })();
+
+  attempts.push({ ts: Date.now(), reason: reason || 'unknown', ua: navigator.userAgent.slice(0, 80) });
+  if (attempts.length > 10) attempts.shift();
+  try {
+    localStorage.setItem(KEY, JSON.stringify(attempts));
+  } catch { /* quota exceeded — keep going without persisting */ }
+
+  EventLog?.log?.({
+    app: 'System', category: 'system', severity: 'error',
+    message: `Boot failure detected: ${reason || 'unknown'} (attempt ${attempts.length})`,
+    data: { reason, attemptCount: attempts.length }
+  });
+
+  if (attempts.length >= 2) {
+    showRecoveryScreen(attempts, false);
+    return true;
+  }
+  return false;
+}
+
+// Listen for syntax errors during boot and route to recovery. Errors from
+// scripts under /js/apps/ are skipped — those are loaded lazily and a single
+// broken app shouldn't put the whole OS into recovery.
+window.addEventListener('error', (e) => {
+  if (document.body.classList.contains('os-booted')) return;
+  const msg = e.message || '';
+  if (!msg.includes('SyntaxError') && !msg.includes('Unexpected token')) return;
+
+  const target = e.target;
+  const src = target?.src || e.filename || '';
+  if (src.includes('/js/apps/') || src.includes('\\js\\apps\\')) {
+    console.warn('[Boot] App syntax error skipped from recovery:', src, msg);
+    return;
+  }
+  console.error('[BOOT] Syntax error detected:', msg);
+  triggerRecovery('syntax_error: ' + msg.slice(0, 100));
+});
+
+function showRecoveryScreen(priorAttempts, isManual) {
+  const bootScreen = document.getElementById('boot-screen');
+  if (bootScreen) bootScreen.style.display = 'none';
+
+  const anim = document.createElement('div');
+  anim.id = 'recovery-boot-anim';
+  anim.innerHTML = `
+    <div class="rba-scanlines"></div>
+    <div class="rba-glow"></div>
+    <div class="rba-content">
+      <div class="rba-logo-wrap">
+        <div class="rba-logo-ring"></div>
+        <div class="rba-logo-ring-2"></div>
+        <div class="rba-logo-hex">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <polygon points="18,3 33,10.5 33,25.5 18,33 3,25.5 3,10.5"
+              fill="none" stroke="#ff6b35" stroke-width="1.5" opacity="0.8"/>
+            <text x="18" y="23" text-anchor="middle" font-size="13"
+              font-weight="700" fill="#ffd700" font-family="monospace">NB</text>
+          </svg>
+        </div>
+      </div>
+      <div class="rba-title">NovaByte</div>
+      <div class="rba-subtitle">⚠ Recovery Mode</div>
+      <div class="rba-log" id="rba-log"></div>
+      <div class="rba-bar-wrap"><div class="rba-bar" id="rba-bar"></div></div>
+      <div class="rba-status" id="rba-status">Initializing recovery environment…</div>
+    </div>`;
+  document.body.appendChild(anim);
+
+  const rbaLog = document.getElementById('rba-log');
+  const rbaBar = document.getElementById('rba-bar');
+  const rbaStatus = document.getElementById('rba-status');
+  let step = 0;
+
+  const steps = isManual ? [
+    { msg: '[ RECOVERY MODE ]',                            cls: 'info', pct: 8,   label: 'Loading recovery kernel…'   },
+    { msg: '✓ Recovery environment loaded',                cls: 'ok',   pct: 22,  label: 'Mounting storage…'          },
+    { msg: '✓ localStorage integrity check…',              cls: 'ok',   pct: 38,  label: 'Checking data…'             },
+    { msg: 'Entering recovery — requested manually',       cls: 'info', pct: 60,  label: 'Preparing interface…'       },
+    { msg: '✓ Recovery UI ready',                          cls: 'ok',   pct: 88,  label: 'Almost ready…'              },
+    { msg: '✓ Handoff to Recovery Environment',            cls: 'info', pct: 100, label: 'Done.'                      },
+  ] : [
+    { msg: '[ RECOVERY MODE TRIGGERED ]',                 cls: 'warn', pct: 8,   label: 'Loading recovery kernel…'   },
+    { msg: '✓ Recovery environment loaded',                cls: 'ok',   pct: 22,  label: 'Mounting storage…'          },
+    { msg: '✓ localStorage integrity check…',              cls: 'ok',   pct: 38,  label: 'Checking data…'             },
+    { msg: '⚠ Boot failure detected — entering recovery',  cls: 'warn', pct: 60,  label: 'Preparing interface…'       },
+    { msg: '✓ Recovery UI ready',                          cls: 'ok',   pct: 88,  label: 'Almost ready…'              },
+    { msg: '✓ Handoff to Recovery Environment',            cls: 'info', pct: 100, label: 'Done.'                      },
+  ];
+
+  function runStep() {
+    if (step >= steps.length) {
+      setTimeout(() => {
+        anim.classList.add('fade-out');
+        setTimeout(() => { anim.remove(); }, 650);
+        _doShowRecoveryScreen(priorAttempts, isManual);
+      }, 300);
+      return;
+    }
+    const s = steps[step++];
+    rbaBar.style.width = s.pct + '%';
+    rbaStatus.textContent = s.label;
+    const line = document.createElement('div');
+    line.className = 'rba-log-line ' + (s.cls || '');
+    line.textContent = s.msg;
+    rbaLog.appendChild(line);
+    rbaLog.scrollTop = rbaLog.scrollHeight;
+    setTimeout(runStep, step === 1 ? 250 : 320);
+  }
+  setTimeout(runStep, 180);
+}
+
+function _doShowRecoveryScreen(priorAttempts, isManual) {
+  const recoveryScreenEl = document.getElementById('recovery-screen');
+  if (!recoveryScreenEl) return;
+  recoveryScreenEl.classList.add('active');
+
+  // isManual is passed in explicitly from showRecoveryScreen() because boot.js
+  // has already cleared nova_manual_recovery / nova_show_recovery by the time
+  // this runs — re-reading those flags here always returned false, so the
+  // manual-recovery banner never actually applied.
+  isManual = !!isManual;
+
+  const attemptCountEl = document.getElementById('rec-attempt-count');
+  const attemptAlertEl = document.querySelector('.recovery-alert');
+  if (isManual && attemptAlertEl) {
+    attemptAlertEl.style.display = 'none';
+    if (attemptCountEl) attemptCountEl.textContent = '0';
+  } else if (attemptCountEl) {
+    attemptCountEl.textContent = String(priorAttempts.length);
+  }
+
+  const now = new Date();
+  const tsEl = document.getElementById('rec-timestamp');
+  if (tsEl) tsEl.textContent = now.toLocaleString();
+  const footerTimeEl = document.getElementById('rec-footer-time');
+  if (footerTimeEl) footerTimeEl.textContent = now.toLocaleTimeString();
+
+  // Cancel any leaked clock timer from a prior call before starting a new one.
+  if (_recoveryClockId) clearInterval(_recoveryClockId);
+  _recoveryClockId = setInterval(() => {
+    const el = document.getElementById('rec-footer-time');
+    if (!el) return;
+    el.textContent = new Date().toLocaleTimeString();
+  }, 1000);
+
+  // Diagnostics log.
+  const diagEl = document.getElementById('rec-diag-lines');
+  const log = (msg, cls = '') => {
+    if (!diagEl) return;
+    const line = document.createElement('div');
+    line.className = 'recovery-log-line' + (cls ? ' ' + cls : '');
+    line.textContent = msg;
+    diagEl.appendChild(line);
+  };
+
+  log('[ NovaByte Recovery Environment ]', 'info');
+  log('');
+  if (!isManual) {
+    log('Boot failure analysis:', 'warn');
+    priorAttempts.slice(-5).forEach((a, i) => {
+      log(`  Attempt ${i + 1}: ${new Date(a.ts).toLocaleTimeString()}`, 'err');
+    });
+    log('');
+  } else {
+    log('Recovery mode initialized (Manual boot)', 'info');
+    log('');
+  }
+
+  log('Scanning storage...', 'info');
+  try {
+    const lsKeys = Object.keys(localStorage);
+    log(`  localStorage: ${lsKeys.length} key(s) · ${new Blob([JSON.stringify(localStorage)]).size} bytes`, 'ok');
+    ['nova_settings', 'nova_boot_attempts'].forEach(k => {
+      const val = localStorage.getItem(k);
+      log(val ? `  ✓ ${k}: ${val.length} chars` : `  ✗ ${k}: not found`, val ? 'ok' : 'warn');
+    });
+  } catch (err) {
+    log('  ! localStorage read error: ' + err?.message, 'err');
+  }
+
+  log('');
+  const hasSettings = !!localStorage.getItem('nova_settings');
+  log(`  Settings key present: ${hasSettings ? 'YES' : 'NO'}`, hasSettings ? 'ok' : 'warn');
+  log('');
+  if (!isManual) {
+    log('Recommendation: Try "Continue" first.', 'info');
+    log('If it fails again, use Safe Mode or', 'info');
+    log('"Reset Settings" to restore stability.', 'info');
+  } else {
+    log('Select any recovery option as needed.', 'info');
+  }
+
+  // Countdown auto-boot.
+  let countdown = 15;
+  let countdownStopped = false;
+  const countdownEvents = ['click', 'keydown', 'pointerdown', 'mousemove'];
+  const cdownNum = document.getElementById('rec-cdown-num');
+  const cdownBar = document.getElementById('rec-cdown-bar');
+  const cdownBlock = document.getElementById('rec-countdown-block');
+
+  function stopCountdown(showCancelled = true) {
+    if (countdownStopped) return;
+    countdownStopped = true;
+    if (_recoveryCountdownId) {
+      clearInterval(_recoveryCountdownId);
+      _recoveryCountdownId = 0;
+    }
+    for (const eventName of countdownEvents) {
+      document.removeEventListener(eventName, stopCountdown, true);
+    }
+    if (window._cancelRecoveryAutoBoot === stopCountdown) {
+      delete window._cancelRecoveryAutoBoot;
+    }
+    if (cdownBlock) {
+      cdownBlock.style.opacity = '0.4';
+      if (showCancelled) {
+        const ctext = cdownBlock.querySelector('.recovery-countdown-text');
+        if (ctext) ctext.textContent = 'Auto-boot cancelled';
+      }
+    }
+    if (cdownBar) { cdownBar.style.transition = 'none'; cdownBar.style.width = '0%'; }
+  }
+
+  window._cancelRecoveryAutoBoot = stopCountdown;
+  wireRecoveryControls(recoveryScreenEl);
+  if (typeof initRecoveryUI === 'function') initRecoveryUI();
+
+  if (isManual) {
+    stopCountdown();
+  } else {
+    // Track at module scope so a second call to _doShowRecoveryScreen can't
+    // leave the previous countdown running.
+    if (_recoveryCountdownId) clearInterval(_recoveryCountdownId);
+    _recoveryCountdownId = setInterval(() => {
+      if (countdownStopped) { clearInterval(_recoveryCountdownId); _recoveryCountdownId = 0; return; }
+      countdown--;
+      if (cdownNum) cdownNum.textContent = String(countdown);
+      if (cdownBar) cdownBar.style.width = ((countdown / 15) * 100) + '%';
+      if (countdown <= 0) {
+        stopCountdown(false);
+        if (typeof recoveryAction === 'function') recoveryAction('continue');
+      }
+    }, 1000);
+
+    for (const eventName of countdownEvents) {
+      document.addEventListener(eventName, stopCountdown, true);
+    }
+  }
+}
+
+// Wires up click handling for the recovery screen. Accepts the screen element
+// explicitly — the original code used the bare identifier `screen` which
+// JavaScript resolved to window.screen (a Screen object, not a DOM element),
+// so screen.dataset was always undefined and screen.querySelectorAll threw.
+function wireRecoveryControls(screenEl) {
+  if (!screenEl || screenEl.dataset.recoveryWired === '1') return;
+  screenEl.dataset.recoveryWired = '1';
+
+  const ACTION_MAP = {
+    'continue': 'continue', 'boot': 'boot', 'boot normal': 'boot-normal',
+    'normal boot': 'boot-normal', 'safe mode': 'safemode', 'boot safe': 'boot-safe',
+    'boot to safe mode': 'boot-safe', 'minimal mode': 'boot-minimal',
+    'boot minimal': 'boot-minimal', 'boot recovery': 'boot-recovery',
+    'boot to recovery': 'boot-recovery', 'reset settings': 'reset-settings',
+    'clear cache': 'clear-cache', 'clear data': 'wipe-user-data',
+    'factory reset': 'factory', 'console': 'console', 'terminal': 'console',
+    'file manager': 'file-manager', 'settings editor': 'settings-editor',
+    'storage analyzer': 'storage-analyzer', 'event log': 'event-log', 'back': 'back'
+  };
+
+  // Functions that recovery buttons can invoke directly via data-action. Kept
+  // explicit so a stray data-action attribute can never reach eval, Function,
+  // or other dangerous globals — defense in depth even though the recovery
+  // UI HTML itself is trusted.
+  const GLOBAL_FN_ALLOWLIST = new Set([
+    'recoveryAction', 'recNav', 'recGoBack', 'initRecoveryUI',
+  ]);
+
+  function switchRecoveryTab(tabName) {
+    const tab = String(tabName || '').trim().toLowerCase();
+    if (!tab) return false;
+    screenEl.querySelectorAll('.recovery-tab').forEach(btn => {
+      const btnTab = (btn.dataset.tab || btn.dataset.switchtab || '').trim().toLowerCase();
+      btn.classList.toggle('active', btnTab === tab);
+      btn.setAttribute('aria-selected', String(btnTab === tab));
+    });
+    screenEl.querySelectorAll('.recovery-tab-panel').forEach(panel => {
+      const panelId = (panel.id || '').replace(/^tab-/, '').trim().toLowerCase();
+      panel.classList.toggle('active', panelId === tab);
+    });
+    return true;
+  }
+
+  screenEl.addEventListener('click', (e) => {
+    const t = e.target.closest(
+      'button,[role="button"],[data-fn],[data-action],[data-recovery-action],' +
+      '.recovery-tab,.recovery-option,.rec-btn,.rec-breadcrumb-item'
+    );
+    if (!t || !screenEl.contains(t)) return;
+
+    const dataAction = (t.dataset.recoveryAction || t.dataset.action || t.dataset.fn || '').trim();
+    const label = (t.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const action = dataAction || ACTION_MAP[label] || ACTION_MAP[label.replace(/\s*\(.*?\)\s*$/g, '')];
+    const tabName = (t.dataset.tab || t.dataset.switchtab || '').trim().toLowerCase();
+
+    if (t.classList.contains('recovery-tab') && tabName) {
+      e.preventDefault(); e.stopPropagation(); switchRecoveryTab(tabName); return;
+    }
+    if (t.dataset.page && typeof recNav === 'function') {
+      e.preventDefault(); e.stopPropagation(); recNav(t.dataset.page); return;
+    }
+    if (dataAction && GLOBAL_FN_ALLOWLIST.has(dataAction) && typeof window[dataAction] === 'function') {
+      e.preventDefault(); e.stopPropagation();
+      window[dataAction](t.dataset.arg || t.dataset.value || t.dataset.page); return;
+    }
+    if (action === 'back' && typeof recGoBack === 'function') {
+      e.preventDefault(); e.stopPropagation(); recGoBack(); return;
+    }
+    if (action) {
+      e.preventDefault(); e.stopPropagation();
+      if (typeof recoveryAction === 'function') recoveryAction(action);
+    }
+  }, true);
+}
 
 // ── Global Exports ─────────────────────────────────────────────────
 window.boot = boot;

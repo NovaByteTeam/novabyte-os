@@ -337,10 +337,29 @@ const AppPermissionManager = (() => {
       if (raw) {
         const parsed = JSON.parse(raw);
         const grants = Array.isArray(parsed) ? parsed : [];
+        const normalized = [];
+        let migratedLegacyIds = false;
         let rejected = 0;
         for (const grant of grants) {
           if (!isValidGrant(grant)) { rejected++; continue; }
+          const legacyId = grant.appId;
+          const canonicalId = window.NovaAppIdAliases?.canonicalize(legacyId) || legacyId;
+          migratedLegacyIds ||= canonicalId !== legacyId;
+          normalized.push({
+            grant: canonicalId === legacyId ? grant : { ...grant, appId: canonicalId },
+            isLegacy: canonicalId !== legacyId,
+          });
+        }
+        normalized.sort((a, b) => Number(b.isLegacy) - Number(a.isLegacy));
+        for (const { grant } of normalized) {
           permissionGrants.set(makeAppScopedKey(grant.appId, grant.permission), grant);
+        }
+        if (migratedLegacyIds) {
+          try {
+            storage.setItem(STORAGE_KEY, JSON.stringify([...permissionGrants.values()]));
+          } catch (error) {
+            console.error('[AppPermissionManager] failed migrating legacy app IDs:', error);
+          }
         }
         if (rejected > 0) {
           console.warn(`[AppPermissionManager] Discarded ${rejected} malformed grant(s)`);

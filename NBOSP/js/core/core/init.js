@@ -206,24 +206,36 @@ function getBootConfig() {
               if (attemptEl) attemptEl.textContent = '2+';
               if (tsEl) tsEl.innerHTML = '<strong>Boot Failure Detected</strong>';
 
-              // auto-boot countdown, cancels itself on the first click/keypress
+              // auto-boot countdown, cancels itself on the first user interaction
               let countdown = 15;
               const cdownNum = document.getElementById('rec-cdown-num');
               const cdownBar = document.getElementById('rec-cdown-bar');
               const cdownBlock = document.getElementById('rec-countdown-block');
               if (cdownNum && cdownBar) {
-                const timer = setInterval(function () {
+                let cancelled = false;
+                let timer;
+                const cancelCountdown = function () {
+                  if (cancelled) return;
+                  cancelled = true;
+                  clearInterval(timer);
+                  if (cdownBlock) cdownBlock.style.opacity = '0.4';
+                  for (const ev of ['click', 'keydown', 'pointerdown', 'mousemove']) {
+                    document.removeEventListener(ev, cancelCountdown, true);
+                  }
+                  if (window._cancelRecoveryAutoBoot === cancelCountdown) {
+                    window._cancelRecoveryAutoBoot = null;
+                  }
+                };
+                window._cancelRecoveryAutoBoot = cancelCountdown;
+                timer = setInterval(function () {
                   countdown--;
                   cdownNum.textContent = countdown;
                   cdownBar.style.width = ((countdown / 15) * 100) + '%';
-                  if (countdown <= 0) clearInterval(timer);
+                  if (countdown <= 0) cancelCountdown();
                 }, 1000);
-                ['click', 'keydown'].forEach(function (ev) {
-                  document.addEventListener(ev, function () {
-                    clearInterval(timer);
-                    if (cdownBlock) cdownBlock.style.opacity = '0.4';
-                  }, { once: true });
-                });
+                for (const ev of ['click', 'keydown', 'pointerdown', 'mousemove']) {
+                  document.addEventListener(ev, cancelCountdown, true);
+                }
               }
             }
           }, 300);
@@ -669,7 +681,7 @@ window.recoveryAction = function (action) {
   const SAFE_MODE_KEY = 'nova_safe_mode';
   const RECOVERY_FORCE_KEY = 'nova_force_recovery';
 
-  window._countdownStopped = true;
+  window._cancelRecoveryAutoBoot?.();
   const cb = document.getElementById('rec-countdown-block');
   if (cb) cb.style.opacity = '0.35';
 

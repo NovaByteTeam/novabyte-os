@@ -68,7 +68,7 @@ registerApp({
       .em-msg-list{flex:1;overflow-y:auto;}
       .em-msg-row{display:flex;align-items:flex-start;gap:7px;padding:9px 10px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s,transform .18s;position:relative;}
       .em-msg-row:hover{background:var(--bg-elevated);}
-      .em-msg-row.active{background:rgba(99,102,241,.13);}
+      .em-msg-row.selected{outline:1px solid var(--accent);outline-offset:-1px;background:rgba(99,102,241,.2);}
       .em-msg-row.unread .em-msg-from{font-weight:700;color:var(--text-primary);}
       .em-msg-row.unread .em-msg-subj{font-weight:600;color:var(--text-secondary);}
       .em-msg-check{width:14px;height:14px;flex-shrink:0;accent-color:var(--accent);cursor:pointer;margin-top:3px;}
@@ -113,14 +113,23 @@ registerApp({
       .em-row2{display:flex;gap:8px;}
       .em-row2>*{flex:1;}
       /* Compose */
-      .em-compose-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:100;display:flex;align-items:flex-end;justify-content:flex-end;}
-      .em-compose-win{width:460px;max-width:100%;background:var(--bg-elevated);border-radius:12px 12px 0 0;border:1px solid var(--border);border-bottom:none;display:flex;flex-direction:column;max-height:88%;overflow:hidden;}
-      .em-compose-hdr{display:flex;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-primary);flex-shrink:0;}
+      .em-compose-overlay{position:fixed;inset:0;background:rgba(0,0,0,.12);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+      .em-compose-win{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(620px,100%);height:min(500px,100%);min-height:min(300px,100%);max-height:100%;box-sizing:border-box;background:color-mix(in srgb,var(--bg-elevated) 78%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-radius:12px;border:1px solid var(--border);box-shadow:0 24px 72px rgba(0,0,0,.45);display:flex;flex-direction:column;overflow:hidden;}
+      .em-compose-hdr{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-primary);flex-shrink:0;cursor:move;touch-action:none;user-select:none;}
+      .em-compose-hdr button{cursor:pointer;}
       .em-cfield{display:flex;align-items:center;gap:8px;padding:6px 13px;border-bottom:1px solid var(--border);}
       .em-cfield-lbl{font-size:11px;color:var(--text-secondary);width:32px;flex-shrink:0;}
       .em-cinput{flex:1;background:none;border:none;color:var(--text-primary);font-size:13px;outline:none;}
-      .em-cbody{flex:1;padding:10px 13px;background:none;border:none;color:var(--text-primary);font-size:13px;outline:none;resize:none;font-family:inherit;min-height:110px;}
+      .em-cbody{flex:1;padding:16px;background:none;border:none;color:var(--text-primary);font-size:13px;outline:none;resize:none;font-family:inherit;min-height:0;}
       .em-compose-foot{display:flex;align-items:center;gap:7px;padding:8px 11px;border-top:1px solid var(--border);flex-shrink:0;}
+      .em-accounts-overlay{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.42);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+      .em-accounts-dialog{width:min(520px,100%);max-height:min(620px,100%);display:flex;flex-direction:column;overflow:hidden;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;box-shadow:0 24px 72px rgba(0,0,0,.5);color:var(--text-primary);}
+      .em-accounts-hdr{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border);}
+      .em-accounts-list{display:flex;flex-direction:column;gap:8px;padding:14px;overflow-y:auto;}
+      .em-account-card{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated-2,rgba(255,255,255,.03));}
+      .em-account-info{flex:1;min-width:0;}
+      .em-account-actions{display:flex;gap:6px;flex-shrink:0;}
+      .em-accounts-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 14px;border-top:1px solid var(--border);}
     `;
     content.appendChild(styleEl);
 
@@ -264,10 +273,13 @@ registerApp({
     let activeMsgUid = null;
     let loading = false;
     let searchQ = '';
-    const selectedUids = new Set();
+    const selectedMessages = new Map();
+    let selectedMsgUid = null;
     const unreadMap = Object.create(null); // "acctId|folder" → count
     const syncTimers = Object.create(null); // acctId → interval id
     const emailBg = window.__NBOSP_BG?.email || null;
+    const composeOverlays = new Set();
+    const accountOverlays = new Set();
 
     // In-memory credential cache. Passwords live here and in the server-side
     // session only — never written to localStorage in plaintext.
@@ -311,6 +323,10 @@ registerApp({
       // Drop the background-sync callback so it can't fire into a dead
       // closure after the app closes.
       if (emailBg) emailBg.onChange = null;
+      for (const overlay of composeOverlays) overlay.remove();
+      composeOverlays.clear();
+      for (const overlay of accountOverlays) overlay.remove();
+      accountOverlays.clear();
     };
 
     // Storage
@@ -577,30 +593,111 @@ registerApp({
         });
       });
 
-      const addRow = createEl('div', {
-        className: 'em-sb-row',
-        style: 'color:var(--accent);margin-top:6px;',
-      });
-      addRow.textContent = '＋ Add Account';
-      addRow.addEventListener('click', () => buildSetup(null), { signal: appSignal });
-      sidebar.appendChild(addRow);
-
       if (accounts.length) {
         const settRow = createEl('div', {
           className: 'em-sb-row',
           style: 'color:var(--text-secondary);',
         });
-        settRow.textContent = '⚙ Settings';
-        settRow.addEventListener('click', () => {
-          const acct = accounts.find(a => a.id === activeAcctId) || accounts[0];
-          buildSetup(acct);
-        }, { signal: appSignal });
+        settRow.textContent = '⚙ Manage Accounts';
+        settRow.addEventListener('click', () => openAccountManager(), { signal: appSignal });
         sidebar.appendChild(settRow);
       }
 
       acctLabel.textContent = activeAcctId === 'all'
         ? 'Combined Inbox'
         : (accounts.find(a => a.id === activeAcctId)?.name || 'Email');
+    }
+
+    function openAccountManager() {
+      for (const overlay of accountOverlays) overlay.remove();
+      accountOverlays.clear();
+
+      const overlay = createEl('div', {
+        className: 'em-accounts-overlay',
+        role: 'presentation',
+      });
+      const dialog = createEl('div', {
+        className: 'em-accounts-dialog',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': 'Manage email accounts',
+      });
+      const close = () => {
+        accountOverlays.delete(overlay);
+        overlay.remove();
+        document.removeEventListener('keydown', onKeyDown);
+      };
+      const onKeyDown = event => {
+        if (event.key === 'Escape') close();
+      };
+      document.addEventListener('keydown', onKeyDown, { signal: appSignal });
+      overlay.addEventListener('click', event => {
+        if (event.target === overlay) close();
+      }, { signal: appSignal });
+
+      const title = createEl('strong', {
+        textContent: 'Email Accounts',
+        style: 'flex:1;font-size:15px;',
+      });
+      const closeButton = createEl('button', {
+        className: 'em-btn',
+        textContent: 'Close',
+      });
+      closeButton.addEventListener('click', close, { signal: appSignal });
+      const header = createEl('div', { className: 'em-accounts-hdr' });
+      header.append(title, closeButton);
+
+      const list = createEl('div', { className: 'em-accounts-list' });
+      if (!accounts.length) {
+        list.appendChild(createEl('div', {
+          className: 'em-empty',
+          textContent: 'No accounts added yet.',
+          style: 'min-height:100px;',
+        }));
+      }
+      accounts.forEach(acct => {
+        const info = createEl('div', { className: 'em-account-info' });
+        info.append(
+          createEl('div', {
+            textContent: acct.name || acct.email || acct.user,
+            style: 'font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
+          }),
+          createEl('div', {
+            textContent: `${acct.email || acct.user} · ${(acct.type || 'imap').toUpperCase()}`,
+            style: 'font-size:11px;color:var(--text-secondary);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
+          })
+        );
+        const editButton = createEl('button', {
+          className: 'em-btn',
+          textContent: 'Edit',
+          'aria-label': `Edit ${acct.name || acct.email || acct.user}`,
+        });
+        editButton.addEventListener('click', () => {
+          close();
+          buildSetup(acct);
+        }, { signal: appSignal });
+        const actions = createEl('div', { className: 'em-account-actions' });
+        actions.appendChild(editButton);
+        const card = createEl('div', { className: 'em-account-card' });
+        card.append(info, actions);
+        list.appendChild(card);
+      });
+
+      const addButton = createEl('button', {
+        className: 'em-btn',
+        textContent: '＋ Add Account',
+      });
+      addButton.addEventListener('click', () => {
+        close();
+        buildSetup(null);
+      }, { signal: appSignal });
+      const footer = createEl('div', { className: 'em-accounts-foot' });
+      footer.appendChild(addButton);
+
+      dialog.append(header, list, footer);
+      overlay.appendChild(dialog);
+      accountOverlays.add(overlay);
+      document.body.appendChild(overlay);
     }
 
     // SETUP WIZARD
@@ -702,6 +799,9 @@ registerApp({
         delBtn.addEventListener('click', async () => {
           delete credCache[existing.id];
           accounts = accounts.filter(a => a.id !== existing.id);
+          for (const [key, selected] of selectedMessages) {
+            if (selected.message._acctId === existing.id) selectedMessages.delete(key);
+          }
           saveAccts();
           // Clear session credentials for the removed account so the server
           // doesn't retain them in req.session.emailCreds after removal.
@@ -800,6 +900,7 @@ registerApp({
       loadController?.abort();
       loadController = new AbortController();
       const { signal } = loadController;
+      selectedMsgUid = null;
 
       if (!accounts.length) return;
 
@@ -817,6 +918,7 @@ registerApp({
             return (d.messages || []).map(m => ({
               ...m,
               _acctId: acct.id,
+              _folder: 'INBOX',
               _acctName: acct.name || acct.email,
             }));
           }));
@@ -833,7 +935,11 @@ registerApp({
           if (searchQ) params.q = searchQ;
           const d = await api('GET', searchQ ? '/search' : '/messages', null, params, signal);
           if (signal.aborted) return;
-          messages = d.messages || [];
+          messages = (d.messages || []).map(msg => ({
+            ...msg,
+            _acctId: acct.id,
+            _folder: activeFolder,
+          }));
           pages = d.pages || 1;
           unreadMap[uidKey(acct.id, activeFolder)] = messages.filter(m => !m.seen).length;
           // Fetch the folder list once if missing (best-effort, non-fatal).
@@ -861,11 +967,18 @@ registerApp({
     }
 
     // RENDER MESSAGE LIST
+    function selectionKey(msg) {
+      return JSON.stringify([
+        msg._acctId || activeAcctId,
+        msg._folder || activeFolder,
+        String(msg.uid),
+      ]);
+    }
+
     function renderMsgList() {
       msgListEl.replaceChildren();
-      selectedUids.clear();
-      selectAllChk.checked = false;
-      batchBar.style.display = 'none';
+      updateBatchBar();
+      if (!messages.some(msg => msg.uid === selectedMsgUid)) selectedMsgUid = null;
 
       if (loading) {
         const w = createEl('div', {
@@ -890,18 +1003,24 @@ registerApp({
 
       const fragment = document.createDocumentFragment();
       messages.forEach(msg => {
-        const isActive = msg.uid === activeMsgUid;
+        const isSelected = msg.uid === selectedMsgUid;
         const row = createEl('div', {
-          className: 'em-msg-row' + (!msg.seen ? ' unread' : '') + (isActive ? ' active' : ''),
+          className: 'em-msg-row' + (!msg.seen ? ' unread' : '') + (isSelected ? ' selected' : ''),
+          role: 'button',
+          tabindex: '0',
+          title: 'Open message',
+          'aria-label': `${msg.from || '(unknown)'}: ${msg.subject || '(no subject)'}`,
         });
         row.dataset.uid = String(msg.uid);
 
         const cb = createEl('input', { type: 'checkbox', className: 'em-msg-check' });
-        cb.checked = selectedUids.has(msg.uid);
+        const key = selectionKey(msg);
+        cb.checked = selectedMessages.has(key);
+        cb.addEventListener('click', event => event.stopPropagation(), { signal: appSignal });
         cb.addEventListener('change', e => {
           e.stopPropagation();
-          if (cb.checked) selectedUids.add(msg.uid);
-          else selectedUids.delete(msg.uid);
+          if (cb.checked) selectedMessages.set(key, { key, message: msg });
+          else selectedMessages.delete(key);
           updateBatchBar();
         });
 
@@ -938,7 +1057,16 @@ registerApp({
           else if (dx > 70) doArchiveMsg(msg, row);
         }, { passive: true, signal: appSignal });
 
-        row.addEventListener('click', () => openMsg(msg), { signal: appSignal });
+        row.addEventListener('click', event => {
+          if (event.target.closest('.em-msg-check')) return;
+          openMsg(msg);
+        }, { signal: appSignal });
+        row.addEventListener('keydown', event => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            openMsg(msg);
+          }
+        }, { signal: appSignal });
         fragment.appendChild(row);
       });
       msgListEl.appendChild(fragment);
@@ -952,13 +1080,15 @@ registerApp({
     }
 
     function updateBatchBar() {
-      const n = selectedUids.size;
+      const n = selectedMessages.size;
       batchBar.style.display = n ? 'flex' : 'none';
       if (n) {
         batchLbl.textContent = n + ' selected';
-        // Guard against the edge case where messages.length is 0 — without
-        // the `n > 0` check, `0 === 0` would tick the box erroneously.
-        selectAllChk.checked = n === messages.length;
+        const selectedOnPage = messages.reduce(
+          (count, msg) => count + Number(selectedMessages.has(selectionKey(msg))),
+          0
+        );
+        selectAllChk.checked = messages.length > 0 && selectedOnPage === messages.length;
       } else {
         selectAllChk.checked = false;
       }
@@ -966,9 +1096,12 @@ registerApp({
 
     selectAllChk.addEventListener('change', () => {
       if (selectAllChk.checked) {
-        messages.forEach(m => selectedUids.add(m.uid));
+        messages.forEach(message => {
+          const key = selectionKey(message);
+          selectedMessages.set(key, { key, message });
+        });
       } else {
-        selectedUids.clear();
+        messages.forEach(message => selectedMessages.delete(selectionKey(message)));
       }
       updateBatchBar();
       msgListEl.querySelectorAll('.em-msg-check').forEach(cb => {
@@ -976,38 +1109,80 @@ registerApp({
       });
     }, { signal: appSignal });
 
-    batchTrashBtn.addEventListener('click', async () => {
-      if (!selectedUids.size) return;
-      const uids = [...selectedUids];
-      const acct = getActiveAcct();
-      if (!acct) return;
-      try {
-        await ensureConnected(acct);
-        await api('POST', '/batch', { op: 'delete', uids, folder: activeFolder });
-        messages = messages.filter(m => !selectedUids.has(m.uid));
-        selectedUids.clear();
-        renderMsgList();
-        notify(uids.length + ' deleted.');
-      } catch (e) {
-        notify(e.message, 'error');
+    async function applyBatchToSelection(op) {
+      if (!selectedMessages.size) return;
+      const groups = new Map();
+      for (const selected of selectedMessages.values()) {
+        const message = selected.message;
+        const accountId = message._acctId || activeAcctId;
+        const folder = message._folder || activeFolder;
+        const key = JSON.stringify([accountId, folder]);
+        let group = groups.get(key);
+        if (!group) {
+          group = { accountId, folder, uids: new Set(), keys: [], unreadCount: 0 };
+          groups.set(key, group);
+        }
+        group.uids.add(message.uid);
+        group.keys.push(selected.key);
+        if (!message.seen) group.unreadCount++;
       }
-    }, { signal: appSignal });
 
-    batchReadBtn.addEventListener('click', async () => {
-      if (!selectedUids.size) return;
-      const uids = [...selectedUids];
-      const acct = getActiveAcct();
-      if (!acct) return;
-      try {
-        await ensureConnected(acct);
-        await api('POST', '/batch', { op: 'read', uids, folder: activeFolder });
-        messages = messages.map(m => selectedUids.has(m.uid) ? { ...m, seen: true } : m);
-        selectedUids.clear();
-        renderMsgList();
-      } catch (e) {
-        notify(e.message, 'error');
+      const groupedOperations = [...groups.values()];
+      const unsupported = groupedOperations.find(group => {
+        const acct = accounts.find(account => account.id === group.accountId);
+        return !acct || (op === 'read'
+          ? !['imap', 'exchange'].includes(acct.type)
+          : acct.type !== 'imap');
+      });
+      if (unsupported) {
+        notify(op === 'read'
+          ? 'Mark as read is supported for IMAP and Exchange accounts.'
+          : 'Bulk delete is currently supported for IMAP accounts only.', 'error');
+        return;
       }
-    }, { signal: appSignal });
+
+      try {
+        for (const group of groupedOperations) {
+          const acct = accounts.find(account => account.id === group.accountId);
+          if (!acct) throw new Error('An account for a selected message is no longer available.');
+          await ensureConnected(acct);
+          await api('POST', '/batch', {
+            op,
+            uids: [...group.uids],
+            folder: group.folder,
+          });
+        }
+
+        const completedKeys = new Set(groupedOperations.flatMap(group => group.keys));
+        if (op === 'read') {
+          for (const selected of selectedMessages.values()) {
+            if (completedKeys.has(selected.key)) selected.message.seen = true;
+          }
+          messages = messages.map(message => {
+            const selected = selectedMessages.get(selectionKey(message));
+            return selected ? { ...message, seen: true } : message;
+          });
+        } else if (op === 'delete') {
+          messages = messages.filter(message => !completedKeys.has(selectionKey(message)));
+        }
+        if (op === 'read') {
+          for (const group of groupedOperations) {
+            const unreadKey = uidKey(group.accountId, group.folder);
+            unreadMap[unreadKey] = Math.max(0, (unreadMap[unreadKey] || 0) - group.unreadCount);
+          }
+          buildSidebar();
+        }
+        for (const key of completedKeys) selectedMessages.delete(key);
+        renderMsgList();
+        if (op === 'read') notify(`${completedKeys.size} marked as read.`, 'success');
+        else if (op === 'delete') notify(`${completedKeys.size} deleted.`, 'success');
+      } catch (error) {
+        notify(error.message, 'error');
+      }
+    }
+
+    batchTrashBtn.addEventListener('click', () => applyBatchToSelection('delete'), { signal: appSignal });
+    batchReadBtn.addEventListener('click', () => applyBatchToSelection('read'), { signal: appSignal });
 
     // MESSAGE READER
     function showEmpty() {
@@ -1015,15 +1190,22 @@ registerApp({
       const w = createEl('div', { className: 'em-empty' });
       const icon = createEl('div');
       icon.textContent = '✉';
-      w.append(icon, document.createElement('br'), createEl('span', { textContent: 'Select a message to read' }));
+      w.append(icon, document.createElement('br'), createEl('span', {
+        textContent: 'Select a message to read',
+      }));
       readerEl.appendChild(w);
+    }
+
+    function selectMsg(msg) {
+      selectedMsgUid = msg.uid;
+      msgListEl.querySelectorAll('.em-msg-row').forEach(row => {
+        row.classList.toggle('selected', row.dataset.uid === String(msg.uid));
+      });
     }
 
     async function openMsg(msg) {
       activeMsgUid = msg.uid;
-      msgListEl.querySelectorAll('.em-msg-row').forEach(r => {
-        r.classList.toggle('active', r.dataset.uid === String(msg.uid));
-      });
+      selectMsg(msg);
       readerEl.replaceChildren();
       const sp = createEl('div', { className: 'em-empty' });
       sp.appendChild(createEl('div', { className: 'em-spinner' }));
@@ -1205,12 +1387,21 @@ registerApp({
 
     // COMPOSE
     function openCompose(prefill = {}, fromAcct = null) {
-      root.querySelector('.em-compose-overlay')?.remove();
-      const overlay = createEl('div', { className: 'em-compose-overlay' });
-      const win = createEl('div', { className: 'em-compose-win' });
+      for (const existingOverlay of composeOverlays) existingOverlay.remove();
+      composeOverlays.clear();
+      const overlay = createEl('div', {
+        className: 'em-compose-overlay',
+        role: 'presentation',
+      });
+      const win = createEl('div', {
+        className: 'em-compose-win',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': 'New Message',
+      });
 
       // Header
-      const hdr = createEl('div', { className: 'em-compose-hdr' });
+      const hdr = createEl('div', { className: 'em-compose-hdr', title: 'Drag to move' });
       hdr.appendChild(createEl('span', { textContent: 'New Message', style: 'flex:1' }));
       const minBtn = createEl('button', { className: 'em-tb-btn', textContent: '−', title: 'Minimize' });
       const closeXB = createEl('button', { className: 'em-tb-btn', textContent: '✕', title: 'Close' });
@@ -1219,7 +1410,43 @@ registerApp({
       let minimized = false;
       minBtn.addEventListener('click', () => {
         minimized = !minimized;
-        win.style.maxHeight = minimized ? '44px' : '88%';
+        win.style.height = minimized ? '44px' : '';
+        fieldsEl.style.display = minimized ? 'none' : '';
+        attachListEl.style.display = minimized ? 'none' : '';
+        bodyTa.style.display = minimized ? 'none' : '';
+        foot.style.display = minimized ? 'none' : '';
+      }, { signal: appSignal });
+
+      hdr.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0 || event.target.closest('button')) return;
+        const overlayRect = overlay.getBoundingClientRect();
+        const winRect = win.getBoundingClientRect();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const startLeft = winRect.left - overlayRect.left;
+        const startTop = winRect.top - overlayRect.top;
+        win.style.left = `${startLeft}px`;
+        win.style.top = `${startTop}px`;
+        win.style.transform = 'none';
+        hdr.setPointerCapture(event.pointerId);
+        event.preventDefault();
+
+        const move = (moveEvent) => {
+          const maxLeft = Math.max(0, overlay.clientWidth - win.offsetWidth);
+          const maxTop = Math.max(0, overlay.clientHeight - win.offsetHeight);
+          const left = Math.min(maxLeft, Math.max(0, startLeft + moveEvent.clientX - startX));
+          const top = Math.min(maxTop, Math.max(0, startTop + moveEvent.clientY - startY));
+          win.style.left = `${left}px`;
+          win.style.top = `${top}px`;
+        };
+        const stop = () => {
+          hdr.removeEventListener('pointermove', move);
+          hdr.removeEventListener('pointerup', stop);
+          hdr.removeEventListener('pointercancel', stop);
+        };
+        hdr.addEventListener('pointermove', move, { signal: appSignal });
+        hdr.addEventListener('pointerup', stop, { once: true, signal: appSignal });
+        hdr.addEventListener('pointercancel', stop, { once: true, signal: appSignal });
       }, { signal: appSignal });
 
       const closeOverlay = () => {
@@ -1236,6 +1463,7 @@ registerApp({
           });
           if (saved) notify('Draft saved.');
         }
+        composeOverlays.delete(overlay);
         overlay.remove();
       };
       closeXB.addEventListener('click', closeOverlay, { signal: appSignal });
@@ -1349,6 +1577,7 @@ registerApp({
             await api('POST', '/send', baseFields);
           }
           notify('Sent.', 'success');
+          composeOverlays.delete(overlay);
           overlay.remove();
         } catch (e) {
           errSpan.textContent = e.message;
@@ -1360,7 +1589,8 @@ registerApp({
       foot.append(sendBtn, attachBtn, fileInp, errSpan);
       win.append(hdr, fieldsEl, attachListEl, bodyTa, foot);
       overlay.appendChild(win);
-      root.appendChild(overlay);
+      composeOverlays.add(overlay);
+      document.body.appendChild(overlay);
       toInp.focus();
     }
 

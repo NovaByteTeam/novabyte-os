@@ -249,10 +249,17 @@ router.post('/batch', requireCreds, async (req, res) => {
   const c = req.emailCreds;
   const { op, uids = [], folder = 'INBOX', dest } = req.body || {};
   if (!Array.isArray(uids) || !uids.length) return res.json({ ok: true });
+  if (!['read', 'delete', 'move'].includes(op)) {
+    return res.status(400).json({ error: 'Unsupported batch operation' });
+  }
 
   try {
     if (c.type === 'imap') {
       await imapClient.imapBatch(c, op, uids, folder, dest);
+    } else if (c.type === 'exchange' && op === 'read') {
+      await ewsClient.ewsMarkRead(c, uids);
+    } else {
+      return res.status(400).json({ error: `Batch ${op} is not supported for ${c.type} accounts` });
     }
     res.json({ ok: true });
   } catch (err) {

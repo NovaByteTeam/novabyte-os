@@ -1,5 +1,5 @@
 {
-  "id": "com.nbosp.shell",
+  "id": "com.nbosp.terminal",
   "name": "Terminal",
   "version": "3.0.2",
   "description": "Run commands and interact with NovaByte OS through the terminal.",

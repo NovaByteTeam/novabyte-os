@@ -15,28 +15,46 @@ function response(data) {
   };
 }
 
-function createLoaderContext({ trusted = true, integrityValid = true, missingPackage = null } = {}) {
+function createLoaderContext({
+  trusted = true,
+  integrityValid = true,
+  missingPackage = null,
+  services: configuredServices,
+  firstServiceScripts = ['service.js'],
+} = {}) {
   const services = [
-    { id: 'com.example.first', entry: 'service.js' },
+    {
+      id: 'com.example.first',
+      entry: firstServiceScripts[0],
+      ...(firstServiceScripts.length === 1 && firstServiceScripts[0] === 'service.js'
+        ? {}
+        : { scripts: firstServiceScripts }),
+    },
     { id: 'com.example.second', entry: 'service.js' },
   ];
+  if (configuredServices) {
+    services.splice(0, services.length, ...configuredServices);
+  }
   const bundles = services.map(({ id }) => ({
     id,
     file: `js/apps/${id}.novaapp`,
     systemService: true,
   }));
-  const packages = new Map(services.map(({ id }, index) => [
+  const packages = new Map(services.map(({ id, entry, scripts }, index) => [
     `js/apps/${id}.novaapp`,
     {
       manifest: {
         id,
         system: true,
         systemService: true,
-        unrestrictedEntry: 'service.js',
+        unrestrictedEntry: entry,
       },
-      files: {
-        'service.js': btoa(`window.started.push(${index + 1})`),
-      },
+      files: Object.fromEntries(
+        (scripts || [entry]).map((scriptEntry, scriptIndex) => [
+          scriptEntry,
+          btoa(`window.started.push(${index + 1}${scriptIndex === 0 ? '' : ' + 99'})`),
+        ])
+      ),
       integrity: { method: 'sha512' },
     },
   ]));
@@ -70,6 +88,7 @@ function createLoaderContext({ trusted = true, integrityValid = true, missingPac
         reason: 'test denial',
       })),
     },
+    localStorage: { setItem: vi.fn() },
   };
   context.window = context;
   context.document = {
@@ -167,5 +186,75 @@ describe('SystemServiceLoader', () => {
     expect(result.failures).toHaveLength(1);
     expect(boot).toHaveBeenCalledOnce();
     expect(statusElements).toHaveLength(1);
+  });
+
+  it('loads multiple package entries sequentially and reports non-headless packages accurately', async () => {
+    const { context, started } = createLoaderContext({
+      firstServiceScripts: ['wm.js', 'menu.js', 'modals.js', 'desktop.js'],
+    });
+    const pkg = {
+      manifest: {
+        id: 'com.example.first',
+        system: true,
+        systemService: true,
+        unrestrictedEntry: 'wm.js',
+        headless: false,
+      },
+      files: Object.fromEntries(
+        ['wm.js', 'menu.js', 'modals.js', 'desktop.js'].map((entry, index) => [
+          entry,
+          btoa(`window.started.push(${index + 1})`),
+        ])
+      ),
+      integrity: { method: 'sha512' },
+    };
+    context.fetch.mockImplementation(async url => {
+      if (url === 'js/apps/system-service-manifest.json') {
+        return response([
+          { id: 'com.example.first', entry: 'wm.js', scripts: ['wm.js', 'menu.js', 'modals.js', 'desktop.js'] },
+          { id: 'com.example.second', entry: 'service.js' },
+        ]);
+      }
+      if (url === 'js/apps/novaapp-manifest.json') {
+        return response([
+          { id: 'com.example.first', file: 'js/apps/com.example.first.novaapp', systemService: true },
+          { id: 'com.example.second', file: 'js/apps/com.example.second.novaapp', systemService: true },
+        ]);
+      }
+      if (url === 'js/apps/com.example.first.novaapp') return response(pkg);
+      if (url === 'js/apps/com.example.second.novaapp') {
+        return response({
+          manifest: { id: 'com.example.second', system: true, systemService: true, unrestrictedEntry: 'service.js' },
+          files: { 'service.js': btoa('window.started.push(5)') },
+        });
+      }
+      return { ok: false, status: 404 };
+    });
+    runInNewContext(loaderSource, context);
+
+    await context.SystemServiceLoader.load();
+
+    expect(started).toEqual([1, 2, 3, 4, 5]);
+    expect(context.SystemServiceLoader.listLoadedServices()[0]).toMatchObject({
+      id: 'com.example.first',
+      headlessSystemService: false,
+    });
+  });
+
+  it('routes to built-in recovery instead of booting after a required package fails', async () => {
+    const { context, started, boot } = createLoaderContext({
+      missingPackage: 'com.example.first',
+      services: [
+        { id: 'com.example.first', entry: 'service.js', required: true },
+        { id: 'com.example.second', entry: 'service.js' },
+      ],
+    });
+    runInNewContext(loaderSource, context);
+
+    await context.SystemServiceLoader.load();
+
+    expect(started).toEqual([]);
+    expect(context.localStorage.setItem).toHaveBeenCalledWith('nova_force_recovery', '1');
+    expect(boot).toHaveBeenCalledOnce();
   });
 });

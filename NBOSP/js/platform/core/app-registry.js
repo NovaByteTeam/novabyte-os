@@ -44,12 +44,12 @@ const AppRegistry = (() => {
   ]);
 
   const RESERVED_APP_IDS = new Set([
-    'app-manager', 'browser', 'calculator', 'calendar-app', 'quill', 'shell', 'vault',
+    'app-manager', 'browser', 'calculator', 'calendar-app', 'files', 'quill', 'shell', 'terminal', 'textedit', 'vault',
     'nbosp-contacts', 'nbosp-downloads', 'nbosp-gallery', 'nbosp-music', 'nbosp-search',
     'com.nbosp.appmanager', 'com.nbosp.browser', 'com.nbosp.calculator', 'com.nbosp.calendar',
     'com.nbosp.clock', 'com.nbosp.contacts', 'com.nbosp.downloads', 'com.nbosp.email',
-    'com.nbosp.gallery', 'com.nbosp.music', 'com.nbosp.quill', 'com.nbosp.search',
-    'com.nbosp.settings', 'com.nbosp.shell', 'com.nbosp.vault',
+    'com.nbosp.files', 'com.nbosp.gallery', 'com.nbosp.music', 'com.nbosp.quill', 'com.nbosp.search',
+    'com.nbosp.settings', 'com.nbosp.shell', 'com.nbosp.terminal', 'com.nbosp.textedit', 'com.nbosp.vault',
     'com.nbosp.devconsole',
     'com.nbosp.events',
     'com.nbosp.inspector',

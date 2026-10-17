@@ -1,5 +1,10 @@
 [
   {
+    "id": "com.nbosp.shell-ui",
+    "file": "js/apps/com.nbosp.shell-ui.novaapp",
+    "systemService": true
+  },
+  {
     "id": "com.nbosp.appmanager",
     "file": "js/apps/com.nbosp.appmanager.novaapp"
   },
@@ -72,8 +77,8 @@
     "file": "js/apps/com.nbosp.permissions.novaapp"
   },
   {
-    "id": "com.nbosp.quill",
-    "file": "js/apps/com.nbosp.quill.novaapp"
+    "id": "com.nbosp.textedit",
+    "file": "js/apps/com.nbosp.textedit.novaapp"
   },
   {
     "id": "com.nbosp.search",
@@ -84,8 +89,8 @@
     "file": "js/apps/com.nbosp.settings.novaapp"
   },
   {
-    "id": "com.nbosp.shell",
-    "file": "js/apps/com.nbosp.shell.novaapp"
+    "id": "com.nbosp.terminal",
+    "file": "js/apps/com.nbosp.terminal.novaapp"
   },
   {
     "id": "com.nbosp.service.event-log",
@@ -108,8 +113,18 @@
     "systemService": true
   },
   {
+    "id": "com.nbosp.service.lock-screen",
+    "file": "js/apps/com.nbosp.service.lock-screen.novaapp",
+    "systemService": true
+  },
+  {
     "id": "com.nbosp.service.default-apps",
     "file": "js/apps/com.nbosp.service.default-apps.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.screenshots",
+    "file": "js/apps/com.nbosp.service.screenshots.novaapp",
     "systemService": true
   },
   {
@@ -133,8 +148,18 @@
     "systemService": true
   },
   {
+    "id": "com.nbosp.service.tray",
+    "file": "js/apps/com.nbosp.service.tray.novaapp",
+    "systemService": true
+  },
+  {
     "id": "com.nbosp.service.system-events",
     "file": "js/apps/com.nbosp.service.system-events.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.wallpaper",
+    "file": "js/apps/com.nbosp.service.wallpaper.novaapp",
     "systemService": true
   },
   {
@@ -142,7 +167,7 @@
     "file": "js/apps/com.nbosp.sysaccess.novaapp"
   },
   {
-    "id": "com.nbosp.vault",
-    "file": "js/apps/com.nbosp.vault.novaapp"
+    "id": "com.nbosp.files",
+    "file": "js/apps/com.nbosp.files.novaapp"
   }
 ]

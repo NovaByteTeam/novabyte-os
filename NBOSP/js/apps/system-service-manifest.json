@@ -1,5 +1,11 @@
 [
   {
+    "id": "com.nbosp.shell-ui",
+    "entry": "wm.js",
+    "scripts": ["wm.js", "menu.js", "modals.js", "desktop.js"],
+    "required": true
+  },
+  {
     "id": "com.nbosp.service.event-log",
     "entry": "service.js"
   },
@@ -33,6 +39,22 @@
   },
   {
     "id": "com.nbosp.service.calendar-notifier",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.wallpaper",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.tray",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.screenshots",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.lock-screen",
     "entry": "service.js"
   },
   {

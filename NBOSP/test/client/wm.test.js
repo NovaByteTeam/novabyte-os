@@ -192,7 +192,7 @@ globalThis.FS = {
 // ── Helpers ────────────────────────────────────────────────────────────────
 const requireWM = () => {
   vi.resetModules();
-  require('../../js/core/ui/wm.js');
+  require('../../js/apps/shell-ui/wm.js');
   return window.WM;
 };
 
@@ -207,7 +207,7 @@ const makeState = (overrides = {}) => ({
   ...overrides,
 });
 
-describe('WM (js/core/ui/wm.js)', () => {
+describe('WM (js/apps/shell-ui/wm.js)', () => {
   beforeEach(() => {
     resetTestStorage();
     vi.clearAllMocks();

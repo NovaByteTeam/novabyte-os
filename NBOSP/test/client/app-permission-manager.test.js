@@ -41,6 +41,27 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
     });
   });
 
+  it('migrates permission grants from a renamed built-in app ID', () => {
+    const grantedAt = new Date().toISOString();
+    localStorage.setItem('nova_app_permissions', JSON.stringify([{
+      appId: 'com.nbosp.quill',
+      permission: 'vfs:read',
+      granted: true,
+      grantedAt,
+    }]));
+    vi.resetModules();
+    require('../../js/platform/core/app-id-aliases.js');
+    const APM = require('../../js/platform/security/app-permission-manager.js');
+
+    expect(APM.getAppPermissions('com.nbosp.textedit')).toEqual([{
+      appId: 'com.nbosp.textedit',
+      permission: 'vfs:read',
+      granted: true,
+      grantedAt,
+    }]);
+    expect(JSON.parse(localStorage.getItem('nova_app_permissions'))[0].appId).toBe('com.nbosp.textedit');
+  });
+
   describe('isGranted / isDenied', () => {
     it('returns false when no grant exists', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');

@@ -45,16 +45,7 @@ registerApp({
 
     const ACCENT_COLORS = ['#58a6ff', '#3fb950', '#f85149', '#d29922', '#bc8cff', '#ff7b72', '#79c0ff', '#56d4dd'];
 
-    const PRESET_WALLPAPERS = [
-      { id: 'stock-blue',   name: 'Nova Blue',   gradient: 'radial-gradient(ellipse at 28% 38%, #1a5fbf 0%, #0a3070 35%, transparent 65%), linear-gradient(160deg, #020c1e 0%, #041428 45%, #061830 75%, #020c1e 100%)' },
-      { id: 'stock-dark',   name: 'Obsidian',    gradient: 'radial-gradient(ellipse at 70% 25%, #160a28 0%, transparent 55%), radial-gradient(ellipse at 25% 75%, #0c0818 0%, transparent 50%), linear-gradient(150deg, #080810 0%, #0e0818 50%, #08080e 100%)' },
-      { id: 'stock-light',  name: 'Frost',       gradient: 'radial-gradient(ellipse at 40% 30%, #ffffff 0%, #e8f0ff 45%, transparent 70%), linear-gradient(160deg, #dde8f8 0%, #eaf0ff 45%, #d8e6f5 100%)' },
-      { id: 'stock-green',  name: 'Evergreen',   gradient: 'radial-gradient(ellipse at 30% 40%, #0a5c2a 0%, #043818 38%, transparent 65%), linear-gradient(155deg, #020c06 0%, #040e08 45%, #060e06 75%, #020c06 100%)' },
-      { id: 'stock-purple', name: 'Deep Violet', gradient: 'radial-gradient(ellipse at 62% 32%, #4a1272 0%, #2c0858 40%, transparent 65%), radial-gradient(ellipse at 22% 70%, #1e084a 0%, transparent 50%), linear-gradient(155deg, #0a0414 0%, #140628 50%, #0a0414 100%)' },
-      { id: 'stock-red',    name: 'Ember Core',  gradient: 'radial-gradient(ellipse at 35% 42%, #8c1a10 0%, #5c0808 40%, transparent 65%), radial-gradient(ellipse at 75% 70%, #3a0c0c 0%, transparent 50%), linear-gradient(155deg, #0e0404 0%, #180808 45%, #0e0404 100%)' },
-      { id: 'stock-gray',   name: 'Steel',       gradient: 'radial-gradient(ellipse at 50% 32%, #2c3c4e 0%, #1a2838 40%, transparent 65%), linear-gradient(155deg, #0c1018 0%, #16202c 45%, #0c1218 75%, #0c1018 100%)' },
-      { id: 'stock-teal',   name: 'Abyss',       gradient: 'radial-gradient(ellipse at 38% 36%, #0a5e70 0%, #044050 40%, transparent 65%), radial-gradient(ellipse at 72% 68%, #042835 0%, transparent 50%), linear-gradient(155deg, #020c10 0%, #041520 45%, #021018 100%)' }
-    ];
+    const PRESET_WALLPAPERS = window.WallpaperService.getPresets();
 
     const TASKBAR_SIZES = [
       { value: 'compact', label: 'Compact', height: '36px' },
@@ -1215,10 +1206,9 @@ registerApp({
         });
 
         function applyWallpaper() {
-          const desktop = document.getElementById('desktop');
-          if (desktop) desktop.style.backgroundImage = wp.gradient;
           OS.settings.set('wallpaperId', wp.id);
           OS.settings.set('customWallpaper', null);
+          window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
           wallpaperInput.value = '';
           for (let i = 0; i < wpCards.length; i++) {
             const on = i === idx;
@@ -1243,23 +1233,7 @@ registerApp({
       wallpaperGroup.appendChild(presetRow);
 
       // Apply current wallpaper on render
-      const desktopEl = document.getElementById('desktop');
-      if (desktopEl) {
-        desktopEl.style.backgroundImage = '';
-        desktopEl.style.backgroundSize = '';
-        desktopEl.style.backgroundPosition = '';
-        desktopEl.style.backgroundRepeat = '';
-        const customWallpaper = OS.settings.get('customWallpaper');
-        if (customWallpaper) {
-          desktopEl.style.backgroundImage   = 'url(' + customWallpaper + ')';
-          desktopEl.style.backgroundSize    = 'cover';
-          desktopEl.style.backgroundPosition = 'center';
-          desktopEl.style.backgroundRepeat  = 'no-repeat';
-        } else {
-          const currentWp = PRESET_WALLPAPERS.find(wp => wp.id === currentWallpaperId);
-          if (currentWp) desktopEl.style.backgroundImage = currentWp.gradient;
-        }
-      }
+      window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
 
       const wallpaperRow = createEl('div', { className: 'nook-row', style: 'margin-top:16px;' });
       wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
@@ -1283,6 +1257,7 @@ registerApp({
           }
           OS.settings.set('customWallpaper', dataUrl);
           OS.settings.set('wallpaperId', null);
+          window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
           Notify.show({ title: 'Wallpaper Changed', body: 'Custom wallpaper applied', type: 'success', appName: 'Settings' });
         };
         reader.onerror = () => { devLog('FileReader error during wallpaper upload'); };
@@ -1292,15 +1267,9 @@ registerApp({
 
       const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset to Default', style: { marginLeft: '8px' } });
       resetBtn.addEventListener('click', () => {
-        const desktop = document.getElementById('desktop');
-        if (desktop) {
-          desktop.style.backgroundImage   = PRESET_WALLPAPERS[0].gradient;
-          desktop.style.backgroundSize    = '';
-          desktop.style.backgroundPosition = '';
-          desktop.style.backgroundRepeat  = '';
-        }
         OS.settings.set('customWallpaper', null);
         OS.settings.set('wallpaperId', 'stock-blue');
+        window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
         wallpaperInput.value = '';
         for (let i = 0; i < wpCards.length; i++) {
           const on = i === 0;
@@ -2503,7 +2472,7 @@ registerApp({
       // Static SVG literal — no user input, safe to set via innerHTML
       logoBox.innerHTML = '<svg viewBox="0 0 120 120" width="32" height="32" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="abt-g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#58a6ff"/><stop offset="100%" stop-color="#a371f7"/></linearGradient></defs><polygon points="60,5 110,30 110,85 60,115 10,85 10,30" fill="rgba(88,166,255,0.05)" stroke="url(#abt-g)" stroke-width="2.5" opacity="0.9"/><polygon points="60,15 100,35 100,80 60,105 20,80 20,35" fill="none" stroke="url(#abt-g)" stroke-width="1.5" opacity="0.38"/><polygon points="60,28 88,43 88,76 60,91 32,76 32,43" fill="rgba(163,113,247,0.05)" stroke="url(#abt-g)" stroke-width="1" opacity="0.3"/><text x="60" y="69" text-anchor="middle" fill="url(#abt-g)" font-family="system-ui,-apple-system,sans-serif" font-size="30" font-weight="700">NB</text></svg>';
       const logoMeta = createEl('div');
-      const lgTitle  = createEl('div', { style: 'font-size:17px;font-weight:800;background:linear-gradient(130deg,#e6edf3 25%,#a371f7 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px;line-height:1.15;', textContent: 'NovaByte' });
+      const lgTitle  = createEl('div', { style: 'font-size:17px;font-weight:800;background:linear-gradient(130deg,var(--text-primary) 25%,var(--accent) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:4px;line-height:1.15;', textContent: 'NovaByte' });
       const verBadge = createEl('div', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(88,166,255,0.12);border:1px solid rgba(88,166,255,0.3);border-radius:20px;padding:2px 11px;font-size:11px;font-weight:700;color:var(--accent);margin-bottom:3px;', textContent: 'v' + OS.version });
       const tagline = createEl('div', { style: 'font-size:10.5px;color:var(--text-muted);font-style:italic;', textContent: '' });
       logoMeta.append(lgTitle, verBadge, tagline);

@@ -53,7 +53,7 @@ const CATEGORIES = Object.freeze({
   texteditor: Object.freeze({
     name: 'Text Editor',
     apps: Object.freeze([
-      Object.freeze({ id: 'com.nbosp.quill', name: 'TextEdit', icon: 'pen-tool' }),
+      Object.freeze({ id: 'com.nbosp.textedit', name: 'TextEdit', icon: 'pen-tool' }),
     ]),
   }),
   music: Object.freeze({

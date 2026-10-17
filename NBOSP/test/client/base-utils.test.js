@@ -124,6 +124,13 @@ describe('base-utils (js/core/utils/base-utils.js)', () => {
     expect(el.tagName).toBe('BUTTON');
   });
 
+  it('sets innerHTML as element content rather than an HTML attribute', () => {
+    const markup = '&#9998; Compose';
+    const el = window.createEl('button', { innerHTML: markup });
+    expect(el.innerHTML).toBe(markup);
+    expect(el.setAttribute).not.toHaveBeenCalledWith('innerHTML', markup);
+  });
+
   it('handles null children in createEl', () => {
     const el = window.createEl('div', null, null);
     expect(el).toBeDefined();

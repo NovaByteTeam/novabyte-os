@@ -8,7 +8,7 @@
 // The rewrite is great thing btw we had lots of issues with complex whatever its called commands, its just a way more efficent way to build upon it without worrying about effiency or issues i think, so good luck i guess, spent 7 bloody fucking hours of my life btw so dont misuse this app [DELETE THIS LINE IN PRODUCTION]
 
 // App bundle id used for the AppDirs runtime guard.
-const APP_BUNDLE_ID = 'com.nbosp.shell';
+const APP_BUNDLE_ID = 'com.nbosp.terminal';
 const SHELL_PACKAGE_FILES = window.__novaUnrestrictedPackage?.files || {};
 
 function shellPackagedIcon(fileName) {
@@ -1372,7 +1372,7 @@ function setupInput(tab, signal) {
 
 function showMissingOSMessage(content) {
   content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-  content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.shell</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
+  content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.terminal</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
 }
 
 // --- Selection helper (replaces deprecated document.execCommand) --------------
@@ -1389,7 +1389,7 @@ function selectAllInOutput(tab) {
 // --- App registration ---------------------------------------------------------
 
 registerApp({
-  id: 'com.nbosp.shell',
+  id: 'com.nbosp.terminal',
   name: 'Terminal',
   version: '3.0.2',
   icon: 'terminal',
@@ -1538,7 +1538,7 @@ registerApp({
     // Global keyboard shortcuts (only active when this app's window is focused).
     function onKeyDown(e) {
       const win = content.closest('.app-window');
-      if (!win || win.dataset.appId !== 'com.nbosp.shell') return;
+      if (!win || win.dataset.appId !== 'com.nbosp.terminal') return;
       if (e.ctrlKey && e.shiftKey && e.key === 'T') {
         e.preventDefault();
         const t = createTab('Terminal ' + (tabs.length + 1));

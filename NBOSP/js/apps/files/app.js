@@ -1,6 +1,6 @@
 // Files app for NovaByte OS. A browser-style file manager: icon/list views,
 // navigation history, context menus, drag-and-drop and keyboard shortcuts.
-// Registered as the "vault" app.
+// Registered as the "files" app.
 
 (() => {
   const FILES_VFS_KEY = 'files';
@@ -190,7 +190,7 @@
 
     mount() {
       // NovaByte runtime guard — refuse to launch without AppDirs.
-      if (!window.AppDirs?.getVFSDir?.('com.nbosp.vault', FILES_VFS_KEY)) {
+      if (!window.AppDirs?.getVFSDir?.('com.nbosp.files', FILES_VFS_KEY)) {
         this.renderMissingRuntimeNotice();
         return;
       }
@@ -219,7 +219,7 @@
       const icon = createEl('div', { style: 'font-size:32px', textContent: '⚠️' });
       const text = createEl('div', { style: 'font-size:14px;text-align:center' });
       text.append(
-        createEl('b', { textContent: 'com.nbosp.vault' }),
+        createEl('b', { textContent: 'com.nbosp.files' }),
         createEl('br'),
         document.createTextNode('App data directory missing.'),
         createEl('br'),
@@ -758,7 +758,7 @@
         });
       }
       if (isHtmlFile(f)) {
-        items.push({ label: 'Edit in Text Editor', icon: 'pen', action: () => WM.createWindow('quill', { fileId: f.id }) });
+        items.push({ label: 'Edit in Text Editor', icon: 'pen', action: () => WM.createWindow('textedit', { fileId: f.id }) });
       }
       items.push({ separator: true });
       items.push({
@@ -1188,8 +1188,8 @@
     wireGlobalShortcuts() {
       document.addEventListener('keydown', (e) => {
         const win = this.content.closest('.app-window');
-        if (win?.dataset.appId !== 'vault') return;
-        // Only handle if focus is inside this vault window's content.
+        if (win?.dataset.appId !== 'com.nbosp.files') return;
+        // Only handle if focus is inside this Files window's content.
         if (!this.content.contains(document.activeElement)) return;
         const ae = document.activeElement;
         if (ae === this.pathBar || ae === this.searchInput) return;
@@ -1240,7 +1240,7 @@
   }
 
   registerApp({
-    id: 'com.nbosp.vault',
+    id: 'com.nbosp.files',
     name: 'Files',
     version: '3.0.2',
     icon: 'folder-open',

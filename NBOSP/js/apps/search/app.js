@@ -482,7 +482,7 @@ registerApp({
         return buildRow(iconForMime(f.mimeType), f.name || '(unnamed)', path, () => {
           if (f.mimeType?.startsWith('image/')) WM.createWindow('com.nbosp.gallery', { fileId: f.id });
           else if (f.mimeType?.startsWith('audio/')) WM.createWindow('com.nbosp.music', { fileId: f.id });
-          else WM.createWindow('com.nbosp.quill', { fileId: f.id });
+          else WM.createWindow('com.nbosp.textedit', { fileId: f.id });
         });
       });
       if (filesSec) { results.appendChild(filesSec); hasAnyLocal = true; }

@@ -660,7 +660,7 @@
 
 
 @layer apps {
-  .app-window[data-app-id="com.nbosp.vault"] .vault-content { contain: strict; }
+  .app-window[data-app-id="com.nbosp.files"] .vault-content { contain: strict; }
 }
 
 /* The Files app is rendered in the trusted host document. Keep its
@@ -772,4 +772,3 @@
     max-width: 100px;
   }
 }
-

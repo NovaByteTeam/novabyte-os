@@ -58,48 +58,6 @@ const ContextMenu = {
     menu.style.left = x + 'px';
     menu.style.top = y + 'px';
 
-    // Sample background behind the menu to decide text color
-    try {
-      const samplePoints = [];
-      const step = 20;
-      for (let sx = x + 5; sx < x + rect.width - 5; sx += step) {
-        for (let sy = y + 5; sy < y + rect.height - 5; sy += step) {
-          samplePoints.push({ x: sx, y: sy });
-        }
-      }
-      if (samplePoints.length > 0) {
-        let lightSample = false;
-        let validSamples = 0;
-        for (const pt of samplePoints) {
-          const el = document.elementFromPoint(pt.x, pt.y);
-          if (!el) continue;
-          if (el.tagName === 'WEBVIEW' || el.closest('webview')) {
-            lightSample = true;
-            break;
-          }
-          const bg = getComputedStyle(el).backgroundColor;
-          const m = bg.match(/\d+/g);
-          if (!m || m.length < 3) continue;
-          validSamples++;
-          const r = parseInt(m[0], 10);
-          const g = parseInt(m[1], 10);
-          const b = parseInt(m[2], 10);
-          const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-          if (luminance > 160) {
-            lightSample = true;
-            break;
-          }
-        }
-        if (lightSample || validSamples === 0) {
-          menu.classList.add('light-bg');
-        }
-      } else {
-        menu.classList.add('light-bg');
-      }
-    } catch (e) {
-      // If sampling fails, keep default dark text
-    }
-
     ContextMenu.current = menu;
     menu.style.visibility = '';
 

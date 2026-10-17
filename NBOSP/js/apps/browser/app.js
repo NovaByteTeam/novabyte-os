@@ -162,10 +162,20 @@ registerApp({
 
     const tabWebviews     = new Map();  // tabId → <webview>
     const tabIframes      = new Map();  // tabId → <iframe>
+    const tabSourcePages  = new Map();  // tabId → rendered page source
     const tabViewMode     = new Map();  // tabId → 'webview' | 'iframe'
     const tabZoom         = new Map();  // tabId → number
     const tabCleanups     = new Map();  // tabId → Array<() => void>
     const tabUnresponsive = new Set();  // tabIds currently flagged unresponsive
+    let browserChromeHidden = false;
+    let browserChromeHideTimer = null;
+    let quickControlFeedbackTimer = null;
+    const sitePermissionDecisions = new Map();
+    const pendingSitePermissionPrompts = new Map();
+    const pendingLoginUsernames = new Map();
+    const BROWSER_BEHAVIOR_MARKER = '__NBOSP_BROWSER_BEHAVIOR__:';
+    const BROWSER_QUICK_DIAGNOSTIC_MARKER = '__NBOSP_BROWSER_QUICK_DIAGNOSTIC__:';
+    const BROWSER_LOGIN_MARKER = '__NBOSP_LOGIN_CAPTURE__:';
 
     // App-wide teardown: one AbortController backs every listener that doesn't
     // need finer-grained lifecycle control. Cheaper than tracking each
@@ -238,6 +248,25 @@ registerApp({
       if (_settingsCache) return _settingsCache;
       try {
         _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}');
+        let migrated = false;
+        if ('double_tap_zoom' in _settingsCache) {
+          delete _settingsCache.double_tap_zoom;
+          migrated = true;
+        }
+        if ('force_userscalable' in _settingsCache) {
+          delete _settingsCache.force_userscalable;
+          migrated = true;
+        }
+        for (const key of ['preload_when', 'link_prefetch_when']) {
+          if (_settingsCache[key] === 'WIFI_ONLY') {
+            _settingsCache[key] = 'NEVER';
+            migrated = true;
+          }
+        }
+        if (migrated) {
+          try { localStorage.setItem(ST_KEY, JSON.stringify(_settingsCache)); }
+          catch (err) { console.warn('[NB Browser] Could not migrate browser settings:', err); }
+        }
       } catch (err) {
         console.error('[NB Browser] Settings cache corrupted, resetting:', err);
         _settingsCache = {};
@@ -261,6 +290,418 @@ registerApp({
       const v = loadSettings()[key];
       return v !== undefined ? v : def;
     };
+
+    const PASSWORD_VAULT_FILE = 'browser-password-vault.json';
+    const passwordVaultDir = AppDirs.getVFSDir(BROWSER_APP_ID, 'files');
+    let passwordVaultKey = null;
+    let passwordVaultEntries = null;
+    let passwordVaultLastUsed = 0;
+    let passwordVaultLockTimer = null;
+    let passwordVaultFileId = null;
+
+    function lockPasswordVault() {
+      clearTimeout(passwordVaultLockTimer);
+      passwordVaultLockTimer = null;
+      passwordVaultKey?.fill(0);
+      passwordVaultKey = null;
+      passwordVaultEntries = null;
+      passwordVaultSalt = null;
+      container.querySelectorAll('.browser-password-manager').forEach(overlay => overlay.remove());
+    }
+
+    state.cleanups.push(lockPasswordVault);
+
+    function armPasswordVaultLock() {
+      clearTimeout(passwordVaultLockTimer);
+      passwordVaultLastUsed = Date.now();
+      passwordVaultLockTimer = setTimeout(lockPasswordVault, 5 * 60 * 1000);
+    }
+
+    function findPasswordVaultFile() {
+      if (passwordVaultFileId && FS.files.has(passwordVaultFileId)) return FS.files.get(passwordVaultFileId);
+      const node = FS.listDir(passwordVaultDir).find(file => file.type === 'file' && file.name === PASSWORD_VAULT_FILE);
+      passwordVaultFileId = node?.id || null;
+      return node || null;
+    }
+
+    function promptPasswordFields(title, message, fields, submitLabel) {
+      return new Promise(resolve => {
+        const overlay = createEl('div', {
+          style: 'position:absolute;inset:0;z-index:100000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px;'
+        });
+        const dialog = createEl('form', {
+          style: 'width:min(420px,100%);padding:22px;border-radius:12px;background:var(--bg-elevated,#141a28);border:1px solid var(--border-default,rgba(255,255,255,.14));box-shadow:0 24px 70px rgba(0,0,0,.6);'
+        });
+        dialog.append(
+          createEl('h2', { textContent: title, style: 'margin:0 0 8px;font-size:17px;color:var(--text-primary,#e6edf3);' }),
+          createEl('p', { textContent: message, style: 'margin:0 0 16px;font-size:12px;line-height:1.5;color:var(--text-secondary,#8b949e);' })
+        );
+        const inputs = [];
+        for (const field of fields) {
+          dialog.appendChild(createEl('label', {
+            textContent: field.label,
+            style: 'display:block;margin:10px 0 5px;font-size:12px;color:var(--text-secondary,#8b949e);'
+          }));
+          const input = createEl('input', {
+            type: field.type || 'text',
+            autocomplete: field.autocomplete || 'off',
+            placeholder: field.placeholder || '',
+            required: field.required !== false,
+            style: 'box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid var(--border-default,rgba(255,255,255,.14));border-radius:7px;background:var(--bg-sunken,#080c14);color:var(--text-primary,#e6edf3);font-size:13px;'
+          });
+          dialog.appendChild(input);
+          inputs.push(input);
+        }
+        const actions = createEl('div', { style: 'display:flex;justify-content:flex-end;gap:8px;margin-top:18px;' });
+        const cancel = createEl('button', {
+          type: 'button', textContent: 'Cancel',
+          style: 'padding:8px 14px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;'
+        });
+        const submit = createEl('button', {
+          type: 'submit', textContent: submitLabel,
+          style: 'padding:8px 14px;border:0;border-radius:7px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;'
+        });
+        actions.append(cancel, submit);
+        dialog.appendChild(actions);
+        overlay.appendChild(dialog);
+        container.appendChild(overlay);
+        const finish = value => {
+          overlay.remove();
+          resolve(value);
+        };
+        cancel.addEventListener('click', () => finish(null));
+        overlay.addEventListener('pointerdown', event => {
+          if (event.target === overlay) finish(null);
+        });
+        dialog.addEventListener('submit', event => {
+          event.preventDefault();
+          finish(inputs.map(input => input.value));
+        });
+        inputs[0]?.focus();
+      });
+    }
+
+    async function derivePasswordVaultKey(password, salt) {
+      const nodeCrypto = require('crypto');
+      return new Promise((resolve, reject) => {
+        nodeCrypto.scrypt(password, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (err, key) => {
+          if (err) reject(err);
+          else resolve(key);
+        });
+      });
+    }
+
+    async function encryptPasswordVault(entries, key, salt) {
+      const nodeCrypto = require('crypto');
+      const iv = nodeCrypto.randomBytes(12);
+      const cipher = nodeCrypto.createCipheriv('aes-256-gcm', key, iv);
+      const encrypted = Buffer.concat([
+        cipher.update(JSON.stringify(entries), 'utf8'),
+        cipher.final()
+      ]);
+      return JSON.stringify({
+        version: 1,
+        kdf: 'scrypt-32768-8-1',
+        cipher: 'aes-256-gcm',
+        salt: salt.toString('base64'),
+        iv: iv.toString('base64'),
+        tag: cipher.getAuthTag().toString('base64'),
+        data: encrypted.toString('base64')
+      });
+    }
+
+    async function persistPasswordVault() {
+      if (!passwordVaultKey || !passwordVaultEntries) throw new Error('Password vault is locked');
+      const fileContent = await encryptPasswordVault(passwordVaultEntries, passwordVaultKey, passwordVaultSalt);
+      const existing = findPasswordVaultFile();
+      if (existing) {
+        await FS.writeFile(existing.id, fileContent);
+      } else {
+        const node = await FS.createFile(passwordVaultDir, PASSWORD_VAULT_FILE, fileContent, 'application/json');
+        passwordVaultFileId = node.id;
+      }
+    }
+
+    let passwordVaultSalt = null;
+
+    async function unlockPasswordVault() {
+      if (passwordVaultKey && Date.now() - passwordVaultLastUsed < 5 * 60 * 1000) {
+        armPasswordVaultLock();
+        return true;
+      }
+      lockPasswordVault();
+
+      const file = findPasswordVaultFile();
+      if (!file) {
+        const values = await promptPasswordFields(
+          'Create Password Vault',
+          'Choose a master password of at least 10 characters. It encrypts saved logins and cannot be recovered if forgotten.',
+          [
+            { label: 'Master password', type: 'password', autocomplete: 'new-password' },
+            { label: 'Confirm master password', type: 'password', autocomplete: 'new-password' }
+          ],
+          'Create vault'
+        );
+        if (!values) return false;
+        if (values[0].length < 10 || values[0] !== values[1]) {
+          Notify.show({ title: 'Password vault', body: 'Passwords must match and contain at least 10 characters.', type: 'error', appName: 'Browser' });
+          return false;
+        }
+        const nodeCrypto = require('crypto');
+        passwordVaultSalt = nodeCrypto.randomBytes(16);
+        passwordVaultKey = await derivePasswordVaultKey(values[0], passwordVaultSalt);
+        passwordVaultEntries = [];
+        armPasswordVaultLock();
+        await persistPasswordVault();
+        return true;
+      }
+
+      let envelope;
+      try {
+        envelope = JSON.parse(typeof file.content === 'string' ? file.content : new TextDecoder().decode(file.content));
+        if (envelope.version !== 1 || envelope.cipher !== 'aes-256-gcm' || envelope.kdf !== 'scrypt-32768-8-1') {
+          throw new Error('Unsupported password vault format');
+        }
+      } catch (err) {
+        throw new Error('Password vault is unreadable: ' + err.message);
+      }
+      const [masterPassword] = await promptPasswordFields(
+        'Unlock Password Vault',
+        'Enter the master password to unlock saved logins. The vault locks automatically after five minutes.',
+        [{ label: 'Master password', type: 'password', autocomplete: 'current-password' }],
+        'Unlock'
+      ) || [];
+      if (masterPassword == null) return false;
+      const nodeCrypto = require('crypto');
+      const salt = Buffer.from(envelope.salt, 'base64');
+      const key = await derivePasswordVaultKey(masterPassword, salt);
+      try {
+        const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'));
+        decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+        const plain = Buffer.concat([
+          decipher.update(Buffer.from(envelope.data, 'base64')),
+          decipher.final()
+        ]).toString('utf8');
+        const entries = JSON.parse(plain);
+        if (!Array.isArray(entries) || entries.some(entry =>
+          typeof entry?.origin !== 'string' || typeof entry?.username !== 'string' || typeof entry?.password !== 'string'
+        )) throw new Error('Invalid vault entries');
+        passwordVaultKey = key;
+        passwordVaultSalt = salt;
+        passwordVaultEntries = entries;
+        armPasswordVaultLock();
+        for (const wv of tabWebviews.values()) fillSavedLogin(wv);
+        return true;
+      } catch {
+        key.fill(0);
+        Notify.show({ title: 'Password vault', body: 'Incorrect master password or damaged vault.', type: 'error', appName: 'Browser' });
+        return false;
+      }
+    }
+
+    function fillSavedLogin(wv) {
+      if (passwordVaultKey && Date.now() - passwordVaultLastUsed >= 5 * 60 * 1000) lockPasswordVault();
+      if (!getSetting('autofill_enabled', true) || !passwordVaultEntries || !wv) return;
+      const tabId = wv._nbTabId;
+      if (tabs.find(tab => tab.id === tabId)?.incognito) return;
+      armPasswordVaultLock();
+      try {
+        wv.executeScript({ code: 'location.origin' }, result => {
+          const origin = Array.isArray(result) ? result[0] : '';
+          const entry = passwordVaultEntries?.find(item => item.origin === origin);
+          if (!entry) return;
+          const payload = JSON.stringify({ username: entry.username, password: entry.password });
+          try {
+            wv.executeScript({ code: `(() => {
+              const saved = ${payload};
+              const passwordFields = Array.from(document.querySelectorAll('input[type="password"]'));
+              const password = passwordFields.find(field => field.autocomplete === 'current-password') ||
+                (passwordFields.length === 1 && passwordFields[0].autocomplete !== 'new-password' ? passwordFields[0] : null);
+              if (!password || password.value) return;
+              const form = password.form || document;
+              const user = form.querySelector('input[autocomplete="username"], input[type="email"], input[name*="user" i], input[name*="email" i], input[type="text"]');
+              if (user && !user.value) {
+                user.value = saved.username;
+                user.dispatchEvent(new Event('input', { bubbles: true }));
+                user.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+              password.value = saved.password;
+              password.dispatchEvent(new Event('input', { bubbles: true }));
+              password.dispatchEvent(new Event('change', { bubbles: true }));
+            })()` });
+          } catch (err) {
+            console.error('[NB Browser] Password autofill failed:', err);
+          }
+        });
+      } catch (err) {
+        console.error('[NB Browser] Could not inspect page origin for password autofill:', err);
+      }
+    }
+
+    async function offerSaveLogin(login, tabId) {
+      if (!getSetting('remember_passwords', true) || tabs.find(tab => tab.id === tabId)?.incognito) return;
+      if (!login || typeof login.origin !== 'string' || typeof login.username !== 'string' || typeof login.password !== 'string') return;
+      let origin;
+      try {
+        const parsed = new URL(login.origin);
+        if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== login.origin) return;
+        origin = parsed.origin;
+      } catch { return; }
+      try {
+        const shouldSave = await showModal(
+          'Save password?',
+          `Save this login for ${origin}? Passwords are encrypted with your master password.`,
+          [{ label: 'Save', value: true }, { label: 'Not now', value: false }]
+        );
+        if (!shouldSave || !await unlockPasswordVault()) return;
+        const existing = passwordVaultEntries.findIndex(item => item.origin === origin && item.username === login.username);
+        const entry = { origin, username: login.username, password: login.password, updatedAt: Date.now() };
+        if (existing >= 0) passwordVaultEntries[existing] = entry;
+        else passwordVaultEntries.push(entry);
+        await persistPasswordVault();
+        Notify.show({ title: 'Password saved', body: `Encrypted login saved for ${origin}.`, type: 'success', appName: 'Browser' });
+      } catch (err) {
+        console.error('[NB Browser] Failed to save encrypted password:', err);
+        Notify.show({ title: 'Password not saved', body: err.message || 'Could not save the encrypted login.', type: 'error', appName: 'Browser' });
+      }
+    }
+
+    async function clearPasswordVault() {
+      const file = findPasswordVaultFile();
+      if (file) {
+        const nodeCrypto = require('crypto');
+        const oldContent = typeof file.content === 'string' ? file.content : '';
+        if (oldContent) await FS.writeFile(file.id, nodeCrypto.randomBytes(Buffer.byteLength(oldContent)).toString('hex'));
+        await FS.permanentDelete(file.id);
+      }
+      passwordVaultFileId = null;
+      lockPasswordVault();
+    }
+
+    function showPasswordManager() {
+      unlockPasswordVault().then(unlocked => {
+        if (!unlocked) return;
+        const overlay = createEl('div', {
+          className: 'browser-password-manager',
+          style: 'position:absolute;inset:0;z-index:100000;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px;'
+        });
+        const dialog = createEl('div', {
+          style: 'width:min(620px,100%);max-height:85%;overflow:auto;padding:22px;border-radius:12px;background:var(--bg-elevated,#141a28);border:1px solid var(--border-default,rgba(255,255,255,.14));box-shadow:0 24px 70px rgba(0,0,0,.6);'
+        });
+        const header = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;' });
+        const heading = createEl('h2', { textContent: 'Saved Passwords', style: 'margin:0;font-size:17px;color:var(--text-primary,#e6edf3);' });
+        const actions = createEl('div', { style: 'display:flex;gap:6px;' });
+        const add = createEl('button', { textContent: 'Add login', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        const changeMaster = createEl('button', { textContent: 'Change master password', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        const lock = createEl('button', { textContent: 'Lock', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        const close = createEl('button', { textContent: 'Close', style: 'padding:7px 12px;border:1px solid var(--border-default);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer;' });
+        actions.append(add, changeMaster, lock, close);
+        header.append(heading, actions);
+        close.addEventListener('click', () => overlay.remove());
+        lock.addEventListener('click', () => {
+          lockPasswordVault();
+          overlay.remove();
+        });
+        changeMaster.addEventListener('click', async () => {
+          armPasswordVaultLock();
+          const values = await promptPasswordFields('Change Master Password', 'Choose a new master password. Your saved logins will be re-encrypted.', [
+            { label: 'New master password', type: 'password', autocomplete: 'new-password' },
+            { label: 'Confirm new master password', type: 'password', autocomplete: 'new-password' }
+          ], 'Change password');
+          if (!values) return;
+          if (!passwordVaultKey || !passwordVaultEntries) return;
+          if (values[0].length < 10 || values[0] !== values[1]) {
+            Notify.show({ title: 'Password vault', body: 'Passwords must match and contain at least 10 characters.', type: 'error', appName: 'Browser' });
+            return;
+          }
+          const nodeCrypto = require('crypto');
+          const oldKey = passwordVaultKey;
+          const oldSalt = passwordVaultSalt;
+          try {
+            passwordVaultSalt = nodeCrypto.randomBytes(16);
+            passwordVaultKey = await derivePasswordVaultKey(values[0], passwordVaultSalt);
+            await persistPasswordVault();
+            oldKey?.fill(0);
+            armPasswordVaultLock();
+            Notify.show({ title: 'Master password changed', body: 'Saved logins were re-encrypted with the new master password.', type: 'success', appName: 'Browser' });
+          } catch (err) {
+            if (passwordVaultKey && passwordVaultKey !== oldKey) passwordVaultKey.fill(0);
+            passwordVaultKey = oldKey;
+            passwordVaultSalt = oldSalt;
+            console.error('[NB Browser] Failed to change password vault master password:', err);
+            Notify.show({ title: 'Master password not changed', body: 'Could not re-encrypt the password vault.', type: 'error', appName: 'Browser' });
+          }
+        });
+        add.addEventListener('click', async () => {
+          armPasswordVaultLock();
+          const values = await promptPasswordFields('Add Login', 'Add a credential to the encrypted password vault.', [
+            { label: 'Website URL', type: 'url', placeholder: 'https://example.com' },
+            { label: 'Username', autocomplete: 'username' },
+            { label: 'Password', type: 'password', autocomplete: 'new-password' }
+          ], 'Save login');
+          if (!values) return;
+          if (!passwordVaultKey || !passwordVaultEntries) return;
+          let origin;
+          try {
+            const parsed = new URL(values[0]);
+            if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error();
+            origin = parsed.origin;
+          } catch {
+            Notify.show({ title: 'Invalid website', body: 'Enter a valid HTTP or HTTPS URL without embedded credentials.', type: 'error', appName: 'Browser' });
+            return;
+          }
+          const existingIndex = passwordVaultEntries.findIndex(entry => entry.origin === origin && entry.username === values[1]);
+          const entry = { origin, username: values[1], password: values[2], updatedAt: Date.now() };
+          if (existingIndex >= 0) passwordVaultEntries[existingIndex] = entry;
+          else passwordVaultEntries.push(entry);
+          try {
+            await persistPasswordVault();
+            overlay.remove();
+            showPasswordManager();
+          } catch (err) {
+            console.error('[NB Browser] Failed to save manual login:', err);
+            Notify.show({ title: 'Login not saved', body: 'Could not update the encrypted vault.', type: 'error', appName: 'Browser' });
+          }
+        });
+        dialog.appendChild(header);
+        if (!passwordVaultEntries.length) {
+          dialog.appendChild(createEl('p', { textContent: 'No saved logins yet. When you sign in to a site, Browser can offer to save the login here.', style: 'color:var(--text-secondary);font-size:12px;' }));
+        }
+        const entries = passwordVaultEntries.map((entry, index) => {
+          const row = createEl('div', { style: 'display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border-subtle);' });
+          const info = createEl('div', { style: 'flex:1;min-width:0;' });
+          info.append(
+            createEl('div', { textContent: entry.origin, style: 'font-size:12px;overflow-wrap:anywhere;color:var(--text-primary);' }),
+            createEl('div', { textContent: entry.username, style: 'font-size:11px;color:var(--text-secondary);margin-top:3px;' })
+          );
+          const remove = createEl('button', { textContent: 'Delete', style: 'padding:6px 10px;border:1px solid var(--text-danger);border-radius:6px;background:transparent;color:var(--text-danger);cursor:pointer;' });
+          remove.addEventListener('click', async () => {
+            if (!passwordVaultKey || !passwordVaultEntries) return;
+            armPasswordVaultLock();
+            passwordVaultEntries.splice(index, 1);
+            try {
+              await persistPasswordVault();
+              overlay.remove();
+              showPasswordManager();
+            } catch (err) {
+              console.error('[NB Browser] Failed to delete saved login:', err);
+              Notify.show({ title: 'Password not deleted', body: 'Could not update the encrypted vault.', type: 'error', appName: 'Browser' });
+            }
+          });
+          row.append(info, remove);
+          return row;
+        });
+        dialog.append(...entries);
+        overlay.appendChild(dialog);
+        overlay.addEventListener('pointerdown', event => {
+          if (event.target === overlay) overlay.remove();
+        });
+        container.appendChild(overlay);
+      }).catch(err => {
+        console.error('[NB Browser] Password vault error:', err);
+        Notify.show({ title: 'Password vault unavailable', body: err.message, type: 'error', appName: 'Browser' });
+      });
+    }
 
     const getSearchUrl = (q) => {
       const eng = getSetting('searchEngine', 'brave');
@@ -452,7 +893,7 @@ registerApp({
           'data-tab-id': String(tab.id),
         });
         const faviconSpan = createEl('span', { className: 'tab-icon' });
-        if (tab.favicon) {
+        if (tab.favicon && !tab.url?.startsWith('browser://')) {
           const img = createEl('img', {
             src: normFavicon(tab.favicon),
             style: { width: '14px', height: '14px', borderRadius: '2px' }
@@ -639,6 +1080,8 @@ registerApp({
       if (closedWv) { closedWv.remove(); tabWebviews.delete(tabId); }
       const closedIfr = tabIframes.get(tabId);
       if (closedIfr) { closedIfr.remove(); tabIframes.delete(tabId); }
+      const closedSource = tabSourcePages.get(tabId);
+      if (closedSource) { closedSource.remove(); tabSourcePages.delete(tabId); }
       tabViewMode.delete(tabId);
       tabZoom.delete(tabId);
       tabUnresponsive.delete(tabId);
@@ -656,6 +1099,7 @@ registerApp({
     function reloadTab(tabId) {
       const tab = tabs.find(t => t.id === tabId);
       if (!tab) return;
+      if (tabSourcePages.has(tabId)) return;
       if (getTabMode(tabId) === 'iframe') {
         const ifr = tabIframes.get(tabId);
         if (ifr) {
@@ -709,6 +1153,8 @@ registerApp({
 
     // Speed dial — the new-tab page.
     function renderSpeedDial() {
+      setBrowserChromeHidden(false);
+      updateUrlIcon('');
       requestAnimationFrame(() => {
         for (const wv of tabWebviews.values()) {
           wv.style.visibility = 'hidden';
@@ -794,17 +1240,32 @@ registerApp({
     }
 
     function switchToTab(tabId) {
+      const currentSettingsPage = viewport.querySelector('.browser-settings-page');
+      const currentTab = activeTab();
+      if (currentSettingsPage && currentTab?.url === 'browser://settings') {
+        currentTab.settingsCategory = currentSettingsPage.dataset.category || currentTab.settingsCategory || 'general';
+        currentTab.settingsScrollTop = currentSettingsPage.querySelector('[data-settings-panel]')?.scrollTop || 0;
+      }
       activeTabId = tabId;
       const tab = tabs.find(t => t.id === tabId);
       if (tab) {
         urlBar.value = stripHttps(tab.url || '');
         currentUrl = tab.url || '';
+        updateUrlIcon(tab.url || '');
+        setBrowserChromeHidden(getSetting('fullscreen', false));
         const bkd = tab.url ? isBookmarked(tab.url) : false;
         starBtn.style.color = bkd ? 'var(--accent)' : '';
         starBtn.innerHTML = svgIcon(bkd ? 'star-filled' : 'star', 16);
         updateModeBtn();
-        if (tab.url === 'browser://settings') {
-          renderSettingsPage();
+        if (tabSourcePages.has(tabId)) {
+          updateUrlIcon(tab.url);
+          const sourcePage = tabSourcePages.get(tabId);
+          if (!sourcePage.parentNode) viewport.appendChild(sourcePage);
+          showViewForTab(tabId);
+          const sd = viewport.querySelector('.speed-dial');
+          if (sd) sd.remove();
+        } else if (tab.url === 'browser://settings') {
+          renderSettingsPage(tab.settingsCategory || 'general');
         } else if (tab.url) {
           updateUrlIcon(tab.url);
           const mode = getTabMode(tabId);
@@ -862,23 +1323,40 @@ registerApp({
     });
     const urlIcon = createEl('span', { className: 'browser-url-icon' });
     urlIcon.innerHTML = svgIcon('search', 14);
-    urlBarWrap.append(urlBar, urlIcon);
+    const urlWarning = createEl('span', {
+      className: 'browser-security-warning',
+      textContent: 'Not secure',
+      style: 'display:none;flex-shrink:0;font-size:11px;font-weight:600;color:var(--text-warning);white-space:nowrap;'
+    });
+    urlBarWrap.append(urlBar, urlIcon, urlWarning);
 
     function updateUrlIcon(url) {
-      if (url?.startsWith('https://')) {
+      if (/^https:\/\//i.test(url || '')) {
         urlIcon.innerHTML = svgIcon('lock', 14);
         urlIcon.style.color = 'var(--text-success)';
-      } else if (url?.startsWith('http://')) {
+        urlIcon.title = 'Secure connection';
+        urlIcon.setAttribute('aria-label', 'Secure connection');
+        urlWarning.style.display = 'none';
+      } else if (/^http:\/\//i.test(url || '')) {
         if (getSetting('show_security_warnings', true)) {
           urlIcon.innerHTML = svgIcon('unlock', 14);
           urlIcon.style.color = 'var(--text-warning)';
+          urlIcon.title = 'Not secure: this connection is not encrypted';
+          urlIcon.setAttribute('aria-label', 'Not secure connection');
+          urlWarning.style.display = 'inline';
         } else {
           urlIcon.innerHTML = svgIcon('globe', 14);
           urlIcon.style.color = '';
+          urlIcon.title = '';
+          urlIcon.setAttribute('aria-label', 'Website');
+          urlWarning.style.display = 'none';
         }
       } else {
         urlIcon.innerHTML = svgIcon('search', 14);
         urlIcon.style.color = '';
+        urlIcon.title = '';
+        urlIcon.setAttribute('aria-label', 'Search or internal page');
+        urlWarning.style.display = 'none';
       }
     }
 
@@ -991,7 +1469,10 @@ registerApp({
     findClose.innerHTML = svgIcon('x', 14);
     findBar.append(findInput, findCount, findPrev, findNext, findClose);
 
+    let findBarOpen = false;
     const openFindBar = () => {
+      if (browserChromeHidden) setBrowserChromeHidden(false);
+      findBarOpen = true;
       findBar.style.display = 'flex';
       findInput.focus();
       findInput.select();
@@ -1112,6 +1593,7 @@ registerApp({
     }
 
     function closeFindBar() {
+      findBarOpen = false;
       findBar.style.display = 'none';
       findCount.textContent = '';
       if (getTabMode(activeTabId) === 'iframe') {
@@ -1268,6 +1750,42 @@ registerApp({
     viewport.appendChild(panel);
     container.append(tabsBar, toolbar, findBar, viewport);
     content.appendChild(container);
+    const quickControlFeedback = createEl('div', {
+      className: 'browser-quick-control-feedback',
+      'aria-hidden': 'true'
+    });
+    const quickControlArrow = createEl('span', { className: 'browser-quick-control-arrow' });
+    const quickControlLabel = createEl('span');
+    quickControlFeedback.append(quickControlArrow, quickControlLabel);
+    viewport.appendChild(quickControlFeedback);
+    function showQuickControlFeedback(direction) {
+      clearTimeout(quickControlFeedbackTimer);
+      quickControlArrow.innerHTML = svgIcon(direction === 'back' ? 'chevron-left' : 'chevron-right', 22);
+      quickControlLabel.textContent = direction === 'back' ? 'Back' : 'Forward';
+      quickControlFeedback.classList.toggle('is-forward', direction === 'forward');
+      quickControlFeedback.classList.remove('is-visible');
+      void quickControlFeedback.offsetWidth;
+      quickControlFeedback.classList.add('is-visible');
+      quickControlFeedbackTimer = setTimeout(() => quickControlFeedback.classList.remove('is-visible'), 650);
+    }
+    state.cleanups.push(() => clearTimeout(quickControlFeedbackTimer));
+    container.addEventListener('pointermove', event => {
+      const top = container.getBoundingClientRect().top;
+      if (browserChromeHidden && event.clientY <= top + 18) {
+        setBrowserChromeHidden(false);
+      } else if (!browserChromeHidden && event.clientY > top + 120) {
+        scheduleBrowserChromeHide();
+      }
+    }, { signal: appAbort.signal, passive: true });
+    for (const chromeElement of [tabsBar, toolbar, findBar]) {
+      chromeElement.addEventListener('pointerenter', () => {
+        clearTimeout(browserChromeHideTimer);
+        browserChromeHideTimer = null;
+      }, { signal: appAbort.signal, passive: true });
+      chromeElement.addEventListener('pointerleave', scheduleBrowserChromeHide, {
+        signal: appAbort.signal, passive: true
+      });
+    }
 
     // Popup mode — when opened via window.open() from another app, the
     // browser chrome is stripped down to just the URL bar (read-only) +
@@ -1297,6 +1815,53 @@ registerApp({
     let currentUrl = '';
 
     const getTabMode = (tabId) => tabViewMode.get(tabId) || 'webview';
+
+    function dispatchQuickControl(direction, tabId, webview = tabWebviews.get(tabId)) {
+      if (tabId !== activeTabId) return;
+      showQuickControlFeedback(direction);
+      try {
+        if (getTabMode(tabId) === 'iframe') {
+          const frame = tabIframes.get(tabId);
+          if (direction === 'back') frame?.contentWindow?.history.back();
+          else frame?.contentWindow?.history.forward();
+        } else if (direction === 'back') {
+          webview?.back();
+        } else {
+          webview?.forward();
+        }
+      } catch (err) {
+        console.warn('[NB Browser] Quick-control navigation failed:', err);
+      }
+    }
+
+    function attachHostQuickControlWheel(webview, tabId) {
+      let deltaX = 0;
+      let timer = null;
+      let diagnosticSent = false;
+      webview.addEventListener('wheel', event => {
+        if (!getSetting('enable_quick_controls', false) || event.ctrlKey ||
+            event.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
+        const horizontal = event.deltaX || (event.shiftKey ? event.deltaY : 0);
+        const vertical = event.shiftKey ? 0 : event.deltaY;
+        if (Math.abs(horizontal) < Math.abs(vertical) * 1.2 || Math.abs(horizontal) < 8) return;
+        const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerWidth : 1;
+        deltaX += horizontal * scale;
+        if (window.__NBOSP_BROWSER_QUICK_CONTROL_DEBUG__ === true && !diagnosticSent) {
+          diagnosticSent = true;
+          console.info('[NB Browser] Quick-control wheel reached the host webview:', {
+            deltaX: event.deltaX, deltaY: event.deltaY, deltaMode: event.deltaMode, shiftKey: event.shiftKey
+          }, { tabId });
+        }
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const total = deltaX;
+          deltaX = 0;
+          if (Math.abs(total) < 40) return;
+          dispatchQuickControl(total > 0 ? 'forward' : 'back', tabId, webview);
+        }, 250);
+      }, { passive: true });
+      state.cleanups.push(() => clearTimeout(timer));
+    }
 
     // Stable browser session ID. Persisted across launches so cookies,
     // localStorage, etc. inside the webview survive a browser restart.
@@ -1336,13 +1901,17 @@ registerApp({
       const wv = tabWebviews.get(activeTabId);
       if (!wv) return;
       try {
-        wv.executeScript({ code: 'location.href' }, results => {
+        const polledTabId = activeTabId;
+        wv.executeScript({ code: `(() => {
+          return { url: location.href };
+        })()` }, results => {
           if (chrome.runtime?.lastError) return;
-          const url = Array.isArray(results) ? results[0] : results;
+          const result = Array.isArray(results) ? results[0] : results;
+          const url = result?.url;
           if (typeof url !== 'string' || url === 'about:blank') return;
-          if (url === _lastPolledUrls.get(activeTabId)) return;
-          _lastPolledUrls.set(activeTabId, url);
-          syncUrlForTab(url, activeTabId, 'poll');
+          if (url === _lastPolledUrls.get(polledTabId)) return;
+          _lastPolledUrls.set(polledTabId, url);
+          syncUrlForTab(url, polledTabId, 'poll');
         });
       } catch (err) {
         console.warn('[NB Browser] URL poll executeScript failed:', err);
@@ -1672,45 +2241,6 @@ registerApp({
         dismissInfoBar(tabId);
       });
 
-      // Download handling. NW.js's webview 'permissionrequest' event with
-      // permission='download' is the only reliable hook into downloads
-      // initiated by guest content; we deny the native request and run
-      // our own fetch+save pipeline so the file lands in the OS Downloads
-      // folder with a Downloads manager entry.
-      wv.addEventListener('permissionrequest', e => {
-        // Built-in Browser uses its own explicit privacy toggles, not the
-        // third-party app-permission catalog. Location and media default off.
-        if (e.permission === 'geolocation') {
-          const allowed = getSetting('enable_geolocation', false);
-          if (!allowed) {
-            Notify.show({
-              title: 'Location blocked',
-              body: 'Enable location in Browser → Settings → Privacy & Security to allow site requests.',
-              type: 'info', appName: 'Browser'
-            });
-            e.request.deny();
-            return;
-          }
-          e.request.allow();
-        } else if (e.permission === 'media') {
-          const allowed = getSetting('enable_media', false);
-          if (!allowed) {
-            Notify.show({
-              title: 'Camera and microphone blocked',
-              body: 'Enable camera and microphone in Browser → Settings → Privacy & Security to allow site requests.',
-              type: 'info', appName: 'Browser'
-            });
-            e.request.deny();
-            return;
-          }
-          e.request.allow();
-        } else if (e.permission === 'pointerLock') {
-          e.request.allow();
-        } else {
-          e.request.deny();
-        }
-      });;
-
       // Popup / new-window support (NW.js Chrome Apps webview API).
       wv.addEventListener('newwindow', e => {
         const url = e.targetUrl;
@@ -1823,6 +2353,7 @@ registerApp({
       wv.addEventListener('close', () => closeTab(tabId));
 
       tabWebviews.set(tabId, wv);
+      attachHostQuickControlWheel(wv, tabId);
       applyWebviewSettings(wv);
       return wv;
     }
@@ -1946,6 +2477,28 @@ registerApp({
       const isMobile = tab?.userAgent === 'mobile';
 
       requestAnimationFrame(() => {
+        const sourcePage = tabSourcePages.get(tabId);
+        if (sourcePage) {
+          for (const [, wv] of tabWebviews) {
+            wv.style.position = 'absolute';
+            wv.style.visibility = 'hidden';
+            wv.style.pointerEvents = 'none';
+            wv.style.zIndex = '0';
+          }
+          for (const [, ifr] of tabIframes) {
+            ifr.style.position = 'absolute';
+            ifr.style.visibility = 'hidden';
+            ifr.style.pointerEvents = 'none';
+            ifr.style.zIndex = '0';
+          }
+          viewport.querySelectorAll('.browser-iframe-blocked').forEach(n => n.remove());
+          for (const [id, page] of tabSourcePages) {
+            page.style.display = id === tabId ? 'block' : 'none';
+          }
+          return;
+        }
+        for (const [, page] of tabSourcePages) page.style.display = 'none';
+
         if (mode === 'iframe') {
           for (const [, wv] of tabWebviews) {
             wv.style.position = 'absolute';
@@ -2013,11 +2566,415 @@ registerApp({
       });
     }
 
+    function setBrowserChromeHidden(hidden) {
+      const tab = tabs.find(item => item.id === activeTabId);
+      const canHide = getSetting('fullscreen', false) &&
+        /^https?:\/\//i.test(tab?.url || '') &&
+        !tabSourcePages.has(activeTabId);
+      clearTimeout(browserChromeHideTimer);
+      browserChromeHideTimer = null;
+      browserChromeHidden = Boolean(hidden) && canHide;
+      tabsBar.style.display = browserChromeHidden ? 'none' : '';
+      toolbar.style.display = browserChromeHidden ? 'none' : '';
+      findBar.style.display = browserChromeHidden || !findBarOpen ? 'none' : 'flex';
+    }
+    state.cleanups.push(() => clearTimeout(browserChromeHideTimer));
+
+    function scheduleBrowserChromeHide() {
+      clearTimeout(browserChromeHideTimer);
+      if (!browserChromeHidden && getSetting('fullscreen', false)) {
+        browserChromeHideTimer = setTimeout(() => setBrowserChromeHidden(true), 700);
+      }
+    }
+
+    function applyPageAccessibility(wv) {
+      if (!wv) return;
+      const css = [
+        getSetting('inverted', false)
+          ? 'html{filter:invert(1) hue-rotate(180deg)!important}img,video,canvas{filter:invert(1) hue-rotate(180deg)!important}'
+          : '',
+        Number(getSetting('min_font_size', 0)) > 0
+          ? `body,body *{font-size:max(${Number(getSetting('min_font_size', 0))}px,1em)!important}`
+          : '',
+        Number(getSetting('text_zoom', 10)) !== 10
+          ? `body{zoom:${Number(getSetting('text_zoom', 10)) / 10}!important}`
+          : ''
+      ].filter(Boolean).join('\n');
+      const payload = JSON.stringify(css);
+      try {
+        wv.executeScript({ code: `(() => {
+          let style = document.getElementById('__nbosp_accessibility_styles');
+          if (!style) {
+            style = document.createElement('style');
+            style.id = '__nbosp_accessibility_styles';
+            (document.head || document.documentElement).appendChild(style);
+          }
+          style.textContent = ${payload};
+        })()` });
+      } catch (err) {
+        console.warn('[NB Browser] Could not apply page accessibility settings:', err);
+      }
+    }
+
+    function applyGeolocationGate(wv) {
+      if (!wv) return;
+      const code = getSetting('enable_geolocation', false)
+        ? `(() => {
+            const current = navigator.geolocation;
+            if (current?.__nbospGeolocationBlocked) delete navigator.geolocation;
+          })()`
+        : `(() => {
+            const denied = {
+              __nbospGeolocationBlocked: true,
+              getCurrentPosition(success, error) {
+                if (typeof error === 'function') setTimeout(() => error({ code: 1, message: 'Location is blocked by Browser settings.' }), 0);
+              },
+              watchPosition(success, error) {
+                if (typeof error === 'function') setTimeout(() => error({ code: 1, message: 'Location is blocked by Browser settings.' }), 0);
+                return 0;
+              },
+              clearWatch() {}
+            };
+            Object.defineProperty(navigator, 'geolocation', { configurable: true, value: denied });
+          })()`;
+      try {
+        wv.executeScript({ code });
+      } catch (err) {
+        console.warn('[NB Browser] Could not apply geolocation restriction:', err);
+      }
+    }
+
+    function getSitePermissionStates(rawUrl) {
+      let origin;
+      try {
+        const url = new URL(rawUrl);
+        if (!['http:', 'https:'].includes(url.protocol)) return null;
+        origin = url.origin;
+      } catch {
+        return null;
+      }
+
+      const getState = (permission, enabled) => {
+        if (!enabled) return 'denied';
+        const decision = sitePermissionDecisions.get(permission + ':' + origin);
+        return decision === undefined ? 'prompt' : decision ? 'granted' : 'denied';
+      };
+      const geo = getState('geolocation', getSetting('enable_geolocation', false));
+      const media = getState('media', getSetting('enable_media', false));
+      return { geolocation: geo, camera: media, microphone: media };
+    }
+
+    function applySitePermissionStates(wv, rawUrl) {
+      if (!wv) return;
+      const states = getSitePermissionStates(rawUrl);
+      if (!states) return;
+      const payload = JSON.stringify(states);
+      try {
+        wv.executeScript({ code: `(() => {
+          if (!navigator.permissions?.query || typeof PermissionStatus === 'undefined') return;
+          const supported = new Set(['geolocation', 'camera', 'microphone']);
+          if (!window.__nbosp_permission_state_shim) {
+            const permissions = navigator.permissions;
+            const originalQuery = permissions.query.bind(permissions);
+            const statusObjects = new Map();
+            window.__nbosp_permission_states = {};
+            const nativeState = Object.getOwnPropertyDescriptor(PermissionStatus.prototype, 'state');
+            if (!nativeState?.get || !nativeState.configurable) return;
+            Object.defineProperty(PermissionStatus.prototype, 'state', {
+              configurable: true,
+              enumerable: nativeState.enumerable,
+              get() {
+                const name = statusObjects.get(this);
+                const state = name && window.__nbosp_permission_states[name];
+                return state || nativeState.get.call(this);
+              }
+            });
+            Object.defineProperty(permissions, 'query', {
+              configurable: true,
+              value: async descriptor => {
+                const status = await originalQuery(descriptor);
+                if (supported.has(descriptor?.name)) statusObjects.set(status, descriptor.name);
+                return status;
+              }
+            });
+            window.__nbosp_set_permission_states = nextStates => {
+              const changed = [];
+              for (const [name, state] of Object.entries(nextStates)) {
+                if (window.__nbosp_permission_states[name] !== state) {
+                  window.__nbosp_permission_states[name] = state;
+                  changed.push(name);
+                }
+              }
+              for (const [status, name] of statusObjects) {
+                if (changed.includes(name)) status.dispatchEvent(new Event('change'));
+              }
+            };
+            window.__nbosp_permission_state_shim = true;
+          }
+          window.__nbosp_set_permission_states(${payload});
+        })()` });
+      } catch (err) {
+        console.warn('[NB Browser] Could not synchronize site permission status:', err);
+      }
+    }
+
+    async function requestSitePermission(permission, rawUrl) {
+      let origin;
+      try {
+        const url = new URL(rawUrl);
+        if (!['http:', 'https:'].includes(url.protocol)) {
+          console.warn('[NB Browser] Denied a site permission request without a valid HTTP(S) origin:', permission);
+          return false;
+        }
+        if (permission === 'geolocation' && url.protocol !== 'https:') {
+          Notify.show({
+            title: 'Location requires a secure connection',
+            body: `${url.origin} cannot access location over HTTP. Open the HTTPS version of this site and try again.`,
+            type: 'error', appName: 'Browser'
+          });
+          return false;
+        }
+        origin = url.origin;
+      } catch {
+        console.warn('[NB Browser] Denied a site permission request without a valid HTTP(S) origin:', permission);
+        return false;
+      }
+
+      const key = permission + ':' + origin;
+      if (sitePermissionDecisions.has(key)) return sitePermissionDecisions.get(key);
+      if (pendingSitePermissionPrompts.has(key)) return pendingSitePermissionPrompts.get(key);
+
+      const prompt = (async () => {
+        try {
+          const subject = permission === 'geolocation' ? 'your location' : 'your camera or microphone';
+          const allowed = await showModal(
+            permission === 'geolocation' ? 'Location access' : 'Camera or microphone access',
+            `Allow ${origin} to access ${subject}? Your choice lasts until Browser closes.`,
+            [{ label: 'Block', value: false }, { label: 'Allow', value: true, primary: true }]
+          );
+          const decision = allowed === true;
+          sitePermissionDecisions.set(key, decision);
+          return decision;
+        } catch (err) {
+          console.error('[NB Browser] Could not show the site permission prompt:', err);
+          return false;
+        } finally {
+          pendingSitePermissionPrompts.delete(key);
+        }
+      })();
+      pendingSitePermissionPrompts.set(key, prompt);
+      return prompt;
+    }
+
+    function clearSitePermissionDecisions(permission) {
+      for (const key of sitePermissionDecisions.keys()) {
+        if (key.startsWith(permission + ':')) sitePermissionDecisions.delete(key);
+      }
+    }
+
+    function updateGeolocationAccess(enabled) {
+      for (const [tabId, wv] of tabWebviews) {
+        applyGeolocationGate(wv);
+        const tab = tabs.find(item => item.id === tabId);
+        applySitePermissionStates(wv, tab?.url || '');
+        if (/^https?:\/\//i.test(tab?.url || '')) {
+          try { wv.reload(); }
+          catch (err) { console.warn('[NB Browser] Could not reload a page after changing location access:', err); }
+        }
+      }
+    }
+
+    function updateMediaAccess() {
+      for (const [tabId, wv] of tabWebviews) {
+        const tab = tabs.find(item => item.id === tabId);
+        if (/^https?:\/\//i.test(tab?.url || '')) {
+          try { wv.reload(); }
+          catch (err) { console.warn('[NB Browser] Could not reload a page after updating media access:', err); }
+        }
+      }
+    }
+
+    function applyGuestBrowserFeatures(wv) {
+      if (!wv) return;
+      const prefs = {
+        quickControls: getSetting('enable_quick_controls', false),
+        quickControlDiagnostics: window.__NBOSP_BROWSER_QUICK_CONTROL_DEBUG__ === true,
+        fullscreen: getSetting('fullscreen', false),
+        preload: getSetting('preload_when', 'NEVER'),
+        linkPrefetch: getSetting('link_prefetch_when', 'NEVER'),
+      };
+      const config = JSON.stringify(prefs);
+      const marker = JSON.stringify(BROWSER_BEHAVIOR_MARKER);
+      try {
+        wv.executeScript({ code: `(() => {
+          const prefs = ${config};
+          window.__nbosp_browser_prefs = prefs;
+          const send = action => { try { console.log(${marker} + action); } catch (_) {} };
+          const sendQuickDiagnostic = data => {
+            if (!window.__nbosp_browser_prefs.quickControlDiagnostics) return;
+            try { console.log(${JSON.stringify(BROWSER_QUICK_DIAGNOSTIC_MARKER)} + JSON.stringify(data)); } catch (_) {}
+          };
+          if (window.__nbosp_browser_features_installed) {
+            window.__nbosp_refresh_preloads?.();
+            return;
+          }
+          window.__nbosp_browser_features_installed = true;
+          const scrollPositions = new WeakMap();
+          if (document.scrollingElement) scrollPositions.set(document.scrollingElement, window.scrollY || 0);
+          let lastScrollSignal = 0;
+          let lastChromeRevealSignal = 0;
+          let gestureStart = null;
+          let quickWheelDelta = 0;
+          let quickWheelTimer = null;
+          let lastQuickWheelAt = 0;
+          let quickWheelDiagnosticsSent = { any: false, horizontal: false };
+          let chromePointerNearTop = false;
+          let lastChromeAwaySignal = 0;
+          document.addEventListener('pointerdown', event => {
+            if (!event.isPrimary || event.button !== 0) { gestureStart = null; return; }
+            gestureStart = {
+              id: event.pointerId,
+              x: event.clientX,
+              y: event.clientY,
+              interactive: Boolean(event.target.closest?.('a,button,input,textarea,select,[contenteditable="true"],[draggable="true"]'))
+            };
+          }, { capture: true, passive: true });
+          document.addEventListener('pointerup', event => {
+            if (!gestureStart || gestureStart.id !== event.pointerId) return;
+            const start = gestureStart;
+            gestureStart = null;
+            const dx = event.clientX - start.x;
+            const dy = event.clientY - start.y;
+            if (!window.__nbosp_browser_prefs.quickControls ||
+                start.interactive ||
+                event.target.closest?.('input,textarea,select,[contenteditable="true"]') ||
+                Math.abs(dx) < 90 || Math.abs(dy) > 60) return;
+            if (start.x < 28 && dx > 0) send('back');
+            else if (start.x > innerWidth - 28 && dx < 0) send('forward');
+          }, { capture: true, passive: true });
+          document.addEventListener('pointercancel', () => { gestureStart = null; }, true);
+          document.addEventListener('wheel', event => {
+            const horizontalDelta = event.deltaX || (event.shiftKey ? event.deltaY : 0);
+            const verticalDelta = event.shiftKey ? 0 : event.deltaY;
+            const deltaScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? innerWidth : 1;
+            if (window.__nbosp_browser_prefs.quickControlDiagnostics) {
+              const diagnostic = {
+                deltaX: event.deltaX,
+                deltaY: event.deltaY,
+                deltaMode: event.deltaMode,
+                shiftKey: event.shiftKey,
+                normalizedDeltaX: horizontalDelta * deltaScale,
+                quickControlsEnabled: window.__nbosp_browser_prefs.quickControls
+              };
+              if (!quickWheelDiagnosticsSent.any) {
+                quickWheelDiagnosticsSent.any = true;
+                sendQuickDiagnostic({ type: 'first-wheel', ...diagnostic });
+              }
+              if (!quickWheelDiagnosticsSent.horizontal && (event.deltaX !== 0 || event.shiftKey)) {
+                quickWheelDiagnosticsSent.horizontal = true;
+                sendQuickDiagnostic({ type: 'first-horizontal-wheel', ...diagnostic });
+              }
+            }
+            if (!window.__nbosp_browser_prefs.quickControls ||
+                event.ctrlKey ||
+                Math.abs(horizontalDelta) < Math.abs(verticalDelta) * 1.2 ||
+                Math.abs(horizontalDelta * deltaScale) < 8 ||
+                event.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
+            quickWheelDelta += horizontalDelta * deltaScale;
+            clearTimeout(quickWheelTimer);
+            quickWheelTimer = setTimeout(() => {
+              const delta = quickWheelDelta;
+              quickWheelDelta = 0;
+              if (!window.__nbosp_browser_prefs.quickControls ||
+                  Math.abs(delta) < 40 ||
+                  Date.now() - lastQuickWheelAt < 700) return;
+              lastQuickWheelAt = Date.now();
+              send(delta > 0 ? 'forward' : 'back');
+            }, 250);
+          }, { capture: true, passive: true });
+          document.addEventListener('pointermove', event => {
+            if (!window.__nbosp_browser_prefs.fullscreen) {
+              chromePointerNearTop = false;
+              return;
+            }
+            const nearTop = event.clientY <= 20;
+            if (nearTop && !chromePointerNearTop) {
+              const now = Date.now();
+              if (now - lastChromeRevealSignal >= 500) {
+                lastChromeRevealSignal = now;
+                send('reveal-chrome');
+              }
+            } else if (!nearTop) {
+              const now = Date.now();
+              if (now - lastChromeAwaySignal >= 300) {
+                lastChromeAwaySignal = now;
+                send('chrome-pointer-away');
+              }
+            }
+            chromePointerNearTop = nearTop;
+          }, { capture: true, passive: true });
+          document.addEventListener('pointerleave', () => {
+            if (window.__nbosp_browser_prefs.fullscreen) {
+              chromePointerNearTop = false;
+              send('chrome-pointer-away');
+            }
+          }, { capture: true, passive: true });
+          document.addEventListener('scroll', event => {
+            const target = event.target === document ? document.scrollingElement : event.target;
+            if (!target || typeof target.scrollTop !== 'number') return;
+            const y = target.scrollTop;
+            const previousY = scrollPositions.get(target) || 0;
+            const diff = y - previousY;
+            scrollPositions.set(target, y);
+            if (!window.__nbosp_browser_prefs.fullscreen || Math.abs(diff) < 12) return;
+            const now = Date.now();
+            if (now - lastScrollSignal < 160) return;
+            lastScrollSignal = now;
+            send(diff > 0 ? 'scroll-down' : 'scroll-up');
+          }, true);
+          const shouldPrefetch = mode => {
+            const value = mode === 'next'
+              ? window.__nbosp_browser_prefs.preload
+              : window.__nbosp_browser_prefs.linkPrefetch;
+            return value === 'ALWAYS';
+          };
+          const prefetched = window.__nbosp_prefetched_urls || (window.__nbosp_prefetched_urls = new Set());
+          const prefetch = (url, mode) => {
+            if (!shouldPrefetch(mode) || prefetched.size >= 12) return;
+            try {
+              const target = new URL(url, location.href);
+              if (target.origin !== location.origin || target.protocol !== 'http:' && target.protocol !== 'https:' || prefetched.has(target.href)) return;
+              prefetched.add(target.href);
+              const link = document.createElement('link');
+              link.rel = 'prefetch';
+              link.href = target.href;
+              document.head.appendChild(link);
+            } catch (_) {}
+          };
+          const preloadNext = () => {
+            if (!shouldPrefetch('next')) return;
+            document.querySelectorAll('link[rel~="next"][href]').forEach(link => prefetch(link.href, 'next'));
+          };
+          window.__nbosp_refresh_preloads = preloadNext;
+          preloadNext();
+          new MutationObserver(preloadNext).observe(document.documentElement, { childList: true, subtree: true });
+          document.addEventListener('pointerover', event => {
+            if (!event.isTrusted || !shouldPrefetch('link')) return;
+            const anchor = event.target.closest && event.target.closest('a[href]');
+            if (anchor) prefetch(anchor.href, 'link');
+          }, { passive: true });
+        })()` });
+      } catch (err) {
+        console.warn('[NB Browser] Could not apply guest browser features:', err);
+      }
+    }
+
     // Apply user prefs (zoom mode, per-page CSS overrides, permission
     // gating, request listeners for the Network tab) to a webview.
     // Called once when the webview is created.
     function applyWebviewSettings(wv) {
       const zoomMap = { FAR: 0.75, MEDIUM: 1.0, CLOSE: 1.25 };
+      const decidedPermissionRequests = new WeakSet();
 
       wv.addEventListener('loadstop', () => {
         // Use the stashed _nbTabId instead of doing an O(n) reverse
@@ -2029,46 +2986,51 @@ registerApp({
       });
 
       wv.addEventListener('loadcommit', () => {
-        try { wv.setZoomMode(getSetting('force_userscalable', false) ? 'per-view' : 'per-origin'); } catch { /* ignore */ }
+        try { wv.setZoomMode('per-origin'); } catch { /* ignore */ }
       });
 
       wv.addEventListener('permissionrequest', e => {
-        const appId = BROWSER_APP_ID;
+        if (!e.request || decidedPermissionRequests.has(e.request)) return;
+        const decide = allowed => {
+          if (!e.request || decidedPermissionRequests.has(e.request)) return false;
+          decidedPermissionRequests.add(e.request);
+          try {
+            if (allowed) e.request.allow();
+            else e.request.deny();
+            return true;
+          } catch (err) {
+            console.warn('[NB Browser] Could not resolve a site permission request:', err);
+            return false;
+          }
+        };
+        const tab = tabs.find(item => item.id === wv._nbTabId);
+        const requestUrl = e.request.url || e.url || tab?.url || '';
+        const askSite = permission => {
+          requestSitePermission(permission, requestUrl)
+            .then(allowed => {
+              if (decide(allowed)) applySitePermissionStates(wv, requestUrl);
+            })
+            .catch(err => {
+              console.error('[NB Browser] Site permission request failed:', err);
+              decide(false);
+            });
+        };
         if (e.permission === 'geolocation') {
-          const osAllowed = AppPermissionManager?.isGranted('device:geolocation', appId);
-          const browserAllowed = getSetting('enable_geolocation', true);
-          if (!osAllowed) {
-            Notify.show({
-              title: 'Permission denied',
-              body: 'Browser needs Location access in Settings → Apps.',
-              type: 'error', appName: 'Browser'
-            });
-            e.request.deny();
+          if (!getSetting('enable_geolocation', false)) {
+            decide(false);
             return;
           }
-          browserAllowed ? e.request.allow() : e.request.deny();
+          askSite('geolocation');
         } else if (e.permission === 'media') {
-          const camGranted = AppPermissionManager?.isGranted('device:camera', appId);
-          const micGranted = AppPermissionManager?.isGranted('device:microphone', appId);
-          if (!camGranted && !micGranted) {
-            Notify.show({
-              title: 'Permission denied',
-              body: 'Browser needs Camera/Microphone access in Settings → Apps.',
-              type: 'error', appName: 'Browser'
-            });
-            e.request.deny();
+          if (!getSetting('enable_media', false)) {
+            decide(false);
             return;
           }
-          if (camGranted && !micGranted) {
-            Notify.show({ title: 'Permission limited', body: 'Camera allowed, microphone is not permitted.', type: 'info', appName: 'Browser' });
-          } else if (!camGranted && micGranted) {
-            Notify.show({ title: 'Permission limited', body: 'Microphone allowed, camera is not permitted.', type: 'info', appName: 'Browser' });
-          }
-          e.request.allow();
+          askSite('media');
         } else if (e.permission === 'pointerLock') {
-          e.request.allow();
+          decide(true);
         } else {
-          e.request.deny();
+          decide(false);
         }
       });
 
@@ -2076,6 +3038,7 @@ registerApp({
       let _requestListenersAttached = false;
       function _attachRequestListeners() {
         if (_requestListenersAttached) return;
+        if (!wv.request) return;
         _requestListenersAttached = true;
         try {
           wv.request.onBeforeRequest.addListener(
@@ -2083,7 +3046,57 @@ registerApp({
             { urls: ['<all_urls>'], types: ['image', 'media'] },
             ['blocking']
           );
-        } catch { /* wv.request not ready yet */ }
+          wv.request.onBeforeSendHeaders.addListener(details => {
+            if (getSetting('accept_cookies', true)) return { requestHeaders: details.requestHeaders };
+            return {
+              requestHeaders: (details.requestHeaders || []).filter(header =>
+                !['cookie', 'cookie2'].includes(header.name?.toLowerCase())
+              )
+            };
+          }, { urls: ['<all_urls>'] }, ['blocking', 'requestHeaders', 'extraHeaders']);
+          wv.request.onHeadersReceived.addListener(details => {
+            let responseHeaders = details.responseHeaders || [];
+            if (!getSetting('accept_cookies', true)) {
+              responseHeaders = responseHeaders.filter(header =>
+                !['set-cookie', 'set-cookie2'].includes(header.name?.toLowerCase())
+              );
+            }
+            const blockedFeatures = [];
+            if (!getSetting('enable_geolocation', false)) blockedFeatures.push('geolocation');
+            if (!getSetting('enable_media', false)) blockedFeatures.push('camera', 'microphone');
+            if (blockedFeatures.length) {
+              const policies = responseHeaders.filter(header => header.name?.toLowerCase() === 'permissions-policy');
+              if (policies.length) {
+                const otherDirectives = policies.flatMap(header => (header.value || '').split(','))
+                  .map(directive => directive.trim())
+                  .filter(directive => directive &&
+                    !blockedFeatures.includes(directive.split('=', 1)[0].trim().toLowerCase()));
+                const replacement = {
+                  ...policies[0],
+                  value: [...otherDirectives, ...blockedFeatures.map(feature => feature + '=()')].join(', ')
+                };
+                let replaced = false;
+                responseHeaders = responseHeaders.filter(header => {
+                  if (header.name?.toLowerCase() !== 'permissions-policy') return true;
+                  if (replaced) return false;
+                  replaced = true;
+                  return true;
+                }).map(header => {
+                  if (header.name?.toLowerCase() !== 'permissions-policy') return header;
+                  if (header === policies[0]) return replacement;
+                  return header;
+                });
+              } else {
+                responseHeaders.push({ name: 'Permissions-Policy', value: blockedFeatures.map(feature => feature + '=()').join(', ') });
+              }
+            }
+            return { responseHeaders };
+          }, { urls: ['<all_urls>'] }, ['blocking', 'responseHeaders', 'extraHeaders']);
+        } catch (err) {
+          _requestListenersAttached = false;
+          console.error('[NB Browser] Failed to attach webRequest privacy rules:', err);
+          return;
+        }
 
         // Feed Perf Monitor's Network tab. wv.request lives per-<webview>
         // (a genuinely separate NW.js/Chromium process from this document),
@@ -2142,20 +3155,62 @@ registerApp({
       }
       wv.addEventListener('contentload', _attachRequestListeners);
       wv.addEventListener('loadcommit', _attachRequestListeners);
+      wv.addEventListener('dom-ready', _attachRequestListeners);
+      _attachRequestListeners();
 
-      // Per-page CSS: inverted colours + min font size + text zoom.
-      // Injected after every loadstop so SPA navigations stay styled.
       wv.addEventListener('loadstop', () => {
-        let css = '';
-        if (getSetting('inverted', false))
-          css += 'html { filter: invert(1) hue-rotate(180deg) !important; } img, video { filter: invert(1) hue-rotate(180deg) !important; } ';
-        const minFont = getSetting('min_font_size', 0);
-        if (minFont > 0)
-          css += `* { min-height: unset !important; } body * { font-size: max(${minFont}px, 1em) !important; } `;
-        const textZoom = getSetting('text_zoom', 10);
-        if (textZoom !== 10)
-          css += `body { zoom: ${textZoom / 10} !important; } `;
-        if (css) try { wv.insertCSS({ code: css }); } catch { /* ignore */ }
+        applyPageAccessibility(wv);
+        applyGeolocationGate(wv);
+        applyGuestBrowserFeatures(wv);
+        const currentUrl = typeof wv.getURL === 'function'
+          ? wv.getURL()
+          : tabs.find(item => item.id === wv._nbTabId)?.url || '';
+        applySitePermissionStates(wv, currentUrl);
+        fillSavedLogin(wv);
+        try {
+          const loginMarker = JSON.stringify(BROWSER_LOGIN_MARKER);
+          wv.executeScript({ code: `(() => {
+            if (window.__nbosp_login_capture_installed) return;
+            window.__nbosp_login_capture_installed = true;
+            let lastLogin = '';
+            let lastLoginAt = 0;
+            const capture = form => {
+              if (!form || !form.querySelector) return;
+              const passwordFields = Array.from(form.querySelectorAll('input[type="password"]'));
+              const password = passwordFields.find(field => field.autocomplete === 'current-password') ||
+                (passwordFields.length === 1 && passwordFields[0].autocomplete !== 'new-password' ? passwordFields[0] : null);
+              const user = form.querySelector('input[autocomplete="username"],input[type="email"],input[name*="user" i],input[name*="email" i],input[type="text"]');
+              const username = user ? String(user.value).slice(0, 512) : '';
+              const passwordValue = password ? String(password.value).slice(0, 4096) : '';
+              if (!passwordValue && !username) return;
+              if (!passwordValue && password) return;
+              const login = {
+                origin: location.origin,
+                username,
+                password: passwordValue
+              };
+              const serialized = JSON.stringify(login);
+              const now = Date.now();
+              if (serialized === lastLogin && now - lastLoginAt < 1500) return;
+              lastLogin = serialized;
+              lastLoginAt = now;
+              try { console.log(${loginMarker} + serialized); } catch (_) {}
+            };
+            document.addEventListener('submit', event => capture(event.target), true);
+            document.addEventListener('click', event => {
+              const submitter = event.target.closest?.('button,input[type="submit"],input[type="button"],[role="button"]');
+              const form = submitter?.form || submitter?.closest('form');
+              if (form) capture(form);
+            }, true);
+            document.addEventListener('keydown', event => {
+              if (event.key !== 'Enter') return;
+              const field = event.target;
+              if (field?.matches?.('input[type="password"]') && field.form) capture(field.form);
+            }, true);
+          })()` });
+        } catch (err) {
+          console.warn('[NB Browser] Could not install login capture:', err);
+        }
       });
 
       // Webview viewport right-click menu.
@@ -2174,10 +3229,18 @@ registerApp({
       //      guest-relative click position into host-page coordinates using
       //      the webview's own bounding rect, and shows our ContextMenu.
       const _CTX_MARKER = '__NBOSP_CTXMENU__:';
+      const _CTX_DISMISS_MARKER = '__NBOSP_CTXMENU_DISMISS__';
+      const _CTX_SCROLL_MARKER = '__NBOSP_CTXMENU_SCROLL__';
       const _GUEST_CTX_SCRIPT = `
         (function () {
           if (window.__nbosp_ctx_injected) return;
           window.__nbosp_ctx_injected = true;
+          document.addEventListener('pointerdown', function () {
+            try { console.log('${_CTX_DISMISS_MARKER}'); } catch (_e) {}
+          }, true);
+          document.addEventListener('scroll', function () {
+            try { console.log('${_CTX_SCROLL_MARKER}'); } catch (_e) {}
+          }, true);
           document.addEventListener('contextmenu', function (e) {
             e.preventDefault();
             var el  = e.target;
@@ -2188,6 +3251,8 @@ registerApp({
             var ctx = {
               clientX:      e.clientX,
               clientY:      e.clientY,
+              viewportWidth:  window.innerWidth,
+              viewportHeight: window.innerHeight,
               linkHref:     link ? (link.href  || '') : '',
               linkText:     link ? (link.textContent || '').trim().slice(0, 120) : '',
               imgSrc:       img  ? (img.src   || '') : '',
@@ -2217,6 +3282,65 @@ registerApp({
         navigate(url);
       }
 
+      function _ctxOpenSourceInNewTab(sourceUrl, sourceText) {
+        const sourceTabId = nextTabId++;
+        const sourcePage = createEl('div', {
+          className: 'browser-source-page',
+          style: {
+            position: 'absolute',
+            inset: '0',
+            zIndex: '2',
+            overflow: 'auto',
+            background: '#0b0f17',
+            color: '#d8dee9',
+            fontFamily: 'var(--font-mono, Consolas, monospace)',
+            userSelect: 'text',
+            webkitUserSelect: 'text',
+            touchAction: 'auto',
+            cursor: 'text',
+          },
+        });
+        const sourceHeader = createEl('div', {
+          textContent: sourceUrl,
+          style: {
+            position: 'sticky',
+            top: '0',
+            padding: '10px 16px',
+            background: '#111827',
+            borderBottom: '1px solid rgba(255,255,255,.12)',
+            color: '#9aa7b8',
+            font: '12px var(--font-ui, sans-serif)',
+            overflowWrap: 'anywhere',
+          },
+        });
+        const sourcePre = createEl('pre', {
+          textContent: sourceText,
+          style: {
+            margin: '0',
+            padding: '16px',
+            font: '12px/1.55 var(--font-mono, Consolas, monospace)',
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+            tabSize: '2',
+            userSelect: 'text',
+            webkitUserSelect: 'text',
+            cursor: 'text',
+          },
+        });
+        sourcePage.append(sourceHeader, sourcePre);
+        tabSourcePages.set(sourceTabId, sourcePage);
+
+        const sourceHost = new URL(sourceUrl).hostname;
+        tabs.push({
+          id: sourceTabId,
+          title: 'Source: ' + sourceHost,
+          url: 'view-source:' + sourceUrl,
+          favicon: '',
+          incognito: Boolean(tabs.find(t => t.id === wv._nbTabId)?.incognito),
+        });
+        switchToTab(sourceTabId);
+      }
+
       // Best-effort clipboard write — try the async Clipboard API first,
       // fall back to the deprecated execCommand path for non-secure
       // contexts where navigator.clipboard is unavailable.
@@ -2234,6 +3358,74 @@ registerApp({
             ta.remove();
           } catch { /* ignore */ }
         }
+      }
+
+      function _ctxSavePageAs(webview, pageUrl) {
+        const sourceTab = tabs.find(tab => tab.id === webview._nbTabId);
+        let baseName = (sourceTab?.title || '').replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim();
+        if (!baseName) {
+          try { baseName = new URL(pageUrl).hostname; } catch { baseName = 'page'; }
+        }
+        baseName = baseName.slice(0, MAX_DL_NAME_LEN) || 'page';
+        const filename = /\.html?$/i.test(baseName) ? baseName : baseName + '.html';
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.setAttribute('nwsaveas', filename);
+        input.style.display = 'none';
+        document.body.appendChild(input);
+
+        let settled = false;
+        const finish = (message, type) => {
+          if (settled) return;
+          settled = true;
+          input.remove();
+          if (message) {
+            Notify.show({ title: type === 'success' ? 'Page saved' : 'Save page failed', body: message, type, appName: 'Browser' });
+          }
+        };
+
+        input.addEventListener('change', () => {
+          const savePath = input.value;
+          if (!savePath) {
+            finish();
+            return;
+          }
+          try {
+            webview.executeScript({
+              code: 'document.documentElement ? document.documentElement.outerHTML : null'
+            }, results => {
+              if (chrome.runtime?.lastError) {
+                finish('Could not read the page content: ' + chrome.runtime.lastError.message, 'error');
+                return;
+              }
+              const html = Array.isArray(results) ? results[0] : null;
+              if (typeof html !== 'string' || !html) {
+                finish('The page has no HTML content to save.', 'error');
+                return;
+              }
+              let fs;
+              try { fs = require('fs'); } catch (error) {
+                finish('Could not access the file system: ' + (error?.message || error), 'error');
+                return;
+              }
+              const content = html.startsWith('<!doctype') || html.startsWith('<!DOCTYPE')
+                ? html
+                : '<!doctype html>\n' + html;
+              fs.writeFile(savePath, content, 'utf8', error => {
+                if (error) {
+                  finish('Could not write the file: ' + error.message, 'error');
+                  return;
+                }
+                finish(filename + ' was saved.', 'success');
+              });
+            });
+          } catch (error) {
+            finish('Could not read the page content: ' + (error?.message || error), 'error');
+          }
+        }, { once: true });
+
+        input.addEventListener('cancel', () => finish(), { once: true });
+        input.click();
       }
 
       function _buildWebviewMenu(ctx, pageUrl) {
@@ -2286,21 +3478,44 @@ registerApp({
         if (pageUrl && /^https?:/i.test(pageUrl)) {
           items.push({ label: 'Copy Page URL', action: () => _ctxCopyText(pageUrl) });
         }
-        items.push({ label: 'Save as\u2026', action: () => {
-          try { wv.executeScript({ code: 'location.href' }, r => {
-            const url = (r && r[0]) || pageUrl;
-            if (url) window.open(url);
-          }); } catch { /* ignore */ }
-        }});
+        items.push({ label: 'Save as\u2026', action: () => _ctxSavePageAs(wv, pageUrl) });
         items.push({ label: 'Print\u2026', action: () => {
           try { wv.executeScript({ code: 'window.print()' }); } catch { /* ignore */ }
         }});
         items.push({ separator: true });
         items.push({ label: 'View Page Source', action: () => {
-          try { wv.executeScript({ code: 'location.href' }, r => {
-            const url = (r && r[0]) || pageUrl;
-            if (url) _ctxOpenInNewTab('view-source:' + url);
-          }); } catch { /* ignore */ }
+          try {
+            wv.executeScript({ code: '[location.href, document.documentElement ? document.documentElement.outerHTML : ""]' }, r => {
+              const result = Array.isArray(r) ? r[0] : null;
+              const url = result?.[0] || pageUrl;
+              const sourceText = result?.[1];
+              if (typeof sourceText !== 'string' || sourceText.length === 0) {
+                Notify.show({
+                  title: 'Browser',
+                  body: 'Could not read the page source.',
+                  type: 'error', appName: 'Browser'
+                });
+                return;
+              }
+              try {
+                _ctxOpenSourceInNewTab(url, sourceText);
+              } catch (err) {
+                console.error('[NB Browser] Failed to open page source:', err);
+                Notify.show({
+                  title: 'Browser',
+                  body: 'Could not open the page source.',
+                  type: 'error', appName: 'Browser'
+                });
+              }
+            });
+          } catch (err) {
+            console.error('[NB Browser] Failed to retrieve page source:', err);
+            Notify.show({
+              title: 'Browser',
+              body: 'Could not retrieve the page source.',
+              type: 'error', appName: 'Browser'
+            });
+          }
         }});
         items.push({ label: 'Inspect', action: () => {
           try { wv.showDevTools(true); } catch {
@@ -2315,6 +3530,73 @@ registerApp({
       // never mistake an ordinary page's own console.log for our signal.
       wv.addEventListener('consolemessage', (e) => {
         const msg = e?.message;
+        if (typeof msg === 'string' && msg.startsWith(BROWSER_LOGIN_MARKER)) {
+          try {
+            const login = JSON.parse(msg.slice(BROWSER_LOGIN_MARKER.length));
+            const guestUrl = typeof wv.getURL === 'function'
+              ? wv.getURL()
+              : tabs.find(item => item.id === wv._nbTabId)?.url || '';
+            const reportedOrigin = new URL(login.origin);
+            const pageOrigin = new URL(guestUrl).origin;
+            if (!['http:', 'https:'].includes(reportedOrigin.protocol) || reportedOrigin.origin !== pageOrigin) return;
+            const origin = reportedOrigin.origin;
+            const sourceTab = tabs.find(item => item.id === wv._nbTabId);
+            if (!getSetting('remember_passwords', true) || sourceTab?.incognito) {
+              pendingLoginUsernames.delete(origin);
+              return;
+            }
+            if (!login.password && typeof login.username === 'string' && login.username) {
+              pendingLoginUsernames.set(origin, { username: login.username, capturedAt: Date.now() });
+              return;
+            }
+            if (login.password && !login.username) {
+              const pending = pendingLoginUsernames.get(origin);
+              if (pending && Date.now() - pending.capturedAt < 15 * 60 * 1000) login.username = pending.username;
+              pendingLoginUsernames.delete(origin);
+            }
+            offerSaveLogin(login, wv._nbTabId).catch(err => {
+              console.error('[NB Browser] Password save prompt failed:', err);
+            });
+          } catch (err) {
+            console.error('[NB Browser] Invalid login capture from page:', err);
+          }
+          return;
+        }
+        if (typeof msg === 'string' && msg.startsWith(BROWSER_BEHAVIOR_MARKER)) {
+          const action = msg.slice(BROWSER_BEHAVIOR_MARKER.length);
+          if (window.__NBOSP_BROWSER_QUICK_CONTROL_DEBUG__ === true &&
+              (action === 'back' || action === 'forward')) {
+            console.info('[NB Browser] Quick-control command reached the host:', action, { tabId });
+          }
+          if (action === 'back') {
+            dispatchQuickControl('back', tabId, wv);
+          } else if (action === 'forward') {
+            dispatchQuickControl('forward', tabId, wv);
+          } else if (action === 'scroll-down' && tabId === activeTabId && getSetting('fullscreen', false)) {
+            setBrowserChromeHidden(true);
+          } else if (action === 'scroll-up' && tabId === activeTabId) {
+            if (getSetting('fullscreen', false)) setBrowserChromeHidden(false);
+          } else if (action === 'reveal-chrome' && tabId === activeTabId && getSetting('fullscreen', false)) {
+            setBrowserChromeHidden(false);
+          } else if (action === 'chrome-pointer-away' && tabId === activeTabId && getSetting('fullscreen', false)) {
+            scheduleBrowserChromeHide();
+          }
+          return;
+        }
+        if (typeof msg === 'string' && msg.startsWith(BROWSER_QUICK_DIAGNOSTIC_MARKER)) {
+          if (window.__NBOSP_BROWSER_QUICK_CONTROL_DEBUG__ === true) {
+            console.info('[NB Browser] Quick-control input diagnostic:', msg.slice(BROWSER_QUICK_DIAGNOSTIC_MARKER.length), { tabId });
+          }
+          return;
+        }
+        if (msg === _CTX_DISMISS_MARKER) {
+          ContextMenu.hide();
+          return;
+        }
+        if (msg === _CTX_SCROLL_MARKER) {
+          ContextMenu.hide();
+          return;
+        }
         if (typeof msg !== 'string' || !msg.startsWith(_CTX_MARKER)) return;
         let ctx = null;
         try { ctx = JSON.parse(msg.slice(_CTX_MARKER.length)); } catch { return; }
@@ -2326,20 +3608,105 @@ registerApp({
         // Guest coords are relative to the guest viewport; translate into
         // host-page coords using where the <webview> box actually sits.
         const rect  = wv.getBoundingClientRect();
-        const hostX = rect.left + (ctx.clientX || 0);
-        const hostY = rect.top  + (ctx.clientY || 0);
+        const scaleX = ctx.viewportWidth > 0 ? rect.width / ctx.viewportWidth : 1;
+        const scaleY = ctx.viewportHeight > 0 ? rect.height / ctx.viewportHeight : 1;
+        const hostX = rect.left + (ctx.clientX || 0) * scaleX;
+        const hostY = rect.top + (ctx.clientY || 0) * scaleY;
 
         ContextMenu.show(hostX, hostY, _buildWebviewMenu(ctx, pageUrl));
       });
     }
 
-    function clearWebviewData(types, title, body) {
-      requestAnimationFrame(() => {
-        for (const [, wv] of tabWebviews) {
-          try { wv.clearData({}, types); } catch { /* ignore */ }
+    async function clearWebviewData(types, title, body) {
+      try {
+        const supportedTypes = new Set(['appcache', 'cache', 'cookies', 'fileSystems', 'indexedDB', 'localStorage', 'webSQL']);
+        const unsupportedTypes = Object.keys(types).filter(type => types[type] && !supportedTypes.has(type));
+        if (unsupportedTypes.length) throw new Error('Unsupported browser data type: ' + unsupportedTypes.join(', '));
+        const dataTypes = Object.fromEntries(Object.entries(types).filter(([type, enabled]) => enabled && supportedTypes.has(type)));
+        if (!Object.keys(dataTypes).length) throw new Error('No supported browser data types were requested');
+
+        const partitions = [...new Set([
+          BROWSER_PARTITION,
+          ...[...tabWebviews.values()].map(wv => wv.getAttribute('partition')).filter(Boolean)
+        ])];
+        const sandboxId = 'sandbox_browser_clear_' + require('crypto').randomUUID();
+        let registered = false;
+        try {
+          const registerResponse = await fetch('/api/apps/serve/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sandboxId,
+              files: { 'index.html': Buffer.from('<!doctype html><html><body></body></html>').toString('base64') }
+            })
+          });
+          if (!registerResponse.ok) throw new Error('Could not prepare the browser-data clearing page (' + registerResponse.status + ')');
+          registered = true;
+          const registration = await registerResponse.json();
+          if (typeof registration.baseUrl !== 'string') throw new Error('The browser-data clearing page returned no URL');
+          const primerUrl = new URL(registration.baseUrl + '/index.html', window.location.origin).href;
+
+          const results = await Promise.allSettled(partitions.map(partition => new Promise((resolve, reject) => {
+            const wv = document.createElement('webview');
+            wv.setAttribute('partition', partition);
+            wv.style.cssText = 'position:fixed;width:1px;height:1px;left:-10px;top:-10px;opacity:0;pointer-events:none;z-index:-1;';
+            let finished = false;
+            let clearTimer = null;
+            const loadTimer = setTimeout(() => finish(new Error('Timed out while preparing browser data storage')), 20000);
+            const finish = error => {
+              if (finished) return;
+              finished = true;
+              clearTimeout(loadTimer);
+              clearTimeout(clearTimer);
+              wv.remove();
+              if (error) reject(error);
+              else resolve();
+            };
+            wv.addEventListener('loadstop', () => {
+              if (clearTimer || finished) return;
+              clearTimer = setTimeout(() => finish(new Error('Timed out while clearing browser data')), 15000);
+              try {
+                wv.clearData({}, dataTypes, () => {
+                  const error = globalThis.chrome?.runtime?.lastError;
+                  if (error) finish(new Error(error.message || 'Chromium could not clear browser data'));
+                  else finish();
+                });
+              } catch (err) {
+                finish(err);
+              }
+            });
+            wv.addEventListener('loadabort', event => {
+              finish(new Error('Could not load browser-data clearing page: ' + (event.reason || 'navigation aborted')));
+            });
+            wv.addEventListener('loaderror', event => {
+              finish(new Error('Could not load browser-data clearing page: ' + (event.errorDescription || 'navigation failed')));
+            });
+            viewport.appendChild(wv);
+            wv.src = primerUrl;
+          })));
+          const failure = results.find(result => result.status === 'rejected');
+          if (failure?.status === 'rejected') throw failure.reason;
+        } finally {
+          if (registered) {
+            try {
+              const unregisterResponse = await fetch('/api/apps/serve/unregister/' + encodeURIComponent(sandboxId), { method: 'DELETE' });
+              if (!unregisterResponse.ok) {
+                console.error('[NB Browser] Could not unregister temporary data-clearing page:', unregisterResponse.status);
+              }
+            } catch (err) {
+              console.error('[NB Browser] Could not unregister temporary data-clearing page:', err);
+            }
+          }
         }
-      });
-      Notify.show({ title, body, type: 'info', appName: 'Browser' });
+        Notify.show({ title, body, type: 'success', appName: 'Browser' });
+      } catch (err) {
+        console.error('[NB Browser] Failed to clear webview data:', err);
+        Notify.show({
+          title: 'Could not clear browser data',
+          body: err.message || 'Chromium did not confirm that the requested data was cleared.',
+          type: 'error', appName: 'Browser'
+        });
+      }
     }
 
     const showWebviewForTab = (tabId) => showViewForTab(tabId);
@@ -2347,7 +3714,13 @@ registerApp({
     // Settings page — built entirely via DOM APIs (no template literals
     // with user-controlled content). Re-renders on category switch.
     function renderSettingsPage(activeCategory) {
-      activeCategory = activeCategory || 'general';
+      const settingsTab = activeTab();
+      activeCategory = activeCategory || settingsTab?.settingsCategory || 'general';
+      if (settingsTab?.url === 'browser://settings') {
+        settingsTab.settingsCategory = activeCategory;
+      }
+      updateUrlIcon('browser://settings');
+      setBrowserChromeHidden(false);
       const eng = getSetting('searchEngine', 'brave');
       const sd = viewport.querySelector('.speed-dial');
       if (sd) sd.remove();
@@ -2358,6 +3731,7 @@ registerApp({
       if (old) old.remove();
 
       const page = createEl('div', { className: 'browser-settings-page' });
+      page.dataset.category = activeCategory;
       page.style.cssText = 'position:absolute;inset:0;display:flex;background:var(--bg-base);color:var(--text-primary);font-size:13px;z-index:1;';
 
       const getBPref = (key, def) => getSetting(key, def);
@@ -2395,7 +3769,7 @@ registerApp({
         return btn;
       }
 
-      function mkSelect(key, def, options) {
+      function mkSelect(key, def, options, onChange) {
         const val = getBPref(key, def);
         const sel = createEl('select', {
           id: 'browser-pref-select-' + key, name: 'browser-pref-' + key,
@@ -2406,7 +3780,10 @@ registerApp({
           if (v === val) opt.selected = true;
           sel.appendChild(opt);
         }
-        sel.addEventListener('change', () => setBPref(key, sel.value));
+        sel.addEventListener('change', () => {
+          setBPref(key, sel.value);
+          onChange?.(sel.value);
+        });
         return sel;
       }
 
@@ -2421,7 +3798,7 @@ registerApp({
         return btn;
       }
 
-      function mkSliderRow(label, key, def, min, max, suffix) {
+      function mkSliderRow(label, key, def, min, max, suffix, onChange) {
         const row = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--border-subtle);' });
         const left = createEl('div', { style: 'display:flex;flex-direction:column;gap:2px;' });
         left.appendChild(createEl('div', { textContent: label, style: 'font-size:13px;color:var(--text-primary);' }));
@@ -2435,6 +3812,7 @@ registerApp({
         slider.addEventListener('input', () => {
           valLabel.textContent = slider.value + (suffix || '');
           setBPref(key, Number(slider.value));
+          onChange?.(Number(slider.value));
         });
         row.append(left, slider);
         return row;
@@ -2473,11 +3851,15 @@ registerApp({
         btn.appendChild(createEl('span', { textContent: label }));
         btn.addEventListener('mouseenter', () => { if (id !== activeCategory) btn.style.background = 'var(--bg-hover)'; });
         btn.addEventListener('mouseleave', () => { if (id !== activeCategory) btn.style.background = 'transparent'; });
-        btn.addEventListener('click', () => renderSettingsPage(id));
+        btn.addEventListener('click', () => {
+          if (settingsTab) settingsTab.settingsScrollTop = 0;
+          renderSettingsPage(id);
+        });
         sidebar.appendChild(btn);
       }
 
       const panelEl = createEl('div', { style: 'flex:1;overflow-y:auto;padding:28px 32px;' });
+      panelEl.dataset.settingsPanel = 'true';
       const panelInner = createEl('div', { style: 'max-width:560px;' });
 
       function panelTitle(title, desc) {
@@ -2500,7 +3882,10 @@ registerApp({
         const hpWrap = createEl('div', { style: 'display:flex;flex-direction:column;gap:4px;max-width:200px;' });
         hpWrap.append(hpSel, hpCustomWrap);
         panelInner.appendChild(mkRow('Homepage', 'Page shown when opening a new tab', hpWrap));
-        panelInner.appendChild(mkRow('Autofill', 'Automatically fill in web forms', mkToggle('autofill_enabled', true)));
+        panelInner.appendChild(mkRow('Autofill saved logins', 'Fill saved credentials for the current site after unlocking the password vault',
+          mkToggle('autofill_enabled', true, enabled => {
+            if (enabled && passwordVaultEntries) for (const wv of tabWebviews.values()) fillSavedLogin(wv);
+          })));
 
       } else if (activeCategory === 'search') {
         panelTitle('Search Engine', 'Choose your default search engine.');
@@ -2525,43 +3910,85 @@ registerApp({
 
       } else if (activeCategory === 'privacy') {
         panelTitle('Privacy & Security', 'Control cookies, passwords, location, camera/microphone and browsing data.');
-        panelInner.appendChild(mkRow('Show security warnings', 'Show a warning indicator for non-HTTPS pages in the address bar',
+        panelInner.appendChild(mkRow('Show security warnings', 'Show a visible “Not secure” label for HTTP pages',
           mkToggle('show_security_warnings', true, () => updateUrlIcon(currentUrl))));
 
         panelInner.appendChild(mkSubHdr('Cookies'));
         panelInner.appendChild(mkRow('Accept cookies', 'Allow sites to save cookies. Disabling clears existing cookies and blocks new ones via webRequest',
           mkToggle('accept_cookies', true, (v) => {
-            if (!v) clearWebviewData({ cookies: true, persistentCookies: true, sessionCookies: true }, 'Cookies blocked', 'Existing cookies cleared. New cookies will be blocked.');
+            if (!v) clearWebviewData({ cookies: true }, 'Cookies blocked', 'Existing cookies cleared. New cookies will be blocked.');
           })));
-        panelInner.appendChild(mkRow('Clear cookies', '', mkClearBtn('Clear Cookies', () => clearWebviewData({ cookies: true, persistentCookies: true, sessionCookies: true }, 'Cookies cleared', 'All cookies have been deleted.'))));
+        panelInner.appendChild(mkRow('Clear cookies', '', mkClearBtn('Clear Cookies', () => clearWebviewData({ cookies: true }, 'Cookies cleared', 'All cookies have been deleted.'))));
 
-        panelInner.appendChild(mkSubHdr('Form Data'));
-        panelInner.appendChild(mkRow('Save form data', 'Remember data entered in web forms (managed by the webview session; disable and clear form data to remove)', mkToggle('save_formdata', true)));
-        panelInner.appendChild(mkRow('Clear form data', '', mkClearBtn('Clear Form Data', () => clearWebviewData({ localStorage: true, indexedDB: true, webSQL: true }, 'Form data cleared', 'Saved form data has been deleted.'))));
+        panelInner.appendChild(mkSubHdr('Form Data & Site Storage'));
+        panelInner.appendChild(mkRow('Clear form and site data', 'Clear website storage. NW.js does not expose Chromium’s separate form-autocomplete history.',
+          mkClearBtn('Clear Form & Site Data', () => clearWebviewData(
+            { fileSystems: true, indexedDB: true, localStorage: true, webSQL: true },
+            'Site data cleared', 'Supported website storage was cleared. Chromium form-autocomplete history is not exposed by this webview.'
+          ))));
 
         panelInner.appendChild(mkSubHdr('Location'));
-        panelInner.appendChild(mkRow('Enable location', 'Allow sites to request your location (off by default)', mkToggle('enable_geolocation', false)));
-        panelInner.appendChild(mkRow('Enable camera & microphone', 'Allow sites to request camera or microphone access (off by default)', mkToggle('enable_media', false))); 
-        panelInner.appendChild(mkRow('Clear location access', '', mkClearBtn('Clear Location', () => Notify.show({ title: 'Location access cleared', body: 'All site location permissions have been revoked.', type: 'info', appName: 'Browser' }))));
+        panelInner.appendChild(mkRow('Enable location', 'Ask before allowing websites to use your location. Your choice lasts until Browser closes.',
+          mkToggle('enable_geolocation', false, enabled => {
+            clearSitePermissionDecisions('geolocation');
+            updateGeolocationAccess(enabled);
+            if (enabled) Notify.show({ title: 'Location enabled', body: 'Open pages were reloaded to apply the location policy.', type: 'info', appName: 'Browser' });
+            else Notify.show({ title: 'Location blocked', body: 'Open sites were reloaded to stop active geolocation requests. Sites may still estimate your area from your IP address.', type: 'success', appName: 'Browser' });
+          })));
+        panelInner.appendChild(mkRow('Enable camera & microphone', 'Ask before allowing websites to use your camera and microphone. Changing this reloads open pages.',
+          mkToggle('enable_media', false, () => {
+            clearSitePermissionDecisions('media');
+            updateMediaAccess();
+          })));
+        panelInner.appendChild(mkRow('Block location requests', 'Immediately block future location requests from all sites',
+          mkClearBtn('Block Location', () => {
+            saveSetting('enable_geolocation', false);
+            clearSitePermissionDecisions('geolocation');
+            updateGeolocationAccess(false);
+            renderSettingsPage('privacy');
+            Notify.show({ title: 'Location blocked', body: 'Open sites were reloaded to stop active geolocation requests. Sites may still estimate your area from your IP address.', type: 'success', appName: 'Browser' });
+          })));
 
         panelInner.appendChild(mkSubHdr('Passwords'));
-        panelInner.appendChild(mkRow('Remember passwords', 'Offer to save passwords (managed by the webview session; use Clear Passwords to remove saved credentials)', mkToggle('remember_passwords', true)));
-        panelInner.appendChild(mkRow('Clear saved passwords', '', mkClearBtn('Clear Passwords', () => Notify.show({ title: 'Passwords cleared', body: 'Saved passwords have been deleted.', type: 'info', appName: 'Browser' }))));
+        panelInner.appendChild(mkRow('Remember passwords', 'Ask before saving logins in the encrypted, master-password-protected vault',
+          mkToggle('remember_passwords', true)));
+        panelInner.appendChild(mkRow('Password vault', 'Unlock, inspect, and delete saved logins',
+          mkClearBtn('Manage Passwords', showPasswordManager)));
+        panelInner.appendChild(mkRow('Clear saved passwords', 'Permanently remove saved logins from the encrypted Browser password vault',
+          mkClearBtn('Clear Passwords', async () => {
+            try {
+              await clearPasswordVault();
+              Notify.show({ title: 'Passwords cleared', body: 'Saved logins in the encrypted Browser vault were removed.', type: 'success', appName: 'Browser' });
+            } catch (err) {
+              console.error('[NB Browser] Failed to clear passwords:', err);
+              Notify.show({ title: 'Passwords not cleared', body: err.message, type: 'error', appName: 'Browser' });
+            }
+          })));
 
         panelInner.appendChild(mkSubHdr('Browsing Data'));
         const dataRow = createEl('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;padding:12px 0;' });
         dataRow.append(
           mkClearBtn('Clear Cache', () => clearWebviewData({ cache: true, appcache: true }, 'Cache cleared', 'Cached data has been deleted.')),
           mkClearBtn('Clear History', () => {
-            try { localStorage.removeItem(HX_KEY); } catch { /* ignore */ }
-            _historyCache = null;
-            Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'info', appName: 'Browser' });
+            try {
+              localStorage.removeItem(HX_KEY);
+              _historyCache = [];
+              Notify.show({ title: 'History cleared', body: 'Browsing history has been deleted.', type: 'success', appName: 'Browser' });
+            } catch (err) {
+              console.error('[NB Browser] Failed to clear history:', err);
+              Notify.show({ title: 'History not cleared', body: err.message, type: 'error', appName: 'Browser' });
+            }
           }),
           mkClearBtn('Clear Bookmarks', () => {
-            try { localStorage.removeItem(BK_KEY); } catch { /* ignore */ }
-            _bookmarksCache = null;
-            refreshBookmarkSet();
-            Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'info', appName: 'Browser' });
+            try {
+              localStorage.removeItem(BK_KEY);
+              _bookmarksCache = [];
+              refreshBookmarkSet();
+              Notify.show({ title: 'Bookmarks cleared', body: 'All bookmarks have been deleted.', type: 'success', appName: 'Browser' });
+            } catch (err) {
+              console.error('[NB Browser] Failed to clear bookmarks:', err);
+              Notify.show({ title: 'Bookmarks not cleared', body: err.message, type: 'error', appName: 'Browser' });
+            }
           })
         );
         panelInner.appendChild(dataRow);
@@ -2570,28 +3997,49 @@ registerApp({
         panelTitle('Content', 'Control how web pages are loaded and displayed.');
         panelInner.appendChild(mkRow('Block pop-up windows', 'Prevent sites from opening new windows', mkToggle('block_popup_windows', true)));
         panelInner.appendChild(mkRow('Open links in background', 'New tabs open without switching to them', mkToggle('open_in_background', false)));
-        panelInner.appendChild(mkRow('Allow app tabs', 'Sites can pin themselves as app tabs', mkToggle('allow_apptabs', false)));
-        panelInner.appendChild(mkRow('Default zoom', 'Initial page zoom level', mkSelect('default_zoom', 'MEDIUM', [['FAR', 'Far (smallest)'], ['MEDIUM', 'Medium'], ['CLOSE', 'Close (largest)']])));
-        panelInner.appendChild(mkRow('Text encoding', 'Default character encoding for web pages', mkSelect('default_text_encoding', 'UTF-8', [['UTF-8', 'UTF-8'], ['ISO-8859-1', 'Latin-1'], ['GBK', 'GBK'], ['Shift_JIS', 'Shift JIS'], ['EUC-JP', 'EUC-JP']])));
+        panelInner.appendChild(mkRow('Default zoom', 'Initial page zoom for new tabs', mkSelect('default_zoom', 'MEDIUM', [['FAR', 'Far (75%)'], ['MEDIUM', 'Medium (100%)'], ['CLOSE', 'Close (125%)']], value => {
+          const zoomMap = { FAR: 0.75, MEDIUM: 1, CLOSE: 1.25 };
+          for (const [tabId, wv] of tabWebviews) {
+            if (!tabZoom.has(tabId)) {
+              try { wv.setZoom(zoomMap[value] || 1); } catch (err) { console.warn('[NB Browser] Could not update default zoom:', err); }
+            }
+          }
+        })));
 
       } else if (activeCategory === 'bandwidth') {
         panelTitle('Bandwidth', 'Manage how much data the browser downloads.');
-        panelInner.appendChild(mkRow('Load images', 'Download and display images on web pages', mkToggle('load_images', true)));
-        panelInner.appendChild(mkRow('Preload pages', 'Download pages in advance for faster browsing', mkSelect('preload_when', 'WIFI_ONLY', [['ALWAYS', 'Always'], ['WIFI_ONLY', 'Wi-Fi only'], ['NEVER', 'Never']])));
-        panelInner.appendChild(mkRow('Link prefetch', 'Preload links the page suggests', mkSelect('link_prefetch_when', 'WIFI_ONLY', [['ALWAYS', 'Always'], ['WIFI_ONLY', 'Wi-Fi only'], ['NEVER', 'Never']])));
+        panelInner.appendChild(mkRow('Load images and media', 'Allow image, audio, and video requests from web pages', mkToggle('load_images', true)));
+        panelInner.appendChild(mkRow('Preload next page', 'Prefetch same-origin pages explicitly marked as the next page',
+          mkSelect('preload_when', 'NEVER', [['ALWAYS', 'Always'], ['NEVER', 'Never']], () => {
+            for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
+          })));
+        panelInner.appendChild(mkRow('Link prefetch', 'Prefetch a same-origin link when hovered. Always may use extra data.',
+          mkSelect('link_prefetch_when', 'NEVER', [['ALWAYS', 'Always'], ['NEVER', 'Never']], () => {
+            for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
+          })));
 
       } else if (activeCategory === 'accessibility') {
         panelTitle('Accessibility', 'Adjust display and interaction settings.');
-        panelInner.appendChild(mkRow('Force zoom', 'Override sites that disable pinch-to-zoom', mkToggle('force_userscalable', false)));
-        panelInner.appendChild(mkRow('Inverted colours', 'Display pages with inverted colours', mkToggle('inverted', false)));
-        panelInner.appendChild(mkSliderRow('Text zoom', 'text_zoom', 10, 1, 30, '%'));
-        panelInner.appendChild(mkSliderRow('Double-tap zoom', 'double_tap_zoom', 5, 1, 10, 'x'));
-        panelInner.appendChild(mkSliderRow('Minimum font size', 'min_font_size', 0, 0, 20, 'px'));
+        panelInner.appendChild(mkRow('Inverted colours', 'Invert page colours while keeping images and video natural', mkToggle('inverted', false, () => {
+          for (const wv of tabWebviews.values()) applyPageAccessibility(wv);
+        })));
+        panelInner.appendChild(mkSliderRow('Text zoom', 'text_zoom', 10, 1, 30, '0%', () => {
+          for (const wv of tabWebviews.values()) applyPageAccessibility(wv);
+        }));
+        panelInner.appendChild(mkSliderRow('Minimum font size', 'min_font_size', 0, 0, 32, 'px', () => {
+          for (const wv of tabWebviews.values()) applyPageAccessibility(wv);
+        }));
 
       } else if (activeCategory === 'labs') {
         panelTitle('Labs', 'Experimental features — may be unstable.');
-        panelInner.appendChild(mkRow('Quick controls', 'Swipe-based navigation controls', mkToggle('enable_quick_controls', false)));
-        panelInner.appendChild(mkRow('Fullscreen mode', 'Hide browser chrome when scrolling down', mkToggle('fullscreen', false)));
+        panelInner.appendChild(mkRow('Quick controls', 'Drag inward from a page edge or swipe horizontally on your touchpad to go back or forward', mkToggle('enable_quick_controls', false, () => {
+          for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
+        })));
+        panelInner.appendChild(mkRow('Fullscreen mode', 'Hide controls on websites; reveal them by scrolling up or moving to the top edge, then move away to hide them again', mkToggle('fullscreen', false, enabled => {
+          if (enabled) closeFindBar();
+          setBrowserChromeHidden(enabled && getSetting('fullscreen', false));
+          for (const wv of tabWebviews.values()) applyGuestBrowserFeatures(wv);
+        })));
 
       } else if (activeCategory === 'reset') {
         panelTitle('Reset', 'Restore all settings to their factory defaults.');
@@ -2608,8 +4056,25 @@ registerApp({
             [{ label: 'Reset', danger: true, value: true }, { label: 'Cancel', value: false }]
           ).then(confirmed => {
             if (!confirmed) return;
-            try { localStorage.removeItem(ST_KEY); } catch { /* ignore */ }
-            _settingsCache = null;
+            clearTimeout(_settingsSaveTimer);
+            _settingsSaveTimer = null;
+            try {
+              localStorage.removeItem(ST_KEY);
+            } catch (err) {
+              console.error('[NB Browser] Failed to reset settings:', err);
+              Notify.show({ title: 'Settings not reset', body: err.message, type: 'error', appName: 'Browser' });
+              return;
+            }
+            _settingsCache = {};
+            updateGeolocationAccess(false);
+            setBrowserChromeHidden(false);
+            for (const wv of tabWebviews.values()) {
+              applyPageAccessibility(wv);
+              applyGuestBrowserFeatures(wv);
+              try { wv.setZoomMode('per-origin'); }
+              catch (err) { console.warn('[NB Browser] Could not reset page zoom mode:', err); }
+            }
+            updateUrlIcon(currentUrl);
             renderSettingsPage('general');
             Notify.show({ title: 'Settings reset', body: 'All browser settings restored to defaults.', type: 'success', appName: 'Browser' });
           });
@@ -2620,6 +4085,11 @@ registerApp({
       panelEl.appendChild(panelInner);
       page.append(sidebar, panelEl);
       viewport.appendChild(page);
+      if (settingsTab?.id === activeTabId && settingsTab.url === 'browser://settings') {
+        requestAnimationFrame(() => {
+          if (page.isConnected) panelEl.scrollTop = settingsTab.settingsScrollTop || 0;
+        });
+      }
     }
 
     // Local-address guard — blocks navigation to RFC-1918 / loopback /
@@ -2697,15 +4167,25 @@ registerApp({
     function navigate(rawUrl) {
       if (!rawUrl) return;
       let url = rawUrl.trim();
+      const isViewSource = /^view-source:/i.test(url);
+      const addressToCheck = isViewSource ? url.slice('view-source:'.length) : url;
       // Canonicalize: strip ALL control chars before scheme checks.
       // Chromium strips \x09, \x0a, \x0d internally; mirror that here so
       // a "java\nscript:" URL can't sneak past the scheme blocklist.
-      const _canonicalUrl = url.toLowerCase()
+      const _canonicalUrl = addressToCheck.toLowerCase()
         .replace(/[\s\u0000-\u001f\u007f-\u009f]/g, '')
         .trim();
       if (/^(javascript|data|vbscript|about):/i.test(_canonicalUrl)) return;
+      if (isViewSource && !/^https?:\/\//i.test(addressToCheck)) {
+        Notify.show({
+          title: 'Browser',
+          body: 'Page source is only available for HTTP and HTTPS pages.',
+          type: 'error', appName: 'Browser'
+        });
+        return;
+      }
 
-      if (isLocalAddress(url)) {
+      if (isLocalAddress(addressToCheck)) {
         Notify.show({
           title: 'Browser',
           body: 'Navigation to local or private network addresses is not allowed.',
@@ -2714,12 +4194,24 @@ registerApp({
         return;
       }
 
+      const previousSourcePage = tabSourcePages.get(activeTabId);
+      if (previousSourcePage) {
+        previousSourcePage.remove();
+        tabSourcePages.delete(activeTabId);
+      }
+
       // browser://settings — internal page, no network fetch.
       if (url === 'browser://settings') {
         urlBar.value = 'browser://settings';
         currentUrl = 'browser://settings';
+        updateUrlIcon(url);
+        setBrowserChromeHidden(false);
         const activeT = activeTab();
-        if (activeT) { activeT.url = url; activeT.title = 'Settings'; }
+        if (activeT) {
+          activeT.url = url;
+          activeT.title = 'Settings';
+          activeT.favicon = '';
+        }
         renderTabs();
         renderSettingsPage();
         return;
@@ -2814,7 +4306,7 @@ registerApp({
 
       // Not a URL and not a known scheme — treat as a search query unless
       // it looks like a domain (has a dot, no spaces).
-      if (!url.match(/^https?:\/\//i) && !url.startsWith('blob:') && !url.startsWith('file://') && !url.startsWith('data:')) {
+      if (!isViewSource && !url.match(/^https?:\/\//i) && !url.startsWith('blob:') && !url.startsWith('file://') && !url.startsWith('data:')) {
         url = (url.includes('.') && !url.includes(' ')) ? 'https://' + url : getSearchUrl(url);
       }
 
@@ -2827,12 +4319,13 @@ registerApp({
         activeT.url = url;
         try { activeT.title = new URL(url).hostname; } catch { /* ignore */ }
       }
+      setBrowserChromeHidden(getSetting('fullscreen', false));
       renderTabs();
       const sd = viewport.querySelector('.speed-dial');
       if (sd) sd.remove();
       const oldNotice = viewport.querySelector(`.browser-iframe-blocked[data-tab="${activeTabId}"]`);
       if (oldNotice) oldNotice.remove();
-      const mode = getTabMode(activeTabId);
+      const mode = isViewSource ? 'webview' : getTabMode(activeTabId);
       if (mode === 'iframe') {
         const ifr = getOrCreateIframe(activeTabId);
         if (!ifr.parentNode) viewport.appendChild(ifr);
@@ -3138,12 +4631,14 @@ registerApp({
     // Open URL passed from OS.openUrl() — launched with options.url.
     if (options?.url) {
       renderTabs();
+      setBrowserChromeHidden(getSetting('fullscreen', false));
       navigate(options.url);
       return;
     }
 
     // Initial render
     renderTabs();
+    setBrowserChromeHidden(getSetting('fullscreen', false));
     (() => {
       const _hp = getSetting('homepage', 'most_visited');
       if (_hp === 'custom') {

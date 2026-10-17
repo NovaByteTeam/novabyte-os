@@ -156,7 +156,7 @@ These are the **actual features pulled directly from the source code** — not g
 
 #### Hidden apps and system services
 
-In **App Manager**, user-facing built-in apps remain visible by default. The **Show hidden apps** toggle also reveals the eight developer tools, the built-in Launcher, and ten headless system services. Developer Mode must be enabled in Settings to use the developer tools; trying to open one while it is off explains how to enable it. The Launcher and services are OS-managed and cannot be opened from App Manager. Services also cannot be disabled or uninstalled individually.
+In **App Manager**, user-facing built-in apps remain visible by default. The **Show hidden apps** toggle also reveals the eight developer tools, the built-in Launcher, fourteen headless system services, and the Shell UI package. Developer Mode must be enabled in Settings to use the developer tools; trying to open one while it is off explains how to enable it. The Launcher, Shell UI package, and services are OS-managed and cannot be opened from App Manager. Services also cannot be disabled or uninstalled individually.
 
 |App|What it actually does|
 |:--|:--------------------|
@@ -169,7 +169,7 @@ In **App Manager**, user-facing built-in apps remain visible by default. The **S
 |🌐 **NBOSP System Access**|Inspect network proxy/SSRF configuration and browse the virtual filesystem. **Can read internal VFS paths and probe network settings.**|
 |📋 **NBOSP Events**|Unified event timeline showing console output, permission events, and package events in one filtered view. Search, severity filter, export. **For debugging OS-level activity only.**|
 
-The headless services provide event logging, notifications, file scanning, system dialogs, app registry and default-app routing, background app support, server-event bridging, calendar reminders, and system event dispatch. They start as part of OS boot and do not have app windows.
+The headless services provide event logging, notifications, file scanning, system dialogs, app registry and default-app routing, background app support, server-event bridging, calendar reminders, and system event dispatch. They start as part of OS boot and do not have app windows. The Shell UI package provides the host window manager, desktop behavior, context menus, and modal dialogs; it is verified and loaded before OS boot.
 
 > [!IMPORTANT]
 > **Starting with 3.0.2, no new features will be added to standard NBOSP user apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings and all Developer Apps are exceptions** — Settings controls the visual identity and OS-level behaviour of the entire UI, and the Developer Apps are core to NBOSP's purpose as a developer-focused platform. Both will continue receiving new features, UI refreshes, and improvements as NBOSP evolves.
@@ -593,13 +593,8 @@ novabyte-os/
 │  │  │  ├── events/       # Event-related core modules
 │  │  │  ├── services/      # Core OS services
 │  │  │  │  ├── fs.js      # Virtual filesystem API
-│  │  │  │  ├── system-service-loader.js # Loads trusted headless services before OS boot
+│  │  │  │  ├── system-service-loader.js # Loads trusted system packages before OS boot
 │  │  │  │  └── workers.js    # Multi-threaded worker management
-│  │  │  ├── ui/         # UI primitives
-│  │  │  │  ├── desktop.js    # Desktop shell
-│  │  │  │  ├── menu.js     # Context menu system
-│  │  │  │  ├── modals.js    # Modal dialog system
-│  │  │  │  └── wm.js      # Window manager
 │  │  │  └── utils/        # Shared utilities
 │  │  │    ├── base-utils.js  # Base utility functions
 │  │  │    └── debug-overlay.js # Runtime diagnostics overlay
@@ -621,9 +616,10 @@ novabyte-os/
 │  │  │    └── web-app-manager.js   # Web app management
 │  │  └── apps/          # One source directory per built-in app or service
 │  │     ├── <app-dir>/manifest.json, app source files, and assets
+│  │     ├── shell-ui/ # Trusted host UI: window manager, menus, modals, desktop
 │  │     ├── service packages use service.js instead of an app window entry
 │  │     ├── novaapp-manifest.json # Trusted built-in package allowlist
-│  │     └── system-service-manifest.json # Ordered headless service startup list
+│  │     └── system-service-manifest.json # Ordered system-package startup list
 │  ├── data/              # Gitignored — generated at runtime, not part of the repo
 │  │  ├── favicons.db       # Persistent SQLite favicon cache
 │  │  ├── sessions.db       # Express session store (backs admin:users session list/revoke)
@@ -639,7 +635,7 @@ novabyte-os/
 
 ### 🧩 Architecture Note: Modular Isolation
 
-NBOSP is organized into separate server, frontend-core, platform, and app-package layers. Built-in apps live in individual directories under `js/apps/`; trusted headless system services are packaged there as well and loaded in a declared startup order.
+NBOSP is organized into separate server, frontend-core, platform, and app-package layers. Built-in apps live in individual directories under `js/apps/`; trusted headless system services and the boot-critical Shell UI package are packaged there and loaded in a declared startup order.
 
 | Layer | Location | Responsibility |
 |:---|:---|:---|
@@ -647,7 +643,7 @@ NBOSP is organized into separate server, frontend-core, platform, and app-packag
 | Launcher | `scripts/` | Bootstrap, certificates, logging, and NW.js startup |
 | Frontend core | `js/core/` | Boot, UI, filesystem, utilities, and system-service loading |
 | Frontend platform | `js/platform/` | App registry, packages, sandbox, permissions, and trust |
-| Built-in apps and services | `js/apps/<app>/` | App manifests and package source; headless services run in the OS page |
+| Built-in apps and services | `js/apps/<app>/` | App manifests and package source; trusted system packages run in the OS page |
 
 To maintain cross-script communication across individual files without monolithic bundling:
 * **Global Exposures:** Core modules explicitly bind their APIs to the global browser execution context (e.g., `window.Notify = Notify;`, `window.registerApp = registerApp;`) at the foot of their files.

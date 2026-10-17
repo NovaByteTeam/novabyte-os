@@ -7,7 +7,7 @@
  * the browser already has in memory.
  *
  * Currently wired into:
- *   - Desktop / Files vault drag-and-drop (js/core/ui/wm.js, js/apps/com.nbosp.vault.novaapp)
+ *   - Desktop / Files drag-and-drop (js/apps/shell-ui/wm.js, js/apps/com.nbosp.files.novaapp)
  *   - App Manager package install (js/apps/appmanager/app.js)
  *
  * Exposed globally as window.Scanner so any other app/feature can call into

@@ -19,7 +19,17 @@ const THEMES = {
     '--accent': '#58a6ff',
     '--accent-hover': '#79b8ff',
     '--accent-muted': 'rgba(88, 166, 255, 0.15)',
-    '--window-bg': 'rgba(10, 14, 22, 0.50)',
+    '--window-bg': 'rgba(10, 14, 22, 0.62)',
+    '--surface-overlay': 'rgba(8, 12, 20, 0.78)',
+    '--surface-panel': 'rgba(8, 12, 20, 0.82)',
+    '--surface-header': 'rgba(8, 12, 20, 0.32)',
+    '--surface-card': 'rgba(8, 12, 20, 0.46)',
+    '--surface-card-hover': 'rgba(18, 26, 40, 0.68)',
+    '--surface-card-read': 'rgba(4, 7, 12, 0.52)',
+    '--surface-border': 'rgba(255, 255, 255, 0.14)',
+    '--surface-border-subtle': 'rgba(255, 255, 255, 0.08)',
+    '--surface-rim': 'rgba(255, 255, 255, 0.16)',
+    '--surface-highlight': 'rgba(255, 255, 255, 0.08)',
     '--window-border': 'rgba(255, 255, 255, 0.12)',
     '--window-shadow': '0 32px 64px rgba(0,0,0,0.50), 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.07)',
     '--taskbar-bg': 'rgba(6, 10, 18, 0.65)',
@@ -38,7 +48,7 @@ const THEMES = {
     '--bg-sunken': '#eaeef2',
     '--text-primary': '#24292f',
     '--text-secondary': '#57606a',
-    '--text-muted': '#8c959f',
+    '--text-muted': '#6e7781',
     '--text-link': '#0969da',
     '--text-danger': '#cf222e',
     '--text-success': '#1a7f37',
@@ -46,7 +56,17 @@ const THEMES = {
     '--accent': '#0969da',
     '--accent-hover': '#0550ae',
     '--accent-muted': 'rgba(9, 105, 218, 0.1)',
-    '--window-bg': 'rgba(255, 255, 255, 0.72)',
+    '--window-bg': 'rgba(255, 255, 255, 0.82)',
+    '--surface-overlay': 'rgba(246, 248, 250, 0.94)',
+    '--surface-panel': 'rgba(246, 248, 250, 0.96)',
+    '--surface-header': 'rgba(234, 238, 242, 0.72)',
+    '--surface-card': 'rgba(255, 255, 255, 0.72)',
+    '--surface-card-hover': 'rgba(234, 238, 242, 0.90)',
+    '--surface-card-read': 'rgba(234, 238, 242, 0.68)',
+    '--surface-border': 'rgba(27, 31, 35, 0.14)',
+    '--surface-border-subtle': 'rgba(27, 31, 35, 0.08)',
+    '--surface-rim': 'rgba(27, 31, 35, 0.12)',
+    '--surface-highlight': 'rgba(255, 255, 255, 0.76)',
     '--window-border': 'rgba(27, 31, 35, 0.12)',
     '--window-shadow': '0 24px 48px rgba(0,0,0,0.12), 0 6px 20px rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,0.90)',
     '--taskbar-bg': 'rgba(246, 248, 250, 0.72)',
@@ -73,7 +93,17 @@ const THEMES = {
     '--accent': '#88c0d0',
     '--accent-hover': '#81a1c1',
     '--accent-muted': 'rgba(136, 192, 208, 0.15)',
-    '--window-bg': 'rgba(46, 52, 64, 0.52)',
+    '--window-bg': 'rgba(46, 52, 64, 0.64)',
+    '--surface-overlay': 'rgba(46, 52, 64, 0.90)',
+    '--surface-panel': 'rgba(46, 52, 64, 0.94)',
+    '--surface-header': 'rgba(36, 41, 51, 0.72)',
+    '--surface-card': 'rgba(36, 41, 51, 0.62)',
+    '--surface-card-hover': 'rgba(67, 76, 94, 0.82)',
+    '--surface-card-read': 'rgba(36, 41, 51, 0.72)',
+    '--surface-border': 'rgba(236, 239, 244, 0.16)',
+    '--surface-border-subtle': 'rgba(236, 239, 244, 0.09)',
+    '--surface-rim': 'rgba(236, 239, 244, 0.16)',
+    '--surface-highlight': 'rgba(236, 239, 244, 0.08)',
     '--window-border': 'rgba(236, 239, 244, 0.12)',
     '--window-shadow': '0 24px 48px rgba(0,0,0,0.45), 0 6px 20px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.07)',
     '--taskbar-bg': 'rgba(36, 41, 51, 0.65)',
@@ -100,7 +130,17 @@ const THEMES = {
     '--accent': '#bd93f9',
     '--accent-hover': '#ff79c6',
     '--accent-muted': 'rgba(189, 147, 249, 0.15)',
-    '--window-bg': 'rgba(40, 42, 54, 0.52)',
+    '--window-bg': 'rgba(40, 42, 54, 0.64)',
+    '--surface-overlay': 'rgba(40, 42, 54, 0.90)',
+    '--surface-panel': 'rgba(40, 42, 54, 0.94)',
+    '--surface-header': 'rgba(30, 31, 41, 0.72)',
+    '--surface-card': 'rgba(30, 31, 41, 0.62)',
+    '--surface-card-hover': 'rgba(68, 71, 90, 0.82)',
+    '--surface-card-read': 'rgba(30, 31, 41, 0.72)',
+    '--surface-border': 'rgba(248, 248, 242, 0.16)',
+    '--surface-border-subtle': 'rgba(248, 248, 242, 0.09)',
+    '--surface-rim': 'rgba(248, 248, 242, 0.16)',
+    '--surface-highlight': 'rgba(248, 248, 242, 0.08)',
     '--window-border': 'rgba(248, 248, 242, 0.12)',
     '--window-shadow': '0 24px 48px rgba(0,0,0,0.50), 0 6px 20px rgba(0,0,0,0.32), inset 0 1px 0 rgba(189,147,249,0.08)',
     '--taskbar-bg': 'rgba(30, 31, 41, 0.65)',
@@ -127,7 +167,17 @@ const THEMES = {
     '--accent': '#cba6f7',
     '--accent-hover': '#b4befe',
     '--accent-muted': 'rgba(203, 166, 247, 0.15)',
-    '--window-bg': 'rgba(30, 30, 46, 0.52)',
+    '--window-bg': 'rgba(30, 30, 46, 0.64)',
+    '--surface-overlay': 'rgba(30, 30, 46, 0.90)',
+    '--surface-panel': 'rgba(30, 30, 46, 0.94)',
+    '--surface-header': 'rgba(22, 22, 34, 0.72)',
+    '--surface-card': 'rgba(22, 22, 34, 0.62)',
+    '--surface-card-hover': 'rgba(69, 71, 90, 0.82)',
+    '--surface-card-read': 'rgba(22, 22, 34, 0.72)',
+    '--surface-border': 'rgba(205, 214, 244, 0.16)',
+    '--surface-border-subtle': 'rgba(205, 214, 244, 0.09)',
+    '--surface-rim': 'rgba(205, 214, 244, 0.16)',
+    '--surface-highlight': 'rgba(205, 214, 244, 0.08)',
     '--window-border': 'rgba(205, 214, 244, 0.13)',
     '--window-shadow': '0 24px 48px rgba(0,0,0,0.48), 0 6px 20px rgba(0,0,0,0.30), inset 0 1px 0 rgba(203,166,247,0.08)',
     '--taskbar-bg': 'rgba(22, 22, 34, 0.65)',
@@ -154,7 +204,17 @@ const THEMES = {
     '--accent': '#7aa2f7',
     '--accent-hover': '#bb9af7',
     '--accent-muted': 'rgba(122, 162, 247, 0.15)',
-    '--window-bg': 'rgba(22, 24, 38, 0.52)',
+    '--window-bg': 'rgba(22, 24, 38, 0.64)',
+    '--surface-overlay': 'rgba(22, 24, 38, 0.90)',
+    '--surface-panel': 'rgba(22, 24, 38, 0.94)',
+    '--surface-header': 'rgba(16, 17, 28, 0.72)',
+    '--surface-card': 'rgba(16, 17, 28, 0.62)',
+    '--surface-card-hover': 'rgba(65, 72, 104, 0.82)',
+    '--surface-card-read': 'rgba(16, 17, 28, 0.72)',
+    '--surface-border': 'rgba(192, 202, 245, 0.16)',
+    '--surface-border-subtle': 'rgba(192, 202, 245, 0.09)',
+    '--surface-rim': 'rgba(192, 202, 245, 0.16)',
+    '--surface-highlight': 'rgba(192, 202, 245, 0.08)',
     '--window-border': 'rgba(192, 202, 245, 0.13)',
     '--window-shadow': '0 24px 48px rgba(0,0,0,0.50), 0 6px 20px rgba(0,0,0,0.32), inset 0 1px 0 rgba(122,162,247,0.08)',
     '--taskbar-bg': 'rgba(16, 17, 28, 0.65)',
@@ -181,7 +241,17 @@ const THEMES = {
     '--accent': '#fabd2f',
     '--accent-hover': '#fe8019',
     '--accent-muted': 'rgba(250, 189, 47, 0.15)',
-    '--window-bg': 'rgba(40, 40, 40, 0.52)',
+    '--window-bg': 'rgba(40, 40, 40, 0.64)',
+    '--surface-overlay': 'rgba(40, 40, 40, 0.90)',
+    '--surface-panel': 'rgba(40, 40, 40, 0.94)',
+    '--surface-header': 'rgba(29, 32, 33, 0.72)',
+    '--surface-card': 'rgba(29, 32, 33, 0.62)',
+    '--surface-card-hover': 'rgba(80, 73, 69, 0.82)',
+    '--surface-card-read': 'rgba(29, 32, 33, 0.72)',
+    '--surface-border': 'rgba(235, 219, 178, 0.16)',
+    '--surface-border-subtle': 'rgba(235, 219, 178, 0.09)',
+    '--surface-rim': 'rgba(235, 219, 178, 0.16)',
+    '--surface-highlight': 'rgba(235, 219, 178, 0.08)',
     '--window-border': 'rgba(235, 219, 178, 0.13)',
     '--window-shadow': '0 24px 48px rgba(0,0,0,0.48), 0 6px 20px rgba(0,0,0,0.30), inset 0 1px 0 rgba(250,189,47,0.06)',
     '--taskbar-bg': 'rgba(29, 32, 33, 0.65)',
@@ -209,6 +279,16 @@ const THEMES = {
     '--accent-hover': '#ffffff',
     '--accent-muted': 'rgba(255, 255, 0, 0.15)',
     '--window-bg': 'rgba(0, 0, 0, 0.95)',
+    '--surface-overlay': '#1a1a1a',
+    '--surface-panel': '#1a1a1a',
+    '--surface-header': '#000000',
+    '--surface-card': '#111111',
+    '--surface-card-hover': '#222222',
+    '--surface-card-read': '#111111',
+    '--surface-border': '#ffffff',
+    '--surface-border-subtle': '#cccccc',
+    '--surface-rim': '#ffffff',
+    '--surface-highlight': '#222222',
     '--window-border': '3px solid #ffffff',
     '--window-shadow': '0 8px 32px rgba(255,255,255,0.2), 0 2px 8px rgba(255,255,255,0.1)',
     '--taskbar-bg': 'rgba(0, 0, 0, 0.95)',
@@ -560,9 +640,12 @@ const OPFS = {
 // ── AppDirs — per-app OPFS data directories mirrored into one visible /data tree ──
 const AppDirs = {
   PACKAGES: {
-    'vault': 'com.nbosp.vault',
-    'quill': 'com.nbosp.quill',
-    'shell': 'com.nbosp.shell',
+    'files': 'com.nbosp.files',
+    'textedit': 'com.nbosp.textedit',
+    'terminal': 'com.nbosp.terminal',
+    'vault': 'com.nbosp.files',
+    'quill': 'com.nbosp.textedit',
+    'shell': 'com.nbosp.terminal',
     'browser': 'com.nbosp.browser',
     'calendar-app': 'com.nbosp.calendar',
     'settings': 'com.nbosp.settings',
@@ -582,9 +665,9 @@ const AppDirs = {
     'perf': 'com.nbosp.perf',
     'permissions': 'com.nbosp.permissions',
     'sysaccess': 'com.nbosp.sysaccess',
-    'com.nbosp.vault': 'com.nbosp.vault',
-    'com.nbosp.quill': 'com.nbosp.quill',
-    'com.nbosp.shell': 'com.nbosp.shell',
+    'com.nbosp.files': 'com.nbosp.files',
+    'com.nbosp.textedit': 'com.nbosp.textedit',
+    'com.nbosp.terminal': 'com.nbosp.terminal',
     'com.nbosp.browser': 'com.nbosp.browser',
     'com.nbosp.calendar': 'com.nbosp.calendar',
     'com.nbosp.settings': 'com.nbosp.settings',
@@ -656,6 +739,46 @@ const AppDirs = {
           if (w) { try { await w.close(); } catch { /* ignore */ } }
         }
         const data = await mkd(OPFS.root, 'data');
+        const appIdRenames = [
+          ['com.nbosp.quill', 'com.nbosp.textedit'],
+          ['com.nbosp.shell', 'com.nbosp.terminal'],
+          ['com.nbosp.vault', 'com.nbosp.files'],
+        ];
+        const mergeOPFSDirectory = async (source, target) => {
+          for await (const [name, entry] of source.entries()) {
+            if (entry.kind === 'directory') {
+              const targetChild = await target.getDirectoryHandle(name, { create: true });
+              await mergeOPFSDirectory(entry, targetChild);
+              continue;
+            }
+            let targetFile;
+            try {
+              targetFile = await target.getFileHandle(name);
+            } catch (error) {
+              if (error.name !== 'NotFoundError') throw error;
+              targetFile = await target.getFileHandle(name, { create: true });
+              const sourceFile = await entry.getFile();
+              const writable = await targetFile.createWritable();
+              try {
+                await writable.write(sourceFile);
+              } finally {
+                await writable.close();
+              }
+            }
+          }
+        };
+        for (const [legacyPkg, currentPkg] of appIdRenames) {
+          try {
+            const legacyDir = await data.getDirectoryHandle(legacyPkg);
+            const currentDir = await data.getDirectoryHandle(currentPkg, { create: true });
+            await mergeOPFSDirectory(legacyDir, currentDir);
+            await data.removeEntry(legacyPkg, { recursive: true });
+          } catch (error) {
+            if (error.name !== 'NotFoundError') {
+              console.warn('[AppDirs] Failed migrating legacy app data', legacyPkg, error);
+            }
+          }
+        }
         for (const pkg of Object.values(this.PACKAGES)) {
           const appDir = await mkd(data, pkg);
           await mkd(appDir, 'files');
@@ -725,9 +848,9 @@ const AppDirs = {
     };
 
     const APP_META = {
-      'com.nbosp.vault':       { name: 'Files',       version: '3.0.2', description: 'File Manager' },
-      'com.nbosp.quill':       { name: 'TextEdit',    version: '3.0.2', description: 'Text Editor' },
-      'com.nbosp.shell':       { name: 'Terminal',    version: '3.0.2', description: 'System Terminal' },
+      'com.nbosp.files':       { name: 'Files',       version: '3.0.2', description: 'File Manager' },
+      'com.nbosp.textedit':    { name: 'TextEdit',    version: '3.0.2', description: 'Text Editor' },
+      'com.nbosp.terminal':    { name: 'Terminal',    version: '3.0.2', description: 'System Terminal' },
       'com.nbosp.browser':     { name: 'Browser',     version: '3.0.3', description: 'Web Browser' },
       'com.nbosp.calendar':    { name: 'Calendar',    version: '3.0.2', description: 'Calendar & Events' },
       'com.nbosp.settings':    { name: 'Settings',    version: '3.0.2', description: 'System Settings' },
@@ -782,15 +905,49 @@ const AppDirs = {
         }, null, 2));
       }
 
-      // ── Migrate existing notes from Documents → com.nbosp.quill/files/ ──
-      const quillFilesId = this.vfsFolders['com.nbosp.quill']?.files;
-      if (quillFilesId && FS.specialFolders.documents) {
+      for (const [legacyPkg, currentPkg] of [
+        ['com.nbosp.quill', 'com.nbosp.textedit'],
+        ['com.nbosp.shell', 'com.nbosp.terminal'],
+        ['com.nbosp.vault', 'com.nbosp.files'],
+      ]) {
+        const legacyDir = FS.listDir(dataNode.id).find(node =>
+          node.name === legacyPkg && node.type === 'folder');
+        const currentDirId = this.vfsFolders[currentPkg]?.root;
+        if (legacyDir && currentDirId) {
+          await mergeVDir(legacyDir.id, currentDirId);
+          await FS.permanentDelete(legacyDir.id);
+        }
+      }
+
+      if (FS.specialFolders.desktop) {
+        for (const shortcut of FS.listDir(FS.specialFolders.desktop)) {
+          if (!shortcut.name.endsWith('.lnk') || shortcut.mimeType !== 'application/x-app-shortcut') continue;
+          try {
+            const data = JSON.parse(shortcut.content || '{}');
+            if (typeof data.target !== 'string') continue;
+            const target = window.NovaAppIdAliases?.canonicalize(data.target) || data.target;
+            if (target !== data.target) {
+              data.target = target;
+              if (typeof data.appId === 'string') {
+                data.appId = window.NovaAppIdAliases?.canonicalize(data.appId) || data.appId;
+              }
+              await FS.writeFile(shortcut.id, JSON.stringify(data));
+            }
+          } catch (error) {
+            console.warn('[AppDirs] Failed migrating legacy desktop shortcut', shortcut.name, error);
+          }
+        }
+      }
+
+      // ── Migrate existing notes from Documents → com.nbosp.textedit/files/ ──
+      const textEditFilesId = this.vfsFolders['com.nbosp.textedit']?.files;
+      if (textEditFilesId && FS.specialFolders.documents) {
         const docsFiles = FS.listDir(FS.specialFolders.documents);
         for (const f of docsFiles) {
           if (f.type === 'file') {
-            const alreadyMoved = FS.listDir(quillFilesId).find(n => n.name === f.name);
+            const alreadyMoved = FS.listDir(textEditFilesId).find(n => n.name === f.name);
             if (!alreadyMoved) {
-              await FS.move(f.id, quillFilesId);
+              await FS.move(f.id, textEditFilesId);
             }
           }
         }
@@ -828,6 +985,7 @@ const AppDirs = {
   },
 
   async ensureAppDataFolder(appIdOrPkg) {
+    appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
     if (this._handles[pkg]) return this._handles[pkg];
 
@@ -869,6 +1027,7 @@ const AppDirs = {
   },
 
   async getAppDir(appIdOrPkg) {
+    appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
 
     // Runtime guard: deny requests for another app's directory unless the caller
@@ -934,6 +1093,7 @@ const AppDirs = {
   // should call this instead of each re-implementing (or skipping) it.
   async removeAppData(appId) {
     if (!appId) return;
+    appId = window.NovaAppIdAliases?.canonicalize(appId) || appId;
     if (typeof OPFS !== 'undefined' && OPFS.available && OPFS.root) {
       try { await OPFS.deletePath('data/' + appId, true); } catch { /* ignore */ }
     }
@@ -1016,6 +1176,7 @@ const AppDirs = {
   },
 
   getVFSDir(appIdOrPkg, subdir) {
+    appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
     if (this.vfsFolders?.[pkg]) return this.vfsFolders[pkg][subdir] ?? null;
     void this.ensureAppDataFolder(pkg);
@@ -1050,6 +1211,7 @@ const AppDirs = {
   },
 
   async clearAppData(appIdOrPkg) {
+    appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
     if (!OPFS.available || !OPFS.root) return false;
     try {
@@ -1114,14 +1276,14 @@ function openFileWithDefaultApp(fileNode) {
   const query = getFileTypeQuery(fileNode);
   const mime = query.mimeType;
 
-  let appId = 'com.nbosp.quill'; // fallback default
+  let appId = 'com.nbosp.textedit'; // fallback default
 
   if (mime === 'text/html' || fileNode.name.endsWith('.html') || fileNode.name.endsWith('.htm')) appId = 'com.nbosp.browser';
   else if (mime.startsWith('image/')) appId = 'com.nbosp.gallery';
   else if (mime.startsWith('audio/')) appId = 'com.nbosp.music';
   // NOTE: no built-in app declares a .pdf handler (the previous 'lumina'
   // fallback here pointed at an app id that was never registered, so PDFs
-  // silently failed to open). Falls through to quill until a real PDF
+  // silently failed to open). Falls through to TextEdit until a real PDF
   // viewer exists — see DefaultApps.CATEGORIES for where to add one.
 
   // Honor a chosen default only when the installed app declared support
@@ -1345,7 +1507,7 @@ OS.events.on('settings:changed', async ({ key }) => {
         break;
       case 'wallpaperId':
       case 'customWallpaper':
-        Boot?.applyWallpaper?.(OS.settings.get.bind(OS.settings));
+        window.WallpaperService?.apply(OS.settings.get.bind(OS.settings));
         break;
       case 'cursorSize':
         Boot?.applyCursorSize?.(OS.settings.get.bind(OS.settings));

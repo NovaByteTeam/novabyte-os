@@ -1231,6 +1231,8 @@ registerApp({
 
     // ── Helpers ────────────────────────────────────────────────────
     const PackageStore = window.NovaAppPackageStore || null;
+    const isManagedSystemPackage = app =>
+      app.headlessSystemService || app.manifest?.systemService === true;
 
     // Builds the CSP injected into sandboxed app HTML. Only the webapp
     // template needs frame-src — everything else gets none, since no other
@@ -1265,7 +1267,10 @@ registerApp({
         const installed = PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
         const services = window.SystemServiceLoader?.listLoadedServices?.() || [];
         const serviceIds = new Set(services.map(service => service.id));
-        return [...installed.filter(app => !serviceIds.has(app.id)), ...services];
+        return [
+          ...installed.filter(app => !serviceIds.has(app.id) && !isManagedSystemPackage(app)),
+          ...services,
+        ];
       } catch (e) {
         console.warn('[AppManager] Failed to load installed packages:', e);
         return [];
@@ -1275,9 +1280,9 @@ registerApp({
     function saveStoredApps(list) {
       try {
         if (PackageStore?.saveRegistry) {
-          PackageStore.saveRegistry(list.filter(app => !app.headlessSystemService));
+          PackageStore.saveRegistry(list.filter(app => !isManagedSystemPackage(app)));
         } else {
-          localStorage.setItem(APPS_KEY, JSON.stringify(list.filter(app => !app.headlessSystemService)));
+          localStorage.setItem(APPS_KEY, JSON.stringify(list.filter(app => !isManagedSystemPackage(app))));
         }
       } catch (e) {
         if (e.name === 'QuotaExceededError' || e.code === 22) {
@@ -1385,7 +1390,7 @@ registerApp({
 
     let installedApps = await getStoredApps();
     installedApps
-      .filter(app => !app.headlessSystemService)
+      .filter(app => !isManagedSystemPackage(app))
       .forEach(registerNovaApp);
 
     let lastInstalledSignature = computeInstalledSignature();
@@ -1416,7 +1421,7 @@ registerApp({
       const newById = new Map(fresh.map(a => [a.id, a]));
 
       for (const app of fresh) {
-        if (app.headlessSystemService) continue;
+        if (isManagedSystemPackage(app)) continue;
         const prev = oldById.get(app.id);
         if (!prev || prev.version !== app.version) {
           registerNovaApp(app);
@@ -1780,18 +1785,19 @@ registerApp({
           return btn;
         }
 
+        const managedService = isManagedSystemPackage(app);
         const launchBtn = makeActionBtn(
-          app.headlessSystemService
-            ? 'Open (Background Service)'
+          managedService
+            ? 'Managed by OS'
             : app.id === 'com.nbosp.launcher'
               ? 'Open (Managed Home)'
               : (app.id === APP_MANAGER_ID) ? 'Already Running' : (isDis ? 'Disabled' : 'Launch'),
           'play',
-          (app.headlessSystemService || app.id === 'com.nbosp.launcher' || app.id === APP_MANAGER_ID || isDis)
+          (managedService || app.id === 'com.nbosp.launcher' || app.id === APP_MANAGER_ID || isDis)
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
             : 'background:var(--accent);border:1px solid transparent;color:#fff;',
           () => {
-            if (app.headlessSystemService || app.id === 'com.nbosp.launcher' ||
+            if (managedService || app.id === 'com.nbosp.launcher' ||
                 isDis || app.id === APP_MANAGER_ID) return;
             if ((app.devOnly === true || app.manifest?.devOnly === true || DEV_ONLY_APP_IDS.has(app.id)) &&
                 OS.settings.get('devMode') !== true) {
@@ -1805,19 +1811,19 @@ registerApp({
             WM.createWindow(app.id);
           }
         );
-        if (app.headlessSystemService || app.id === 'com.nbosp.launcher') {
+        if (managedService || app.id === 'com.nbosp.launcher') {
           launchBtn.disabled = true;
         }
 
         const toggleBtn = makeActionBtn(
-          app.headlessSystemService ? 'Managed by OS' : isDis ? 'Enable' : 'Disable',
+          managedService ? 'Managed by OS' : isDis ? 'Enable' : 'Disable',
           isDis ? 'done' : 'no-entry',
-          app.headlessSystemService || app.id === APP_MANAGER_ID
+          managedService || app.id === APP_MANAGER_ID
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;opacity:0.5;'
             : isDis
               ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
               : 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
-          app.headlessSystemService || app.id === APP_MANAGER_ID
+          managedService || app.id === APP_MANAGER_ID
             ? () => {}
             : () => {
                 const d = getDisabled();
@@ -1890,7 +1896,7 @@ registerApp({
 
         actionBar.append(
           launchBtn,
-          ...(app.headlessSystemService || app.id === 'com.nbosp.launcher' ? [] : [toggleBtn]),
+          ...(managedService || app.id === 'com.nbosp.launcher' ? [] : [toggleBtn]),
           ...(declaresAutostart ? [bootBtn] : []),
           uninstBtn
         );
@@ -1904,10 +1910,10 @@ registerApp({
             textContent: app.description // textContent — safe, no HTML injection
           }));
         }
-        if (app.headlessSystemService) {
+        if (managedService) {
           bodyEl.appendChild(createEl('div', {
             style: 'color:var(--text-muted);line-height:1.65;font-size:12px;',
-            textContent: 'This headless service runs as part of the OS and is managed by NovaByte.'
+            textContent: 'This system package runs as part of the OS and is managed by NovaByte.'
           }));
         }
 

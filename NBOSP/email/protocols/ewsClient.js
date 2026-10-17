@@ -247,9 +247,32 @@ async function ewsMessage(creds, uid, msgShape) {
   return typeof msgShape === 'function' ? msgShape(fallback) : fallback;
 }
 
+async function ewsMarkRead(creds, uids) {
+  if (!Array.isArray(uids) || uids.length === 0) return;
+  const itemChanges = uids.map(uid => `
+    <t:ItemChange>
+      <t:ItemId Id="${escapeXmlAttr(uid)}"/>
+      <t:Updates>
+        <t:SetItemField>
+          <t:FieldURI FieldURI="message:IsRead"/>
+          <t:Message><t:IsRead>true</t:IsRead></t:Message>
+        </t:SetItemField>
+      </t:Updates>
+    </t:ItemChange>`).join('');
+  const soap = `
+<m:UpdateItem MessageDisposition="SaveOnly" ConflictResolution="AutoResolve">
+  <m:ItemChanges>${itemChanges}</m:ItemChanges>
+</m:UpdateItem>`;
+  const response = await ewsReq(creds, soap);
+  if (/ResponseClass="Error"/i.test(response)) {
+    throw new Error(xval(response, 'MessageText') || 'Exchange could not mark the selected messages as read');
+  }
+}
+
 module.exports = {
   setDependencies,
   ewsFolders,
   ewsMessages,
-  ewsMessage
+  ewsMessage,
+  ewsMarkRead,
 };

@@ -652,8 +652,8 @@
     }
   }
 
-  // Tiny DOM builder. Supports className/class, textContent, style (object
-  // or string), on* event handlers, boolean attributes, and arbitrary
+  // Tiny DOM builder. Supports className/class, textContent, innerHTML, style
+  // (object or string), on* event handlers, boolean attributes, and arbitrary
   // attributes. Uses setAttribute('class', ...) so the same call works for
   // HTML and SVG elements (el.className is read-only on SVG).
   function createEl(tag, attrs, children) {
@@ -667,6 +667,8 @@
           el.setAttribute('class', value);
         } else if (key === 'textContent') {
           el.textContent = value;
+        } else if (key === 'innerHTML') {
+          el.innerHTML = value;
         } else if (key === 'style') {
           if (typeof value === 'object') {
             Object.assign(el.style, value);

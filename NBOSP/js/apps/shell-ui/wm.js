@@ -88,6 +88,7 @@ const WM = window.WM = (() => {
 
     createWindow(appId, options) {
       if (appId === 'launchpad') { window.toggleLaunchpad?.(); return null; }
+      appId = window.NovaAppIdAliases?.canonicalize(appId) || appId;
 
       const disabled = (() => {
         try { return JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); }
@@ -257,8 +258,8 @@ const WM = window.WM = (() => {
           } else {
             const ext       = file.name.split('.').pop().toLowerCase();
             const targetApp = ['txt', 'md', 'js', 'html', 'css', 'json'].includes(ext)
-              ? 'quill'
-              : 'vault';
+              ? 'textedit'
+              : 'files';
 
             const fileId   = generateId();
             const fileData = await file.arrayBuffer();

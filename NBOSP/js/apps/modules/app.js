@@ -43,7 +43,7 @@ registerApp({
     const HISTORY_KEY = 'nbosp_modules_history'; // { [path]: { prevCode, newCode, ts } } last reload only
     const DEFAULT_MODULES = [
       { id: 'boot', path: 'js/core/core/boot.js' },
-      { id: 'wm', path: 'js/core/ui/wm.js' },
+      { id: 'wm', path: 'js/apps/shell-ui/wm.js' },
       { id: 'fs', path: 'js/core/services/fs.js' },
       { id: 'app-registry', path: 'js/platform/core/app-registry.js' },
       { id: 'app-permission-manager', path: 'js/platform/security/app-permission-manager.js' },

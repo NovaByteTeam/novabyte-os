@@ -1,5 +1,5 @@
 /**
- * Loads trusted, headless system-service NovaApps into the OS page before the
+ * Loads trusted system-service NovaApps into the OS page before the
  * OS boot sequence.
  */
 (() => {
@@ -29,10 +29,15 @@
     const manifest = pkg?.manifest;
     const entry = manifest?.unrestrictedEntry;
 
+    const scriptEntries = service.scripts ?? [entry];
     if (manifest?.id !== service.id || manifest?.system !== true ||
         manifest?.systemService !== true || entry !== service.entry ||
-        typeof pkg.files?.[entry] !== 'string') {
-      throw new Error(`Invalid headless system-service package: ${service.id}`);
+        !Array.isArray(scriptEntries) || scriptEntries.length === 0 ||
+        scriptEntries[0] !== entry ||
+        scriptEntries.some(scriptEntry =>
+          typeof scriptEntry !== 'string' || typeof pkg.files?.[scriptEntry] !== 'string'
+        )) {
+      throw new Error(`Invalid system-service package: ${service.id}`);
     }
 
     if (typeof AppPackage?.verifyIntegrity !== 'function' ||
@@ -53,22 +58,25 @@
       throw new Error(`Trusted execution denied for ${service.id}: ${result.reason}`);
     }
 
-    const script = document.createElement('script');
-    script.dataset.novaSystemService = service.id;
-    script.textContent = decodePackageFile(pkg.files[entry]);
-    let runtimeError = null;
-    const onScriptError = event => {
-      runtimeError = event.error || new Error(event.message || 'Unknown script error');
-    };
-    window.addEventListener('error', onScriptError, true);
-    try {
-      document.head.appendChild(script);
-    } finally {
-      window.removeEventListener('error', onScriptError, true);
-      script.remove();
-    }
-    if (runtimeError) {
-      throw new Error(`System service ${service.id} failed during startup: ${runtimeError.message || runtimeError}`);
+    for (const scriptEntry of scriptEntries) {
+      const script = document.createElement('script');
+      script.dataset.novaSystemService = service.id;
+      script.dataset.novaSystemServiceEntry = scriptEntry;
+      script.textContent = decodePackageFile(pkg.files[scriptEntry]);
+      let runtimeError = null;
+      const onScriptError = event => {
+        runtimeError = event.error || new Error(event.message || 'Unknown script error');
+      };
+      window.addEventListener('error', onScriptError, true);
+      try {
+        document.head.appendChild(script);
+      } finally {
+        window.removeEventListener('error', onScriptError, true);
+        script.remove();
+      }
+      if (runtimeError) {
+        throw new Error(`System service ${service.id} entry ${scriptEntry} failed during startup: ${runtimeError.message || runtimeError}`);
+      }
     }
     loadedServices.push({
       id: manifest.id,
@@ -84,7 +92,7 @@
       verified: true,
       signer: 'NovaByte System',
       source: 'system-bundle',
-      headlessSystemService: true,
+      headlessSystemService: manifest.headless !== false,
     });
     console.info(`[SystemServiceLoader] Started ${service.id}`);
   }
@@ -110,6 +118,7 @@
     if (loadPromise) return loadPromise;
     loadPromise = (async () => {
       const failures = [];
+      let requiredServiceFailed = false;
       try {
         const response = await fetch('js/apps/system-service-manifest.json', { cache: 'no-store' });
         if (!response.ok) {
@@ -135,11 +144,20 @@
             const failure = { id: service?.id || '(invalid service entry)', error };
             failures.push(failure);
             console.error(`[SystemServiceLoader] Service unavailable: ${failure.id}`, error);
+            if (service?.required === true) {
+              requiredServiceFailed = true;
+              break;
+            }
           }
         }
       } catch (error) {
         failures.push({ id: 'system-service-manifest', error });
         console.error('[SystemServiceLoader] Could not load service manifests:', error);
+        requiredServiceFailed = true;
+      }
+
+      if (requiredServiceFailed) {
+        localStorage.setItem('nova_force_recovery', '1');
       }
 
       try {

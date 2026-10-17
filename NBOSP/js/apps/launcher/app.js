@@ -8,9 +8,9 @@
 // drifted whenever a hot-reload reordered them — the grid was effectively
 // random across boots.
 const LAUNCHPAD_ORDER = Object.freeze([
-  'com.nbosp.vault',        // Files
-  'com.nbosp.quill',        // Notes / TextEdit
-  'com.nbosp.shell',        // Terminal
+  'com.nbosp.files',        // Files
+  'com.nbosp.textedit',     // TextEdit
+  'com.nbosp.terminal',     // Terminal
   'com.nbosp.browser',      // Browser
   'com.nbosp.calendar',     // Calendar
   'com.nbosp.settings',     // Settings
@@ -1062,67 +1062,51 @@ async function _handleDesktopDrop(e, desktopEl) {
     const isTextFile = (file) =>
       [...TEXT_TYPES].some(t => file.type.startsWith(t)) || TEXT_EXTS.test(file.name);
 
-    const readFile = (file) => new Promise((resolve) => {
-      // Security: extension check (checkFileExtension defined in system-events.js)
-      const extCheck = checkFileExtension(file.name);
-      if (extCheck.blocked) {
-        Notify.show({ title: '🚫 File Blocked - Executable Type', body: `"${file.name}": ${extCheck.reason}`, type: 'error', appName: 'System' });
-        console.warn('[Security] Blocked on extension:', { file: file.name, reason: extCheck.reason });
+    const readFile = async (file) => {
+      let verdict;
+      try {
+        if (typeof window.Scanner?.scan !== 'function') {
+          throw new Error('File Scanner service is unavailable');
+        }
+        verdict = await window.Scanner.scan(file);
+      } catch (error) {
+        console.error('[Desktop Drop] File scan failed:', file.name, error);
+        Notify.show({ title: 'File Scan Failed', body: `Could not safely scan ${file.name}`, type: 'error', appName: 'System' });
+        return false;
+      }
+
+      if (!verdict.safe) {
+        const reason = verdict.reason || 'The file did not pass the safety scan.';
+        Notify.show({ title: 'File Blocked', body: `"${file.name}": ${reason}`, type: 'error', appName: 'System' });
+        console.warn('[Security] File blocked by scanner:', { file: file.name, reason });
         if (typeof EventLog !== 'undefined') {
-          EventLog.log({ app: 'Desktop', category: 'security', severity: 'warn', message: `Blocked file "${file.name}": ${extCheck.reason}`, data: { file: file.name, reason: extCheck.reason } });
+          EventLog.log({ app: 'Desktop', category: 'security', severity: 'warn', message: `Blocked file "${file.name}": ${reason}`, data: { file: file.name, reason } });
         }
-        resolve(false);
-        return;
+        return false;
       }
 
-      const reader = new FileReader();
-      const useText = isTextFile(file);
+      let content;
+      try {
+        const useText = isTextFile(file);
+        const result = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}`));
+          if (useText) reader.readAsText(file);
+          else reader.readAsDataURL(file);
+        });
 
-      reader.onload = async () => {
-        try {
-          let content;
-          if (useText) {
-            content = reader.result;
-            // Security: content pattern scan for text files (scanFileForThreats in system-events.js)
-            const scanResult = scanFileForThreats(content, file.name);
-            if (scanResult.isMalicious) {
-              const threatList = scanResult.patterns.join(', ');
-              Notify.show({ title: '⚠️ Malicious File Blocked', body: `"${file.name}" contains threats: ${threatList}`, type: 'error', appName: 'System' });
-              console.warn('[Security] Malicious file blocked:', { file: file.name, threats: scanResult.threats, patterns: scanResult.patterns });
-              if (typeof EventLog !== 'undefined') {
-                EventLog.log({ app: 'Desktop', category: 'security', severity: 'error', message: `Blocked malicious file "${file.name}": ${threatList}`, data: { file: file.name, threats: scanResult.threats } });
-              }
-              resolve(false);
-              return;
-            }
-          } else {
-            // Binary: store as base64 string so the VFS preserves the bytes intact
-            // and apps can decode it with Uint8Array.fromBase64 / atob.
-            content = extractBase64FromDataUrl(reader.result);
-          }
-
-          const mimeType = file.type || 'application/octet-stream';
-          await FS.createFile(desktopId, file.name, content, mimeType);
-          resolve(true);
-        } catch (err) {
-          console.error('[Desktop Drop] Error saving file:', err);
-          Notify.show({ title: 'Error', body: `Failed to add ${file.name}: ${err.message}`, type: 'error', appName: 'System' });
-          resolve(false);
-        }
-      };
-
-      reader.onerror = () => {
-        console.error('[Desktop Drop] File read error:', file.name);
-        Notify.show({ title: 'Error', body: `Failed to read ${file.name}`, type: 'error', appName: 'System' });
-        resolve(false);
-      };
-
-      if (useText) {
-        reader.readAsText(file);
-      } else {
-        reader.readAsDataURL(file);
+        // Binary content is stored as raw base64 so VFS consumers can decode
+        // the original bytes without a data-URL wrapper.
+        content = useText ? result : extractBase64FromDataUrl(result);
+        await FS.createFile(desktopId, file.name, content, file.type || 'application/octet-stream');
+        return true;
+      } catch (error) {
+        console.error('[Desktop Drop] File read or save failed:', file.name, error);
+        Notify.show({ title: 'Error', body: `Failed to add ${file.name}: ${error.message}`, type: 'error', appName: 'System' });
+        return false;
       }
-    });
+    };
 
     const results = await Promise.all([...droppedFiles].map(readFile));
     const succeeded = results.filter(Boolean).length;
@@ -1515,7 +1499,7 @@ function renderDesktopIcons() {
           WM.createWindow(shortcutData.target);
         }
       } else if (f.type === 'folder') {
-        WM.createWindow('vault', { folderId: f.id });
+        WM.createWindow('files', { folderId: f.id });
       } else {
         openFileWithDefaultApp(f);
       }
@@ -1538,7 +1522,7 @@ function renderDesktopIcons() {
                 WM.createWindow(shortcutData.target);
               }
             } else if (f.type === 'folder') {
-              WM.createWindow('vault', { folderId: f.id });
+              WM.createWindow('files', { folderId: f.id });
             } else {
               openFileWithDefaultApp(f);
             }
@@ -2039,7 +2023,7 @@ if (desktopEl) {
         }
       ] : []),
       { separator: true },
-      { label: 'Open Terminal', icon: 'terminal', action: () => WM.createWindow('shell') },
+      { label: 'Open Terminal', icon: 'terminal', action: () => WM.createWindow('terminal') },
       { label: 'Open Settings', icon: 'settings', action: () => WM.createWindow('com.nbosp.settings') },
       { separator: true },
       { label: 'Refresh', action: () => renderDesktopIcons() }
@@ -2177,7 +2161,8 @@ if (desktopEl) {
   window.renderDesktopIcons = renderDesktopIcons;
   window.LauncherShell = Object.freeze({
     renderDesktopIcons, updateTaskbar, renderLaunchpad, toggleLaunchpad,
-    posToCell: _posToCell, findFreeCell: _findFreeCell
+    posToCell: _posToCell, findFreeCell: _findFreeCell,
+    switchWorkspace, showAppSwitcher, hideAppSwitcher,
   });
 
 
@@ -2288,6 +2273,70 @@ OS.events.on('settings:changed', ({ key }) => {
     default:
       break;
   }
+});
+
+  const MAX_WORKSPACES = 9;
+
+// VIRTUAL DESKTOPS
+
+function switchWorkspace(direction) {
+  if (!OS.workspaces || OS.workspaces.length === 0) return;
+  const currentIdx = OS.workspaces.findIndex(w => w.id === OS.currentWorkspace);
+  const newIdx = currentIdx + direction;
+
+  if (newIdx >= 0 && newIdx < OS.workspaces.length) {
+    OS.currentWorkspace = OS.workspaces[newIdx].id;
+  } else if (newIdx >= OS.workspaces.length && OS.workspaces.length < MAX_WORKSPACES) {
+    const newWs = { id: Date.now(), name: `Workspace ${OS.workspaces.length + 1}` };
+    OS.workspaces.push(newWs);
+    OS.currentWorkspace = newWs.id;
+    EventLog?.log?.({ app: 'System', category: 'window', severity: 'info', message: `Created ${newWs.name}`, data: { workspaceId: newWs.id } });
+  }
+}
+
+// APP SWITCHER
+
+let switcherActive = false;
+let switcherIdx = 0;
+
+function showAppSwitcher() {
+  if (!OS.windows) return;
+  const windows = Array.from(OS.windows.values());
+  if (windows.length === 0) return;
+
+  switcherActive = true;
+  switcherIdx = 0;
+
+  const switcher = document.getElementById('app-switcher');
+  const list = document.getElementById('app-switcher-list');
+  if (!switcher || !list) return;
+  list.innerHTML = '';
+
+  windows.forEach((w, i) => {
+    const app = OS.apps?.[w.appId];
+    if (!app) return;
+    const item = createEl('div', { className: 'app-switcher-item' + (i === 0 ? ' active' : '') });
+    const icon = createEl('div', { className: 'app-switcher-icon' });
+    icon.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 32);
+    item.appendChild(icon);
+    item.appendChild(createEl('div', { className: 'app-switcher-name', textContent: app.name }));
+    list.appendChild(item);
+  });
+
+  switcher.classList.add('active');
+}
+
+function hideAppSwitcher() {
+  document.getElementById('app-switcher')?.classList.remove('active');
+  switcherActive = false;
+}
+
+document.addEventListener('keyup', (e) => {
+  if (!switcherActive || e.key !== 'Alt') return;
+  hideAppSwitcher();
+  if (!OS.windows) return;
+  const windows = Array.from(OS.windows.values());
+  if (windows[switcherIdx]) WM.focusWindow(windows[switcherIdx].id);
 });
 
   window.renderLaunchpad = renderLaunchpad;

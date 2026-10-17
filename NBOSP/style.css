@@ -42,7 +42,7 @@
     --accent-muted: rgba(88, 166, 255, 0.15);
 
     /* Window surface tokens */
-    --window-bg: rgba(10, 14, 22, 0.12);
+    --window-bg: rgba(10, 14, 22, 0.58);
     --window-border: rgba(255, 255, 255, 0.18);
     --window-shadow:
       0 32px 64px rgba(0, 0, 0, 0.45),
@@ -1520,10 +1520,10 @@
     inset: 0;
     border-radius: inherit;
     z-index: -1;
-    backdrop-filter: blur(12px) saturate(220%) brightness(108%);
-    -webkit-backdrop-filter: blur(12px) saturate(220%) brightness(108%);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
     filter: url(#glass-distortion-soft);
-    background: rgba(255, 255, 255, 0.10);
+    background: var(--window-bg, rgba(10, 14, 22, 0.58));
     pointer-events: none;
   }
 
@@ -1890,17 +1890,17 @@
   .context-menu {
     position: fixed;
     z-index: var(--z-popup);
-    background: rgba(255, 255, 255, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: var(--surface-overlay, rgba(8, 12, 20, 0.78));
+    border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.14));
     border-radius: var(--r-lg);
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.42),
+      inset 0 1.5px 0 var(--surface-highlight, rgba(255, 255, 255, 0.08)),
       inset 0 -1px 0 rgba(0, 0, 0, 0.14),
       0 20px 48px rgba(0, 0, 0, 0.55),
       0 8px 20px rgba(0, 0, 0, 0.30),
       0 2px 6px rgba(0, 0, 0, 0.20);
-    backdrop-filter: blur(52px) saturate(220%) brightness(110%);
-    -webkit-backdrop-filter: blur(52px) saturate(220%) brightness(110%);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
     padding: 5px;
     min-width: 190px;
     animation: ctxIn 200ms var(--ease-spring);
@@ -1916,10 +1916,10 @@
     padding: 1px;
     background: linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.40) 0%,
-      rgba(255, 255, 255, 0.10) 30%,
+      var(--surface-rim, rgba(255, 255, 255, 0.16)) 0%,
+      var(--surface-border-subtle, rgba(255, 255, 255, 0.04)) 30%,
       transparent 60%,
-      rgba(255, 255, 255, 0.08) 100%
+      var(--surface-border-subtle, rgba(255, 255, 255, 0.03)) 100%
     );
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -1980,24 +1980,6 @@
     height: 1px;
     background: var(--border-subtle);
     margin: 4px 8px;
-  }
-
-  /* Light-background variant — used when the menu opens over light content */
-  /* (e.g. an image thumbnail) so text stays readable. */
-  .context-menu.light-bg .ctx-item {
-    color: #1a1a1a;
-  }
-  .context-menu.light-bg .ctx-item:hover {
-    background: rgba(0, 0, 0, 0.08);
-  }
-  .context-menu.light-bg .ctx-item.danger {
-    color: #c41e1e;
-  }
-  .context-menu.light-bg .ctx-shortcut {
-    color: #555;
-  }
-  .context-menu.light-bg .ctx-separator {
-    background: rgba(0, 0, 0, 0.15);
   }
 
   /* Alt+Tab / Cmd+Tab app switcher — full-viewport blurred overlay with */
@@ -2100,16 +2082,16 @@
     pointer-events: none;
   }
   .toast {
-    background: rgba(255, 255, 255, 0.07);
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: var(--surface-overlay, rgba(8, 12, 20, 0.78));
+    border: 1px solid var(--surface-border, rgba(255, 255, 255, 0.12));
     border-radius: var(--r-lg);
     box-shadow:
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.40),
+      inset 0 1.5px 0 var(--surface-highlight, rgba(255, 255, 255, 0.07)),
       inset 0 -1px 0 rgba(0, 0, 0, 0.14),
       0 20px 48px rgba(0, 0, 0, 0.50),
       0 8px 20px rgba(0, 0, 0, 0.28);
-    backdrop-filter: blur(52px) saturate(220%) brightness(108%);
-    -webkit-backdrop-filter: blur(52px) saturate(220%) brightness(108%);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
     padding: 12px 16px;
     min-width: 280px;
     max-width: 380px;
@@ -2138,6 +2120,7 @@
     font-size: 13px;
     font-weight: 600;
     margin-bottom: 2px;
+    color: var(--text-primary);
   }
   .toast-body {
     font-size: 12px;
@@ -2198,10 +2181,9 @@
     position: absolute;
     inset: 0;
     z-index: -1;
-    backdrop-filter: blur(12px) saturate(220%) brightness(108%);
-    -webkit-backdrop-filter: blur(12px) saturate(220%) brightness(108%);
-    filter: url(#glass-distortion-soft);
-    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(28px) saturate(160%);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    background: var(--surface-panel, rgba(8, 12, 20, 0.82));
     pointer-events: none;
   }
   /* Layer 1 — left edge shine only. */
@@ -2213,10 +2195,10 @@
     background: linear-gradient(
       270deg,
       rgba(255, 255, 255, 0.00) 0%,
-      rgba(255, 255, 255, 0.65) 0.5%,
-      rgba(255, 255, 255, 0.20) 2%,
-      rgba(255, 255, 255, 0.04) 30%,
-      rgba(255, 255, 255, 0.04) 100%
+      var(--surface-rim, rgba(255, 255, 255, 0.65)) 0.5%,
+      var(--surface-border, rgba(255, 255, 255, 0.20)) 2%,
+      var(--surface-border-subtle, rgba(255, 255, 255, 0.04)) 30%,
+      var(--surface-border-subtle, rgba(255, 255, 255, 0.04)) 100%
     );
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -2241,9 +2223,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-    background: rgba(255, 255, 255, 0.04);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    border-bottom: 1px solid var(--surface-border-subtle, rgba(255, 255, 255, 0.08));
+    background: var(--surface-header, rgba(8, 12, 20, 0.24));
+    box-shadow: inset 0 1px 0 var(--surface-highlight, rgba(255, 255, 255, 0.06));
   }
   .notif-header h3 {
     font-size: 16px;
@@ -2268,44 +2250,44 @@
     border-radius: var(--r-sm);
     margin-bottom: 4px;
     transition: background var(--t-fast);
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-card, rgba(8, 12, 20, 0.34));
+    border: 1px solid var(--surface-border-subtle, rgba(255, 255, 255, 0.07));
   }
   .notif-item:hover {
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.14);
+    background: var(--surface-card-hover, rgba(18, 26, 40, 0.62));
+    border-color: var(--surface-border, rgba(255, 255, 255, 0.10));
   }
   .notif-item.read {
-    background: rgba(255, 255, 255, 0.02);
-    border-color: rgba(255, 255, 255, 0.05);
+    background: var(--surface-card-read, rgba(4, 7, 12, 0.42));
+    border-color: var(--surface-border-subtle, rgba(255, 255, 255, 0.04));
   }
   .notif-item.read .notif-item-title,
   .notif-item.read .notif-item-body,
   .notif-item.read .notif-item-time {
-    opacity: 0.55;
+    opacity: 0.75;
   }
   .notif-item.read:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.09);
+    background: var(--surface-card-hover, rgba(12, 18, 28, 0.58));
+    border-color: var(--surface-border-subtle, rgba(255, 255, 255, 0.07));
   }
   .notif-item-pinned.read {
-    background: rgba(88, 166, 255, 0.04);
-    border-color: rgba(88, 166, 255, 0.15);
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 15%, transparent);
   }
   .notif-item-pinned.read:hover {
-    background: rgba(88, 166, 255, 0.08);
-    border-color: rgba(88, 166, 255, 0.25);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 25%, transparent);
   }
   /* Pinned entries report an ongoing state (an app running in the */
   /* background), not a past event — the accent border + tint keeps them */
   /* visually distinct from the rest of the list they sort above. */
   .notif-item-pinned {
-    background: rgba(88, 166, 255, 0.08);
-    border-color: rgba(88, 166, 255, 0.3);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   }
   .notif-item-pinned:hover {
-    background: rgba(88, 166, 255, 0.13);
-    border-color: rgba(88, 166, 255, 0.4);
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   }
   .notif-item-content {
     flex: 1;
@@ -2329,8 +2311,8 @@
     width: 28px;
     height: 28px;
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--surface-border-subtle, rgba(255, 255, 255, 0.08));
+    background: var(--surface-highlight, rgba(255, 255, 255, 0.04));
     color: var(--text-muted);
     cursor: pointer;
     display: flex;
@@ -2339,56 +2321,8 @@
     transition: all 0.15s;
   }
   .notif-item-dismiss:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-border, rgba(255, 255, 255, 0.1));
     color: var(--text-primary);
-  }
-
-  /* Light-background variant for the notification panel — used when the */
-  /* desktop wallpaper behind it is light. */
-  .notification-panel.light-bg .notif-header h3,
-  .notification-panel.light-bg .notif-item-title {
-    color: #1a1a1a;
-  }
-  .notification-panel.light-bg .notif-item-body,
-  .notification-panel.light-bg .notif-item-time {
-    color: #444;
-  }
-  .notification-panel.light-bg .notif-item {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.08);
-  }
-  .notification-panel.light-bg .notif-item:hover {
-    background: rgba(0, 0, 0, 0.08);
-    border-color: rgba(0, 0, 0, 0.14);
-  }
-  .notification-panel.light-bg .notif-item.read {
-    background: rgba(0, 0, 0, 0.02);
-    border-color: rgba(0, 0, 0, 0.05);
-  }
-  .notification-panel.light-bg .notif-item.read:hover {
-    background: rgba(0, 0, 0, 0.05);
-    border-color: rgba(0, 0, 0, 0.09);
-  }
-  .notification-panel.light-bg .notif-item-pinned.read {
-    background: rgba(88, 166, 255, 0.04);
-    border-color: rgba(88, 166, 255, 0.15);
-  }
-  .notification-panel.light-bg .notif-item-pinned.read:hover {
-    background: rgba(88, 166, 255, 0.08);
-    border-color: rgba(88, 166, 255, 0.25);
-  }
-  .notification-panel.light-bg .notif-item-dismiss {
-    background: rgba(0, 0, 0, 0.04);
-    border-color: rgba(0, 0, 0, 0.08);
-    color: #666;
-  }
-  .notification-panel.light-bg .notif-item-dismiss:hover {
-    background: rgba(0, 0, 0, 0.08);
-    color: #1a1a1a;
-  }
-  .notification-panel.light-bg .notif-header {
-    background: rgba(0, 0, 0, 0.04);
-    border-bottom-color: rgba(0, 0, 0, 0.10);
   }
 
   /* Volume popup — small floating panel shown when adjusting system volume. */
@@ -3530,10 +3464,10 @@
     background: rgba(0, 0, 0, 0.50) !important;
   }
   .no-glass .context-menu {
-    background: rgba(10, 10, 10, 0.80) !important;
+    background: var(--bg-elevated) !important;
   }
   .no-glass .notification-toast {
-    background: rgba(10, 10, 10, 0.80) !important;
+    background: var(--bg-elevated) !important;
   }
 
   /* No-transparency mode — pushes every glass/translucent surface to */
@@ -3542,18 +3476,23 @@
   /* at the root covers every selector that consumes --bg-elevated / */
   /* --window-bg / etc. (~20+ surfaces) instead of chasing each one. */
   .no-transparency {
-    --bg-elevated:   #0e121c;
-    --bg-overlay:    #141a28;
-    --bg-sunken:     #030508;
-    --window-bg:     #0a0e16;
-    --taskbar-bg:    #060a12;
-    --bg-sidebar:    #04060c;
-    --bg-hover:      #262a33;
-    --glass-bg:      #0a0e16;
-    --lg-bg:         #1c1c1c;
-    --accent-muted:  #1c3352;
-    --window-blur:   none;
-    --lg-blur:       none;
+    --bg-elevated:   var(--bg-base) !important;
+    --bg-overlay:    var(--bg-base) !important;
+    --window-bg:     var(--bg-base) !important;
+    --taskbar-bg:    var(--bg-base) !important;
+    --bg-sidebar:    var(--bg-base) !important;
+    --bg-hover:      var(--bg-overlay) !important;
+    --glass-bg:      var(--bg-base) !important;
+    --lg-bg:         var(--bg-base) !important;
+    --surface-overlay: var(--bg-base) !important;
+    --surface-panel: var(--bg-base) !important;
+    --surface-header: var(--bg-base) !important;
+    --surface-card: var(--bg-base) !important;
+    --surface-card-hover: var(--bg-overlay) !important;
+    --surface-card-read: var(--bg-base) !important;
+    --accent-muted:  var(--bg-overlay) !important;
+    --window-blur:   none !important;
+    --lg-blur:       none !important;
   }
   .no-transparency *,
   .no-transparency *::before,
@@ -3564,9 +3503,11 @@
   .no-transparency .window,
   .no-transparency .app-window,
   .no-transparency .context-menu,
+  .no-transparency .toast,
   .no-transparency .notification-toast,
   .no-transparency .modal-dialog,
-  .no-transparency .modal-overlay {
+  .no-transparency .modal-overlay,
+  .no-transparency .volume-popup {
     background-color: var(--bg-elevated) !important;
     opacity: 1 !important;
   }
@@ -3579,6 +3520,11 @@
   .no-transparency #notification-panel::before {
     background: var(--bg-elevated) !important;
     filter: none !important;
+  }
+
+  .no-transparency #notification-panel {
+    background: var(--bg-elevated) !important;
+    opacity: 1 !important;
   }
 
   /* Launchpad and its icons set their own standalone rgba backgrounds */

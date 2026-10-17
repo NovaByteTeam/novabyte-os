@@ -2,6 +2,61 @@ import { describe, it, expect, vi } from 'vitest';
 import AppSandbox from '../../js/platform/security/app-sandbox.js';
 
 describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
+  it('runs a root-enabled Home app in the host instead of forcing it into a sandbox', async () => {
+    AppSandbox._internal._resetState();
+    const init = vi.fn();
+    const app = {
+      id: 'com.example.root-home',
+      name: 'Root Home',
+      permissions: ['system:root'],
+      unrestrictedEntry: 'root.js',
+      files: { 'root.js': Buffer.from('// root Home entry').toString('base64') },
+      handles: { roles: ['home'] },
+    };
+    const container = { innerHTML: '', style: {} };
+    const appendedScripts = [];
+    vi.stubGlobal('DefaultApps', {
+      getAppsForCategory: () => [{ id: app.id }],
+    });
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'system:root',
+    });
+    vi.stubGlobal('OS', {
+      apps: { [app.id]: { init } },
+      settings: {
+        get: key => key === 'devMode' || key === 'rootAccessEnabled',
+      },
+    });
+    vi.stubGlobal('document', {
+      createElement: () => ({ dataset: {}, textContent: '', type: '' }),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { appendChild: script => appendedScripts.push(script) },
+    });
+
+    try {
+      const result = await AppSandbox.launchHome(app, container);
+
+      expect(result).toMatchObject({
+        success: true,
+        unrestricted: true,
+        hostRendered: true,
+        appId: app.id,
+      });
+      expect(result.webview).toBeNull();
+      expect(appendedScripts).toHaveLength(1);
+      expect(appendedScripts[0].dataset.novaUnrestrictedApp).toBe(app.id);
+      expect(init).toHaveBeenCalledWith(
+        container,
+        expect.objectContaining({ homeSurface: true }),
+        { homeSurface: true }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+
   it('mediates permitted nested webviews through the host sibling bridge', () => {
     const shim = AppSandbox._internal.buildCapabilityShim(true);
     const script = shim.slice(shim.indexOf('<script>') + 8, shim.lastIndexOf('</script>'));
@@ -1144,7 +1199,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         'nova:sysdialog:save',
         { content: 'updated text', mimeType: 'text/plain' },
         'save-test',
-        { id: 'com.nbosp.quill' },
+        { id: 'com.nbosp.textedit' },
         { __directResponder: message => responses.push(message) }
       );
     } finally {

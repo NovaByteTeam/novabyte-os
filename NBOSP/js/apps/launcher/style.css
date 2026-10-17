@@ -668,4 +668,9 @@
   .no-transparency #taskbar::before { background: var(--bg-elevated) !important; filter: none !important; }
   .no-transparency #launchpad,
   .no-transparency .launchpad-icon { background: var(--bg-elevated) !important; }
+  .no-transparency #launchpad {
+    background: var(--bg-sunken) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }

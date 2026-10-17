@@ -1,5 +1,5 @@
 registerApp({
-  id: 'com.nbosp.quill',
+  id: 'com.nbosp.textedit',
   name: 'TextEdit',
   icon: 'pen-tool',
   version: '3.0.2',
@@ -18,7 +18,7 @@ registerApp({
       if (rafId) cancelAnimationFrame(rafId);
     };
 
-    if (!window.AppDirs?.getVFSDir('com.nbosp.quill', 'files')) {
+    if (!window.AppDirs?.getVFSDir('com.nbosp.textedit', 'files')) {
       Object.assign(content.style, {
         display: 'flex',
         alignItems: 'center',
@@ -32,7 +32,7 @@ registerApp({
 
       const icon = createEl('div', { style: 'font-size:32px', textContent: '⚠️' });
       const msg = createEl('div', { style: 'font-size:14px;text-align:center' });
-      const bold = createEl('b', { textContent: 'com.nbosp.quill' });
+      const bold = createEl('b', { textContent: 'com.nbosp.textedit' });
 
       msg.append(
         bold,
@@ -66,6 +66,9 @@ registerApp({
     const openBtn = createEl('button', {
       className: 'btn btn-sm', textContent: 'Open…', title: 'Open a file from the VFS'
     });
+    const wrapBtn = createEl('button', {
+      className: 'btn btn-sm', textContent: 'Word Wrap', title: 'Toggle word wrap'
+    });
     const editorWrap = createEl('div', { className: 'quill-editor-wrap' });
     const gutter = createEl('div', { className: 'quill-gutter', 'aria-hidden': 'true' });
     const textarea = createEl('textarea', {
@@ -77,13 +80,35 @@ registerApp({
       className: 'quill-statusbar',
       role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true'
     });
+    const wrapMeasure = createEl('div', { className: 'quill-wrap-measure', 'aria-hidden': 'true' });
 
-    toolbar.append(saveBtn, saveAsBtn, openBtn);
-    editorWrap.append(gutter, textarea);
+    toolbar.append(saveBtn, saveAsBtn, openBtn, wrapBtn);
+    editorWrap.append(gutter, textarea, wrapMeasure);
     container.append(toolbar, editorWrap, statusBar);
     content.appendChild(container);
 
     let prevLineCount = 0;
+    let prevGutterWrapped = false;
+    const wordWrapKey = 'nbosp.textedit.wordWrap';
+    let wordWrapEnabled = false;
+    try { wordWrapEnabled = localStorage.getItem(wordWrapKey) === 'true'; }
+    catch (err) { console.warn('[TextEdit] Could not read the word-wrap preference:', err); }
+
+    function updateWordWrap() {
+      textarea.wrap = wordWrapEnabled ? 'soft' : 'off';
+      textarea.classList.toggle('is-wrapped', wordWrapEnabled);
+      wrapBtn.setAttribute('aria-pressed', String(wordWrapEnabled));
+      wrapBtn.classList.toggle('btn-primary', wordWrapEnabled);
+      syncGutter();
+      scheduleUpdate();
+    }
+
+    wrapBtn.addEventListener('click', () => {
+      wordWrapEnabled = !wordWrapEnabled;
+      updateWordWrap();
+      try { localStorage.setItem(wordWrapKey, String(wordWrapEnabled)); }
+      catch (err) { console.warn('[TextEdit] Could not save the word-wrap preference:', err); }
+    }, { signal });
 
     function syncGutter() {
       const val = textarea.value;
@@ -91,12 +116,56 @@ registerApp({
       for (let i = 0; i < val.length; i++) {
         if (val.charCodeAt(i) === 10) count++;
       }
-      if (count === prevLineCount) return;
+      const gutterWidth = Math.max(58, String(count).length * 8 + 16);
+      editorWrap.style.setProperty('--quill-gutter-width', `${gutterWidth}px`);
+      textarea.style.paddingLeft = `${gutterWidth}px`;
+      if (!wordWrapEnabled && count === prevLineCount && !prevGutterWrapped) return;
       prevLineCount = count;
+      prevGutterWrapped = wordWrapEnabled;
 
-      const nums = new Array(count);
-      for (let i = 0; i < count; i++) nums[i] = i + 1;
-      gutter.textContent = nums.join('\n') + '\n';
+      if (!wordWrapEnabled) {
+        const nums = new Array(count);
+        for (let i = 0; i < count; i++) nums[i] = i + 1;
+        gutter.textContent = nums.join('\n');
+        gutter.scrollTop = textarea.scrollTop;
+        return;
+      }
+
+      const computed = getComputedStyle(textarea);
+      const lineHeight = Number.parseFloat(computed.lineHeight) || 20.8;
+      const contentWidth = Math.max(
+        1,
+        textarea.clientWidth -
+          (Number.parseFloat(computed.paddingLeft) || 0) -
+          (Number.parseFloat(computed.paddingRight) || 0)
+      );
+      Object.assign(wrapMeasure.style, {
+        width: `${contentWidth}px`,
+        font: computed.font,
+        lineHeight: computed.lineHeight,
+        letterSpacing: computed.letterSpacing,
+        tabSize: computed.tabSize,
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
+        wordBreak: 'normal'
+      });
+      const gutterRows = [];
+      const lines = val.split('\n');
+      const fragment = document.createDocumentFragment();
+      const measuredLines = lines.map((line, index) => {
+        const row = document.createElement('div');
+        row.textContent = line;
+        row.style.minHeight = `${lineHeight}px`;
+        fragment.appendChild(row);
+        return { row, index };
+      });
+      wrapMeasure.replaceChildren(fragment);
+      for (const { row, index } of measuredLines) {
+        const visualRows = Math.max(1, Math.round(row.getBoundingClientRect().height / lineHeight));
+        gutterRows.push(String(index + 1), ...new Array(visualRows - 1).fill(''));
+      }
+      gutter.textContent = gutterRows.join('\n');
+      gutter.scrollTop = textarea.scrollTop;
     }
 
     // Linear scan avoids allocating word arrays on every cursor movement or input event
@@ -143,7 +212,7 @@ registerApp({
     }
 
     function getFilesDir() {
-      return AppDirs.getVFSDir('com.nbosp.quill', 'files') ?? FS.specialFolders.documents;
+      return AppDirs.getVFSDir('com.nbosp.textedit', 'files') ?? FS.specialFolders.documents;
     }
 
     function spliceText(start, end, insert) {
@@ -405,6 +474,14 @@ registerApp({
     textarea.addEventListener('keyup', syncStatus, { signal, passive: true });
     textarea.addEventListener('keydown', onKeydown, { signal });
 
+    if (typeof ResizeObserver === 'function') {
+      const gutterResizeObserver = new ResizeObserver(() => {
+        if (wordWrapEnabled) syncGutter();
+      });
+      gutterResizeObserver.observe(textarea);
+      signal.addEventListener('abort', () => gutterResizeObserver.disconnect(), { once: true });
+    }
+
     if (options?.fileId) {
       const f = FS.files.get(options.fileId);
       if (f) {
@@ -418,6 +495,7 @@ registerApp({
 
     syncGutter();
     syncStatus();
+    updateWordWrap();
     requestAnimationFrame(() => textarea.focus());
   },
 
@@ -433,7 +511,7 @@ registerApp({
         content: text,
         mimeType: droppedFile.type || 'text/plain'
       });
-      WM.createWindow('com.nbosp.quill', { fileId });
+      WM.createWindow('com.nbosp.textedit', { fileId });
       Notify.show({ title: 'File Opened', body: droppedFile.name, type: 'success', appName: 'TextEdit' });
     } catch (err) {
       Notify.show({

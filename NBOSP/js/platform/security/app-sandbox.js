@@ -8225,17 +8225,63 @@ const AppSandbox = (() => {
 
   // Public lifecycle
 
+  function hasRootExecutionGrant(app) {
+    return !rootRevocationReloadScheduled
+      && (app?.permissions || []).includes('system:root')
+      && typeof AppPermissionManager !== 'undefined'
+      && AppPermissionManager.isGranted('system:root', app.id) === true
+      && typeof OS !== 'undefined'
+      && OS.settings?.get?.('devMode') === true
+      && OS.settings?.get?.('rootAccessEnabled') === true;
+  }
+
+  async function launchRootApp(app, container, state, options) {
+    const entryName = app.unrestrictedEntry || app.manifest?.unrestrictedEntry;
+    if (typeof entryName !== 'string' || !app.files?.[entryName]) {
+      if (typeof Notify !== 'undefined') Notify.show?.({
+        title: 'Root app could not start',
+        body: 'The package does not contain its declared unrestrictedEntry JavaScript file.',
+        type: 'error',
+        appName: app.name || 'System',
+      });
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({
+          app: 'AppSandbox',
+          category: 'security',
+          severity: 'error',
+          message: `Root launch blocked for ${app.id}: unrestricted entry missing`,
+          data: { appId: app.id, permission: 'system:root', action: 'root-launch-blocked' },
+        });
+      }
+      return null;
+    }
+    const reuseEntry = installRootApiAudit(app);
+    recordRootAudit(app, 'Root execution started');
+    app.__rootAccessActive = true;
+    try {
+      const result = await launchUnrestrictedHostApp(app, container, state, options, reuseEntry);
+      const rootRecord = rootExecutionApps.get(app.id);
+      if (rootRecord) rootRecord.entryLoaded = true;
+      return result;
+    } catch (error) {
+      console.error(`[RootAccess] Root app ${app.id} failed to start:`, error);
+      if (typeof Notify !== 'undefined') Notify.show?.({
+        title: 'Root app failed to start',
+        body: error?.message || 'The OS will reload to clear partially executed root code.',
+        type: 'error',
+        appName: app.name || 'System',
+      });
+      reloadAfterRootRevocation(`Root app ${app.id} failed to start`);
+      return null;
+    }
+  }
+
   async function launchHome(app, container) {
     if (!container) throw new Error('Home surface container is required');
     if (typeof DefaultApps === 'undefined'
       || !DefaultApps.getAppsForCategory('home').some(candidate => candidate.id === app?.id)) {
       throw new Error('App is not registered as an available Home app');
     }
-    if (typeof app.entry !== 'string' || typeof app.files?.[app.entry] !== 'string') {
-      throw new Error(`Home app ${app.id} is missing its packaged entry "${app.entry}"`);
-    }
-
-    container.replaceChildren();
     const state = {
       appId: app.id,
       content: container,
@@ -8244,6 +8290,14 @@ const AppSandbox = (() => {
       cleanups: [],
     };
     const launchOptions = { homeSurface: true };
+    if (hasRootExecutionGrant(app)) {
+      return launchRootApp(app, container, state, launchOptions);
+    }
+    if (typeof app.entry !== 'string' || typeof app.files?.[app.entry] !== 'string') {
+      throw new Error(`Home app ${app.id} is missing its packaged entry "${app.entry}"`);
+    }
+
+    container.replaceChildren();
     const webview = createSandbox(app, container, state, launchOptions, true);
     webview.style.cssText += 'position:fixed;inset:0;width:100vw;height:100vh;z-index:10;';
     webview.setAttribute('aria-label', `${app.name || app.id} Home`);
@@ -8272,59 +8326,13 @@ const AppSandbox = (() => {
     };
   }
 
-  // Launch an app in a sandboxed environment.
+  // Launch an app in a sandboxed environment unless root access is active.
   async function launch(app, container, state, options = {}) {
     if (!container) {
       throw new Error('Container element is required');
     }
 
-    const rootPermissionGranted = !rootRevocationReloadScheduled
-      && (app?.permissions || []).includes('system:root')
-      && typeof AppPermissionManager !== 'undefined'
-      && AppPermissionManager.isGranted('system:root', app.id) === true
-      && typeof OS !== 'undefined'
-      && OS.settings?.get?.('devMode') === true
-      && OS.settings?.get?.('rootAccessEnabled') === true;
-    if (rootPermissionGranted) {
-      const entryName = app.unrestrictedEntry || app.manifest?.unrestrictedEntry;
-      if (typeof entryName !== 'string' || !app.files?.[entryName]) {
-        if (typeof Notify !== 'undefined') Notify.show?.({
-          title: 'Root app could not start',
-          body: 'The package does not contain its declared unrestrictedEntry JavaScript file.',
-          type: 'error',
-          appName: app.name || 'System',
-        });
-        if (typeof EventLog !== 'undefined') {
-          EventLog.log({
-            app: 'AppSandbox',
-            category: 'security',
-            severity: 'error',
-            message: `Root launch blocked for ${app.id}: unrestricted entry missing`,
-            data: { appId: app.id, permission: 'system:root', action: 'root-launch-blocked' },
-          });
-        }
-        return null;
-      }
-      const reuseEntry = installRootApiAudit(app);
-      recordRootAudit(app, 'Root execution started');
-      app.__rootAccessActive = true;
-      try {
-        const result = await launchUnrestrictedHostApp(app, container, state, options, reuseEntry);
-        const rootRecord = rootExecutionApps.get(app.id);
-        if (rootRecord) rootRecord.entryLoaded = true;
-        return result;
-      } catch (error) {
-        console.error(`[RootAccess] Root app ${app.id} failed to start:`, error);
-        if (typeof Notify !== 'undefined') Notify.show?.({
-          title: 'Root app failed to start',
-          body: error?.message || 'The OS will reload to clear partially executed root code.',
-          type: 'error',
-          appName: app.name || 'System',
-        });
-        reloadAfterRootRevocation(`Root app ${app.id} failed to start`);
-        return null;
-      }
-    }
+    if (hasRootExecutionGrant(app)) return launchRootApp(app, container, state, options);
 
     // Re-run the package-level security gate at every launch. Never trust a
     // cached boolean supplied by the caller: the gate re-checks bundle

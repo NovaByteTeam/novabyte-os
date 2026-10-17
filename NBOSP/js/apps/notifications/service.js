@@ -475,51 +475,8 @@ const Notify = {
       Notify.updateBadge();
       updateNotificationBadge();
       Notify.renderPanel();
-      Notify._applyBackgroundContrast(panel);
     }
   },
-
-  // Samples the background behind the panel to decide whether it needs
-  // light or dark text. Each sample point costs a forced layout
-  // (elementFromPoint + getComputedStyle), so this only runs once per
-  // panel-open rather than on a timer or scroll handler. It stops at the
-  // first light, opaque-enough pixel it finds — a fully or mostly
-  // transparent background color isn't actually rendering as light on
-  // screen, so it shouldn't count as one just because its r/g/b channels
-  // happen to be bright.
-  _applyBackgroundContrast(panel) {
-    try {
-      const rect = panel.getBoundingClientRect();
-      const step = 30;
-      let lightSample = false;
-
-      outer:
-      for (let sx = rect.left + 10; sx < rect.right - 10; sx += step) {
-        for (let sy = rect.top + 10; sy < rect.bottom - 10; sy += step) {
-          const el = document.elementFromPoint(sx, sy);
-          if (!el) continue;
-          const bg = getComputedStyle(el).backgroundColor;
-          // Match decimals too, not just digits — rgba()'s alpha channel is
-          // often fractional (e.g. "0.5"), and a digits-only match would
-          // split that into "0" and "5" and throw off which value is which.
-          const m = bg.match(/[\d.]+/g);
-          if (!m || m.length < 3) continue;
-          const [r, g, b] = m;
-          const alpha = m.length >= 4 ? Number(m[3]) : 1;
-          if (alpha < 0.5) continue;
-          const luminance = 0.299 * Number(r) + 0.587 * Number(g) + 0.114 * Number(b);
-          if (luminance > 160) {
-            lightSample = true;
-            break outer;
-          }
-        }
-      }
-
-      panel.classList.toggle('light-bg', lightSample);
-    } catch (e) {
-      // If sampling fails, keep whatever text color class was already set.
-    }
-  }
 };
 
 if (typeof Notify !== 'undefined') {
