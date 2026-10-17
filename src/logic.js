@@ -50,13 +50,14 @@ const featuredVersion = document.getElementById('featured-version');
 const detailIcon     = document.getElementById('detail-icon');
 const detailName     = document.getElementById('detail-name');
 const detailAuthor   = document.getElementById('detail-author');
-const detailHeroBadges = document.getElementById('detail-hero-badges');
+const detailCats     = document.getElementById('detail-cats');
 const detailDesc     = document.getElementById('detail-desc');
 const detailId       = document.getElementById('detail-id');
 const detailVersion  = document.getElementById('detail-version');
 const detailSize     = document.getElementById('detail-size');
 const detailDev      = document.getElementById('detail-dev');
 const detailDownload = document.getElementById('detail-download');
+const readMoreBtn    = document.getElementById('read-more-btn');
 
 // ── Fetch apps ─────────────────────────────────────────────────────────────
 
@@ -175,8 +176,7 @@ function openDetail(app) {
   detailIcon.innerHTML = iconSvg(app.icon);
   detailName.textContent = app.name;
   detailAuthor.textContent = app.author ?? '';
-  detailHeroBadges.innerHTML = badgesHtml(app.categories);
-  detailDesc.textContent = app.description ?? '';
+  detailCats.innerHTML = badgesHtml(app.categories);
   detailId.textContent = app.id;
   detailVersion.textContent = `v${app.version}`;
   detailSize.textContent = app.size ?? '—';
@@ -184,12 +184,29 @@ function openDetail(app) {
   detailDownload.href = app.file;
   detailDownload.download = app.file.split('/').pop();
 
+  // Description + read-more
+  const desc = app.description ?? '';
+  detailDesc.textContent = desc;
+  detailDesc.classList.remove('is-expanded');
+  readMoreBtn.setAttribute('aria-expanded', 'false');
+  readMoreBtn.textContent = 'More';
+
+  // Show "More" button only if text is long enough to get clamped
+  // (rough heuristic: >200 chars is almost certainly going to clamp at 4 lines)
+  readMoreBtn.classList.toggle('hidden', desc.length <= 200);
+
   siteHeader.classList.add('hidden');
   storeView.classList.add('hidden');
   detailView.classList.remove('hidden');
   window.scrollTo(0, 0);
   backBtn.focus();
 }
+
+readMoreBtn.addEventListener('click', () => {
+  const expanded = detailDesc.classList.toggle('is-expanded');
+  readMoreBtn.setAttribute('aria-expanded', String(expanded));
+  readMoreBtn.textContent = expanded ? 'Less' : 'More';
+});
 
 function closeDetail() {
   detailView.classList.add('hidden');
