@@ -126,6 +126,9 @@ The `NBOSP/` folder in this repo is the **free, open base of NovaByte**.
 
 These are the **actual features pulled directly from the source code** — not guesses based on the app name. The codebase is large but most of that is OS infrastructure (VFS, security, routing, workers). The apps themselves are minimal.
 
+> [!NOTE]
+> Every built-in NBOSP app and headless system service is packaged as a `.novaapp`. If you are unfamiliar with the package format or how to build one, see [Building .novaapp Apps? Use NovaByte Studio](#-building-novaapp-apps-use-novabyte-studio).
+
 |App|What it actually does|
 |:--|:--------------------|
 |📁 **NBOSP Files**|Icon grid and list view. Sort by name, size, type, or modified date. Back/up navigation with a path bar. Search within the current folder. New file/folder, copy, cut, paste, rename (F2), move to trash, restore, permanent delete. Multi-select (Ctrl+A). Drag-and-drop file import, screened by the built-in scanner before anything is written to disk. Keyboard shortcuts. **No tabs, no split panes, no cloud sync, no bulk rename.**|
