@@ -35,6 +35,7 @@ registerApp({
       { id: 'storage',         name: 'Storage',          icon: 'database'      },
       { id: 'privacy',         name: 'Privacy',          icon: 'lock'          },
       { id: 'apps',            name: 'Apps',             icon: 'package'       },
+      { id: 'root',            name: 'Root Access',      icon: 'shield'        },
       { id: 'default-apps',    name: 'Default Apps',     icon: 'default-apps'  },
       { id: 'about',           name: 'About',            icon: 'info'          }
     ];
@@ -84,14 +85,15 @@ registerApp({
     ];
 
     const PERM_LABELS = {
-      'vfs:read': 'Read files', 'vfs:write': 'Write files', 'vfs:delete': 'Delete files', 'vfs:metadata': 'File metadata',
-      'net:internal': 'Internal network', 'net:external': 'External network', 'net:websocket': 'WebSocket',
+      'vfs:access': 'Read and edit shared files', 'vfs:read': 'Read files', 'vfs:write': 'Write app data', 'vfs:delete': 'Delete files', 'vfs:metadata': 'File metadata',
+      'net:internal': 'Internal network', 'net:external': 'Public internet', 'net:websocket': 'Public WebSocket',
+      'clipboard:read': 'Read clipboard', 'clipboard:write': 'Write clipboard',
       'mail:read': 'Read emails', 'mail:write': 'Compose emails', 'mail:send': 'Send emails', 'mail:delete': 'Delete emails',
       'calendar:read': 'Read calendar', 'calendar:write': 'Edit calendar', 'calendar:delete': 'Delete events',
       'contacts:read': 'Read contacts', 'contacts:write': 'Edit contacts',
       'device:camera': 'Camera', 'device:microphone': 'Microphone',
       'device:geolocation': 'Location', 'device:notifications': 'Notifications',
-      'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps',
+      'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps', 'system:app-launch': 'Launch apps',
       'system:background': 'Background tasks', 'system:background:live': 'Keep running in background', 'system:autostart': 'Start at launch',
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
@@ -464,6 +466,7 @@ registerApp({
     const IMPORT_PROTECTED_KEYS = new Set([
       'nova_manual_recovery', 'nova_safe_mode', 'nova_boot_attempts', 'nova_force_recovery'
     ]);
+    const IMPORT_PROTECTED_SETTINGS = new Set(['devMode', 'rootAccessEnabled']);
 
     // i18next is optional — load it once at init, not on every render
     let i18n = null;
@@ -488,6 +491,7 @@ registerApp({
     // Tracks overlays (pickers, dialogs, key-capture) mounted on document.body
     // so we can close them when the section changes or the app closes.
     const trackedOverlays = new Map(); // element -> AbortController
+    let rootAuditRefreshTimer = null;
 
     function mountOverlay(el) {
       const ac = new AbortController();
@@ -573,6 +577,7 @@ registerApp({
         case 'shortcuts':         renderShortcuts();       break;
         case 'privacy':           renderPrivacy();         break;
         case 'apps':              renderApps();            break;
+        case 'root':              renderRootAccess();      break;
         case 'default-apps':      renderDefaultApps();     break;
         case 'desktop':           renderDesktop();         break;
         case 'about':             renderAbout();           break;
@@ -886,6 +891,7 @@ registerApp({
           '\u2022 Visibility into running processes, memory, and module state\n' +
           '\u2022 The ability to inspect, alter, or revoke app permissions\n' +
           '\u2022 The ability to install, remove, or modify system packages\n\n' +
+          'Developer Mode also makes it possible to enable Root Access in Settings. Root Access is a separate device-wide switch, and each app still needs its own explicit grant. A root-approved app runs directly inside the OS page without a sandbox and can read or change system data and UI. Only grant it to apps you fully trust.\n\n' +
           'The following internal apps and tools become accessible:\n' +
           '\u2022 Console — runs arbitrary JavaScript in the full OS context with no sandboxing\n' +
           '\u2022 Inspector — can force-close arbitrary windows and export app state\n' +
@@ -1510,7 +1516,7 @@ registerApp({
           appAuthor   = novaData.author    || null;
         } else {
           const mapEntry = pmap[appId];
-          dangerous   = mapEntry?.dangerous ?? ['net:external', 'device:camera', 'device:microphone', 'device:geolocation'];
+          dangerous   = mapEntry?.dangerous ?? ['device:camera', 'device:microphone', 'device:geolocation'];
           normal      = mapEntry?.normal    ?? [];
           appVersion  = null;
           appVerified = null;
@@ -1822,7 +1828,7 @@ registerApp({
           iconWrap.appendChild(iconFor(chosen?.icon, chosen?.name));
 
           if (chosen) {
-            currentLabel.textContent = chosen.name + (chosenId ? '' : ' (default)');
+            currentLabel.textContent = chosen.name + (chosenId ? '' : ' (system default)');
           } else {
             currentLabel.textContent = 'No app available';
           }
@@ -1888,9 +1894,16 @@ registerApp({
           optRow.appendChild(radio);
 
           const choose = () => {
-            DefaultApps.setDefault(categoryId, app.id);
-            dismissOverlay(overlay);
-            onChosen();
+            try {
+              if (!DefaultApps.setDefault(categoryId, app.id)) {
+                Notify.show({ title: 'Default App Not Changed', body: 'This app is no longer available for this category.', type: 'error', appName: 'Nook' });
+                return;
+              }
+              dismissOverlay(overlay);
+              onChosen();
+            } catch (err) {
+              Notify.show({ title: 'Default App Not Changed', body: err?.message || 'Could not save the default app.', type: 'error', appName: 'Nook' });
+            }
           };
           optRow.addEventListener('click', choose, { signal: ac.signal });
           optRow.addEventListener('keydown', (e) => {
@@ -1899,6 +1912,25 @@ registerApp({
 
           body.appendChild(optRow);
         }
+
+        const resetRow = createEl('button', {
+          type: 'button',
+          textContent: 'Use system default',
+          style: 'width:100%;text-align:left;padding:10px;border:0;border-radius:8px;background:transparent;color:var(--text-secondary);font-size:12.5px;cursor:pointer;'
+        });
+        resetRow.addEventListener('click', () => {
+          try {
+            if (!DefaultApps.setDefault(categoryId, null)) {
+              Notify.show({ title: 'Default App Not Changed', body: 'Could not restore the system default.', type: 'error', appName: 'Nook' });
+              return;
+            }
+            dismissOverlay(overlay);
+            onChosen();
+          } catch (err) {
+            Notify.show({ title: 'Default App Not Changed', body: err?.message || 'Could not restore the system default.', type: 'error', appName: 'Nook' });
+          }
+        }, { signal: ac.signal });
+        body.appendChild(resetRow);
 
         card.appendChild(body);
         overlay.appendChild(card);
@@ -1987,6 +2019,10 @@ registerApp({
             const writes = [];
             if (data.settings && typeof data.settings === 'object') {
               for (const [k, v] of Object.entries(data.settings)) {
+                if (IMPORT_PROTECTED_SETTINGS.has(k)) {
+                  devLog('Skipping protected setting during import:', k);
+                  continue;
+                }
                 OS.settings._cache[k] = v;
                 writes.push(OS.workers.fs.call('putSetting', k, v));
               }
@@ -2113,6 +2149,210 @@ registerApp({
           if (isAlive()) adminToggle.disabled = false;
         }
       }, { signal: lifecycle.signal });
+    }
+
+    function renderRootAccess() {
+      mainContent.appendChild(createEl('h2', { textContent: 'Root Access', style: { marginBottom: '8px' } }));
+      mainContent.appendChild(createEl('p', {
+        textContent: 'Root apps run directly in the OS page with unrestricted access. This is not a sandbox or a normal app permission.',
+        style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', lineHeight: '1.55', marginBottom: '18px' }
+      }));
+
+      const devMode = OS.settings.get('devMode') === true;
+      const rootEnabled = OS.settings.get('rootAccessEnabled') === true;
+      const masterGroup = createEl('div', { className: 'nook-group' });
+      masterGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Root mode' }));
+
+      if (!devMode) {
+        masterGroup.appendChild(createEl('p', {
+          textContent: 'Enable Developer Mode before Root Access can be turned on.',
+          style: { color: 'var(--text-warning, #d29922)', fontSize: '13px', margin: '0' }
+        }));
+      } else {
+        const masterRow = createEl('div', { className: 'nook-toggle-row' });
+        masterRow.appendChild(createEl('span', { textContent: 'Enable Root Access for this device' }));
+        const masterToggle = createEl('button', {
+          className: 'toggle' + (rootEnabled ? ' active' : ''),
+          role: 'switch',
+          'aria-checked': String(rootEnabled),
+          'aria-label': 'Enable Root Access'
+        });
+        masterToggle.addEventListener('click', async () => {
+          const enable = !OS.settings.get('rootAccessEnabled');
+          if (enable && await showRootModeWarning() !== 'confirm') return;
+          if (!isAlive()) return;
+          OS.settings.set('rootAccessEnabled', enable);
+          masterToggle.classList.toggle('active', enable);
+          masterToggle.setAttribute('aria-checked', String(enable));
+          Notify.show({
+            title: enable ? 'Root Access Enabled' : 'Root Access Disabled',
+            body: enable
+              ? 'Apps still need an individual root grant before they run in the OS page.'
+              : 'Root grants are inactive until Root Access is enabled again.',
+            type: enable ? 'warn' : 'info',
+            appName: 'Settings'
+          });
+          if (!enable && typeof AppSandbox !== 'undefined'
+            && AppSandbox.reloadAfterRootRevocation?.('Root Access was disabled')) return;
+          renderContent();
+        }, { signal: lifecycle.signal });
+        masterRow.appendChild(masterToggle);
+        masterGroup.appendChild(masterRow);
+      }
+      mainContent.appendChild(masterGroup);
+
+      if (!devMode || !rootEnabled) {
+        mainContent.appendChild(createEl('div', {
+          className: 'empty-state',
+          textContent: !devMode
+            ? 'Root execution is disabled until Developer Mode and Root Access are both enabled.'
+            : 'Root execution is disabled. Turn on Root Access to manage root-enabled apps and activity.'
+        }));
+        return;
+      }
+
+      const rootAppsById = new Map();
+      for (const app of (typeof AppRegistry !== 'undefined' ? AppRegistry.getAllApps() : [])) {
+        if (app?.id) rootAppsById.set(app.id, app);
+      }
+      try {
+        const installedPackages = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+        if (Array.isArray(installedPackages)) {
+          for (const app of installedPackages) {
+            if (app?.id && !rootAppsById.has(app.id)) rootAppsById.set(app.id, app);
+          }
+        }
+      } catch (error) {
+        console.error('[Settings] Could not read installed packages for Root Access:', error);
+      }
+      const rootApps = [...rootAppsById.values()].filter(app => {
+        const declared = [
+          ...(Array.isArray(app.permissions) ? app.permissions : []),
+          ...(Array.isArray(app.manifest?.permissions) ? app.manifest.permissions : [])
+        ].includes('system:root');
+        const granted = AppPermissionManager.getAppPermissions(app.id)
+          .some(grant => grant.permission === 'system:root' && grant.granted === true);
+        return declared || granted;
+      });
+      const appGroup = createEl('div', { className: 'nook-group' });
+      appGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Apps requesting root access' }));
+      if (!rootApps.length) {
+        appGroup.appendChild(createEl('p', {
+          textContent: 'No installed apps request or currently have a root access grant.',
+          style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', margin: '0' }
+        }));
+      }
+      for (const app of rootApps) {
+        const row = createEl('div', { className: 'nook-toggle-row' });
+        const details = createEl('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } });
+        details.appendChild(createEl('span', { textContent: app.name || app.id }));
+        details.appendChild(createEl('span', {
+          textContent: app.id,
+          style: { color: 'var(--text-secondary, #8b949e)', fontSize: '11px' }
+        }));
+        const rootGrant = AppPermissionManager.getAppPermissions(app.id)
+          .find(grant => grant.permission === 'system:root' && grant.granted === true);
+        const granted = !!rootGrant;
+        const toggle = createEl('button', {
+          className: 'toggle' + (granted ? ' active' : ''),
+          role: 'switch',
+          'aria-checked': String(granted),
+          'aria-label': `Root access for ${app.name || app.id}`,
+          disabled: !granted && (!devMode || !rootEnabled)
+        });
+        toggle.addEventListener('click', async () => {
+          toggle.disabled = true;
+          try {
+            const existingGrant = AppPermissionManager.getAppPermissions(app.id)
+              .some(grant => grant.permission === 'system:root' && grant.granted === true);
+            if (existingGrant) {
+              await AppPermissionManager.revokePermission('system:root', app.id);
+              Notify.show({ title: 'Root Access Revoked', body: `${app.name} can no longer launch with root access.`, type: 'success', appName: 'Settings' });
+              if (typeof AppSandbox !== 'undefined'
+                && AppSandbox.reloadAfterRootRevocation?.(`Root access for ${app.id} was revoked`)) return;
+            } else {
+              if (!devMode || !rootEnabled) return;
+              const grantedNow = await AppPermissionManager.requestPermission('system:root', app.id, { appName: app.name });
+              if (!grantedNow) return;
+            }
+          } catch (err) {
+            Notify.show({ title: 'Could Not Update Root Access', body: err?.message || 'Try again.', type: 'error', appName: 'Settings' });
+          } finally {
+            if (isAlive()) renderContent();
+          }
+        }, { signal: lifecycle.signal });
+        row.append(details, toggle);
+        appGroup.appendChild(row);
+      }
+      mainContent.appendChild(appGroup);
+
+      const auditGroup = createEl('div', { className: 'nook-group' });
+      auditGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Root API audit log' }));
+      auditGroup.appendChild(createEl('p', {
+        textContent: 'Up to 1,000 recent calls are retained; the latest 100 are displayed here. This is not a complete record of direct JavaScript or browser activity, and root apps may alter same-origin logs.',
+        style: { color: 'var(--text-secondary, #8b949e)', fontSize: '12px', lineHeight: '1.5' }
+      }));
+      const auditEntries = (typeof AppSandbox !== 'undefined' ? AppSandbox.getRootAuditLog?.() || [] : []).slice(0, 100);
+      if (!auditEntries.length) {
+        auditGroup.appendChild(createEl('p', {
+          textContent: 'No root activity has been recorded.',
+          style: { color: 'var(--text-secondary, #8b949e)', fontSize: '12px', margin: '0' }
+        }));
+      } else {
+        for (const entry of auditEntries) {
+          const item = createEl('div', { className: 'nook-row' });
+          const when = new Date(entry.timestamp).toLocaleString();
+          item.appendChild(createEl('span', {
+            textContent: `${when} — ${entry.appName || entry.appId}: ${entry.api}`,
+            style: { fontSize: '12px', lineHeight: '1.45', overflowWrap: 'anywhere' }
+          }));
+          auditGroup.appendChild(item);
+        }
+      }
+      mainContent.appendChild(auditGroup);
+    }
+
+    function showRootModeWarning() {
+      return new Promise(resolve => {
+        const overlay = createEl('div', {
+          style: 'position:fixed;inset:0;z-index:99001;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px;'
+        });
+        const ac = mountOverlay(overlay);
+        let settled = false;
+        const finish = value => {
+          if (settled) return;
+          settled = true;
+          dismissOverlay(overlay);
+          resolve(value);
+        };
+        ac.signal.addEventListener('abort', () => finish(null));
+        const card = createEl('div', {
+          style: 'background:var(--bg-elevated,#1b1f23);border:2px solid var(--text-danger,#f85149);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.65);padding:24px;max-width:540px;width:100%;'
+        });
+        card.appendChild(createEl('h2', {
+          textContent: 'Enable Root Access?',
+          style: { color: 'var(--text-danger, #f85149)', margin: '0 0 12px' }
+        }));
+        card.appendChild(createEl('p', {
+          textContent: 'This allows individually approved .novaapp packages to execute JavaScript in the OS page instead of their sandbox. A root app can read and change OS data, manipulate system UI, and interfere with other apps.',
+          style: { color: 'var(--text-secondary, #c9d1d9)', fontSize: '13px', lineHeight: '1.55' }
+        }));
+        card.appendChild(createEl('p', {
+          textContent: 'Root API calls are logged, but arbitrary JavaScript and browser activity cannot be fully observed. Only enable this on a development device and grant root only to apps you trust.',
+          style: { color: 'var(--text-danger, #ff7b72)', fontSize: '13px', lineHeight: '1.55' }
+        }));
+        const actions = createEl('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px' } });
+        const cancel = createEl('button', { className: 'btn', textContent: 'Cancel' });
+        const enable = createEl('button', { className: 'btn btn-danger', textContent: 'Enable Root Access' });
+        actions.append(cancel, enable);
+        card.appendChild(actions);
+        overlay.appendChild(card);
+        overlay.addEventListener('click', event => {
+          if (event.target === overlay || event.target === cancel) finish(null);
+          else if (event.target === enable) finish('confirm');
+        }, { signal: ac.signal });
+        enable.focus();
+      });
     }
 
     // Shortcuts
@@ -2389,15 +2629,26 @@ registerApp({
     if (typeof OS !== 'undefined' && OS.events && typeof OS.events.on === 'function') {
       const settingsHandler = ({ key }) => {
         if (!isAlive()) return;
-        if (key === 'devMode' && currentSection === 'apps') renderContent();
+        if (key === 'devMode' && ['apps', 'root'].includes(currentSection)) renderContent();
         if (key === 'region' && currentSection === 'about') renderContent();
       };
       OS.events.on('settings:changed', settingsHandler);
+      const unsubscribeRootAudit = typeof AppSandbox !== 'undefined' && AppSandbox.subscribeRootAudit
+        ? AppSandbox.subscribeRootAudit(() => {
+          if (!isAlive() || currentSection !== 'root' || rootAuditRefreshTimer) return;
+          rootAuditRefreshTimer = setTimeout(() => {
+            rootAuditRefreshTimer = null;
+            if (isAlive() && currentSection === 'root') renderContent();
+          }, 750);
+        })
+        : null;
 
       // Return cleanup so the host can tear us down cleanly
       return () => {
         lifecycle.abort();
         closeAllOverlays();
+        if (rootAuditRefreshTimer) clearTimeout(rootAuditRefreshTimer);
+        unsubscribeRootAudit?.();
         try {
           if (typeof OS.events.off === 'function') OS.events.off('settings:changed', settingsHandler);
         } catch { /* off may not exist — listener is isAlive-guarded */ }

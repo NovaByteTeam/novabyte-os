@@ -745,7 +745,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         // to offer the app as a Default Apps candidate). Was missing here —
         // same bug class as app-registry.js's registerApp()/initialize(),
         // just in this install path's separate config builder instead.
-        handles: appData.handles ?? undefined,
+        handles: appData.handles ?? appData.manifest?.handles ?? undefined,
 
         async init(contentEl, state, options) {
           // Scoped to this one launch — see the header comment above for
@@ -772,11 +772,23 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           // just disabling that one feature.
           const requiredPerms = appData.permissions || [];
           const optionalPerms = appData.optionalPermissions || [];
-          const allDangerous = [...requiredPerms, ...optionalPerms];
+          const allDeclared = [...new Set([...requiredPerms, ...optionalPerms])];
 
-          if (allDangerous.length > 0 && typeof AppPermissionManager !== 'undefined') {
+          if (allDeclared.length > 0 && typeof AppPermissionManager !== 'undefined') {
             const mgr = AppPermissionManager;
-            const missing = allDangerous.filter(p => !mgr.isGranted(p, appId) && !(mgr.isDenied && mgr.isDenied(p, appId)));
+            for (const permission of allDeclared) {
+              await mgr.autoGrantLowRisk?.(permission, appId);
+            }
+            // Optional permissions are requested by the app at the point a
+            // feature needs them. Only missing required medium-or-higher
+            // permissions enter the launch consent queue.
+            const requiredSensitive = requiredPerms.filter(permission =>
+              mgr.PERMISSION_CATEGORIES?.[permission]?.risk !== 'low'
+            );
+            const missing = requiredSensitive.filter(permission =>
+              !mgr.isGranted(permission, appId)
+              && !(mgr.isDenied && mgr.isDenied(permission, appId))
+            );
             if (missing.length > 0) {
               await mgr.requestAll(missing, appId, appData.name || appId);
             }
@@ -791,6 +803,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               entry: appData.entry || 'index.html',
               unrestrictedEntry: appData.unrestrictedEntry || appData.manifest?.unrestrictedEntry || null,
               files: appData.files || {},
+              handles: appData.handles ?? appData.manifest?.handles ?? undefined,
               sandbox: appData.sandbox || { allowScripts: true, allowForms: true, allowPopups: false },
               permissions: appData.permissions || [],
               optionalPermissions: appData.optionalPermissions || [],
@@ -813,7 +826,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               // Manifest opt-in for nested <webview> creation — see
               // isNestedWebviewPermitted() in app-sandbox.js. Must also hold
               // the 'sandbox:nested-webview' grant; this alone doesn't enable it.
-              allowNestedWebview: appData.allowNestedWebview === true,
+              allowNestedWebview: appData.allowNestedWebview === true
+                || appData.manifest?.allowNestedWebview === true,
               // These three were previously dropped here, so app-sandbox.js's
               // app.transparent check (the html/body background injection)
               // and isTrustedTransparentSystemApp() gate (transparent + system

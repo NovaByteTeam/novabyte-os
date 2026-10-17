@@ -17,6 +17,17 @@ const AppSandbox = (() => {
   // Active sandboxes keyed by sandboxId. Each value holds the webview element,
   // app metadata, window state, WebSocket connections, and a teardown function.
   const activeSandboxes = new Map();
+  const rootExecutionApps = new Map();
+  const ROOT_AUDIT_STORAGE_KEY = 'novaOS_root_audit';
+  const ROOT_AUDIT_MAX_ENTRIES = 1000;
+  const rootAuditSetTimeout = window.setTimeout.bind(window);
+  const rootAuditClearTimeout = window.clearTimeout.bind(window);
+  const rootRevocationSetTimeout = window.setTimeout.bind(window);
+  const rootAuditWrappedFunctions = new WeakSet();
+  const rootAuditSubscribers = new Set();
+  let rootRevocationReloadScheduled = false;
+  let rootAuditEntries = null;
+  let rootAuditPersistTimer = null;
 
   // Event subscriptions keyed by sandboxId, then event name -> handler.
   // Kept in a separate map so cleanup can iterate without touching the sandbox
@@ -26,6 +37,156 @@ const AppSandbox = (() => {
   // Open file dialogs keyed by sandboxId, so we can tear them down when a
   // sandbox is destroyed mid-dialog (prevents orphaned overlays in the DOM).
   const openDialogs = new Map();
+  const shareDialogs = new Map();
+
+  function getRootAuditEntries() {
+    if (rootAuditEntries) return rootAuditEntries.slice();
+    try {
+      const saved = JSON.parse(localStorage.getItem(ROOT_AUDIT_STORAGE_KEY) || '[]');
+      rootAuditEntries = Array.isArray(saved) ? saved.filter(entry =>
+        entry && typeof entry === 'object' && typeof entry.timestamp === 'number'
+      ) : [];
+      return rootAuditEntries.slice();
+    } catch (error) {
+      console.error('[RootAccess] Could not read the root audit log:', error);
+      rootAuditEntries = [];
+      return [];
+    }
+  }
+
+  function recordRootAudit(app, api, severity = 'info') {
+    const entry = {
+      timestamp: Date.now(),
+      appId: app.id,
+      appName: app.name || app.id,
+      api,
+      severity,
+    };
+    if (!rootAuditEntries) rootAuditEntries = getRootAuditEntries();
+    rootAuditEntries.unshift(entry);
+    if (rootAuditEntries.length > ROOT_AUDIT_MAX_ENTRIES) rootAuditEntries.length = ROOT_AUDIT_MAX_ENTRIES;
+    if (!rootAuditPersistTimer) {
+      rootAuditPersistTimer = rootAuditSetTimeout(() => {
+        rootAuditPersistTimer = null;
+        persistRootAudit();
+      }, 250);
+    }
+    for (const subscriber of rootAuditSubscribers) {
+      try {
+        subscriber(entry);
+      } catch (error) {
+        console.error('[RootAccess] Root audit subscriber failed:', error);
+      }
+    }
+  }
+
+  function persistRootAudit() {
+    try {
+      localStorage.setItem(ROOT_AUDIT_STORAGE_KEY, JSON.stringify(rootAuditEntries || []));
+    } catch (error) {
+      console.error('[RootAccess] Could not persist the root audit log:', error);
+    }
+  }
+
+  function flushRootAudit() {
+    if (rootAuditPersistTimer) {
+      rootAuditClearTimeout(rootAuditPersistTimer);
+      rootAuditPersistTimer = null;
+    }
+    persistRootAudit();
+  }
+
+  function identifyRootCaller(stack) {
+    for (const app of rootExecutionApps.values()) {
+      const marker = `novaapp:${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}/`;
+      if (stack.includes(marker)) return app;
+    }
+    return null;
+  }
+
+  function installRootApiAudit(app) {
+    const existing = rootExecutionApps.get(app.id);
+    rootExecutionApps.set(app.id, {
+      id: app.id,
+      name: app.name || app.id,
+      entryLoaded: existing?.entryLoaded === true,
+    });
+    const seenObjects = new WeakSet();
+    const excludedMethods = new Set(['log']);
+
+    function instrument(value, path, depth) {
+      if (!value || typeof value !== 'object' || seenObjects.has(value) || depth > 2) return;
+      let prototype;
+      try {
+        prototype = Object.getPrototypeOf(value);
+      } catch (error) {
+        console.error(`[RootAccess] Could not inspect API namespace ${path}:`, error);
+        return;
+      }
+      if (prototype !== Object.prototype && prototype !== null) return;
+      seenObjects.add(value);
+
+      for (const key of Object.keys(value)) {
+        let current;
+        try {
+          current = value[key];
+        } catch (error) {
+          console.error(`[RootAccess] Could not inspect API ${path}.${key}:`, error);
+          continue;
+        }
+        const apiPath = `${path}.${key}`;
+        if (typeof current === 'function' && !excludedMethods.has(key) && !rootAuditWrappedFunctions.has(current)) {
+          const original = current;
+          const wrapped = function(...args) {
+            const caller = identifyRootCaller(new Error().stack || '');
+            if (caller) recordRootAudit(caller, apiPath);
+            return Reflect.apply(original, this, args);
+          };
+          try {
+            value[key] = wrapped;
+            if (value[key] === wrapped) rootAuditWrappedFunctions.add(wrapped);
+          } catch (error) {
+            console.error(`[RootAccess] Could not instrument API ${apiPath}:`, error);
+          }
+        } else if (current && typeof current === 'object') {
+          instrument(current, apiPath, depth + 1);
+        }
+      }
+    }
+
+    for (const name of ['OS', 'FS', 'WM', 'AppRegistry', 'AppPermissionManager', 'Notify', 'DefaultApps', 'Boot', 'Kernel', 'VFS']) {
+      const api = window[name];
+      if (api && typeof api === 'object') {
+        try {
+          instrument(api, name, 0);
+        } catch (error) {
+          console.error(`[RootAccess] Could not instrument API namespace ${name}:`, error);
+        }
+      }
+      return existing?.entryLoaded === true;
+    }
+  }
+
+  function reloadAfterRootRevocation(reason) {
+    if (!rootExecutionApps.size || rootRevocationReloadScheduled) return false;
+    rootRevocationReloadScheduled = true;
+    for (const app of rootExecutionApps.values()) {
+      recordRootAudit(app, `Root execution revoked: ${reason}`, 'warn');
+    }
+    flushRootAudit();
+    try {
+      if (typeof OS !== 'undefined' && typeof WM !== 'undefined') {
+        for (const [windowId, state] of OS.windows || []) {
+          if (rootExecutionApps.has(state.appId)) WM.closeWindow(windowId);
+        }
+      }
+    } catch (error) {
+      console.error('[RootAccess] Could not close every root app window before reload:', error);
+    } finally {
+      rootRevocationSetTimeout(() => window.location.reload(), 100);
+    }
+    return true;
+  }
 
   // Constants
 
@@ -151,6 +312,13 @@ const AppSandbox = (() => {
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return sharedTextDecoder.decode(bytes);
+  }
+
+  function encodeBase64Bytes(bytes) {
+    if (typeof bytes.toBase64 === 'function') return bytes.toBase64();
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
   }
 
   // Structured logger. Debug-level messages are gated on a window flag so
@@ -493,8 +661,27 @@ const AppSandbox = (() => {
     return m ? m[1] : null;
   }
 
-  // requireOwnAppData: true for write/delete/rename/move — these can only
-  // ever touch the calling app's own /data/<appId>/ subtree, full stop.
+  function ownerAppIdForNode(node, canonicalPath) {
+    const canonicalOwner = ownerAppIdForPath(canonicalPath);
+    if (canonicalOwner !== null) return canonicalOwner;
+
+    const trashId = FS.specialFolders?.trash;
+    const trashPath = trashId ? FS.getPath(trashId) : null;
+    if (!trashId || !trashPath || !canonicalPath.startsWith(`${trashPath}/`)) return null;
+
+    let current = node;
+    while (current && current.id !== trashId) {
+      if (current._originalParent) {
+        const originalParentPath = FS.getPath(current._originalParent);
+        return ownerAppIdForPath(`${originalParentPath}/${current.name}`);
+      }
+      current = FS.files.get(current.parentId);
+    }
+    return '\0'; // Legacy trash entries without ownership metadata fail closed.
+  }
+
+  // requireOwnAppData: true for mutations unless vfs:access grants access to
+  // shared user files. No grant can reach another app's private data subtree.
   // false for read — apps can see the shared/general tree (anything not
   // under any app's /data/ prefix) plus their own /data/<appId>/, but
   // never another app's /data/<otherAppId>/. This mirrors how mobile
@@ -506,7 +693,7 @@ const AppSandbox = (() => {
   // vfs:read/write/delete could reach any file's node directly as long as
   // it knew (or guessed/enumerated) an id, regardless of which app's
   // /data/ folder it actually lived in. That's the bug this closes.
-  function resolveFile(payload, appId, requireOwnAppData) {
+  function resolveFile(payload, appId, requireOwnAppData, allowSharedMutation = false) {
     const { path, id } = payload ?? {};
     let node = null;
     if (id) {
@@ -523,18 +710,41 @@ const AppSandbox = (() => {
     if (!node) return null;
 
     const canonicalPath = FS.getPath(node.id);
-    const ownerAppId = ownerAppIdForPath(canonicalPath);
+    const ownerAppId = ownerAppIdForNode(node, canonicalPath);
     const safeAppId = sanitizeAppIdSegment(appId);
 
-    // Enforce VFS ownership for every sandboxed caller: reads may access
-    // shared files or the caller's own /data/<appId>/ subtree, while writes
-    // and other mutations must stay inside the caller's own subtree.
+    // Enforce VFS ownership for every sandboxed caller. Broad access includes
+    // shared user files, never another app's private data.
     if (ownerAppId !== null) {
       if (ownerAppId !== safeAppId) return null;
-    } else if (requireOwnAppData) {
+    } else if (requireOwnAppData && !allowSharedMutation) {
       return null;
     }
     return node;
+  }
+
+  function hasVfsAccess(appId) {
+    return AppPermissionManager.isGranted('vfs:access', appId);
+  }
+
+  function hasVfsRead(appId) {
+    return hasVfsAccess(appId) || AppPermissionManager.isGranted('vfs:read', appId);
+  }
+
+  function hasVfsWrite(appId) {
+    return hasVfsAccess(appId) || AppPermissionManager.isGranted('vfs:write', appId);
+  }
+
+  function isAppDataContainer(node) {
+    return node?.type === 'folder' && FS.getPath(node.id) === '/data';
+  }
+
+  function canPickerAccess(node, appId, {
+    writable = false, sharedWrite = false, allowContainerNavigation = true,
+  } = {}) {
+    if (!node) return false;
+    if (allowContainerNavigation && (node.id === FS.rootId || isAppDataContainer(node))) return true;
+    return !!resolveFile({ id: node.id }, appId, writable, sharedWrite);
   }
 
   // Convert a file node to a safe serializable object.
@@ -643,7 +853,13 @@ const AppSandbox = (() => {
 
     function renderFileList() {
       fileList.innerHTML = '';
-      const children = FS.listDir(currentFolderId);
+      const broadAccess = hasVfsAccess(app.id);
+      const children = FS.listDir(currentFolderId).filter(item =>
+        mode === 'open'
+          ? resolveFile({ id: item.id }, app.id)
+          : resolveFile({ id: item.id }, app.id, true, broadAccess)
+            || (item.type === 'folder' && FS.getPath(item.id) === '/data')
+      );
 
       children.sort((a, b) => {
         if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
@@ -811,7 +1027,7 @@ const AppSandbox = (() => {
       if (mode === 'open') {
         if (!selectedFile) return;
         const node = FS.files.get(selectedFile);
-        if (!node || node.type === 'folder') return;
+        if (!node || node.type === 'folder' || !resolveFile({ id: node.id }, app.id)) return;
         closeDialog();
         respond(webview, type, requestId, {
           success: true,
@@ -827,6 +1043,10 @@ const AppSandbox = (() => {
       } else {
         const name = filenameInput.value.trim();
         if (!name) return;
+        if (!resolveFile({ id: currentFolderId }, app.id, true, hasVfsAccess(app.id))) {
+          closeDialog();
+          return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'Selected folder is outside this app\'s writable VFS');
+        }
         const content = payload.content || '';
         const mimeType = payload.mimeType || 'text/plain';
         try {
@@ -909,14 +1129,22 @@ const AppSandbox = (() => {
 
   // Filesystem
 
-  async function handleFsRead({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
-      return respondError(webview, 'nova:vfs:read', requestId, 'PERMISSION_DENIED', 'vfs:read permission required');
+  function getOpenFileForSandbox(sandbox, payload) {
+    const grantedId = sandbox?.openFile?.id;
+    if (!grantedId || payload?.id !== grantedId) return null;
+    const node = FS.files.get(grantedId);
+    return node?.type === 'file' && sandbox.openFile.node === node ? node : null;
+  }
+
+  async function handleFsRead({ payload, requestId, app, webview, sandbox }) {
+    const selectedFile = getOpenFileForSandbox(sandbox, payload);
+    if (!hasVfsRead(app.id) && !selectedFile) {
+      return respondError(webview, 'nova:vfs:read', requestId, 'PERMISSION_DENIED', 'vfs:read or vfs:access permission required');
     }
-    const node = resolveFile(payload, app.id);
+    const node = selectedFile || resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:vfs:read', requestId, 'NOT_FOUND', 'File or folder not found');
     if (node.type === 'folder') {
-      const children = FS.listDir(node.id);
+      const children = FS.listDir(node.id).filter(child => resolveFile({ id: child.id }, app.id));
       return respond(webview, 'nova:vfs:read', requestId, {
         success: true,
         isFolder: true,
@@ -942,11 +1170,21 @@ const AppSandbox = (() => {
     });
   }
 
-  async function handleFsWrite({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:write', app.id)) {
-      return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
+  async function handleFsWrite({ payload, requestId, app, webview, sandbox }) {
+    const broadAccess = hasVfsAccess(app.id);
+    const selectedFile = getOpenFileForSandbox(sandbox, payload);
+    if (!hasVfsWrite(app.id) && !selectedFile) {
+      return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'vfs:write or vfs:access permission required');
     }
     const { path, content, mimeType } = payload ?? {};
+    if (selectedFile) {
+      if (content === undefined || content === null) {
+        return respondError(webview, 'nova:vfs:write', requestId, 'INVALID_ARGS', 'content is required');
+      }
+      const saved = await FS.writeFile(selectedFile.id, content);
+      if (!saved) return respondError(webview, 'nova:vfs:write', requestId, 'NOT_FOUND', 'Selected file no longer exists');
+      return respond(webview, 'nova:vfs:write', requestId, { success: true, id: selectedFile.id });
+    }
     if (!path || content === undefined || content === null) {
       return respondError(webview, 'nova:vfs:write', requestId, 'INVALID_ARGS', 'path and content are required');
     }
@@ -956,16 +1194,10 @@ const AppSandbox = (() => {
       if (node.type === 'folder') {
         return respondError(webview, 'nova:vfs:write', requestId, 'INVALID_OPERATION', 'Cannot write to a folder');
       }
-      // Same ownership rule resolveFile enforces for write/delete/rename/
-      // move: a write can only ever land inside the calling app's own
-      // /data/<appId>/ subtree. The /data/-prefix rewrite above already
-      // forces the caller's own id in for /data/-prefixed input, but a
-      // resolved node reached some other way (e.g. matching an existing
-      // path that happens to fall under a *different* app's /data/
-      // folder despite the caller not prefixing with /data/ at all)
-      // wasn't re-checked before this fix.
-      if (!resolveFile({ id: node.id }, app.id, true)) {
-        return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'Path is outside this app\'s data directory');
+      // Re-check the resolved node after path rewriting: the broad grant
+      // permits shared user files, but never another app's private subtree.
+      if (!resolveFile({ id: node.id }, app.id, true, broadAccess)) {
+        return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'Path is outside this app\'s data directory or shared VFS');
       }
       await FS.writeFile(node.id, content);
       return respond(webview, 'nova:vfs:write', requestId, { success: true, id: node.id });
@@ -977,8 +1209,8 @@ const AppSandbox = (() => {
     if (!parent || parent.type !== 'folder') {
       return respondError(webview, 'nova:vfs:write', requestId, 'NOT_FOUND', 'Parent folder not found');
     }
-    if (!resolveFile({ id: parent.id }, app.id, true)) {
-      return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'Parent folder is outside this app\'s data directory');
+    if (!resolveFile({ id: parent.id }, app.id, true, broadAccess)) {
+      return respondError(webview, 'nova:vfs:write', requestId, 'PERMISSION_DENIED', 'Parent folder is outside this app\'s data directory or shared VFS');
     }
     // Coerce content to a string for FS.createFile. Strings pass through;
     // null/undefined is rejected above; anything else (objects, arrays,
@@ -997,8 +1229,12 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('vfs:delete', app.id)) {
       return respondError(webview, 'nova:vfs:delete', requestId, 'PERMISSION_DENIED', 'vfs:delete permission required');
     }
-    const node = resolveFile(payload, app.id, true);
+    const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:vfs:delete', requestId, 'NOT_FOUND', 'File not found');
+    if (node.id === FS.rootId || node.id === FS.specialFolders?.trash
+      || FS.getPath(node.id) === '/data') {
+      return respondError(webview, 'nova:vfs:delete', requestId, 'PROTECTED_LOCATION', 'System filesystem roots cannot be deleted');
+    }
     if (payload.permanent) {
       await FS.permanentDelete(node.id);
     } else {
@@ -1008,15 +1244,15 @@ const AppSandbox = (() => {
   }
 
   async function handleFsList({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
-      return respondError(webview, 'nova:vfs:list', requestId, 'PERMISSION_DENIED', 'vfs:read permission required');
+    if (!hasVfsRead(app.id)) {
+      return respondError(webview, 'nova:vfs:list', requestId, 'PERMISSION_DENIED', 'vfs:read or vfs:access permission required');
     }
     const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:vfs:list', requestId, 'NOT_FOUND', 'Folder not found');
     if (node.type !== 'folder') {
       return respondError(webview, 'nova:vfs:list', requestId, 'INVALID_OPERATION', 'Path is not a folder');
     }
-    const children = FS.listDir(node.id);
+    const children = FS.listDir(node.id).filter(child => resolveFile({ id: child.id }, app.id));
     return respond(webview, 'nova:vfs:list', requestId, {
       success: true,
       path: FS.getPath(node.id),
@@ -1028,8 +1264,9 @@ const AppSandbox = (() => {
   }
 
   async function handleFsMkdir({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:write', app.id)) {
-      return respondError(webview, 'nova:vfs:mkdir', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
+    const broadAccess = hasVfsAccess(app.id);
+    if (!hasVfsWrite(app.id)) {
+      return respondError(webview, 'nova:vfs:mkdir', requestId, 'PERMISSION_DENIED', 'vfs:write or vfs:access permission required');
     }
     const { path, name } = payload ?? {};
     if (!name || typeof name !== 'string') {
@@ -1047,11 +1284,10 @@ const AppSandbox = (() => {
     if (!parent || parent.type !== 'folder') {
       return respondError(webview, 'nova:vfs:mkdir', requestId, 'NOT_FOUND', 'Parent folder not found');
     }
-    // Same mutation-scoping rule as write/delete/rename/move — a new
-    // folder can only be created inside the calling app's own
-    // /data/<appId>/ subtree.
-    if (!resolveFile({ id: parent.id }, app.id, true)) {
-      return respondError(webview, 'nova:vfs:mkdir', requestId, 'PERMISSION_DENIED', 'Parent folder is outside this app\'s data directory');
+    // The broad grant permits shared folders; otherwise mkdir stays inside
+    // this app's private data directory.
+    if (!resolveFile({ id: parent.id }, app.id, true, broadAccess)) {
+      return respondError(webview, 'nova:vfs:mkdir', requestId, 'PERMISSION_DENIED', 'Parent folder is outside this app\'s data directory or shared VFS');
     }
     const newFolder = await FS.createFolder(parent.id, name);
     return respond(webview, 'nova:vfs:mkdir', requestId, {
@@ -1069,9 +1305,9 @@ const AppSandbox = (() => {
     // satisfies this too, since full read access is a superset of
     // metadata-only access.
     const hasMetadata = AppPermissionManager.isGranted('vfs:metadata', app.id);
-    const hasRead = AppPermissionManager.isGranted('vfs:read', app.id);
+    const hasRead = hasVfsRead(app.id);
     if (!hasMetadata && !hasRead) {
-      return respondError(webview, 'nova:vfs:stat', requestId, 'PERMISSION_DENIED', 'vfs:metadata or vfs:read permission required');
+      return respondError(webview, 'nova:vfs:stat', requestId, 'PERMISSION_DENIED', 'vfs:metadata, vfs:read, or vfs:access permission required');
     }
     const node = resolveFile(payload, app.id);
     if (!node) return respondError(webview, 'nova:vfs:stat', requestId, 'NOT_FOUND', 'File not found');
@@ -1079,10 +1315,11 @@ const AppSandbox = (() => {
   }
 
   async function handleFsRename({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:write', app.id)) {
-      return respondError(webview, 'nova:vfs:rename', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
+    const broadAccess = hasVfsAccess(app.id);
+    if (!hasVfsWrite(app.id)) {
+      return respondError(webview, 'nova:vfs:rename', requestId, 'PERMISSION_DENIED', 'vfs:write or vfs:access permission required');
     }
-    const node = resolveFile(payload, app.id, true);
+    const node = resolveFile(payload, app.id, true, broadAccess);
     if (!node) return respondError(webview, 'nova:vfs:rename', requestId, 'NOT_FOUND', 'File not found');
     if (!payload.name) {
       return respondError(webview, 'nova:vfs:rename', requestId, 'INVALID_ARGS', 'name is required');
@@ -1092,10 +1329,11 @@ const AppSandbox = (() => {
   }
 
   async function handleFsMove({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:write', app.id)) {
-      return respondError(webview, 'nova:vfs:move', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
+    const broadAccess = hasVfsAccess(app.id);
+    if (!hasVfsWrite(app.id)) {
+      return respondError(webview, 'nova:vfs:move', requestId, 'PERMISSION_DENIED', 'vfs:write or vfs:access permission required');
     }
-    const node = resolveFile(payload, app.id, true);
+    const node = resolveFile(payload, app.id, true, broadAccess);
     if (!node) return respondError(webview, 'nova:vfs:move', requestId, 'NOT_FOUND', 'File not found');
     const destPath = rewriteDataPath(payload.destPath, app.id);
     const destParent = destPath ? FS.getByPath(destPath) : null;
@@ -1108,8 +1346,8 @@ const AppSandbox = (() => {
     // into another app's /data/<otherAppId>/ would otherwise be able to
     // plant files there despite never having write access to that folder
     // directly.
-    if (!resolveFile({ id: destParent.id }, app.id, true)) {
-      return respondError(webview, 'nova:vfs:move', requestId, 'PERMISSION_DENIED', 'Destination folder is outside this app\'s data directory');
+    if (!resolveFile({ id: destParent.id }, app.id, true, broadAccess)) {
+      return respondError(webview, 'nova:vfs:move', requestId, 'PERMISSION_DENIED', 'Destination folder is outside this app\'s data directory or shared VFS');
     }
     await FS.move(node.id, destParent.id);
     return respond(webview, 'nova:vfs:move', requestId, { success: true, path: FS.getPath(node.id) });
@@ -1226,9 +1464,8 @@ const AppSandbox = (() => {
   // (`if (sGet('osVersion') !== codeVer) OS.settings.set('osVersion',
   // codeVer)`), and an app overwriting it via nova:settings:set could
   // interfere with that version-detection logic for no legitimate benefit.
-  // SETTINGS_WRITABLE_KEYS below is SETTINGS_READABLE_KEYS minus osVersion;
-  // every other key is both readable and writable, same as before this
-  // split.
+  // SETTINGS_WRITABLE_KEYS below additionally excludes devMode, which must
+  // only change through the OS-owned Settings confirmation flow.
   const SETTINGS_READABLE_KEYS = new Set([
     '_hiddenDevIconPositions', 'accentColor', 'autoLock', 'browserPartitionId',
     'clockFormat', 'cursorSize', 'customWallpaper', 'debugOverlayVisible',
@@ -1240,7 +1477,7 @@ const AppSandbox = (() => {
   ]);
 
   const SETTINGS_WRITABLE_KEYS = new Set(
-    [...SETTINGS_READABLE_KEYS].filter((k) => k !== 'osVersion')
+    [...SETTINGS_READABLE_KEYS].filter((k) => k !== 'osVersion' && k !== 'devMode')
   );
 
   async function handleSettingsGet({ payload, requestId, app, webview }) {
@@ -1260,19 +1497,43 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:settings:get', requestId, { success: true, value });
   }
 
-  async function handleSettingsSet({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('system:settings', app.id)) {
-      return respondError(webview, 'nova:settings:set', requestId, 'PERMISSION_DENIED', 'system:settings permission required');
-    }
+  async function handleSettingsSetWithType({ payload, requestId, app, webview }, type) {
     const key = payload?.key;
     if (typeof key !== 'string' || !key) {
-      return respondError(webview, 'nova:settings:set', requestId, 'INVALID_ARGS', 'key is required');
+      return respondError(webview, type, requestId, 'INVALID_ARGS', 'key is required');
+    }
+    // Wallpaper change is a low-risk ambient capability, not a permission
+    // prompt — Android treats it the same way, any app can change the
+    // wallpaper without a runtime permission. It bypasses the system:settings
+    // grant but is still subject to the writable-key allowlist and the
+    // prohibitWallpaperChange policy toggle (checked in OS.settings.set
+    // itself, so a locked-down kiosk can still block it).
+    const isWallpaperKey = key === 'wallpaperId' || key === 'customWallpaper';
+    if (!isWallpaperKey && !AppPermissionManager.isGranted('system:settings', app.id)) {
+      return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'system:settings permission required');
     }
     if (!SETTINGS_WRITABLE_KEYS.has(key)) {
-      return respondError(webview, 'nova:settings:set', requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not writable by apps`);
+      return respondError(webview, type, requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not writable by apps`);
     }
-    OS?.settings?.set(key, payload?.value);
-    return respond(webview, 'nova:settings:set', requestId, { success: true });
+    if (typeof OS?.settings?.set !== 'function') {
+      return respondError(webview, type, requestId, 'UNAVAILABLE', 'Settings service not available');
+    }
+    if (OS.settings.set(key, payload?.value) === false && isWallpaperKey) {
+      return respondError(webview, type, requestId, 'POLICY_BLOCKED', 'Wallpaper changes are disabled by system policy');
+    }
+    return respond(webview, type, requestId, { success: true });
+  }
+
+  async function handleSettingsSet(args) {
+    return handleSettingsSetWithType(args, 'nova:settings:set');
+  }
+
+  async function handleWallpaperSet({ payload, requestId, app, webview }) {
+    const key = payload?.key;
+    if (key !== 'wallpaperId' && key !== 'customWallpaper') {
+      return respondError(webview, 'nova:wallpaper:set', requestId, 'INVALID_ARGS', "key must be 'wallpaperId' or 'customWallpaper'");
+    }
+    return handleSettingsSetWithType({ payload, requestId, app, webview }, 'nova:wallpaper:set');
   }
 
   async function handleNestedWebview({ payload, requestId, app, webview, sandbox }) {
@@ -1314,15 +1575,21 @@ const AppSandbox = (() => {
       }
 
       const attrs = payload.attributes && typeof payload.attributes === 'object' ? payload.attributes : {};
+      if (typeof attrs.src === 'string' && attrs.src && !canNestedWebviewNavigate(app, attrs.src)) {
+        return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'The app needs the matching network permission to navigate this webview');
+      }
       const child = document.createElement('webview');
       child.setAttribute('nodeintegration', 'false');
       child.setAttribute('nodeintegrationsubframes', 'false');
       child.setAttribute('enableremotemodule', 'false');
-      // Sandboxed guests never choose a shared or custom Chromium storage
-      // partition; each remains confined to its own per-app partition.
-      child.setAttribute('partition', `persist:app_${app.id}`);
-      const sandboxAttr = webview.getAttribute('sandbox');
-      if (sandboxAttr) child.setAttribute('sandbox', sandboxAttr);
+      // Keep remote-site state separate from the app's own webview partition:
+      // destroy() clears the latter on close for sandboxed apps, while this
+      // stable partition preserves website cookies across app-window closes.
+      child.setAttribute('partition', `persist:app_${app.id}_webcontent`);
+      // Do not copy the outer app webview's sandbox attribute. In particular,
+      // it omits allow-same-origin for app code; inheriting it here gives
+      // normal websites an opaque origin and prevents their cookies and
+      // persistent storage from working.
       child.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;border:0;display:none;z-index:1;';
 
       // The Browser hides page scrollbars for a consistent viewport, but its
@@ -1377,7 +1644,7 @@ const AppSandbox = (() => {
         if (event?.__novaPopupId) result.popupId = event.__novaPopupId;
         respond(webview, 'nova:nested-webview:event', id, result);
       };
-      for (const name of ['loadcommit', 'loadstop', 'contentload', 'loadabort', 'loaderror', 'close', 'crashed', 'exit', 'did-fail-load', 'enter-html-full-screen', 'leave-html-full-screen', 'unresponsive', 'responsive', 'permissionrequest', 'consolemessage']) {
+      for (const name of ['loadstart', 'loadredirect', 'loadcommit', 'loadstop', 'contentload', 'loadabort', 'loaderror', 'close', 'crashed', 'exit', 'did-fail-load', 'enter-html-full-screen', 'leave-html-full-screen', 'unresponsive', 'responsive', 'permissionrequest', 'consolemessage']) {
         const listener = event => sendEvent(name, event);
         child.addEventListener(name, listener);
         cleanups.push(() => child.removeEventListener(name, listener));
@@ -1397,6 +1664,16 @@ const AppSandbox = (() => {
       };
       child.addEventListener('newwindow', newWindowListener);
       cleanups.push(() => child.removeEventListener('newwindow', newWindowListener));
+      const navigationListener = event => {
+        if (event?.isTopLevel === false) return;
+        const destination = event?.url || event?.targetUrl || event?.validatedURL;
+        if (typeof destination === 'string' && !canNestedWebviewNavigate(app, destination)) {
+          event.preventDefault?.();
+          sendEvent('navigation-blocked', { url: destination, reason: 'Network permission required' });
+        }
+      };
+      child.addEventListener('will-navigate', navigationListener);
+      cleanups.push(() => child.removeEventListener('will-navigate', navigationListener));
       cleanups.push(setupPermissionRequestGate(child, app));
       parent.style.position ||= 'relative';
       entry = { view: child, cleanups };
@@ -1455,6 +1732,10 @@ const AppSandbox = (() => {
       if (!['allowfullscreen', 'allowpopups', 'src'].includes(name)) {
         return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'Attribute is not available on nested webviews');
       }
+      if (name === 'src' && payload.remove !== true
+        && (typeof payload.value !== 'string' || !canNestedWebviewNavigate(app, payload.value))) {
+        return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'The app needs the matching network permission to navigate this webview');
+      }
       if (payload.remove === true) child.removeAttribute(name);
       else if (typeof payload.value === 'string') child.setAttribute(name, payload.value);
       if (name === 'src' && payload.remove !== true && typeof payload.value === 'string') child.src = payload.value;
@@ -1469,6 +1750,49 @@ const AppSandbox = (() => {
     else if (command === 'back') child.back();
     else if (command === 'forward') child.forward();
     else if (command === 'stop') child.stop();
+    else if (command === 'canGoBack' || command === 'canGoForward') {
+      const method = child[command];
+      if (typeof method !== 'function') {
+        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', `${command} is not supported by this webview`);
+      }
+      return respond(webview, 'nova:nested-webview', requestId, { value: Boolean(method.call(child)) });
+    }
+    else if (command === 'find') {
+      const query = payload.query;
+      const options = payload.options && typeof payload.options === 'object' ? payload.options : {};
+      if (typeof query !== 'string' || !query.trim() || query.length > 1000
+        || Object.keys(options).some(key => !['backward', 'matchCase', 'wordStart', 'medialCapitalAsWordStart'].includes(key))
+        || Object.values(options).some(value => typeof value !== 'boolean')) {
+        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid page-find query or options');
+      }
+      if (typeof child.find !== 'function') {
+        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'Page find is not supported by this webview');
+      }
+      const result = await new Promise((resolve, reject) => {
+        try { child.find(query, options, resolve); } catch (error) { reject(error); }
+      });
+      return respond(webview, 'nova:nested-webview', requestId, result);
+    }
+    else if (command === 'stopFinding') {
+      const action = payload.value || 'clear';
+      if (!['clear', 'keep', 'activate'].includes(action)) {
+        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid stop-finding action');
+      }
+      if (typeof child.stopFinding !== 'function') {
+        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'Page find is not supported by this webview');
+      }
+      child.stopFinding(action);
+    }
+    else if (command === 'setUserAgentOverride') {
+      const userAgent = payload.value;
+      if (typeof userAgent !== 'string' || userAgent.length > 512) {
+        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid user-agent string');
+      }
+      if (typeof child.setUserAgentOverride !== 'function') {
+        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'User-agent overrides are not supported by this webview');
+      }
+      child.setUserAgentOverride(userAgent);
+    }
     else if (command === 'setZoom') {
       const zoom = Number(payload.value);
       if (!Number.isFinite(zoom) || zoom < 0.25 || zoom > 5) {
@@ -1639,9 +1963,9 @@ const AppSandbox = (() => {
   // a hard cutover would silently break clipboard access for any app that
   // already had file access and expected clipboard to come with it. Any
   // newly-installed app, or any app whose permissions are re-requested,
-  // should be prompted for clipboard:read/clipboard:write directly rather
-  // than relying on this fallback — treat the vfs:read branch as removable
-  // once existing installs have had a chance to re-consent.
+  // should declare clipboard:read/clipboard:write directly rather than
+  // relying on this compatibility fallback. Reading is sensitive; writing
+  // is low-risk and auto-granted when declared.
   function clipboardReadPermitted(appId) {
     return AppPermissionManager.isGranted('clipboard:read', appId)
       || AppPermissionManager.isGranted('vfs:read', appId);
@@ -1844,11 +2168,20 @@ const AppSandbox = (() => {
 
   // App lifecycle
 
+  const crossAppLaunchRateLimits = new Map();
+
   async function handleAppLaunch({ payload, requestId, app, webview }) {
-    // system:apps gates cross-app launches — otherwise any app could spawn
-    // any other app (privilege escalation surface).
-    if (!AppPermissionManager.isGranted('system:apps', app.id)) {
-      return respondError(webview, 'nova:app:launch', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
+    // Launching an installed app is a separate, low-risk capability from
+    // enumerating, installing, or uninstalling applications.
+    if (!AppPermissionManager.isGranted('system:app-launch', app.id)
+      && !AppPermissionManager.isGranted('system:apps', app.id)) {
+      return respondError(webview, 'nova:app:launch', requestId, 'PERMISSION_DENIED', 'system:app-launch permission required');
+    }
+    const now = Date.now();
+    const launchTimes = (crossAppLaunchRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
+    if (launchTimes.length >= 6) {
+      crossAppLaunchRateLimits.set(app.id, launchTimes);
+      return respondError(webview, 'nova:app:launch', requestId, 'RATE_LIMITED', 'Max 6 cross-app launches per minute');
     }
     const { appId, options } = payload ?? {};
     if (!appId) {
@@ -1864,7 +2197,16 @@ const AppSandbox = (() => {
       if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
         return respondError(webview, 'nova:app:launch', requestId, 'UNAVAILABLE', 'Window manager not available');
       }
-      const win = WM.createWindow(appId, options || {});
+      const launchOptions = options && typeof options === 'object' && !Array.isArray(options)
+        ? { ...options }
+        : {};
+      // File access must come from a host user-selection flow, never app-supplied launch options.
+      delete launchOptions.fileIntent;
+      delete launchOptions.fileId;
+      delete launchOptions.folderId;
+      const win = WM.createWindow(appId, launchOptions);
+      launchTimes.push(now);
+      crossAppLaunchRateLimits.set(app.id, launchTimes);
       return respond(webview, 'nova:app:launch', requestId, {
         success: !!win,
         windowId: win ? win.id : null,
@@ -1898,6 +2240,186 @@ const AppSandbox = (() => {
     } catch (e) {
       return respondError(webview, 'nova:email:open-link', requestId, 'ERROR', e?.message || 'Could not open Browser');
     }
+  }
+
+  async function handleOpenUrl({ payload, requestId, webview }) {
+    let url;
+    try {
+      url = new URL(payload?.url);
+    } catch {
+      return respondError(webview, 'nova:open-url', requestId, 'INVALID_ARGS', 'A valid HTTP(S) URL is required');
+    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+      return respondError(webview, 'nova:open-url', requestId, 'INVALID_ARGS', 'Only credential-free HTTP(S) links can be opened');
+    }
+    if (typeof OS?.openUrl !== 'function') {
+      return respondError(webview, 'nova:open-url', requestId, 'UNAVAILABLE', 'OS URL service not available');
+    }
+    try {
+      const win = OS.openUrl(url.href);
+      if (!win) {
+        return respondError(webview, 'nova:open-url', requestId, 'UNAVAILABLE', 'No default browser app could be opened');
+      }
+      return respond(webview, 'nova:open-url', requestId, { success: true, windowId: win.id });
+    } catch (e) {
+      return respondError(webview, 'nova:open-url', requestId, 'ERROR', e?.message || 'Could not open the OS default browser app');
+    }
+  }
+
+  async function handleOpenWith({ payload, requestId, app, webview, sandbox }) {
+    const fileId = payload?.fileId;
+    if (typeof fileId !== 'string' || !fileId || fileId.length > 200) {
+      return respondError(webview, 'nova:open-with', requestId, 'INVALID_ARGS', 'A fileId is required');
+    }
+    const node = getOpenFileForSandbox(sandbox, { id: fileId })
+      || resolveFile({ id: fileId }, app.id);
+    if (!node || node.type !== 'file') {
+      return respondError(webview, 'nova:open-with', requestId, 'NOT_FOUND', 'File is unavailable to this app');
+    }
+    if (typeof window.showOpenWithDialog !== 'function') {
+      return respondError(webview, 'nova:open-with', requestId, 'UNAVAILABLE', 'Open with chooser is unavailable');
+    }
+    try {
+      const result = await window.showOpenWithDialog(node);
+      return respond(webview, 'nova:open-with', requestId, result || { cancelled: true });
+    } catch (error) {
+      return respondError(webview, 'nova:open-with', requestId, 'ERROR', error?.message || 'Could not open the file chooser');
+    }
+  }
+
+  const shareRateLimits = new Map();
+  function handleShare({ payload, requestId, app, webview }) {
+    const text = typeof payload?.text === 'string' ? payload.text : '';
+    const title = typeof payload?.title === 'string' ? payload.title.slice(0, 120) : app?.name || 'Share';
+    let url = '';
+    if (payload?.url !== undefined) {
+      try {
+        const parsed = new URL(payload.url);
+        if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error();
+        url = parsed.href;
+      } catch {
+        return respondError(webview, 'nova:share', requestId, 'INVALID_ARGS', 'url must be a credential-free HTTP(S) URL');
+      }
+    }
+    if ((!text && !url) || text.length > 4000) {
+      return respondError(webview, 'nova:share', requestId, 'INVALID_ARGS', 'Share requires text or a URL; text is limited to 4000 characters');
+    }
+    const now = Date.now();
+    const recent = (shareRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
+    if (recent.length >= 5) {
+      shareRateLimits.set(app.id, recent);
+      return respondError(webview, 'nova:share', requestId, 'RATE_LIMITED', 'Max 5 share sheets per minute');
+    }
+    recent.push(now);
+    shareRateLimits.set(app.id, recent);
+    if (!document?.body) {
+      return respondError(webview, 'nova:share', requestId, 'UNAVAILABLE', 'Share sheet is not available');
+    }
+
+    const overlay = document.createElement('div');
+    const sandboxId = webview?.dataset?.sandboxId;
+    overlay.setAttribute('role', 'presentation');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
+    const dialog = document.createElement('section');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-label', 'Share');
+    dialog.style.cssText = 'width:min(420px,100%);padding:20px;border-radius:14px;background:var(--surface,#242424);color:var(--text,#fff);box-shadow:0 18px 60px #0008;font:14px system-ui,sans-serif;';
+    const heading = document.createElement('h2');
+    heading.textContent = title;
+    heading.style.cssText = 'font-size:18px;margin:0 0 8px;';
+    const preview = document.createElement('p');
+    preview.textContent = text || url;
+    preview.style.cssText = 'margin:0 0 16px;overflow-wrap:anywhere;opacity:.8;max-height:100px;overflow:auto;';
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:grid;gap:8px;';
+    dialog.append(heading, preview, actions);
+    overlay.appendChild(dialog);
+
+    return new Promise(resolve => {
+      let settled = false;
+      let cancelShare;
+      const untrack = () => {
+        const dialogs = shareDialogs.get(sandboxId);
+        if (!dialogs) return;
+        dialogs.delete(cancelShare);
+        if (dialogs.size === 0) shareDialogs.delete(sandboxId);
+      };
+      const finish = result => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKeyDown);
+        overlay.remove();
+        untrack();
+        respond(webview, 'nova:share', requestId, result);
+        resolve();
+      };
+      const fail = error => {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKeyDown);
+        overlay.remove();
+        untrack();
+        respondError(webview, 'nova:share', requestId, 'SHARE_FAILED', error?.message || String(error));
+        resolve();
+      };
+      const onKeyDown = event => {
+        if (event.key === 'Escape') finish({ cancelled: true });
+      };
+      const addAction = (label, action) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.style.cssText = 'min-height:40px;padding:8px 12px;border:1px solid #ffffff22;border-radius:8px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;';
+        button.addEventListener('click', async () => {
+          try {
+            const result = await action();
+            finish({ cancelled: false, action: label, ...result });
+          } catch (error) {
+            fail(error);
+          }
+        });
+        actions.appendChild(button);
+      };
+      if (text || url) {
+        addAction('Copy', async () => {
+          const value = [text, url].filter(Boolean).join('\n');
+          OS.clipboard = value;
+          OS.clipboardHistory ||= [];
+          if (!OS.clipboardHistory.includes(value)) {
+            OS.clipboardHistory.unshift(value);
+            if (OS.clipboardHistory.length > 30) OS.clipboardHistory.pop();
+          }
+          return {};
+        });
+      }
+      if (url && typeof OS?.openUrl === 'function') {
+        addAction('Open link in browser', () => {
+          if (!OS.openUrl(url)) throw new Error('Could not open the default browser');
+          return {};
+        });
+      }
+      if (typeof OS?.openMailto === 'function') {
+        addAction('Email', () => {
+          const body = [text, url].filter(Boolean).join('\n');
+          OS.openMailto('mailto:?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(body));
+          return {};
+        });
+      }
+      addAction('Cancel', async () => ({ cancelled: true }));
+      overlay.addEventListener('click', event => {
+        if (event.target === overlay) finish({ cancelled: true });
+      });
+      document.addEventListener('keydown', onKeyDown);
+      document.body.appendChild(overlay);
+      cancelShare = () => finish({ cancelled: true });
+      if (sandboxId) {
+        let dialogs = shareDialogs.get(sandboxId);
+        if (!dialogs) shareDialogs.set(sandboxId, dialogs = new Set());
+        dialogs.add(cancelShare);
+      }
+      actions.querySelector('button')?.focus();
+    });
   }
 
   // Lets an app send the user to Settings → Default Apps — the "Set as
@@ -2387,15 +2909,12 @@ const AppSandbox = (() => {
   // honest check is a settings fetch and looking at whether the admin-only
   // fields came back.
   // ── Settings-only unrestricted handlers ──────────────────────────────
-  // Everything below is gated by UnrestrictedGate before it's ever
-  // reached (see handleAPICall's dispatch) — these functions do NOT
-  // re-check app.id/system/verified/signer themselves, on purpose. That
-  // check lives in exactly one place (unrestricted-gate.js) so it can't
-  // drift out of sync between handlers the way isTrustedTransparentSystemApp
-  // and installPackage's system-flag logic almost did earlier. A handler
-  // reached via any other path (there isn't one — API_HANDLERS is the
-  // only dispatch table) would still be unprotected, which is exactly why
-  // the gate lives in handleAPICall itself, not in each handler.
+  // These handlers exist in API_HANDLERS for completeness, but the IPC
+  // bridge (handleAPICall) is the only dispatch path and the Settings app
+  // reaches these features directly through OS.system.* rather than via
+  // IPC — so nothing on a live code path calls them. They're left in place
+  // as the canonical implementation so a future IPC surface can reuse them
+  // without duplicating logic.
 
   async function handleSystemPermissionsList({ requestId, webview }) {
     if (typeof AppPermissionManager === 'undefined' || typeof AppRegistry === 'undefined') {
@@ -2902,17 +3421,20 @@ const AppSandbox = (() => {
 
   async function handleSystemDefaultAppsSet({ payload, requestId, webview }) {
     try {
-      const categoryId = String(payload?.categoryId || '');
-      const appId = String(payload?.appId || '');
+      const categoryId = typeof payload?.categoryId === 'string' ? payload.categoryId : '';
+      const appId = payload?.appId === null || payload?.appId === '' ? null : payload?.appId;
       if (typeof DefaultApps === 'undefined' || !DefaultApps.setDefault) {
         return respondError(webview, 'nova:system:default-apps:set', requestId, 'UNAVAILABLE', 'Default apps service not available');
       }
+      if (appId !== null && typeof appId !== 'string') {
+        return respondError(webview, 'nova:system:default-apps:set', requestId, 'INVALID_ARGS', 'App id must be a string or null');
+      }
       if (!DefaultApps.setDefault(categoryId, appId)) {
-        return respondError(webview, 'nova:system:default-apps:set', requestId, 'INVALID_ARGS', 'Invalid category or app');
+        return respondError(webview, 'nova:system:default-apps:set', requestId, 'INVALID_ARGS', 'App is unavailable or does not support this category');
       }
       const apps = DefaultApps.getAppsForCategory(categoryId);
-      const chosen = apps.find(a => a.id === DefaultApps.getDefault(categoryId)) || null;
-      return respond(webview, 'nova:system:default-apps:set', requestId, { success: true, categoryId, appId, currentName: chosen?.name || null });
+      const chosen = apps.find(a => a.id === DefaultApps.getDefault(categoryId)) || apps[0] || null;
+      return respond(webview, 'nova:system:default-apps:set', requestId, { success: true, categoryId, appId: DefaultApps.getDefault(categoryId), currentName: chosen?.name || null });
     } catch (e) {
       return respondError(webview, 'nova:system:default-apps:set', requestId, 'ERROR', e?.message || 'Failed to update default app');
     }
@@ -2985,6 +3507,9 @@ const AppSandbox = (() => {
     const { key, value } = payload || {};
     if (!key) {
       return respondError(webview, 'nova:system:preferences:set', requestId, 'INVALID_ARGS', 'key is required');
+    }
+    if (key === 'devMode' || key === 'rootAccessEnabled') {
+      return respondError(webview, 'nova:system:preferences:set', requestId, 'PERMISSION_DENIED', `Settings key '${key}' can only be changed from the OS Settings app`);
     }
     OS.settings.set(key, value);
     // Settings runs sandboxed (no window.parent/host reference — see
@@ -3474,7 +3999,8 @@ const AppSandbox = (() => {
 
   // Events
   //
-  // Apps holding system:events may subscribe to OS-wide event bus messages.
+  // Basic appearance/workspace/device-state events are public; sensitive
+  // app inventory and user-data events require system:events.
   // Without an allowlist, an app could subscribe to internal channels like
   // 'settings:changed' (which fires for every settings write, including
   // password/PIN updates from system code) or 'os:volumeChanged' purely for
@@ -3502,6 +4028,10 @@ const AppSandbox = (() => {
     'calendar:reminder', 'calendar:updated',
     'contacts:updated',
   ]);
+  const SENSITIVE_EVENT_NAMES = new Set([
+    'system:notification', 'app:installed', 'app:uninstalled', 'app:launched',
+    'mail:new', 'mail:updated', 'calendar:reminder', 'calendar:updated', 'contacts:updated',
+  ]);
 
   // Domain-gated events: subscribing requires system:events AND the listed
   // permission, not system:events alone. Events not listed here only need
@@ -3515,10 +4045,10 @@ const AppSandbox = (() => {
   ]);
 
   async function handleEventsSubscribe({ payload, requestId, app, webview, sandbox }) {
-    if (!AppPermissionManager.isGranted('system:events', app.id)) {
+    const { event } = payload ?? {};
+    if (SENSITIVE_EVENT_NAMES.has(event) && !AppPermissionManager.isGranted('system:events', app.id)) {
       return respondError(webview, 'nova:events:subscribe', requestId, 'PERMISSION_DENIED', 'system:events permission required');
     }
-    const { event } = payload ?? {};
     if (!event) {
       return respondError(webview, 'nova:events:subscribe', requestId, 'INVALID_ARGS', 'event name is required');
     }
@@ -3549,9 +4079,6 @@ const AppSandbox = (() => {
   }
 
   async function handleEventsUnsubscribe({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('system:events', app.id)) {
-      return respondError(webview, 'nova:events:unsubscribe', requestId, 'PERMISSION_DENIED', 'system:events permission required');
-    }
     const { event } = payload ?? {};
     const subs = eventSubscriptions.get(webview.dataset.sandboxId);
     if (subs && subs.has(event)) {
@@ -3604,7 +4131,7 @@ const AppSandbox = (() => {
       }
     }
     try {
-      let resStatus, resStatusText, resHeaders, resBody;
+      let resStatus, resStatusText, resHeaders, resBody, resBodyEncoding = 'utf8';
 
       if (classified.isInternal) {
         // Same-origin requests don't hit CORS, so go direct.
@@ -3614,10 +4141,23 @@ const AppSandbox = (() => {
           headers: headerObj,
           body: body ?? null,
         });
-        resBody = await res.text();
         resStatus = res.status;
         resStatusText = res.statusText;
         resHeaders = Object.fromEntries(res.headers.entries());
+        const contentType = (res.headers.get('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+        const isTextual = contentType.startsWith('text/')
+          || contentType === 'application/json'
+          || contentType === 'application/javascript'
+          || contentType === 'application/xml'
+          || contentType === 'application/x-www-form-urlencoded'
+          || contentType.endsWith('+json')
+          || contentType.endsWith('+xml');
+        if (isTextual) {
+          resBody = await res.text();
+        } else {
+          resBody = encodeBase64Bytes(new Uint8Array(await res.arrayBuffer()));
+          resBodyEncoding = 'base64';
+        }
       } else {
         // External requests go through the server-side proxy. A direct fetch()
         // from this document would be subject to the target server's CORS
@@ -3635,6 +4175,7 @@ const AppSandbox = (() => {
         resStatusText = proxyJson.statusText;
         resHeaders = proxyJson.headers || {};
         resBody = proxyJson.body || '';
+        resBodyEncoding = proxyJson.bodyEncoding || 'utf8';
       }
 
       return respond(webview, 'nova:net:fetch', requestId, {
@@ -3643,6 +4184,7 @@ const AppSandbox = (() => {
         statusText: resStatusText,
         headers: resHeaders,
         body: resBody,
+        bodyEncoding: resBodyEncoding,
       });
     } catch (e) {
       return respondError(webview, 'nova:net:fetch', requestId, 'NETWORK_ERROR', e?.message || String(e));
@@ -4228,6 +4770,91 @@ const AppSandbox = (() => {
     });
   }
 
+  const PUBLIC_APPEARANCE_SETTING_KEYS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'removeTransparency']);
+  const PUBLIC_APPEARANCE_FIELDS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'transparentSurfaces']);
+  const PUBLIC_THEMES = new Set(['nova-dark', 'nova-light', 'nord', 'dracula', 'catppuccin', 'tokyo-night', 'gruvbox']);
+  const appearanceSetRateLimits = new Map();
+
+  function getPublicAppearance() {
+    const settings = OS?.settings;
+    return {
+      theme: settings?.get?.('theme') || 'nova-dark',
+      accentColor: settings?.get?.('accentColor') || null,
+      highContrast: settings?.get?.('highContrast') === true,
+      reduceMotion: settings?.get?.('reduceMotion') === true,
+      transparentSurfaces: settings?.get?.('removeTransparency') !== true,
+    };
+  }
+
+  async function handleAppearanceGet({ requestId, webview }) {
+    if (!OS?.settings?.get) {
+      return respondError(webview, 'nova:appearance:get', requestId, 'UNAVAILABLE', 'Appearance settings are not available');
+    }
+    return respond(webview, 'nova:appearance:get', requestId, getPublicAppearance());
+  }
+
+  async function handleAppearanceSet({ payload, requestId, app, webview }) {
+    if (typeof OS?.settings?.set !== 'function') {
+      return respondError(webview, 'nova:appearance:set', requestId, 'UNAVAILABLE', 'Appearance settings are not available');
+    }
+    const patch = payload?.appearance;
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return respondError(webview, 'nova:appearance:set', requestId, 'INVALID_ARGS', 'appearance must be an object of supported appearance preferences');
+    }
+    const entries = Object.entries(patch);
+    if (!entries.length || entries.some(([key]) => !PUBLIC_APPEARANCE_FIELDS.has(key))) {
+      return respondError(webview, 'nova:appearance:set', requestId, 'INVALID_ARGS', 'Only theme, accentColor, highContrast, reduceMotion, and transparentSurfaces can be changed');
+    }
+    const now = Date.now();
+    const recentUpdates = (appearanceSetRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
+    if (recentUpdates.length >= 10) {
+      appearanceSetRateLimits.set(app.id, recentUpdates);
+      return respondError(webview, 'nova:appearance:set', requestId, 'RATE_LIMITED', 'Max 10 appearance updates per minute');
+    }
+    for (const [key, value] of entries) {
+      const valid = key === 'theme'
+        ? PUBLIC_THEMES.has(value)
+        : key === 'accentColor'
+          ? value === null || (typeof value === 'string' && /^#[\da-f]{6}$/i.test(value))
+          : typeof value === 'boolean';
+      if (!valid) {
+        return respondError(webview, 'nova:appearance:set', requestId, 'INVALID_ARGS', `Invalid value for appearance setting '${key}'`);
+      }
+    }
+    for (const [key, value] of entries) {
+      const settingKey = key === 'transparentSurfaces' ? 'removeTransparency' : key;
+      const settingValue = key === 'transparentSurfaces' ? !value : value;
+      if (OS.settings.set(settingKey, settingValue) === false) {
+        return respondError(webview, 'nova:appearance:set', requestId, 'POLICY_BLOCKED', `Appearance setting '${key}' is blocked by system policy`);
+      }
+    }
+    recentUpdates.push(now);
+    appearanceSetRateLimits.set(app.id, recentUpdates);
+    return respond(webview, 'nova:appearance:set', requestId, { success: true, appearance: getPublicAppearance() });
+  }
+
+  async function handleAppearanceSubscribe({ requestId, webview, sandbox }) {
+    if (!OS?.events?.on || !sandbox) {
+      return respondError(webview, 'nova:appearance:subscribe', requestId, 'UNAVAILABLE', 'Appearance change events are not available');
+    }
+    if (sandbox.appearanceSubscription) {
+      return respondError(webview, 'nova:appearance:subscribe', requestId, 'ALREADY_SUBSCRIBED', 'Already subscribed to appearance changes');
+    }
+    const handler = change => {
+      if (!PUBLIC_APPEARANCE_SETTING_KEYS.has(change?.key)) return;
+      respond(webview, 'nova:appearance:changed:event', generateRequestId(), getPublicAppearance());
+    };
+    OS.events.on('settings:changed', handler);
+    sandbox.appearanceSubscription = () => OS.events.off?.('settings:changed', handler);
+    return respond(webview, 'nova:appearance:subscribe', requestId, { success: true, appearance: getPublicAppearance() });
+  }
+
+  async function handleAppearanceUnsubscribe({ requestId, webview, sandbox }) {
+    sandbox?.appearanceSubscription?.();
+    if (sandbox) sandbox.appearanceSubscription = null;
+    return respond(webview, 'nova:appearance:unsubscribe', requestId, { success: true });
+  }
+
   // Ready handshake
 
   async function handleReady({ requestId, app, webview }) {
@@ -4266,16 +4893,16 @@ const AppSandbox = (() => {
   // File dialogs
 
   async function handleDialogOpen({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
-      return respondError(webview, 'nova:dialog:open', requestId, 'PERMISSION_DENIED', 'vfs:read permission required');
+    if (!hasVfsRead(app.id)) {
+      return respondError(webview, 'nova:dialog:open', requestId, 'PERMISSION_DENIED', 'vfs:read or vfs:access permission required');
     }
     showFileDialog('open', webview, 'nova:dialog:open', requestId, app, payload);
     // Response is sent from the dialog's confirm/cancel handler.
   }
 
   async function handleDialogSave({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:write', app.id)) {
-      return respondError(webview, 'nova:dialog:save', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
+    if (!hasVfsWrite(app.id)) {
+      return respondError(webview, 'nova:dialog:save', requestId, 'PERMISSION_DENIED', 'vfs:write or vfs:access permission required');
     }
     showFileDialog('save', webview, 'nova:dialog:save', requestId, app, payload);
   }
@@ -4285,11 +4912,11 @@ const AppSandbox = (() => {
   // etc.) use. Kept entirely separate from handleDialogOpen/handleDialogSave
   // above (the native-styled dialog), so existing .novaapp callers of
   // nova:dialog:open/save are completely unaffected. Still gated behind the
-  // same vfs:read/vfs:write permissions as the native pair — this is a new
+  // same VFS read/write capabilities as the native pair — this is a new
   // *visual style* of the same capability, not a new capability.
   async function handleSysDialogOpen({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:read', app.id)) {
-      return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'vfs:read permission required');
+    if (!hasVfsRead(app.id)) {
+      return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'vfs:read or vfs:access permission required');
     }
     if (typeof window.SystemDialogs === 'undefined') {
       return respondError(webview, 'nova:sysdialog:open', requestId, 'UNAVAILABLE', 'SystemDialogs not loaded');
@@ -4298,8 +4925,12 @@ const AppSandbox = (() => {
       const node = await window.SystemDialogs.open({
         title: payload?.title,
         startFolderId: payload?.startFolderId || FS.rootId,
+        canAccess: node => canPickerAccess(node, app.id),
       });
       if (!node) return respond(webview, 'nova:sysdialog:open', requestId, { cancelled: true });
+      if (!resolveFile({ id: node.id }, app.id)) {
+        return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible VFS');
+      }
       respond(webview, 'nova:sysdialog:open', requestId, {
         success: true,
         file: {
@@ -4317,8 +4948,9 @@ const AppSandbox = (() => {
   }
 
   async function handleSysDialogSave({ payload, requestId, app, webview }) {
-    if (!AppPermissionManager.isGranted('vfs:write', app.id)) {
-      return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'vfs:write permission required');
+    const broadAccess = hasVfsAccess(app.id);
+    if (!hasVfsWrite(app.id)) {
+      return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'vfs:write or vfs:access permission required');
     }
     if (typeof window.SystemDialogs === 'undefined') {
       return respondError(webview, 'nova:sysdialog:save', requestId, 'UNAVAILABLE', 'SystemDialogs not loaded');
@@ -4328,13 +4960,20 @@ const AppSandbox = (() => {
         title: payload?.title,
         suggestedName: payload?.suggestedName || '',
         startFolderId: payload?.startFolderId || FS.rootId,
+        canAccess: node => canPickerAccess(node, app.id, { writable: true, sharedWrite: broadAccess }),
       });
       if (!picked) return respond(webview, 'nova:sysdialog:save', requestId, { cancelled: true });
+      if (!resolveFile({ id: picked.folderId }, app.id, true, broadAccess)) {
+        return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected folder is outside this app\'s writable VFS');
+      }
       const content = payload?.content || '';
       const mimeType = payload?.mimeType || 'text/plain';
       const existing = FS.listDir(picked.folderId).find(node =>
         node.type === 'file' && node.name === picked.name
       );
+      if (existing && !resolveFile({ id: existing.id }, app.id, true, broadAccess)) {
+        return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s writable VFS');
+      }
       const newNode = existing
         ? await FS.writeFile(existing.id, content)
         : await FS.createFile(picked.folderId, picked.name, content, mimeType);
@@ -4345,6 +4984,98 @@ const AppSandbox = (() => {
       });
     } catch (e) {
       respondError(webview, 'nova:sysdialog:save', requestId, 'WRITE_ERROR', e?.message || 'Failed to write file');
+    }
+  }
+
+  async function handleScopedFileOpen({ payload, requestId, app, webview }) {
+    if (typeof window.SystemDialogs?.open !== 'function') {
+      return respondError(webview, 'nova:files:open', requestId, 'UNAVAILABLE', 'File picker is not available');
+    }
+    const accept = payload?.accept;
+    if (accept !== undefined && (!Array.isArray(accept) || accept.length > 20
+      || accept.some(type => typeof type !== 'string' || !/^[\w.+*-]+\/[\w.+*-]+$/.test(type)))) {
+      return respondError(webview, 'nova:files:open', requestId, 'INVALID_ARGS', 'accept must be an array of MIME types');
+    }
+    try {
+      const node = await window.SystemDialogs.open({
+        title: typeof payload?.title === 'string' ? payload.title.slice(0, 100) : 'Choose a file',
+        startFolderId: payload?.startFolderId || FS.rootId,
+        canAccess: node => canPickerAccess(node, app.id),
+        filter: node => node.type === 'folder' || (node.type === 'file'
+          && (!accept?.length || accept.includes(node.mimeType)
+            || accept.some(type => type.endsWith('/*') && node.mimeType?.startsWith(type.slice(0, -1))))),
+      });
+      if (!node) return respond(webview, 'nova:files:open', requestId, { cancelled: true });
+      if (!resolveFile({ id: node.id }, app.id)) {
+        return respondError(webview, 'nova:files:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible VFS');
+      }
+      const content = node.content;
+      if (typeof content !== 'string') {
+        return respondError(webview, 'nova:files:open', requestId, 'UNSUPPORTED_TYPE', 'Selected file is not available as text');
+      }
+      const size = new TextEncoder().encode(content).byteLength;
+      if (size > 10_000_000) {
+        return respondError(webview, 'nova:files:open', requestId, 'FILE_TOO_LARGE', 'Selected files are limited to 10 MB');
+      }
+      return respond(webview, 'nova:files:open', requestId, {
+        cancelled: false,
+        file: {
+          name: node.name,
+          path: FS.getPath(node.id),
+          mimeType: node.mimeType || 'text/plain',
+          size,
+          content,
+        },
+      });
+    } catch (error) {
+      return respondError(webview, 'nova:files:open', requestId, 'PICKER_ERROR', error?.message || 'Could not open the selected file');
+    }
+  }
+
+  async function handleScopedFileSave({ payload, requestId, app, webview }) {
+    if (typeof window.SystemDialogs?.save !== 'function' || typeof FS?.createFile !== 'function') {
+      return respondError(webview, 'nova:files:save', requestId, 'UNAVAILABLE', 'File picker is not available');
+    }
+    if (typeof payload?.content !== 'string') {
+      return respondError(webview, 'nova:files:save', requestId, 'INVALID_ARGS', 'content must be a string up to 10 MB');
+    }
+    const size = new TextEncoder().encode(payload.content).byteLength;
+    if (size > 10_000_000) {
+      return respondError(webview, 'nova:files:save', requestId, 'INVALID_ARGS', 'content must be a string up to 10 MB');
+    }
+    const suggestedName = typeof payload.filename === 'string' ? payload.filename.slice(0, 255) : '';
+    const mimeType = typeof payload.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(payload.mimeType)
+      ? payload.mimeType
+      : 'text/plain';
+    try {
+      const picked = await window.SystemDialogs.save({
+        title: typeof payload.title === 'string' ? payload.title.slice(0, 100) : 'Save file',
+        suggestedName,
+        startFolderId: payload.startFolderId || FS.rootId,
+        canAccess: node => canPickerAccess(node, app.id, { writable: true, sharedWrite: true }),
+      });
+      if (!picked) return respond(webview, 'nova:files:save', requestId, { cancelled: true });
+      if (!canPickerAccess(FS.files.get(picked.folderId), app.id, {
+        writable: true, sharedWrite: true, allowContainerNavigation: false,
+      })) {
+        return respondError(webview, 'nova:files:save', requestId, 'PERMISSION_DENIED', 'Selected folder is outside the accessible VFS');
+      }
+      const existing = FS.listDir(picked.folderId).find(node =>
+        node.type === 'file' && node.name === picked.name
+      );
+      if (existing && !canPickerAccess(existing, app.id, { writable: true, sharedWrite: true })) {
+        return respondError(webview, 'nova:files:save', requestId, 'PERMISSION_DENIED', 'Selected file is outside the accessible VFS');
+      }
+      const saved = existing
+        ? await FS.writeFile(existing.id, payload.content)
+        : await FS.createFile(picked.folderId, picked.name, payload.content, mimeType);
+      if (!saved) throw new Error('Could not save the selected file');
+      return respond(webview, 'nova:files:save', requestId, {
+        cancelled: false,
+        file: { name: saved.name, path: FS.getPath(saved.id), mimeType: saved.mimeType || mimeType, size },
+      });
+    } catch (error) {
+      return respondError(webview, 'nova:files:save', requestId, 'PICKER_ERROR', error?.message || 'Could not save the selected file');
     }
   }
 
@@ -4385,6 +5116,13 @@ const AppSandbox = (() => {
 
   const API_HANDLERS = {
     'nova:nested-webview': handleNestedWebview,
+    'nova:files:open': handleScopedFileOpen,
+    'nova:files:save': handleScopedFileSave,
+    'nova:share': handleShare,
+    'nova:appearance:get': handleAppearanceGet,
+    'nova:appearance:set': handleAppearanceSet,
+    'nova:appearance:subscribe': handleAppearanceSubscribe,
+    'nova:appearance:unsubscribe': handleAppearanceUnsubscribe,
     'nova:vfs:read': handleFsRead,
     'nova:vfs:write': handleFsWrite,
     'nova:vfs:delete': handleFsDelete,
@@ -4397,6 +5135,7 @@ const AppSandbox = (() => {
     'nova:notifications:clear': handleNotificationsClear,
     'nova:settings:get': handleSettingsGet,
     'nova:settings:set': handleSettingsSet,
+    'nova:wallpaper:set': handleWallpaperSet,
     'nova:request-permission': handleRequestPermission,
     'nova:permission-rate-limited': handlePermissionRateLimited,
     'nova:window:close': handleWindowClose,
@@ -4409,6 +5148,8 @@ const AppSandbox = (() => {
     'nova:clipboard:write': handleClipboardWrite,
     'nova:app:launch': handleAppLaunch,
     'nova:email:open-link': handleEmailOpenLink,
+    'nova:open-url': handleOpenUrl,
+    'nova:open-with': handleOpenWith,
     'nova:app:openDefaultAppsSettings': handleOpenDefaultAppsSettings,
     'nova:app:info': handleAppInfo,
     'nova:app:list': handleAppList,
@@ -4460,13 +5201,10 @@ const AppSandbox = (() => {
     'nova:clock:stopwatch:pause': handleClockStopwatchPause,
     'nova:clock:stopwatch:reset': handleClockStopwatchReset,
     'nova:clock:stopwatch:lap': handleClockStopwatchLap,
-    // Settings-only channels (see UnrestrictedGate) — routing them here is
-    // necessary but not sufficient: handleAPICall dispatches to these for
-    // ANY caller, same as every other entry in this table. The actual
-    // identity/signature restriction to com.nbosp.settings happens inside
-    // UnrestrictedGate.checkUnrestrictedCall, called before dispatch — see
-    // its call site earlier in handleAPICall. Without that prior gate,
-    // registering these here would let any sandboxed app reach them.
+    // Settings-only channels. The Settings app reaches these features
+    // directly through OS.system.* rather than via IPC, so these entries
+    // are never dispatched on a live code path — they're kept here as the
+    // canonical implementation for any future IPC surface to reuse.
     'nova:system:permissions:list': handleSystemPermissionsList,
     'nova:system:permissions:set': handleSystemPermissionsSet,
     'nova:system:permissions:reset': handleSystemPermissionsReset,
@@ -4499,16 +5237,6 @@ const AppSandbox = (() => {
   // bridge. Unknown types get an UNKNOWN_API error response.
   async function handleAPICall(type, payload, requestId, app, webview, sandbox) {
     try {
-      if (typeof UnrestrictedGate !== 'undefined' && UnrestrictedGate.isUnrestrictedCall(type)) {
-        const verdict = await UnrestrictedGate.checkUnrestrictedCall(type, app);
-        if (!verdict.allowed) {
-          log('warn', `Blocked unrestricted call ${type} from ${app?.id || 'unknown'}: ${verdict.reason}`);
-          if (typeof EventLog !== 'undefined') {
-            EventLog.log({ app: 'UnrestrictedGate', category: 'security', severity: 'error', message: `Blocked ${type} from ${app?.id || 'unknown'}`, data: { type, appId: app?.id, reason: verdict.reason } });
-          }
-          return respondError(webview, type, requestId, 'PERMISSION_DENIED', verdict.reason);
-        }
-      }
       const handler = API_HANDLERS[type];
       if (!handler) {
         return respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
@@ -4661,6 +5389,8 @@ const AppSandbox = (() => {
         dialog.restore?.();
         openDialogs.delete(sandboxId);
       }
+      for (const cancelShare of shareDialogs.get(sandboxId) || []) cancelShare();
+      shareDialogs.delete(sandboxId);
 
       // Run the collected teardown steps (listeners removed above).
       for (const fn of teardown) {
@@ -4796,14 +5526,11 @@ const AppSandbox = (() => {
   // the separate sandbox:nested-webview grant. Fail closed on errors.
   function isNestedWebviewPermitted(app) {
     if (!app) return false;
-    // NOTE: flattened top-level field (app.allowNestedWebview), matching how
-    // `sandbox`/`permissions`/etc. are flattened onto the sandboxApp object
-    // in nova-app-launcher.js's buildNovaAppConfig() — NOT app.manifest.allowNestedWebview.
-    // The app object AppSandbox.launch() receives is built from an explicit
-    // field allowlist there and never carries a `manifest` property, so
-    // checking app.manifest would always silently read undefined and fail
-    // closed. See nova-app-launcher.js's sandboxApp construction.
-    const manifestOptIn = app.allowNestedWebview === true;
+    // Prefer the flattened launch field, but accept the original manifest
+    // too. Some install/restore paths preserve the manifest and permissions
+    // while omitting the flattened convenience field.
+    const manifestOptIn = app.allowNestedWebview === true
+      || app.manifest?.allowNestedWebview === true;
     if (!manifestOptIn) return false;
     try {
       return AppPermissionManager?.isGranted('sandbox:nested-webview', app.id) === true;
@@ -4814,6 +5541,21 @@ const AppSandbox = (() => {
 
   function isExternalFramesPermitted(app) {
     return isNestedWebviewPermitted(app);
+  }
+
+  function canNestedWebviewNavigate(app, rawUrl) {
+    const classified = resolveAndClassifyUrl(rawUrl);
+    if (!classified.valid) return false;
+    let url;
+    try {
+      url = new URL(classified.url);
+    } catch {
+      return false;
+    }
+    if (url.username || url.password) return false;
+    const permission = classified.isInternal ? 'net:internal' : 'net:external';
+    return typeof AppPermissionManager !== 'undefined'
+      && AppPermissionManager?.isGranted(permission, app?.id) === true;
   }
 
   // Marker used ONLY on the one-shot handshake that hands a MessagePort
@@ -5034,7 +5776,7 @@ const AppSandbox = (() => {
   // the guest — permission grants are host-side and the guest has no safe
   // synchronous way to ask), so this must be regenerated per-app/per-load
   // rather than reused as a static constant.
-  function buildCapabilityShim(nestedWebviewAllowed) {
+  function buildCapabilityShim(nestedWebviewAllowed, initialUrl = null) {
   return `<script>
 (function() {
   'use strict';
@@ -5043,6 +5785,7 @@ const AppSandbox = (() => {
   // see isNestedWebviewPermitted() in app-sandbox.js. Never trust a guest
   // to self-report this.
   const __NOVA_NESTED_WEBVIEW_ALLOWED__ = ${nestedWebviewAllowed ? 'true' : 'false'};
+  let __NOVA_PENDING_INITIAL_URL__ = ${JSON.stringify(initialUrl)};
 
   // A handful of channels block on a human making a decision in a native
   // OS dialog (choosing where to save, which file to open) rather than on
@@ -5057,10 +5800,14 @@ const AppSandbox = (() => {
   const INTERACTIVE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
   const INTERACTIVE_CHANNELS = {
     'nova:download': true,
+    'nova:share': true,
+    'nova:files:open': true,
+    'nova:files:save': true,
     'nova:dialog:open': true,
     'nova:dialog:save': true,
     'nova:sysdialog:open': true,
     'nova:sysdialog:save': true,
+    'nova:open-with': true,
     'nova:clock:alarm:dialog': true,
   };
   const pendingRequests = new Map();
@@ -5166,6 +5913,13 @@ const AppSandbox = (() => {
   // other end of this port, so nothing else could be the source.
   function handleInboxMessage(msg) {
     if (!msg || typeof msg.type !== 'string') return;
+
+    if (msg.type === 'nova:appearance:changed:event:response' && msg.result) {
+      for (const callback of appearanceListeners.slice()) {
+        try { callback(msg.result); } catch (error) { console.error('Appearance listener failed:', error); }
+      }
+      return;
+    }
 
     if (msg.type === 'nova:nested-webview:event:response' && msg.result?.proxyId && msg.result?.eventName) {
       const proxy = window.__novaNestedWebviewProxies?.get(msg.result.proxyId);
@@ -5362,6 +6116,9 @@ const AppSandbox = (() => {
   // these unprompted, not in response to a specific ipc() call, so they
   // need their own dispatch rather than the requestId-keyed one above).
   const eventListeners = {}; // eventName -> [callback, ...]
+  const appearanceListeners = [];
+  let appearanceSubscriptionPromise = null;
+  const launchListeners = [];
 
   // Callbacks registered via window.nova.onBackgroundWake(). Plain array,
   // not keyed by name — there's exactly one wake channel per sandbox
@@ -5377,8 +6134,103 @@ const AppSandbox = (() => {
   // Public API for apps that want to use the bridge directly.
   window.nova = {
     ipc: ipc,
+    files: {
+      open: function(options) { return ipc('nova:files:open', options || {}); },
+      save: function(options) { return ipc('nova:files:save', options || {}); },
+    },
+    share: function(data) { return ipc('nova:share', data || {}); },
+    appearance: {
+      get: function() { return ipc('nova:appearance:get', {}); },
+      set: function(appearance) { return ipc('nova:appearance:set', { appearance: appearance || {} }); },
+      onChange: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        if (appearanceListeners.includes(callback)) return Promise.reject(new TypeError('callback is already subscribed'));
+        appearanceListeners.push(callback);
+        if (!appearanceSubscriptionPromise) {
+          appearanceSubscriptionPromise = ipc('nova:appearance:subscribe', {}).catch(error => {
+            appearanceSubscriptionPromise = null;
+            throw error;
+          });
+        }
+        return appearanceSubscriptionPromise.then(function(result) {
+          try { callback(result.appearance); }
+          catch (error) { console.error('Appearance listener failed:', error); }
+          return function() {
+            const index = appearanceListeners.indexOf(callback);
+            if (index >= 0) appearanceListeners.splice(index, 1);
+            if (appearanceListeners.length === 0) {
+              appearanceSubscriptionPromise = null;
+              ipc('nova:appearance:unsubscribe', {}).catch(error => console.error(error));
+            }
+          };
+        }, function(error) {
+          const index = appearanceListeners.indexOf(callback);
+          if (index >= 0) appearanceListeners.splice(index, 1);
+          throw error;
+        });
+      },
+    },
+    app: {
+      getInfo: function() { return ipc('nova:ready', {}); },
+      launch: function(appId, options) {
+        return ipc('nova:app:launch', { appId: appId, options: options || {} });
+      },
+      getLaunchOptions: function() {
+        try { return Promise.resolve(JSON.parse(JSON.stringify(window.__NOVA_APP_OPTIONS__ || {}))); }
+        catch (error) { return Promise.reject(error); }
+      },
+      onLaunch: function(callback) {
+        if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+        launchListeners.push(callback);
+        const options = window.__NOVA_APP_OPTIONS__ || {};
+        queueMicrotask(() => {
+          if (launchListeners.includes(callback)) {
+            try { callback({ options: JSON.parse(JSON.stringify(options)), reason: 'launch' }); }
+            catch (error) { console.error('App launch listener failed:', error); }
+          }
+        });
+        return function() {
+          const index = launchListeners.indexOf(callback);
+          if (index >= 0) launchListeners.splice(index, 1);
+        };
+      },
+      onStateChange: function(callback) {
+        if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+        const sendState = () => {
+          try {
+            callback({
+              visible: document.visibilityState === 'visible',
+              focused: typeof document.hasFocus === 'function' && document.hasFocus(),
+            });
+          } catch (error) {
+            console.error('App state listener failed:', error);
+          }
+        };
+        const listener = () => sendState();
+        document.addEventListener('visibilitychange', listener);
+        window.addEventListener('focus', listener);
+        window.addEventListener('blur', listener);
+        sendState();
+        return function() {
+          document.removeEventListener('visibilitychange', listener);
+          window.removeEventListener('focus', listener);
+          window.removeEventListener('blur', listener);
+        };
+      },
+    },
+    wallpaper: {
+      set: function(key, value) {
+        return ipc('nova:wallpaper:set', { key: key, value: value });
+      }
+    },
     requestPermission: function(permission, reason) {
       return ipc('nova:request-permission', { permission: permission, reason: reason });
+    },
+    openUrl: function(url) {
+      return ipc('nova:open-url', { url: url });
+    },
+    openWith: function(fileId) {
+      return ipc('nova:open-with', { fileId: fileId });
     },
     onEvent: function(eventName, callback) {
       if (!eventListeners[eventName]) eventListeners[eventName] = [];
@@ -5609,7 +6461,13 @@ const AppSandbox = (() => {
       .then(function(res) {
         if (!res || !res.success) throw new TypeError('Fetch failed');
         const responseInit = { status: res.status, statusText: res.statusText, headers: new Headers(res.headers || {}) };
-        return new Response(res.body || '', responseInit);
+        let responseBody = res.body || '';
+        if (res.bodyEncoding === 'base64') {
+          const binary = atob(responseBody);
+          responseBody = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) responseBody[i] = binary.charCodeAt(i);
+        }
+        return new Response(responseBody, responseInit);
       });
   };
 
@@ -5920,7 +6778,7 @@ const AppSandbox = (() => {
           top: Math.max(0, rect.top),
           width: Math.max(0, Math.min(window.innerWidth, rect.right) - Math.max(0, rect.left)),
           height: Math.max(0, Math.min(window.innerHeight, rect.bottom) - Math.max(0, rect.top)),
-          visible: style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
+          visible: !proxy.hidden && style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
           visibility: style.visibility,
           pointerEvents: style.pointerEvents,
           zIndex: style.zIndex === 'auto' ? 1 : Number(style.zIndex)
@@ -5947,13 +6805,17 @@ const AppSandbox = (() => {
           const value = this.getAttribute(name);
           if (value !== null) attributes[name] = value;
         }
+        if (attributes.src && __NOVA_PENDING_INITIAL_URL__) {
+          attributes.src = __NOVA_PENDING_INITIAL_URL__;
+          __NOVA_PENDING_INITIAL_URL__ = null;
+        }
         this.__createPromise = ipc('nova:nested-webview', { action: 'create', id: this.__nestedId, attributes })
-          .then(() => { this.__hostReady = true; scheduleNestedBounds(this); })
-          .catch(error => console.error('Nested webview creation failed:', error));
+          .then(() => { this.__hostReady = true; scheduleNestedBounds(this); });
+        this.__createPromise.catch(error => console.error('Nested webview creation failed:', error));
         this.__resizeObserver = new ResizeObserver(() => scheduleNestedBounds(this));
         this.__resizeObserver.observe(this);
         this.__mutationObserver = new MutationObserver(() => scheduleNestedBounds(this));
-        this.__mutationObserver.observe(this, { attributes: true, attributeFilter: ['class', 'style'] });
+        this.__mutationObserver.observe(this, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
       }
       disconnectedCallback() {
         this.__resizeObserver?.disconnect();
@@ -5965,8 +6827,12 @@ const AppSandbox = (() => {
         ipc('nova:nested-webview', { action: 'destroy', id: this.__nestedId }).catch(() => {});
       }
       setAttribute(name, value) {
-        super.setAttribute(name, value);
         const key = String(name).toLowerCase();
+        if (key === 'src' && __NOVA_PENDING_INITIAL_URL__) {
+          value = __NOVA_PENDING_INITIAL_URL__;
+          __NOVA_PENDING_INITIAL_URL__ = null;
+        }
+        super.setAttribute(name, value);
         if (this.__created && ['allowfullscreen', 'allowpopups', 'src', 'partition'].includes(key)) {
           ipc('nova:nested-webview', { action: 'attribute', id: this.__nestedId, name: key, value: String(value) })
             .catch(error => console.error('Nested webview attribute update failed:', error));
@@ -5985,6 +6851,12 @@ const AppSandbox = (() => {
       get src() { return this.getAttribute('src') || ''; }
       set src(value) { this.setAttribute('src', value); }
       getURL() { return this.src; }
+      navigate(url) {
+        super.setAttribute('src', String(url));
+        return ipc('nova:nested-webview', {
+          action: 'attribute', id: this.__nestedId, name: 'src', value: String(url)
+        });
+      }
       executeScript(details, callback) {
         const result = ipc('nova:nested-webview', { action: 'command', id: this.__nestedId, command: 'executeScript', details: details || {} });
         if (typeof callback === 'function') result.then(callback, error => console.error(error));
@@ -5999,6 +6871,16 @@ const AppSandbox = (() => {
       back() { return this.__command('back'); }
       forward() { return this.__command('forward'); }
       stop() { return this.__command('stop'); }
+      canGoBack() { return this.__queryCommand('canGoBack'); }
+      canGoForward() { return this.__queryCommand('canGoForward'); }
+      find(query, options) {
+        return ipc('nova:nested-webview', {
+          action: 'command', id: this.__nestedId, command: 'find',
+          query, options: options || {}
+        });
+      }
+      stopFinding(action) { return this.__valueCommand('stopFinding', action || 'clear'); }
+      setUserAgentOverride(userAgent) { return this.__valueCommand('setUserAgentOverride', userAgent); }
       setZoom(value) { return this.__valueCommand('setZoom', value); }
       setZoomMode(value) { return this.__valueCommand('setZoomMode', value); }
       clearData(options, types, callback) {
@@ -6010,6 +6892,9 @@ const AppSandbox = (() => {
       }
       __command(command) {
         return ipc('nova:nested-webview', { action: 'command', id: this.__nestedId, command });
+      }
+      __queryCommand(command) {
+        return this.__command(command).then(result => result?.value === true);
       }
       __attachPopup(popupId) {
         return Promise.resolve(this.__createPromise).then(() => ipc('nova:nested-webview', {
@@ -6023,7 +6908,7 @@ const AppSandbox = (() => {
 
     customElements.define('nova-nested-webview', NovaNestedWebview);
     const proxyStyle = nativeCreateElement.call(document, 'style');
-    proxyStyle.textContent = 'nova-nested-webview{display:block;}';
+    proxyStyle.textContent = 'nova-nested-webview{display:block;width:100%;height:100%;}nova-nested-webview[hidden]{display:none!important;}';
     document.documentElement.appendChild(proxyStyle);
     Document.prototype.createElement = function(tagName, options) {
       if (typeof tagName === 'string' && tagName.toLowerCase() === 'webview') {
@@ -6096,6 +6981,264 @@ const AppSandbox = (() => {
       }
     });
     nativeWebviewObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    class NovaBrowserView extends EventTarget {
+      constructor(element, pollingInterval) {
+        super();
+        this.element = element;
+        this.url = '';
+        this.title = '';
+        this.loading = false;
+        this.canGoBack = null;
+        this.canGoForward = null;
+        this._history = [];
+        this._historyIndex = -1;
+        this._historyMove = 0;
+        this.destroyed = false;
+        this._refreshing = false;
+        this._pollingInterval = pollingInterval;
+        this._lastStateError = null;
+        this._onLoadStart = event => {
+          this.loading = true;
+          this._emit('navigation-start', this._navigationDetail(event));
+        };
+        this._onLoadRedirect = event => this._emit('navigation-redirect', this._navigationDetail(event));
+        this._onLoadCommit = event => {
+          if (event.isTopLevel === false) return;
+          this._setUrl(event.url || '');
+          this._emit('navigation-commit', this._navigationDetail(event));
+        };
+        this._onLoadStop = () => {
+          this.loading = false;
+          this._emit('navigation-complete', this._state());
+          this.refreshState().catch(error => this._reportStateError(error));
+        };
+        this._onLoadError = event => {
+          if (event.isTopLevel === false) return;
+          this.loading = false;
+          this._emit('navigation-error', this._navigationDetail(event));
+        };
+        this._onClose = event => this._emit('close', this._navigationDetail(event));
+        this._onCrash = event => this._emit('crash', this._navigationDetail(event));
+        this._onNewWindow = event => {
+          const popup = event.window;
+          this._emit('new-window', {
+            url: event.targetUrl || '',
+            disposition: event.windowOpenDisposition || '',
+            width: event.initialWidth || null,
+            height: event.initialHeight || null,
+            window: popup ? {
+              attach: browserView => {
+                if (!browserView?.element) throw new TypeError('attach requires a Nova browser view');
+                return popup.attach(browserView.element);
+              },
+              discard: () => popup.discard(),
+            } : null,
+          });
+        };
+        this._onPermissionRequest = event => {
+          if (event.permission === 'download') {
+            this._emit('download-request', {
+              url: event.request?.url || event.url || '',
+            });
+          }
+        };
+        element.addEventListener('loadstart', this._onLoadStart);
+        element.addEventListener('loadredirect', this._onLoadRedirect);
+        element.addEventListener('loadcommit', this._onLoadCommit);
+        element.addEventListener('loadstop', this._onLoadStop);
+        element.addEventListener('loadabort', this._onLoadError);
+        element.addEventListener('loaderror', this._onLoadError);
+        element.addEventListener('close', this._onClose);
+        element.addEventListener('crashed', this._onCrash);
+        element.addEventListener('newwindow', this._onNewWindow);
+        element.addEventListener('permissionrequest', this._onPermissionRequest);
+        if (pollingInterval > 0) {
+          this._pollTimer = setInterval(() => {
+            this.refreshState().catch(error => this._reportStateError(error));
+          }, pollingInterval);
+        }
+      }
+      _emit(type, detail) {
+        this.dispatchEvent(new CustomEvent(type, { detail }));
+      }
+      _navigationDetail(event) {
+        return {
+          url: event.url || event.targetUrl || event.validatedURL || this.url,
+          isTopLevel: event.isTopLevel !== false,
+          reason: event.reason || '',
+          errorCode: Number.isInteger(event.errorCode) ? event.errorCode : null,
+          errorDescription: event.errorDescription || '',
+        };
+      }
+      _state() {
+        return {
+          url: this.url,
+          title: this.title,
+          loading: this.loading,
+          canGoBack: this.canGoBack,
+          canGoForward: this.canGoForward,
+        };
+      }
+      _setUrl(url) {
+        if (typeof url !== 'string' || !url || url === 'about:blank') return;
+        if (this._historyMove !== 0) {
+          this._historyIndex = Math.max(0, Math.min(this._history.length - 1, this._historyIndex + this._historyMove));
+          this._historyMove = 0;
+          this._updateHistoryState();
+        } else if (url !== this.url) {
+          this._history.splice(this._historyIndex + 1);
+          this._history.push(url);
+          this._historyIndex = this._history.length - 1;
+          this._updateHistoryState();
+        }
+        if (url === this.url) return;
+        const previousUrl = this.url;
+        this.url = url;
+        this._emit('url-change', { url, previousUrl });
+      }
+      _updateHistoryState() {
+        this.canGoBack = this._historyIndex > 0;
+        this.canGoForward = this._historyIndex >= 0 && this._historyIndex < this._history.length - 1;
+      }
+      _reportStateError(error) {
+        if (this.destroyed) return;
+        const message = error?.message || String(error);
+        if (message === this._lastStateError) return;
+        this._lastStateError = message;
+        this._emit('state-error', { error });
+      }
+      async refreshState() {
+        if (this.destroyed || this._refreshing) return this._state();
+        this._refreshing = true;
+        try {
+          const results = await this.element.executeScript({ code: '[location.href, document.title]' });
+          const value = Array.isArray(results) && Array.isArray(results[0]) ? results[0] : results;
+          if (Array.isArray(value)) {
+            this._setUrl(typeof value[0] === 'string' ? value[0] : '');
+            const title = typeof value[1] === 'string' ? value[1] : '';
+            if (title !== this.title) {
+              const previousTitle = this.title;
+              this.title = title;
+              this._emit('title-change', { title, previousTitle });
+            }
+          }
+          this._lastStateError = null;
+          this._emit('state-change', this._state());
+          return this._state();
+        } finally {
+          this._refreshing = false;
+        }
+      }
+      getState() { return this.refreshState(); }
+      navigate(url) {
+        if (this.destroyed) return Promise.reject(new Error('Browser view has been destroyed'));
+        if (typeof url !== 'string' || !url.trim()) return Promise.reject(new TypeError('A URL is required'));
+        if (__NOVA_PENDING_INITIAL_URL__) {
+          url = __NOVA_PENDING_INITIAL_URL__;
+          __NOVA_PENDING_INITIAL_URL__ = null;
+        }
+        return this.element.navigate(url);
+      }
+      back() {
+        if (this.canGoBack) this._historyMove = -1;
+        return this.element.back().catch(error => {
+          this._historyMove = 0;
+          throw error;
+        });
+      }
+      forward() {
+        if (this.canGoForward) this._historyMove = 1;
+        return this.element.forward().catch(error => {
+          this._historyMove = 0;
+          throw error;
+        });
+      }
+      reload() { return this.element.reload(); }
+      stop() { return this.element.stop(); }
+      find(query, options) { return this.element.find(query, options); }
+      stopFinding(action) { return this.element.stopFinding(action); }
+      clearData(types) { return this.element.clearData({}, types); }
+      setZoom(zoom) { return this.element.setZoom(zoom); }
+      setZoomMode(mode) { return this.element.setZoomMode(mode); }
+      setUserAgent(userAgent) { return this.element.setUserAgentOverride(userAgent); }
+      executeScript(code) {
+        if (typeof code !== 'string' || !code.trim()) return Promise.reject(new TypeError('Script code is required'));
+        return this.element.executeScript({ code });
+      }
+      on(type, listener) {
+        this.addEventListener(type, listener);
+        return () => this.removeEventListener(type, listener);
+      }
+      destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        clearInterval(this._pollTimer);
+        this.element.removeEventListener('loadstart', this._onLoadStart);
+        this.element.removeEventListener('loadredirect', this._onLoadRedirect);
+        this.element.removeEventListener('loadcommit', this._onLoadCommit);
+        this.element.removeEventListener('loadstop', this._onLoadStop);
+        this.element.removeEventListener('loadabort', this._onLoadError);
+        this.element.removeEventListener('loaderror', this._onLoadError);
+        this.element.removeEventListener('close', this._onClose);
+        this.element.removeEventListener('crashed', this._onCrash);
+        this.element.removeEventListener('newwindow', this._onNewWindow);
+        this.element.removeEventListener('permissionrequest', this._onPermissionRequest);
+        this.element.remove();
+        this._emit('destroy', {});
+      }
+    }
+
+    window.nova.browser = Object.freeze({
+      createView: async function(options) {
+        if (!options || !(options.container instanceof Element)) {
+          throw new TypeError('createView requires a container Element');
+        }
+        const pollingInterval = options.pollingInterval === undefined ? 1000 : Number(options.pollingInterval);
+        if (!Number.isInteger(pollingInterval) || pollingInterval < 0 || pollingInterval > 10000
+          || (pollingInterval > 0 && pollingInterval < 250)) {
+          throw new RangeError('pollingInterval must be 0 or between 250 and 10000 milliseconds');
+        }
+        const element = document.createElement('webview');
+        element.style.cssText = 'display:block;width:100%;height:100%;border:0;';
+        options.container.appendChild(element);
+        let browserView = null;
+        try {
+          await element.__createPromise;
+          browserView = new NovaBrowserView(element, pollingInterval);
+          if (typeof options.url === 'string' && options.url) await browserView.navigate(options.url);
+          else if (__NOVA_PENDING_INITIAL_URL__) await browserView.navigate(__NOVA_PENDING_INITIAL_URL__);
+          return browserView;
+        } catch (error) {
+          if (browserView) browserView.destroy();
+          else element.remove();
+          throw error;
+        }
+      },
+      download: async function(options) {
+        if (!options || typeof options.url !== 'string' || !options.url.trim()) {
+          throw new TypeError('download requires a URL');
+        }
+        const response = await fetch(options.url);
+        if (!response.ok) throw new Error('Download request failed with HTTP ' + response.status);
+        const blob = await response.blob();
+        if (blob.size > 100 * 1024 * 1024) throw new RangeError('Downloads are limited to 100 MB');
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error || new Error('Could not read downloaded data'));
+          reader.readAsDataURL(blob);
+        });
+        if (typeof dataUrl !== 'string') throw new Error('Could not encode downloaded data');
+        const separator = dataUrl.indexOf(',');
+        if (separator < 0) throw new Error('Could not encode downloaded data');
+        return window.nova.ipc('nova:download', {
+          filename: options.filename || 'download',
+          mimeType: blob.type || 'application/octet-stream',
+          base64Data: dataUrl.slice(separator + 1),
+        });
+      },
+    });
   }
 
   if (!__NOVA_NESTED_WEBVIEW_ALLOWED__) {
@@ -6247,11 +7390,34 @@ const AppSandbox = (() => {
   // searched for anywhere in the string, so this can't be tricked by an
   // app embedding a fake "<!DOCTYPE" later in the body.
   const LEADING_DOCTYPE_RE = /^\s*<!DOCTYPE\s+html\s*>/i;
+
+  function deferPackagedScripts(html) {
+    return html.replace(/<!--[\s\S]*?-->|<script\b[^>]*>/gi, tag => {
+      if (tag.startsWith('<!--')) return tag;
+      const attributes = tag.slice('<script'.length, -1);
+      if (!/(?:^|\s)src\s*=/i.test(attributes)) return tag;
+
+      // Packaged external scripts run only after HTML parsing, in document
+      // order. Normalize async scripts too: they otherwise race their DOM
+      // and sibling scripts, making startup timing dependent on download speed.
+      const normalizedAttributes = attributes
+        .replace(/(?:^|\s+)async(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?(?=\s|$)/gi, '')
+        .replace(/(?:^|\s+)defer(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?(?=\s|$)/gi, '');
+      return `<script${normalizedAttributes} defer>`;
+    });
+  }
+
   function injectCapabilityShim(html, app, launchOptions = {}) {
     if (typeof html !== 'string') return html;
+    html = deferPackagedScripts(html);
     const allowNestedWebview = isNestedWebviewPermitted(app);
     const allowExternalFrames = isExternalFramesPermitted(app);
-    const shim = buildCapabilityShim(allowNestedWebview);
+    const initialUrl = allowNestedWebview
+      && typeof launchOptions.url === 'string'
+      && canNestedWebviewNavigate(app, launchOptions.url)
+      ? resolveAndClassifyUrl(launchOptions.url).url
+      : null;
+    const shim = buildCapabilityShim(allowNestedWebview, initialUrl);
     const cspMeta = buildRelaxedCspMeta(allowExternalFrames);
     const safeOptions = JSON.stringify(launchOptions || {})
       .replace(/</g, '\u003c').replace(/>/g, '\u003e').replace(/&/g, '\u0026')
@@ -6578,7 +7744,7 @@ const AppSandbox = (() => {
   // Create a sandboxed webview for app execution. The webview runs in a
   // separate renderer process — true process isolation. It cannot access
   // main page JS, DOM, or memory regardless of app content.
-  function createSandbox(app, container, state) {
+  function createSandbox(app, container, state, launchOptions = {}) {
     const webview = document.createElement('webview');
 
     // nodeintegration=false means the app cannot require() Node.js modules
@@ -6703,6 +7869,22 @@ const AppSandbox = (() => {
     // survives in #background-app-host).
     const teardownFns = [];
 
+    const requestedFileIntent = launchOptions?.fileIntent;
+    const requestedFileId = requestedFileIntent?.action === 'open'
+      ? requestedFileIntent.file?.id
+      : null;
+    const requestedFile = typeof requestedFileId === 'string' ? FS.files.get(requestedFileId) : null;
+    const dotIndex = typeof requestedFile?.name === 'string' ? requestedFile.name.lastIndexOf('.') : -1;
+    const fileQuery = requestedFile ? {
+      extension: dotIndex !== -1 ? requestedFile.name.slice(dotIndex).toLowerCase() : null,
+      mimeType: typeof requestedFile.mimeType === 'string' ? requestedFile.mimeType : '',
+    } : null;
+    const openFile = requestedFile?.type === 'file'
+      && typeof DefaultApps !== 'undefined'
+      && DefaultApps.supportsFile(app.id, fileQuery)
+      ? { id: requestedFile.id, node: requestedFile }
+      : null;
+
     activeSandboxes.set(sandboxId, {
       appId: app.id,
       iframe: webview,
@@ -6714,6 +7896,7 @@ const AppSandbox = (() => {
       nestedWebviews: new Map(),
       pendingNewWindows: new Map(),
       nestedWebviewAllowed,
+      openFile,
       cleanup: null, // populated below after all setup runs
     });
     if (state?.content && getComputedStyle(state.content).position === 'static') {
@@ -6761,6 +7944,8 @@ const AppSandbox = (() => {
         entry.view.remove();
       }
       activeSandboxes.get(sandboxId)?.nestedWebviews?.clear();
+      activeSandboxes.get(sandboxId)?.appearanceSubscription?.();
+      if (activeSandboxes.has(sandboxId)) activeSandboxes.get(sandboxId).appearanceSubscription = null;
       for (const pending of activeSandboxes.get(sandboxId)?.pendingNewWindows?.values() || []) {
         try { pending.discard(); } catch (e) { log('debug', 'pending popup cleanup step threw', e); }
       }
@@ -6784,60 +7969,52 @@ const AppSandbox = (() => {
   // can see the same host APIs, DOM, WM, FS, Notify, ContextMenu, etc. that
   // its original .js implementation saw. Eligibility is ONLY established by
   // UnrestrictedGate immediately before this function is called.
-  async function launchUnrestrictedHostApp(app, container, state, options = {}) {
+  async function launchUnrestrictedHostApp(app, container, state, options = {}, reuseEntry = false) {
     const entryName = app?.unrestrictedEntry || app?.manifest?.unrestrictedEntry;
-    const encoded = entryName && app?.files?.[entryName];
-    if (!encoded) throw new Error(`Trusted app ${app?.id || 'unknown'} has no unrestricted entry ${entryName || '(none)'}`);
-
-    const source = decodeBase64Utf8(encoded);
     container.innerHTML = '';
     container.style.padding = '0';
     container.style.overflow = 'hidden';
 
-    // Execute the legacy entry as a classic host <script>, matching the exact
-    // execution model used before this app was converted to .novaapp. The old
-    // Browser source expects normal NW.js/DOM globals (`window`, `document`,
-    // `require`, `registerApp`, OS, FS, WM, etc.) and was originally evaluated
-    // as a classic script in the main OS document. `new Function()` creates a
-    // different function scope and can change how host globals/Node bindings
-    // resolve, which is enough to make a large legacy app render as a blank
-    // surface even though registration itself succeeds.
-    //
-    // Re-use a single marker so reopening the app never leaves stale copies of
-    // the same unrestricted entry script in the document.
-    const scriptSelector = `script[data-nova-unrestricted-app=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
-    document.querySelectorAll(scriptSelector).forEach(node => node.remove());
+    if (!reuseEntry) {
+      const encoded = entryName && app?.files?.[entryName];
+      if (!encoded) throw new Error(`Trusted app ${app?.id || 'unknown'} has no unrestricted entry ${entryName || '(none)'}`);
+      const source = decodeBase64Utf8(encoded);
 
-    // Install the package-local stylesheet in the host document once. System
-    // app styles live beside their .novaapp entry rather than in global style.css.
-    const styleMarker = `style[data-novaapp-style=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
-    if (!document.querySelector(styleMarker)) {
-      const styleEncoded = app?.files?.['style.css'];
-      if (styleEncoded) {
-        try {
-          const styleNode = document.createElement('style');
-          styleNode.dataset.novaappStyle = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
-          styleNode.textContent = decodeBase64Utf8(styleEncoded);
-          document.head.appendChild(styleNode);
-        } catch (styleErr) {
-          log('debug', `Unable to install packaged stylesheet for ${app.id}`, { error: styleErr?.message });
+      // Re-use a single marker so reopening an unrestricted app never leaves
+      // stale copies of its entry script in the document.
+      const scriptSelector = `script[data-nova-unrestricted-app=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
+      document.querySelectorAll(scriptSelector).forEach(node => node.remove());
+
+      // Install the package-local stylesheet in the host document once.
+      const styleMarker = `style[data-novaapp-style=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
+      if (!document.querySelector(styleMarker)) {
+        const styleEncoded = app?.files?.['style.css'];
+        if (styleEncoded) {
+          try {
+            const styleNode = document.createElement('style');
+            styleNode.dataset.novaappStyle = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
+            styleNode.textContent = decodeBase64Utf8(styleEncoded);
+            document.head.appendChild(styleNode);
+          } catch (styleErr) {
+            log('debug', `Unable to install packaged stylesheet for ${app.id}`, { error: styleErr?.message });
+          }
         }
       }
-    }
 
-    const script = document.createElement('script');
-    script.type = 'text/javascript';
-    script.dataset.novaUnrestrictedApp = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
-    script.textContent = source + `\n//# sourceURL=novaapp:${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}/${String(entryName)}\n`;
-    const previousUnrestrictedPackage = window.__novaUnrestrictedPackage;
-    window.__novaUnrestrictedPackage = app;
-    try {
-      (document.body || document.documentElement).appendChild(script);
-    } finally {
-      if (previousUnrestrictedPackage === undefined) {
-        delete window.__novaUnrestrictedPackage;
-      } else {
-        window.__novaUnrestrictedPackage = previousUnrestrictedPackage;
+      const script = document.createElement('script');
+      script.type = 'text/javascript';
+      script.dataset.novaUnrestrictedApp = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
+      script.textContent = source + `\n//# sourceURL=novaapp:${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}/${String(entryName)}\n`;
+      const previousUnrestrictedPackage = window.__novaUnrestrictedPackage;
+      window.__novaUnrestrictedPackage = app;
+      try {
+        (document.body || document.documentElement).appendChild(script);
+      } finally {
+        if (previousUnrestrictedPackage === undefined) {
+          delete window.__novaUnrestrictedPackage;
+        } else {
+          window.__novaUnrestrictedPackage = previousUnrestrictedPackage;
+        }
       }
     }
 
@@ -6896,6 +8073,54 @@ const AppSandbox = (() => {
       throw new Error('Container element is required');
     }
 
+    const rootPermissionGranted = !rootRevocationReloadScheduled
+      && (app?.permissions || []).includes('system:root')
+      && typeof AppPermissionManager !== 'undefined'
+      && AppPermissionManager.isGranted('system:root', app.id) === true
+      && typeof OS !== 'undefined'
+      && OS.settings?.get?.('devMode') === true
+      && OS.settings?.get?.('rootAccessEnabled') === true;
+    if (rootPermissionGranted) {
+      const entryName = app.unrestrictedEntry || app.manifest?.unrestrictedEntry;
+      if (typeof entryName !== 'string' || !app.files?.[entryName]) {
+        if (typeof Notify !== 'undefined') Notify.show?.({
+          title: 'Root app could not start',
+          body: 'The package does not contain its declared unrestrictedEntry JavaScript file.',
+          type: 'error',
+          appName: app.name || 'System',
+        });
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({
+            app: 'AppSandbox',
+            category: 'security',
+            severity: 'error',
+            message: `Root launch blocked for ${app.id}: unrestricted entry missing`,
+            data: { appId: app.id, permission: 'system:root', action: 'root-launch-blocked' },
+          });
+        }
+        return null;
+      }
+      const reuseEntry = installRootApiAudit(app);
+      recordRootAudit(app, 'Root execution started');
+      app.__rootAccessActive = true;
+      try {
+        const result = await launchUnrestrictedHostApp(app, container, state, options, reuseEntry);
+        const rootRecord = rootExecutionApps.get(app.id);
+        if (rootRecord) rootRecord.entryLoaded = true;
+        return result;
+      } catch (error) {
+        console.error(`[RootAccess] Root app ${app.id} failed to start:`, error);
+        if (typeof Notify !== 'undefined') Notify.show?.({
+          title: 'Root app failed to start',
+          body: error?.message || 'The OS will reload to clear partially executed root code.',
+          type: 'error',
+          appName: app.name || 'System',
+        });
+        reloadAfterRootRevocation(`Root app ${app.id} failed to start`);
+        return null;
+      }
+    }
+
     // Re-run the package-level security gate at every launch. Never trust a
     // cached boolean supplied by the caller: the gate re-checks bundle
     // provenance, first-party membership, integrity, and required grants.
@@ -6937,7 +8162,7 @@ const AppSandbox = (() => {
     // Clear container — any previous webview (and its listeners) goes away.
     container.innerHTML = '';
 
-    const webview = createSandbox(app, container, state);
+    const webview = createSandbox(app, container, state, options);
     container.appendChild(webview);
 
     // NOTE on timing: createSandbox() calls webview.addContentScripts(...)
@@ -7041,7 +8266,7 @@ const AppSandbox = (() => {
       && (sandbox.webview.getAttribute('sandbox') || '').split(/\s+/).includes('allow-same-origin');
     const sameOriginPermitted = webviewHasSameOrigin;
     if (appId && !sameOriginPermitted) {
-      clearAppPartition(appId).catch(e => {
+      clearAppExecutionPartition(appId).catch(e => {
         log('warn', 'destroy() — failed to clear storage partition for', appId, e);
       });
     }
@@ -7186,21 +8411,20 @@ const AppSandbox = (() => {
     return Array.from(activeSandboxes.entries()).map(([sandboxId, sandbox]) => ({ sandboxId, ...sandbox }));
   }
 
-  // Clear the on-disk storage partition for a given app id
-  // (persist:app_<appId> — see createSandbox() above). This is a
+  // Clear the on-disk storage partitions for a given app id
+  // (persist:app_<appId> and persist:app_<appId>_webcontent). This is a
   // separate Chromium storage partition from the host window's
   // localStorage/IndexedDB/OPFS, and from the app's FS/OPFS data
-  // folder cleaned up elsewhere — none of those touch this partition.
+  // folder cleaned up elsewhere — none of those touch these partitions.
   //
   // Callers that fully remove an app's data (uninstall, "wipe all
   // data", factory reset) must call this too, or the app's cookies,
-  // IndexedDB, cache, etc. from its own webview silently survive on
-  // disk under a partition nothing else references anymore.
+  // IndexedDB, cache, and nested-site browser data survive on disk.
   //
   // Safe to call even if the app was never launched (partition simply
   // doesn't exist yet, and gets created+immediately-cleared, which is
   // harmless).
-  async function clearAppPartition(appId) {
+  async function clearAppPartitionsByName(appId, partitionNames) {
     if (!appId) return;
 
     // clearData() only actually reaches a partition's real storage once a
@@ -7233,9 +8457,9 @@ const AppSandbox = (() => {
       baseUrl = null;
     }
 
-    return new Promise(resolve => {
+    const clearPartition = partitionName => new Promise(resolve => {
       const wv = document.createElement('webview');
-      wv.setAttribute('partition', `persist:app_${appId}`);
+      wv.setAttribute('partition', `persist:${partitionName}`);
       wv.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
       // Correct key set for this NW.js build's <webview> clearData(), confirmed
       // by testing against real data: 'filesystem' must be 'fileSystems'
@@ -7263,6 +8487,19 @@ const AppSandbox = (() => {
       wv.src = baseUrl ? (window.location.origin + baseUrl + '/index.html') : 'about:blank';
       setTimeout(finish, CLEAR_PARTITION_TIMEOUT_MS);
     });
+
+    await Promise.all(partitionNames.map(clearPartition));
+  }
+
+  async function clearAppExecutionPartition(appId) {
+    return clearAppPartitionsByName(appId, [`app_${appId}`]);
+  }
+
+  async function clearAppPartition(appId) {
+    return clearAppPartitionsByName(appId, [
+      `app_${appId}`,
+      `app_${appId}_webcontent`,
+    ]);
   }
 
   // Clear storage partitions for multiple apps in parallel. Used by
@@ -7286,7 +8523,7 @@ const AppSandbox = (() => {
     // above) which clearAppPartition(s) never touches, since that only
     // wipes the webview's own persist:app_<appId> partition. Uninstall
     // and factory-reset callers need both: clearAppPartition(appId) for
-    // the webview partition, storageClear(appId) or clearAllStorage()
+    // the app and nested-site webview partitions, storageClear(appId) or clearAllStorage()
     // for this store.
     storageClear,
     clearAllStorage,
@@ -7294,6 +8531,13 @@ const AppSandbox = (() => {
     terminateBackground,
     dispatchBackgroundWake,
     reattachFromBackground,
+    getRootAuditLog: getRootAuditEntries,
+    subscribeRootAudit(callback) {
+      if (typeof callback !== 'function') throw new TypeError('Root audit subscriber must be a function');
+      rootAuditSubscribers.add(callback);
+      return () => rootAuditSubscribers.delete(callback);
+    },
+    reloadAfterRootRevocation,
 
     // Internal exports for testing and advanced consumers. Not covered by
     // stability guarantees — do not depend on these in production code.
@@ -7311,15 +8555,25 @@ const AppSandbox = (() => {
       handleAPICall,
       API_HANDLERS,
       buildCapabilityShim,
+      deferPackagedScripts,
       buildIsolatedTransportScript,
       isNestedWebviewPermitted,
       RELAXED_CSP_META,
       // Test-only helpers for resetting module state between tests.
       _resetState() {
         activeSandboxes.clear();
+        rootExecutionApps.clear();
+        rootAuditSubscribers.clear();
+        rootRevocationReloadScheduled = false;
+        rootAuditEntries = null;
+        if (rootAuditPersistTimer) rootAuditClearTimeout(rootAuditPersistTimer);
+        rootAuditPersistTimer = null;
         eventSubscriptions.clear();
         openDialogs.clear();
+        shareDialogs.clear();
         notifRateLimitLog.clear();
+        crossAppLaunchRateLimits.clear();
+        appearanceSetRateLimits.clear();
         storageDbPromise = null;
         _isolatedTransportScriptCache = null;
       },

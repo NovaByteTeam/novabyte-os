@@ -742,6 +742,8 @@ registerApp({
             category: pkg.manifest.category || 'other',
             permissions: pkg.manifest.permissions || [],
             optionalPermissions: pkg.manifest.optionalPermissions || [],
+            allowNestedWebview: pkg.manifest.allowNestedWebview === true,
+            manifest: pkg.manifest,
             files: pkg.files || {},
             signature: pkg.signature,
             verified: result.verified,
@@ -794,10 +796,12 @@ registerApp({
             categories: [appData.category || 'other'],
             permissions: appData.permissions,
             optionalPermissions: appData.optionalPermissions,
+            allowNestedWebview: appData.allowNestedWebview,
+            manifest: pkg.manifest,
             // See the matching comment in nova-app-launcher.js's buildNovaAppConfig —
             // same missing field, this install path builds its own separate
             // config object instead of sharing that one.
-            handles: appData.handles ?? undefined,
+            handles: appData.handles ?? appData.manifest?.handles ?? undefined,
             init: (content, state, options) => AppRegistry.launchApp(appData.id, content, state, options),
           };
           OS.apps[appData.id] = cfg;

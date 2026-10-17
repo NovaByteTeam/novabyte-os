@@ -45,64 +45,28 @@
 const UnrestrictedGate = (() => {
   'use strict';
 
-  // Call name -> the single app id allowed to make it. Deliberately a
-  // per-call map, not a per-app wildcard — adding a new unrestricted call
-  // later means adding one line here naming exactly which app gets it,
-  // not accidentally widening what an already-listed app can reach.
-  const UNRESTRICTED_CALLS = Object.freeze({
-    'nova:system:permissions:list':   'com.nbosp.settings',
-    'nova:system:permissions:set':    'com.nbosp.settings',
-    'nova:system:permissions:reset':  'com.nbosp.settings',
-    'nova:system:data:backup':        'com.nbosp.settings',
-    'nova:system:data:restore':       'com.nbosp.settings',
-    'nova:system:preferences:get':    'com.nbosp.settings',
-    'nova:system:preferences:set':    'com.nbosp.settings',
-    'nova:system:dialog':               'com.nbosp.settings',
-    'nova:system:developer-mode:confirm': 'com.nbosp.settings',
-    'nova:system:boot-recovery':        'com.nbosp.settings',
-    'nova:system:data:clear':            'com.nbosp.settings',
-    'nova:system:default-apps:get':     'com.nbosp.settings',
-    'nova:system:default-apps:choose':  'com.nbosp.settings',
-    'nova:system:default-apps:set':     'com.nbosp.settings',
-    'nova:system:launch-snake':         'com.nbosp.settings',
-    'nova:system:storage:estimate':     'com.nbosp.settings',
-    'nova:system:admin-mode:get':        'com.nbosp.settings',
-    'nova:system:admin-mode:set':        'com.nbosp.settings',
-    'nova:clock:state:get':              'com.nbosp.clock',
-    'nova:clock:state:persist':           'com.nbosp.clock',
-    'nova:clock:alarms:get':              'com.nbosp.clock',
-    'nova:clock:alarms:set':              'com.nbosp.clock',
-    'nova:clock:alarm:dialog':             'com.nbosp.clock',
-    'nova:clock:timer:set-preset':        'com.nbosp.clock',
-    'nova:clock:timer:start':             'com.nbosp.clock',
-    'nova:clock:timer:pause':             'com.nbosp.clock',
-    'nova:clock:timer:restart':           'com.nbosp.clock',
-    'nova:clock:timer:reset':             'com.nbosp.clock',
-    'nova:clock:stopwatch:start':         'com.nbosp.clock',
-    'nova:clock:stopwatch:pause':         'com.nbosp.clock',
-    'nova:clock:stopwatch:reset':         'com.nbosp.clock',
-    'nova:clock:stopwatch:lap':           'com.nbosp.clock',
-  });
-
-  function isUnrestrictedCall(type) {
-    return Object.prototype.hasOwnProperty.call(UNRESTRICTED_CALLS, type);
-  }
+  // The NovaByte Settings app id. Settings is the one app whose every
+  // permission check passes unconditionally — it's the app that manages
+  // permissions for other apps, so asking itself for permission is
+  // incoherent. AppPermissionManager.isGranted() consults
+  // isTrustedSettingsAppById() below for this id, and nothing else in this
+  // file is reachable from any live code path.
+  const SETTINGS_APP_ID = 'com.nbosp.settings';
 
   /**
    * Single authority for "is this the trusted, system-signed Settings app?"
-   * — the same identity tuple checkUnrestrictedCall() enforces for the
-   * nova:system:* calls above (id + system + verified + NovaByte System
-   * signer + manifest.system), resolved from the live OS.apps registry so
-   * callers that only have an appId (AppPermissionManager.isGranted, below)
-   * can consult it without plumbing app records around.
+   * — the identity tuple (id + system + verified + NovaByte System signer +
+   * manifest.system), resolved from the live OS.apps registry so callers
+   * that only have an appId (AppPermissionManager.isGranted, below) can
+   * consult it without plumbing app records around.
    *
    * The verified/signer flags this reads were themselves set by install-time
    * and boot-time verification against the trust store, so this transitively
    * inherits all of that cryptography — nothing here re-trusts anything on
-   * its own say-so. Fail-closed on any missing piece, same as above.
+   * its own say-so. Fail-closed on any missing piece.
    */
   function isTrustedSettingsAppById(appId) {
-    if (appId !== UNRESTRICTED_CALLS['nova:system:preferences:get']) return false;
+    if (appId !== SETTINGS_APP_ID) return false;
     const entry = (typeof OS !== 'undefined' && OS.apps && OS.apps[appId]) || null;
     return !!(
       entry &&
@@ -163,41 +127,6 @@ const UnrestrictedGate = (() => {
   }
 
   /**
-   * The actual gate. Call this before dispatching any call that's in
-   * UNRESTRICTED_CALLS. Returns { allowed: true } or
-   * { allowed: false, reason } — never throws, so a caller can always
-   * safely branch on .allowed without a try/catch of its own.
-   */
-  async function checkUnrestrictedCall(type, app) {
-    const requiredAppId = UNRESTRICTED_CALLS[type];
-    if (!requiredAppId) {
-      // Not an unrestricted-tier call at all — nothing for this gate to
-      // decide, so the normal per-handler permission checks (if any)
-      // apply as usual. Callers should only reach this branch by mistake.
-      return { allowed: true };
-    }
-
-    if (!app || app.id !== requiredAppId) {
-      return { allowed: false, reason: `${type} is reserved for ${requiredAppId}` };
-    }
-    if (!(app.system === true && app.verified === true && app.signer === 'NovaByte System')) {
-      return { allowed: false, reason: 'app is not verified as a NovaByte System package' };
-    }
-
-    const firstPartyIds = await _getFirstPartyAppIds();
-    if (!firstPartyIds.has(app.id)) {
-      return { allowed: false, reason: 'app id is not present in the build-time first-party manifest' };
-    }
-
-    const integrityOk = await _integrityStillHolds(app);
-    if (!integrityOk) {
-      return { allowed: false, reason: 'package integrity check failed at call time' };
-    }
-
-    return { allowed: true };
-  }
-
-  /**
    * Gate for an app's sandbox tier. This is intentionally separate from the
    * Settings-only unrestricted IPC call map: the sandbox decision needs a
    * package-level answer, while individual nova:system:* calls still retain
@@ -246,7 +175,7 @@ const UnrestrictedGate = (() => {
     return { allowed: true };
   }
 
-  return { isUnrestrictedCall, checkUnrestrictedCall, checkUnrestrictedApp, isTrustedSettingsAppById, UNRESTRICTED_CALLS };
+  return { checkUnrestrictedApp, isTrustedSettingsAppById };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = UnrestrictedGate;

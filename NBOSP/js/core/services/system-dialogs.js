@@ -21,6 +21,7 @@
  *     title: 'Import',
  *     startFolderId: FS.specialFolders.documents,
  *     filter: (node) => node.type === 'folder' || node.mimeType === 'text/plain',
+ *     canAccess: (node) => true, // optional host-side scope for every displayed node
  *   });
  *   // res === null if cancelled, otherwise the picked file node
  *
@@ -35,7 +36,8 @@ const SystemDialogs = {
    * @param {string} [opts.title]
    * @param {string} [opts.suggestedName]  save mode only — prefilled filename
    * @param {string} [opts.startFolderId]  defaults to FS.rootId
-   * @param {(node: object) => boolean} [opts.filter]  open mode only — hide files that don't match (folders always shown)
+   * @param {(node: object) => boolean} [opts.filter]  open mode only — hide files that don't match
+   * @param {(node: object) => boolean} [opts.canAccess] host-side scope; hides inaccessible files and folders
    * @returns {Promise<null | {folderId:string, name:string, path:string} | object>}
    */
   _show(opts) {
@@ -145,7 +147,10 @@ const SystemDialogs = {
       // ── Navigation state ───────────────────────────────────────────────
       const history = [];
       let historyIdx = -1;
+      const canAccess = (node) => !!node && (typeof opts.canAccess !== 'function' || opts.canAccess(node) === true);
       let cwd = opts.startFolderId || FS.rootId;
+      const startFolder = FS.files.get(cwd);
+      if (!startFolder || startFolder.type !== 'folder' || !canAccess(startFolder)) cwd = FS.rootId;
       let selectedNode = null; // open mode only
 
       function pushHistory(folderId) {
@@ -155,6 +160,8 @@ const SystemDialogs = {
       }
 
       function navigateTo(folderId, { record = true } = {}) {
+        const folder = FS.files.get(folderId);
+        if (!folder || folder.type !== 'folder' || !canAccess(folder)) return;
         cwd = folderId;
         if (record) pushHistory(folderId);
         selectedNode = null;
@@ -165,8 +172,11 @@ const SystemDialogs = {
 
       backBtn.addEventListener('click', () => {
         if (historyIdx <= 0) return;
+        const previousFolderId = history[historyIdx - 1];
+        const previousFolder = FS.files.get(previousFolderId);
+        if (!previousFolder || previousFolder.type !== 'folder' || !canAccess(previousFolder)) return;
         historyIdx--;
-        cwd = history[historyIdx];
+        cwd = previousFolderId;
         selectedNode = null;
         if (!isSave) confirmBtn.disabled = true;
         renderPathBar();
@@ -175,12 +185,13 @@ const SystemDialogs = {
 
       upBtn.addEventListener('click', () => {
         const node = FS.files.get(cwd);
-        if (node?.parentId) navigateTo(node.parentId);
+        if (node?.parentId && canAccess(FS.files.get(node.parentId))) navigateTo(node.parentId);
       });
 
       function renderPathBar() {
         pathBar.value = FS.getPath(cwd);
-        upBtn.disabled = !FS.files.get(cwd)?.parentId;
+        const parentId = FS.files.get(cwd)?.parentId;
+        upBtn.disabled = !parentId || !canAccess(FS.files.get(parentId));
         backBtn.disabled = historyIdx <= 0;
       }
 
@@ -194,8 +205,13 @@ const SystemDialogs = {
       }
 
       function renderGrid() {
+        const currentFolder = FS.files.get(cwd);
+        if (!currentFolder || currentFolder.type !== 'folder' || !canAccess(currentFolder)) {
+          navigateTo(FS.rootId);
+          return;
+        }
         grid.replaceChildren();
-        let children = FS.listDir(cwd);
+        let children = FS.listDir(cwd).filter(canAccess);
         if (!isSave && typeof opts.filter === 'function') {
           children = children.filter((n) => n.type === 'folder' || opts.filter(n));
         }
@@ -262,10 +278,10 @@ const SystemDialogs = {
         if (confirmBtn.disabled) return;
         if (isSave) {
           const name = nameInput.value.trim();
-          if (!name) return;
+          if (!name || !canAccess(FS.files.get(cwd))) return;
           finish({ folderId: cwd, name, path: FS.getPath(cwd) + (FS.getPath(cwd) === '/' ? '' : '/') + name });
         } else {
-          if (!selectedNode) return;
+          if (!selectedNode || !canAccess(selectedNode)) return;
           finish(selectedNode);
         }
       }

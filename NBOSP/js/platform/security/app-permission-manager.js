@@ -14,6 +14,7 @@ const AppPermissionManager = (() => {
 
   const PERMISSION_TYPES = Object.freeze({
     FS_READ           : 'vfs:read',       FS_WRITE          : 'vfs:write',
+    FS_ACCESS         : 'vfs:access',
     FS_DELETE         : 'vfs:delete',     FS_METADATA       : 'vfs:metadata',
     NET_INTERNAL      : 'net:internal',   NET_EXTERNAL      : 'net:external',
     NET_WEBSOCKET     : 'net:websocket',
@@ -35,7 +36,9 @@ const AppPermissionManager = (() => {
     // apps should be prompted for these instead.
     CLIPBOARD_READ    : 'clipboard:read',  CLIPBOARD_WRITE   : 'clipboard:write',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
-    SYSTEM_APPS       : 'system:apps',    SYSTEM_EVENTS     : 'system:events',
+    SYSTEM_APPS       : 'system:apps',    SYSTEM_APP_LAUNCH : 'system:app-launch',
+    SYSTEM_ROOT       : 'system:root',
+    SYSTEM_EVENTS     : 'system:events',
     // Background execution is split into two independent grants on purpose:
     // SYSTEM_BACKGROUND covers scheduled wake-ups (the app doesn't need to be
     // open at all for the host to run it briefly), while
@@ -88,13 +91,14 @@ const AppPermissionManager = (() => {
     // future picker-mediated fs:* (single user-chosen file via native
     // dialog, not free-roam path access) — a categorically different,
     // much higher-risk capability that deliberately isn't this.
+    'vfs:access'        : { category: 'filesystem', risk: 'high',     label: 'Read and edit shared files' },
     'vfs:read'          : { category: 'filesystem', risk: 'medium',   label: 'Read files' },
     'vfs:write'         : { category: 'filesystem', risk: 'high',     label: 'Write files' },
     'vfs:delete'        : { category: 'filesystem', risk: 'critical', label: 'Delete files' },
     'vfs:metadata'      : { category: 'filesystem', risk: 'low',      label: 'File metadata' },
     'net:internal'      : { category: 'network',    risk: 'high',     label: 'Internal network' },
-    'net:external'      : { category: 'network',    risk: 'medium',   label: 'External network' },
-    'net:websocket'     : { category: 'network',    risk: 'medium',   label: 'WebSocket connections' },
+    'net:external'      : { category: 'network',    risk: 'low',      label: 'Public internet access' },
+    'net:websocket'     : { category: 'network',    risk: 'low',      label: 'Public WebSocket connections' },
     'mail:read'         : { category: 'email',      risk: 'high',     label: 'Read emails' },
     'mail:write'        : { category: 'email',      risk: 'critical', label: 'Compose emails' },
     'mail:send'         : { category: 'email',      risk: 'critical', label: 'Send emails' },
@@ -116,7 +120,7 @@ const AppPermissionManager = (() => {
     // Split out from vfs:read; see handleClipboardRead/Write in
     // app-sandbox.js for the full rationale.
     'clipboard:read'    : { category: 'device',     risk: 'high',     label: 'Read clipboard' },
-    'clipboard:write'   : { category: 'device',     risk: 'medium',   label: 'Write clipboard' },
+    'clipboard:write'   : { category: 'device',     risk: 'low',      label: 'Write clipboard' },
     // 'medium', not 'low' — this gates both nova:system:info (OS version,
     // security patch level, username, uptime) and handleSettingsGet's
     // SETTINGS_READABLE_KEYS allowlist (username, region, timezone,
@@ -129,6 +133,8 @@ const AppPermissionManager = (() => {
     'system:info'       : { category: 'system',     risk: 'medium',   label: 'System information' },
     'system:settings'   : { category: 'system',     risk: 'medium',   label: 'System settings' },
     'system:apps'       : { category: 'system',     risk: 'medium',   label: 'Manage apps' },
+    'system:app-launch' : { category: 'system',     risk: 'low',      label: 'Launch installed apps' },
+    'system:root'       : { category: 'system',     risk: 'critical', label: 'Unrestricted OS access (Root)' },
     'system:events'     : { category: 'system',     risk: 'medium',   label: 'System events' },
     'system:background' : { category: 'system',     risk: 'medium',   label: 'Run scheduled background tasks' },
     'system:background:live': { category: 'system', risk: 'high',     label: 'Keep running after you close it' },
@@ -270,6 +276,10 @@ const AppPermissionManager = (() => {
     for (const [key, grant] of permissionGrants) {
       // Never sweep denial records — they must persist to avoid re-prompting.
       if (grant.granted === false) continue;
+      // A live root app executes in the host page and cannot be downgraded
+      // when an inactivity timer expires. Root access therefore requires an
+      // explicit user revocation rather than the ordinary unused-app sweep.
+      if (grant.permission === PERMISSION_TYPES.SYSTEM_ROOT) continue;
       const lastUse = Date.parse(grant.lastUsed ?? grant.grantedAt);
       if (Number.isNaN(lastUse) || lastUse < threshold) {
         permissionGrants.delete(key);
@@ -385,8 +395,15 @@ const AppPermissionManager = (() => {
       UnrestrictedGate.isTrustedSettingsAppById(appId);
   }
 
+  function isRootModeEnabled() {
+    return typeof OS !== 'undefined'
+      && OS.settings?.get?.('devMode') === true
+      && OS.settings?.get?.('rootAccessEnabled') === true;
+  }
+
   function isGranted(permission, appId) {
     if (isUnrestrictedSettingsApp(appId)) return true;
+    if (permission === PERMISSION_TYPES.SYSTEM_ROOT && !isRootModeEnabled()) return false;
     const grant = permissionGrants.get(makeAppScopedKey(appId, permission));
     if (!grant) return false;
     if (grant.expiresAt && Date.parse(grant.expiresAt) < Date.now()) {
@@ -412,6 +429,9 @@ const AppPermissionManager = (() => {
     rateLimitState.delete(makeAppScopedKey(appId, permission));
     await saveToStorage();
     console.log(`[AppPermissionManager] Reset ${permission} → ${appId}`);
+    if (permission === PERMISSION_TYPES.SYSTEM_ROOT && typeof AppSandbox !== 'undefined') {
+      AppSandbox.reloadAfterRootRevocation?.(`Root permission for ${appId} was reset`);
+    }
   }
 
   // Lets callers (e.g. the Permissions app) check/display cooldown status
@@ -469,6 +489,7 @@ const AppPermissionManager = (() => {
 
   async function requestPermission(permission, appId, options = {}) {
     assertValidAppId(appId);
+    if (permission === PERMISSION_TYPES.SYSTEM_ROOT && !isRootModeEnabled()) return false;
     if (isGranted(permission, appId)) return true;
 
     // Previously denied grants no longer short-circuit here — every call
@@ -498,18 +519,19 @@ const AppPermissionManager = (() => {
       ?? (typeof AppRegistry !== 'undefined' ? AppRegistry.getApp(appId)?.name : null)
       ?? appId;
     const riskLevel = PERMISSION_CATEGORIES[permission]?.risk ?? 'low';
+    const permanent = permission === PERMISSION_TYPES.SYSTEM_ROOT || options.permanent !== false;
 
     const granted = await showPermissionDialog({
       permission, appId, appName, riskLevel,
       reason   : options.reason ?? null,
-      permanent: options.permanent !== false,
+      permanent,
       current  : options.current ?? 1,
       total    : options.total ?? 1,
     });
 
     if (granted) {
       await persistGrant(permission, appId, {
-        permanent: options.permanent !== false,
+        permanent,
         reason   : options.reason ?? null,
       });
     } else {
@@ -555,7 +577,7 @@ const AppPermissionManager = (() => {
       permission,
       granted   : true,
       grantedAt : nowIso,
-      grantedBy : 'user',
+      grantedBy : options.grantedBy || 'user',
       permanent : options.permanent !== false,
       expiresAt : options.permanent === false
         ? new Date(Date.now() + MS_PER_DAY).toISOString()
@@ -596,21 +618,37 @@ const AppPermissionManager = (() => {
 
   async function grantPermission(permission, appId, options = {}) {
     assertValidAppId(appId);
+    if (permission === PERMISSION_TYPES.SYSTEM_ROOT) {
+      throw new Error('Root access must be granted through its explicit confirmation prompt');
+    }
     await persistGrant(permission, appId, options);
+  }
+
+  async function autoGrantLowRisk(permission, appId) {
+    assertValidAppId(appId);
+    if (PERMISSION_CATEGORIES[permission]?.risk !== 'low' || isDenied(permission, appId)) return false;
+    if (isGranted(permission, appId)) return true;
+    await persistGrant(permission, appId, {
+      permanent: true,
+      reason: 'Low-risk permission auto-granted by system policy',
+      grantedBy: 'system-policy',
+    });
+    return true;
   }
 
   async function revokePermission(permission, appId) {
     assertValidAppId(appId);
-    permissionGrants.delete(makeAppScopedKey(appId, permission));
-    await saveToStorage();
-    console.log(`[AppPermissionManager] Revoked ${permission} ← ${appId}`);
-    if (typeof EventLog !== 'undefined') {
-      EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'info', message: `Revoked ${permission} ← ${appId}`, data: { appId, permission, action: 'revoke' } });
+    // Keep an explicit denial so launch-time low-risk auto-grants cannot
+    // silently undo the user's choice. resetPermission() clears it to pending.
+    await persistDenial(permission, appId);
+    if (permission === PERMISSION_TYPES.SYSTEM_ROOT && typeof AppSandbox !== 'undefined') {
+      AppSandbox.reloadAfterRootRevocation?.(`Root permission for ${appId} was revoked`);
     }
   }
 
   async function revokeAllPermissions(appId) {
     assertValidAppId(appId);
+    const rootGrantExists = permissionGrants.has(makeAppScopedKey(appId, PERMISSION_TYPES.SYSTEM_ROOT));
     const prefix = makeAppScopedKey(appId, '');
     let count = 0;
     for (const key of permissionGrants.keys()) {
@@ -620,6 +658,9 @@ const AppPermissionManager = (() => {
       if (key.startsWith(prefix)) rateLimitState.delete(key);
     }
     await saveToStorage();
+    if (rootGrantExists && typeof AppSandbox !== 'undefined') {
+      AppSandbox.reloadAfterRootRevocation?.(`All permissions for ${appId} were revoked`);
+    }
     console.log(`[AppPermissionManager] Revoked all permissions for ${appId}`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'Permissions', category: 'permissions', severity: 'info', message: `Revoked all ${count} permission(s) for ${appId}`, data: { appId, count, action: 'revoke-all' } });
@@ -774,6 +815,7 @@ const AppPermissionManager = (() => {
       const meta      = PERMISSION_CATEGORIES[permission];
       const label     = meta?.label ?? permission;
       const category  = meta?.category ?? 'general';
+      const isRootRequest = permission === PERMISSION_TYPES.SYSTEM_ROOT;
 
       ensureDialogStylesInjected();
 
@@ -782,7 +824,7 @@ const AppPermissionManager = (() => {
       });
 
       const card = el('div', {
-        style: 'background:#0e121c;border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:24px;max-width:460px;width:90%;box-shadow:0 32px 80px rgba(0,0,0,0.7);animation:_apm_fadein 0.18s ease;',
+        style: `background:#0e121c;border:1px solid ${isRootRequest ? '#f85149' : 'rgba(255,255,255,0.1)'};border-radius:14px;padding:24px;max-width:460px;width:90%;box-shadow:0 32px 80px rgba(0,0,0,0.7);animation:_apm_fadein 0.18s ease;`,
       });
 
       if (total > 1) card.append(buildPagerRow(current, total));
@@ -791,6 +833,37 @@ const AppPermissionManager = (() => {
       card.append(buildRiskRow({ riskLevel, riskColor, category }));
 
       const { row: buttonRow, denyBtn, grantBtn } = buildButtonRow();
+      if (isRootRequest) {
+        const warning = el('div', {
+          style: 'border:1px solid rgba(248,81,73,.45);background:rgba(248,81,73,.09);border-radius:10px;padding:14px;margin:0 0 16px;',
+        });
+        warning.append(
+          el('strong', {
+            style: 'display:block;color:#ff7b72;font-size:14px;margin-bottom:8px;',
+            text: 'This app will run inside the OS, not in its sandbox.',
+          }),
+          el('p', {
+            style: 'color:#e6edf3;font-size:12px;line-height:1.55;margin:0 0 12px;',
+            text: `${appName} may read or change OS data, manipulate system UI, and access host-page APIs. Root API calls are recorded, but direct JavaScript and browser activity cannot be completely observed.`,
+          })
+        );
+        const acknowledgement = el('label', {
+          style: 'display:flex;align-items:flex-start;gap:9px;color:#e6edf3;font-size:12px;line-height:1.45;cursor:pointer;',
+        });
+        const checkbox = el('input', { attrs: { type: 'checkbox' } });
+        checkbox.style.cssText = 'margin:2px 0 0;flex:none;';
+        acknowledgement.append(checkbox, document.createTextNode('I understand this app can access and change the OS outside its sandbox.'));
+        warning.appendChild(acknowledgement);
+        grantBtn.disabled = true;
+        grantBtn.textContent = 'Grant Root Access';
+        grantBtn.style.cssText = 'flex:1;padding:11px 16px;border:none;border-radius:9px;background:#b42318;color:#fff;font-size:14px;font-weight:700;opacity:.65;cursor:not-allowed;';
+        checkbox.addEventListener('change', () => {
+          grantBtn.disabled = !checkbox.checked;
+          grantBtn.style.opacity = checkbox.checked ? '1' : '.65';
+          grantBtn.style.cursor = checkbox.checked ? 'pointer' : 'not-allowed';
+        });
+        card.append(warning);
+      }
       card.append(buttonRow);
       overlay.append(card);
       document.body.append(overlay);
@@ -832,10 +905,10 @@ const AppPermissionManager = (() => {
         denyBtn.style.color = '#8b949e';
       }, { signal: controller.signal });
       grantBtn.addEventListener('mouseenter', () => {
-        grantBtn.style.background = '#79b8ff';
+        grantBtn.style.background = isRootRequest ? '#da3633' : '#79b8ff';
       }, { signal: controller.signal });
       grantBtn.addEventListener('mouseleave', () => {
-        grantBtn.style.background = '#58a6ff';
+        grantBtn.style.background = isRootRequest ? '#b42318' : '#58a6ff';
       }, { signal: controller.signal });
 
       // Keyboard: Enter = grant, Escape = deny. Bound to document (not the
@@ -846,7 +919,7 @@ const AppPermissionManager = (() => {
       // dismissal, since it removed itself only from inside its own
       // Enter/Escape branches.
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); settle(true); }
+        if (e.key === 'Enter' && !grantBtn.disabled) { e.preventDefault(); settle(true); }
         if (e.key === 'Escape') { e.preventDefault(); settle(false); }
       }, { signal: controller.signal });
     });
@@ -871,6 +944,7 @@ const AppPermissionManager = (() => {
     requestPermission,
     requestAll,
     grantPermission,
+    autoGrantLowRisk,
     revokePermission,
     revokeAllPermissions,
     recordAppUse,

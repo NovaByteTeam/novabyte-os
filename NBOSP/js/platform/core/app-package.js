@@ -462,6 +462,9 @@ const AppPackage = (() => {
         pkg.files[path] = btoa(binary);
       }
     }
+    if (manifest.permissions?.includes('system:root') && !pkg.files[manifest.unrestrictedEntry]) {
+      throw new Error(`Root package is missing unrestrictedEntry file "${manifest.unrestrictedEntry}"`);
+    }
 
     if (options.signingKey) {
       const method = options.signingMethod || DEFAULT_SIGNING_METHOD;
@@ -522,6 +525,20 @@ const AppPackage = (() => {
       const msg = `Invalid manifest: ${validation.errors.join(', ')}`;
       if (typeof EventLog !== 'undefined') {
             EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'manifest' } });
+      }
+      throw new Error(msg);
+    }
+    if (pkg.manifest.permissions?.includes('system:root')
+      && typeof pkg.files?.[pkg.manifest.unrestrictedEntry] !== 'string') {
+      const msg = `Root package is missing unrestrictedEntry file "${pkg.manifest.unrestrictedEntry}"`;
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({
+          app: 'Packages',
+          category: 'security',
+          severity: 'error',
+          message: `Install failed for ${pkg.manifest.id}: ${msg}`,
+          data: { appId: pkg.manifest.id, permission: 'system:root', action: 'root-package-invalid' },
+        });
       }
       throw new Error(msg);
     }
@@ -695,11 +712,54 @@ const AppPackage = (() => {
     }
     if (manifest.version && !/^\d+\.\d+\.\d+$/.test(manifest.version))
       warnings.push(`Version "${manifest.version}" doesn't follow semver (x.y.z)`);
-    if (manifest.permissions) {
+    if (manifest.handles !== undefined) {
+      const handles = manifest.handles;
+      if (!handles || typeof handles !== 'object' || Array.isArray(handles)) {
+        errors.push('handles must be an object');
+      } else {
+        for (const key of Object.keys(handles)) {
+          if (!['protocols', 'extensions', 'mimeTypes'].includes(key)) {
+            errors.push(`handles.${key} is not supported`);
+          }
+        }
+        const definitions = [
+          ['protocols', value => /^[a-z][a-z0-9+.-]*:?$/i.test(value.trim())],
+          ['extensions', value => /^\.[a-z0-9][a-z0-9._+-]*$/i.test(value.trim())],
+          ['mimeTypes', value => /^[a-z0-9!#$&^_.+-]+\/(?:[a-z0-9!#$&^_.+-]+|\*)$/i.test(value.split(';', 1)[0].trim())],
+        ];
+        for (const [key, isValid] of definitions) {
+          if (handles[key] === undefined) continue;
+          if (!Array.isArray(handles[key]) || handles[key].length > 100) {
+            errors.push(`handles.${key} must be an array of at most 100 strings`);
+            continue;
+          }
+          handles[key].forEach((value, index) => {
+            if (typeof value !== 'string' || !isValid(value)) {
+              errors.push(`handles.${key}[${index}] is invalid`);
+            }
+          });
+        }
+      }
+    }
+    if (manifest.permissions !== undefined && !Array.isArray(manifest.permissions)) {
+      errors.push('permissions must be an array');
+    } else if (manifest.permissions) {
       const valid = Object.values((typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.PERMISSION_TYPES) || {});
       manifest.permissions.forEach(p => {
         if (valid.length > 0 && !valid.includes(p)) warnings.push(`Unknown permission: ${p}`);
       });
+    }
+    const requestsRoot = Array.isArray(manifest.permissions) && manifest.permissions.includes('system:root');
+    const rootEntry = manifest.unrestrictedEntry;
+    if (rootEntry !== undefined && (typeof rootEntry !== 'string'
+      || !/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[a-z0-9_./-]+\.js$/i.test(rootEntry))) {
+      errors.push('unrestrictedEntry must name a packaged JavaScript file without parent-directory segments');
+    }
+    if (requestsRoot && typeof rootEntry !== 'string') {
+      errors.push('system:root requires unrestrictedEntry to name a packaged JavaScript file');
+    }
+    if (Array.isArray(manifest.optionalPermissions) && manifest.optionalPermissions.includes('system:root')) {
+      errors.push('system:root must be declared as a required permission, not optionalPermissions');
     }
     if (typeof manifest.icon === 'string' && manifest.icon.startsWith('data:')) {
       // .length on a data: URI string is a fine proxy for its encoded byte

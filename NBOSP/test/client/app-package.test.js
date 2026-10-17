@@ -48,6 +48,24 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       expect(result.valid).toBe(true);
     });
 
+    it('accepts well-formed file handler declarations and rejects malformed ones', async () => {
+      const { validateManifest } = await import('../../js/platform/core/app-package.js');
+      expect(validateManifest({
+        ...validManifest,
+        handles: { protocols: ['https:'], extensions: ['.md'], mimeTypes: ['text/markdown', 'image/*'] },
+      }).valid).toBe(true);
+      const invalid = validateManifest({
+        ...validManifest,
+        handles: { extensions: ['md'], mimeTypes: ['image/*/extra'], unexpected: [] },
+      });
+      expect(invalid.valid).toBe(false);
+      expect(invalid.errors).toEqual(expect.arrayContaining([
+        'handles.unexpected is not supported',
+        'handles.extensions[0] is invalid',
+        'handles.mimeTypes[0] is invalid',
+      ]));
+    });
+
     it('flags missing required fields', async () => {
       const { validateManifest } = await import('../../js/platform/core/app-package.js');
       const result = validateManifest({ id: 'com.test' });

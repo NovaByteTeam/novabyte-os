@@ -82,19 +82,19 @@ const CATEGORIES = Object.freeze({
   }),
 });
 
-// Extensions/protocols routed to each category — used by
+// Extensions/protocols/MIME types routed to each category — used by
 // getCategoryFor()/resolveHandler() to decide *which* category a file or
 // link belongs to, AND by the live-discovery half of getAppsForCategory()
 // to check a third-party app's `handles` block for overlap. Kept separate
 // from CATEGORIES.apps on purpose: which built-in apps fill a slot and
 // which files fall into that slot are different questions.
 const ROUTES = Object.freeze({
-  browser:    Object.freeze({ protocols: Object.freeze(['http', 'https']), extensions: Object.freeze(['.html', '.htm']) }),
-  texteditor: Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.txt', '.md', '.json', '.js', '.css', '.log']) }),
-  music:      Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.mp3', '.wav', '.ogg', '.flac', '.m4a']) }),
-  gallery:    Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']) }),
-  email:      Object.freeze({ protocols: Object.freeze(['mailto']),        extensions: Object.freeze([]) }),
-  calendar:   Object.freeze({ protocols: Object.freeze(['webcal']),        extensions: Object.freeze(['.ics']) }),
+  browser:    Object.freeze({ protocols: Object.freeze(['http', 'https']), extensions: Object.freeze(['.html', '.htm']), mimeTypes: Object.freeze(['text/html']) }),
+  texteditor: Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.txt', '.md', '.json', '.js', '.css', '.log']), mimeTypes: Object.freeze(['text/plain', 'text/markdown', 'application/json', 'text/javascript', 'application/javascript', 'text/css']) }),
+  music:      Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.mp3', '.wav', '.ogg', '.flac', '.m4a']), mimeTypes: Object.freeze(['audio/*']) }),
+  gallery:    Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']), mimeTypes: Object.freeze(['image/*']) }),
+  email:      Object.freeze({ protocols: Object.freeze(['mailto']),        extensions: Object.freeze([]), mimeTypes: Object.freeze([]) }),
+  calendar:   Object.freeze({ protocols: Object.freeze(['webcal']),        extensions: Object.freeze(['.ics']), mimeTypes: Object.freeze(['text/calendar', 'application/ics']) }),
 });
 
 const SETTINGS_KEY = 'defaultApps';
@@ -108,6 +108,9 @@ const ROUTE_PROTOCOL_SETS = new Map(
 const ROUTE_EXTENSION_SETS = new Map(
   Object.entries(ROUTES).map(([categoryId, route]) => [categoryId, new Set(route.extensions)]) // already lowercase in ROUTES
 );
+const ROUTE_MIME_SETS = new Map(
+  Object.entries(ROUTES).map(([categoryId, route]) => [categoryId, new Set(route.mimeTypes)])
+);
 const STATIC_IDS_BY_CATEGORY = new Map(
   Object.entries(CATEGORIES).map(([categoryId, category]) => [categoryId, new Set(category.apps.map(a => a.id))])
 );
@@ -118,6 +121,49 @@ const STATIC_IDS_BY_CATEGORY = new Map(
 // only rules out empty/non-string values, see _isPlausibleAppId below.)
 function isPlausibleAppId(appId) {
   return typeof appId === 'string' && appId.length > 0 && appId.length <= 200;
+}
+
+function hasCategory(categoryId) {
+  return typeof categoryId === 'string'
+    && Object.prototype.hasOwnProperty.call(CATEGORIES, categoryId);
+}
+
+function normalizeProtocol(protocol) {
+  if (typeof protocol !== 'string') return null;
+  const normalized = protocol.trim().toLowerCase().replace(/:$/, '');
+  return /^[a-z][a-z0-9+.-]*$/.test(normalized) ? normalized : null;
+}
+
+function normalizeExtension(extension) {
+  if (typeof extension !== 'string') return null;
+  const normalized = extension.trim().toLowerCase();
+  return /^\.[a-z0-9][a-z0-9._+-]*$/.test(normalized) ? normalized : null;
+}
+
+function normalizeMimeType(mimeType) {
+  if (typeof mimeType !== 'string') return null;
+  const normalized = mimeType.split(';', 1)[0].trim().toLowerCase();
+  return /^[a-z0-9!#$&^_.+-]+\/(?:[a-z0-9!#$&^_.+-]+|\*)$/.test(normalized) ? normalized : null;
+}
+
+function mimeTypeMatches(routeType, mimeType) {
+  return routeType.endsWith('/*')
+    ? mimeType.startsWith(routeType.slice(0, -1))
+    : routeType === mimeType;
+}
+
+function mimeTypesOverlap(routeType, appType) {
+  return mimeTypeMatches(routeType, appType) || mimeTypeMatches(appType, routeType);
+}
+
+function queryMatchesTypes(query, extensions, mimeTypes) {
+  const extension = normalizeExtension(query?.extension);
+  const mimeType = normalizeMimeType(query?.mimeType);
+  return (!!extension && extensions.some(value => normalizeExtension(value) === extension))
+    || (!!mimeType && mimeTypes.some(value => {
+      const appMimeType = normalizeMimeType(value);
+      return appMimeType && mimeTypeMatches(appMimeType, mimeType);
+    }));
 }
 
 const DefaultApps = {
@@ -137,9 +183,9 @@ const DefaultApps = {
    * @returns {Array<{id: string, name: string, icon: string}>}
    */
   _staticCandidates(categoryId) {
+    if (!hasCategory(categoryId)) return [];
     const category = CATEGORIES[categoryId];
-    if (!category) return [];
-    const hasOSApps = typeof OS !== 'undefined' && OS.apps && Object.keys(OS.apps).length > 0;
+    const hasOSApps = typeof OS !== 'undefined' && OS.apps && typeof OS.apps === 'object';
     // .slice() here (and below) so callers get a fresh, mutable array —
     // the source arrays are frozen, so handing one out directly would let
     // a caller's .push()/.sort() throw or silently no-op depending on
@@ -150,7 +196,7 @@ const DefaultApps = {
 
   /**
    * Dynamic candidates for a category: any currently-registered app whose
-   * `handles` block overlaps the category's protocols/extensions, skipping
+   * `handles` block overlaps the category's protocols/extensions/MIME types, skipping
    * ids already covered by the static table above (built-ins are only ever
    * sourced from CATEGORIES, never from this scan, even if their
    * registerApp() config also happens to carry a `handles` block).
@@ -161,7 +207,8 @@ const DefaultApps = {
     if (typeof OS === 'undefined' || !OS.apps) return [];
     const protoSet = ROUTE_PROTOCOL_SETS.get(categoryId);
     const extSet = ROUTE_EXTENSION_SETS.get(categoryId);
-    if (!protoSet || !extSet) return [];
+    const mimeSet = ROUTE_MIME_SETS.get(categoryId);
+    if (!protoSet || !extSet || !mimeSet) return [];
 
     const staticIds = STATIC_IDS_BY_CATEGORY.get(categoryId) || new Set();
 
@@ -172,9 +219,16 @@ const DefaultApps = {
       if (!handles) continue;
       const appProtos = Array.isArray(handles.protocols) ? handles.protocols : [];
       const appExts = Array.isArray(handles.extensions) ? handles.extensions : [];
-      const overlaps = appProtos.some(p => protoSet.has(p))
-        || appExts.some(e => typeof e === 'string' && extSet.has(e.toLowerCase()));
-      if (overlaps) matches.push({ id, name: config.name || id, icon: config.icon || null });
+      const appMimeTypes = Array.isArray(handles.mimeTypes) ? handles.mimeTypes : [];
+      const overlaps = appProtos.some(p => protoSet.has(normalizeProtocol(p)))
+        || appExts.some(e => extSet.has(normalizeExtension(e)))
+        || appMimeTypes.some(m => {
+          const appMimeType = normalizeMimeType(m);
+          return appMimeType && [...mimeSet].some(routeMimeType => mimeTypesOverlap(routeMimeType, appMimeType));
+        });
+      if (overlaps && isPlausibleAppId(id)) {
+        matches.push({ id, name: typeof config.name === 'string' && config.name.trim() ? config.name : id, icon: config.icon || null });
+      }
     }
     return matches;
   },
@@ -200,15 +254,66 @@ const DefaultApps = {
   },
 
   /**
-   * Which category (if any) a file extension or protocol belongs to.
-   * @param {{extension?: string, protocol?: string}} query
+   * Installed apps that declare support for this file type, including
+   * built-in handlers represented by the category routes.
+   * @param {{extension?: string, mimeType?: string}} query
+   * @returns {Array<{id: string, name: string, icon: string|null}>}
+   */
+  getAppsForFile(query = {}) {
+    if (!query || typeof query !== 'object' || typeof OS === 'undefined' || !OS.apps) return [];
+    const extension = normalizeExtension(query.extension);
+    const mimeType = normalizeMimeType(query.mimeType);
+    if (!extension && !mimeType) return [];
+
+    const matches = [];
+    const seen = new Set();
+    for (const [categoryId, route] of Object.entries(ROUTES)) {
+      const routeMatches = (!!extension && route.extensions.includes(extension))
+        || (!!mimeType && route.mimeTypes.some(routeType => mimeTypeMatches(routeType, mimeType)));
+      if (!routeMatches) continue;
+      for (const candidate of this._staticCandidates(categoryId)) {
+        if (seen.has(candidate.id)) continue;
+        seen.add(candidate.id);
+        matches.push(candidate);
+      }
+    }
+
+    for (const [id, config] of Object.entries(OS.apps)) {
+      if (seen.has(id) || !isPlausibleAppId(id)) continue;
+      const handles = config?.handles;
+      if (!handles || !queryMatchesTypes(
+        query,
+        Array.isArray(handles.extensions) ? handles.extensions : [],
+        Array.isArray(handles.mimeTypes) ? handles.mimeTypes : []
+      )) continue;
+      seen.add(id);
+      matches.push({
+        id,
+        name: typeof config.name === 'string' && config.name.trim() ? config.name : id,
+        icon: config.icon || null,
+      });
+    }
+    return matches;
+  },
+
+  supportsFile(appId, query = {}) {
+    return this.getAppsForFile(query).some(app => app.id === appId);
+  },
+
+  /**
+   * Which category (if any) a file extension, protocol, or MIME type belongs to.
+   * @param {{extension?: string, protocol?: string, mimeType?: string}} query
    * @returns {string|null}
    */
-  getCategoryFor({ extension, protocol } = {}) {
-    const ext = typeof extension === 'string' ? extension.toLowerCase() : null;
+  getCategoryFor(query = {}) {
+    if (!query || typeof query !== 'object') return null;
+    const ext = normalizeExtension(query.extension);
+    const protocol = normalizeProtocol(query.protocol);
+    const mimeType = normalizeMimeType(query.mimeType);
     for (const [categoryId, route] of Object.entries(ROUTES)) {
-      if (protocol && route.protocols.includes(protocol)) return categoryId;
-      if (ext && route.extensions.includes(ext)) return categoryId;
+      if ((protocol && route.protocols.includes(protocol))
+        || (ext && route.extensions.includes(ext))
+        || (mimeType && route.mimeTypes.some(routeMimeType => mimeTypeMatches(routeMimeType, mimeType)))) return categoryId;
     }
     return null;
   },
@@ -244,8 +349,67 @@ const DefaultApps = {
    * @returns {string|null}
    */
   getDefault(categoryId) {
+    if (!hasCategory(categoryId)) return null;
     const chosen = this._getMap()[categoryId];
-    return isPlausibleAppId(chosen) ? chosen : null;
+    if (!isPlausibleAppId(chosen)) return null;
+    return this.getAppsForCategory(categoryId).some(app => app.id === chosen) ? chosen : null;
+  },
+
+  getDefaultForFile(query = {}) {
+    const map = this._getMap();
+    const candidates = this.getAppsForFile(query);
+    const extension = normalizeExtension(query?.extension);
+    const mimeType = normalizeMimeType(query?.mimeType);
+    const keys = [
+      extension ? `extension:${extension}` : null,
+      mimeType ? `mime:${mimeType}` : null,
+    ].filter(Boolean);
+    for (const key of keys) {
+      const chosen = map[key];
+      if (isPlausibleAppId(chosen) && candidates.some(app => app.id === chosen)) return chosen;
+    }
+    return null;
+  },
+
+  setDefaultForFile(query, appId) {
+    if (typeof OS === 'undefined' || !OS.settings || !query || typeof query !== 'object') return false;
+    const extension = normalizeExtension(query.extension);
+    const mimeType = normalizeMimeType(query.mimeType);
+    const key = extension ? `extension:${extension}` : mimeType ? `mime:${mimeType}` : null;
+    if (!key) return false;
+    if (appId !== null && (!isPlausibleAppId(appId) || !this.supportsFile(appId, query))) {
+      console.warn(`DefaultApps.setDefaultForFile: app "${appId}" does not support this file type`);
+      return false;
+    }
+    const map = { ...this._getMap() };
+    if (appId === null) delete map[key];
+    else map[key] = appId;
+    if (OS.settings.set(SETTINGS_KEY, map) === false) return false;
+    return true;
+  },
+
+  _supportsQuery(categoryId, appId, query) {
+    const staticIds = STATIC_IDS_BY_CATEGORY.get(categoryId);
+    if (staticIds?.has(appId)) return true;
+    const app = typeof OS !== 'undefined' ? OS.apps?.[appId] : null;
+    const handles = app?.handles;
+    if (!handles || typeof handles !== 'object') return false;
+
+    const protocols = Array.isArray(handles.protocols) ? handles.protocols : [];
+    const extensions = Array.isArray(handles.extensions) ? handles.extensions : [];
+    const mimeTypes = Array.isArray(handles.mimeTypes) ? handles.mimeTypes : [];
+    if (typeof query?.protocol === 'string' && query.protocol.trim()) {
+      const protocol = normalizeProtocol(query.protocol);
+      return !!protocol && protocols.some(value => normalizeProtocol(value) === protocol);
+    }
+
+    const extension = normalizeExtension(query?.extension);
+    const mimeType = normalizeMimeType(query?.mimeType);
+    return !!extension && extensions.some(value => normalizeExtension(value) === extension)
+      || !!mimeType && mimeTypes.some(value => {
+        const appMimeType = normalizeMimeType(value);
+        return appMimeType && mimeTypeMatches(appMimeType, mimeType);
+      });
   },
 
   /**
@@ -253,29 +417,30 @@ const DefaultApps = {
    * (via OS.settings.set) so anything caching a resolved handler — none of
    * the built-in apps do today, but a future one might — can invalidate.
    *
-   * Validates categoryId/appId before writing: this object lives on
-   * window and any installed app can call it directly, so a typo'd or
-   * malicious call shouldn't be able to wedge junk into persisted
-   * settings that Settings' UI (which reads getDefault() straight back
-   * out, unlike resolveHandler(), it doesn't re-check OS.apps) would then
-   * render as-is.
+   * Validates categoryId/appId against current candidates. Passing null
+   * clears the explicit choice and restores the system fallback.
    * @param {string} categoryId
-   * @param {string} appId
+   * @param {string|null} appId
    * @returns {boolean} true if the write happened
    */
   setDefault(categoryId, appId) {
     if (typeof OS === 'undefined' || !OS.settings) return false;
-    if (!CATEGORIES[categoryId]) {
+    if (!hasCategory(categoryId)) {
       console.warn(`DefaultApps.setDefault: unknown category "${categoryId}"`);
       return false;
     }
-    if (!isPlausibleAppId(appId)) {
+    if (appId !== null && !isPlausibleAppId(appId)) {
       console.warn(`DefaultApps.setDefault: invalid appId for category "${categoryId}"`);
       return false;
     }
-    const map = this._getMap();
-    map[categoryId] = appId;
-    OS.settings.set(SETTINGS_KEY, map);
+    if (appId !== null && !this.getAppsForCategory(categoryId).some(app => app.id === appId)) {
+      console.warn(`DefaultApps.setDefault: app "${appId}" does not support category "${categoryId}"`);
+      return false;
+    }
+    const map = { ...this._getMap() };
+    if (appId === null) delete map[categoryId];
+    else map[categoryId] = appId;
+    if (OS.settings.set(SETTINGS_KEY, map) === false) return false;
     return true;
   },
 
@@ -284,22 +449,18 @@ const DefaultApps = {
    * choice first and falling back to `fallbackAppId` (the pre-existing
    * hardcoded behavior) if they never picked one, or picked an app that's
    * since been uninstalled.
-   * @param {{extension?: string, protocol?: string}} query
+   * @param {{extension?: string, protocol?: string, mimeType?: string}} query
    * @param {string} fallbackAppId
    * @returns {string} an app id
    */
   resolveHandler(query, fallbackAppId) {
+    const fileDefault = this.getDefaultForFile(query);
+    if (fileDefault) return fileDefault;
     const categoryId = this.getCategoryFor(query);
     if (!categoryId) return fallbackAppId;
 
     const chosen = this.getDefault(categoryId);
-    if (!chosen) return fallbackAppId;
-
-    // Guard against a stale choice pointing at an uninstalled app —
-    // otherwise files silently stop opening instead of falling back.
-    if (typeof OS !== 'undefined' && OS.apps && !OS.apps[chosen]) return fallbackAppId;
-
-    return chosen;
+    return chosen && this._supportsQuery(categoryId, chosen, query) ? chosen : fallbackAppId;
   },
 };
 

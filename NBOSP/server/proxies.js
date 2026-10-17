@@ -571,7 +571,7 @@ function setupAppNetworkProxy(app) {
             return res.status(502).json({ error: `Read error: ${err.message}` });
         }
 
-        const bodyText = Buffer.concat(chunks.map(c => Buffer.from(c))).toString('utf8');
+        const bodyBuffer = Buffer.concat(chunks.map(c => Buffer.from(c)));
 
         // Forward a safe subset of response headers
         const SAFE_RESPONSE_HEADERS = new Set([
@@ -585,11 +585,20 @@ function setupAppNetworkProxy(app) {
             }
         }
 
+        const contentType = (outRespHeaders['content-type'] || '').split(';', 1)[0].trim().toLowerCase();
+        const isTextual = contentType.startsWith('text/')
+            || contentType === 'application/json'
+            || contentType === 'application/javascript'
+            || contentType === 'application/xml'
+            || contentType === 'application/x-www-form-urlencoded'
+            || contentType.endsWith('+json')
+            || contentType.endsWith('+xml');
         res.json({
             status:     resp.status,
             statusText: resp.statusText,
             headers:    outRespHeaders,
-            body:       bodyText,
+            body:       isTextual ? bodyBuffer.toString('utf8') : bodyBuffer.toString('base64'),
+            bodyEncoding: isTextual ? 'utf8' : 'base64',
         });
     });
 }

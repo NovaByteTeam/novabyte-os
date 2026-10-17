@@ -746,7 +746,9 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         // to offer the app as a Default Apps candidate). Was missing here —
         // same bug class as app-registry.js's registerApp()/initialize(),
         // just in this install path's separate config builder instead.
-        handles: appData.handles ?? undefined,
+        handles: appData.handles ?? appData.manifest?.handles ?? undefined,
+        allowNestedWebview: appData.allowNestedWebview === true
+          || appData.manifest?.allowNestedWebview === true,
 
         async init(contentEl, state, options) {
           // Scoped to this one launch — see the header comment above for
@@ -814,7 +816,8 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               // Manifest opt-in for nested <webview> creation — see
               // isNestedWebviewPermitted() in app-sandbox.js. Must also hold
               // the 'sandbox:nested-webview' grant; this alone doesn't enable it.
-              allowNestedWebview: appData.allowNestedWebview === true,
+              allowNestedWebview: appData.allowNestedWebview === true
+                || appData.manifest?.allowNestedWebview === true,
               // These three were previously dropped here, so app-sandbox.js's
               // app.transparent check (the html/body background injection)
               // and isTrustedTransparentSystemApp() gate (transparent + system
@@ -1500,6 +1503,34 @@ registerApp({
       installBtn.addEventListener('click', () => fileInput.click(), listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
+      // ── Show system apps toggle ───────────────────────────────────
+      // System apps (manifest.system === true) are part of the OS image,
+      // not something the user installed, so they're hidden by default in
+      // the package list. Toggle to show them when you need to inspect or
+      // re-sign a bundled package. Persisted so the choice survives a
+      // restart — same key the Settings app's App Permissions section uses
+      // for its own dev-only filter.
+      let showSystemApps = localStorage.getItem('nova_show_system_apps') === '1';
+      const showSystemChk = createEl('input', {
+        type: 'checkbox', id: 'app-manager-show-system',
+        style: 'width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;'
+      });
+      const showSystemLbl = createEl('label', {
+        'for': 'app-manager-show-system',
+        style: 'font-size:11px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;',
+        textContent: 'System apps'
+      });
+      showSystemChk.checked = showSystemApps;
+      showSystemChk.addEventListener('change', () => {
+        showSystemApps = showSystemChk.checked;
+        try { localStorage.setItem('nova_show_system_apps', showSystemApps ? '1' : '0'); } catch {}
+        renderList();
+      }, listenerOpts);
+      const showSystemWrap = createEl('div', {
+        style: 'display:flex;align-items:center;gap:5px;padding:0 10px 8px;border-bottom:1px solid var(--border-subtle);'
+      });
+      showSystemWrap.append(showSystemChk, showSystemLbl);
+      sidebar.appendChild(showSystemWrap);
       // ── Verification badge ──────────────────────────────────────────────
       // Reads app.verified/app.signer/app.revoked. verified/signer are set
       // once at install time from AppPackage.verifyAgainstTrustStore's
@@ -1567,7 +1598,7 @@ registerApp({
         listEl.innerHTML = '';
         const q = searchEl.value.trim().toLowerCase();
         const disabledSet = new Set(getDisabled());
-        let visible = installedApps;
+        let visible = installedApps.filter(app => showSystemApps || app.system !== true);
 
         if (q) {
           visible = visible.filter(a =>
@@ -1582,7 +1613,9 @@ registerApp({
           const msg = createEl('div', { style: 'padding:24px 12px;text-align:center;color:var(--text-muted);line-height:1.8;' });
           msg.innerHTML = q
             ? '<div style="font-size:13px;">No apps match.</div>'
-            : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No packages installed.<br>Click <strong style="color:var(--text-primary);">Install</strong> or drop a <code style="color:var(--accent);">.novaapp</code> file.</div>';
+            : showSystemApps
+              ? '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No packages installed.<br>Click <strong style="color:var(--text-primary);">Install</strong> or drop a <code style="color:var(--accent);">.novaapp</code> file.</div>'
+              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No user-installed packages.<br>Check <strong style="color:var(--text-primary);">System apps</strong> above to see bundled system packages.</div>';
           listEl.appendChild(msg);
           return;
         }

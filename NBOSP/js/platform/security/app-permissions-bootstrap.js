@@ -212,7 +212,7 @@
   // Web apps (id: wa_...) and any app not in APP_PERMISSION_MAP get a default
   // dangerous permission set. We intercept their init the same way as built-ins.
 
-  const WEB_APP_DANGEROUS = ['net:external', 'device:camera', 'device:microphone', 'device:geolocation'];
+  const WEB_APP_DANGEROUS = ['device:camera', 'device:microphone', 'device:geolocation'];
 
   function _gateThirdPartyApps() {
     if (typeof OS === 'undefined' || !OS?.apps) return;
@@ -226,6 +226,8 @@
       entry.init = async function (content, state, options) {
         const mgr     = AppPermissionManager;
         const appName = entry.name || appId;
+        await mgr.autoGrantLowRisk?.('net:external', appId);
+        await mgr.autoGrantLowRisk?.('net:websocket', appId);
         const missing = WEB_APP_DANGEROUS.filter(p => !mgr.isGranted(p, appId) && !mgr.isDenied(p, appId));
         if (missing.length > 0) {
           await mgr.requestAll(missing, appId, appName);
@@ -251,6 +253,8 @@
           entry.__isWebApp = true;
           entry.init = async function (content, state, options) {
             const mgr     = AppPermissionManager;
+            await mgr.autoGrantLowRisk?.('net:external', appId);
+            await mgr.autoGrantLowRisk?.('net:websocket', appId);
             const missing = WEB_APP_DANGEROUS.filter(p => !mgr.isGranted(p, appId) && !mgr.isDenied(p, appId));
             if (missing.length > 0) await mgr.requestAll(missing, appId, appName);
             return originalInit.call(this, content, state, options);

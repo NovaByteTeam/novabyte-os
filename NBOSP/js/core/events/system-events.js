@@ -64,9 +64,16 @@ const LAUNCHPAD_ORDER = Object.freeze([
   'com.nbosp.music',        // Music
 ]);
 
-function launchpadRank(appId) {
-  const idx = LAUNCHPAD_ORDER.indexOf(appId);
-  return idx === -1 ? LAUNCHPAD_ORDER.length : idx;
+function launchpadRank(app) {
+  // Three tiers so an unbundled system app can't collide with a user app on
+  // the same fallback rank: pinned system apps first (by list order), then
+  // any other system app, then user-installed apps. Within each tier the
+  // tiebreak is alphabetical, so the layout is deterministic regardless of
+  // module load order.
+  const pinned = LAUNCHPAD_ORDER.indexOf(app?.id);
+  if (pinned !== -1) return pinned;
+  if (app?.system === true) return LAUNCHPAD_ORDER.length;
+  return LAUNCHPAD_ORDER.length + 1;
 }
 
 // Look up whether an app already has a desktop .lnk shortcut. Used by the
@@ -174,9 +181,9 @@ function renderLaunchpad() {
   // Stable sort: pinned order first, everything else alphabetical. This keeps
   // the grid layout consistent across reloads instead of tracking module
   // load order, which drifts whenever a hot-reload reorders registration.
-  const orderedApps = [...apps].sort((a, b) => {
-    const ra = launchpadRank(a.id);
-    const rb = launchpadRank(b.id);
+const orderedApps = [...apps].sort((a, b) => {
+    const ra = launchpadRank(a);
+    const rb = launchpadRank(b);
     if (ra !== rb) return ra - rb;
     return a.name.localeCompare(b.name);
   });
@@ -185,7 +192,9 @@ function renderLaunchpad() {
     : [];
 
   // Signature tracks the set of apps currently rendered so we only rebuild the
-  // grid when something actually changes — not on every open.
+  // grid when something actually changes — not on every open. Order is part
+  // of the signature: without it a re-sort of the same app set is treated as
+  // a no-op and the grid keeps its previous layout.
   const signature = [
     ...orderedApps.map(app => `${app.id}:${app.name}:${app.icon}`),
     ...webApps.map(wa => `web:${wa.id}:${wa.name}:${wa.icon}:${wa.url}`)

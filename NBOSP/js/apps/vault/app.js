@@ -739,6 +739,10 @@
         },
       ];
       if (f.type === 'file') {
+        items.push({
+          label: 'Open with...', icon: 'external-link',
+          action: () => showOpenWithDialog(f),
+        });
         const selectedFileIds = new Set(
           [...this.selectedIds].filter(id => {
             const n = FS.files.get(id);

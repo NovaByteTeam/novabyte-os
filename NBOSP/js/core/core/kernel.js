@@ -117,6 +117,9 @@ const OS = {
     },
 
     set(key, value) {
+      if ((key === 'wallpaperId' || key === 'customWallpaper') && this.get('prohibitWallpaperChange') === true) {
+        return false;
+      }
       this._cache[key] = value;
       OS.workers.fs.call('putSetting', key, value).catch((err) => {
         // Previously silent — a failed write left the cache and disk permanently

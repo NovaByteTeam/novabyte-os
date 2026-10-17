@@ -6,6 +6,7 @@ const mockOS = {
   apps: {},
   openUrl: undefined,
   openMailto: undefined,
+  settings: { get: vi.fn(() => false) },
   events: { on: vi.fn(), off: vi.fn(), emit: vi.fn() },
 };
 globalThis.OS = mockOS;
@@ -112,6 +113,41 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     spy.mockRestore();
   });
 
+  it('accepts the expanded VFS and app-launch permissions', () => {
+    vi.resetModules();
+    const mod = require('../../js/platform/core/app-registry.js');
+    mod.registerApp({
+      id: 'capability-test',
+      name: 'Capability test',
+      permissions: ['vfs:access', 'system:app-launch'],
+    });
+    expect(mod.getApp('capability-test').permissions).toEqual(['vfs:access', 'system:app-launch']);
+  });
+
+  it('preserves root permission declarations from new and restored package manifests', () => {
+    vi.resetModules();
+    const mod = require('../../js/platform/core/app-registry.js');
+    mod.registerApp({
+      id: 'root-package',
+      name: 'Root package',
+      permissions: ['system:root'],
+      manifest: { permissions: ['system:root'] },
+    });
+    expect(mod.getApp('root-package').permissions).toContain('system:root');
+
+    resetTestStorage();
+    localStorage.setItem('nova_registry_meta', JSON.stringify([{
+      id: 'restored-root-package',
+      name: 'Restored root package',
+      permissions: [],
+      manifest: { permissions: ['system:root'] },
+      source: 'file',
+    }]));
+    vi.resetModules();
+    const restored = require('../../js/platform/core/app-registry.js');
+    expect(restored.getApp('restored-root-package').permissions).toContain('system:root');
+  });
+
   it('unregisters an app and cleans up OS.apps', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
@@ -158,6 +194,52 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     globalThis.AppPermissionManager = prev;
   });
 
+  it('auto-grants low-risk permissions and prompts only for required sensitive permissions', async () => {
+    vi.resetModules();
+    const previousManager = globalThis.AppPermissionManager;
+    const previousSandbox = globalThis.AppSandbox;
+    const granted = new Set();
+    const requestAll = vi.fn(async (permissions) => {
+      permissions.forEach(permission => granted.add(permission));
+      return true;
+    });
+    globalThis.AppPermissionManager = {
+      PERMISSION_CATEGORIES: {
+        'device:notifications': { risk: 'low' },
+        'vfs:read': { risk: 'medium' },
+        'contacts:read': { risk: 'medium' },
+      },
+      isGranted: permission => granted.has(permission),
+      isDenied: () => false,
+      autoGrantLowRisk: vi.fn(async permission => {
+        if (permission === 'device:notifications') granted.add(permission);
+        return permission === 'device:notifications';
+      }),
+      requestAll,
+      recordAppUse: vi.fn(),
+    };
+    globalThis.AppSandbox = { launch: vi.fn(async () => ({ launched: true })) };
+
+    try {
+      const mod = require('../../js/platform/core/app-registry.js');
+      mod.registerApp({
+        id: 'permission-policy-app',
+        name: 'Permission Policy',
+        permissions: ['device:notifications', 'vfs:read'],
+        optionalPermissions: ['contacts:read'],
+      });
+
+      await mod.launchApp('permission-policy-app', {}, {}, {});
+
+      expect(globalThis.AppPermissionManager.autoGrantLowRisk)
+        .toHaveBeenCalledWith('device:notifications', 'permission-policy-app');
+      expect(requestAll).toHaveBeenCalledWith(['vfs:read'], 'permission-policy-app', 'Permission Policy');
+    } finally {
+      globalThis.AppPermissionManager = previousManager;
+      globalThis.AppSandbox = previousSandbox;
+    }
+  });
+
   it('updateApp patches fields on an installed app', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
@@ -197,14 +279,32 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
     expect(window.APP_REGISTRY).toContain(cfg);
   });
 
-  it('OS.openUrl opens http/https links in the browser app', () => {
+  it('OS.openUrl routes http/https links through the selected OS default app', () => {
     vi.resetModules();
     require('../../js/core/services/registry.js');
     const createWindow = vi.fn(() => ({ id: 'win1' }));
     globalThis.WM = { createWindow };
     globalThis.nw = undefined;
+    globalThis.DefaultApps = {
+      resolveHandler: vi.fn((query, fallback) => {
+        expect(query).toEqual({ protocol: 'https' });
+        expect(fallback).toBe('com.nbosp.browser');
+        return 'com.example.my-browser';
+      }),
+    };
     mockOS.openUrl('https://example.com/page');
-    expect(createWindow).toHaveBeenCalledWith('browser', { url: 'https://example.com/page' });
+    expect(DefaultApps.resolveHandler).toHaveBeenCalledOnce();
+    expect(createWindow).toHaveBeenCalledWith('com.example.my-browser', { url: 'https://example.com/page' });
+  });
+
+  it('OS.openUrl falls back to the built-in Browser when no resolver is present', () => {
+    vi.resetModules();
+    require('../../js/core/services/registry.js');
+    const createWindow = vi.fn(() => ({ id: 'win1' }));
+    globalThis.WM = { createWindow };
+    globalThis.DefaultApps = undefined;
+    mockOS.openUrl('http://example.com/page');
+    expect(createWindow).toHaveBeenCalledWith('com.nbosp.browser', { url: 'http://example.com/page' });
   });
 
   it('OS.openUrl blocks javascript: and data: URLs', () => {
@@ -212,9 +312,11 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
     require('../../js/core/services/registry.js');
     const createWindow = vi.fn();
     globalThis.WM = { createWindow };
+    globalThis.DefaultApps = { resolveHandler: vi.fn() };
     mockOS.openUrl('javascript:alert(1)');
     mockOS.openUrl('data:text/html,<script>alert(1)</script>');
     expect(createWindow).not.toHaveBeenCalled();
+    expect(DefaultApps.resolveHandler).not.toHaveBeenCalled();
   });
 
   it('OS.openMailto parses a full mailto URI', () => {

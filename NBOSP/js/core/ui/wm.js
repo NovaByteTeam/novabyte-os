@@ -368,7 +368,7 @@ const WM = window.WM = (() => {
       // notification now describing a process the user can't see or find
       // from this new window.
       let reattached = false;
-      if (typeof AppSandbox !== 'undefined') {
+      if (!options?.fileIntent && typeof AppSandbox !== 'undefined') {
         const bg = AppSandbox.getAllSandboxes().find(s => s.appId === appId && s.backgrounded);
         if (bg) {
           reattached = AppSandbox.reattachFromBackground(bg.sandboxId, content, state);

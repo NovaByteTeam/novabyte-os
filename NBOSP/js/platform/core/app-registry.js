@@ -8,10 +8,8 @@
  *  [R1] window.AppRegistry — exported as a true global so every
  *       other file (AppPermissionManager, system-events, etc.) can
  *       reference it without import gymnastics.
- *  [R2] launchApp — no longer throws on missing permissions.
- *       Instead it calls AppPermissionManager.requestAll() which
- *       shows the sequential Android-style prompt queue, then
- *       proceeds or aborts cleanly.
+ *  [R2] launchApp — requests missing required sensitive permissions while
+ *       allowing the app to open if the user denies a capability.
  *  [R3] lastLaunched written on every launch — consumed by
  *       AppPermissionManager's 30-day unused-app expiry sweep.
  *  [R4] onInstall / onUninstall accept multiple callbacks via
@@ -32,14 +30,14 @@ const AppRegistry = (() => {
   const _onUninstalled = [];
 
   const KNOWN_PERMISSIONS = new Set([
-    'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata',
+    'vfs:access', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata',
     'clipboard:read', 'clipboard:write',
     'net:internal', 'net:external', 'net:websocket',
     'mail:read', 'mail:write', 'mail:send', 'mail:delete',
     'calendar:read', 'calendar:write', 'calendar:delete',
     'contacts:read', 'contacts:write', 'contacts:delete',
     'device:notifications', 'device:geolocation', 'device:camera', 'device:microphone',
-    'system:info', 'system:settings', 'system:apps', 'system:events',
+    'system:info', 'system:settings', 'system:apps', 'system:app-launch', 'system:events', 'system:root',
     'system:background', 'system:background:live', 'system:autostart',
     'sandbox:nested-webview', 'sandbox:same-origin', 'sandbox:escape-popups',
     'admin:apps', 'admin:users', 'admin:system', 'admin:audit',
@@ -93,6 +91,10 @@ const AppRegistry = (() => {
       if (!raw) return;
       const apps = JSON.parse(raw);
       for (const app of apps) {
+        if (app.manifest?.permissions?.includes('system:root')
+          && !app.permissions?.includes('system:root')) {
+          app.permissions = [...(Array.isArray(app.permissions) ? app.permissions : []), 'system:root'];
+        }
         // Re-sanitize on restore too — closes the gap for records persisted
         // by a pre-patch version of this file, where a .novaapp install
         // could have had autoGrant: true written to storage before this
@@ -137,7 +139,7 @@ const AppRegistry = (() => {
             // rebuild of OS.apps[app.id] (this one runs on every boot/reload
             // for restored installs, registerApp() only runs once at install
             // time), and it was dropping handles the exact same way.
-            handles: app.handles ?? undefined,
+            handles: app.handles ?? app.manifest?.handles ?? undefined,
             init: (content, state, options) => AppRegistry.launchApp(app.id, content, state, options),
             onDrop: app.onDrop ?? undefined,
             onClose: app.onClose ?? undefined,
@@ -184,6 +186,10 @@ const AppRegistry = (() => {
 
     if (installedApps.has(appConfig.id) && !options.force) {
       return installedApps.get(appConfig.id);
+    }
+    if (options.force && installedApps.get(appConfig.id)?.permissions?.includes('system:root')
+      && typeof AppSandbox !== 'undefined') {
+      AppSandbox.reloadAfterRootRevocation?.(`Root app ${appConfig.id} was updated`);
     }
 
     if (RESERVED_APP_IDS.has(appConfig.id) && !appConfig.verified) {
@@ -242,6 +248,7 @@ const AppRegistry = (() => {
       ...appConfig,
       id: appConfig.id,
       name: appConfig.name,
+      handles: appConfig.handles ?? appConfig.manifest?.handles ?? undefined,
       autoGrant: isBuiltinSource ? (appConfig.autoGrant || false) : false,
       system: isSystemSigned,
     };
@@ -267,6 +274,8 @@ const AppRegistry = (() => {
         novabyte_app: app.novabyte_app,
         compiled_at: app.compiled_at,
         manifest: app.manifest || undefined,
+        allowNestedWebview: app.allowNestedWebview === true
+          || app.manifest?.allowNestedWebview === true,
         // Capability manifest (js/core/services/default-apps.js reads this
         // to offer the app as a Default Apps candidate for any matching
         // protocol/extension). Optional — omitted rather than defaulted to
@@ -305,6 +314,9 @@ const AppRegistry = (() => {
   function unregisterApp(appId) {
     const app = installedApps.get(appId);
     if (!app) return false;
+    if (app.permissions?.includes('system:root') && typeof AppSandbox !== 'undefined') {
+      AppSandbox.reloadAfterRootRevocation?.(`Root app ${appId} was uninstalled`);
+    }
 
     // Every uninstall surface (App Manager, desktop right-click,
     // MyAppsManager) funnels through here — close any window still open
@@ -386,28 +398,61 @@ const AppRegistry = (() => {
 
     if (!OS.settings.get('devMode') && app.devOnly) return null;
 
-    // FIX [R2]: request missing permissions before proceeding
+    // Low-risk capabilities are granted by system policy; optional sensitive
+    // capabilities remain point-of-use requests, while required sensitive
+    // capabilities use the launch consent queue.
     const mgr = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
-    if (mgr && app.permissions.length > 0) {
-      const missing = app.permissions.filter(p => !mgr.isGranted(p, appId));
-      if (missing.length > 0) {
-        if (app.autoGrant) {
-          for (const p of missing) {
-            await mgr.grantPermission(p, appId, { permanent: true, reason: 'Auto-granted for developer tool', grantedBy: 'system' });
-          }
-        } else {
-          const allGranted = await mgr.requestAll(missing, appId, app.name);
-          if (!allGranted) {
-            // A permission denial must not prevent a system app from opening.
-            // The sandbox gate re-checks the same required permissions and will
-            // deliberately keep the renderer restricted when any are denied.
-            // This preserves the policy: deny capability -> sandbox, rather than
-            // turning a normal denial into a launch failure.
-            app.__deniedPermissionsAtLaunch = missing.filter((p) => !mgr.isGranted(p, appId));
-            console.warn(`[AppRegistry] Launch continuing in restricted mode — permissions denied for ${appId}: ${app.__deniedPermissionsAtLaunch.join(', ')}`);
-            if (typeof EventLog !== 'undefined') {
-              EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Launch continuing in restricted mode — permissions denied for ${appId}`, data: { appId, missing: app.__deniedPermissionsAtLaunch } });
-            }
+    const requiredPermissions = app.permissions || [];
+    const optionalPermissions = app.optionalPermissions || [];
+    const declaredPermissions = [...new Set([...requiredPermissions, ...optionalPermissions])];
+    const requestsRoot = requiredPermissions.includes('system:root');
+    const rootModeAvailable = requestsRoot
+      && OS.settings.get('devMode') === true
+      && OS.settings.get('rootAccessEnabled') === true;
+    if (mgr && declaredPermissions.length > 0) {
+      if (app.autoGrant) {
+        const missing = requiredPermissions.filter(p => p !== 'system:root' && !mgr.isGranted(p, appId));
+        for (const p of missing) {
+          await mgr.grantPermission(p, appId, { permanent: true, reason: 'Auto-granted for developer tool', grantedBy: 'system' });
+        }
+        if (requestsRoot && rootModeAvailable && !mgr.isGranted('system:root', appId)) {
+          await mgr.requestPermission('system:root', appId, { appName: app.name });
+        }
+      } else {
+        for (const permission of declaredPermissions) {
+          await mgr.autoGrantLowRisk?.(permission, appId);
+        }
+
+        const requiredSensitive = requiredPermissions.filter(permission =>
+          mgr.PERMISSION_CATEGORIES?.[permission]?.risk !== 'low'
+          && (permission !== 'system:root' || rootModeAvailable)
+        );
+        const missing = requiredSensitive.filter(permission =>
+          !mgr.isGranted(permission, appId)
+          && !(mgr.isDenied && mgr.isDenied(permission, appId))
+        );
+        if (missing.length > 0) {
+          await mgr.requestAll(missing, appId, app.name);
+        }
+
+        // Denials disable the corresponding capability, not the whole app.
+        // Keep the missing required permissions available for diagnostics.
+        app.__deniedPermissionsAtLaunch = requiredPermissions.filter(
+          permission => !mgr.isGranted(permission, appId)
+        );
+        if (requestsRoot && !rootModeAvailable && typeof EventLog !== 'undefined') {
+          EventLog.log({
+            app: 'AppRegistry',
+            category: 'security',
+            severity: 'warn',
+            message: `Root execution blocked for ${appId}: Developer Mode and Root Access must both be enabled`,
+            data: { appId, permission: 'system:root', action: 'root-blocked' },
+          });
+        }
+        if (app.__deniedPermissionsAtLaunch.length > 0) {
+          console.warn(`[AppRegistry] Launch continuing in restricted mode — permissions denied for ${appId}: ${app.__deniedPermissionsAtLaunch.join(', ')}`);
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Launch continuing in restricted mode — permissions denied for ${appId}`, data: { appId, missing: app.__deniedPermissionsAtLaunch } });
           }
         }
       }

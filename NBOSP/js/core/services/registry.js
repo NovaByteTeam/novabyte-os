@@ -138,13 +138,24 @@ const APP_REGISTRY = [];
         if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
       }
 
-      // ── Global URL opener — routes all links to com.nbosp.browser ──────
-      OS.openUrl = function (url) {
-        if (!url) return;
-        if (/^(javascript|data|vbscript):/i.test(url.trim())) return;
-        // Block localhost / private / loopback addresses at the OS level too
-        if (typeof isLocalAddress === 'function' && isLocalAddress(url)) return;
-        WM.createWindow('com.nbosp.browser', { url });
+      // ── Global URL opener — routes links through the user's OS default ──
+      OS.openUrl = function (rawUrl) {
+        if (typeof rawUrl !== 'string' || !rawUrl.trim()) return null;
+        let url;
+        try {
+          url = new URL(rawUrl);
+        } catch {
+          return null;
+        }
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+        // Block localhost / private / loopback addresses at the OS level too.
+        if (typeof isLocalAddress === 'function' && isLocalAddress(url.href)) return null;
+
+        const fallbackAppId = 'com.nbosp.browser';
+        const appId = typeof DefaultApps !== 'undefined' && typeof DefaultApps.resolveHandler === 'function'
+          ? DefaultApps.resolveHandler({ protocol: url.protocol.slice(0, -1) }, fallbackAppId)
+          : fallbackAppId;
+        return WM.createWindow(appId, { url: url.href });
       };
 
       // ── Parse mailto: URIs into compose-prefill objects ─────────────────

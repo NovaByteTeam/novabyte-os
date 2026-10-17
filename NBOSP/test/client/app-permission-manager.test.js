@@ -28,6 +28,8 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
       const APM = require('../../js/platform/security/app-permission-manager.js');
       expect(APM.PERMISSION_TYPES.FS_READ).toBe('vfs:read');
       expect(APM.PERMISSION_TYPES.NET_EXTERNAL).toBe('net:external');
+      expect(APM.PERMISSION_TYPES.SYSTEM_ROOT).toBe('system:root');
+      expect(APM.PERMISSION_CATEGORIES['system:root'].risk).toBe('critical');
     });
 
     it('has categories for every permission type', () => {
@@ -46,6 +48,14 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
       expect(APM.isDenied('vfs:read', 'app1')).toBe(false);
     });
 
+    it('never grants root through the direct permission-management API', async () => {
+      const APM = require('../../js/platform/security/app-permission-manager.js');
+      await expect(APM.grantPermission('system:root', 'app1')).rejects.toThrow(
+        'Root access must be granted through its explicit confirmation prompt'
+      );
+      expect(APM.isGranted('system:root', 'app1')).toBe(false);
+    });
+
     it('returns true after grantPermission', () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
       APM.grantPermission('vfs:read', 'app1');
@@ -61,13 +71,47 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
     });
   });
 
+  describe('low-risk auto-grants', () => {
+    it('auto-grants only low-risk permissions', async () => {
+      const APM = require('../../js/platform/security/app-permission-manager.js');
+      expect(await APM.autoGrantLowRisk('device:notifications', 'app1')).toBe(true);
+      expect(APM.isGranted('device:notifications', 'app1')).toBe(true);
+
+      expect(APM.PERMISSION_TYPES.FS_ACCESS).toBe('vfs:access');
+      expect(await APM.autoGrantLowRisk('net:external', 'app1')).toBe(true);
+      expect(await APM.autoGrantLowRisk('net:websocket', 'app1')).toBe(true);
+      expect(await APM.autoGrantLowRisk('clipboard:write', 'app1')).toBe(true);
+      expect(APM.isGranted('net:external', 'app1')).toBe(true);
+      expect(APM.isGranted('net:websocket', 'app1')).toBe(true);
+      expect(APM.isGranted('clipboard:write', 'app1')).toBe(true);
+
+      expect(await APM.autoGrantLowRisk('vfs:access', 'app1')).toBe(false);
+      expect(APM.isGranted('vfs:access', 'app1')).toBe(false);
+    });
+
+    it('does not silently re-grant a low-risk permission explicitly revoked by the user', async () => {
+      const APM = require('../../js/platform/security/app-permission-manager.js');
+      await APM.grantPermission('net:external', 'app1');
+      await APM.revokePermission('net:external', 'app1');
+
+      expect(APM.isDenied('net:external', 'app1')).toBe(true);
+      expect(await APM.autoGrantLowRisk('net:external', 'app1')).toBe(false);
+      expect(APM.isGranted('net:external', 'app1')).toBe(false);
+
+      await APM.resetPermission('net:external', 'app1');
+      expect(await APM.autoGrantLowRisk('net:external', 'app1')).toBe(true);
+      expect(APM.isGranted('net:external', 'app1')).toBe(true);
+    });
+  });
+
   describe('revokePermission / revokeAllPermissions', () => {
-    it('removes a single permission grant', () => {
+    it('revokes a single permission grant as an explicit denial', async () => {
       const APM = require('../../js/platform/security/app-permission-manager.js');
       APM.grantPermission('vfs:read', 'app1');
       expect(APM.isGranted('vfs:read', 'app1')).toBe(true);
-      APM.revokePermission('vfs:read', 'app1');
+      await APM.revokePermission('vfs:read', 'app1');
       expect(APM.isGranted('vfs:read', 'app1')).toBe(false);
+      expect(APM.isDenied('vfs:read', 'app1')).toBe(true);
     });
 
     it('removes all permissions for an app', () => {

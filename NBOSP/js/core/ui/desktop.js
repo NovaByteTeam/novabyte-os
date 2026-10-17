@@ -1099,32 +1099,218 @@ window.AppDirs = AppDirs;
    DESKTOP ICONS
    ═══════════════════════════════════════════════════════════════ */
 
+function getFileTypeQuery(fileNode) {
+  const name = typeof fileNode?.name === 'string' ? fileNode.name : '';
+  const dotIdx = name.lastIndexOf('.');
+  return {
+    extension: dotIdx !== -1 ? name.slice(dotIdx).toLowerCase() : null,
+    mimeType: typeof fileNode?.mimeType === 'string' ? fileNode.mimeType : '',
+  };
+}
+
 function openFileWithDefaultApp(fileNode) {
   if (!fileNode) return;
 
-  const mime = fileNode.mimeType || '';
-  const dotIdx = fileNode.name.lastIndexOf('.');
-  const extension = dotIdx !== -1 ? fileNode.name.slice(dotIdx).toLowerCase() : null;
+  const query = getFileTypeQuery(fileNode);
+  const mime = query.mimeType;
 
-  let appId = 'quill'; // fallback default
+  let appId = 'com.nbosp.quill'; // fallback default
 
   if (mime === 'text/html' || fileNode.name.endsWith('.html') || fileNode.name.endsWith('.htm')) appId = 'com.nbosp.browser';
-  else if (mime.startsWith('image/')) appId = 'nbosp-gallery';
-  else if (mime.startsWith('audio/')) appId = 'nbosp-music';
+  else if (mime.startsWith('image/')) appId = 'com.nbosp.gallery';
+  else if (mime.startsWith('audio/')) appId = 'com.nbosp.music';
   // NOTE: no built-in app declares a .pdf handler (the previous 'lumina'
   // fallback here pointed at an app id that was never registered, so PDFs
   // silently failed to open). Falls through to quill until a real PDF
   // viewer exists — see DefaultApps.CATEGORIES for where to add one.
 
-  // A user-chosen default (Settings → Default Apps) always wins over the
-  // hardcoded guess above, as long as the extension/mime maps to a known
-  // category and the chosen app is still installed.
-  if (typeof DefaultApps !== 'undefined' && extension) {
-    appId = DefaultApps.resolveHandler({ extension }, appId);
+  // Honor a chosen default only when the installed app declared support
+  // for this exact file type; otherwise retain the working built-in fallback.
+  if (typeof DefaultApps !== 'undefined') {
+    const categoryId = DefaultApps.getCategoryFor(query);
+    const systemFallback = DefaultApps.CATEGORIES[categoryId]?.apps?.[0]?.id || appId;
+    appId = DefaultApps.resolveHandler(query, systemFallback);
   }
 
-  WM.createWindow(appId, { fileId: fileNode.id });
+  openFileWithApp(fileNode, appId);
 }
+
+function openFileWithApp(fileNode, appId, rememberDefault = false, requireHandler = false) {
+  const liveFile = fileNode?.id ? FS.files.get(fileNode.id) : null;
+  if (!liveFile || liveFile.type !== 'file' || !appId || !OS.apps?.[appId]) {
+    Notify.show({
+      title: 'Unable to open file',
+      body: 'The file or selected app is no longer available.',
+      type: 'warn',
+      appName: 'Desktop',
+    });
+    return false;
+  }
+  fileNode = liveFile;
+  const name = fileNode.name;
+  const query = getFileTypeQuery(fileNode);
+  const canHandle = typeof DefaultApps !== 'undefined'
+    && DefaultApps.supportsFile(appId, query);
+  if (requireHandler && !canHandle) {
+    Notify.show({
+      title: 'App no longer supports this file',
+      body: 'Choose an app that currently declares support for this file type.',
+      type: 'warn',
+      appName: 'Desktop',
+    });
+    return false;
+  }
+  const defaultSaved = rememberDefault && canHandle
+    ? DefaultApps.setDefaultForFile(query, appId)
+    : false;
+  if (rememberDefault && canHandle && !defaultSaved) {
+    Notify.show({
+      title: 'Default not saved',
+      body: 'The selected app could not be saved as the default for this file type.',
+      type: 'warn',
+      appName: 'Desktop',
+    });
+  }
+
+  const options = { fileId: fileNode.id };
+  if (canHandle) {
+    options.fileIntent = {
+      action: 'open',
+      file: {
+        id: fileNode.id,
+        name,
+        mimeType: query.mimeType,
+      },
+    };
+  }
+  const win = WM.createWindow(appId, options);
+  return {
+    success: !!win,
+    appId,
+    windowId: win?.id || null,
+    defaultSaved,
+  };
+}
+
+function showOpenWithDialog(fileNode) {
+  if (!fileNode || typeof DefaultApps === 'undefined') return Promise.resolve({ cancelled: true });
+  const name = typeof fileNode.name === 'string' ? fileNode.name : '';
+  const query = getFileTypeQuery(fileNode);
+  const candidates = DefaultApps.getAppsForFile(query);
+  if (candidates.length === 0) {
+    Notify.show({
+      title: 'No compatible apps',
+      body: `No installed app declares support for ${name || 'this file'}.`,
+      type: 'info',
+      appName: 'Desktop',
+    });
+    return Promise.resolve({ cancelled: true, reason: 'no-compatible-apps' });
+  }
+
+  return new Promise(resolve => {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'nova-open-with-dialog';
+  dialog.setAttribute('aria-labelledby', 'open-with-title');
+  dialog.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'margin:auto',
+    'width:min(420px,calc(100vw - 32px))',
+    'max-height:calc(100vh - 32px)',
+    'padding:0',
+    'border:1px solid var(--border-color,rgba(255,255,255,.14))',
+    'border-radius:14px',
+    'background:var(--bg-elevated,rgba(30,30,30,.82))',
+    'backdrop-filter:blur(12px)',
+    '-webkit-backdrop-filter:blur(12px)',
+    'color:var(--text-primary,#fff)',
+    'box-shadow:0 24px 80px rgba(0,0,0,.55)',
+  ].join(';');
+
+  const form = document.createElement('form');
+  form.method = 'dialog';
+  form.style.cssText = 'display:flex;flex-direction:column;gap:14px;padding:20px;';
+  const title = document.createElement('h2');
+  title.id = 'open-with-title';
+  title.textContent = 'Open with';
+  title.style.cssText = 'font-size:18px;margin:0;';
+  const subtitle = document.createElement('p');
+  subtitle.textContent = name;
+  subtitle.title = name;
+  subtitle.style.cssText = 'font-size:13px;opacity:.72;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0;';
+
+  const list = document.createElement('div');
+  list.setAttribute('role', 'radiogroup');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:6px;max-height: min(45vh,320px);overflow:auto;';
+  const categoryId = DefaultApps.getCategoryFor(query);
+  const categoryDefault = categoryId ? DefaultApps.getDefault(categoryId) : null;
+  const savedDefault = DefaultApps.getDefaultForFile(query) || categoryDefault;
+  let selectedId = candidates.some(app => app.id === savedDefault) ? savedDefault : candidates[0].id;
+
+  for (const app of candidates) {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;cursor:pointer;';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'open-with-app';
+    radio.value = app.id;
+    radio.checked = app.id === selectedId;
+    radio.addEventListener('change', () => { selectedId = app.id; });
+    const icon = document.createElement('span');
+    icon.style.cssText = 'width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;';
+    if (typeof svgIcon === 'function') icon.innerHTML = svgIcon(app.icon || 'box', 18);
+    const appName = document.createElement('span');
+    appName.textContent = app.name;
+    label.append(radio, icon, appName);
+    list.appendChild(label);
+  }
+
+  const rememberLabel = document.createElement('label');
+  rememberLabel.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;';
+  const remember = document.createElement('input');
+  remember.type = 'checkbox';
+  rememberLabel.append(remember, document.createTextNode('Always use this app for this file type'));
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:2px;';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.textContent = 'Cancel';
+  const open = document.createElement('button');
+  open.type = 'submit';
+  open.textContent = 'Open';
+  open.className = 'primary';
+  for (const button of [cancel, open]) {
+    button.style.cssText = 'border:1px solid var(--border-color,rgba(255,255,255,.16));border-radius:7px;padding:8px 14px;color:inherit;background:var(--bg-overlay,rgba(255,255,255,.08));cursor:pointer;';
+  }
+  actions.append(cancel, open);
+  form.append(title, subtitle, list, rememberLabel, actions);
+  dialog.appendChild(form);
+  document.body.appendChild(dialog);
+
+  let settled = false;
+  const finish = result => {
+    if (settled) return;
+    settled = true;
+    if (dialog.open) dialog.close();
+    dialog.remove();
+    resolve(result);
+  };
+  cancel.addEventListener('click', () => finish({ cancelled: true }));
+  dialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    finish({ cancelled: true });
+  });
+  dialog.addEventListener('close', () => finish({ cancelled: true }), { once: true });
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    finish(openFileWithApp(fileNode, selectedId, remember.checked, true) || { cancelled: true });
+  });
+  dialog.showModal();
+  });
+}
+
+window.showOpenWithDialog = showOpenWithDialog;
 
 // FIX: module-level AbortController list — one per icon drag, aborted on every renderDesktopIcons()
 // call so no mousemove/mouseup listeners ever outlive their icons.
@@ -2027,6 +2213,12 @@ function renderDesktopIcons() {
           }
         }
       ];
+      if (!isShortcut && f.type !== 'folder') {
+        menuItems.push({
+          label: 'Open with...', icon: 'external-link',
+          action: () => showOpenWithDialog(f),
+        });
+      }
       if (isShortcut && shortcutData) {
         menuItems.push(
           {
@@ -2304,9 +2496,19 @@ OS.events.on('settings:changed', async ({ key }) => {
     console.warn('[Desktop] immediate settings apply failed:', key, e);
   }
 
+  if (key === 'rootAccessEnabled' && OS.settings.get('rootAccessEnabled') !== true
+    && typeof AppSandbox !== 'undefined'
+    && AppSandbox.reloadAfterRootRevocation?.('Root Access was disabled')) return;
   if (key !== 'devMode') return;
 
   const devMode = OS.settings.get('devMode');
+  if (!devMode) {
+    if (OS.settings.get('rootAccessEnabled') === true) {
+      OS.settings.set('rootAccessEnabled', false);
+    }
+    if (typeof AppSandbox !== 'undefined'
+      && AppSandbox.reloadAfterRootRevocation?.('Developer Mode was disabled')) return;
+  }
   let iconPositions = OS.settings.get('desktopIconPositions') || {};
   const devAppIds = new Set();
   for (const [appId, app] of Object.entries(OS.apps || {})) {
