@@ -129,6 +129,13 @@ These are the **actual features pulled directly from the source code** — not g
 > [!NOTE]
 > Every built-in NBOSP app and headless system service is packaged as a `.novaapp`. If you are unfamiliar with the package format or how to build one, see [Building .novaapp Apps? Use NovaByte Studio](#-building-novaapp-apps-use-novabyte-studio).
 
+> [!IMPORTANT]
+> **Adding built-in apps or services?** Package them as `.novaapp` files too. This keeps built-ins aligned with the OS package, integrity, and startup design instead of introducing a separate loading path. Code that needs trusted OS-context execution must pass through `UnrestrictedGate`; setting `system` in a manifest alone does not grant that access. Register the package ID in [`NBOSP/js/apps/novaapp-manifest.json`](./NBOSP/js/apps/novaapp-manifest.json), and add headless services to [`NBOSP/js/apps/system-service-manifest.json`](./NBOSP/js/apps/system-service-manifest.json) in the required startup order. The gate checks trusted system-bundle provenance, allowlist membership, system metadata, and package integrity.
+>
+> Build the package from the `NBOSP/` directory with [`build-apps.mjs`](./NBOSP/build-apps.mjs): run `node build-apps.mjs` to rebuild all built-in packages, or `node build-apps.mjs js/apps <app-directory>` to build one app or service. It writes the `.novaapp` beside the source directories under `js/apps/`; `npm start` and `npm run dev` also build packages automatically.
+>
+> The builder currently signs packages with the public development key at `NBOSP/keys/test-system-key.json`; use that key only for local testing. For a fork you intend to distribute, update `build-apps.mjs` to load your own privately held Ed25519 key from outside the repository, and replace the matching System public-key entry in [`NBOSP/js/platform/security/trust-store.js`](./NBOSP/js/platform/security/trust-store.js). Keep the signer identity consistent with the runtime gate, or update the related checks together.
+
 |App|What it actually does|
 |:--|:--------------------|
 |📁 **NBOSP Files**|Icon grid and list view. Sort by name, size, type, or modified date. Back/up navigation with a path bar. Search within the current folder. New file/folder, copy, cut, paste, rename (F2), move to trash, restore, permanent delete. Multi-select (Ctrl+A). Drag-and-drop file import, screened by the built-in scanner before anything is written to disk. Keyboard shortcuts. **No tabs, no split panes, no cloud sync, no bulk rename.**|
