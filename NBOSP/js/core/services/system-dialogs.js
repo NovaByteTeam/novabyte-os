@@ -1,9 +1,8 @@
 /**
  * SystemDialogs  —  NovaByte OS
  * ─────────────────────────────────────────────────────────────────────────
- * One shared, VFS-backed "Save As" / "Open" dialog, styled like the real
- * Files app (browser-toolbar nav, vault-files icon grid, breadcrumb-free
- * path bar with back/up buttons). Any app — first-party or .novaapp — can
+ * One shared, VFS-backed "Save As" / "Open" dialog, styled like the Files
+ * app with its own host-level toolbar and file grid. Any app — first-party or .novaapp — can
  * call this directly. No permission grant is required to *open* the dialog
  * itself; it only ever touches the VFS through FS, exactly like the Files
  * app does, and every read/write still goes through FS's own bookkeeping
@@ -75,46 +74,43 @@ const SystemDialogs = {
       });
       overlay.style.pointerEvents = 'auto';
       const dialog = createEl('div', {
-        className: 'modal-dialog',
-        style: 'max-width:640px;width:94%;padding:0;display:flex;flex-direction:column;max-height:78vh;',
+        className: 'modal-dialog system-file-dialog',
       });
 
       const header = createEl('div', {
-        className: 'modal-title',
-        style: 'padding:16px 18px 10px;margin:0;',
+        className: 'modal-title system-file-dialog-title',
         textContent: opts.title || (isSave ? 'Save As' : 'Open'),
       });
 
       // ── Toolbar: back · up · path bar (read-only breadcrumb-style input) ──
-      const toolbar = createEl('div', { className: 'browser-toolbar' });
-      const backBtn = createEl('button', { className: 'browser-nav-btn', title: 'Back', 'aria-label': 'Back' });
+      const toolbar = createEl('div', { className: 'system-file-dialog-toolbar' });
+      const backBtn = createEl('button', { className: 'system-file-dialog-nav-btn', title: 'Back', 'aria-label': 'Back' });
       backBtn.innerHTML = svgIcon('chevron-left', 16);
-      const upBtn = createEl('button', { className: 'browser-nav-btn', title: 'Up', 'aria-label': 'Parent folder' });
+      const upBtn = createEl('button', { className: 'system-file-dialog-nav-btn', title: 'Up', 'aria-label': 'Parent folder' });
       upBtn.innerHTML = svgIcon('chevron-up', 16);
 
-      const pathBarWrap = createEl('div', { className: 'browser-url-bar-wrap' });
+      const pathBarWrap = createEl('div', { className: 'system-file-dialog-path-wrap' });
       const pathBar = createEl('input', {
-        className: 'browser-url-bar',
+        className: 'system-file-dialog-path',
         name: 'sysdialog-path',
         'aria-label': 'Current folder',
         spellcheck: 'false',
         readonly: true,
       });
-      const pathIcon = createEl('span', { className: 'browser-url-icon' });
+      const pathIcon = createEl('span', { className: 'system-file-dialog-path-icon' });
       pathIcon.innerHTML = svgIcon('folder', 14);
       pathBarWrap.append(pathBar, pathIcon);
 
       toolbar.append(backBtn, upBtn, pathBarWrap);
 
-      // ── File grid (reuses the real Files-app visual classes) ─────────────
+      // ── File grid ───────────────────────────────────────────────────────
       const grid = createEl('div', {
-        className: 'vault-files', role: 'grid', 'aria-label': 'Files',
-        style: 'max-height:320px;min-height:220px;',
+        className: 'system-file-dialog-grid', role: 'grid', 'aria-label': 'Files',
       });
 
       // ── Bottom bar: filename box (save only) + Cancel / Save|Open ─────────
       const bottomBar = createEl('div', {
-        style: 'display:flex;align-items:center;gap:8px;padding:12px 18px;border-top:1px solid var(--border-subtle);flex-shrink:0;',
+        className: 'system-file-dialog-footer',
       });
 
       let nameInput = null;
@@ -226,29 +222,43 @@ const SystemDialogs = {
 
         for (const node of children) {
           const item = createEl('div', {
-            className: 'vault-file', tabindex: '0',
+            className: 'system-file-dialog-item', tabindex: '0',
             role: 'gridcell', 'aria-label': node.name,
           });
+          item.setAttribute('aria-selected', 'false');
           item._fileNode = node;
 
-          const iconWrap = createEl('div', { className: 'vault-file-icon' });
+          const iconWrap = createEl('div', { className: 'system-file-dialog-icon' });
           iconWrap.innerHTML = svgIcon(node.type === 'folder' ? 'folder' : 'file', 32);
-          const nameEl = createEl('div', { className: 'vault-file-name', textContent: node.name });
+          const nameEl = createEl('div', { className: 'system-file-dialog-name', textContent: node.name });
           item.append(iconWrap, nameEl);
 
           if (node.type === 'folder') {
             item.addEventListener('dblclick', () => navigateTo(node.id));
             item.addEventListener('click', () => {
-              // Single click on a folder just selects it visually; double
-              // click (or Enter) descends into it. Matches Files app feel.
+              for (const el of grid.children) {
+                el.classList.remove('selected');
+                el.setAttribute('aria-selected', 'false');
+              }
+              item.classList.add('selected');
+              item.setAttribute('aria-selected', 'true');
+              selectedNode = null;
+              if (!isSave) {
+                nameInput.value = '';
+                confirmBtn.disabled = true;
+              }
             });
             item.addEventListener('keydown', (e) => {
               if (e.key === 'Enter') navigateTo(node.id);
             });
           } else {
             item.addEventListener('click', () => {
-              for (const el of grid.children) el.classList.remove('selected');
+              for (const el of grid.children) {
+                el.classList.remove('selected');
+                el.setAttribute('aria-selected', 'false');
+              }
               item.classList.add('selected');
+              item.setAttribute('aria-selected', 'true');
               selectedNode = node;
               if (isSave) {
                 nameInput.value = node.name;

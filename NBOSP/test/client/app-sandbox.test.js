@@ -15,6 +15,9 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(shim).toContain("attributeFilter: ['class', 'style', 'hidden']");
     expect(shim).toContain('visible: !proxy.hidden && style.display !== \'none\'');
     expect(shim).toContain('window.nova.browser = Object.freeze({');
+    expect(shim).toContain("ipc('nova:home:openDefaultAppsSettings', {})");
+    expect(shim).toContain("ipc('nova:home:apps:list', {})");
+    expect(shim).toContain("ipc('nova:home:apps:launch', { appId: appId })");
     expect(shim).toContain('files: {');
     expect(shim).toContain('openWith: function(fileId)');
     expect(shim).toContain('appearance: {');
@@ -33,6 +36,165 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(AppSandbox._internal.API_HANDLERS['nova:share']).toBeTypeOf('function');
     expect(AppSandbox._internal.API_HANDLERS['nova:appearance:get']).toBeTypeOf('function');
     expect(AppSandbox._internal.API_HANDLERS['nova:appearance:set']).toBeTypeOf('function');
+    expect(AppSandbox._internal.API_HANDLERS['nova:home:openDefaultAppsSettings']).toBeTypeOf('function');
+    expect(AppSandbox._internal.API_HANDLERS['nova:home:apps:list']).toBeTypeOf('function');
+    expect(AppSandbox._internal.API_HANDLERS['nova:home:apps:launch']).toBeTypeOf('function');
+  });
+
+  it('lets only the active sandboxed Home app open Home defaults in Settings', async () => {
+    const responses = [];
+    const createWindow = vi.fn(() => ({ id: 'settings-window' }));
+    vi.stubGlobal('DefaultApps', { getDefault: () => 'com.test.home' });
+    vi.stubGlobal('WM', { createWindow });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:home:openDefaultAppsSettings',
+        {},
+        'active-home',
+        { id: 'com.test.home' },
+        webview,
+        { homeSurface: true }
+      );
+      await AppSandbox._internal.handleAPICall(
+        'nova:home:openDefaultAppsSettings',
+        {},
+        'not-home',
+        { id: 'com.test.other' },
+        webview,
+        { homeSurface: false }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(createWindow).toHaveBeenCalledTimes(1);
+    expect(createWindow).toHaveBeenCalledWith('com.nbosp.settings', {
+      section: 'default-apps',
+      highlightCategory: 'home',
+      requestingAppId: 'com.test.home',
+    });
+    expect(responses[0].result.success).toBe(true);
+    expect(responses[1].error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('limits Home app listing to Settings and App Manager without system:apps', async () => {
+    const responses = [];
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('APP_REGISTRY', [
+      { id: 'com.nbosp.settings', name: 'Settings', icon: 'settings' },
+      { id: 'com.nbosp.appmanager', name: 'App Manager', icon: 'apps' },
+      { id: 'com.test.other', name: 'Other App', icon: 'box' },
+    ]);
+    vi.stubGlobal('DefaultApps', { getDefault: () => 'com.test.home' });
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:home:apps:list',
+        {},
+        'home-app-list',
+        { id: 'com.test.home' },
+        { __directResponder: message => responses.push(message) },
+        { homeSurface: true }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.fullAccess).toBe(false);
+    expect(responses[0].result.apps.map(entry => entry.id)).toEqual([
+      'com.nbosp.settings',
+      'com.nbosp.appmanager',
+    ]);
+  });
+
+  it('always lets the active Home app launch Settings and App Manager, but gates other apps', async () => {
+    const responses = [];
+    const createWindow = vi.fn(appId => ({ id: `${appId}-window` }));
+    let hasLaunchPermission = false;
+    vi.stubGlobal('AppPermissionManager', { isGranted: permission => permission === 'system:app-launch' && hasLaunchPermission });
+    vi.stubGlobal('APP_REGISTRY', [
+      { id: 'com.nbosp.settings', name: 'Settings' },
+      { id: 'com.nbosp.appmanager', name: 'App Manager' },
+      { id: 'com.test.other', name: 'Other App' },
+    ]);
+    vi.stubGlobal('DefaultApps', { getDefault: () => 'com.test.home' });
+    vi.stubGlobal('OS', {
+      settings: { get: () => false },
+      apps: {
+        'com.nbosp.settings': {},
+        'com.nbosp.appmanager': {},
+        'com.test.other': {},
+      },
+    });
+    vi.stubGlobal('WM', { createWindow });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      const call = (appId, sandbox = { homeSurface: true }) => AppSandbox._internal.handleAPICall(
+        'nova:home:apps:launch',
+        { appId },
+        `launch-${appId}`,
+        { id: 'com.test.home' },
+        webview,
+        sandbox
+      );
+      await call('com.nbosp.settings');
+      await call('com.nbosp.appmanager');
+      await call('com.test.other');
+      hasLaunchPermission = true;
+      await call('com.test.other');
+      await call('com.nbosp.settings', { homeSurface: false });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(createWindow.mock.calls.map(([appId]) => appId)).toEqual([
+      'com.nbosp.settings',
+      'com.nbosp.appmanager',
+      'com.test.other',
+    ]);
+    expect(responses[0].result.success).toBe(true);
+    expect(responses[1].result.success).toBe(true);
+    expect(responses[2].error.code).toBe('PERMISSION_DENIED');
+    expect(responses[3].result.success).toBe(true);
+    expect(responses[4].error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('returns renderable app icon URLs when listing installed apps', async () => {
+    const responses = [];
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => true });
+    vi.stubGlobal('APP_REGISTRY', [
+      { id: 'com.test.svg', name: 'SVG App', icon: 'settings' },
+      { id: 'com.test.asset', name: 'Asset App', icon: 'mail' },
+      { id: 'com.test.image', name: 'Image App', icon: 'data:image/png;base64,aGVsbG8=' },
+      { id: 'com.test.bad', name: 'Bad App', icon: '/assets/../private.png' },
+    ]);
+    vi.stubGlobal('svgIcon', icon => icon === 'settings'
+      ? '<svg viewBox="0 0 24 24"><path d="M1 1"></path></svg>'
+      : '<img src="/assets/icons8-mail-94.png">');
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:app:list',
+        {},
+        'list-apps',
+        { id: 'com.test.launcher' },
+        { __directResponder: message => responses.push(message) },
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const listed = responses[0].result.apps;
+    expect(listed[0].icon).toBe('settings');
+    expect(listed[0].iconUrl).toContain('data:image/svg+xml;charset=utf-8,');
+    expect(decodeURIComponent(listed[0].iconUrl.split(',')[1])).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(listed[1].iconUrl).toBe('/assets/icons8-mail-94.png');
+    expect(listed[2].iconUrl).toBe('data:image/png;base64,aGVsbG8=');
+    expect(listed[3].iconUrl).toBeNull();
   });
 
   it('does not expose host-mediated webview creation when permission is absent', () => {

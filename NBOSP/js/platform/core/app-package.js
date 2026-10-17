@@ -718,7 +718,7 @@ const AppPackage = (() => {
         errors.push('handles must be an object');
       } else {
         for (const key of Object.keys(handles)) {
-          if (!['protocols', 'extensions', 'mimeTypes'].includes(key)) {
+          if (!['protocols', 'extensions', 'mimeTypes', 'roles'].includes(key)) {
             errors.push(`handles.${key} is not supported`);
           }
         }
@@ -726,6 +726,7 @@ const AppPackage = (() => {
           ['protocols', value => /^[a-z][a-z0-9+.-]*:?$/i.test(value.trim())],
           ['extensions', value => /^\.[a-z0-9][a-z0-9._+-]*$/i.test(value.trim())],
           ['mimeTypes', value => /^[a-z0-9!#$&^_.+-]+\/(?:[a-z0-9!#$&^_.+-]+|\*)$/i.test(value.split(';', 1)[0].trim())],
+          ['roles', value => value.trim().toLowerCase() === 'home'],
         ];
         for (const [key, isValid] of definitions) {
           if (handles[key] === undefined) continue;

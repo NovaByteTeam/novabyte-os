@@ -66,6 +66,13 @@ const WM = window.WM = (() => {
       wm.snapPreview = document.getElementById('snap-preview');
       wm.snapCompass = document.getElementById('snap-compass');
 
+      wm.attachTaskbar();
+    },
+
+    attachTaskbar() {
+      const existingTaskbar = document.getElementById('taskbar');
+      if (!existingTaskbar || existingTaskbar._wmTaskbarAttached) return;
+      existingTaskbar._wmTaskbarAttached = true;
       // Invalidate work-area cache whenever the taskbar changes size or visibility
       const tb = document.getElementById('taskbar');
       if (tb) {
@@ -76,65 +83,11 @@ const WM = window.WM = (() => {
         new ResizeObserver(_clearWACache).observe(tb);
       }
 
-      // Accept app-icon drags from desktop / launchpad onto the taskbar.
-      const taskbarApps = document.getElementById('taskbar-apps');
-      const taskbar = document.getElementById('taskbar');
-      if (taskbarApps && taskbar) {
-        taskbarApps.addEventListener('dragenter', (e) => {
-          const json = e.dataTransfer?.types?.includes('application/json');
-          if (json) {
-            e.preventDefault();
-            taskbar.classList.add('drag-over');
-          }
-        });
-        taskbarApps.addEventListener('dragover', (e) => {
-          const json = e.dataTransfer?.types?.includes('application/json');
-          if (json) {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'link';
-            taskbar.classList.add('drag-over');
-          }
-        });
-        taskbarApps.addEventListener('dragleave', (e) => {
-          if (!taskbarApps.contains(e.relatedTarget)) {
-            taskbar.classList.remove('drag-over');
-          }
-        });
-        taskbarApps.addEventListener('drop', (e) => {
-          taskbar.classList.remove('drag-over');
-          const raw = e.dataTransfer?.getData('application/json');
-          if (!raw) return;
-          try {
-            const payload = JSON.parse(raw);
-            if (payload?.type === 'app-shortcut' && payload?.appId) {
-              e.preventDefault();
-              const pins = OS.settings.get('pinnedApps') || [];
-              if (pins.includes(payload.appId)) {
-                Notify.show({
-                  title:   'Already Pinned',
-                  body:    `${payload.appName || payload.appId} is already pinned to taskbar`,
-                  type:    'info',
-                  appName: 'Taskbar',
-                });
-                return;
-              }
-              pins.push(payload.appId);
-              OS.settings.set('pinnedApps', pins);
-              wm.updateTaskbar();
-              Notify.show({
-                title:   'Pinned to Taskbar',
-                body:    `${payload.appName || payload.appId} pinned to taskbar`,
-                type:    'success',
-                appName: 'Taskbar',
-              });
-            }
-          } catch { /* ignore invalid payload */ }
-        });
-      }
+
     },
 
     createWindow(appId, options) {
-      if (appId === 'launchpad') { toggleLaunchpad(); return null; }
+      if (appId === 'launchpad') { window.toggleLaunchpad?.(); return null; }
 
       const disabled = (() => {
         try { return JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); }
@@ -1078,162 +1031,7 @@ const WM = window.WM = (() => {
       wm.snapCompass?.classList.remove('visible');
     },
 
-    updateTaskbar() {
-      const container = document.getElementById('taskbar-apps');
-      if (!container) return;
-
-      const devMode = OS.settings.get('devMode');
-      const pinnedApps = (OS.settings.get('pinnedApps') ?? []).filter(id => {
-        if (devMode) return true;
-        const app = OS.apps[id];
-        return !app?.devOnly;
-      });
-      const pinnedAppsSet = new Set(pinnedApps); // O(1) lookups vs O(n) includes()
-
-      // Group open windows by appId
-      const appWindows = new Map();
-      for (const [id, state] of OS.windows) {
-        const app = OS.apps[state.appId];
-        if (!devMode && app?.devOnly) continue;
-        appWindows.getOrInsertComputed(state.appId, () => []).push({ id, state });
-      }
-
-      // Ordered: unique pinned apps first (handles duplicate entries in pinnedApps),
-      // then any running-but-unpinned apps.
-      const orderedIds = [...new Set(pinnedApps)];
-      for (const appId of appWindows.keys()) {
-        if (!pinnedAppsSet.has(appId)) orderedIds.push(appId);
-      }
-
-      // Build into a fragment; swap once to minimise reflows
-      const frag = document.createDocumentFragment();
-
-      for (const appId of orderedIds) {
-        let app       = OS.apps[appId];
-        const windows = appWindows.get(appId) ?? [];
-        const isPinned = pinnedAppsSet.has(appId);
-
-        // Pinned web apps only get an OS.apps entry once launched (see
-        // openWebApp() in registry.js). OS.apps is in-memory and never
-        // persisted, so a web app pinned in a previous session — or pinned
-        // without ever being opened — has no entry here and would
-        // otherwise be silently skipped by the `if (!app) continue;` below,
-        // dropping its taskbar icon entirely. Rebuild it from WebAppManager,
-        // the persisted source of truth, before giving up on it.
-        //
-        // IMPORTANT: this must use buildWebAppEntry(), not a hand-rolled
-        // {name, icon, defaultSize, minSize} object. WM.createWindow() only
-        // renders content by calling app.init() — a plain object with no
-        // .init produces a real window (so it doesn't get skipped) but with
-        // permanently empty content, which is why clicking a taskbar icon
-        // that was rehydrated here used to open a blank/glass-only window
-        // even though double-clicking the same app's desktop shortcut (which
-        // goes through openWebApp()) rendered it correctly.
-        if (!app && appId.startsWith('webapp_') && typeof WebAppManager !== 'undefined' && typeof buildWebAppEntry === 'function') {
-          const waId = appId.slice('webapp_'.length);
-          const waData = WebAppManager.getApp(waId);
-          if (waData) {
-            app = OS.apps[appId] = buildWebAppEntry(waData);
-          }
-        }
-
-        if (!app) continue;
-
-        const hasWindows         = windows.length > 0;
-        const hasMultipleWindows = windows.length > 1;
-        const isAnyActive        = windows.some(w => OS.focusedWindowId === w.id && !w.state.minimized);
-
-        const btn = createEl('button', {
-          className:   `taskbar-app-btn${isAnyActive ? ' active' : ''}${isPinned ? ' pinned' : ''}`,
-          'aria-label': app.name + (hasMultipleWindows ? ` (${windows.length} windows)` : ''),
-        });
-
-        btn.innerHTML = svgIcon(app.id && app.id.startsWith('webapp_') ? app.icon : (app.icon || '/assets/no_app_icon.svg'), 20);
-        btn.appendChild(createEl('span', { className: 'indicator' }));
-        if (hasMultipleWindows) {
-          btn.appendChild(createEl('span', {
-            className:   'taskbar-window-count',
-            textContent: String(windows.length),
-          }));
-        }
-
-        const clickHandler = () => {
-          if (!hasWindows) {
-            // Web apps need openWebApp() (registry.js) so OS.apps[appId]
-            // is (re)built with a real init() before the window opens —
-            // see the rehydration comment above. Plain createWindow(appId)
-            // only works here if updateTaskbar() already ran the rehydration
-            // this render pass; routing explicitly avoids depending on that
-            // ordering.
-            if (appId.startsWith('webapp_') && typeof openWebApp === 'function') {
-              openWebApp(appId.slice('webapp_'.length));
-            } else {
-              wm.createWindow(appId);
-            }
-          } else if (hasMultipleWindows) {
-            showWindowPreview(btn, appId, windows);
-          } else {
-            const { id, state } = windows[0];
-            if (OS.focusedWindowId === id && !state.minimized) wm.minimizeWindow(id);
-            else wm.focusWindow(id);
-          }
-        };
-
-        const contextMenuHandler = (e) => {
-          e.preventDefault();
-          const menuItems = [];
-          menuItems.push({
-            label: 'Open', icon: 'play',
-            action: () => {
-              if (appId.startsWith('webapp_') && typeof openWebApp === 'function') {
-                openWebApp(appId.slice('webapp_'.length));
-              } else {
-                wm.createWindow(appId);
-              }
-            }
-          });
-          menuItems.push({ separator: true });
-          menuItems.push({
-            label:  isPinned ? 'Unpin from Taskbar' : 'Pin to Taskbar',
-            icon:   'pin',
-            action: () => {
-              const pins = OS.settings.get('pinnedApps') ?? [];
-              if (isPinned) {
-                const next = pins.filter(p => p !== appId);
-                OS.settings.set('pinnedApps', next);
-                wm.updateTaskbar();
-                Notify.show({ title: 'Unpinned', body: `${app.name} removed from taskbar`, type: 'success', appName: 'Taskbar' });
-              } else {
-                if (pins.includes(appId)) {
-                  Notify.show({ title: 'Already Pinned', body: `${app.name} is already pinned to taskbar`, type: 'info', appName: 'Taskbar' });
-                  return;
-                }
-                const next = [...pins, appId];
-                OS.settings.set('pinnedApps', next);
-                wm.updateTaskbar();
-                Notify.show({ title: 'Pinned', body: `${app.name} pinned to taskbar`, type: 'success', appName: 'Taskbar' });
-              }
-            },
-          });
-          if (hasWindows) {
-            menuItems.push({ separator: true });
-            menuItems.push({
-              label: 'Close Window',
-              icon:   'x',
-              danger: true,
-              action: () => { for (const w of windows) wm.closeWindow(w.id); },
-            });
-          }
-          ContextMenu.show(e.clientX, e.clientY, menuItems);
-        };
-
-        btn.addEventListener('click',       clickHandler);
-        btn.addEventListener('contextmenu', contextMenuHandler);
-        frag.appendChild(btn);
-      }
-
-      container.replaceChildren(frag);
-    },
+    updateTaskbar() { return window.updateTaskbar?.(); },
 
     minimizeAll() {
       for (const [id] of OS.windows) wm.minimizeWindow(id);
@@ -1247,73 +1045,3 @@ const WM = window.WM = (() => {
 
   return wm;
 })();
-
-// ── Window preview popup ───────────────────────────────────────────────────────
-function showWindowPreview(btn, appId, windows) {
-  document.querySelector('.taskbar-window-preview')?.remove();
-
-  const preview = createEl('div', { className: 'taskbar-window-preview' });
-  let   dismissFn = null;
-
-  // Single helper so every code-path (outside click, item click, close btn)
-  // removes the dismiss listener — no orphaned document handlers.
-  const closePreview = () => {
-    preview.remove();
-    if (dismissFn !== null) {
-      document.removeEventListener('pointerdown', dismissFn);
-      dismissFn = null;
-    }
-  };
-
-  for (const [index, w] of windows.entries()) {
-    const app      = OS.apps[appId];
-    const winTitle = w.state.title ?? `Window ${index + 1}`;
-    const isActive = OS.focusedWindowId === w.id && !w.state.minimized;
-
-    const item = createEl('div', {
-      className: `preview-window-item${isActive ? ' active' : ''}`,
-    });
-
-    const icon = createEl('span', { className: 'preview-icon' });
-    icon.innerHTML = svgIcon(app.icon, 16);
-
-    const title    = createEl('span', { className: 'preview-title', textContent: winTitle });
-    const closeBtn = createEl('button', { className: 'preview-close', 'aria-label': 'Close window' });
-    closeBtn.innerHTML = svgIcon('x', 12);
-
-    closeBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      WM.closeWindow(w.id);
-      closePreview();
-    });
-
-    item.addEventListener('click', () => {
-      WM.focusWindow(w.id);
-      closePreview();
-    });
-
-    item.append(icon, title, closeBtn);
-    preview.appendChild(item);
-  }
-
-  document.body.appendChild(preview);
-
-  const btnRect     = btn.getBoundingClientRect();
-  const previewRect = preview.getBoundingClientRect();
-  const left        = Math.max(8, Math.min(
-    btnRect.left + (btnRect.width  / 2) - (previewRect.width  / 2),
-    window.innerWidth - previewRect.width - 8,
-  ));
-  const bottom = window.innerHeight - btnRect.top + 8;
-
-  preview.style.left   = `${left}px`;
-  preview.style.bottom = `${bottom}px`;
-
-  // Dismiss on outside click — deferred to avoid catching the triggering pointerdown
-  setTimeout(() => {
-    dismissFn = (e) => {
-      if (!preview.contains(e.target) && e.target !== btn) closePreview();
-    };
-    document.addEventListener('pointerdown', dismissFn);
-  }, 10);
-}

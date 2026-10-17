@@ -371,10 +371,6 @@
   </div>
   <!-- Wallpaper -->
   <div id="wallpaper" aria-hidden="true"></div>
-  <!-- Desktop -->
-  <div id="desktop" role="application" aria-label="Desktop"></div>
-  <!-- Selection Rectangle -->
-  <div id="selection-rect" aria-hidden="true"></div>
   <!-- Snap Preview -->
   <div id="snap-preview" aria-hidden="true"></div>
   <!-- Snap Compass -->
@@ -396,25 +392,9 @@
        app never receives focus/paint events meant for a visible window, but the
        underlying webview process keeps running. See AppSandbox.detachToBackground. -->
   <div id="background-app-host" aria-hidden="true" style="display:none;"></div>
-  <!-- Taskbar -->
-  <div id="taskbar" role="toolbar" aria-label="Taskbar">
-    <div class="taskbar-start">
-      <button type="button" id="start-btn" name="start-btn" class="taskbar-start-btn" aria-label="Open Launchpad">
-        <svg width="24" height="24" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="tb-g" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#58a6ff"></stop>
-              <stop offset="100%" stop-color="#a371f7"></stop>
-            </linearGradient>
-          </defs>
-          <polygon points="60,5 110,30 110,85 60,115 10,85 10,30" fill="rgba(88,166,255,0.08)" stroke="url(#tb-g)" stroke-width="3" opacity="0.95"></polygon>
-          <polygon points="60,18 97,38 97,82 60,102 23,82 23,38" fill="none" stroke="url(#tb-g)" stroke-width="2" opacity="0.5"></polygon>
-          <text x="60" y="72" text-anchor="middle" fill="url(#tb-g)" font-family="system-ui,-apple-system,sans-serif" font-size="36" font-weight="800">NB</text>
-        </svg>
-      </button>
-    </div>
-    <div id="taskbar-apps" class="taskbar-apps" role="group" aria-label="Running applications"></div>
-    <div class="taskbar-tray" role="group" aria-label="System tray">
+  <div id="launcher-root"></div>
+  <div id="system-tray-root">
+<div class="taskbar-tray" role="group" aria-label="System tray">
       <button type="button" id="tray-volume" name="tray-volume" class="tray-btn" aria-label="Volume">
         <img id="tray-volume-img" src="/assets/icons8-sound-94.png" width="16" height="16" alt="" draggable="false" style="display:inline-block;vertical-align:middle;object-fit:contain;pointer-events:none;">
       </button>
@@ -470,12 +450,6 @@
       </div>
     </div>
     <div class="notif-list" id="notif-list" aria-live="polite"></div>
-  </div>
-  <!-- Launchpad -->
-  <div id="launchpad" role="dialog" aria-modal="true" aria-label="Application launcher">
-    <label class="sr-only" for="launchpad-search">Search applications</label>
-    <input type="text" id="launchpad-search" name="launchpad-search" class="launchpad-search" placeholder="Search apps..." aria-label="Search applications">
-    <div class="launchpad-grid" id="launchpad-grid" role="grid"></div>
   </div>
   <!-- App Switcher -->
   <div id="app-switcher" role="dialog" aria-modal="true" aria-label="Application switcher">

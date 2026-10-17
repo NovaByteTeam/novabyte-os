@@ -223,15 +223,6 @@ const Boot = {
     }
 
     const cssBatch   = [];
-    const iconSize   = sGet('desktopIconSize');
-    const gridSpace  = sGet('desktopGridSpacing');
-    const tbSize     = sGet('taskbarSize');
-    if (iconSize)  cssBatch.push(['--desktop-icon-size',    iconSize  + 'px']);
-    if (gridSpace) cssBatch.push(['--desktop-grid-spacing', gridSpace + 'px']);
-    if (tbSize) {
-      const h = { compact: '36px', normal: '48px', large: '64px' }[tbSize];
-      if (h) cssBatch.push(['--taskbar-height', h]);
-    }
     if (sGet('reduceMotion')) cssBatch.push(['--anim-speed', '0.001']);
     if (cssBatch.length) setCSSVars(rootStyle, cssBatch);
   },
@@ -241,18 +232,18 @@ const Boot = {
    * @param {Function} sGet
    */
   applyWallpaper(sGet) {
-    const { desktop } = Boot._dom;
-    if (!desktop) return;
+    const wallpaper = document.getElementById('wallpaper');
+    if (!wallpaper) return;
 
     const customBg = sGet('customWallpaper');
     if (customBg) {
-      const s = desktop.style;
+      const s = wallpaper.style;
       s.backgroundImage    = `url(${customBg})`;
       s.backgroundSize     = 'cover';
       s.backgroundPosition = 'center';
       s.backgroundRepeat   = 'no-repeat';
     } else {
-      desktop.style.backgroundImage =
+      wallpaper.style.backgroundImage =
         WALLPAPER_PRESETS[sGet('wallpaperId')] ?? WALLPAPER_PRESETS['stock-blue'];
     }
   },
@@ -283,18 +274,9 @@ const Boot = {
    * @param {Function} sGet
    */
   applyCursorSize(sGet) {
-    const cursorSize = sGet('cursorSize');
-    if (!cursorSize) return;
-
-    let st = document.getElementById('cursor-custom-styles');
-    if (!st) {
-      st = document.createElement('style');
-      st.id = 'cursor-custom-styles';
-      document.head.appendChild(st);
-    }
-    const t = { normal: 'scale(1)', large: 'scale(1.5)', xlarge: 'scale(2)' };
-    st.textContent = `#desktop .desktop-icon{transform:${t[cursorSize] ?? t.normal}}`;
+    return window.configureLauncherCursorSize?.(sGet);
   },
+
 
   /**
    * Sync OS version between code constant, settings store, and localStorage.
@@ -314,58 +296,9 @@ const Boot = {
    * @param {Function} sGet
    */
   configureTaskbar(sGet) {
-    const { taskbar } = Boot._dom;
-    if (!taskbar) return;
-
-    const rootStyle = document.documentElement.style;
-    const tbSize = sGet('taskbarSize') || 'normal';
-    const tbHeight = { compact: '36px', normal: '48px', large: '64px' }[tbSize] || '48px';
-    // Keep the CSS variable in sync on live settings changes as well as boot.
-    // The old implementation only used the variable during applyOSVars(), so
-    // changing the size in Settings updated the preference but left the actual
-    // taskbar at its old height until a restart.
-    rootStyle.setProperty('--taskbar-height', tbHeight);
-
-    const tbPos = sGet('taskbarPosition') || 'bottom';
-
-    // Lookup table: each entry is [bottom, top, left, right, width, height, flexDirection, borderLeft, borderRight]
-    const TASKBAR_STYLES = {
-      bottom: ['0',    'auto', '0',    '0',    '',                        '',      '',        '',                                ''],
-      top   : ['auto', '0', '0',    '0',    '',                        '',      '',        '',                                ''],
-      left  : ['auto', '0', '0',    'auto', 'var(--taskbar-height)',   '100vh', 'column',  '',                                '1px solid var(--taskbar-border)'],
-      right : ['auto', '0', 'auto', '0',    'var(--taskbar-height)',   '100vh', 'column',  '1px solid var(--taskbar-border)', ''],
-    };
-
-    const [bottom, top, left, right, width, height, flexDirection, borderLeft, borderRight] =
-      TASKBAR_STYLES[tbPos] ?? TASKBAR_STYLES.bottom;
-
-    const s = taskbar.style;
-    s.bottom        = bottom;
-    s.top           = top;
-    s.left          = left;
-    s.right         = right;
-    s.width         = width;
-    s.height        = height;
-    s.flexDirection = flexDirection;
-    s.borderLeft    = borderLeft;
-    s.borderRight   = borderRight;
-
-    const autoHide = !!sGet('taskbarAutoHide');
-    taskbar.classList.toggle('taskbar-autohide', autoHide);
-    if (!autoHide) taskbar.classList.remove('taskbar-ah-shown');
-    if (autoHide && !window.__tbProximityInit) {
-      window.__tbProximityInit = true;
-      document.addEventListener('mousemove', (e) => {
-        if (!taskbar.classList.contains('taskbar-autohide')) return;
-        const position = OS.settings.get('taskbarPosition') || 'bottom';
-        const edge = position === 'top' ? e.clientY <= 8
-          : position === 'left' ? e.clientX <= 8
-          : position === 'right' ? e.clientX >= window.innerWidth - 8
-          : e.clientY >= window.innerHeight - 8;
-        taskbar.classList.toggle('taskbar-ah-shown', edge);
-      }, { passive: true });
-    }
+    return window.configureLauncherTaskbar?.(sGet);
   },
+
 
   /**
    * Initialize the global screen reader announcement helper (window.SR).
@@ -499,6 +432,12 @@ async function boot() {
     console.error('[BOOT] Failed to reconcile/load Nova apps:', e);
   }
 
+  try {
+    await startConfiguredHomeApp();
+  } catch (e) {
+    console.error('[BOOT] Failed to start the trusted launcher in the OS page:', e);
+  }
+
   if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
   if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
   if (typeof renderLaunchpad === 'function') renderLaunchpad();
@@ -546,6 +485,98 @@ async function boot() {
 }
 
 // ── App Loader ─────────────────────────────────────────────────────
+async function startBundledLauncher() {
+  const launcherId = 'com.nbosp.launcher';
+  const app = OS.apps?.[launcherId];
+  if (!app) throw new Error(`Bundled launcher ${launcherId} is not registered`);
+  if (!window.UnrestrictedGate?.checkUnrestrictedApp) {
+    throw new Error('UnrestrictedGate is unavailable');
+  }
+
+  const gate = await window.UnrestrictedGate.checkUnrestrictedApp(app);
+  if (!gate.allowed) {
+    throw new Error(`UnrestrictedGate rejected ${launcherId}: ${gate.reason}`);
+  }
+
+  const readPackageText = (path) => {
+    const encoded = app.files?.[path];
+    if (typeof encoded !== 'string') throw new Error(`Launcher package is missing ${path}`);
+    const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  };
+
+  const root = document.getElementById('launcher-root');
+  if (!root) throw new Error('Launcher root is missing from the OS page');
+  root.innerHTML = readPackageText(app.entry || app.manifest?.entry || 'index.html');
+
+  let styles = document.getElementById('launcher-package-styles');
+  if (!styles) {
+    styles = document.createElement('style');
+    styles.id = 'launcher-package-styles';
+    document.head.appendChild(styles);
+  }
+  styles.textContent = readPackageText('style.css');
+
+  const entry = app.unrestrictedEntry || app.manifest?.unrestrictedEntry;
+  if (typeof entry !== 'string' || !entry) {
+    throw new Error('Launcher package has no unrestrictedEntry');
+  }
+  const script = document.createElement('script');
+  script.textContent = `${readPackageText(entry)}\n//# sourceURL=novaapp:${launcherId}/${entry}\n`;
+  document.head.appendChild(script);
+
+  if (typeof window.renderLaunchpad !== 'function' ||
+      typeof window.toggleLaunchpad !== 'function' ||
+      typeof window.renderDesktopIcons !== 'function' ||
+      typeof window.updateTaskbar !== 'function') {
+    throw new Error('Launcher entry did not expose the full shell API');
+  }
+
+  Boot._cacheDom();
+  window.applyLauncherSettings(OS.settings.get.bind(OS.settings));
+  WM.attachTaskbar();
+  window.renderDesktopIcons();
+  window.renderLaunchpad();
+  window.updateTaskbar();
+}
+
+async function startConfiguredHomeApp() {
+  const bundledLauncherId = 'com.nbosp.launcher';
+  const selectedId = DefaultApps?.getDefault?.('home') || bundledLauncherId;
+  const root = document.getElementById('launcher-root');
+  if (!root) throw new Error('Launcher root is missing from the OS page');
+
+  if (selectedId === bundledLauncherId) {
+    window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
+    await startBundledLauncher();
+  } else {
+    const app = OS.apps?.[selectedId];
+    if (!app || !DefaultApps.getAppsForCategory('home').some(candidate => candidate.id === selectedId)) {
+      console.error(`[BOOT] Selected Home app "${selectedId}" is unavailable or no longer declares the Home role; using ${bundledLauncherId}`);
+      window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
+      await startBundledLauncher();
+    } else if (typeof AppSandbox === 'undefined' || typeof AppSandbox.launchHome !== 'function') {
+      throw new Error('AppSandbox Home surface runtime is unavailable');
+    } else {
+      window.__NOVA_ACTIVE_HOME_APP_ID__ = selectedId;
+      root.replaceChildren();
+      try {
+        await AppSandbox.launchHome(app, root);
+      } catch (error) {
+        console.error(`[BOOT] Failed to start selected Home app "${selectedId}"; falling back to ${bundledLauncherId}:`, error);
+        window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
+        await startBundledLauncher();
+      }
+    }
+  }
+
+  OS.events.on('settings:changed', ({ key }) => {
+    if (key !== 'defaultApps') return;
+    const nextId = DefaultApps?.getDefault?.('home') || bundledLauncherId;
+    if (nextId !== window.__NOVA_ACTIVE_HOME_APP_ID__) location.reload();
+  });
+}
+
 /**
  * Re-register any .novaapp packages the user has previously installed.
  * Called at idle time after boot — safe to call manually if needed.
@@ -787,7 +818,10 @@ async function boot() {
       const trust = await refreshInstalledAppTrust(appData);
       trustRegistryChanged = trustRegistryChanged || trust.changed;
 
-      if (OS.apps[appData.id] && APP_REGISTRY.some(a => a.id === appData.id)) continue;
+      // AppPackage.installPackage() registers a lightweight AppRegistry config
+      // before this pass, but that config omits the hydrated package files.
+      // Always rebuild from the hydrated package so host launchers and other
+      // package consumers receive their complete files and trust metadata.
       registerWithFiles(appData);
     }
 

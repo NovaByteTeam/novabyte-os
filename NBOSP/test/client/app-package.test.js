@@ -338,6 +338,17 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       expect(result.valid).toBe(true);
     });
 
+    it('accepts the supported Home role and rejects unknown app roles', () => {
+      expect(AppPackage.validateManifest({
+        ...validManifest,
+        handles: { roles: ['home'] },
+      }).valid).toBe(true);
+      expect(AppPackage.validateManifest({
+        ...validManifest,
+        handles: { roles: ['system-admin'] },
+      }).valid).toBe(false);
+    });
+
     it('flags missing required fields', () => {
       const result = AppPackage.validateManifest({ id: 'com.test' });
       expect(result.valid).toBe(false);

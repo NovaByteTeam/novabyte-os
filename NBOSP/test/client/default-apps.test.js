@@ -58,6 +58,24 @@ describe('DefaultApps', () => {
     expect(DefaultApps.setDefault('browser', 'com.test.not-installed')).toBe(false);
   });
 
+  it('offers only apps that declare the Home role as Home app candidates', () => {
+    const { DefaultApps } = loadDefaultApps({
+      apps: {
+        'com.nbosp.launcher': { name: 'NovaByte Launcher' },
+        'com.test.home': { name: 'Home App', handles: { roles: ['home'] } },
+        'com.test.unrelated': { name: 'Unrelated App', handles: { roles: ['home-screen'] } },
+      },
+    });
+
+    expect(DefaultApps.getAppsForCategory('home').map(app => app.id)).toEqual([
+      'com.nbosp.launcher',
+      'com.test.home',
+    ]);
+    expect(DefaultApps.setDefault('home', 'com.test.home')).toBe(true);
+    expect(DefaultApps.getDefault('home')).toBe('com.test.home');
+    expect(DefaultApps.setDefault('home', 'com.test.unrelated')).toBe(false);
+  });
+
   it('ignores stale persisted choices and resolves MIME types through installed candidates', () => {
     const { DefaultApps } = loadDefaultApps({
       apps: {

@@ -194,9 +194,12 @@ Every app needs a `manifest.json` at the root of its directory.
 | `maxSize` | array | — | Maximum window size |
 | `resizable` | boolean | `true` | Whether the window can be resized |
 | `frame` | boolean | `true` | Whether the window has a title bar |
+| `transparent` | boolean | `false` | Enables an alpha-capable sandboxed app surface |
 | `categories` | array | `[]` | App categories for filtering |
 | `minSecurityPatch` | string | — | Minimum OS patch date (`YYYY-MM-DD`) required to run |
 | `handles` | object | — | Declares file extensions, URL protocols, and/or MIME types your app can open — see [Default Apps](#default-apps) below |
+
+Set `transparent` to `true` when the app should let the desktop show through areas not painted by its UI. The OS makes the sandboxed webview alpha-capable and makes the document's `html` and `body` backgrounds transparent; it does not force child elements to be transparent, so your app can still paint opaque panels, cards, and controls. This is a visual setting only: it does not grant host-page access, bypass the app sandbox, or make the package trusted or system-signed.
 
 ### Root access (high risk)
 
@@ -232,18 +235,19 @@ Use reverse domain name notation. Studio's manifest validation enforces this at 
 
 ### Default Apps
 
-Declaring a `handles` block makes your app selectable in **Settings → Default Apps** and in the desktop file context menu's **Open with...** chooser for matching file types, alongside the OS's own built-in apps (Browser, TextEdit, Music, Gallery, Email, Calendar):
+Declaring a `handles` block makes your app selectable in **Settings → Default Apps** and in the desktop file context menu's **Open with...** chooser for matching file types, alongside the OS's own built-in apps (Browser, TextEdit, Music, Gallery, Email, Calendar). Apps may also declare the `home` role to be offered as a Home app:
 
 ```json
 {
   "handles": {
     "extensions": [".webp"],
-    "mimeTypes": ["image/heic"]
+    "mimeTypes": ["image/heic"],
+    "roles": ["home"]
   }
 }
 ```
 
-`protocols`, `extensions`, and `mimeTypes` are optional independently — declare whichever applies, or omit `handles` entirely if your app doesn't want to be a default-openable target at all. Extensions are matched case-insensitively and should include the leading dot (`.mp3`, not `mp3`); protocols and MIME types are matched case-insensitively. MIME parameters are ignored, and subtype wildcards such as `image/*` are supported.
+`protocols`, `extensions`, `mimeTypes`, and `roles` are optional independently — declare whichever applies, or omit `handles` entirely if your app doesn't want to be a default-openable target at all. `roles` currently supports `home`. Declaring it only makes the app eligible; the user must explicitly choose it in Settings. A selected third-party Home app is hosted in a full-screen sandboxed surface, not an OS application window, and does not receive host-page access. Home selection takes effect after the OS page reloads. Extensions are matched case-insensitively and should include the leading dot (`.mp3`, not `mp3`); protocols and MIME types are matched case-insensitively. MIME parameters are ignored, and subtype wildcards such as `image/*` are supported.
 
 This is purely a **discovery/selection** declaration, not a permission — it doesn't grant ambient access to files, and there's no `handles:*` permission string to request. When the user chooses your app through **Open with...**, the launch receives a `fileIntent` object in `window.__NOVA_APP_OPTIONS__` and the host grants that sandbox access to only that selected file. The scoped grant permits reading and writing that file through `nova:vfs:read` / `nova:vfs:write` by file id, without granting directory listing, access to other files, or broad `vfs:read` / `vfs:write` permission. A user can choose **Always use this app for this file type**; that preference is checked against the app's current declaration and installed status when the file is opened.
 
@@ -1094,6 +1098,10 @@ await window.nova.contacts.remove('c1');
 ```javascript
 // List installed apps (requires system:apps)
 const { apps } = await window.nova.apps.list();
+// Each app retains `icon` and adds `iconUrl` for direct rendering:
+// <img src="${apps[0].iconUrl}" alt="">
+// `iconUrl` is a package image data URL, a safe local /assets path, or a
+// generated SVG data URL for built-in icon names. It is null when unavailable.
 
 // Launch an installed app (requires system:app-launch; max 6 per minute)
 await window.nova.apps.launch('com.example.otherapp');
@@ -1120,11 +1128,27 @@ await window.nova.apps.uninstall('com.example.otherapp');
 // category ids (e.g. 'music', 'browser') to open Settings with that row
 // highlighted and a banner naming your app as the requester.
 await window.nova.apps.openDefaultAppsSettings('music');
+
+// A currently selected sandboxed Home app can take the user directly
+// to Home app selection without requesting the broader system:apps grant.
+await window.nova.home.openDefaultAppsSettings();
+
+// Home-only app drawer APIs. Settings and App Manager are always listed
+// and launchable by the currently selected Home app. Other apps appear
+// in list() with system:apps, and can be launched with system:app-launch
+// or system:apps.
+const { apps, fullAccess } = await window.nova.home.apps.list();
+await window.nova.home.apps.launch('com.nbosp.settings');
+await window.nova.home.apps.launch('com.nbosp.appmanager');
 ```
 
 **`openDefaultAppsSettings` is rate-limited** to 3 calls per minute per app id, using the same sliding-window pattern as `nova:notifications:show` — this exists because, unlike a real click, there's no reliable host-side signal that this call came from an actual user gesture rather than a script loop (the sandbox's postMessage boundary doesn't carry browser user-activation state). The limit bounds how often a misbehaving app can steal window focus by repeatedly popping Settings open; it doesn't require a click, since the platform genuinely can't verify one happened. Calls beyond the limit reject with `{ code: 'RATE_LIMITED' }` (see [Error codes](#error-codes)) — design your "Set as default" button assuming a real click, and you'll never hit it in normal use.
 
 This call only opens Settings to the right place — it never changes the user's default itself. The user still has to pick your app from the picker; there's no way to set a default programmatically without their action.
+
+`window.nova.home.openDefaultAppsSettings()` is limited to the currently selected Home app, opens the Home app row, and shares the 3-per-minute rate limit. Other apps receive `PERMISSION_DENIED`.
+
+`window.nova.home.apps.list()` and `.launch(appId)` are also restricted to the selected Home app. Without `system:apps`, the list contains only Settings and App Manager; `system:apps` enables listing other registered apps. Those two core apps can always be launched, while launching any other app requires `system:app-launch` or `system:apps`. Home launches are limited to 6 per minute and do not accept caller-supplied launch options or file intents.
 
 ### Admin — `nova:admin:*` / `window.nova.admin`
 

@@ -48,6 +48,10 @@
     "file": "js/apps/com.nbosp.inspector.novaapp"
   },
   {
+    "id": "com.nbosp.launcher",
+    "file": "js/apps/com.nbosp.launcher.novaapp"
+  },
+  {
     "id": "com.nbosp.modules",
     "file": "js/apps/com.nbosp.modules.novaapp"
   },

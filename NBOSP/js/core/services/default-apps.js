@@ -15,7 +15,7 @@
 //
 //  2. Live discovery — for everything NOT in the static table (namely
 //     third-party .novaapp packages and web apps), we still scan OS.apps
-//     for a `handles: { protocols, extensions }` block on the app's
+//     for a `handles: { protocols, extensions, roles }` block on the app's
 //     registerApp() config, the same manifest-declaration idea Android
 //     uses with <intent-filter>. A .novaapp author declares:
 //
@@ -80,6 +80,12 @@ const CATEGORIES = Object.freeze({
       Object.freeze({ id: 'com.nbosp.calendar', name: 'Calendar', icon: 'calendar' }),
     ]),
   }),
+  home: Object.freeze({
+    name: 'Home app',
+    apps: Object.freeze([
+      Object.freeze({ id: 'com.nbosp.launcher', name: 'Launcher', icon: 'home' }),
+    ]),
+  }),
 });
 
 // Extensions/protocols/MIME types routed to each category — used by
@@ -87,7 +93,7 @@ const CATEGORIES = Object.freeze({
 // link belongs to, AND by the live-discovery half of getAppsForCategory()
 // to check a third-party app's `handles` block for overlap. Kept separate
 // from CATEGORIES.apps on purpose: which built-in apps fill a slot and
-// which files fall into that slot are different questions.
+// which files or app roles fall into that slot are different questions.
 const ROUTES = Object.freeze({
   browser:    Object.freeze({ protocols: Object.freeze(['http', 'https']), extensions: Object.freeze(['.html', '.htm']), mimeTypes: Object.freeze(['text/html']) }),
   texteditor: Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.txt', '.md', '.json', '.js', '.css', '.log']), mimeTypes: Object.freeze(['text/plain', 'text/markdown', 'application/json', 'text/javascript', 'application/javascript', 'text/css']) }),
@@ -95,6 +101,7 @@ const ROUTES = Object.freeze({
   gallery:    Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']), mimeTypes: Object.freeze(['image/*']) }),
   email:      Object.freeze({ protocols: Object.freeze(['mailto']),        extensions: Object.freeze([]), mimeTypes: Object.freeze([]) }),
   calendar:   Object.freeze({ protocols: Object.freeze(['webcal']),        extensions: Object.freeze(['.ics']), mimeTypes: Object.freeze(['text/calendar', 'application/ics']) }),
+  home:       Object.freeze({ protocols: Object.freeze([]),                extensions: Object.freeze([]), mimeTypes: Object.freeze([]), roles: Object.freeze(['home']) }),
 });
 
 const SETTINGS_KEY = 'defaultApps';
@@ -208,6 +215,7 @@ const DefaultApps = {
     const protoSet = ROUTE_PROTOCOL_SETS.get(categoryId);
     const extSet = ROUTE_EXTENSION_SETS.get(categoryId);
     const mimeSet = ROUTE_MIME_SETS.get(categoryId);
+    const roleSet = new Set(ROUTES[categoryId]?.roles || []);
     if (!protoSet || !extSet || !mimeSet) return [];
 
     const staticIds = STATIC_IDS_BY_CATEGORY.get(categoryId) || new Set();
@@ -220,7 +228,9 @@ const DefaultApps = {
       const appProtos = Array.isArray(handles.protocols) ? handles.protocols : [];
       const appExts = Array.isArray(handles.extensions) ? handles.extensions : [];
       const appMimeTypes = Array.isArray(handles.mimeTypes) ? handles.mimeTypes : [];
-      const overlaps = appProtos.some(p => protoSet.has(normalizeProtocol(p)))
+      const appRoles = Array.isArray(handles.roles) ? handles.roles : [];
+      const overlaps = appRoles.some(role => typeof role === 'string' && roleSet.has(role.trim().toLowerCase()))
+        || appProtos.some(p => protoSet.has(normalizeProtocol(p)))
         || appExts.some(e => extSet.has(normalizeExtension(e)))
         || appMimeTypes.some(m => {
           const appMimeType = normalizeMimeType(m);

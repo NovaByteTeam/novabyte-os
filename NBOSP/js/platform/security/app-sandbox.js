@@ -2169,6 +2169,10 @@ const AppSandbox = (() => {
   // App lifecycle
 
   const crossAppLaunchRateLimits = new Map();
+  const HOME_ALWAYS_LAUNCHABLE_APP_IDS = new Set([
+    'com.nbosp.settings',
+    'com.nbosp.appmanager',
+  ]);
 
   async function handleAppLaunch({ payload, requestId, app, webview }) {
     // Launching an installed app is a separate, low-risk capability from
@@ -2213,6 +2217,94 @@ const AppSandbox = (() => {
       });
     } catch (e) {
       return respondError(webview, 'nova:app:launch', requestId, 'ERROR', e?.message || 'Launch failed');
+    }
+  }
+
+  function isActiveHomeCaller(app, sandbox) {
+    return !!app?.id
+      && sandbox?.homeSurface === true
+      && typeof DefaultApps !== 'undefined'
+      && DefaultApps.getDefault('home') === app.id;
+  }
+
+  function getHomeAppListEntry(app) {
+    return {
+      id: app.id,
+      name: app.name || app.id,
+      version: app.version || '1.0.0',
+      iconUrl: resolveSandboxAppIcon(app.icon),
+      description: app.description || '',
+      categories: Array.isArray(app.categories) ? app.categories.slice() : [],
+      system: app.system === true || app.manifest?.system === true,
+    };
+  }
+
+  async function handleHomeAppsList({ requestId, app, sandbox, webview }) {
+    if (!isActiveHomeCaller(app, sandbox)) {
+      return respondError(webview, 'nova:home:apps:list', requestId, 'PERMISSION_DENIED', 'Only the currently selected Home app can list apps');
+    }
+    if (typeof APP_REGISTRY === 'undefined' || !Array.isArray(APP_REGISTRY)) {
+      return respondError(webview, 'nova:home:apps:list', requestId, 'UNAVAILABLE', 'App registry not available');
+    }
+
+    const canListAll = AppPermissionManager.isGranted('system:apps', app.id);
+    const apps = APP_REGISTRY.filter(candidate =>
+      (canListAll || HOME_ALWAYS_LAUNCHABLE_APP_IDS.has(candidate.id))
+      && (OS?.settings?.get?.('devMode') || candidate.devOnly !== true)
+    ).map(getHomeAppListEntry);
+    return respond(webview, 'nova:home:apps:list', requestId, {
+      success: true,
+      apps,
+      fullAccess: canListAll,
+    });
+  }
+
+  async function handleHomeAppsLaunch({ payload, requestId, app, sandbox, webview }) {
+    if (!isActiveHomeCaller(app, sandbox)) {
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'PERMISSION_DENIED', 'Only the currently selected Home app can launch apps');
+    }
+    const appId = typeof payload?.appId === 'string' ? payload.appId : '';
+    if (!appId) {
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'INVALID_ARGS', 'appId is required');
+    }
+
+    const registryEntry = typeof APP_REGISTRY !== 'undefined' && Array.isArray(APP_REGISTRY)
+      ? APP_REGISTRY.find(candidate => candidate.id === appId)
+      : null;
+    const target = OS?.apps?.[appId];
+    if (!registryEntry || !target) {
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'NOT_FOUND', 'App is not registered');
+    }
+    if (!OS?.settings?.get?.('devMode') && (registryEntry.devOnly === true || target.devOnly === true)) {
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'PERMISSION_DENIED', 'Developer Mode must be enabled to launch this app');
+    }
+    const hasLaunchPermission = AppPermissionManager.isGranted('system:app-launch', app.id)
+      || AppPermissionManager.isGranted('system:apps', app.id);
+    if (!HOME_ALWAYS_LAUNCHABLE_APP_IDS.has(appId) && !hasLaunchPermission) {
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'PERMISSION_DENIED', 'system:app-launch permission required for this app');
+    }
+
+    const now = Date.now();
+    const launchTimes = (crossAppLaunchRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
+    if (launchTimes.length >= 6) {
+      crossAppLaunchRateLimits.set(app.id, launchTimes);
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'RATE_LIMITED', 'Max 6 Home app launches per minute');
+    }
+    try {
+      if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
+        return respondError(webview, 'nova:home:apps:launch', requestId, 'UNAVAILABLE', 'Window manager not available');
+      }
+      const win = WM.createWindow(appId);
+      if (win) {
+        launchTimes.push(now);
+        crossAppLaunchRateLimits.set(app.id, launchTimes);
+      }
+      return respond(webview, 'nova:home:apps:launch', requestId, {
+        success: !!win,
+        windowId: win ? win.id : null,
+      });
+    } catch (error) {
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'ERROR', error?.message || 'Launch failed');
     }
   }
 
@@ -2486,6 +2578,32 @@ const AppSandbox = (() => {
       });
     } catch (e) {
       return respondError(webview, 'nova:app:openDefaultAppsSettings', requestId, 'ERROR', e?.message || 'Failed to open Settings');
+    }
+  }
+
+  async function handleHomeOpenDefaultAppsSettings({ requestId, app, sandbox, webview }) {
+    if (!sandbox?.homeSurface || typeof DefaultApps === 'undefined'
+      || DefaultApps.getDefault('home') !== app?.id) {
+      return respondError(webview, 'nova:home:openDefaultAppsSettings', requestId, 'PERMISSION_DENIED', 'Only the currently selected Home app can open Home settings');
+    }
+    if (!checkDefaultAppsRateLimit(app.id)) {
+      return respondError(webview, 'nova:home:openDefaultAppsSettings', requestId, 'RATE_LIMITED', `Max ${DEFAULT_APPS_RATE_LIMIT_MAX} per minute`);
+    }
+    try {
+      if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
+        return respondError(webview, 'nova:home:openDefaultAppsSettings', requestId, 'UNAVAILABLE', 'Window manager not available');
+      }
+      const win = WM.createWindow('com.nbosp.settings', {
+        section: 'default-apps',
+        highlightCategory: 'home',
+        requestingAppId: app.id,
+      });
+      return respond(webview, 'nova:home:openDefaultAppsSettings', requestId, {
+        success: !!win,
+        windowId: win ? win.id : null,
+      });
+    } catch (error) {
+      return respondError(webview, 'nova:home:openDefaultAppsSettings', requestId, 'ERROR', error?.message || 'Failed to open Home settings');
     }
   }
 
@@ -3753,6 +3871,27 @@ const AppSandbox = (() => {
   // that would need a dialog is rejected with a message telling the
   // caller to have the user install manually via App Manager instead.
 
+  function resolveSandboxAppIcon(icon) {
+    if (typeof icon !== 'string' || !icon) return null;
+    if (/^data:image\/(?:png|jpe?g|gif|webp|svg\+xml|x-icon);/i.test(icon)) {
+      return icon.length <= 700_000 ? icon : null;
+    }
+    if (/^\/assets\/[a-zA-Z0-9._/-]+$/.test(icon) && !icon.split('/').includes('..')) {
+      return icon;
+    }
+    if (!/^[a-z][a-z0-9-]*$/.test(icon) || typeof svgIcon !== 'function') return null;
+
+    const markup = svgIcon(icon, 64);
+    const svg = markup.match(/<svg\b[\s\S]*?<\/svg>/i)?.[0];
+    if (svg) {
+      const withNamespace = svg.replace(/^<svg\b/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(withNamespace)}`;
+    }
+
+    const assetPath = markup.match(/<img\b[^>]*\bsrc="(\/assets\/[a-zA-Z0-9._/-]+)"/i)?.[1];
+    return assetPath && !assetPath.split('/').includes('..') ? assetPath : null;
+  }
+
   async function handleAppList({ requestId, app, webview }) {
     if (!AppPermissionManager.isGranted('system:apps', app.id)) {
       return respondError(webview, 'nova:app:list', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
@@ -3772,6 +3911,7 @@ const AppSandbox = (() => {
       name: a.name,
       version: a.version || '1.0.0',
       icon: a.icon || null,
+      iconUrl: resolveSandboxAppIcon(a.icon),
       description: a.description || '',
       categories: a.categories || [],
       verified: !!a.verified,
@@ -5151,6 +5291,9 @@ const AppSandbox = (() => {
     'nova:open-url': handleOpenUrl,
     'nova:open-with': handleOpenWith,
     'nova:app:openDefaultAppsSettings': handleOpenDefaultAppsSettings,
+    'nova:home:openDefaultAppsSettings': handleHomeOpenDefaultAppsSettings,
+    'nova:home:apps:list': handleHomeAppsList,
+    'nova:home:apps:launch': handleHomeAppsLaunch,
     'nova:app:info': handleAppInfo,
     'nova:app:list': handleAppList,
     'nova:app:install': handleAppInstall,
@@ -6216,6 +6359,19 @@ const AppSandbox = (() => {
           window.removeEventListener('focus', listener);
           window.removeEventListener('blur', listener);
         };
+      },
+    },
+    home: {
+      openDefaultAppsSettings: function() {
+        return ipc('nova:home:openDefaultAppsSettings', {});
+      },
+      apps: {
+        list: function() {
+          return ipc('nova:home:apps:list', {});
+        },
+        launch: function(appId) {
+          return ipc('nova:home:apps:launch', { appId: appId });
+        },
       },
     },
     wallpaper: {
@@ -7744,7 +7900,7 @@ const AppSandbox = (() => {
   // Create a sandboxed webview for app execution. The webview runs in a
   // separate renderer process — true process isolation. It cannot access
   // main page JS, DOM, or memory regardless of app content.
-  function createSandbox(app, container, state, launchOptions = {}) {
+  function createSandbox(app, container, state, launchOptions = {}, forceSandbox = false) {
     const webview = document.createElement('webview');
 
     // nodeintegration=false means the app cannot require() Node.js modules
@@ -7768,10 +7924,10 @@ const AppSandbox = (() => {
     const partitionId = `app_${app.id}`;
     webview.setAttribute('partition', `persist:${partitionId}`);
 
-    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app));
+    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app) && !forceSandbox);
     if (sandboxAttr) {
       webview.setAttribute('sandbox', sandboxAttr);
-    } else if (isFullyUnrestricted(app)) {
+    } else if (isFullyUnrestricted(app) && !forceSandbox) {
       // Deliberately no sandbox attribute: this is the exact hand-off from
       // UnrestrictedGate. Keep nodeintegration disabled and the isolated IPC
       // transport intact, so "unsandboxed" does not mean "uncontrolled".
@@ -7897,6 +8053,8 @@ const AppSandbox = (() => {
       pendingNewWindows: new Map(),
       nestedWebviewAllowed,
       openFile,
+      homeSurface: state?.homeSurface === true,
+      homeLoadTimer: null,
       cleanup: null, // populated below after all setup runs
     });
     if (state?.content && getComputedStyle(state.content).position === 'static') {
@@ -8067,6 +8225,53 @@ const AppSandbox = (() => {
 
   // Public lifecycle
 
+  async function launchHome(app, container) {
+    if (!container) throw new Error('Home surface container is required');
+    if (typeof DefaultApps === 'undefined'
+      || !DefaultApps.getAppsForCategory('home').some(candidate => candidate.id === app?.id)) {
+      throw new Error('App is not registered as an available Home app');
+    }
+    if (typeof app.entry !== 'string' || typeof app.files?.[app.entry] !== 'string') {
+      throw new Error(`Home app ${app.id} is missing its packaged entry "${app.entry}"`);
+    }
+
+    container.replaceChildren();
+    const state = {
+      appId: app.id,
+      content: container,
+      element: null,
+      homeSurface: true,
+      cleanups: [],
+    };
+    const launchOptions = { homeSurface: true };
+    const webview = createSandbox(app, container, state, launchOptions, true);
+    webview.style.cssText += 'position:fixed;inset:0;width:100vw;height:100vh;z-index:10;';
+    webview.setAttribute('aria-label', `${app.name || app.id} Home`);
+    container.appendChild(webview);
+
+    const sandboxId = webview.dataset.sandboxId;
+    const sandbox = activeSandboxes.get(sandboxId);
+    if (!sandbox) {
+      webview.remove();
+      throw new Error(`Home app sandbox ${sandboxId} was not registered`);
+    }
+    sandbox.homeSurface = true;
+    sandbox.homeLoadTimer = setTimeout(() => {
+      sandbox.homeLoadTimer = null;
+      if (activeSandboxes.get(sandboxId) === sandbox) {
+        loadAppContent(webview, app, state, launchOptions);
+      }
+    }, 250);
+
+    return {
+      success: true,
+      appId: app.id,
+      sandboxId,
+      webview,
+      cleanup: () => destroy(sandboxId),
+    };
+  }
+
   // Launch an app in a sandboxed environment.
   async function launch(app, container, state, options = {}) {
     if (!container) {
@@ -8220,6 +8425,10 @@ const AppSandbox = (() => {
     // WebSockets / double-remove the dialog overlay. Delete first, then
     // tear down — sandbox.cleanup is still callable via the local ref.
     activeSandboxes.delete(sandboxId);
+    if (sandbox.homeLoadTimer) {
+      clearTimeout(sandbox.homeLoadTimer);
+      sandbox.homeLoadTimer = null;
+    }
 
     // sandbox.cleanup (set up in createSandbox) does the actual teardown:
     // aborts the message listener, detaches OS event subs, closes WebSockets,
@@ -8513,6 +8722,7 @@ const AppSandbox = (() => {
   return {
     createSandbox,
     launch,
+    launchHome,
     destroy,
     getSandbox,
     getAllSandboxes,
