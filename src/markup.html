@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NovaByte Store</title>
 <meta name="description" content="Download apps for NovaByte OS. Browse, preview, and install .novaapp packages.">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <link rel="preconnect" href="https://fonts.googleapis.com" referrerpolicy="no-referrer">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin referrerpolicy="no-referrer">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" referrerpolicy="no-referrer">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet" referrerpolicy="no-referrer">
 <link rel="stylesheet" href="styling.css">
 </head>
 <body>
 
+<!-- ── Header ──────────────────────────────────────────────────── -->
 <header class="site-header">
   <div class="shell header-inner">
     <div class="wordmark">
@@ -39,84 +40,140 @@
   </div>
 </header>
 
-<main>
+<!-- ── Store browse view ───────────────────────────────────────── -->
+<main class="store-view" id="store-view">
   <div class="shell">
-
-    <section class="hero">
-      <p class="hero-eyebrow">NovaByte OS</p>
-      <h1 class="hero-headline">Apps for your OS.</h1>
-      <p class="hero-sub">Browse and install <code>.novaapp</code> packages. Drop them straight into App Manager — no setup required.</p>
-    </section>
 
     <nav class="category-bar" aria-label="Filter by category">
       <button class="cat-btn is-active" data-cat="all">All</button>
       <button class="cat-btn" data-cat="productivity">Productivity</button>
       <button class="cat-btn" data-cat="utilities">Utilities</button>
+      <button class="cat-btn" data-cat="personalization">Personalisation</button>
       <button class="cat-btn" data-cat="creative">Creative</button>
       <button class="cat-btn" data-cat="system">System</button>
       <button class="cat-btn" data-cat="games">Games</button>
     </nav>
 
-    <div class="apps-grid" id="apps-grid" aria-live="polite" aria-label="App listings">
-      <div class="grid-loading" id="grid-loading" aria-label="Loading apps">
-        <span class="loading-dot"></span>
-        <span class="loading-dot"></span>
-        <span class="loading-dot"></span>
+    <!-- Featured slot — first app gets promoted here -->
+    <section class="featured-section" id="featured-section" aria-label="Featured app" hidden>
+      <div class="featured-card" id="featured-card" role="button" tabindex="0" aria-label="View featured app">
+        <div class="featured-glow" aria-hidden="true"></div>
+        <div class="featured-icon" id="featured-icon" aria-hidden="true"></div>
+        <div class="featured-body">
+          <p class="featured-label">Featured</p>
+          <h2 class="featured-name" id="featured-name"></h2>
+          <p class="featured-author" id="featured-author"></p>
+          <p class="featured-desc" id="featured-desc"></p>
+          <div class="featured-meta">
+            <div class="featured-badges" id="featured-badges"></div>
+            <span class="featured-version" id="featured-version"></span>
+          </div>
+        </div>
+        <div class="featured-cta" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
       </div>
-    </div>
+    </section>
 
-    <p class="grid-empty hidden" id="grid-empty">No apps match your search.</p>
+    <section class="grid-section" aria-label="All apps">
+      <h2 class="section-heading" id="grid-heading">All apps</h2>
+      <div class="apps-grid" id="apps-grid" aria-live="polite">
+        <div class="grid-loading" id="grid-loading" aria-label="Loading apps">
+          <span class="loading-dot"></span>
+          <span class="loading-dot"></span>
+          <span class="loading-dot"></span>
+        </div>
+      </div>
+      <p class="grid-empty hidden" id="grid-empty">No apps match your search.</p>
+    </section>
 
   </div>
 </main>
 
+<!-- ── App detail view ─────────────────────────────────────────── -->
+<div class="detail-view hidden" id="detail-view" role="region" aria-label="App detail">
+  <div class="detail-topbar">
+    <button class="back-btn" id="back-btn" aria-label="Back to store">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+      Store
+    </button>
+  </div>
+
+  <div class="detail-shell">
+
+    <!-- Hero band -->
+    <div class="detail-hero">
+      <div class="detail-hero-glow" aria-hidden="true"></div>
+      <div class="detail-icon-wrap">
+        <div class="detail-icon" id="detail-icon" aria-hidden="true"></div>
+      </div>
+      <div class="detail-hero-body">
+        <h1 class="detail-name" id="detail-name"></h1>
+        <p class="detail-author" id="detail-author"></p>
+        <div class="detail-hero-badges" id="detail-hero-badges"></div>
+        <a class="detail-download-btn" id="detail-download" href="#" download>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download .novaapp
+        </a>
+      </div>
+    </div>
+
+    <!-- Description -->
+    <section class="detail-section">
+      <h2 class="detail-section-title">About this app</h2>
+      <p class="detail-desc" id="detail-desc"></p>
+    </section>
+
+    <!-- Info table -->
+    <section class="detail-section">
+      <h2 class="detail-section-title">Information</h2>
+      <dl class="detail-table">
+        <div class="detail-row">
+          <dt>App ID</dt>
+          <dd><code id="detail-id"></code></dd>
+        </div>
+        <div class="detail-row">
+          <dt>Version</dt>
+          <dd id="detail-version"></dd>
+        </div>
+        <div class="detail-row">
+          <dt>Size</dt>
+          <dd id="detail-size"></dd>
+        </div>
+        <div class="detail-row">
+          <dt>Developer</dt>
+          <dd id="detail-dev"></dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- How to install -->
+    <section class="detail-section">
+      <h2 class="detail-section-title">How to install</h2>
+      <ol class="install-steps">
+        <li>Download the <code>.novaapp</code> file above.</li>
+        <li>Open <strong>App Manager</strong> on NovaByte OS.</li>
+        <li>Drag the file in, or use <em>File → Install package</em>.</li>
+      </ol>
+    </section>
+
+  </div>
+</div>
+
+<!-- ── Footer ─────────────────────────────────────────────────── -->
 <footer class="site-footer">
   <div class="shell footer-inner">
     <span class="footer-copy">NovaByte Store</span>
-    <span class="footer-note">Install by dropping a <code>.novaapp</code> into App Manager</span>
+    <span class="footer-note">Packages for NovaByte OS</span>
     <a class="footer-link" href="apps.json" target="_blank" rel="noopener">apps.json</a>
   </div>
 </footer>
-
-<!-- App detail modal -->
-<div class="modal-backdrop hidden" id="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-name">
-  <div class="modal-panel">
-    <button class="modal-close" id="modal-close" aria-label="Close">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-      </svg>
-    </button>
-    <div class="modal-icon-wrap">
-      <div class="modal-icon" id="modal-icon" aria-hidden="true"></div>
-    </div>
-    <div class="modal-meta">
-      <h2 class="modal-name" id="modal-name"></h2>
-      <p class="modal-author" id="modal-author"></p>
-    </div>
-    <div class="modal-badges" id="modal-badges"></div>
-    <p class="modal-desc" id="modal-desc"></p>
-    <div class="modal-detail-row">
-      <span class="detail-label">App ID</span>
-      <code class="detail-value" id="modal-id"></code>
-    </div>
-    <div class="modal-detail-row">
-      <span class="detail-label">Version</span>
-      <span class="detail-value" id="modal-version"></span>
-    </div>
-    <div class="modal-detail-row">
-      <span class="detail-label">Size</span>
-      <span class="detail-value" id="modal-size"></span>
-    </div>
-    <a class="modal-download-btn" id="modal-download" href="#" download>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="7 10 12 15 17 10"/>
-        <line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-      Download .novaapp
-    </a>
-  </div>
-</div>
 
 <script type="module" src="logic.js"></script>
 </body>
