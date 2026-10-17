@@ -3,709 +3,121 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NBOSP — NovaByte Open Source Project</title>
-<meta name="description" content="The free, Apache 2.0 foundation of NovaByte OS. A minimal browser-based OS you fork and build on top of — not a finished product.">
+<title>NovaByte Store</title>
+<meta name="description" content="Download apps for NovaByte OS. Browse, preview, and install .novaapp packages.">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://fonts.googleapis.com" referrerpolicy="no-referrer">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin referrerpolicy="no-referrer">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" referrerpolicy="no-referrer">
-<!-- Lenis: lerp-smoothed momentum scrolling that wraps the browser's real
-     scroll (doesn't hijack it), so position:sticky, anchor links, and the
-     reveal-on-scroll IntersectionObserver all keep working. Skipped entirely
-     under prefers-reduced-motion. crossorigin enables SRI in production. -->
-<link rel="stylesheet" href="https://unpkg.com/lenis@1.3.23/dist/lenis.css" crossorigin>
-<script src="https://unpkg.com/lenis@1.3.23/dist/lenis.min.js" defer crossorigin></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" referrerpolicy="no-referrer">
 <link rel="stylesheet" href="styling.css">
 </head>
 <body>
 
-<!-- Liquid glass distortion filter — same soft refraction used on the OS windows -->
-<svg id="lg-svg-filters" style="display:none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-  <filter id="glass-distortion-soft" x="-8%" y="-8%" width="116%" height="116%" filterUnits="objectBoundingBox">
-    <feTurbulence type="fractalNoise" baseFrequency="0.65 0.75" numOctaves="3" seed="17" result="turbulence"></feTurbulence>
-    <feGaussianBlur in="turbulence" stdDeviation="2" result="softMap"></feGaussianBlur>
-    <feDisplacementMap in="SourceGraphic" in2="softMap" scale="6" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap>
-  </filter>
-</svg>
-
 <header class="site-header">
-  <div class="shell bar">
-    <div class="brand" role="img" aria-label="NBOSP">
-      <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+  <div class="shell header-inner">
+    <div class="wordmark">
+      <svg class="wordmark-hex" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
         <defs>
-          <linearGradient id="nb2g" x1="0%" x2="100%" y1="0%" y2="100%">
-            <stop offset="0%" stop-color="#58a6ff"></stop>
-            <stop offset="100%" stop-color="#a371f7"></stop>
+          <linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="var(--glow-primary)"/>
+            <stop offset="100%" stop-color="var(--aurora-violet)"/>
           </linearGradient>
-          <filter height="160%" id="nb2f" width="160%" x="-30%" y="-30%">
-            <feGaussianBlur result="b" stdDeviation="3.5"></feGaussianBlur>
-            <feMerge>
-              <feMergeNode in="b"></feMergeNode>
-              <feMergeNode in="SourceGraphic"></feMergeNode>
-            </feMerge>
-          </filter>
         </defs>
-        <polygon fill="rgba(88,166,255,0.04)" filter="url(#nb2f)" opacity="0.9" points="60,5 110,30 110,85 60,115 10,85 10,30" stroke="url(#nb2g)" stroke-width="2.5"></polygon>
-        <polygon fill="none" opacity="0.40" points="60,15 100,35 100,80 60,105 20,80 20,35" stroke="url(#nb2g)" stroke-width="1.5"></polygon>
-        <polygon fill="rgba(163,113,247,0.06)" opacity="0.35" points="60,28 88,43 88,76 60,91 32,76 32,43" stroke="url(#nb2g)" stroke-width="1"></polygon>
-        <text fill="url(#nb2g)" font-family="system-ui" font-size="30" font-weight="700" text-anchor="middle" x="60" y="68">NB</text>
+        <polygon points="20,2 36,11 36,29 20,38 4,29 4,11" fill="none" stroke="url(#hg)" stroke-width="2"/>
+        <text x="20" y="25" text-anchor="middle" font-family="system-ui" font-size="13" font-weight="700" fill="url(#hg)">NB</text>
       </svg>
+      <span class="wordmark-text">NovaByte <span class="wordmark-store">Store</span></span>
     </div>
-    <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="nav-panel" aria-label="Toggle navigation menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" data-toggle-icon>
-        <line x1="4" y1="6" x2="20" y2="6"></line>
-        <line x1="4" y1="12" x2="20" y2="12"></line>
-        <line x1="4" y1="18" x2="20" y2="18"></line>
-      </svg>
-    </button>
-    <button class="palette-trigger" type="button" data-palette-trigger aria-haspopup="dialog">
-      <span>Jump to…</span>
-      <kbd class="palette-kbd" hidden>⌘K</kbd>
-    </button>
+    <div class="header-controls">
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input class="search-input" type="search" placeholder="Search apps…" aria-label="Search apps" id="search-input">
+      </div>
+    </div>
   </div>
 </header>
-<div class="nav-panel-backdrop" data-nav-panel-backdrop></div>
-<nav class="nav-panel" id="nav-panel" aria-label="Primary" data-nav-panel>
-  <a href="#what" data-nav-link>What it is</a>
-  <a href="#apps" data-nav-link>Apps</a>
-  <a href="#themes" data-nav-link>Themes</a>
-  <a href="#architecture" data-nav-link>Architecture</a>
-  <a href="#browse" data-nav-link>Browse</a>
-  <a href="#requirements" data-nav-link>Requirements</a>
-  <a href="#versions" data-nav-link>Versions</a>
-  <a href="#downloads" data-nav-link>Downloads</a>
-  <a href="#faq" data-nav-link>FAQ</a>
-  <a href="#license" data-nav-link>License</a>
-  <a href="#start" data-nav-link>Get started</a>
-</nav>
 
 <main>
+  <div class="shell">
 
-  <section class="hero">
-    <div class="shell">
-      <span class="eyebrow">Apache 2.0 · Fork-friendly · No telemetry</span>
-      <h1>The <span class="accent">free, open</span> base of NovaByte OS.</h1>
-      <p class="lede">
-        NovaByte Open Source Project (NBOSP) is a browser-based operating system foundation you run, fork, and build on top of.
-        No edition system, no update pipeline, no bloat — just a minimal OS that gets out of your way.
-      </p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="https://github.com/NovaByteTeam/novabyte-os" target="_blank" rel="noopener noreferrer">View on GitHub</a>
-        <a class="btn btn-ghost" href="#start">Run it locally</a>
-      </div>
+    <section class="hero">
+      <p class="hero-eyebrow">NovaByte OS</p>
+      <h1 class="hero-headline">Apps for your OS.</h1>
+      <p class="hero-sub">Browse and install <code>.novaapp</code> packages. Drop them straight into App Manager — no setup required.</p>
+    </section>
 
-      <div class="hero-warning">
-        <strong>Read this before you download.</strong>
-        NBOSP is a foundation, not a finished product. The apps are intentionally bare bones — if you open Files, you can browse files. That's roughly the level across the board. It's the raw skeleton you fork and build on, not a competitor to a polished consumer OS.
-      </div>
+    <nav class="category-bar" aria-label="Filter by category">
+      <button class="cat-btn is-active" data-cat="all">All</button>
+      <button class="cat-btn" data-cat="productivity">Productivity</button>
+      <button class="cat-btn" data-cat="utilities">Utilities</button>
+      <button class="cat-btn" data-cat="creative">Creative</button>
+      <button class="cat-btn" data-cat="system">System</button>
+      <button class="cat-btn" data-cat="games">Games</button>
+    </nav>
 
-      <div class="terminal-wrap">
-        <div class="terminal glow-surface glass" aria-hidden="true">
-          <div class="glow-layer"></div>
-          <div class="terminal-titlebar">
-            <span class="traffic-light is-red"></span><span class="traffic-light is-yellow"></span><span class="traffic-light is-green"></span>
-            <span class="title">nbosp — zsh</span>
-          </div>
-          <div class="terminal-body" data-boot-sequence>
-            <!-- the boot sequence types this out on load; see typeOutBootSequence() -->
-          </div>
-        </div>
+    <div class="apps-grid" id="apps-grid" aria-live="polite" aria-label="App listings">
+      <div class="grid-loading" id="grid-loading" aria-label="Loading apps">
+        <span class="loading-dot"></span>
+        <span class="loading-dot"></span>
+        <span class="loading-dot"></span>
       </div>
     </div>
-  </section>
 
-  <section id="what">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Who it's for</div>
-        <h2>Built for developers, not everyone.</h2>
-        <p class="section-desc">
-          NBOSP is heavily developer and engineer focused. Expect fewer features than the full product —
-          that's not a bug, it's the point.
-        </p>
-      </div>
+    <p class="grid-empty hidden" id="grid-empty">No apps match your search.</p>
 
-      <p class="what-lede reveal-on-scroll needs-js-reveal">
-        NBOSP is the actual foundation NovaByte built its own closed-source OS on top of — not a
-        stripped-down demo released alongside it. NovaByte took this exact codebase, added an update
-        system, Nova Core Services, and a full set of proprietary apps, and shipped that as v3. From here
-        on, the two app lines are maintained separately: NBOSP's apps stay feature-frozen and get bug and
-        security fixes only, while NovaByte's own apps keep gaining features on their own track. Basic
-        security — rate limiting, CSRF protection, and security headers — is built into NBOSP itself, not
-        bolted on by whoever forks it.
-      </p>
-
-      <div class="split-grid">
-        <div class="reveal-on-scroll needs-js-reveal">
-          <div class="split-card is-what glow-surface glass">
-            <div class="glow-layer"></div>
-            <h3>NBOSP is</h3>
-            <ul>
-              <li>A minimal, fast, stock OS with basic security built in</li>
-              <li>Apache 2.0 licensed — copy, modify, fork, sell, redistribute</li>
-              <li>Feature-frozen apps that keep getting bug and security fixes</li>
-              <li>A skeleton meant to be forked and built on top of</li>
-              <li>Actively maintained — fixes ship faster than the full product</li>
-            </ul>
-          </div>
-        </div>
-        <div class="reveal-on-scroll needs-js-reveal">
-          <div class="split-card is-not glow-surface glass">
-            <div class="glow-layer"></div>
-            <h3>NBOSP is not</h3>
-            <ul>
-              <li>A polished, consumer-ready daily driver</li>
-              <li>Getting new user-facing features (Settings and dev apps excepted)</li>
-              <li>Bundled with an update pipeline or telemetry of any kind</li>
-              <li>A competitor to the full closed-source NovaByte OS release</li>
-              <li>A finished product — read that twice before you file a feature request</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <p class="arch-note reveal-on-scroll needs-js-reveal">
-        <strong>Why Settings is the one exception:</strong> it isn't really an app — it's the
-        configuration layer for the whole OS, controlling the visual identity (themes, accents, layout) of
-        every window, not just its own. Because it affects how the OS looks and behaves at the system
-        level, it keeps receiving new options and visual updates as NBOSP evolves, same as the
-        developer-only apps below.
-      </p>
-    </div>
-  </section>
-
-  <section id="apps">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">What's inside</div>
-        <h2>Fourteen apps. Pulled from the source, not the pitch.</h2>
-        <p class="section-desc">
-          These descriptions come straight from what the code actually does — including what it
-          deliberately doesn't do.
-        </p>
-      </div>
-
-      <search class="app-search reveal-on-scroll needs-js-reveal">
-        <label for="app-filter-input" class="sr-only">Filter apps</label>
-        <input type="search" id="app-filter-input" class="app-filter-input" placeholder="Filter apps — try “scanner” or “email”" autocomplete="off" data-app-filter-input>
-        <span class="app-filter-count" data-app-filter-count aria-live="polite"></span>
-      </search>
-
-      <div class="reveal-on-scroll needs-js-reveal">
-      <div class="manifest glow-surface glass" role="table" aria-label="NBOSP standard apps" data-manifest-root>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="files file manager icon list sort scanner drag drop trash restore">
-          <div class="app-name" role="cell">📁 Files</div>
-          <div class="app-desc" role="cell">Icon/list view, sort, search, copy/cut/paste, trash and restore, drag-and-drop import screened by the built-in scanner. <span class="caveat">No tabs, no split panes, no cloud sync.</span></div>
-        </div>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="textedit text editor line numbers word count tab indentation brackets">
-          <div class="app-name" role="cell">📝 TextEdit</div>
-          <div class="app-desc" role="cell">Plain text editor with line numbers, word count, Tab indentation, auto-close brackets. <span class="caveat">Single file only — no tabs, no markdown preview.</span></div>
-        </div>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="terminal shell ls cd grep pipes redirects aliases autocomplete vfs">
-          <div class="app-name" role="cell">💻 Terminal</div>
-          <div class="app-desc" role="cell">Real shell emulator — ls, cd, grep, pipes, redirects, aliases, tab autocomplete, multiple tabs. <span class="caveat">Runs against the VFS, not a real system shell.</span></div>
-        </div>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="browser nwjs webview tabs bookmarks history incognito find popup blocker">
-          <div class="app-name" role="cell">🌐 Browser</div>
-          <div class="app-desc" role="cell">NW.js WebView rendering, tabs, bookmarks, history, incognito, find-in-page, popup blocker. <span class="caveat">No extensions, no sync, no password manager.</span></div>
-        </div>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="email imap pop3 exchange search compose batch attachment tls">
-          <div class="app-name" role="cell">📧 Email</div>
-          <div class="app-desc" role="cell">Multi-account IMAP/POP3/Exchange, search, compose, batch-select. <span class="caveat">No filters, no tags, no offline cache.</span></div>
-        </div>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="app manager novaapp package install scanner drag drop verified unverified signature trust store">
-          <div class="app-name" role="cell">📦 App Manager</div>
-          <div class="app-desc" role="cell">Install .novaapp packages by drag-and-drop, run every file through the built-in scanner first, manage web apps, verified/unverified badges. <span class="caveat">No app store, no update management.</span></div>
-        </div>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="settings theme accent picker username storage privacy accessibility appearance">
-          <div class="app-name" role="cell">⚙️ Settings</div>
-          <div class="app-desc" role="cell">7 themes, accent picker, username, storage, privacy, accessibility. The one app still actively developed — it controls the OS's visual identity.</div>
-        </div>
-        <div class="manifest-row" role="row" data-app-row data-app-keywords="calendar gallery downloads contacts search clock calculator">
-          <div class="app-name" role="cell">+ 7 more</div>
-          <div class="app-desc" role="cell">Calendar, Gallery, Downloads, Contacts, Search, Clock, and Calculator — each doing the basics and stopping there, on purpose.</div>
-        </div>
-      </div>
-      </div>
-
-      <p class="app-filter-empty" data-app-filter-empty hidden>No apps match “<span data-app-filter-empty-term></span>”.</p>
-
-      <button class="manifest-toggle" type="button" aria-expanded="false" aria-controls="dev-manifest-panel" data-accordion-trigger>
-        <span data-toggle-label>Show Developer Mode apps</span> <span class="toggle-arrow" aria-hidden="true">→</span>
-      </button>
-
-      <div class="accordion-shell" data-accordion-shell>
-        <div class="accordion-inner">
-          <div class="manifest dev-manifest glow-surface glass" id="dev-manifest-panel" role="table" aria-label="NBOSP developer mode apps">
-            <div class="dev-warning">
-              ⚠ Hidden unless Developer Mode is enabled in Settings. Several of these can terminate apps, grant permissions, or run arbitrary code with no confirmation. Not part of the standard experience.
-            </div>
-            <div class="manifest-row" role="row" data-app-row data-app-keywords="console javascript eval os context sandbox dev mode">
-              <div class="app-name" role="cell">🖥️ Console</div>
-              <div class="app-desc" role="cell">Evaluate arbitrary JavaScript in the full OS context. <span class="caveat">No sandboxing — not a toy.</span></div>
-            </div>
-            <div class="manifest-row" role="row" data-app-row data-app-keywords="permissions grant revoke apps bulk trust">
-              <div class="app-name" role="cell">🔐 Permissions</div>
-              <div class="app-desc" role="cell">Review, grant, and revoke permissions across all registered apps, bulk operations supported. <span class="caveat">No confirmation prompts.</span></div>
-            </div>
-            <div class="manifest-row" role="row" data-app-row data-app-keywords="modules hot reload js runtime">
-              <div class="app-name" role="cell">🧩 Modules</div>
-              <div class="app-desc" role="cell">Hot-reload OS JS modules without restarting. <span class="caveat">Can execute arbitrary module paths at runtime.</span></div>
-            </div>
-            <div class="manifest-row" role="row" data-app-row data-app-keywords="packages sign verify novaapp manifest trust store keys">
-              <div class="app-name" role="cell">📦 Packages</div>
-              <div class="app-desc" role="cell">Sign and verify .novaapp packages, inspect manifests. <span class="caveat">Can add locally-generated keys to the trust store.</span></div>
-            </div>
-            <div class="manifest-row" role="row" data-app-row data-app-keywords="inspector window app state perf monitor fps memory system access vfs network proxy events timeline debug">
-              <div class="app-name" role="cell">🔍 Inspector, 📊 Perf Monitor, 🌐 System Access, 📋 Events</div>
-              <div class="app-desc" role="cell">Window/app state inspection, live FPS and memory tracking, VFS and network proxy inspection, unified event timeline — for debugging OS-level activity only.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="themes">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Appearance</div>
-        <h2>7 themes, 8 accents. Pulled from Settings source, not a mockup.</h2>
-        <p class="section-desc">
-          These are the exact <code class="mono">--bg-base</code> / <code class="mono">--accent</code> values
-          the Settings app applies via <code class="mono">applyTheme()</code>. Click one to preview it against this page.
-        </p>
-      </div>
-
-      <div class="theme-grid reveal-on-scroll needs-js-reveal" role="radiogroup" aria-label="Preview a theme" data-theme-grid>
-        <button type="button" class="theme-swatch" role="radio" aria-checked="true" data-theme="nova-dark" style="--sw-base:#07090f; --sw-elevated:#0e121c; --sw-accent:#58a6ff;">
-          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Nova Dark</span>
-        </button>
-        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="nova-light" data-is-light="true" data-ink="#24292f" data-ink-dim="#57606a" data-ink-faint="#8c959f" data-border="rgba(27,31,35,0.12)" style="--sw-base:#ffffff; --sw-elevated:#f6f8fa; --sw-accent:#0969da;">
-          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Nova Light</span>
-        </button>
-        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="nord" style="--sw-base:#2e3440; --sw-elevated:#3b4252; --sw-accent:#88c0d0;">
-          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Nord</span>
-        </button>
-        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="dracula" style="--sw-base:#282a36; --sw-elevated:#44475a; --sw-accent:#bd93f9;">
-          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Dracula</span>
-        </button>
-        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="catppuccin" style="--sw-base:#1e1e2e; --sw-elevated:#313244; --sw-accent:#cba6f7;">
-          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Catppuccin</span>
-        </button>
-        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="tokyo-night" style="--sw-base:#1a1b26; --sw-elevated:#24283b; --sw-accent:#7aa2f7;">
-          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Tokyo Night</span>
-        </button>
-        <button type="button" class="theme-swatch" role="radio" aria-checked="false" data-theme="gruvbox" style="--sw-base:#282828; --sw-elevated:#3c3836; --sw-accent:#fabd2f;">
-          <span class="theme-swatch-preview"></span><span class="theme-swatch-name">Gruvbox</span>
-        </button>
-      </div>
-
-      <div class="accent-row reveal-on-scroll needs-js-reveal">
-        <span class="accent-row-label">Accent</span>
-        <div class="accent-swatches" role="radiogroup" aria-label="Preview an accent color" data-accent-grid>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="true" data-accent="#58a6ff" style="--sw-accent:#58a6ff;" aria-label="Blue"></button>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#3fb950" style="--sw-accent:#3fb950;" aria-label="Green"></button>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#f85149" style="--sw-accent:#f85149;" aria-label="Red"></button>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#d29922" style="--sw-accent:#d29922;" aria-label="Amber"></button>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#bc8cff" style="--sw-accent:#bc8cff;" aria-label="Purple"></button>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#ff7b72" style="--sw-accent:#ff7b72;" aria-label="Coral"></button>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#79c0ff" style="--sw-accent:#79c0ff;" aria-label="Sky"></button>
-          <button type="button" class="accent-swatch" role="radio" aria-checked="false" data-accent="#56d4dd" style="--sw-accent:#56d4dd;" aria-label="Teal"></button>
-        </div>
-      </div>
-      <p class="theme-disclaimer">Preview only — this tints the marketing page, not the actual OS. Colors are exact; layout and chrome are this site's, not NBOSP's window system.</p>
-    </div>
-  </section>
-
-  <section id="architecture">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Under the hood</div>
-        <h2>How the pieces actually talk to each other.</h2>
-        <p class="section-desc">
-          High-level, from the real folder layout — <code class="mono">js/core</code>, <code class="mono">js/platform/security</code>,
-          and <code class="mono">server/</code> — not an idealized diagram.
-        </p>
-      </div>
-
-      <div class="arch-diagram reveal-on-scroll needs-js-reveal" role="img" aria-label="Architecture diagram: apps and windows sit above the kernel and desktop shell, which route through the security runtime (sandbox, permissions, trust store) before reaching the virtual file system, package manager, and the NW.js WebView layer. The Node server handles TLS, sessions, and the event log underneath.">
-        <div class="arch-tier">
-          <div class="arch-node">Apps <span class="arch-sub">js/apps — Files, Terminal, Email, Settings…</span></div>
-        </div>
-        <div class="arch-connector" aria-hidden="true">↓</div>
-        <div class="arch-tier">
-          <div class="arch-node">Kernel &amp; Desktop Shell <span class="arch-sub">js/core/core, js/core/ui — windows, taskbar, events</span></div>
-        </div>
-        <div class="arch-connector" aria-hidden="true">↓</div>
-        <div class="arch-tier arch-tier-security">
-          <div class="arch-node is-security">App Sandbox <span class="arch-sub">app-sandbox.js</span></div>
-          <div class="arch-node is-security">Permission Manager <span class="arch-sub">app-permission-manager.js</span></div>
-          <div class="arch-node is-security">Trust Store <span class="arch-sub">trust-store.js — signature checks</span></div>
-        </div>
-        <div class="arch-connector" aria-hidden="true">↓</div>
-        <div class="arch-tier">
-          <div class="arch-node">VFS + .novaapp Package Manager <span class="arch-sub">Scanner runs before install/write</span></div>
-          <div class="arch-node">NW.js WebView Layer <span class="arch-sub">Browser &amp; Email rendering</span></div>
-        </div>
-        <div class="arch-connector" aria-hidden="true">↓</div>
-        <div class="arch-tier">
-          <div class="arch-node is-server">Node Server <span class="arch-sub">server/core — TLS, sessions, event log</span></div>
-        </div>
-      </div>
-
-      <div class="arch-stats reveal-on-scroll needs-js-reveal">
-        <div class="arch-stat">
-          <span class="arch-stat-number">58</span>
-          <span class="arch-stat-label">modular files, split from what used to be a 14,000+ line <code class="mono">app.js</code></span>
-        </div>
-        <div class="arch-stat">
-          <span class="arch-stat-number">23</span>
-          <span class="arch-stat-label">standalone apps in <code class="mono">js/apps/</code>, including dev-mode-only tools like <code class="mono">console.js</code> and <code class="mono">inspector.js</code></span>
-        </div>
-        <div class="arch-stat">
-          <span class="arch-stat-number">0</span>
-          <span class="arch-stat-label">shared global state between modules — everything talks through explicit <code class="mono">window.*</code> bindings</span>
-        </div>
-      </div>
-
-      <p class="arch-note">
-        Every page load gets a fresh <code class="mono">crypto.randomBytes(16)</code> nonce, injected into every
-        <code class="mono">&lt;script&gt;</code>/<code class="mono">&lt;style&gt;</code> tag server-side before the CSP header ever forbids unsafe-inline —
-        so dynamically created elements stay policy-compliant via <code class="mono">window.__cspNonce</code> instead of loosening the policy for them.
-      </p>
-    </div>
-  </section>
-
-  <section id="browse">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Live from GitHub</div>
-        <h2>Browse the NBOSP source, right here.</h2>
-        <p class="section-desc">
-          Pulled from the GitHub Contents and Commits APIs on load — this is the real, current state of
-          <code class="mono">/NBOSP</code>, not a snapshot baked into the page.
-        </p>
-      </div>
-
-      <div class="reveal-on-scroll needs-js-reveal">
-        <div class="browser-panel glow-surface glass" data-browser-root>
-        <div class="browser-path" data-browser-path aria-live="polite">
-          <span class="browser-path-label">NBOSP /</span>
-          <span data-browser-path-current></span>
-        </div>
-
-        <div class="browser-loading" data-browser-loading>
-          <span class="spinner" aria-hidden="true"></span>
-          Fetching the current tree from GitHub…
-        </div>
-
-        <div class="browser-error" data-browser-error hidden>
-          <p>Couldn't reach the GitHub API right now (rate limit or network hiccup).</p>
-          <a class="btn btn-ghost" href="https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP" target="_blank" rel="noopener noreferrer">Browse on GitHub instead</a>
-        </div>
-
-        <table class="browser-table" data-browser-table hidden>
-          <thead>
-            <tr><th scope="col">Name</th><th scope="col">Last commit message</th><th scope="col">Last commit date</th></tr>
-          </thead>
-          <tbody data-browser-body></tbody>
-        </table>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="requirements">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Before you clone</div>
-        <h2>System requirements.</h2>
-        <p class="section-desc">
-          Minimums are read straight from source. Recommended figures are our estimate based on the codebase
-          and are marked as such — NBOSP doesn't check or enforce these at runtime.
-        </p>
-      </div>
-
-      <div class="reveal-on-scroll needs-js-reveal">
-        <div class="req-table glow-surface glass" role="table" aria-label="System requirements">
-        <div class="req-row req-row-head" role="row">
-          <div role="columnheader"></div>
-          <div role="columnheader">Minimum</div>
-          <div role="columnheader">Recommended <span class="req-est-tag">estimated</span></div>
-        </div>
-        <div class="req-row" role="row">
-          <div class="req-label" role="cell">Node.js</div>
-          <div role="cell">26.x <span class="caveat">(current, not LTS)</span></div>
-          <div role="cell">24.x LTS <span class="caveat">(latest Active LTS line)</span></div>
-        </div>
-        <div class="req-row" role="row">
-          <div class="req-label" role="cell">Rendering engine</div>
-          <div role="cell">NW.js 0.114.0-sdk <span class="caveat">(Chromium-based)</span></div>
-          <div role="cell">Same — pinned in package.json</div>
-        </div>
-        <div class="req-row" role="row">
-          <div class="req-label" role="cell">Disk space</div>
-          <div role="cell">~220 MB <span class="caveat">(measured node_modules + source)</span></div>
-          <div role="cell">500 MB free <span class="caveat">(room for the NW.js runtime + VFS data)</span></div>
-        </div>
-        <div class="req-row" role="row">
-          <div class="req-label" role="cell">RAM</div>
-          <div role="cell">2 GB</div>
-          <div role="cell">4 GB+ <span class="caveat">(V8 heap capped at 512 MB/window via chromium-args)</span></div>
-        </div>
-        <div class="req-row" role="row">
-          <div class="req-label" role="cell">OS</div>
-          <div role="cell">Windows, Linux, or macOS</div>
-          <div role="cell">Same — no platform is preferred in source</div>
-        </div>
-      </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="versions">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Release status</div>
-        <h2>What's current, what's dead.</h2>
-      </div>
-
-      <div class="version-list reveal-on-scroll needs-js-reveal">
-        <div class="version-row">
-          <span class="ver-num">v1.8.21</span>
-          <span class="status-pill is-eol">End of life</span>
-          <span class="note">Final 1.x release, last OS patch 2026-04-01. No further OS patches — devices are exposed and unpatched at the OS level, though Nova Core Services still ships partial service-level security patches.</span>
-        </div>
-        <div class="version-row">
-          <span class="ver-num">v2.3.8</span>
-          <span class="status-pill is-eol">End of life</span>
-          <span class="note">Final 2.x release, last OS patch 2026-05-01. Deprecated, no backports — Nova Core Services remains active for this line.</span>
-        </div>
-        <div class="version-row">
-          <span class="ver-num">v3.x.x</span>
-          <span class="status-pill is-current">Current</span>
-          <span class="note">Latest, recommended. Includes the built-in System Updates app and active Nova Core Services.</span>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="downloads">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Pre-built binaries</div>
-        <h2>Download and run — no clone, no npm install.</h2>
-        <p class="section-desc">
-          Pulled live from the latest GitHub release. Pick your platform, extract, and run the executable.
-        </p>
-      </div>
-
-      <div class="downloads-panel reveal-on-scroll needs-js-reveal" data-downloads-root>
-        <div class="downloads-loading" data-downloads-loading>
-          <span class="spinner" aria-hidden="true"></span>
-          Fetching the latest release from GitHub…
-        </div>
-
-        <div class="downloads-error glass" data-downloads-error hidden>
-          <p>Couldn't reach the GitHub API right now (rate limit or network hiccup).</p>
-          <a class="btn btn-ghost" href="https://github.com/NovaByteTeam/novabyte-os/releases/tag/NBOSP-PREBUILT" target="_blank" rel="noopener noreferrer">View releases on GitHub</a>
-        </div>
-
-        <div class="downloads-content" data-downloads-content hidden>
-          <div class="downloads-meta">
-            <span class="downloads-tag" data-downloads-tag></span>
-            <span class="downloads-date" data-downloads-date></span>
-          </div>
-          <div class="downloads-grid" data-downloads-grid></div>
-        </div>
-      </div>
-
-      <div class="repo-stats" data-repo-stats aria-live="polite">
-        <div class="repo-stat"><span class="repo-stat-num" data-stat-stars>—</span><span class="repo-stat-label">Stars</span></div>
-        <div class="repo-stat"><span class="repo-stat-num" data-stat-forks>—</span><span class="repo-stat-label">Forks</span></div>
-        <div class="repo-stat"><span class="repo-stat-num" data-stat-issues>—</span><span class="repo-stat-label">Open issues</span></div>
-      </div>
-
-      <details class="changelog-drawer reveal-on-scroll needs-js-reveal" data-changelog-drawer>
-        <summary>Recent commits</summary>
-        <div class="changelog-list" data-changelog-list>
-          <p class="changelog-loading">Fetching recent commits from GitHub…</p>
-        </div>
-      </details>
-    </div>
-  </section>
-
-  <section id="faq">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Questions</div>
-        <h2>Before you file an issue, check here.</h2>
-      </div>
-
-      <div class="faq-list reveal-on-scroll needs-js-reveal">
-        <details class="faq-item">
-          <summary>Why does NBOSP need <code class="mono">npm start</code> to run <code class="mono">nw .</code> instead of a normal Node server?</summary>
-          <p>NBOSP ships as an NW.js (Node-WebKit) app, not a browser-hosted page — <code class="mono">package.json</code>'s <code class="mono">start</code> script is <code class="mono">nw .</code>, which launches the bundled Chromium-based runtime with full Node access in the window context. A <code class="mono">prestart</code> hook runs <code class="mono">scripts/bootstrap.js</code> first, which checks if <code class="mono">node_modules</code> is missing or stale against <code class="mono">package-lock.json</code> and runs the install for you.</p>
-        </details>
-        <details class="faq-item">
-          <summary>Do I need to trust a certificate every time I launch it?</summary>
-          <p>No — only once. On first launch NBOSP generates a local HTTPS certificate and CA under the hood; your OS prompts you to trust it a single time, and every launch after that is warning-free HTTPS.</p>
-        </details>
-        <details class="faq-item">
-          <summary>What actually happens when I install a <code class="mono">.novaapp</code> package?</summary>
-          <p>Every file inside the package is run through the built-in scanner before any trust or integrity checks happen — it's a heuristic, client-side gate (not a full antivirus) that checks for disguised executables, embedded scripts in previewed files (SVG/HTML/Markdown), obfuscated code patterns, and high-entropy content masquerading as text. A flagged file blocks the install outright with no override. Separately, packages are checked against the built-in trust store for Ed25519 signatures: <strong>Verified</strong> means it was signed with NovaByte's own private key, held offline and not distributed to developers — so a self-signed package, however legitimate, will always show as <strong>Unverified</strong>. There's no automated review queue yet either; NovaByte reviews submissions for that Verified key manually, offline.</p>
-        </details>
-        <details class="faq-item">
-          <summary>Is Developer Mode safe to leave on?</summary>
-          <p>Not by default — no. Apps like Console (arbitrary JS in the full OS context, no sandboxing) and Modules (hot-reload with the ability to execute arbitrary module paths at runtime) skip the confirmation prompts the standard app set has. Treat Developer Mode as a debugging posture, not a daily-driver setting.</p>
-        </details>
-        <details class="faq-item">
-          <summary>Why does the App Manager have no update system?</summary>
-          <p>It's intentional, per the app's own scope: install by drag-and-drop or URL, pin/unpin, enable/disable, auto-launch on boot — no app store or catalogue, no update management. NBOSP's apps are feature-frozen by design; they get bug and security fixes, not new capability surface.</p>
-        </details>
-        <details class="faq-item">
-          <summary>What's the difference between NBOSP and the full NovaByte OS release (v1/v2/v3)?</summary>
-          <p>NBOSP (this repo, under <code class="mono">/NBOSP</code>) is the Apache 2.0 foundation — minimal, feature-frozen apps, no update pipeline, no telemetry, meant to be forked. The versioned <code class="mono">v1/</code>, <code class="mono">v2/</code>, <code class="mono">v3/</code> releases are the full closed-source product built on top of it, distributed as a compiled executable via Releases only.</p>
-        </details>
-        <details class="faq-item">
-          <summary>If NovaByte fixes something in NBOSP, do I get the fix automatically?</summary>
-          <p>No — NBOSP doesn't use the built-in System Updates app at all; that's a v3-only, closed-source component. If a fix lands in this upstream repo, it stays there until whoever forked or packaged your copy pulls the change, repackages it, and cuts their own release — you then re-clone or re-download from them. There's no push mechanism, which is also why NBOSP ships no telemetry.</p>
-        </details>
-      </div>
-    </div>
-  </section>
-
-  <section id="license">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Licensing</div>
-        <h2>One repo, two licenses.</h2>
-        <p class="section-desc">
-          Know exactly what you're allowed to do with which part before you build on it.
-        </p>
-      </div>
-
-      <div class="license-grid reveal-on-scroll needs-js-reveal">
-        <div class="license-card is-open glow-surface glass">
-          <div class="path">NBOSP/</div>
-          <div class="type">Apache 2.0</div>
-          <p>Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text.</p>
-        </div>
-        <div class="license-card is-closed glass">
-          <div class="path">v1/, v2/, v3/</div>
-          <div class="type">All rights reserved</div>
-          <p>Closed source. Not included in this repo. Compiled executable available via Releases only.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="start">
-    <div class="shell">
-      <div class="section-head reveal-on-scroll needs-js-reveal">
-        <div class="section-label">Get started</div>
-        <h2>Running NBOSP takes one command.</h2>
-        <p class="section-desc">
-          <code class="mono">npm start</code> runs <code class="mono">prestart</code> first, which bootstraps a fresh
-          clone automatically — nothing to configure by hand before the window opens.
-        </p>
-      </div>
-
-      <div class="steps-list reveal-on-scroll needs-js-reveal">
-        <div class="step">
-          <span class="step-number">1</span>
-          <div>
-            <strong>Clone and start</strong>
-            <p><code class="mono">npm start</code> triggers a <code class="mono">prestart</code> hook (<code class="mono">scripts/bootstrap.js</code>) before <code class="mono">nw .</code> ever runs. It checks for <code class="mono">node_modules</code> and installs dependencies automatically if they're missing — first run or after a clean, no manual <code class="mono">npm install</code> step either way.</p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-number">2</span>
-          <div>
-            <strong>Env and certs, generated for you</strong>
-            <p>Bootstrap also writes a <code class="mono">.env</code> with a random <code class="mono">SESSION_SECRET</code> and sane defaults, then generates a local HTTPS certificate and CA. Your OS prompts you to trust it once — accept, and every launch after that opens over HTTPS with no browser warning.</p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-number">3</span>
-          <div>
-            <strong>The window opens itself</strong>
-            <p>No manual browser navigation — NW.js spawns the app window directly once the server's listening on <code class="mono">127.0.0.1:3003</code> (HTTPS if certs are present). Want verbose logs while you work? <code class="mono">npm run dev</code> runs the same thing with <code class="mono">--enable-logging=stderr --v=1</code>.</p>
-          </div>
-        </div>
-        <div class="step">
-          <span class="step-number">4</span>
-          <div>
-            <strong>Build on it</strong>
-            <p>Named extension points, not guesswork: new API endpoint → <code class="mono">security/routes.js</code> or <code class="mono">email/index.js</code>. New proxy → <code class="mono">server/proxies.js</code>. New middleware or rate-limit tier → <code class="mono">server/middleware.js</code>. Every module is independent — no global state, no tight coupling to route around.</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="codeblock reveal-on-scroll needs-js-reveal" data-copy-target>
-        <button class="copy-button" type="button" data-copy-trigger>Copy</button>
-<span class="comment"># clone, enter, run — that's it</span>
-git clone https://github.com/NovaByteTeam/novabyte-os.git
-cd novabyte-os/NBOSP
-npm start
-      </div>
-    </div>
-  </section>
-
+  </div>
 </main>
 
-<dialog class="palette-dialog" data-palette-dialog aria-label="Command palette">
-  <div class="palette-inner">
-    <div class="palette-search-row">
-      <input type="text" class="palette-input" placeholder="Jump to a section…" autocomplete="off" data-palette-input aria-label="Search sections">
-      <button class="palette-close" type="button" data-palette-close aria-label="Close search">✕</button>
-    </div>
-    <ul class="palette-results" data-palette-results role="listbox" aria-label="Sections" data-lenis-prevent></ul>
-    <div class="palette-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> close</div>
-  </div>
-</dialog>
-
-<dialog class="file-preview-dialog" data-file-preview-dialog aria-label="File preview">
-  <div class="file-preview-header">
-    <span class="file-preview-name mono" data-file-preview-name></span>
-    <div class="file-preview-actions">
-      <a class="btn btn-ghost btn-small" data-file-preview-download href="#" download>Download</a>
-      <button class="file-preview-close" type="button" data-file-preview-close aria-label="Close preview">✕</button>
-    </div>
-  </div>
-  <!-- data-lenis-prevent stops Lenis from hijacking wheel events here — CM6
-       (dynamically created inside .file-preview-editor once a file loads)
-       manages its own internal .cm-scroller, and Lenis's document-level
-       wheel listener was winning the race against it, so scrolling inside
-       an open file did nothing. -->
-  <div class="file-preview-body" data-lenis-prevent>
-    <div class="file-preview-loading" data-file-preview-loading>Loading file…</div>
-    <div class="file-preview-error" data-file-preview-error hidden>
-      Couldn't load this file's contents from the GitHub API.
-    </div>
-    <div class="file-preview-toolarge" data-file-preview-toolarge hidden>
-      This file is too large to preview inline — use Download instead.
-    </div>
-    <div class="file-preview-binary" data-file-preview-binary hidden>
-      This doesn't look like a text file, so there's nothing to preview — use Download to grab it.
-    </div>
-    <div class="file-preview-editor" data-file-preview-editor hidden></div>
-  </div>
-</dialog>
-
 <footer class="site-footer">
-  <div class="shell footer-row">
-    <span class="mono">NBOSP — the open foundation. Apache 2.0.</span>
-    <div class="footer-links">
-      <a href="https://github.com/NovaByteTeam/novabyte-os" target="_blank" rel="noopener noreferrer">GitHub</a>
-      <a href="https://github.com/NovaByteTeam/novabyte-os/releases/latest" target="_blank" rel="noopener noreferrer">Releases</a>
-      <a href="https://github.com/NovaByteTeam/novabyte-os/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a>
-    </div>
+  <div class="shell footer-inner">
+    <span class="footer-copy">NovaByte Store</span>
+    <span class="footer-note">Install by dropping a <code>.novaapp</code> into App Manager</span>
+    <a class="footer-link" href="apps.json" target="_blank" rel="noopener">apps.json</a>
   </div>
 </footer>
 
-<script type="module" src="logic.js"></script>
+<!-- App detail modal -->
+<div class="modal-backdrop hidden" id="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-name">
+  <div class="modal-panel">
+    <button class="modal-close" id="modal-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <div class="modal-icon-wrap">
+      <div class="modal-icon" id="modal-icon" aria-hidden="true"></div>
+    </div>
+    <div class="modal-meta">
+      <h2 class="modal-name" id="modal-name"></h2>
+      <p class="modal-author" id="modal-author"></p>
+    </div>
+    <div class="modal-badges" id="modal-badges"></div>
+    <p class="modal-desc" id="modal-desc"></p>
+    <div class="modal-detail-row">
+      <span class="detail-label">App ID</span>
+      <code class="detail-value" id="modal-id"></code>
+    </div>
+    <div class="modal-detail-row">
+      <span class="detail-label">Version</span>
+      <span class="detail-value" id="modal-version"></span>
+    </div>
+    <div class="modal-detail-row">
+      <span class="detail-label">Size</span>
+      <span class="detail-value" id="modal-size"></span>
+    </div>
+    <a class="modal-download-btn" id="modal-download" href="#" download>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Download .novaapp
+    </a>
+  </div>
+</div>
 
+<script type="module" src="logic.js"></script>
 </body>
 </html>

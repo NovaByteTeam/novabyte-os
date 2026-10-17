@@ -1,0 +1,55 @@
+[
+  {
+    "id": "com.novabyte.wallpaperhub",
+    "name": "Wallpaper Hub",
+    "version": "2.0.0",
+    "author": "WallPlusCrafts",
+    "description": "Browse, favorite and apply beautiful wallpapers from Wallhaven \u2014 with curated collections, color search, OS theme sync and one-tap actions.",
+    "categories": [
+      "utilities",
+      "personalization"
+    ],
+    "icon": "image",
+    "file": "apps/com.novabyte.wallpaperhub.novaapp",
+    "size": "146 KB"
+  },
+  {
+    "id": "com.novabyte.textpad",
+    "name": "TextPad",
+    "version": "1.2.0",
+    "author": "NovaByte Team",
+    "description": "A clean, distraction-free text editor with syntax highlighting and markdown preview.",
+    "categories": [
+      "productivity"
+    ],
+    "icon": "file-text",
+    "file": "apps/textpad.novaapp",
+    "size": "48 KB"
+  },
+  {
+    "id": "com.novabyte.calculator",
+    "name": "Calculator",
+    "version": "1.0.3",
+    "author": "NovaByte Team",
+    "description": "Scientific calculator with history, unit conversion, and expression memory.",
+    "categories": [
+      "utilities"
+    ],
+    "icon": "calculator",
+    "file": "apps/calculator.novaapp",
+    "size": "22 KB"
+  },
+  {
+    "id": "com.novabyte.pixelpad",
+    "name": "PixelPad",
+    "version": "2.0.1",
+    "author": "NovaByte Team",
+    "description": "Pixel art editor with palette management, animation frames, and PNG export.",
+    "categories": [
+      "creative"
+    ],
+    "icon": "grid",
+    "file": "apps/pixelpad.novaapp",
+    "size": "91 KB"
+  }
+]

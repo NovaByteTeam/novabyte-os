@@ -1,1452 +1,191 @@
-// single static page with no build step — "module" here just buys us
-// top-level scoping (nothing leaks onto window) rather than actual imports
+// Icon SVG paths — Lucide-compatible strokes, inline so there's no icon library dep.
+// Add more here as you add new app categories.
+const ICONS = {
+  'file-text': `<polyline points="14 2 14 8 20 8"/><path d="M20 8V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>`,
+  'calculator': `<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="10" x2="16" y2="14"/><line x1="8" y1="10" x2="8" y2="10"/><line x1="12" y1="10" x2="12" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="8" y1="18" x2="12" y2="18"/>`,
+  'grid': `<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>`,
+  'box': `<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>`,
+  'terminal': `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>`,
+  'music': `<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>`,
+  'image': `<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>`,
+  'gamepad': `<line x1="6" y1="11" x2="10" y2="11"/><line x1="8" y1="9" x2="8" y2="13"/><line x1="15" y1="12" x2="15.01" y2="12"/><line x1="17" y1="10" x2="17.01" y2="10"/><path d="M5 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/>`,
+  'settings': `<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>`,
+};
 
-'use strict';
-
-const reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
-
-// repo/contents/commits calls go through this Worker instead of hitting
-// api.github.com directly — it holds the real GitHub token server-side
-// and only forwards the three route shapes it allowlists (see worker.js)
-const GH_PROXY = 'https://nbosp-github-proxy.novabyteofficial.workers.dev';
-
-// all network calls get this ceiling — a hung request shouldn't leave the
-// user staring at a spinner forever when the proxy or GitHub is slow
-const FETCH_TIMEOUT_MS = 10_000;
-
-// caches that live for the page session — bounded so a long browsing
-// session can't grow them without limit
-const MAX_CACHE_ENTRIES = 100;
-
-function ghHeaders() {
-  return { Accept: 'application/vnd.github+json' };
+function iconSvg(name) {
+  const paths = ICONS[name] ?? ICONS['box'];
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
 
-// fetch with a timeout — AbortController cancels the request after
-// FETCH_TIMEOUT_MS so a hung network doesn't leave a spinner up forever
-async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+// ── State ──────────────────────────────────────────────────────────────────
+
+let allApps = [];
+let activeCategory = 'all';
+let searchQuery = '';
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+
+const grid       = document.getElementById('apps-grid');
+const gridLoading = document.getElementById('grid-loading');
+const gridEmpty  = document.getElementById('grid-empty');
+const searchInput = document.getElementById('search-input');
+
+const backdrop   = document.getElementById('modal-backdrop');
+const modalClose = document.getElementById('modal-close');
+const modalIcon  = document.getElementById('modal-icon');
+const modalName  = document.getElementById('modal-name');
+const modalAuthor = document.getElementById('modal-author');
+const modalBadges = document.getElementById('modal-badges');
+const modalDesc  = document.getElementById('modal-desc');
+const modalId    = document.getElementById('modal-id');
+const modalVersion = document.getElementById('modal-version');
+const modalSize  = document.getElementById('modal-size');
+const modalDownload = document.getElementById('modal-download');
+
+// ── Fetch apps ─────────────────────────────────────────────────────────────
+
+async function loadApps() {
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    const res = await fetch('apps.json');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    allApps = await res.json();
+  } catch (err) {
+    console.error('Could not load apps.json:', err);
+    allApps = [];
   } finally {
-    clearTimeout(timeoutId);
+    gridLoading.classList.add('hidden');
+    renderGrid();
   }
 }
 
-// simple bounded cache — entries are evicted in insertion order once the
-// cap is hit. not a true LRU (no access-order tracking) but good enough
-// for path-keyed API caches where revisits are access-pattern-driven
-function createBoundedCache(maxSize = MAX_CACHE_ENTRIES) {
-  const map = new Map();
-  return {
-    get(key) { return map.get(key); },
-    has(key) { return map.has(key); },
-    set(key, value) {
-      if (map.size >= maxSize) {
-        const oldestKey = map.keys().next().value;
-        map.delete(oldestKey);
-      }
-      map.set(key, value);
-    },
-    get size() { return map.size; },
-  };
+// ── Render ─────────────────────────────────────────────────────────────────
+
+function filteredApps() {
+  const q = searchQuery.trim().toLowerCase();
+  return allApps.filter(app => {
+    const matchesCat = activeCategory === 'all' || app.categories?.includes(activeCategory);
+    const matchesSearch = !q
+      || app.name.toLowerCase().includes(q)
+      || app.description?.toLowerCase().includes(q)
+      || app.id.toLowerCase().includes(q)
+      || app.author?.toLowerCase().includes(q);
+    return matchesCat && matchesSearch;
+  });
 }
 
-// boot sequence: types the two hero commands out like someone's actually
-// typing them, THEN reveals the output lines, THEN starts the blinking
-// cursor. if the person has reduced motion on, skip straight to the
-// finished state — no point making someone sit through a fake typing
-// animation they explicitly asked their OS not to show them
-async function typeOutBootSequence(container) {
-  const bootScript = [
-    { kind: 'command', text: 'git clone https://github.com/NovaByteTeam/novabyte-os.git' },
-    { kind: 'command', text: 'cd novabyte-os/NBOSP && npm start' },
-    { kind: 'lines', text: '> novabyte-server@3.0.2 prestart\n> node scripts/bootstrap.js\n[bootstrap] Running npm ci...\n> novabyte-server@3.0.2 start\n> nw .' },
-  ];
+function renderGrid() {
+  // Remove any existing cards
+  for (const card of grid.querySelectorAll('.app-card')) card.remove();
 
-  if (reduceMotionQuery.matches) {
-    renderBootSequenceInstantly(container, bootScript);
+  const apps = filteredApps();
+
+  if (apps.length === 0) {
+    gridEmpty.classList.remove('hidden');
     return;
   }
 
-  await renderBootSequenceTyped(container, bootScript);
-}
-
-function renderBootSequenceInstantly(container, bootScript) {
-  for (const entry of bootScript) {
-    if (entry.kind === 'command') {
-      container.append(buildCommandLine(entry.text));
-    } else if (entry.kind === 'lines') {
-      for (const lineEl of buildOutputLines(entry.text)) {
-        lineEl.classList.add('is-visible');
-        container.append(lineEl);
-      }
-    } else {
-      const outputEl = buildOutputBlock(entry.text);
-      outputEl.classList.add('is-visible');
-      container.append(outputEl);
-    }
-  }
-  container.append(buildPromptWithCursor());
-}
-
-function buildCommandLine(commandText) {
-  const line = document.createElement('div');
-  line.className = 'terminal-line';
-
-  const prompt = document.createElement('span');
-  prompt.className = 'terminal-prompt';
-  prompt.textContent = '$';
-
-  const cmd = document.createElement('span');
-  cmd.className = 'terminal-cmd';
-  cmd.textContent = commandText;
-
-  line.append(prompt, cmd);
-  return line;
-}
-
-function buildOutputBlock(outputText) {
-  const block = document.createElement('div');
-  block.className = 'terminal-output';
-  block.textContent = outputText;
-  return block;
-}
-
-// same visual treatment as buildOutputBlock (one .terminal-output per
-// line) but returns an array so the caller can reveal them one at a time
-// instead of the whole block fading in as a single lump
-function buildOutputLines(outputText) {
-  return outputText.split('\n').map((line) => {
-    const block = document.createElement('div');
-    block.className = 'terminal-output';
-    block.textContent = line;
-    return block;
-  });
-}
-
-function buildPromptWithCursor() {
-  const line = document.createElement('div');
-  line.className = 'terminal-line';
-
-  const prompt = document.createElement('span');
-  prompt.className = 'terminal-prompt';
-  prompt.textContent = '$';
-
-  const cursor = document.createElement('span');
-  cursor.className = 'cursor-blink';
-
-  line.append(prompt, cursor);
-  return line;
-}
-
-async function renderBootSequenceTyped(container, bootScript) {
-  const millisecondsPerKeystroke = 18;
-  const pauseAfterCommand = 280;
-
-  for (const entry of bootScript) {
-    if (entry.kind === 'command') {
-      const line = document.createElement('div');
-      line.className = 'terminal-line';
-
-      const prompt = document.createElement('span');
-      prompt.className = 'terminal-prompt';
-      prompt.textContent = '$';
-
-      const cmd = document.createElement('span');
-      cmd.className = 'terminal-cmd';
-
-      line.append(prompt, cmd);
-      container.append(line);
-
-      // type character by character — genuinely the slow way to build a
-      // string, but it's the whole point of the effect
-      for (const character of entry.text) {
-        cmd.textContent += character;
-        await wait(millisecondsPerKeystroke);
-      }
-      await wait(pauseAfterCommand);
-    } else if (entry.kind === 'lines') {
-      // same fade-in as regular output, but one line at a time so a
-      // multi-line block (like the npm/bootstrap log) reads as it's
-      // "happening" rather than dumping in as one lump
-      const pauseBetweenLines = 140;
-      for (const lineEl of buildOutputLines(entry.text)) {
-        container.append(lineEl);
-        // force a reflow before adding is-visible, otherwise the browser
-        // can coalesce "add to DOM" and "make visible" into one frame and
-        // the fade transition never actually plays
-        lineEl.offsetHeight;
-        lineEl.classList.add('is-visible');
-        await wait(pauseBetweenLines);
-      }
-      await wait(pauseAfterCommand);
-    } else {
-      const outputBlock = buildOutputBlock(entry.text);
-      container.append(outputBlock);
-      outputBlock.offsetHeight;
-      outputBlock.classList.add('is-visible');
-      await wait(pauseAfterCommand);
-    }
-  }
-
-  container.append(buildPromptWithCursor());
-}
-
-function wait(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-// release forwards-filled entrance animations once they finish.
-// `animation-fill-mode: forwards` is what stops the terminal from
-// flashing invisible before JS runs, but it also pins the element to its
-// own compositing layer forever — even at rest — which breaks
-// backdrop-filter for .glass elements nested inside it. so: let the
-// animation play with forwards as the safe default, then the instant it
-// ends, copy its final state into plain inline styles and clear the
-// animation. there's no gap between "remove forwards" and "set final
-// state" because both happen in the same animationend handler, same tick
-function wireUpAnimationRelease() {
-  for (const el of document.querySelectorAll('.terminal-wrap')) {
-    el.addEventListener('animationend', releaseAnimation, { once: true });
-  }
-
-  // same fix for .reveal-on-scroll wrappers, but ONLY the ones that
-  // actually contain a .glass descendant (right now: the split-card
-  // wrappers) — every other .reveal-on-scroll on the page doesn't have
-  // this bug, so leave their animation-timeline: view() behavior
-  // (including re-triggering on scroll-back-up) untouched
-  for (const el of document.querySelectorAll('.reveal-on-scroll')) {
-    if (!el.querySelector('.glass')) continue;
-    el.addEventListener('animationend', releaseAnimation, { once: true });
-  }
-}
-
-function releaseAnimation(event) {
-  const el = event.currentTarget;
-  el.style.opacity = '1';
-  el.style.translate = '0 0';
-  el.style.animation = 'none';
-}
-
-// cursor-tracked glow: one listener for the whole page, throttled to
-// animation frames. every .glow-surface element just reads the same two
-// custom properties, so this scales to as many glowing cards as we want
-// without adding more listeners
-function wireUpGlowTracking() {
-  let pendingFrame = null;
-
-  document.addEventListener('pointermove', (event) => {
-    if (pendingFrame) return;
-    pendingFrame = requestAnimationFrame(() => {
-      updateNearestGlowSurface(event.clientX, event.clientY);
-      pendingFrame = null;
-    });
-  }, { passive: true });
-}
-
-function updateNearestGlowSurface(pointerX, pointerY) {
-  // elementsFromPoint gives us everything under the cursor in paint
-  // order, so we can find the actual glow-surface the user is over
-  // instead of guessing from bounding boxes
-  const hits = document.elementsFromPoint(pointerX, pointerY);
-  const surface = hits.find((el) => el.classList?.contains('glow-surface'));
-  if (!surface) return;
-
-  const rect = surface.getBoundingClientRect();
-  const relativeX = ((pointerX - rect.left) / rect.width) * 100;
-  const relativeY = ((pointerY - rect.top) / rect.height) * 100;
-  surface.style.setProperty('--pointer-x', `${relativeX}%`);
-  surface.style.setProperty('--pointer-y', `${relativeY}%`);
-}
-
-// section navigation: the page shows exactly one of hero/[section] at a
-// time instead of one long scroll. showSection() is the single source of
-// truth — it drives visibility, which nav link is highlighted, and the
-// URL hash — so every entry point (nav panel, command palette, in-page
-// links, browser back/forward) goes through the same function rather
-// than each having its own scroll-to or show/hide logic that can drift
-// out of sync with the others
-const SECTION_IDS = [
-  'what', 'apps', 'themes', 'architecture', 'browse',
-  'requirements', 'versions', 'downloads', 'faq', 'license', 'start',
-];
-
-function showSection(id) {
-  const hero = document.querySelector('.hero');
-  const targetIsValid = SECTION_IDS.includes(id);
-
-  if (hero) hero.hidden = targetIsValid;
-  for (const sectionId of SECTION_IDS) {
-    const section = document.getElementById(sectionId);
-    if (section) section.hidden = sectionId !== id;
-  }
-
-  // sections start hidden, so anything inside them using the JS
-  // scroll-reveal fallback (browsers without animation-timeline: view()
-  // support) never intersects the viewport and never gets its
-  // IntersectionObserver-driven .is-revealed class. there's no actual
-  // scrolling happening when a section is switched in, so just reveal
-  // its content immediately rather than trying to re-trigger a
-  // scroll-based fade that no longer makes sense in this model
-  const shownSection = targetIsValid ? document.getElementById(id) : hero;
-  shownSection?.querySelectorAll('.needs-js-reveal').forEach((el) => {
-    el.classList.add('is-revealed');
-  });
-
-  for (const link of document.querySelectorAll('[data-nav-link]')) {
-    const linkId = link.getAttribute('href').replace('#', '');
-    link.classList.toggle('is-active', linkId === id);
-  }
-
-  // pushState instead of assigning location.hash — assigning the hash
-  // directly triggers the browser's native "jump to anchor" scroll
-  // behavior, which we don't want since we're doing visibility instead
-  // of scrolling; pushState updates the URL without that side effect
-  const newHash = targetIsValid ? `#${id}` : '';
-  if (location.hash !== newHash) {
-    history.pushState(
-      { sectionId: targetIsValid ? id : null },
-      '',
-      newHash || location.pathname + location.search,
-    );
-  }
-
-  window.scrollTo({ top: 0, behavior: 'auto' });
-}
-
-// shows whatever section matches the current URL hash, or the hero if
-// the hash is empty/unrecognized — shared by initial page load and
-// browser back/forward navigation so both paths stay in sync
-function showSectionFromHash() {
-  const id = location.hash.replace('#', '');
-  showSection(SECTION_IDS.includes(id) ? id : null);
-}
-
-function wireUpNav() {
-  const toggle   = document.querySelector('[data-nav-toggle]');
-  const panel    = document.querySelector('[data-nav-panel]');
-  const backdrop = document.querySelector('[data-nav-panel-backdrop]');
-  if (!toggle || !panel) return;
-
-  function setOpen(open) {
-    panel.classList.toggle('is-open', open);
-    backdrop?.classList.toggle('is-open', open);
-    toggle.setAttribute('aria-expanded', String(open));
-  }
-
-  toggle.addEventListener('click', () => {
-    setOpen(!panel.classList.contains('is-open'));
-  });
-
-  backdrop?.addEventListener('click', () => setOpen(false));
-
-  // every nav link routes through showSection instead of letting the
-  // browser natively jump-scroll to the anchor, and closes the panel
-  // after
-  for (const link of document.querySelectorAll('[data-nav-link]')) {
-    link.addEventListener('click', (event) => {
-      event.preventDefault();
-      showSection(link.getAttribute('href').replace('#', ''));
-      setOpen(false);
-    });
-  }
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') setOpen(false);
-  });
-
-  // any other in-page anchor link (e.g. the hero's "Run it locally"
-  // button) needs the same treatment — anything with data-nav-link is
-  // already handled above, this catches the rest
-  document.querySelectorAll('a[href^="#"]:not([data-nav-link])').forEach((link) => {
-    const id = link.getAttribute('href').replace('#', '');
-    if (!SECTION_IDS.includes(id)) return;
-    link.addEventListener('click', (event) => {
-      event.preventDefault();
-      showSection(id);
-    });
-  });
-
-  window.addEventListener('popstate', showSectionFromHash);
-  showSectionFromHash();
-}
-
-// dev-mode accordion: grid-rows trick handles the actual animation in
-// CSS, this just flips the class and keeps aria-expanded honest
-function wireUpDevAccordion() {
-  const trigger = document.querySelector('[data-accordion-trigger]');
-  const shell   = document.querySelector('[data-accordion-shell]');
-  const label   = document.querySelector('[data-toggle-label]');
-  if (!trigger || !shell || !label) return;
-
-  trigger.addEventListener('click', () => {
-    const isOpen = shell.classList.toggle('is-open');
-    trigger.setAttribute('aria-expanded', String(isOpen));
-    label.textContent = isOpen ? 'Hide Developer Mode apps' : 'Show Developer Mode apps';
-  });
-}
-
-// scroll reveal fallback: only runs on browsers that don't support
-// animation-timeline: view() — see the @supports split in the
-// stylesheet. browsers with native support never load this listener's
-// work into anything visible, since .needs-js-reveal never gets the
-// opacity:0 starting state there
-function wireUpScrollRevealFallback() {
-  if (CSS.supports('animation-timeline: view()')) return;
-
-  const revealTargets = document.querySelectorAll('.reveal-on-scroll.needs-js-reveal');
-  if (revealTargets.length === 0) return;
-
-  const watcher = new IntersectionObserver((entries, observer) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      entry.target.classList.add('is-revealed');
-      observer.unobserve(entry.target);
-    }
-  }, { threshold: 0.15 });
-
-  for (const target of revealTargets) watcher.observe(target);
-}
-
-// copy-to-clipboard on the install codeblock
-function wireUpCopyButton() {
-  const button = document.querySelector('[data-copy-trigger]');
-  const block  = document.querySelector('[data-copy-target]');
-  if (!button || !block) return;
-
-  // prevents rapid double-clicks from racing the "Copied" → "Copy" reset
-  let copyInProgress = false;
-
-  button.addEventListener('click', async () => {
-    if (copyInProgress) return;
-    copyInProgress = true;
-
-    // pull the command text back out, skipping the button itself and
-    // the comment line — just the actual commands someone would run
-    const commandLines = [...block.childNodes]
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .map((node) => node.textContent.trim())
-      .filter(Boolean);
-
-    const textToCopy = commandLines.join('\n');
-
-    try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error('clipboard API unavailable');
-      }
-      await navigator.clipboard.writeText(textToCopy);
-      button.textContent = 'Copied';
-      button.classList.add('did-copy');
-    } catch (error) {
-      // clipboard API can fail on insecure origins or denied permission —
-      // fail quietly rather than throwing an error at someone trying to
-      // run a getting-started command
-      console.error('clipboard write failed:', error);
-      button.textContent = 'Copy failed';
-    } finally {
-      await wait(1600);
-      button.textContent = 'Copy';
-      button.classList.remove('did-copy');
-      copyInProgress = false;
-    }
-  });
-}
-
-// downloads: fetches the latest release straight from GitHub's public
-// API client-side, so asset names/sizes/checksums/links stay accurate
-// forever instead of being hand-typed here and going stale. GitHub's
-// unauthenticated API caps out at 60 req/hour per visitor IP — fine for
-// a low-traffic project page, but real people WILL occasionally hit it,
-// so a failed or rate-limited call falls back to a plain link out to
-// the releases page rather than showing a broken empty state
-const PLATFORM_MATCHERS = [
-  { test: /win/i,            label: 'Windows (x64)',         icon: '🪟' },
-  { test: /osx|mac|darwin/i, label: 'macOS (Apple Silicon)', icon: '🍎' },
-  { test: /linux/i,          label: 'Linux (x64)',           icon: '🐧' },
-];
-
-function platformForAsset(name) {
-  return PLATFORM_MATCHERS.find((p) => p.test.test(name))
-    ?? { label: name, icon: '📦' };
-}
-
-function formatBytes(bytes) {
-  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '—';
-  const mb = bytes / (1024 * 1024);
-  return `${mb.toFixed(0)} MB`;
-}
-
-function formatReleaseDate(iso) {
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric',
-    }).format(new Date(iso));
-  } catch {
-    return '';
-  }
-}
-
-async function wireUpDownloads() {
-  const root = document.querySelector('[data-downloads-root]');
-  if (!root) return;
-
-  const loadingEl = root.querySelector('[data-downloads-loading]');
-  const errorEl   = root.querySelector('[data-downloads-error]');
-  const contentEl = root.querySelector('[data-downloads-content]');
-  const tagEl     = root.querySelector('[data-downloads-tag]');
-  const dateEl    = root.querySelector('[data-downloads-date]');
-  const gridEl    = root.querySelector('[data-downloads-grid]');
-
-  function showError() {
-    loadingEl.hidden = true;
-    errorEl.hidden = false;
-  }
-
-  function showContent() {
-    loadingEl.hidden = true;
-    // remove the error banner outright rather than just hiding it — a
-    // hidden-attribute toggle is state that can regress; deleting the
-    // node means there's nothing left to accidentally show again
-    errorEl.remove();
-    contentEl.hidden = false;
-  }
-
-  try {
-    const res = await fetchWithTimeout(
-      'https://api.github.com/repos/NovaByteTeam/novabyte-os/releases/tags/NBOSP-PREBUILT',
-      { headers: ghHeaders() },
-    );
-
-    // covers rate-limit (403) and any other non-2xx without guessing at
-    // GitHub's exact error shape — we only need to know it didn't work
-    if (!res.ok) {
-      showError();
-      return;
-    }
-
-    const release = await res.json();
-    const assets = Array.isArray(release.assets)
-      ? release.assets.filter((a) => a.name.endsWith('.zip'))
-      : [];
-
-    if (assets.length === 0) {
-      showError();
-      return;
-    }
-
-    tagEl.textContent = release.tag_name || 'Latest';
-    dateEl.textContent = release.published_at
-      ? `Updated ${formatReleaseDate(release.published_at)}`
-      : '';
-
-    gridEl.replaceChildren();
-    for (const asset of assets) {
-      gridEl.appendChild(buildDownloadCard(asset));
-    }
-
-    showContent();
-  } catch (error) {
-    // network failure, blocked request, malformed JSON, or timeout —
-    // all land here
-    console.error('[NovaByte] downloads fetch failed:', error);
-    showError();
-  }
-}
-
-function buildDownloadCard(asset) {
-  const platform = platformForAsset(asset.name);
-
-  const card = document.createElement('a');
-  card.className = 'download-card glow-surface glass';
-  card.href = asset.browser_download_url;
-  card.rel = 'noopener noreferrer';
-
-  const glowLayer = document.createElement('div');
-  glowLayer.className = 'glow-layer';
-
-  const platformRow = document.createElement('div');
-  platformRow.className = 'platform';
-  platformRow.textContent = `${platform.icon} ${platform.label}`;
-
-  const filename = document.createElement('div');
-  filename.className = 'filename';
-  filename.textContent = asset.name;
-
-  const filesize = document.createElement('div');
-  filesize.className = 'filesize';
-  filesize.textContent = formatBytes(asset.size);
-
-  card.append(glowLayer, platformRow, filename, filesize);
-  return card;
-}
-
-// app filter: plain substring match against each row's data-app-keywords
-// (falls back to the visible name/desc text if keywords are missing).
-// hides non-matching rows rather than re-rendering the list — the rows
-// already exist in the DOM, so this is just a hidden-attribute toggle
-function wireUpAppFilter() {
-  const input     = document.querySelector('[data-app-filter-input]');
-  const rows      = document.querySelectorAll('[data-app-row]');
-  const count     = document.querySelector('[data-app-filter-count]');
-  const empty     = document.querySelector('[data-app-filter-empty]');
-  const emptyTerm = document.querySelector('[data-app-filter-empty-term]');
-  if (!input || !rows.length) return;
-
-  function applyFilter() {
-    const term = input.value.trim().toLowerCase();
-    let visible = 0;
-
-    for (const row of rows) {
-      const haystack = (row.dataset.appKeywords || row.textContent).toLowerCase();
-      const matches = term === '' || haystack.includes(term);
-      row.hidden = !matches;
-      if (matches) visible++;
-    }
-
-    count.textContent = term ? `${visible} match${visible === 1 ? '' : 'es'}` : '';
-    if (empty) {
-      empty.hidden = visible !== 0 || term === '';
-      if (emptyTerm) emptyTerm.textContent = input.value.trim();
-    }
-  }
-
-  input.addEventListener('input', applyFilter);
-}
-
-// theme/accent preview: tints THIS page (not the real OS) using the
-// exact --bg-base/--bg-elevated/--accent hex values pulled from
-// NBOSP/js/core/ui/desktop.js. purely cosmetic — swaps a few of our own
-// CSS variables, doesn't touch the site's actual token system
-function wireUpThemePreview() {
-  const themeGrid  = document.querySelector('[data-theme-grid]');
-  const accentGrid = document.querySelector('[data-accent-grid]');
-  if (!themeGrid || !accentGrid) return;
-
-  const root = document.documentElement;
-
-  // this page's own token system is dark-first (--ink is near-white,
-  // --bg-void is near-black), so previewing nova-light isn't just a
-  // background swap — text/border tokens need to invert too, or you
-  // get white text on a white background. these are the page's own
-  // *original* dark values, captured once, so we can restore them
-  // cleanly when the person switches back to any dark theme
-  const computed = getComputedStyle(root);
-  const darkInkDefaults = {
-    '--ink':                  computed.getPropertyValue('--ink').trim(),
-    '--ink-dim':              computed.getPropertyValue('--ink-dim').trim(),
-    '--ink-faint':            computed.getPropertyValue('--ink-faint').trim(),
-    '--border-hairline':      computed.getPropertyValue('--border-hairline').trim(),
-    '--border-hairline-bright': computed.getPropertyValue('--border-hairline-bright').trim(),
-  };
-
-  function setChecked(group, activeBtn) {
-    for (const btn of group.querySelectorAll('[role="radio"]')) {
-      btn.setAttribute('aria-checked', String(btn === activeBtn));
-    }
-  }
-
-  themeGrid.addEventListener('click', (event) => {
-    const btn = event.target.closest('.theme-swatch');
-    if (!btn) return;
-    const btnStyle = getComputedStyle(btn);
-    const base     = btnStyle.getPropertyValue('--sw-base').trim();
-    const elevated = btnStyle.getPropertyValue('--sw-elevated').trim();
-    const accent   = btnStyle.getPropertyValue('--sw-accent').trim();
-    const isLight  = btn.dataset.isLight === 'true';
-
-    root.style.setProperty('--bg-void', base);
-    root.style.setProperty('--bg-panel', elevated);
-    root.style.setProperty('--bg-panel-raised', elevated);
-    root.style.setProperty('--glow-primary', accent);
-    root.style.setProperty('--glow-primary-soft', `color-mix(in oklch, ${accent} 12%, transparent)`);
-
-    if (isLight) {
-      root.style.setProperty('--ink', btn.dataset.ink);
-      root.style.setProperty('--ink-dim', btn.dataset.inkDim);
-      root.style.setProperty('--ink-faint', btn.dataset.inkFaint);
-      root.style.setProperty('--border-hairline', btn.dataset.border);
-      root.style.setProperty('--border-hairline-bright', btn.dataset.border);
-    } else {
-      for (const [prop, value] of Object.entries(darkInkDefaults)) {
-        root.style.setProperty(prop, value);
-      }
-    }
-
-    setChecked(themeGrid, btn);
-    // switching theme resets which accent reads as "active" back to
-    // that theme's own default, same behavior as the real Settings app
-    setChecked(accentGrid, accentGrid.querySelector(`[data-accent="${accent}"]`) ?? null);
-  });
-
-  accentGrid.addEventListener('click', (event) => {
-    const btn = event.target.closest('.accent-swatch');
-    if (!btn) return;
-    const accent = btn.dataset.accent;
-    root.style.setProperty('--glow-primary', accent);
-    root.style.setProperty('--glow-primary-soft', `color-mix(in oklch, ${accent} 12%, transparent)`);
-    setChecked(accentGrid, btn);
-  });
-}
-
-// command palette: native <dialog>, opened via Cmd/Ctrl+K or the header
-// button. results are just the page's own sections — filtered client
-// side, arrow-key navigable, no framework needed for six items
-function wireUpCommandPalette() {
-  const dialog   = document.querySelector('[data-palette-dialog]');
-  const trigger  = document.querySelector('[data-palette-trigger]');
-  const input    = document.querySelector('[data-palette-input]');
-  const list     = document.querySelector('[data-palette-results]');
-  const closeBtn = document.querySelector('[data-palette-close]');
-  if (!dialog || !input || !list) return;
-
-  const sections = [
-    { id: 'what',         title: 'What it is',    desc: 'Who NBOSP is for' },
-    { id: 'apps',         title: 'Apps',          desc: 'Fourteen apps, pulled from source' },
-    { id: 'themes',       title: 'Themes',        desc: '7 themes, 8 accents — live preview' },
-    { id: 'architecture', title: 'Architecture',  desc: 'How the pieces talk to each other' },
-    { id: 'browse',       title: 'Browse',        desc: 'Live file browser, pulled from GitHub' },
-    { id: 'requirements', title: 'Requirements',  desc: 'Node, disk, RAM, OS' },
-    { id: 'versions',     title: 'Versions',      desc: 'What\'s current, what\'s dead' },
-    { id: 'downloads',    title: 'Downloads',     desc: 'Pre-built binaries + repo stats' },
-    { id: 'faq',          title: 'FAQ',           desc: 'Common questions' },
-    { id: 'license',      title: 'License',       desc: 'Apache 2.0 vs closed source' },
-    { id: 'start',        title: 'Get started',   desc: 'Clone and run' },
-  ];
-
-  let selectedIndex = 0;
-  let filtered = sections;
-
-  function render() {
-    list.replaceChildren();
-
-    filtered.forEach((section, i) => {
-      const item = document.createElement('li');
-      item.className = 'palette-result';
-      item.setAttribute('role', 'option');
-      item.id = `palette-option-${i}`;
-      item.setAttribute('aria-selected', String(i === selectedIndex));
-      item.dataset.sectionId = section.id;
-
-      const title = document.createElement('span');
-      title.className = 'palette-result-title';
-      title.textContent = section.title;
-
-      const desc = document.createElement('span');
-      desc.className = 'palette-result-desc';
-      desc.textContent = section.desc;
-
-      item.append(title, desc);
-      item.addEventListener('click', () => goTo(section.id));
-      list.appendChild(item);
+  gridEmpty.classList.add('hidden');
+
+  for (const app of apps) {
+    const card = document.createElement('article');
+    card.className = 'app-card';
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', `View ${app.name}`);
+    card.dataset.id = app.id;
+
+    const badges = (app.categories ?? []).map(c =>
+      `<span class="badge">${c}</span>`
+    ).join('');
+
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="card-icon">${iconSvg(app.icon)}</div>
+        <div class="card-header">
+          <div class="card-name">${escHtml(app.name)}</div>
+          <div class="card-author">${escHtml(app.author ?? '')}</div>
+        </div>
+      </div>
+      <p class="card-desc">${escHtml(app.description ?? '')}</p>
+      <div class="card-footer">
+        <div class="card-badges">${badges}</div>
+        <span class="card-version">v${escHtml(app.version)}</span>
+      </div>
+    `;
+
+    card.addEventListener('click', () => openModal(app));
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(app); }
     });
 
-    // aria-activedescendant tells screen readers which option is
-    // "current" without moving focus away from the input — the standard
-    // listbox pattern
-    const current = list.children[selectedIndex];
-    if (current) list.setAttribute('aria-activedescendant', current.id);
-    else list.removeAttribute('aria-activedescendant');
-  }
-
-  function goTo(id) {
-    dialog.close();
-    showSection(id);
-  }
-
-  const isMac = (() => {
-    // userAgentData is the modern, non-deprecated way to get this, but
-    // it's Chromium-only right now — Safari/Firefox fall through to the
-    // old fields
-    const uaPlatform = navigator.userAgentData?.platform;
-    if (uaPlatform) return uaPlatform.toLowerCase().includes('mac');
-    const legacy = (navigator.platform || navigator.userAgent || '').toLowerCase();
-    return legacy.includes('mac');
-  })();
-
-  // pointer:coarse = touch-primary input (phones, tablets). Deliberately
-  // not a screen-width check — a touchscreen laptop with a keyboard
-  // should still see the ⌘K/Ctrl K hint, and a small desktop window
-  // shouldn't lose it
-  const noHardwareKeyboard = matchMedia('(pointer: coarse)').matches;
-
-  function open() {
-    if (dialog.open) return;
-    input.value = '';
-    filtered = sections;
-    selectedIndex = 0;
-    render();
-    dialog.showModal();
-    // showModal() moves focus to the dialog itself first; queue the
-    // input focus for the next frame so it actually sticks
-    requestAnimationFrame(() => input.focus());
-  }
-
-  trigger?.addEventListener('click', open);
-
-  const kbd = trigger?.querySelector('.palette-kbd');
-  const triggerLabel = trigger?.querySelector('span');
-  if (kbd) {
-    kbd.textContent = noHardwareKeyboard ? '' : (isMac ? '⌘K' : 'Ctrl K');
-    kbd.hidden = noHardwareKeyboard;
-  }
-  if (triggerLabel && noHardwareKeyboard) triggerLabel.textContent = 'Search';
-
-  // the ↑↓ / ↵ / esc hint row is meaningless without a physical keyboard —
-  // hide it rather than show controls the person has no way to press
-  const paletteHint = document.querySelector('.palette-hint');
-  if (paletteHint) paletteHint.hidden = noHardwareKeyboard;
-
-  document.addEventListener('keydown', (event) => {
-    const modifierHeld = isMac ? event.metaKey : event.ctrlKey;
-    if (modifierHeld && event.key.toLowerCase() === 'k') {
-      event.preventDefault();
-      dialog.open ? dialog.close() : open();
-    }
-  });
-
-  closeBtn?.addEventListener('click', () => dialog.close());
-
-  // clicking the ::backdrop lands directly on the dialog element itself
-  // (not a child) — that's the standard way to detect a backdrop click.
-  // without this there's no way to dismiss the palette on a device with
-  // no keyboard (no Esc key, and Ctrl K/⌘K obviously isn't reachable
-  // either)
-  dialog.addEventListener('click', (event) => {
-    if (event.target === dialog) dialog.close();
-  });
-
-  input.addEventListener('input', () => {
-    const term = input.value.trim().toLowerCase();
-    filtered = sections.filter((s) =>
-      s.title.toLowerCase().includes(term) || s.desc.toLowerCase().includes(term),
-    );
-    selectedIndex = 0;
-    render();
-  });
-
-  input.addEventListener('keydown', (event) => {
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault();
-        selectedIndex = Math.min(selectedIndex + 1, filtered.length - 1);
-        render();
-        break;
-      case 'ArrowUp':
-        event.preventDefault();
-        selectedIndex = Math.max(selectedIndex - 1, 0);
-        render();
-        break;
-      case 'Home':
-        event.preventDefault();
-        selectedIndex = 0;
-        render();
-        break;
-      case 'End':
-        event.preventDefault();
-        selectedIndex = Math.max(filtered.length - 1, 0);
-        render();
-        break;
-      case 'Enter':
-        event.preventDefault();
-        if (filtered[selectedIndex]) goTo(filtered[selectedIndex].id);
-        break;
-    }
-  });
-}
-
-// live repo stats + changelog: routed through the Cloudflare Worker
-// proxy (GH_PROXY), which holds the real token server-side
-async function wireUpRepoStats() {
-  const starsEl  = document.querySelector('[data-stat-stars]');
-  const forksEl  = document.querySelector('[data-stat-forks]');
-  const issuesEl = document.querySelector('[data-stat-issues]');
-  if (!starsEl) return;
-
-  try {
-    const res = await fetchWithTimeout(`${GH_PROXY}/repo`, { headers: ghHeaders() });
-    if (!res.ok) return;
-    const repo = await res.json();
-    starsEl.textContent  = formatCompactNumber(repo.stargazers_count);
-    forksEl.textContent  = formatCompactNumber(repo.forks_count);
-    issuesEl.textContent = formatCompactNumber(repo.open_issues_count);
-  } catch (error) {
-    console.error('[NovaByte] repo stats fetch failed:', error);
+    grid.appendChild(card);
   }
 }
 
-function formatCompactNumber(n) {
-  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
-  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
-  return String(n);
+// ── Modal ──────────────────────────────────────────────────────────────────
+
+function openModal(app) {
+  modalIcon.innerHTML = iconSvg(app.icon);
+  modalName.textContent = app.name;
+  modalAuthor.textContent = app.author ?? '';
+  modalDesc.textContent = app.description ?? '';
+  modalId.textContent = app.id;
+  modalVersion.textContent = `v${app.version}`;
+  modalSize.textContent = app.size ?? '—';
+
+  modalBadges.innerHTML = (app.categories ?? []).map(c =>
+    `<span class="badge">${escHtml(c)}</span>`
+  ).join('');
+
+  modalDownload.href = app.file;
+  modalDownload.download = app.file.split('/').pop();
+
+  backdrop.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  modalClose.focus();
 }
 
-async function wireUpChangelog() {
-  const drawer = document.querySelector('[data-changelog-drawer]');
-  const listEl = document.querySelector('[data-changelog-list]');
-  if (!drawer || !listEl) return;
-
-  // only fetch once the drawer is actually opened — no point spending
-  // the request budget on something most visitors won't expand
-  let loaded = false;
-  drawer.addEventListener('toggle', async () => {
-    if (!drawer.open || loaded) return;
-    loaded = true;
-
-    try {
-      const res = await fetchWithTimeout(
-        `${GH_PROXY}/commits?path=NBOSP&per_page=8`,
-        { headers: ghHeaders() },
-      );
-      if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-      const commits = await res.json();
-
-      if (!Array.isArray(commits) || commits.length === 0) {
-        listEl.replaceChildren(createChangelogEmptyMessage());
-        return;
-      }
-
-      listEl.replaceChildren();
-      for (const commit of commits) {
-        listEl.appendChild(buildChangelogEntry(commit));
-      }
-    } catch (error) {
-      console.error('[NovaByte] changelog fetch failed:', error);
-      listEl.replaceChildren(createChangelogErrorMessage());
-    }
-  });
+function closeModal() {
+  backdrop.classList.add('hidden');
+  document.body.style.overflow = '';
 }
 
-function buildChangelogEntry(commit) {
-  const link = document.createElement('a');
-  link.className = 'changelog-entry';
-  link.href = commit.html_url;
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-
-  const msg = document.createElement('div');
-  msg.className = 'changelog-msg';
-  // first line only — commit bodies can run long and this is a summary
-  // list, not a full diff viewer
-  msg.textContent = (commit.commit?.message || '').split('\n')[0];
-
-  const meta = document.createElement('div');
-  meta.className = 'changelog-meta';
-  const sha  = commit.sha ? commit.sha.slice(0, 7) : '';
-  const date = commit.commit?.author?.date ? formatReleaseDate(commit.commit.author.date) : '';
-  meta.textContent = [sha, date].filter(Boolean).join(' · ');
-
-  link.append(msg, meta);
-  return link;
-}
-
-function createChangelogEmptyMessage() {
-  const p = document.createElement('p');
-  p.className = 'changelog-loading';
-  p.textContent = 'No commits found.';
-  return p;
-}
-
-function createChangelogErrorMessage() {
-  const p = document.createElement('p');
-  p.className = 'changelog-loading';
-  p.textContent = "Couldn't load recent commits — ";
-
-  const link = document.createElement('a');
-  link.href = 'https://github.com/NovaByteTeam/novabyte-os/commits/main/NBOSP';
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-  link.textContent = 'view on GitHub';
-
-  p.append(link, '.');
-  return p;
-}
-
-// file preview modal: lazy-loads CodeMirror (only on first file click,
-// not on page load — no reason to ship a code editor to someone who
-// never opens the browser section) and renders whatever text file the
-// GitHub contents API handed back. Binaries and anything over ~300KB
-// just get a "use Download instead" message rather than trying to
-// syntax-highlight a font file or choke on a huge minified bundle
-function wireUpFilePreview() {
-  const dialog     = document.querySelector('[data-file-preview-dialog]');
-  const nameEl     = document.querySelector('[data-file-preview-name]');
-  const downloadEl = document.querySelector('[data-file-preview-download]');
-  const closeBtn   = document.querySelector('[data-file-preview-close]');
-  const loadingEl  = document.querySelector('[data-file-preview-loading]');
-  const errorEl    = document.querySelector('[data-file-preview-error]');
-  const toolargeEl = document.querySelector('[data-file-preview-toolarge]');
-  const binaryEl   = document.querySelector('[data-file-preview-binary]');
-  const editorEl   = document.querySelector('[data-file-preview-editor]');
-  if (!dialog) return null;
-
-  const MAX_PREVIEW_BYTES = 300_000;
-
-  // esm.sh bundles each package (and its deps) into one importable ESM
-  // module — no build step needed, works straight from a
-  // <script type="module"> scope. versions pinned to what was current
-  // on npm at time of writing; bump deliberately, don't float on `latest`
-  const CM_IMPORTS = {
-    state:      'https://esm.sh/@codemirror/state@6.7.1',
-    view:       'https://esm.sh/@codemirror/view@6.43.7',
-    language:   'https://esm.sh/@codemirror/language@6.12.4',
-    oneDark:    'https://esm.sh/@codemirror/theme-one-dark@6.1.3',
-    javascript: 'https://esm.sh/@codemirror/lang-javascript@6.2.5',
-    css:        'https://esm.sh/@codemirror/lang-css@6.3.1',
-    html:       'https://esm.sh/@codemirror/lang-html@6.4.11',
-    json:       'https://esm.sh/@codemirror/lang-json@6.0.2',
-    markdown:   'https://esm.sh/@codemirror/lang-markdown@6.5.1',
-  };
-
-  // extension -> which CM_IMPORTS key + exported language function to
-  // call. yaml/shell have no official @codemirror/lang- package, so
-  // they fall back to plain-text (still gets line numbers, just no
-  // highlighting) rather than pulling in a third-party mode
-  const LANG_MAP = {
-    js:   { mod: 'javascript', fn: (m) => m.javascript() },
-    mjs:  { mod: 'javascript', fn: (m) => m.javascript() },
-    jsx:  { mod: 'javascript', fn: (m) => m.javascript({ jsx: true }) },
-    cjs:  { mod: 'javascript', fn: (m) => m.javascript() },
-    ts:   { mod: 'javascript', fn: (m) => m.javascript({ typescript: true }) },
-    tsx:  { mod: 'javascript', fn: (m) => m.javascript({ jsx: true, typescript: true }) },
-    json: { mod: 'json',       fn: (m) => m.json() },
-    css:  { mod: 'css',        fn: (m) => m.css() },
-    html: { mod: 'html',       fn: (m) => m.html() },
-    htm:  { mod: 'html',       fn: (m) => m.html() },
-    md:   { mod: 'markdown',   fn: (m) => m.markdown() },
-  };
-  const BINARY_EXTENSIONS = new Set([
-    'png','jpg','jpeg','gif','webp','ico','woff','woff2','ttf','eot',
-    'mp3','mp4','wav','ogg','zip','gz','tar','pdf','exe','dll','wasm',
-  ]);
-
-  let cmCorePromise = null;
-  let cmEditor = null;
-  const langModuleCache = new Map();
-  const contentCache = createBoundedCache();
-
-  // core view/state/language/theme modules are shared across every
-  // file type, so they only ever get fetched once no matter how many
-  // different-language files get opened after
-  function ensureCodeMirrorCore() {
-    if (!cmCorePromise) {
-      cmCorePromise = Promise.all([
-        import(CM_IMPORTS.state),
-        import(CM_IMPORTS.view),
-        import(CM_IMPORTS.language),
-        import(CM_IMPORTS.oneDark),
-      ]).then(([state, view, language, oneDark]) => ({ state, view, language, oneDark }));
-    }
-    return cmCorePromise;
-  }
-
-  async function loadLanguageExtension(ext) {
-    const entry = LANG_MAP[ext];
-    if (!entry) return null; // no highlighting available, plain text is fine
-    let mod = langModuleCache.get(entry.mod);
-    if (!mod) {
-      mod = await import(CM_IMPORTS[entry.mod]);
-      langModuleCache.set(entry.mod, mod);
-    }
-    return entry.fn(mod);
-  }
-
-  function extensionOf(filename) {
-    const parts = filename.split('.');
-    return parts.length > 1 ? parts.pop().toLowerCase() : '';
-  }
-
-  function resetPanels() {
-    loadingEl.hidden = true;
-    errorEl.hidden = true;
-    toolargeEl.hidden = true;
-    binaryEl.hidden = true;
-    editorEl.hidden = true;
-  }
-
-  function showPanel(el) {
-    resetPanels();
-    el.hidden = false;
-  }
-
-  // prefer the ES2026 Uint8Array.fromBase64 when available — it handles
-  // UTF-8 correctly and skips the atob + manual byte loop. fall back to
-  // the atob path for browsers that haven't shipped it yet (atob chokes
-  // on embedded whitespace, so strip that first)
-  function decodeBase64Utf8(b64) {
-    const clean = b64.replace(/\s/g, '');
-    if (typeof Uint8Array.fromBase64 === 'function') {
-      const bytes = Uint8Array.fromBase64(clean);
-      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-    }
-    const binary = atob(clean);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-  }
-
-  async function openFile(path, name) {
-    nameEl.textContent = name;
-    const rawUrl = `https://raw.githubusercontent.com/NovaByteTeam/novabyte-os/main/${path}`;
-    downloadEl.href = rawUrl;
-    downloadEl.setAttribute('download', name);
-
-    dialog.showModal();
-    showPanel(loadingEl);
-
-    const ext = extensionOf(name);
-    if (BINARY_EXTENSIONS.has(ext)) {
-      showPanel(binaryEl);
-      return;
-    }
-
-    try {
-      let data = contentCache.get(path);
-      if (!data) {
-        const res = await fetchWithTimeout(
-          `${GH_PROXY}/contents/${path}`,
-          { headers: ghHeaders() },
-        );
-        if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-        data = await res.json();
-        contentCache.set(path, data);
-      }
-
-      if (typeof data.size === 'number' && data.size > MAX_PREVIEW_BYTES) {
-        showPanel(toolargeEl);
-        return;
-      }
-      if (!data.content) throw new Error('no content field in response');
-
-      const text = decodeBase64Utf8(data.content);
-
-      const { state, view, language, oneDark } = await ensureCodeMirrorCore();
-      const langExt = await loadLanguageExtension(ext);
-
-      // destroy any previous editor before creating a new one — without
-      // this, opening a second file leaks the first editor's event
-      // listeners and DOM state
-      cmEditor?.destroy();
-      editorEl.replaceChildren();
-      showPanel(editorEl);
-
-      // fresh EditorView each time rather than reusing one — simplest
-      // way to fully reset state between files without hand-rolling a
-      // "swap the document" dispatch that also has to reset extensions
-      cmEditor = new view.EditorView({
-        state: state.EditorState.create({
-          doc: text,
-          extensions: [
-            view.lineNumbers(),
-            language.syntaxHighlighting(language.defaultHighlightStyle, { fallback: true }),
-            oneDark.oneDark,
-            ...(langExt ? [langExt] : []),
-            state.EditorState.readOnly.of(true),
-            view.EditorView.editable.of(false),
-          ],
-        }),
-        parent: editorEl,
-      });
-    } catch (error) {
-      console.error('[NovaByte] file preview failed:', error);
-      cmEditor?.destroy();
-      cmEditor = null;
-      showPanel(errorEl);
-    }
-  }
-
-  function close() {
-    dialog.close();
-    cmEditor?.destroy();
-    cmEditor = null;
-    editorEl.replaceChildren();
-  }
-
-  closeBtn?.addEventListener('click', close);
-  dialog.addEventListener('click', (event) => {
-    // clicking the ::backdrop lands directly on the dialog element
-    // itself (not a child), that's the standard way to detect a
-    // backdrop click
-    if (event.target === dialog) close();
-  });
-
-  // exposed so the file browser's row click handler can call it
-  return { openFile };
-}
-
-// live file browser: routed through the Cloudflare Worker proxy
-// (GH_PROXY), which holds the real token server-side — visitors get
-// the authenticated 5,000/hr rate limit without the token ever
-// touching the client
-function wireUpFileBrowser(filePreview) {
-  const root = document.querySelector('[data-browser-root]');
-  if (!root) return;
-
-  const loadingEl = root.querySelector('[data-browser-loading]');
-  const errorEl   = root.querySelector('[data-browser-error]');
-  const tableEl   = root.querySelector('[data-browser-table]');
-  const bodyEl    = root.querySelector('[data-browser-body]');
-  const pathEl    = root.querySelector('[data-browser-path-current]');
-
-  const ROOT_PATH = 'NBOSP';
-
-  // both caches persist for the whole page session — the repo's history
-  // for a given path doesn't change while someone's browsing, so
-  // there's no reason to ever fetch the same path twice. this is the
-  // actual fix for the rate limit problem: without it, revisiting a
-  // folder you've already opened costs another N+1 requests for no
-  // reason
-  const listingCache = createBoundedCache();
-  const commitCache  = createBoundedCache();
-
-  function showLoading() {
-    loadingEl.hidden = false;
-    errorEl.hidden = true;
-    tableEl.hidden = true;
-  }
-
-  function showError() {
-    loadingEl.hidden = true;
-    errorEl.hidden = false;
-    tableEl.hidden = true;
-  }
-
-  function showTable() {
-    loadingEl.hidden = true;
-    errorEl.hidden = true;
-    tableEl.hidden = false;
-  }
-
-  // Intl.RelativeTimeFormat matches GitHub's own "3 days ago" /
-  // "7 hours ago" style rather than a hand-rolled calculation
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  const RELATIVE_TIME_UNITS = [
-    ['year',   31_536_000],
-    ['month',   2_592_000],
-    ['week',      604_800],
-    ['day',        86_400],
-    ['hour',        3_600],
-    ['minute',         60],
-  ];
-
-  function formatRelativeTime(iso) {
-    const then = new Date(iso).getTime();
-    const diffSeconds = Math.max(0, (Date.now() - then) / 1000);
-    for (const [unit, secondsInUnit] of RELATIVE_TIME_UNITS) {
-      const value = Math.floor(diffSeconds / secondsInUnit);
-      if (value >= 1) return rtf.format(-value, unit);
-    }
-    return rtf.format(0, 'second');
-  }
-
-  async function fetchLastCommit(path) {
-    if (commitCache.has(path)) return commitCache.get(path);
-    try {
-      const res = await fetchWithTimeout(
-        `${GH_PROXY}/commits?path=${encodeURIComponent(path)}&per_page=1`,
-        { headers: ghHeaders() },
-      );
-      if (!res.ok) {
-        commitCache.set(path, null);
-        return null;
-      }
-      const commits = await res.json();
-      const result = Array.isArray(commits) ? (commits[0] ?? null) : null;
-      commitCache.set(path, result);
-      return result;
-    } catch (error) {
-      console.warn('[NovaByte] last-commit fetch failed for', path, error);
-      commitCache.set(path, null);
-      return null;
-    }
-  }
-
-  async function loadPath(path) {
-    showLoading();
-    pathEl.textContent = path === ROOT_PATH ? '' : path.slice(ROOT_PATH.length + 1);
-
-    try {
-      let entries = listingCache.get(path);
-      if (!entries) {
-        const res = await fetchWithTimeout(
-          `${GH_PROXY}/contents/${path}`,
-          { headers: ghHeaders() },
-        );
-        if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-        entries = await res.json();
-        if (!Array.isArray(entries)) throw new Error('unexpected contents response');
-        listingCache.set(path, entries);
-      }
-
-      // dirs first, then files, both alphabetical — matches the
-      // convention every git host's file browser already uses
-      // (sort a copy — entries may be the same cached array object
-      // returned on the next visit, don't want repeated in-place sorts
-      // silently relying on already-sorted input)
-      const sorted = [...entries].sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-
-      // last-commit lookups run in parallel — sequential would mean a
-      // ~15-entry folder taking 15x one request's latency to paint.
-      // fetchLastCommit itself is cached per-path, so revisiting a
-      // folder costs zero additional requests here.
-      // allSettled instead of all so a single failed commit lookup
-      // doesn't nuke the whole table — the row just shows "—" for
-      // its commit info
-      const results = await Promise.allSettled(
-        sorted.map(async (entry) => ({ entry, commit: await fetchLastCommit(entry.path) })),
-      );
-      const withCommits = results.map((r) =>
-        r.status === 'fulfilled' ? r.value : { entry: null, commit: null },
-      ).filter((r) => r.entry !== null);
-
-      bodyEl.replaceChildren();
-
-      if (path !== ROOT_PATH) {
-        const parentPath = path.split('/').slice(0, -1).join('/') || ROOT_PATH;
-        bodyEl.appendChild(buildRow({
-          name: '..', isDir: true, path: parentPath,
-          commitMsg: '', commitUrl: '', relTime: '',
-        }));
-      }
-
-      for (const { entry, commit } of withCommits) {
-        bodyEl.appendChild(buildRow({
-          name: entry.name,
-          isDir: entry.type === 'dir',
-          path: entry.path,
-          commitMsg: commit?.commit?.message?.split('\n')[0] || '—',
-          commitUrl: commit?.html_url || '',
-          relTime: commit?.commit?.author?.date
-            ? formatRelativeTime(commit.commit.author.date)
-            : '—',
-        }));
-      }
-
-      showTable();
-    } catch (error) {
-      console.error('[NovaByte] file browser fetch failed:', error);
-      showError();
-    }
-  }
-
-  function buildRow({ name, isDir, path, commitMsg, commitUrl, relTime }) {
-    const tr = document.createElement('tr');
-
-    const nameTd = document.createElement('td');
-    const nameSpan = document.createElement('span');
-    nameSpan.className = `browser-name${isDir ? ' is-dir' : ' is-file'}`;
-
-    const icon = document.createElement('span');
-    icon.className = 'browser-icon';
-    icon.textContent = isDir ? '📁' : '📄';
-    nameSpan.appendChild(icon);
-    nameSpan.append(name);
-
-    if (isDir) {
-      nameSpan.addEventListener('click', () => loadPath(path));
-    } else {
-      nameSpan.addEventListener('click', () => filePreview?.openFile(path, name));
-    }
-    nameTd.appendChild(nameSpan);
-
-    const msgTd = document.createElement('td');
-    msgTd.className = 'browser-commit-msg';
-    if (commitUrl) {
-      const link = document.createElement('a');
-      link.href = commitUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = commitMsg;
-      msgTd.appendChild(link);
-    } else {
-      msgTd.textContent = commitMsg;
-    }
-
-    const dateTd = document.createElement('td');
-    dateTd.className = 'browser-commit-date';
-    dateTd.textContent = relTime;
-
-    tr.append(nameTd, msgTd, dateTd);
-    return tr;
-  }
-
-  loadPath(ROOT_PATH);
-}
-
-// smooth scroll: hands scrolling to Lenis so wheel/touch input gets
-// lerp'd into momentum instead of the browser's default instant jump.
-// left off entirely when reduced-motion is on — Lenis's inertia IS the
-// kind of motion that setting exists to suppress, so the honest move is
-// to just not run it, not to run it with duration:0
-function wireUpSmoothScroll() {
-  if (reduceMotionQuery.matches || typeof Lenis === 'undefined') return;
-
-  const lenis = new Lenis({
-    duration: 1.1,
-    easing: (t) => 1 - Math.pow(1 - t, 3), // easeOutCubic — matches --ease-smooth's feel
-    wheelMultiplier: 1,
-    autoRaf: true,
-    anchors: true, // keeps in-page #hash links smooth too
-    // Lenis intercepts touch scrolling by default and re-drives it in JS,
-    // which fights the browser's native GPU-accelerated touch physics —
-    // that's what makes smooth-scroll libraries feel janky/rubber-bandy
-    // on mobile. syncTouch:false leaves touch scroll to the platform and
-    // only takes over wheel input + anchor-link jumps (still smooth
-    // there)
-    syncTouch: false,
-    // data-lenis-prevent on .file-preview-body / .palette-results
-    // covers the known scrollers; this is the fallback so any future
-    // scrollable content added inside a <dialog> doesn't reopen this
-    // same bug
-    prevent: (node) => Boolean(node.closest?.('dialog')),
-  });
-
-  // if the person flips reduced-motion on mid-session, drop back to
-  // native scroll rather than leaving a mismatched preference running
-  // (one-way trip: re-enabling would need a full re-init, which is
-  // vanishingly rare in practice)
-  reduceMotionQuery.addEventListener('change', () => {
-    if (reduceMotionQuery.matches) lenis.destroy();
-  });
-}
-
-// global error reporting — surfaces uncaught errors and rejected
-// promises to the console with a consistent prefix so they're easy to
-// filter. in production these would route to an observability backend
-function reportGlobalError(source, error) {
-  const message = Error.isError(error) ? error.message : String(error);
-  console.error('[NovaByte]', source, message, error?.stack ?? '');
-}
-
-window.addEventListener('error', (event) => {
-  reportGlobalError('uncaught error', event.error ?? event.message);
+modalClose.addEventListener('click', closeModal);
+backdrop.addEventListener('click', e => {
+  if (e.target === backdrop) closeModal();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !backdrop.classList.contains('hidden')) closeModal();
 });
 
-window.addEventListener('unhandledrejection', (event) => {
-  reportGlobalError('unhandled rejection', event.reason);
+// ── Category filter ────────────────────────────────────────────────────────
+
+document.querySelector('.category-bar').addEventListener('click', e => {
+  const btn = e.target.closest('.cat-btn');
+  if (!btn) return;
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('is-active'));
+  btn.classList.add('is-active');
+  activeCategory = btn.dataset.cat;
+  renderGrid();
 });
 
-// kick everything off — module scripts defer automatically, so the DOM
-// is fully parsed by the time we get here
-const bootContainer = document.querySelector('[data-boot-sequence]');
-if (bootContainer) typeOutBootSequence(bootContainer);
+// ── Search ─────────────────────────────────────────────────────────────────
 
-wireUpSmoothScroll();
-wireUpGlowTracking();
-wireUpAnimationRelease();
-wireUpNav();
-wireUpDevAccordion();
-wireUpScrollRevealFallback();
-wireUpCopyButton();
-wireUpDownloads();
-wireUpAppFilter();
-wireUpThemePreview();
-wireUpCommandPalette();
-wireUpRepoStats();
-wireUpChangelog();
-const filePreview = wireUpFilePreview();
-wireUpFileBrowser(filePreview);
+searchInput.addEventListener('input', () => {
+  searchQuery = searchInput.value;
+  renderGrid();
+});
+
+// ── Util ───────────────────────────────────────────────────────────────────
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+
+loadApps();
