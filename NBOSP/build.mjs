@@ -142,6 +142,15 @@ async function main() {
   rmrf(outDir);
   rmrf(stageDir);
 
+  // 1a. Build all app packages from source before staging. Generated .novaapp
+  // files are intentionally gitignored, so relying on local artifacts here
+  // would omit first-party packages from clean release builds.
+  console.log("Building NovaApp packages from source...");
+  execSync(`"${process.execPath}" "${path.join(nbospDir, "build-apps.mjs")}"`, {
+    cwd: nbospDir,
+    stdio: "inherit"
+  });
+
   // 2. Stage a clean copy of NBOSP (node_modules excluded — installed fresh
   // below, natively on this host, so any native modules like better-sqlite3
   // compile for THIS platform, not whatever OS the script last ran on)
@@ -160,7 +169,11 @@ async function main() {
       try {
         const pkg = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
         if (pkg?.manifest?.id && pkg?.manifest?.system === true) {
-          bundleManifest.push({ id: pkg.manifest.id, file: `js/apps/${name}` });
+          bundleManifest.push({
+            id: pkg.manifest.id,
+            file: `js/apps/${name}`,
+            ...(pkg.manifest.systemService === true ? { systemService: true } : {}),
+          });
         }
       } catch (e) {
         console.warn(`Skipping invalid bundled .novaapp ${name}:`, e.message);

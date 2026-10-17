@@ -3,7 +3,7 @@
   "name": "Music",
   "version": "3.0.2",
   "author": "NovaByteOfficial",
-  "description": "Music Player",
+  "description": "Play and manage your music in NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "music",

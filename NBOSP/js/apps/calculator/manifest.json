@@ -3,7 +3,7 @@
   "name": "Calculator",
   "version": "3.0.2",
   "author": "NovaByteOfficial",
-  "description": "High-efficiency, character-code driven arithmetic engine",
+  "description": "Perform everyday calculations with NovaByte's built-in calculator.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "calculator",

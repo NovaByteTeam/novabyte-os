@@ -3,7 +3,7 @@
   "name": "Search",
   "version": "3.0.2",
   "author": "NovaByteOfficial",
-  "description": "System Search",
+  "description": "Search NovaByte OS for apps and available system content.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "search",

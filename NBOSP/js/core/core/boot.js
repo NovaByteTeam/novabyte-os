@@ -622,6 +622,8 @@ async function startConfiguredHomeApp() {
     }
 
     for (const bundle of bundles) {
+      if (bundle.systemService === true) continue;
+
       let pkg;
       try {
         const response = await fetch(bundle.file, { cache: 'no-store' });

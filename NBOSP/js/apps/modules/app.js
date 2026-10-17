@@ -47,7 +47,7 @@ registerApp({
       { id: 'fs', path: 'js/core/services/fs.js' },
       { id: 'app-registry', path: 'js/platform/core/app-registry.js' },
       { id: 'app-permission-manager', path: 'js/platform/security/app-permission-manager.js' },
-      { id: 'system-events', path: 'js/core/events/system-events.js' },
+      { id: 'system-events', path: 'js/apps/system-events/service.js' },
       { id: 'base-utils', path: 'js/core/utils/base-utils.js' },
       { id: 'debug-overlay', path: 'js/core/utils/debug-overlay.js' },
     ];

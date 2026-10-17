@@ -2,7 +2,7 @@
   "id": "com.nbosp.launcher",
   "name": "Launcher",
   "version": "3.0.2",
-  "description": "Built-in NovaByte desktop launcher shell",
+  "description": "The NovaByte desktop shell for accessing apps and the operating system.",
   "author": "NovaByteOfficial",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

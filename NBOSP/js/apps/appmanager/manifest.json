@@ -2,7 +2,7 @@
   "id": "com.nbosp.appmanager",
   "name": "App Manager",
   "version": "3.0.2",
-  "description": "Install, manage, and customise .novaapp packages and web apps",
+  "description": "Install and manage NovaByte apps, including .novaapp packages and web apps.",
   "author": "NovaByteOfficial",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

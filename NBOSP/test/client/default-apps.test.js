@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 
 const serviceSource = readFileSync(
-  fileURLToPath(new URL('../../js/core/services/default-apps.js', import.meta.url)),
+  fileURLToPath(new URL('../../js/apps/default-apps/service.js', import.meta.url)),
   'utf8'
 );
 

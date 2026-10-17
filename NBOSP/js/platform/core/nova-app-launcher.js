@@ -741,7 +741,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         alwaysOnTop: !!appData.alwaysOnTop,
         startMinimized: !!appData.startMinimized,
         frame: appData.frame !== false,
-        // Capability manifest (js/core/services/default-apps.js reads this
+        // Capability manifest (js/apps/default-apps/service.js reads this
         // to offer the app as a Default Apps candidate). Was missing here —
         // same bug class as app-registry.js's registerApp()/initialize(),
         // just in this install path's separate config builder instead.

@@ -2,7 +2,7 @@
   "id": "com.nbosp.shell",
   "name": "Terminal",
   "version": "3.0.2",
-  "description": "NovaByte OS Terminal",
+  "description": "Run commands and interact with NovaByte OS through the terminal.",
   "author": "NovaByteOfficial",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

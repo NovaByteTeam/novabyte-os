@@ -3,7 +3,7 @@
   "name": "Calendar",
   "version": "3.0.2",
   "author": "NovaByteOfficial",
-  "description": "Calendar & Scheduling",
+  "description": "Create and manage calendar events and schedules.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "calendar",

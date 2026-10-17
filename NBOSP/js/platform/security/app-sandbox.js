@@ -3897,7 +3897,7 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:app:list', requestId, 'PERMISSION_DENIED', 'system:apps permission required');
     }
     // AppRegistry.installedApps is NOT what built-in apps register into —
-    // built-in apps call the global registerApp() in js/core/services/registry.js, which writes
+    // built-in apps call the global registerApp() in js/apps/registry/service.js, which writes
     // to OS.apps + the module-level APP_REGISTRY array. AppRegistry's own
     // store only ever gets entries from its initialize() localStorage
     // restore, so it's effectively empty for the running OS's actual app

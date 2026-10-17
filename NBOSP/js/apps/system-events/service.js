@@ -1553,11 +1553,3 @@ OS.events?.on?.('settings:changed', ({ key }) => {
   if (document.getElementById('launchpad')?.classList.contains('active')) renderLaunchpad();
   WM?.updateTaskbar?.();
 });
-
-// Kick off the OS boot sequence. Guarded so a missing boot() surfaces a clear
-// error instead of an unhandled ReferenceError.
-if (typeof boot === 'function') {
-  boot();
-} else {
-  console.error('[system-events] boot() is not defined — OS cannot start');
-}

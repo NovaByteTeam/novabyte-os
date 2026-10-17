@@ -248,9 +248,9 @@ async function loadSigningKey() {
 function createSigningPayload(pkg) {
   return JSON.stringify({
     novabyte_app: pkg.novabyte_app,
-    compiled_at: pkg.compiled_at,
     manifest: pkg.manifest,
     files: pkg.files,
+    compiled_at: pkg.compiled_at,
   });
 }
 
@@ -285,6 +285,18 @@ function signPackage(pkg, privateKey) {
     signer: DEFAULT_SIGNER,
     signature: signature.toString('hex'),
   };
+}
+
+function computePackageIntegrity(pkg) {
+  const hash = (data) => createHash('sha512').update(data).digest('hex');
+  const payloadHash = hash(createSigningPayload(pkg));
+  const fileHashes = Object.fromEntries(
+    Object.entries(pkg.files).map(([file, encoded]) => [
+      file,
+      hash(Buffer.from(encoded, 'base64')),
+    ])
+  );
+  return { method: 'sha512', payloadHash, fileHashes };
 }
 
 /**
@@ -401,6 +413,7 @@ async function buildOne(
     pkg,
     privateKey
   );
+  pkg.integrity = computePackageIntegrity(pkg);
 
   const outPath = path.join(
     appsDir,

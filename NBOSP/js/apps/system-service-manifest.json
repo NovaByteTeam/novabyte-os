@@ -1,0 +1,42 @@
+[
+  {
+    "id": "com.nbosp.service.event-log",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.notifications",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.scanner",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.system-dialogs",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.registry",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.default-apps",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.background-apps",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.server-events-bridge",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.calendar-notifier",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.system-events",
+    "entry": "service.js"
+  }
+]

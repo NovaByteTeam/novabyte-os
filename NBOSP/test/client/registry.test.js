@@ -270,7 +270,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
 
   it('registerApp adds to OS.apps and APP_REGISTRY', () => {
     vi.resetModules();
-    const mod = require('../../js/core/services/registry.js');
+    const mod = require('../../js/apps/registry/service.js');
     const cfg = { id: 'web-app', name: 'Web App', url: 'https://example.com' };
     if (typeof globalThis.registerApp === 'function') {
       globalThis.registerApp(cfg);
@@ -281,7 +281,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
 
   it('OS.openUrl routes http/https links through the selected OS default app', () => {
     vi.resetModules();
-    require('../../js/core/services/registry.js');
+    require('../../js/apps/registry/service.js');
     const createWindow = vi.fn(() => ({ id: 'win1' }));
     globalThis.WM = { createWindow };
     globalThis.nw = undefined;
@@ -299,7 +299,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
 
   it('OS.openUrl falls back to the built-in Browser when no resolver is present', () => {
     vi.resetModules();
-    require('../../js/core/services/registry.js');
+    require('../../js/apps/registry/service.js');
     const createWindow = vi.fn(() => ({ id: 'win1' }));
     globalThis.WM = { createWindow };
     globalThis.DefaultApps = undefined;
@@ -309,7 +309,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
 
   it('OS.openUrl blocks javascript: and data: URLs', () => {
     vi.resetModules();
-    require('../../js/core/services/registry.js');
+    require('../../js/apps/registry/service.js');
     const createWindow = vi.fn();
     globalThis.WM = { createWindow };
     globalThis.DefaultApps = { resolveHandler: vi.fn() };
@@ -321,7 +321,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
 
   it('OS.openMailto parses a full mailto URI', () => {
     vi.resetModules();
-    require('../../js/core/services/registry.js');
+    require('../../js/apps/registry/service.js');
     const createWindow = vi.fn(() => ({ id: 'win1' }));
     globalThis.WM = { createWindow };
     mockOS.openMailto('mailto:alice@example.com?subject=Hello&body=World&cc=bob@example.com&bcc=carol@example.com');
@@ -338,7 +338,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
 
   it('OS.openMailto handles a bare address', () => {
     vi.resetModules();
-    require('../../js/core/services/registry.js');
+    require('../../js/apps/registry/service.js');
     const createWindow = vi.fn(() => ({ id: 'win1' }));
     globalThis.WM = { createWindow };
     mockOS.openMailto('mailto:alice@example.com');
@@ -349,7 +349,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
 
   it('OS.openMailto ignores empty URLs', () => {
     vi.resetModules();
-    require('../../js/core/services/registry.js');
+    require('../../js/apps/registry/service.js');
     const createWindow = vi.fn();
     globalThis.WM = { createWindow };
     mockOS.openMailto('');
@@ -358,7 +358,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
   });
 });
 
-describe('WebAppManager (js/core/services/registry.js)', () => {
+describe('WebAppManager (js/apps/registry/service.js)', () => {
   beforeEach(() => {
     resetTestStorage();
     vi.resetModules();
@@ -367,7 +367,7 @@ describe('WebAppManager (js/core/services/registry.js)', () => {
 
   it('addApp persists to localStorage and returns an app object', () => {
     vi.resetModules();
-    const mod = require('../../js/core/services/registry.js');
+    const mod = require('../../js/apps/registry/service.js');
     const app = window.WebAppManager.addApp({ name: 'Test WA', url: 'https://wa.test' });
     expect(app.id).toBeDefined();
     expect(app.name).toBe('Test WA');
@@ -379,7 +379,7 @@ describe('WebAppManager (js/core/services/registry.js)', () => {
 
   it('getApp retrieves by id', () => {
     vi.resetModules();
-    const mod = require('../../js/core/services/registry.js');
+    const mod = require('../../js/apps/registry/service.js');
     const created = window.WebAppManager.addApp({ name: 'Find Me', url: 'https://find.me' });
     const found = window.WebAppManager.getApp(created.id);
     expect(found).not.toBeNull();
@@ -388,13 +388,13 @@ describe('WebAppManager (js/core/services/registry.js)', () => {
 
   it('getApp returns null for missing id', () => {
     vi.resetModules();
-    const mod = require('../../js/core/services/registry.js');
+    const mod = require('../../js/apps/registry/service.js');
     expect(window.WebAppManager.getApp('does-not-exist')).toBeNull();
   });
 
   it('removeApp deletes the app from storage', () => {
     vi.resetModules();
-    const mod = require('../../js/core/services/registry.js');
+    const mod = require('../../js/apps/registry/service.js');
     const created = window.WebAppManager.addApp({ name: 'Delete Me', url: 'https://del.me' });
     window.WebAppManager.removeApp(created.id);
     expect(window.WebAppManager.getApp(created.id)).toBeNull();
@@ -402,7 +402,7 @@ describe('WebAppManager (js/core/services/registry.js)', () => {
 
   it('launchApp increments launchCount and updates lastUsed', () => {
     vi.resetModules();
-    const mod = require('../../js/core/services/registry.js');
+    const mod = require('../../js/apps/registry/service.js');
     const created = window.WebAppManager.addApp({ name: 'Launch Me', url: 'https://launch.me' });
     window.WebAppManager.launchApp(created.id);
     const updated = window.WebAppManager.getApp(created.id);

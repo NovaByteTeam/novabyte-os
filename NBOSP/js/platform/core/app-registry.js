@@ -58,6 +58,16 @@ const AppRegistry = (() => {
     'com.nbosp.perf',
     'com.nbosp.permissions',
     'com.nbosp.sysaccess',
+    'com.nbosp.service.background-apps',
+    'com.nbosp.service.calendar-notifier',
+    'com.nbosp.service.default-apps',
+    'com.nbosp.service.event-log',
+    'com.nbosp.service.notifications',
+    'com.nbosp.service.registry',
+    'com.nbosp.service.scanner',
+    'com.nbosp.service.server-events-bridge',
+    'com.nbosp.service.system-dialogs',
+    'com.nbosp.service.system-events',
   ]);
 
   // ── Storage ────────────────────────────────────────────────────────────────
@@ -144,7 +154,7 @@ const AppRegistry = (() => {
             onDrop: app.onDrop ?? undefined,
             onClose: app.onClose ?? undefined,
           };
-          // registerApp() (js/core/services/registry.js) is the only thing
+          // registerApp() (js/apps/registry/service.js) is the only thing
           // that writes into APP_REGISTRY, which is what the launchpad and
           // taskbar actually iterate — see the comment in registerApp() in
           // this file. initialize() rebuilt OS.apps by hand above and never
@@ -276,7 +286,7 @@ const AppRegistry = (() => {
         manifest: app.manifest || undefined,
         allowNestedWebview: app.allowNestedWebview === true
           || app.manifest?.allowNestedWebview === true,
-        // Capability manifest (js/core/services/default-apps.js reads this
+        // Capability manifest (js/apps/default-apps/service.js reads this
         // to offer the app as a Default Apps candidate for any matching
         // protocol/extension). Optional — omitted rather than defaulted to
         // {} so DefaultApps' `if (!handles) continue` check works as

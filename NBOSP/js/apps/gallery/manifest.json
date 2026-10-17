@@ -3,7 +3,7 @@
   "name": "Gallery",
   "version": "3.0.2",
   "author": "NovaByteOfficial",
-  "description": "Image Viewer",
+  "description": "Browse and view images stored on your device.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "image",

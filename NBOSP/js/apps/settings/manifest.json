@@ -2,7 +2,7 @@
   "id": "com.nbosp.settings",
   "name": "Settings",
   "version": "3.0.2",
-  "description": "System Settings",
+  "description": "Configure NovaByte OS preferences, features, and system behavior.",
   "author": "NovaByteOfficial",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

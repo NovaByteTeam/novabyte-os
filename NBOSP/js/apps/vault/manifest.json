@@ -3,7 +3,7 @@
   "name": "Files",
   "version": "3.0.2",
   "author": "NovaByteOfficial",
-  "description": "File Manager",
+  "description": "Browse, organize, and manage files in NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "folder-open",

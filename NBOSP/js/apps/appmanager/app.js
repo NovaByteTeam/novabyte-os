@@ -1,5 +1,15 @@
 (function () {
   const APP_MANAGER_ID = 'com.nbosp.appmanager';
+  const DEV_ONLY_APP_IDS = new Set([
+    'com.nbosp.devconsole',
+    'com.nbosp.events',
+    'com.nbosp.inspector',
+    'com.nbosp.modules',
+    'com.nbosp.packages',
+    'com.nbosp.perf',
+    'com.nbosp.permissions',
+    'com.nbosp.sysaccess',
+  ]);
   const appManagerPackageFiles = window.__novaUnrestrictedPackage?.files || {};
   const osSvgIcon = window.svgIcon;
 
@@ -742,7 +752,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
         alwaysOnTop: !!appData.alwaysOnTop,
         startMinimized: !!appData.startMinimized,
         frame: appData.frame !== false,
-        // Capability manifest (js/core/services/default-apps.js reads this
+        // Capability manifest (js/apps/default-apps/service.js reads this
         // to offer the app as a Default Apps candidate). Was missing here —
         // same bug class as app-registry.js's registerApp()/initialize(),
         // just in this install path's separate config builder instead.
@@ -1202,6 +1212,17 @@ registerApp({
     }
 
     const APPS_KEY = 'nova_installed_apps';
+    const HIDDEN_SYSTEM_APP_IDS = new Set([
+      'com.nbosp.devconsole',
+      'com.nbosp.events',
+      'com.nbosp.inspector',
+      'com.nbosp.modules',
+      'com.nbosp.packages',
+      'com.nbosp.perf',
+      'com.nbosp.permissions',
+      'com.nbosp.sysaccess',
+      'com.nbosp.launcher',
+    ]);
     const LOG_KEY = 'nova_appmanager_log';
 
     // ── AbortController for clean teardown of all listeners ──
@@ -1241,7 +1262,10 @@ registerApp({
         const list = PackageStore?.loadRegistry
           ? PackageStore.loadRegistry()
           : JSON.parse(localStorage.getItem(APPS_KEY) || '[]');
-        return PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
+        const installed = PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
+        const services = window.SystemServiceLoader?.listLoadedServices?.() || [];
+        const serviceIds = new Set(services.map(service => service.id));
+        return [...installed.filter(app => !serviceIds.has(app.id)), ...services];
       } catch (e) {
         console.warn('[AppManager] Failed to load installed packages:', e);
         return [];
@@ -1251,9 +1275,9 @@ registerApp({
     function saveStoredApps(list) {
       try {
         if (PackageStore?.saveRegistry) {
-          PackageStore.saveRegistry(list);
+          PackageStore.saveRegistry(list.filter(app => !app.headlessSystemService));
         } else {
-          localStorage.setItem(APPS_KEY, JSON.stringify(list));
+          localStorage.setItem(APPS_KEY, JSON.stringify(list.filter(app => !app.headlessSystemService)));
         }
       } catch (e) {
         if (e.name === 'QuotaExceededError' || e.code === 22) {
@@ -1360,7 +1384,9 @@ registerApp({
     }
 
     let installedApps = await getStoredApps();
-    installedApps.forEach(a => registerNovaApp(a));
+    installedApps
+      .filter(app => !app.headlessSystemService)
+      .forEach(registerNovaApp);
 
     let lastInstalledSignature = computeInstalledSignature();
 
@@ -1390,6 +1416,7 @@ registerApp({
       const newById = new Map(fresh.map(a => [a.id, a]));
 
       for (const app of fresh) {
+        if (app.headlessSystemService) continue;
         const prev = oldById.get(app.id);
         if (!prev || prev.version !== app.version) {
           registerNovaApp(app);
@@ -1503,34 +1530,31 @@ registerApp({
       installBtn.addEventListener('click', () => fileInput.click(), listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
-      // ── Show system apps toggle ───────────────────────────────────
-      // System apps (manifest.system === true) are part of the OS image,
-      // not something the user installed, so they're hidden by default in
-      // the package list. Toggle to show them when you need to inspect or
-      // re-sign a bundled package. Persisted so the choice survives a
-      // restart — same key the Settings app's App Permissions section uses
-      // for its own dev-only filter.
-      let showSystemApps = localStorage.getItem('nova_show_system_apps') === '1';
-      const showSystemChk = createEl('input', {
-        type: 'checkbox', id: 'app-manager-show-system',
+      // Developer tools, the built-in launcher, and headless services are
+      // available for inspection but hidden from the ordinary package list.
+      let showHiddenApps = localStorage.getItem('nova_show_hidden_apps') === '1' ||
+        (localStorage.getItem('nova_show_hidden_apps') === null &&
+          localStorage.getItem('nova_show_system_apps') === '1');
+      const showHiddenChk = createEl('input', {
+        type: 'checkbox', id: 'app-manager-show-hidden',
         style: 'width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;'
       });
-      const showSystemLbl = createEl('label', {
-        'for': 'app-manager-show-system',
+      const showHiddenLbl = createEl('label', {
+        'for': 'app-manager-show-hidden',
         style: 'font-size:11px;color:var(--text-secondary);cursor:pointer;white-space:nowrap;',
-        textContent: 'System apps'
+        textContent: 'Show hidden apps'
       });
-      showSystemChk.checked = showSystemApps;
-      showSystemChk.addEventListener('change', () => {
-        showSystemApps = showSystemChk.checked;
-        try { localStorage.setItem('nova_show_system_apps', showSystemApps ? '1' : '0'); } catch {}
+      showHiddenChk.checked = showHiddenApps;
+      showHiddenChk.addEventListener('change', () => {
+        showHiddenApps = showHiddenChk.checked;
+        try { localStorage.setItem('nova_show_hidden_apps', showHiddenApps ? '1' : '0'); } catch {}
         renderList();
       }, listenerOpts);
-      const showSystemWrap = createEl('div', {
+      const showHiddenWrap = createEl('div', {
         style: 'display:flex;align-items:center;gap:5px;padding:0 10px 8px;border-bottom:1px solid var(--border-subtle);'
       });
-      showSystemWrap.append(showSystemChk, showSystemLbl);
-      sidebar.appendChild(showSystemWrap);
+      showHiddenWrap.append(showHiddenChk, showHiddenLbl);
+      sidebar.appendChild(showHiddenWrap);
       // ── Verification badge ──────────────────────────────────────────────
       // Reads app.verified/app.signer/app.revoked. verified/signer are set
       // once at install time from AppPackage.verifyAgainstTrustStore's
@@ -1598,7 +1622,10 @@ registerApp({
         listEl.innerHTML = '';
         const q = searchEl.value.trim().toLowerCase();
         const disabledSet = new Set(getDisabled());
-        let visible = installedApps.filter(app => showSystemApps || app.system !== true);
+        let visible = installedApps.filter(app => showHiddenApps || !(
+          app.system === true &&
+          (HIDDEN_SYSTEM_APP_IDS.has(app.id) || app.manifest?.systemService === true)
+        ));
 
         if (q) {
           visible = visible.filter(a =>
@@ -1613,9 +1640,9 @@ registerApp({
           const msg = createEl('div', { style: 'padding:24px 12px;text-align:center;color:var(--text-muted);line-height:1.8;' });
           msg.innerHTML = q
             ? '<div style="font-size:13px;">No apps match.</div>'
-            : showSystemApps
+            : showHiddenApps
               ? '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No packages installed.<br>Click <strong style="color:var(--text-primary);">Install</strong> or drop a <code style="color:var(--accent);">.novaapp</code> file.</div>'
-              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No user-installed packages.<br>Check <strong style="color:var(--text-primary);">System apps</strong> above to see bundled system packages.</div>';
+              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No apps match.<br>Enable <strong style="color:var(--text-primary);">Show hidden apps</strong> to include developer tools and system services.</div>';
           listEl.appendChild(msg);
           return;
         }
@@ -1754,23 +1781,43 @@ registerApp({
         }
 
         const launchBtn = makeActionBtn(
-          (app.id === APP_MANAGER_ID) ? 'Already Running' : (isDis ? 'Disabled' : 'Launch'),
+          app.headlessSystemService
+            ? 'Open (Background Service)'
+            : app.id === 'com.nbosp.launcher'
+              ? 'Open (Managed Home)'
+              : (app.id === APP_MANAGER_ID) ? 'Already Running' : (isDis ? 'Disabled' : 'Launch'),
           'play',
-          (app.id === APP_MANAGER_ID || isDis)
+          (app.headlessSystemService || app.id === 'com.nbosp.launcher' || app.id === APP_MANAGER_ID || isDis)
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
             : 'background:var(--accent);border:1px solid transparent;color:#fff;',
-          () => { if (!isDis && app.id !== APP_MANAGER_ID) WM.createWindow(app.id); }
+          () => {
+            if (app.headlessSystemService || app.id === 'com.nbosp.launcher' ||
+                isDis || app.id === APP_MANAGER_ID) return;
+            if ((app.devOnly === true || app.manifest?.devOnly === true || DEV_ONLY_APP_IDS.has(app.id)) &&
+                OS.settings.get('devMode') !== true) {
+              window.showModal(
+                'Developer Mode Required',
+                `Enable Developer Mode in Settings before opening ${app.name}.`,
+                [{ label: 'OK', primary: true, value: true }]
+              );
+              return;
+            }
+            WM.createWindow(app.id);
+          }
         );
+        if (app.headlessSystemService || app.id === 'com.nbosp.launcher') {
+          launchBtn.disabled = true;
+        }
 
         const toggleBtn = makeActionBtn(
-          isDis ? 'Enable' : 'Disable',
+          app.headlessSystemService ? 'Managed by OS' : isDis ? 'Enable' : 'Disable',
           isDis ? 'done' : 'no-entry',
-          app.id === APP_MANAGER_ID
+          app.headlessSystemService || app.id === APP_MANAGER_ID
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;opacity:0.5;'
             : isDis
               ? 'background:rgba(63,185,80,0.12);border:1px solid rgba(63,185,80,0.35);color:var(--text-success);'
               : 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
-          app.id === APP_MANAGER_ID
+          app.headlessSystemService || app.id === APP_MANAGER_ID
             ? () => {}
             : () => {
                 const d = getDisabled();
@@ -1841,7 +1888,12 @@ registerApp({
           }
         );
 
-        actionBar.append(launchBtn, toggleBtn, ...(declaresAutostart ? [bootBtn] : []), uninstBtn);
+        actionBar.append(
+          launchBtn,
+          ...(app.headlessSystemService || app.id === 'com.nbosp.launcher' ? [] : [toggleBtn]),
+          ...(declaresAutostart ? [bootBtn] : []),
+          uninstBtn
+        );
         detail.appendChild(actionBar);
 
         // ── Info ────────────────────────────────────────────────
@@ -1850,6 +1902,12 @@ registerApp({
           bodyEl.appendChild(createEl('div', {
             style: 'color:var(--text-secondary);line-height:1.65;font-size:13px;',
             textContent: app.description // textContent — safe, no HTML injection
+          }));
+        }
+        if (app.headlessSystemService) {
+          bodyEl.appendChild(createEl('div', {
+            style: 'color:var(--text-muted);line-height:1.65;font-size:12px;',
+            textContent: 'This headless service runs as part of the OS and is managed by NovaByte.'
           }));
         }
 

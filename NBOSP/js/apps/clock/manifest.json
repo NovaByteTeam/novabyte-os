@@ -3,7 +3,7 @@
   "name": "Clock",
   "version": "3.0.2",
   "author": "NovaByteOfficial",
-  "description": "Alarm · Clock · Timer · Stopwatch",
+  "description": "Keep time, set alarms, and use the timer and stopwatch.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "alarm-clock",

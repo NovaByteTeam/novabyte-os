@@ -132,7 +132,7 @@ These are the **actual features pulled directly from the source code** — not g
 |📝 **NBOSP TextEdit**|Plain text editor. Line numbers, status bar showing line/column/word count, Tab indentation, auto-close brackets, Save/Save As to the VFS. Ctrl+S to save. Word count via context menu. **Single file at a time only — no file list, no tabs, no rich formatting, no markdown preview.**|
 |💻 **NBOSP Terminal**|A real shell emulator with a working command set: `ls`, `cd`, `cat`, `grep`, `cp`, `mv`, `rm`, `mkdir`, `find`, `diff`, `wc`, `sort`, `head`, `tail`, `echo`, `env`, `export`, `alias`, `history`, `ps`, `neofetch`, and more. Pipe chains, `&&`/`||`/`;` chaining, output redirect (`>`), tab autocomplete, command history, custom aliases, shell variables, multiple tabs (Ctrl+Shift+T). **All commands run against the VFS — not a real system shell.**|
 |🌐 **NBOSP Browser**|NW.js WebView with real site rendering. Tabs, bookmarks, history, incognito mode, find-in-page (Ctrl+F), zoom controls, mobile/desktop user-agent toggle, popup blocker, per-tab WebView/iframe mode toggle. See the [browser section](#-nbosp-browser--now-powered-by-nwjs--webview) for full details. **No extensions, no sync, no password manager.**|
-|📅 **NBOSP Calendar**|Month, week, day, and agenda views. Mini calendar sidebar. Upcoming events list. Create/edit/delete events with title, date, start/end time, description, and colour. Navigate prev/next/today. **No recurring events, no reminders/notifications, no calendar sync (Google, Outlook, etc.).**|
+|📅 **NBOSP Calendar**|Month, week, day, and agenda views. Mini calendar sidebar. Upcoming events list. Create/edit/delete events with title, date, start/end time, description, and colour. While the OS is running, timed events receive a system notification about 10 minutes before they start. **No recurring events or calendar sync (Google, Outlook, etc.).**|
 |📧 **NBOSP Email**|Multi-account IMAP/POP3/Exchange. Sidebar with Inbox, Sent, Drafts, Trash, Spam, Archive, Starred. Search, compose, reply, forward, batch-select, pagination. **No filters/rules, no tags, no offline cache.**|
 |🖼 **NBOSP Gallery**|Scans the VFS for image files and shows them in a grid. Lightbox viewer with prev/next navigation, filename caption, and keyboard support (arrow keys, Escape). **No editing, no albums, no metadata, no sorting — just a viewer.**|
 |⬇️ **NBOSP Downloads**|Displays files saved from the browser: name, size, date, and status badge (done/downloading/failed). Remove individual items or clear all completed. Live-updates via a global `Downloads.add()` API. **No download queue controls, no pause/resume, no browser integration for in-progress downloads.**|
@@ -141,11 +141,12 @@ These are the **actual features pulled directly from the source code** — not g
 |🕐 **NBOSP Clock**|Four tabs: analog+digital clock with date display; alarms with custom time, label, and day-of-week repeat (toggle on/off per alarm); countdown timer with H/M/S input, start/pause/reset; and stopwatch. **No world clock, no multiple time zones.**|
 |⚙️ **NBOSP Settings**|Appearance (7 themes: Nova Dark, Nova Light, Nord, Dracula, Catppuccin, Tokyo Night, Gruvbox; accent colour picker; 12/24h clock toggle), System (change username), Storage, Privacy, Desktop, Accessibility, About. **Settings are thin — each section has a handful of toggles, not deep configuration panels.** Unlike the other apps, Settings is actively developed — it controls the visual identity and OS-level behaviour of the entire UI, so it will keep receiving new options and visual updates as NBOSP evolves.|
 |🖩 **NBOSP Calculator**|Standard arithmetic with live expression preview. Supports `+`, `-`, `*`, `/`, `%`, parentheses, and decimal input. Backspace, clear, keyboard support. **No scientific mode, no history, no unit conversion.**|
+|🎵 **NBOSP Music**|Scans the virtual filesystem for audio files and plays supported formats with a library view, seek and volume controls, shuffle, and repeat. Playback preferences persist between sessions.|
 |📦 **NBOSP App Manager**|Install `.novaapp` packages from disk or by drag-and-drop. Every file inside a package is run through the built-in scanner before trust/integrity checks — a flagged file blocks the install outright with a "Malicious File" warning, no override. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. Verified/Unverified badge on each installed app, based on signature checks against the built-in trust store. **No app store/catalogue, no update management.**|
 
-#### Developer Apps (require Developer Mode)
+#### Hidden apps and system services
 
-These apps are hidden unless Developer Mode is enabled in Settings. They are not part of the standard NBOSP experience.
+In **App Manager**, user-facing built-in apps remain visible by default. The **Show hidden apps** toggle also reveals the eight developer tools, the built-in Launcher, and ten headless system services. Developer Mode must be enabled in Settings to use the developer tools; trying to open one while it is off explains how to enable it. The Launcher and services are OS-managed and cannot be opened from App Manager. Services also cannot be disabled or uninstalled individually.
 
 |App|What it actually does|
 |:--|:--------------------|
@@ -157,6 +158,8 @@ These apps are hidden unless Developer Mode is enabled in Settings. They are not
 |🧩 **NBOSP Modules**|Hot-reload OS JS modules without restarting NovaByte OS. Live module inspection and dynamic import. **Can execute arbitrary module paths at runtime.**|
 |🌐 **NBOSP System Access**|Inspect network proxy/SSRF configuration and browse the virtual filesystem. **Can read internal VFS paths and probe network settings.**|
 |📋 **NBOSP Events**|Unified event timeline showing console output, permission events, and package events in one filtered view. Search, severity filter, export. **For debugging OS-level activity only.**|
+
+The headless services provide event logging, notifications, file scanning, system dialogs, app registry and default-app routing, background app support, server-event bridging, calendar reminders, and system event dispatch. They start as part of OS boot and do not have app windows.
 
 > [!IMPORTANT]
 > **Starting with 3.0.2, no new features will be added to standard NBOSP user apps.** Compatibility fixes, bug fixes, and security patches continue as always. **Settings and all Developer Apps are exceptions** — Settings controls the visual identity and OS-level behaviour of the entire UI, and the Developer Apps are core to NBOSP's purpose as a developer-focused platform. Both will continue receiving new features, UI refreshes, and improvements as NBOSP evolves.
@@ -218,7 +221,7 @@ If NovaByte fixes or improves something in the NBOSP source, that fix lives in t
 
 #### Automatic Startup
 
-Running `npm start` in the NBOSP folder automatically prepares and launches NBOSP.
+Running `npm start` in the NBOSP folder prepares and launches NBOSP. The `prestart` and `predev` hooks also rebuild the built-in `.novaapp` packages before launch.
 
 On startup, NBOSP checks whether dependencies are installed. If `node_modules` is missing, the bootstrap system runs the appropriate package manager command for the current platform and waits for installation to complete before launching.
 
@@ -237,6 +240,13 @@ npm start
 ```
 
 No separate `npm install` step is required on first run.
+
+To skip rebuilding app packages and use the existing `.novaapp` files, set `NBOSP_SKIP_APP_BUILD=1` before starting. In PowerShell:
+
+```powershell
+$env:NBOSP_SKIP_APP_BUILD = '1'
+npm start
+```
 
 -----
 
@@ -405,9 +415,11 @@ Validation ensures:
 ```
 npm start
  ↓
-scripts/startup.js spawns Node
+prestart: bootstrap dependencies and build app packages
  ↓
-server/index.js boots Express
+scripts/startup.js starts the server process
+ ↓
+server/core/index.js boots Express
  ↓
 setupMiddleware(app) ← Helmet, CORS, rate limiting, CSP nonce
  ↓
@@ -427,8 +439,8 @@ To add new features to NBOSP, you have clear entry points:
 1. **New API endpoint?** → Add to `security/routes.js` or `email/index.js`
 2. **New proxy?** → Add to `server/proxies.js` or create a new module
 3. **New middleware?** → Add to `server/middleware.js` or create in `security/middleware.js`
-4. **New rate limit tier?** → Define in `server/middleware.js` and mount in `server/index.js`
-5. **Configuration changes?** → Edit `server/env.js` for env vars or Helmet CSP in middleware
+4. **New rate limit tier?** → Define it in `server/middleware.js` and wire it into the relevant route
+5. **Configuration changes?** → Edit `server/core/env.js` for environment variables or `server/middleware.js` for Helmet CSP
 
 All modules are independent and require only their immediate dependencies — no global state, no tight coupling.
 
@@ -568,18 +580,10 @@ novabyte-os/
 │  │  │  │  ├── boot.js     # Boot sequence and startup orchestration
 │  │  │  │  ├── init.js     # Security & initialization
 │  │  │  │  └── kernel.js    # Kernel loop
-│  │  │  ├── events/       # Event system
-│  │  │  │  └── system-events.js # Global event bus
+│  │  │  ├── events/       # Event-related core modules
 │  │  │  ├── services/      # Core OS services
 │  │  │  │  ├── fs.js      # Virtual filesystem API
-│  │  │  │  ├── system-dialogs.js # Shared VFS Save/Open picker (SystemDialogs), used by first-party apps and .novaapp's nova:sysdialog:* IPC
-│  │  │  │  ├── scanner.js   # Heuristic malicious-file scanner (drag-and-drop, .novaapp installs)
-│  │  │  │  ├── notifications.js # Notification system
-│  │  │  │  ├── calendar-notifier.js # Polls saved calendar events and fires upcoming-event reminders
-│  │  │  │  ├── registry.js   # Core app registry
-│  │  │  │  ├── default-apps.js # Default Apps (Settings → Default Apps): per-category default app resolution for file/protocol opening
-│  │  │  │  ├── event-log.js  # Central event logging
-│  │  │  │  ├── server-events-bridge.js # Streams server-side events into the client event log
+│  │  │  │  ├── system-service-loader.js # Loads trusted headless services before OS boot
 │  │  │  │  └── workers.js    # Multi-threaded worker management
 │  │  │  ├── ui/         # UI primitives
 │  │  │  │  ├── desktop.js    # Desktop shell
@@ -605,30 +609,11 @@ novabyte-os/
 │  │  │  └── ui/         # Platform UI modules
 │  │  │    ├── my-apps-manager.js   # User app management
 │  │  │    └── web-app-manager.js   # Web app management
-│  │  └── apps/          # Standalone applications
-│  │    ├── files.js       # File manager
-│  │    ├── terminal.js     # Terminal emulator
-│  │    ├── calculator.js    # Calculator
-│  │    ├── email.js       # Email client (IMAP/POP3/Exchange)
-│  │    ├── browser.js      # Web browser (NW.js WebView)
-│  │    ├── calendar.js     # Calendar
-│  │    ├── clock.js       # Clock, alarms, timers
-│  │    ├── contacts.js     # Contact manager
-│  │    ├── downloads.js     # Downloads manager
-│  │    ├── gallery.js      # Image gallery/viewer
-│  │    ├── music.js       # Music player
-│  │    ├── search.js      # System-wide search
-│  │    ├── settings.js     # Settings panel
-│  │    ├── textedit.js     # Text editor
-│  │    ├── appmanager.js    # App manager/installer
-│  │    ├── console.js      # [Dev Mode] JS REPL in the full OS context
-│  │    ├── events.js       # [Dev Mode] Unified event timeline
-│  │    ├── inspector.js     # [Dev Mode] Registered apps & window inspector
-│  │    ├── modules.js      # [Dev Mode] Hot-reload OS JS modules
-│  │    ├── packages.js     # [Dev Mode] Sign/verify .novaapp packages
-│  │    ├── perf.js        # [Dev Mode] FPS, memory, DOM performance monitor
-│  │    ├── permissions.js    # [Dev Mode] Grant/revoke app permissions
-│  │    └── sysaccess.js     # [Dev Mode] Network proxy & VFS inspector
+│  │  └── apps/          # One source directory per built-in app or service
+│  │     ├── <app-dir>/manifest.json, app source files, and assets
+│  │     ├── service packages use service.js instead of an app window entry
+│  │     ├── novaapp-manifest.json # Trusted built-in package allowlist
+│  │     └── system-service-manifest.json # Ordered headless service startup list
 │  ├── data/              # Gitignored — generated at runtime, not part of the repo
 │  │  ├── favicons.db       # Persistent SQLite favicon cache
 │  │  ├── sessions.db       # Express session store (backs admin:users session list/revoke)
@@ -644,16 +629,15 @@ novabyte-os/
 
 ### 🧩 Architecture Note: Modular Isolation
 
-NBOSP uses a fully decoupled modular architecture. The original monolithic `app.js` (14,000+ lines), `server.js` (~1,450 lines), and `client.js` (400+ lines) have been split into **58 modular files** across clearly separated layers:
+NBOSP is organized into separate server, frontend-core, platform, and app-package layers. Built-in apps live in individual directories under `js/apps/`; trusted headless system services are packaged there as well and loaded in a declared startup order.
 
-| Layer | Location | Count |
+| Layer | Location | Responsibility |
 |:---|:---|:---|
-| Backend modules | `server/` (incl. `server/security/`) | 8 files |
-| Launcher modules | `scripts/` | 7 files |
-| Frontend core | `js/core/` (sub-folders: `core/`, `events/`, `services/`, `ui/`, `utils/`) | 15 files |
-| Frontend platform | `js/platform/` | 12 files |
-| Standalone apps | `js/apps/` | 23 files |
-| Security / Email | `security/`, `email/` | 9 files |
+| Backend | `server/`, `security/`, `email/` | HTTP APIs, sessions, security middleware, and email services |
+| Launcher | `scripts/` | Bootstrap, certificates, logging, and NW.js startup |
+| Frontend core | `js/core/` | Boot, UI, filesystem, utilities, and system-service loading |
+| Frontend platform | `js/platform/` | App registry, packages, sandbox, permissions, and trust |
+| Built-in apps and services | `js/apps/<app>/` | App manifests and package source; headless services run in the OS page |
 
 To maintain cross-script communication across individual files without monolithic bundling:
 * **Global Exposures:** Core modules explicitly bind their APIs to the global browser execution context (e.g., `window.Notify = Notify;`, `window.registerApp = registerApp;`) at the foot of their files.
@@ -771,7 +755,7 @@ If you require full auditability with zero trust assumptions, **NBOSP is your an
   - The "Verified" badge means the package was signed with NovaByte's own private signing key — the only key `trust-store.js` currently trusts. That key is held offline by NovaByte and is not distributed to developers.
   - Before signing, submitted apps are reviewed manually (permissions, code, local malware/AV scanning) by NovaByte on a local machine that never touches the network — there is no automated review queue or scanning service yet. This is a manual process today, not an enforced pipeline in code.
   - Anyone can self-sign their own `.novaapp` for local testing with their own keypair; self-signed packages will always show as **Unverified**, since no key but NovaByte's is in the trust store.
-- **Scanner** (`js/core/services/scanner.js`) is a barebones, client-side heuristic gate — not a full antivirus — run on every drag-and-drop into the desktop/Files vault and on every file inside a `.novaapp` package before install. It checks for disguised executables (double extensions, magic-byte mismatches against the claimed file type), embedded scripts in files that get previewed/rendered (SVG, HTML, Markdown), obfuscated code (`eval`, `new Function`, long encoded-escape chains), and high-entropy content masquerading as text. A hit blocks the write/install outright — App Manager shows a dedicated "Malicious File" dialog with no override. It's a first line of defense against naive/accidental payloads, not a substitute for the manual review above; it runs in the browser context, so it can be bypassed by anyone with devtools access, and it does not unpack archives or scan compiled binaries beyond their header.
+- **Scanner** (`NBOSP/js/apps/scanner/service.js`, loaded from the trusted system-service package) is a lightweight client-side heuristic, not a full antivirus. It checks files imported through the desktop/Files vault and files inside `.novaapp` packages before installation for disguised executables and active content in rendered formats. A flagged package is blocked from installation. The scanner is a first line of defense, not a substitute for security review; it runs in the client and can be bypassed by someone with DevTools access, and it does not unpack archives or provide comprehensive malware detection.
 
 If you discover a security vulnerability, please **open a private issue** or contact the maintainer directly rather than filing a public bug report.
 

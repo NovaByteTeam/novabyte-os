@@ -80,7 +80,7 @@ globalThis.window = {
   __tbProximityInit: false,
 };
 
-describe('system-events (js/core/events/system-events.js)', () => {
+describe('system-events (js/apps/system-events/service.js)', () => {
   beforeEach(() => {
     resetTestStorage();
     vi.clearAllMocks();

@@ -88,6 +88,56 @@
     "file": "js/apps/com.nbosp.shell.novaapp"
   },
   {
+    "id": "com.nbosp.service.event-log",
+    "file": "js/apps/com.nbosp.service.event-log.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.notifications",
+    "file": "js/apps/com.nbosp.service.notifications.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.background-apps",
+    "file": "js/apps/com.nbosp.service.background-apps.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.calendar-notifier",
+    "file": "js/apps/com.nbosp.service.calendar-notifier.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.default-apps",
+    "file": "js/apps/com.nbosp.service.default-apps.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.registry",
+    "file": "js/apps/com.nbosp.service.registry.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.scanner",
+    "file": "js/apps/com.nbosp.service.scanner.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.server-events-bridge",
+    "file": "js/apps/com.nbosp.service.server-events-bridge.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.system-dialogs",
+    "file": "js/apps/com.nbosp.service.system-dialogs.novaapp",
+    "systemService": true
+  },
+  {
+    "id": "com.nbosp.service.system-events",
+    "file": "js/apps/com.nbosp.service.system-events.novaapp",
+    "systemService": true
+  },
+  {
     "id": "com.nbosp.sysaccess",
     "file": "js/apps/com.nbosp.sysaccess.novaapp"
   },

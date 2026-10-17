@@ -2,7 +2,7 @@
   "id": "com.nbosp.email",
   "name": "Email",
   "version": "3.0.2",
-  "description": "IMAP · POP3 · Exchange",
+  "description": "Connect supported IMAP, POP3, and Exchange accounts to read and send email.",
   "author": "NovaByteOfficial",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
