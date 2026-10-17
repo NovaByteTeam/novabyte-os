@@ -1,14 +1,13 @@
 // Static-site optimiser for the split markup/styling/logic source — same four
 // steps as before (CSS purge, CSS minify, JS minify, HTML minify), just reading
 // from three files instead of regex-slicing one.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { transform as esbuildTransform } from 'esbuild';
 import { minify as minifyHtml } from 'html-minifier-next';
 import { PurgeCSS } from 'purgecss';
 
 const SRC_DIR = '.';
-const OUT_DIR = '../dist';
-const OUT_FILE = `${OUT_DIR}/index.html`;
+const OUT_FILE = `${SRC_DIR}/index.html`;
 
 const html = readFileSync(`${SRC_DIR}/markup.html`, 'utf8');
 const css = readFileSync(`${SRC_DIR}/styling.css`, 'utf8');
@@ -76,7 +75,6 @@ const finalHtml = await minifyHtml(outHtml, {
   minifyJS: false,
 });
 
-mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(OUT_FILE, finalHtml);
 
 const before = Buffer.byteLength(html, 'utf8') + Buffer.byteLength(css, 'utf8') + Buffer.byteLength(js, 'utf8');
