@@ -46,8 +46,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # only the built output, not the whole repo (source stays readable in git)
-          path: './dist'
+          # index.html is built into src/ directly so Pages can serve it alongside apps.json
+          path: './src'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
