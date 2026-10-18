@@ -42,8 +42,8 @@ In Supabase Authentication:
 
 1. Enable email/password sign-up and **Confirm email**.
 2. Set the site URL to `https://novabyteteam.github.io/novabyte-os/`.
-3. Add that URL and local development URLs such as `http://localhost:4174/` to
-   the allowed redirect URLs.
+3. Add `https://novabyteteam.github.io/novabyte-os/` to the allowed redirect
+   URLs. Add local URLs only if you want to test account verification locally.
 4. Configure a production SMTP provider so verification and account emails
    are delivered reliably.
 

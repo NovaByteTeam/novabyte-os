@@ -37,6 +37,7 @@ class PublisherPortal {
   constructor() {
     this.baseUrl = String(PUBLISHING_CONFIG.supabaseUrl || '').replace(/\/+$/, '');
     this.anonKey = String(PUBLISHING_CONFIG.supabaseAnonKey || '');
+    this.authRedirectUrl = String(PUBLISHING_CONFIG.authRedirectUrl || '').trim();
     this.adminEmail = String(PUBLISHING_CONFIG.adminEmail || '').trim().toLowerCase();
     this.user = null;
     this.session = this.readSession();
@@ -172,7 +173,7 @@ class PublisherPortal {
 
   async auth(mode, values) {
     if (mode === 'signup') {
-      const redirectTo = `${location.origin}${location.pathname}`;
+      const redirectTo = this.authRedirectUrl || `${location.origin}${location.pathname}`;
       const result = await this.request(`/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`, {
         method: 'POST',
         body: {
@@ -402,7 +403,7 @@ class PublisherPortal {
         body: {
           type: 'signup',
           email,
-          options: { emailRedirectTo: `${location.origin}${location.pathname}` },
+          options: { emailRedirectTo: this.authRedirectUrl || `${location.origin}${location.pathname}` },
         },
       });
       this.setNotice('If the account needs verification, a new confirmation email has been sent.', 'success');
