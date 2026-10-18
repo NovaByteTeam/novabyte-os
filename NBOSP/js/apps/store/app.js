@@ -3,6 +3,7 @@
   const STORE_BASE_URL = 'https://novabyteteam.github.io/novabyte-os/';
   const STORE_URL = new URL('apps.json', STORE_BASE_URL).href;
   const APPS_KEY = 'nova_installed_apps';
+  const packageIconCache = new Map();
 
   // reads from the same localStorage key appmanager writes —
   // installed state is shared between the two
@@ -47,6 +48,32 @@
     } catch {
       return null;
     }
+  }
+
+  function packageIconUrl(app) {
+    if (!packageIconCache.has(app.id)) {
+      const iconPromise = (async () => {
+        const response = await fetch(new URL(app.file, STORE_BASE_URL).href);
+        if (!response.ok) throw new Error(`Package icon request failed (${response.status})`);
+        const pkg = await response.json();
+        const icon = pkg?.manifest?.icon;
+        if (typeof icon !== 'string') return null;
+        if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,/i.test(icon)) return icon;
+        if (/^https:\/\//i.test(icon)) return icon;
+
+        const encoded = pkg.files?.[icon];
+        if (typeof encoded !== 'string') return null;
+        const extension = icon.split('.').pop()?.toLowerCase();
+        const mime = extension === 'svg' ? 'image/svg+xml'
+          : extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg'
+          : extension === 'gif' ? 'image/gif'
+          : extension === 'webp' ? 'image/webp'
+          : 'image/png';
+        return `data:${mime};base64,${encoded}`;
+      })();
+      packageIconCache.set(app.id, iconPromise);
+    }
+    return packageIconCache.get(app.id);
   }
 
   async function fetchAppList() {
@@ -263,7 +290,17 @@
       image.src = iconUrl;
       image.alt = `${app.name} icon`;
       image.loading = 'lazy';
-      image.onerror = () => {
+      image.onerror = async () => {
+        image.onerror = null;
+        try {
+          const packageIcon = await packageIconUrl(app);
+          if (packageIcon) {
+            image.src = packageIcon;
+            return;
+          }
+        } catch (error) {
+          console.warn(`[AppStore] Could not load packaged icon for ${app.id}:`, error);
+        }
         if (typeof svgIcon === 'function') {
           try {
             iconWrap.innerHTML = svgIcon('package', 40);
