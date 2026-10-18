@@ -208,9 +208,28 @@
           <h2 class="detail-section-title">Useful links</h2>
           <div class="detail-links-list" id="detail-links"></div>
         </section>
+
+        <section class="detail-section detail-version-history" id="detail-version-history" aria-label="Version history" hidden>
+          <p class="detail-kicker">RELEASE TRACK</p>
+          <h2 class="detail-section-title">Version history</h2>
+          <ol class="vh-list" id="detail-version-history-list" reversed></ol>
+        </section>
       </main>
 
       <aside class="detail-sidebar">
+        <!-- Safety Confidence bar -->
+        <section class="detail-section detail-safety-section" aria-label="Safety confidence">
+          <p class="detail-kicker">SECURITY</p>
+          <h2 class="detail-section-title">Safety Confidence</h2>
+          <div class="safety-bar-wrap" id="detail-safety-bar" data-state="pending" aria-label="Safety confidence score">
+            <div class="safety-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="detail-safety-label">
+              <div class="safety-bar-fill" id="detail-safety-fill" style="--safety-pct: 0%"></div>
+            </div>
+            <p class="safety-bar-label" id="detail-safety-label">Checking signature…</p>
+            <p class="safety-bar-note">Reflects Ed25519 signature and file integrity verification — not a code audit.</p>
+          </div>
+        </section>
+
         <section class="detail-section detail-info-section" aria-label="App information">
           <p class="detail-kicker">AT A GLANCE</p>
           <h2 class="detail-section-title">App information</h2>

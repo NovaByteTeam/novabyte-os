@@ -325,6 +325,11 @@ const detailOptionalPermissions = document.getElementById('detail-optional-permi
 const detailReleaseNotes = document.getElementById('detail-release-notes');
 const detailReleaseNotesSection = document.getElementById('detail-release-notes-section');
 const detailLinks = document.getElementById('detail-links');
+const detailSafetyBar     = document.getElementById('detail-safety-bar');
+const detailSafetyFill    = document.getElementById('detail-safety-fill');
+const detailSafetyLabel   = document.getElementById('detail-safety-label');
+const detailVersionHistory = document.getElementById('detail-version-history');
+const detailVersionHistoryList = document.getElementById('detail-version-history-list');
 
 // ── Fetch apps ─────────────────────────────────────────────────────────────
 
@@ -606,6 +611,86 @@ function renderPackageDetails(app, pkg) {
   detailLinks.closest('.detail-section').hidden = detailLinks.childElementCount === 0;
 }
 
+// ── Safety Confidence bar ──────────────────────────────────────────────────
+//
+// The bar reflects cryptographic verification state — not a code audit.
+// "100%" means Ed25519 signature + file integrity hashes all passed.
+// "Checking…" while verification is in flight.
+// "Unverified" if signature is absent, revoked, or integrity fails.
+
+function updateSafetyBar(state) {
+  // state: 'pending' | 'verified' | 'unverified'
+  const configs = {
+    pending:    { pct: 0,   label: 'Checking signature…', mod: 'pending' },
+    verified:   { pct: 100, label: '100% — Signature & integrity verified', mod: 'verified' },
+    unverified: { pct: 0,   label: 'Unverified — no trusted signature found', mod: 'unverified' },
+  };
+  const { pct, label, mod } = configs[state] ?? configs.unverified;
+  detailSafetyFill.style.setProperty('--safety-pct', `${pct}%`);
+  detailSafetyFill.dataset.state = mod;
+  detailSafetyLabel.textContent = label;
+  detailSafetyBar.dataset.state = mod;
+}
+
+// ── Version history ────────────────────────────────────────────────────────
+
+function renderVersionHistory(app) {
+  const entries = Array.isArray(app.versionHistory) ? app.versionHistory : [];
+  detailVersionHistory.hidden = entries.length === 0;
+  if (entries.length === 0) return;
+
+  detailVersionHistoryList.replaceChildren();
+  for (const entry of entries) {
+    if (!entry || typeof entry.version !== 'string') continue;
+
+    const item = document.createElement('li');
+    item.className = 'vh-entry';
+
+    const header = document.createElement('div');
+    header.className = 'vh-header';
+
+    const versionTag = document.createElement('span');
+    versionTag.className = 'vh-version';
+    versionTag.textContent = `v${escHtml(entry.version)}`;
+
+    // Mark current version
+    if (entry.version === app.version) {
+      const currentPill = document.createElement('span');
+      currentPill.className = 'vh-current';
+      currentPill.textContent = 'current';
+      header.append(versionTag, currentPill);
+    } else {
+      header.append(versionTag);
+    }
+
+    if (entry.date) {
+      const date = document.createElement('time');
+      date.className = 'vh-date';
+      date.dateTime = entry.date;
+      // Format as "14 Sep 2026" — readable without being ambiguous
+      try {
+        date.textContent = new Date(entry.date).toLocaleDateString('en-GB', {
+          day: 'numeric', month: 'short', year: 'numeric',
+        });
+      } catch {
+        date.textContent = entry.date;
+      }
+      header.append(date);
+    }
+
+    item.appendChild(header);
+
+    if (entry.notes) {
+      const notes = document.createElement('p');
+      notes.className = 'vh-notes';
+      notes.textContent = entry.notes;
+      item.appendChild(notes);
+    }
+
+    detailVersionHistoryList.appendChild(item);
+  }
+}
+
 detailScreenshotList.addEventListener('click', event => {
   const trigger = event.target.closest('.detail-screenshot-trigger');
   if (!trigger) return;
@@ -647,6 +732,19 @@ function openDetail(app) {
   // Show "More" button only if text is long enough to get clamped
   // (rough heuristic: >200 chars is almost certainly going to clamp at 4 lines)
   readMoreBtn.classList.toggle('hidden', desc.length <= 200);
+
+  // Safety confidence bar — pending until verification resolves
+  updateSafetyBar('pending');
+  verifyCatalogApp(app).then(result => {
+    if (detailId.textContent !== app.id || detailView.classList.contains('hidden')) return;
+    updateSafetyBar(result ? 'verified' : 'unverified');
+  }).catch(() => {
+    if (detailId.textContent !== app.id || detailView.classList.contains('hidden')) return;
+    updateSafetyBar('unverified');
+  });
+
+  // Version history from catalog entry
+  renderVersionHistory(app);
 
   siteHeader.classList.add('hidden');
   storeView.classList.add('hidden');

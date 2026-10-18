@@ -2256,3 +2256,124 @@ body::before {
   .detail-stats .stat-value { font-size: 0.68rem; }
   .detail-stats .stat-label { font-size: 0.57rem; }
 }
+
+/* ── Safety Confidence bar ────────────────────────────────────────────────── */
+
+.safety-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.safety-bar-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: oklch(100% 0 0 / .08);
+  overflow: hidden;
+}
+
+.safety-bar-fill {
+  height: 100%;
+  width: var(--safety-pct, 0%);
+  border-radius: inherit;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.3s ease;
+
+  /* default: pending / unverified */
+  background: oklch(60% 0.05 265);
+
+  &[data-state="verified"] {
+    background: linear-gradient(90deg, oklch(72% 0.18 160), oklch(78% 0.2 180));
+    box-shadow: 0 0 12px oklch(72% 0.18 160 / .5);
+  }
+
+  &[data-state="unverified"] {
+    background: oklch(60% 0.18 25);
+  }
+}
+
+.safety-bar-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+
+  .safety-bar-wrap[data-state="verified"] & {
+    color: oklch(80% 0.16 160);
+  }
+
+  .safety-bar-wrap[data-state="unverified"] & {
+    color: oklch(72% 0.18 25);
+  }
+}
+
+.safety-bar-note {
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+/* ── Version history ──────────────────────────────────────────────────────── */
+
+.vh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  counter-reset: none;
+}
+
+.vh-entry {
+  padding-inline-start: 14px;
+  border-inline-start: 2px solid oklch(100% 0 0 / .08);
+  transition: border-color 0.15s ease;
+
+  &:first-child {
+    border-inline-start-color: oklch(72% 0.22 200 / .4);
+  }
+}
+
+.vh-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.vh-version {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.vh-current {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid oklch(72% 0.22 200 / .35);
+  background: oklch(72% 0.22 200 / .12);
+  color: var(--glow-primary);
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vh-date {
+  margin-inline-start: auto;
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.vh-notes {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}

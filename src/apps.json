@@ -9,7 +9,29 @@
     "icon": "apps/icons/com.novabyte.wallpaperhub.svg",
     "file": "apps/com.novabyte.wallpaperhub.novaapp",
     "size": "146 KB",
-    "screenshots": ["apps/screenshots/wallpaperhub-main.jpg"]
+    "screenshots": ["apps/screenshots/wallpaperhub-main.jpg"],
+    "versionHistory": [
+      {
+        "version": "2.0.0",
+        "date": "2026-09-14",
+        "notes": "Complete rewrite. Added colour search, OS theme sync, and curated collections. Wallhaven API updated to v2."
+      },
+      {
+        "version": "1.3.1",
+        "date": "2026-07-02",
+        "notes": "Fixed crash when Wallhaven returns empty results for certain tags."
+      },
+      {
+        "version": "1.3.0",
+        "date": "2026-06-18",
+        "notes": "One-tap apply action. Favourite list now syncs across devices via NovaByte cloud."
+      },
+      {
+        "version": "1.2.0",
+        "date": "2026-04-30",
+        "notes": "Initial public release with basic browse and apply support."
+      }
+    ]
   },
   {
     "id": "com.tools.mdpreviewer",
@@ -24,6 +46,13 @@
     "screenshots": [
       "apps/screenshots/markdown-previewer.jpg",
       "apps/screenshots/markdown-previewer-preview.jpg"
+    ],
+    "versionHistory": [
+      {
+        "version": "1.0.0",
+        "date": "2026-10-01",
+        "notes": "Initial release. Side-by-side edit + preview mode, preview-only mode, and live rendering of CommonMark syntax."
+      }
     ]
   }
 ]
