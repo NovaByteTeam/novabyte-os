@@ -858,6 +858,21 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ── Header height tracking ─────────────────────────────────────────────────
+// The sticky category bar needs to know the real rendered header height,
+// which changes at the ≤900px breakpoint when the header wraps to two rows.
+// A CSS variable alone can't track this, so we update --header-actual-h
+// via ResizeObserver whenever the header resizes.
+
+const syncHeaderHeight = () => {
+  const h = siteHeader.getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--header-actual-h', `${h}px`);
+};
+
+const headerObserver = new ResizeObserver(syncHeaderHeight);
+headerObserver.observe(siteHeader);
+syncHeaderHeight(); // set immediately so there's no flash on load
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 
 publisherPortal.init({

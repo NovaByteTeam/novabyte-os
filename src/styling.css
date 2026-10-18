@@ -1204,7 +1204,7 @@ body::before {
 .category-bar {
   position: sticky;
   z-index: 20;
-  top: var(--header-h);
+  top: var(--header-actual-h, var(--header-h));
   width: 100vw;
   margin-inline: calc(50% - 50vw);
   align-items: center;
@@ -2622,7 +2622,7 @@ body::before {
   }
   .search-wrap { width: auto; }
   .publisher-nav { width: auto; }
-  .category-bar { top: 109px; }
+  .category-bar { top: var(--header-actual-h, 109px); }
 }
 
 @media (max-width: 560px) {
