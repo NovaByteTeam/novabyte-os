@@ -35,12 +35,16 @@ create table if not exists public.publisher_submissions (
   metadata jsonb not null,
   changelog text not null,
   package_path text not null,
+  review_package_path text,
   status text not null default 'pending'
     check (status in ('pending', 'changes_requested', 'rejected', 'published', 'withdrawn')),
   review_note text,
   created_at timestamptz not null default now(),
   reviewed_at timestamptz
 );
+
+alter table public.publisher_submissions
+  add column if not exists review_package_path text;
 
 create index if not exists publisher_submissions_owner_idx
   on public.publisher_submissions(owner_id, created_at desc);

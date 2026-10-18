@@ -235,7 +235,7 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
   const notificationSent = await sendEmail(
     ADMIN_EMAIL,
     `NovaByte app ${type} submitted: ${String(metadata.name)} v${version}`,
-    `<p>A verified publisher submitted an app for review.</p><p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review queue.</p>`,
+    `<p>A verified publisher submitted an app for review.</p><p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
   );
   return { submitted: true, notificationSent };
 }
@@ -267,7 +267,7 @@ async function reviewQueue(user: { email?: string }) {
   requireAdmin(user);
   const rows = await rest('publisher_submissions', {
     query: queryString({
-      select: 'id,owner_id,app_id,type,version,metadata,changelog,status,created_at,package_path',
+      select: 'id,owner_id,app_id,type,version,metadata,changelog,status,created_at,package_path,review_package_path',
       status: 'in.(pending,changes_requested)',
       order: 'created_at.asc',
     }),
@@ -276,6 +276,7 @@ async function reviewQueue(user: { email?: string }) {
     ...row,
     owner_email: await getAccountEmail(row.owner_id),
     download_url: await makeSignedDownloadUrl(row.package_path),
+    has_reviewed_package: Boolean(row.review_package_path),
   })));
   return { submissions };
 }
@@ -297,7 +298,8 @@ function imageDataUri(pkg: Record<string, any>, value: unknown) {
 
 async function publishSubmission(submission: Record<string, any>) {
   const metadata = submission.metadata || {};
-  const { pkg, byteLength } = await downloadSubmission(submission.package_path);
+  const packagePath = submission.review_package_path || submission.package_path;
+  const { pkg, byteLength } = await downloadSubmission(packagePath);
   if (pkg.novabyte_app !== true || pkg.manifest?.id !== submission.app_id || pkg.manifest?.version !== submission.version) {
     throw new PublisherError('The package no longer matches the reviewed app ID and version.');
   }
@@ -388,6 +390,9 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
     throw new PublisherError('This submission is no longer awaiting review.', 404);
   }
   if (decision === 'publish') {
+    if (!submission.review_package_path) {
+      throw new PublisherError('Upload the inspected .novaapp package before approving this submission.');
+    }
     await publishSubmission(submission);
   } else {
     await rest('publisher_submissions', {
@@ -480,6 +485,58 @@ Deno.serve(async request => {
     requiredEnv('SUPABASE_URL', SUPABASE_URL);
     requiredEnv('SUPABASE_SERVICE_ROLE_KEY', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '');
     const user = await getUser(request);
+    const url = new URL(request.url);
+    if (url.searchParams.get('action') === 'upload-reviewed-package') {
+      requireAdmin(user);
+      const id = requiredText(url.searchParams.get('submissionId'), 'Submission ID', 64);
+      if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
+      const submission = await getOne('publisher_submissions', 'id', id);
+      if (!submission || !['pending', 'changes_requested'].includes(submission.status)) {
+        throw new PublisherError('This submission is no longer awaiting review.', 404);
+      }
+      const contentLength = Number(request.headers.get('content-length'));
+      if (Number.isFinite(contentLength) && contentLength > MAX_PACKAGE_BYTES) {
+        throw new PublisherError('The reviewed package must be no larger than 25 MB.');
+      }
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      if (!bytes.length || bytes.byteLength > MAX_PACKAGE_BYTES) {
+        throw new PublisherError('The reviewed package must be between 1 byte and 25 MB.');
+      }
+      let pkg: Record<string, any>;
+      try {
+        pkg = JSON.parse(new TextDecoder().decode(bytes));
+      } catch {
+        throw new PublisherError('The reviewed file is not valid .novaapp package JSON.');
+      }
+      if (
+        !pkg ||
+        pkg.novabyte_app !== true ||
+        pkg.manifest?.id !== submission.app_id ||
+        pkg.manifest?.version !== submission.version ||
+        !pkg.files ||
+        typeof pkg.files !== 'object' ||
+        Array.isArray(pkg.files)
+      ) {
+        throw new PublisherError('The reviewed package must match the submission app ID and version and contain package files.');
+      }
+      const reviewPath = `${id}/reviewed.novaapp`;
+      await storageRequest(SUBMISSION_BUCKET, reviewPath, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'x-upsert': 'true',
+          'cache-control': 'no-store',
+        },
+        body: bytes,
+      });
+      await rest('publisher_submissions', {
+        method: 'PATCH',
+        query: queryString({ id: `eq.${id}` }),
+        body: { review_package_path: reviewPath },
+        prefer: 'return=minimal',
+      });
+      return respond({ uploaded: true });
+    }
     const body = await request.json();
     const action = body?.action;
     if (typeof action !== 'string') throw new PublisherError('Choose a publisher action.');

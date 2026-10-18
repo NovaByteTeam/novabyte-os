@@ -174,14 +174,25 @@ class PublisherPortal {
   async auth(mode, values) {
     if (mode === 'signup') {
       const redirectTo = this.authRedirectUrl || `${location.origin}${location.pathname}`;
-      const result = await this.request(`/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`, {
-        method: 'POST',
-        body: {
-          email: values.email,
-          password: values.password,
-          data: { display_name: values.name },
-        },
-      });
+      let result;
+      try {
+        result = await this.request(`/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`, {
+          method: 'POST',
+          body: {
+            email: values.email,
+            password: values.password,
+            data: { display_name: values.name },
+          },
+        });
+      } catch (error) {
+        if (/already registered|already exists|user_already_exists|email_exists/i.test(error.message || '')) {
+          throw new Error('This email is already being used. Sign in or use a different email.');
+        }
+        throw error;
+      }
+      if (Array.isArray(result?.user?.identities) && result.user.identities.length === 0) {
+        throw new Error('This email is already being used. Sign in or use a different email.');
+      }
       if (result?.session?.access_token) {
         this.saveSession(result.session);
         const user = await this.request('/auth/v1/user', { token: this.session.access_token });
@@ -210,7 +221,7 @@ class PublisherPortal {
     }
     this.user = user;
     this.updateNavigation();
-    await this.open('my-apps');
+    await this.open(user.email?.trim().toLowerCase() === this.adminEmail ? 'review' : 'my-apps');
     this.setNotice(`Signed in as ${user.email}.`, 'success');
   }
 
@@ -222,6 +233,35 @@ class PublisherPortal {
       token: this.session.access_token,
       body: { action, ...payload },
     });
+  }
+
+  async uploadReviewedPackage(submissionId, file) {
+    await this.ensureSession();
+    if (!this.user || !this.session) throw new Error('Sign in with a verified email to continue.');
+    const params = new URLSearchParams({
+      action: 'upload-reviewed-package',
+      submissionId,
+    });
+    const response = await fetch(`${this.baseUrl}/functions/v1/publisher-api?${params}`, {
+      method: 'POST',
+      headers: {
+        apikey: this.anonKey,
+        Authorization: `Bearer ${this.session.access_token}`,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: file,
+    });
+    const text = await response.text();
+    let result = null;
+    if (text) {
+      try {
+        result = JSON.parse(text);
+      } catch {
+        result = text;
+      }
+    }
+    if (!response.ok) throw new Error(errorMessage(result, `Package upload failed (${response.status}).`));
+    return result;
   }
 
   async fetchPublishedApps() {
@@ -664,7 +704,7 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Submission review', 'Review submitted packages. Publishing signs the package with the NovaByte trusted signing key and adds it to the public catalog.');
+    this.setPage('Review Apps', 'Inspect each submitted package, download it for review, then upload the reviewed .novaapp. Approval signs that reviewed package with NovaByte’s trusted key and publishes it.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
@@ -726,6 +766,51 @@ class PublisherPortal {
       download.download = `${submission.app_id}-${submission.version}.novaapp`;
       card.appendChild(download);
     }
+    const uploadIntro = makeElement('p', 'publisher-review-upload-help',
+      submission.has_reviewed_package
+        ? 'Reviewed package uploaded. You can upload another version to replace it before approval.'
+        : 'After inspecting the download, upload the reviewed .novaapp. Approval is enabled only after this step; the server signs it when you publish.');
+    const uploadField = makeField('Reviewed package (.novaapp)', {
+      id: 'reviewed-package',
+      type: 'file',
+      required: false,
+    });
+    uploadField.input.accept = '.novaapp,application/json';
+    uploadField.input.disabled = false;
+    const uploadButton = this.makeAction(
+      submission.has_reviewed_package ? 'Replace reviewed package' : 'Upload reviewed package',
+      async () => {
+        const file = uploadField.input.files?.[0];
+        if (!file) {
+          this.setNotice('Choose the reviewed .novaapp file first.', 'error');
+          uploadField.input.focus();
+          return;
+        }
+        if (file.size > MAX_PACKAGE_BYTES) {
+          this.setNotice('The reviewed package must be no larger than 25 MB.', 'error');
+          return;
+        }
+        uploadButton.disabled = true;
+        uploadButton.textContent = 'Uploading package…';
+        try {
+          await this.uploadReviewedPackage(submission.id, file);
+          submission.has_reviewed_package = true;
+          this.renderReviewForm(submission);
+          this.setNotice('Reviewed package uploaded. Approve & publish when your inspection is complete.', 'success');
+        } catch (error) {
+          this.setNotice(error.message || String(error), 'error');
+          uploadButton.disabled = false;
+          uploadButton.textContent = submission.has_reviewed_package ? 'Replace reviewed package' : 'Upload reviewed package';
+        }
+      },
+      'is-secondary'
+    );
+    uploadButton.disabled = true;
+    uploadField.input.addEventListener('change', () => {
+      uploadButton.disabled = !uploadField.input.files?.length;
+      uploadButton.textContent = submission.has_reviewed_package ? 'Replace reviewed package' : 'Upload reviewed package';
+    });
+    card.append(uploadIntro, uploadField.label, uploadButton);
     const note = makeField('Reviewer note (required for rejection or change requests)', {
       id: 'review-note',
       type: 'textarea',
@@ -740,6 +825,10 @@ class PublisherPortal {
       if (['reject', 'request-changes'].includes(action) && !text) {
         this.setNotice('Add a reviewer note before requesting changes or rejecting.', 'error');
         note.input.focus();
+        return;
+      }
+      if (action === 'publish' && !submission.has_reviewed_package) {
+        this.setNotice('Upload the inspected .novaapp before approving this submission.', 'error');
         return;
       }
       buttons.querySelectorAll('button').forEach(button => { button.disabled = true; });
@@ -805,11 +894,12 @@ class PublisherPortal {
         .then(verified => {
           if (verified) {
             this.updateNavigation();
-            this.open('my-apps').then(() => this.setNotice('Email verified. Your publisher account is ready.', 'success'));
+            const page = this.user?.email?.trim().toLowerCase() === this.adminEmail ? 'review' : 'my-apps';
+            this.open(page).then(() => this.setNotice('Email verified. Your publisher account is ready.', 'success'));
           } else {
             return this.ensureSession().then(user => {
               this.updateNavigation();
-              if (user) this.open('my-apps');
+              if (user) this.open(user.email?.trim().toLowerCase() === this.adminEmail ? 'review' : 'my-apps');
             });
           }
         })

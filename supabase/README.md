@@ -84,6 +84,10 @@ only exist in the function environment.
 - Publishers sign up with email/password, verify their address, then submit
   listing details and a `.novaapp` package. New releases and updates remain
   private while pending review.
+- The authorized reviewer can download each pending package, inspect it,
+  upload the reviewed `.novaapp`, and then approve, request changes, or reject.
+  Approval is disabled until the reviewed package has been uploaded; the Edge
+  Function signs that uploaded package with the trusted key during publication.
 - The reviewer inbox is available only to the verified
   `dirazmuhammad400@gmail.com` account. Other users cannot list, download, or
   change submissions, even if they manually call the Edge Function.
