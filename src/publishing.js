@@ -2,6 +2,8 @@ import { PUBLISHING_CONFIG } from './publishing-config.js';
 
 const SESSION_KEY = 'novabyte-publisher-session';
 const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
+const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const MAX_SCREENSHOTS = 5;
 
 function errorMessage(payload, fallback) {
   if (typeof payload === 'string' && payload) return payload;
@@ -17,6 +19,16 @@ function makeElement(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function makeField(labelText, { id, type = 'text', required = true, value = '', placeholder = '', maxLength } = {}) {
@@ -45,6 +57,7 @@ class PublisherPortal {
     this.showStore = () => {};
     this.currentMode = 'signin';
     this.activeMenu = null;
+    this.contentCleanup = null;
     this.nodes = {
       header: document.querySelector('.site-header'),
       store: document.getElementById('store-view'),
@@ -76,11 +89,15 @@ class PublisherPortal {
 
   readSession() {
     try {
-      const value = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
+      const stored = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+      const value = JSON.parse(stored || 'null');
+      if (value && !localStorage.getItem(SESSION_KEY)) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(value));
+        sessionStorage.removeItem(SESSION_KEY);
+      }
       return value && typeof value.access_token === 'string' ? value : null;
     } catch (error) {
       console.warn('[Publisher] Could not restore the browser session:', error);
-      sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
   }
@@ -95,10 +112,12 @@ class PublisherPortal {
       refresh_token: session.refresh_token,
       expires_at: Math.floor(Date.now() / 1000) + expiresIn,
     };
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(this.session));
+    localStorage.setItem(SESSION_KEY, JSON.stringify(this.session));
+    sessionStorage.removeItem(SESSION_KEY);
   }
 
   clearSession() {
+    localStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_KEY);
     this.session = null;
     this.user = null;
@@ -127,21 +146,39 @@ class PublisherPortal {
       }
     }
     if (!response.ok) {
-      throw new Error(errorMessage(result, `Request failed (${response.status}).`));
+      const error = new Error(errorMessage(result, `Request failed (${response.status}).`));
+      error.status = response.status;
+      throw error;
     }
     return result;
   }
 
-  async ensureSession() {
-    if (!this.session) return null;
-    if (this.session.expires_at <= Math.floor(Date.now() / 1000) + 30) {
+  async refreshSession() {
+    try {
       const refreshed = await this.request('/auth/v1/token?grant_type=refresh_token', {
         method: 'POST',
         body: { refresh_token: this.session.refresh_token },
       });
       this.saveSession(refreshed);
+    } catch (error) {
+      if ([400, 401, 403].includes(error.status)) this.clearSession();
+      throw error;
     }
-    const user = await this.request('/auth/v1/user', { token: this.session.access_token });
+  }
+
+  async ensureSession() {
+    if (!this.session) return null;
+    if (this.session.expires_at <= Math.floor(Date.now() / 1000) + 30) {
+      await this.refreshSession();
+    }
+    let user;
+    try {
+      user = await this.request('/auth/v1/user', { token: this.session.access_token });
+    } catch (error) {
+      if (error.status !== 401) throw error;
+      await this.refreshSession();
+      user = await this.request('/auth/v1/user', { token: this.session.access_token });
+    }
     if (!user?.email_confirmed_at && !user?.confirmed_at) {
       this.clearSession();
       return null;
@@ -313,6 +350,8 @@ class PublisherPortal {
   }
 
   setPage(title, subtitle) {
+    this.contentCleanup?.();
+    this.contentCleanup = null;
     this.nodes.title.textContent = title;
     this.nodes.subtitle.textContent = subtitle;
     this.nodes.content.replaceChildren();
@@ -567,7 +606,13 @@ class PublisherPortal {
       try {
         if (file.size > MAX_PACKAGE_BYTES) throw new Error('The package exceeds the 25 MB upload limit.');
         const pkg = JSON.parse(await file.text());
-        if (pkg?.novabyte_app !== true || !pkg.manifest || typeof pkg.files !== 'object') {
+        if (
+          pkg?.novabyte_app !== true ||
+          !pkg.manifest ||
+          !pkg.files ||
+          typeof pkg.files !== 'object' ||
+          Array.isArray(pkg.files)
+        ) {
           throw new Error('This file is not a valid .novaapp package.');
         }
         onPackage({ file, pkg });
@@ -608,6 +653,56 @@ class PublisherPortal {
       }
     });
     form.appendChild(packagePicker.field.label);
+
+    const screenshots = makeField('Screenshots (up to 5 images)', {
+      id: 'listing-screenshots',
+      type: 'file',
+      required: false,
+    });
+    screenshots.input.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    screenshots.input.multiple = true;
+    const screenshotHelp = makeElement('p', 'publisher-form-intro',
+      'Optional. PNG, JPEG, WebP, or GIF; each image may be up to 5 MB. These images will be added to the .novaapp package.');
+    const screenshotPreview = makeElement('div', 'publisher-screenshot-preview');
+    let screenshotObjectUrls = [];
+    screenshots.input.addEventListener('change', () => {
+      for (const url of screenshotObjectUrls) URL.revokeObjectURL(url);
+      screenshotObjectUrls = [];
+      screenshotPreview.replaceChildren();
+      const selected = [...(screenshots.input.files || [])];
+      if (selected.length > MAX_SCREENSHOTS) {
+        screenshots.input.value = '';
+        this.setNotice(`Choose no more than ${MAX_SCREENSHOTS} screenshots.`, 'error');
+        return;
+      }
+      if (selected.some(file => !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type))) {
+        screenshots.input.value = '';
+        this.setNotice('Screenshots must be PNG, JPEG, WebP, or GIF images.', 'error');
+        return;
+      }
+      if (selected.some(file => file.size > MAX_SCREENSHOT_BYTES)) {
+        screenshots.input.value = '';
+        this.setNotice('Each screenshot must be no larger than 5 MB.', 'error');
+        return;
+      }
+      for (const file of selected) {
+        const url = URL.createObjectURL(file);
+        screenshotObjectUrls.push(url);
+        const preview = makeElement('figure', 'publisher-screenshot-item');
+        const image = document.createElement('img');
+        image.src = url;
+        image.alt = file.name;
+        const caption = makeElement('figcaption', '', file.name);
+        preview.append(image, caption);
+        screenshotPreview.appendChild(preview);
+      }
+      if (selected.length) this.setNotice(`${selected.length} screenshot${selected.length === 1 ? '' : 's'} selected.`, 'info');
+    });
+    form.append(screenshots.label, screenshotHelp, screenshotPreview);
+    this.contentCleanup = () => {
+      for (const url of screenshotObjectUrls) URL.revokeObjectURL(url);
+      screenshotObjectUrls = [];
+    };
 
     const fields = {};
     if (!update) {
@@ -655,10 +750,37 @@ class PublisherPortal {
       try {
         const submissionId = crypto.randomUUID();
         const packagePath = `${this.user.id}/${submissionId}.novaapp`;
+        const packageForUpload = JSON.parse(JSON.stringify(packageData.pkg));
+        const selectedScreenshots = [...(screenshots.input.files || [])];
+        if (selectedScreenshots.length > MAX_SCREENSHOTS) {
+          throw new Error(`Choose no more than ${MAX_SCREENSHOTS} screenshots.`);
+        }
+        if (selectedScreenshots.some(file => !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type))) {
+          throw new Error('Screenshots must be PNG, JPEG, WebP, or GIF images.');
+        }
+        if (selectedScreenshots.some(file => file.size > MAX_SCREENSHOT_BYTES)) {
+          throw new Error('Each screenshot must be no larger than 5 MB.');
+        }
+        if (selectedScreenshots.length) {
+          const screenshotPaths = [];
+          for (const [index, file] of selectedScreenshots.entries()) {
+            const extension = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' })[file.type];
+            const path = `screenshots/publisher-${index + 1}.${extension}`;
+            packageForUpload.files[path] = arrayBufferToBase64(await file.arrayBuffer());
+            screenshotPaths.push(path);
+          }
+          packageForUpload.manifest.screenshots = screenshotPaths;
+        }
+        const uploadFile = new File([JSON.stringify(packageForUpload)], packageData.file.name, {
+          type: 'application/json',
+        });
+        if (uploadFile.size > MAX_PACKAGE_BYTES) {
+          throw new Error('The package plus screenshots exceeds the 25 MB upload limit.');
+        }
         await this.request(`/storage/v1/object/publisher-submissions/${encodePath(packagePath)}`, {
           method: 'POST',
           token: this.session.access_token,
-          rawBody: packageData.file,
+          rawBody: uploadFile,
           headers: {
             'Content-Type': 'application/json',
             'x-upsert': 'true',
@@ -1008,9 +1130,7 @@ class PublisherPortal {
         })
         .catch(error => {
           console.error('[Publisher] Could not restore authentication:', error);
-          this.clearSession();
-          this.updateNavigation();
-          this.setNotice(`Could not restore your sign-in: ${error.message || String(error)}`, 'error');
+          this.setNotice(`Could not restore your sign-in right now: ${error.message || String(error)} Your saved session was kept; reload to retry.`, 'error');
         });
     }
   }

@@ -1,24 +1,5 @@
 [
   {
-    "id": "com.novabyte.wallpaperhub",
-    "name": "Wallpaper Hub",
-    "version": "2.0.0",
-    "author": "WallPlusCrafts",
-    "description": "Browse, favourite and apply beautiful wallpapers from Wallhaven — with curated collections, colour search, OS theme sync and one-tap actions.",
-    "categories": ["utilities", "personalization"],
-    "icon": "apps/icons/com.novabyte.wallpaperhub.svg",
-    "file": "apps/com.novabyte.wallpaperhub.novaapp",
-    "size": "146 KB",
-    "screenshots": ["apps/screenshots/wallpaperhub-main.jpg"],
-    "versionHistory": [
-      {
-        "version": "2.0.0",
-        "date": "2026-10-18",
-        "notes": "Initial release."
-      }
-    ]
-  },
-  {
     "id": "com.tools.mdpreviewer",
     "name": "Markdown Previewer",
     "version": "1.0.0",

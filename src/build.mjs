@@ -72,7 +72,7 @@ const minifiedJs = jsOutput.text;
 // one request instead of three, no separate cache invalidation to think about)
 let outHtml = html
   .replace('<link rel="stylesheet" href="styling.css">', `<style>${minifiedCss}</style>`)
-  .replace('<script type="module" src="logic.js"></script>', `<script type="module">${minifiedJs.trim()}</script>`);
+  .replace('<script type="module" src="logic.js"></script>', '<script id="novabyte-module-bundle"></script>');
 
 // --- Minify the HTML shell itself ---
 const finalHtml = await minifyHtml(outHtml, {
@@ -95,11 +95,16 @@ const finalHtml = await minifyHtml(outHtml, {
   minifyJS: false,
 });
 
-writeFileSync(OUT_FILE, finalHtml);
+const finalHtmlWithBundle = finalHtml.replace(
+  /<script\b[^>]*\bid=["']?novabyte-module-bundle["']?[^>]*><\/script>/i,
+  `<script type="module">${minifiedJs.trim()}</script>`
+);
+if (finalHtmlWithBundle === finalHtml) throw new Error('Could not insert the bundled website JavaScript.');
+writeFileSync(OUT_FILE, finalHtmlWithBundle);
 
 const before = Buffer.byteLength(html, 'utf8') + Buffer.byteLength(css, 'utf8')
   + Buffer.byteLength(js, 'utf8') + Buffer.byteLength(publishingJs, 'utf8');
-const after = Buffer.byteLength(finalHtml, 'utf8');
+const after = Buffer.byteLength(finalHtmlWithBundle, 'utf8');
 console.log(`Before: ${(before / 1024).toFixed(1)} KB`);
 console.log(`After:  ${(after / 1024).toFixed(1)} KB`);
 console.log(`Saved:  ${(((before - after) / before) * 100).toFixed(1)}%`);

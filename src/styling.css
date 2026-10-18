@@ -2409,6 +2409,36 @@ body::before {
 .publisher-field textarea:focus { border-color: var(--glow-primary); box-shadow: 0 0 0 3px rgba(112, 217, 247, 0.1); }
 .publisher-field input[type="file"] { padding: 8px; }
 
+.publisher-screenshot-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.publisher-screenshot-item {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  background: rgba(4, 9, 17, 0.45);
+}
+
+.publisher-screenshot-item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.publisher-screenshot-item figcaption {
+  overflow: hidden;
+  padding: 6px 8px;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .publisher-submit,
 .publisher-inline-action {
   width: fit-content;
