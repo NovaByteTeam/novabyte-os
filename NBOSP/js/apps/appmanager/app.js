@@ -1527,9 +1527,12 @@ registerApp({
       const fileInput = createEl('input', {
         type: 'file', accept: '.novaapp', id: 'app-install-input', name: 'app-install', style: 'display:none;'
       });
-      fileInput.addEventListener('change', e => {
-        if (e.target.files[0]) processFile(e.target.files[0]);
+      fileInput.multiple = true;
+      fileInput.addEventListener('change', async e => {
+        const files = Array.from(e.target.files || []);
         fileInput.value = '';
+        if (files.length > 1) await processFiles(files);
+        else if (files.length === 1) await processFile(files[0]);
       }, listenerOpts);
       root.appendChild(fileInput);
       installBtn.addEventListener('click', () => fileInput.click(), listenerOpts);
@@ -1950,16 +1953,19 @@ registerApp({
         detail.appendChild(bodyEl);
       }
 
-      function processFile(file) {
+      async function processFile(file, { quietSuccess = false } = {}) {
         if (!file.name.endsWith('.novaapp')) {
           Notify.show({ title: 'Invalid File', body: 'Please select a valid .novaapp package.', type: 'error', appName: 'App Manager' });
-          return;
+          return 'failed';
         }
 
-        const reader = new FileReader();
-        reader.onload = async ev => {
-          try {
-            const raw = ev.target.result;
+        try {
+            const raw = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => reject(reader.error || new Error('Could not read package file.'));
+              reader.readAsText(file);
+            });
             let pkg;
 
             try {
@@ -2157,12 +2163,44 @@ registerApp({
             renderDetail();
             if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
             if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
-            Notify.show({ title: 'App Installed', body: `${appData.name} v${appData.version} installed successfully.`, type: 'success', appName: 'App Manager' });
-          } catch (err) {
+            if (!quietSuccess) {
+              Notify.show({ title: 'App Installed', body: `${appData.name} v${appData.version} installed successfully.`, type: 'success', appName: 'App Manager' });
+            }
+            return 'installed';
+        } catch (err) {
             Notify.show({ title: 'Install Failed', body: String(err.message || err), type: 'error', appName: 'App Manager' });
+            return 'failed';
+        }
+      }
+
+      async function processFiles(files) {
+        installBtn.disabled = true;
+        installBtn.style.opacity = '0.65';
+        installBtn.style.cursor = 'wait';
+        let installed = 0;
+        let failed = 0;
+        let skipped = 0;
+        try {
+          for (const file of files) {
+            const result = await processFile(file, { quietSuccess: true });
+            if (result === 'installed') installed++;
+            else if (result === 'failed') failed++;
+            else skipped++;
           }
-        };
-        reader.readAsText(file);
+        } finally {
+          installBtn.disabled = false;
+          installBtn.style.opacity = '';
+          installBtn.style.cursor = '';
+        }
+        const parts = [`${installed} installed`];
+        if (failed) parts.push(`${failed} failed`);
+        if (skipped) parts.push(`${skipped} skipped`);
+        Notify.show({
+          title: 'Batch Install Complete',
+          body: parts.join(', ') + '.',
+          type: failed ? 'error' : 'success',
+          appName: 'App Manager'
+        });
       }
 
       // Exposed so the registerApp-level onDrop hook (below, outside this

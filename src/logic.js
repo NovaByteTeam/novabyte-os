@@ -420,14 +420,7 @@ function renderFeatured() {
   featuredName.dataset.appId = app.id;
   setAppIcon(featuredIcon, app);
   featuredArt.replaceChildren();
-  const screenshot = Array.isArray(app.screenshots) ? safeWebUrl(app.screenshots[0]) : null;
-  if (screenshot) {
-    const image = document.createElement('img');
-    image.src = screenshot;
-    image.alt = '';
-    image.loading = 'lazy';
-    featuredArt.appendChild(image);
-  }
+  renderFeaturedScreenshot(app);
   featuredName.textContent = app.name;
   const featuredVerified = document.createElement('span');
   featuredVerified.className = 'verified-badge';
@@ -443,6 +436,38 @@ function renderFeatured() {
   featuredCard.onkeydown = e => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(app); }
   };
+}
+
+async function renderFeaturedScreenshot(app) {
+  let pkg = null;
+  try {
+    pkg = await fetchPackage(app);
+  } catch (error) {
+    console.warn(`[Store] Could not load ${app.name} package for its featured screenshot:`, error);
+  }
+
+  if (featuredName.dataset.appId !== app.id || featuredSection.hidden) return;
+  const screenshots = Array.isArray(app.screenshots) && app.screenshots.length
+    ? app.screenshots
+    : pkg?.manifest?.screenshots;
+  if (!Array.isArray(screenshots)) return;
+
+  const sources = screenshots.map(source => {
+    if (typeof source !== 'string') return null;
+    if (/^https:\/\//i.test(source)) return safeWebUrl(source);
+    return pkg ? packageImageUrl(source, pkg) : safeAssetUrl(source);
+  }).filter(Boolean);
+
+  const showNextScreenshot = index => {
+    if (featuredName.dataset.appId !== app.id || featuredSection.hidden || index >= sources.length) return;
+    const image = document.createElement('img');
+    image.src = sources[index];
+    image.alt = '';
+    image.loading = 'lazy';
+    image.onerror = () => showNextScreenshot(index + 1);
+    featuredArt.replaceChildren(image);
+  };
+  showNextScreenshot(0);
 }
 
 // ── Grid ───────────────────────────────────────────────────────────────────

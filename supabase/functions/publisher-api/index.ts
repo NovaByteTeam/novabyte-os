@@ -185,6 +185,7 @@ async function getOne(table: string, key: string, value: string) {
 }
 
 async function submit(user: { id: string; email?: string }, body: Record<string, unknown>) {
+  const publishImmediately = user.email?.trim().toLowerCase() === ADMIN_EMAIL;
   const id = requiredText(body.submissionId, 'Submission ID', 64);
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
   const submission = body.submission as Record<string, unknown> | undefined;
@@ -287,6 +288,19 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
       status: 'pending',
     },
   });
+  if (publishImmediately) {
+    await publishSubmission({
+      id,
+      app_id: appId,
+      type,
+      version,
+      metadata,
+      changelog,
+      package_path: packagePath,
+    });
+    return { submitted: true, published: true };
+  }
+
   const notification = await sendEmail(
     ADMIN_EMAIL,
     `NovaByte app ${type} submitted: ${String(metadata.name)} v${version}`,

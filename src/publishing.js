@@ -653,13 +653,18 @@ class PublisherPortal {
 
   makeAppForm({ type, app } = {}) {
     const update = type === 'update';
+    const publishImmediately = this.user?.email?.trim().toLowerCase() === this.adminEmail;
     this.setPage(update ? `Update ${app.name}` : 'Publish an app', update
-      ? 'Submit a new .novaapp package and tell reviewers what changed in this version.'
-      : 'Complete the listing details and submit your .novaapp package for review. It will not appear publicly until approved.');
+      ? publishImmediately
+        ? 'Upload a newer package version to publish it immediately.'
+        : 'Submit a new .novaapp package and tell reviewers what changed in this version.'
+      : publishImmediately
+        ? 'Complete the listing details and publish your .novaapp package immediately.'
+        : 'Complete the listing details and submit your .novaapp package for review. It will not appear publicly until approved.');
     const form = makeElement('form', 'publisher-card publisher-app-form');
     const status = makeElement('p', 'publisher-form-intro', update
-      ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version.`
-      : 'All listing details are required. The package manifest ID and version must match the details below.');
+      ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version.${publishImmediately ? ' Your account is authorized to publish without a separate review.' : ''}`
+      : `All listing details are required. The package manifest ID and version must match the details below.${publishImmediately ? ' Your account is authorized to publish without a separate review.' : ''}`);
     form.appendChild(status);
     let packageData = null;
 
@@ -755,7 +760,9 @@ class PublisherPortal {
       fields.changelog = fields.changelog || makeField('What’s new in this version?', { id: 'update-changelog', type: 'textarea', placeholder: 'Describe the changes in this release.', maxLength: 4000 });
     }
 
-    const submit = makeElement('button', 'publisher-submit', update ? 'Submit update for review' : 'Submit app for review');
+    const submit = makeElement('button', 'publisher-submit',
+      update ? (publishImmediately ? 'Publish update' : 'Submit update for review')
+        : (publishImmediately ? 'Publish app' : 'Submit app for review'));
     submit.type = 'submit';
     const cancel = this.makeAction('Cancel', () => this.open('my-apps'), 'publisher-cancel');
     form.append(submit, cancel);
@@ -812,7 +819,7 @@ class PublisherPortal {
             'x-upsert': 'true',
           },
         });
-        submit.textContent = 'Sending for review…';
+        submit.textContent = publishImmediately ? 'Publishing…' : 'Sending for review…';
         const metadata = update ? {
           type: 'update',
           appId: app.id,
@@ -837,14 +844,19 @@ class PublisherPortal {
         };
         const result = await this.call('submit', { submissionId, submission: metadata });
         await this.open('my-apps');
-        this.setNotice(result.notificationSent === false
-          ? `Submission queued and visible in the review queue. ${emailFailureNotice(result.notificationError)}`
-          : 'Submission sent for review. You will receive an email when its status changes.', result.notificationSent === false ? 'warning' : 'success');
+        if (result.published) {
+          this.setNotice(`${update ? 'Update' : 'App'} published and signed successfully. It is now available in the public catalog.`, 'success');
+        } else {
+          this.setNotice(result.notificationSent === false
+            ? `Submission queued and visible in the review queue. ${emailFailureNotice(result.notificationError)}`
+            : 'Submission sent for review. You will receive an email when its status changes.', result.notificationSent === false ? 'warning' : 'success');
+        }
       } catch (error) {
         this.setNotice(error.message || String(error), 'error');
       } finally {
         submit.disabled = false;
-        submit.textContent = update ? 'Submit update for review' : 'Submit app for review';
+        submit.textContent = update ? (publishImmediately ? 'Publish update' : 'Submit update for review')
+          : (publishImmediately ? 'Publish app' : 'Submit app for review');
       }
     });
     this.nodes.content.appendChild(form);

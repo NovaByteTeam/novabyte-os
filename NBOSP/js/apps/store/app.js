@@ -2,6 +2,8 @@
   const STORE_ID = 'com.nbosp.store';
   const STORE_BASE_URL = 'https://novabyteteam.github.io/novabyte-os/';
   const STORE_URL = new URL('apps.json', STORE_BASE_URL).href;
+  const PUBLISHER_API_BASE_URL = 'https://jcrptxtmieveoijdbtqa.supabase.co';
+  const PUBLISHER_CATALOG_KEY = 'sb_publishable_K_MKjtuMcwlXJyB67Bmu3A_2vFQ2PGX';
   const APPS_KEY = 'nova_installed_apps';
   const packageIconCache = new Map();
   const packageCache = new Map();
@@ -388,16 +390,70 @@
   }
 
   async function fetchAppList() {
-    const res = await fetch(STORE_URL);
-    if (!res.ok) throw new Error(`Failed to fetch app list (${res.status})`);
-    const apps = await res.json();
-    if (!Array.isArray(apps)) throw new Error('App catalog must contain a list of apps.');
-    return apps.filter(app =>
-      app &&
-      typeof app.id === 'string' &&
-      typeof app.name === 'string' &&
-      typeof app.file === 'string'
-    );
+    const params = new URLSearchParams({
+      select: 'app_id,name,version,author,description,categories,icon,file,size,screenshots,links,release_notes,version_history',
+      order: 'published_at.desc',
+    });
+    const [staticResult, communityResult] = await Promise.allSettled([
+      fetch(STORE_URL).then(async response => {
+        if (!response.ok) throw new Error(`Failed to fetch app list (${response.status})`);
+        const apps = await response.json();
+        if (!Array.isArray(apps)) throw new Error('App catalog must contain a list of apps.');
+        return apps;
+      }),
+      fetch(`${PUBLISHER_API_BASE_URL}/rest/v1/publisher_catalog_apps?${params}`, {
+        headers: {
+          apikey: PUBLISHER_CATALOG_KEY,
+          Accept: 'application/json',
+        },
+      }).then(async response => {
+        if (!response.ok) throw new Error(`Failed to fetch community apps (${response.status})`);
+        const apps = await response.json();
+        if (!Array.isArray(apps)) throw new Error('Community app catalog must contain a list of apps.');
+        return apps.map(app => ({
+          id: app.app_id,
+          name: app.name,
+          version: app.version,
+          author: app.author,
+          description: app.description,
+          categories: app.categories,
+          icon: app.icon,
+          file: app.file,
+          size: app.size,
+          screenshots: app.screenshots,
+          links: app.links,
+          releaseNotes: app.release_notes,
+          versionHistory: app.version_history,
+        }));
+      }),
+    ]);
+
+    if (staticResult.status === 'rejected') {
+      console.warn('[AppStore] Could not load the static app catalog:', staticResult.reason);
+    }
+    if (communityResult.status === 'rejected') {
+      console.warn('[AppStore] Could not load community apps:', communityResult.reason);
+    }
+    if (staticResult.status === 'rejected' && communityResult.status === 'rejected') {
+      throw new Error('Could not load the static or community app catalogs. Check your connection and try again.');
+    }
+
+    const apps = [
+      ...(staticResult.status === 'fulfilled' ? staticResult.value : []),
+      ...(communityResult.status === 'fulfilled' ? communityResult.value : []),
+    ];
+    const uniqueApps = new Map();
+    for (const app of apps) {
+      if (
+        app &&
+        typeof app.id === 'string' &&
+        typeof app.name === 'string' &&
+        typeof app.file === 'string'
+      ) {
+        uniqueApps.set(app.id, app);
+      }
+    }
+    return [...uniqueApps.values()];
   }
 
   async function fetchAndVerify(app) {
