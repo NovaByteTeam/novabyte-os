@@ -315,6 +315,10 @@ const detailDownload = document.getElementById('detail-download');
 const readMoreBtn    = document.getElementById('read-more-btn');
 const detailScreenshots = document.getElementById('detail-screenshots');
 const detailScreenshotList = document.getElementById('detail-screenshot-list');
+const screenshotPreviewDialog = document.getElementById('screenshot-preview-dialog');
+const screenshotPreviewImage = document.getElementById('screenshot-preview-image');
+const screenshotPreviewCaption = document.getElementById('screenshot-preview-caption');
+const screenshotPreviewClose = document.getElementById('screenshot-preview-close');
 const detailPermissions = document.getElementById('detail-permissions');
 const detailRequiredPermissions = document.getElementById('detail-required-permissions');
 const detailOptionalPermissions = document.getElementById('detail-optional-permissions');
@@ -579,7 +583,12 @@ function renderPackageDetails(app, pkg) {
       image.alt = `${app.name} screenshot`;
       image.loading = 'lazy';
       const figure = document.createElement('figure');
-      figure.appendChild(image);
+      const previewButton = document.createElement('button');
+      previewButton.className = 'detail-screenshot-trigger';
+      previewButton.type = 'button';
+      previewButton.setAttribute('aria-label', `View larger ${image.alt}`);
+      previewButton.appendChild(image);
+      figure.appendChild(previewButton);
       detailScreenshotList.appendChild(figure);
     }
   }
@@ -596,6 +605,22 @@ function renderPackageDetails(app, pkg) {
   }
   detailLinks.closest('.detail-section').hidden = detailLinks.childElementCount === 0;
 }
+
+detailScreenshotList.addEventListener('click', event => {
+  const trigger = event.target.closest('.detail-screenshot-trigger');
+  if (!trigger) return;
+  const image = trigger.querySelector('img');
+  if (!image) return;
+  screenshotPreviewImage.src = image.currentSrc || image.src;
+  screenshotPreviewImage.alt = image.alt;
+  screenshotPreviewCaption.textContent = image.alt;
+  screenshotPreviewDialog.showModal();
+});
+
+screenshotPreviewClose.addEventListener('click', () => screenshotPreviewDialog.close());
+screenshotPreviewDialog.addEventListener('click', event => {
+  if (event.target === screenshotPreviewDialog) screenshotPreviewDialog.close();
+});
 
 function openDetail(app) {
   setAppIcon(detailIcon, app);
