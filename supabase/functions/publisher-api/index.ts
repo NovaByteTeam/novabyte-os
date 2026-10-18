@@ -4,6 +4,7 @@ import {
   PUBLISHED_BUCKET,
   SUBMISSION_BUCKET,
   PublisherError,
+  corsHeaders,
   downloadSubmission,
   errorResponse,
   escapeHtml,
