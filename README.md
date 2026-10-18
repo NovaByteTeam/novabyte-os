@@ -27,9 +27,27 @@
 >
 > **Store requirements:** The following apply to apps listed in the official store only. If you had your app reviewed and signed by NovaByte for self-hosting on your own site, none of these are required — you're free to distribute that build however you like.
 >
+> **Signing & integrity**
 > - Must be digitally signed by NovaByte. Self-signed packages will not be listed, regardless of content.
 > - Must include tamper protection. Packages that can be modified after signing will not be accepted.
+> - The exact build submitted for review must be the one that gets signed and listed. Swapping the package after approval is grounds for immediate removal and a permanent ban from the store.
+>
+> **Code**
 > - Must not use any minification or obfuscation. Obfuscated packages are blocked at runtime anyway, so they will never work in the store — submit readable code or the app won't function.
+> - No dynamic code execution — `eval`, `new Function`, or `setTimeout`/`setInterval` called with a string argument are not permitted. These bypass static review and are trivially abusable.
+> - No bundled binaries or executables. The package may only contain web assets.
+>
+> **Network**
+> - No external network requests to domains not declared upfront in the manifest. Apps may not phone home to anything that wasn't visible and approved during review.
+> - No remote script loading. All dependencies must be bundled inside the `.novaapp`. Scripts loaded from a CDN or any external URL bypass review entirely — if that resource changes after signing, so does your app's behaviour.
+> - Third-party dependencies must be pinned to an exact version, not a range. A range like `^1.2.0` means the running app could be a different version than the one reviewed.
+>
+> **Permissions**
+> - Every permission declared in the manifest must include a short human-readable justification explaining why the app needs it. This is checked during review — vague or missing justifications will be rejected.
+> - Apps may not request permissions at runtime beyond what is declared in the manifest. No escalation after install.
+>
+> **Updates**
+> - Every update, including patch releases, goes through full review again from scratch before it can be listed. There are no fast-track or trusted-developer exemptions. Updates are the most common vector for slipping malicious changes in post-approval.
 >
 > **Review and permission pruning:** We review every submission manually. If your app is safe, it will be accepted — but we will remove any declared permissions we determine are unnecessary. If you declare a permission your app never actually uses (for example, `vfs.read` with no VFS reads anywhere in the code), we strip it before the store release. This is a privacy and security measure, not a judgment on your app. Your app is still accepted; the manifest is just trimmed to what it genuinely needs.
 >
