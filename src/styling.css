@@ -457,6 +457,7 @@ code {
   color: oklch(82% .14 160);
   font-size: .6875rem;
   font-weight: 650;
+  letter-spacing: normal;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -2150,6 +2151,14 @@ body::before {
 
   .detail-hero-layout { gap: 12px; }
   .detail-hero-main { padding: 20px; }
+  .detail-install-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .detail-install-row .detail-download-btn {
+    width: min(100%, 260px);
+  }
   .detail-screenshots { min-height: auto; }
   .detail-screenshot-list { grid-template-columns: 1fr; }
   .detail-screenshot-list img,
