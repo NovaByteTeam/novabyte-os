@@ -239,6 +239,19 @@ function safeWebUrl(value) {
   }
 }
 
+function safeAssetUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const base = new URL(document.baseURI);
+    const url = new URL(value, base);
+    return url.origin === base.origin && ['https:', 'http:'].includes(url.protocol)
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function packageImageUrl(value, pkg) {
   if (typeof value !== 'string') return null;
   if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,/i.test(value)) return value;
@@ -253,7 +266,7 @@ function packageImageUrl(value, pkg) {
       : null;
     if (mime) return `data:${mime};base64,${packagedFile}`;
   }
-  return safeWebUrl(value);
+  return safeAssetUrl(value);
 }
 
 // ── State ──────────────────────────────────────────────────────────────────

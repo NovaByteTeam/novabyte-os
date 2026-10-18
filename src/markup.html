@@ -125,106 +125,117 @@
   </div>
 
   <div class="detail-shell">
-
-    <!-- Identity row: icon + name/dev + install -->
-    <div class="detail-identity">
-      <div class="detail-icon" id="detail-icon" aria-hidden="true"></div>
-      <div class="detail-identity-body">
-        <h1 class="detail-name" id="detail-name"><span class="verified-badge" id="detail-verified" hidden></span></h1>
-        <p class="detail-author" id="detail-author"></p>
-        <div class="detail-cats" id="detail-cats"></div>
-      </div>
-      <a class="detail-download-btn" id="detail-download" href="#" download>Install</a>
-    </div>
-
-    <!-- Stats bar -->
-    <div class="detail-stats" id="detail-stats">
-      <div class="stat-item">
-        <span class="stat-value" id="detail-version"></span>
-        <span class="stat-label">Version</span>
-      </div>
-      <div class="stat-divider" aria-hidden="true"></div>
-      <div class="stat-item">
-        <span class="stat-value" id="detail-size"></span>
-        <span class="stat-label">Size</span>
-      </div>
-      <div class="stat-divider" aria-hidden="true"></div>
-      <div class="stat-item">
-        <span class="stat-value">.novaapp</span>
-        <span class="stat-label">Format</span>
-      </div>
-    </div>
-
-    <hr class="detail-rule">
-
-    <!-- Description with read-more -->
-    <section class="detail-section" aria-label="About this app">
-      <h2 class="detail-section-title">About this app</h2>
-      <div class="detail-desc-wrap" id="detail-desc-wrap">
-        <p class="detail-desc" id="detail-desc"></p>
-        <button class="read-more-btn hidden" id="read-more-btn" aria-expanded="false">More</button>
-      </div>
-    </section>
-
-    <hr class="detail-rule">
-
-    <section class="detail-section" id="detail-release-notes-section" aria-label="Release notes" hidden>
-      <h2 class="detail-section-title">What’s new</h2>
-      <p class="detail-release-notes" id="detail-release-notes"></p>
-    </section>
-
-    <section class="detail-section" id="detail-screenshots" aria-label="Screenshots" hidden>
-      <h2 class="detail-section-title">Screenshots</h2>
-      <div class="detail-screenshot-list" id="detail-screenshot-list"></div>
-    </section>
-
-    <section class="detail-section" id="detail-permissions" aria-label="Requested permissions" hidden>
-      <h2 class="detail-section-title">Permissions</h2>
-      <p class="detail-metadata-note">Declared by this package. NovaByte OS still controls and prompts for access.</p>
-      <div class="permission-group">
-        <h3>Required</h3>
-        <ul class="detail-permission-list" id="detail-required-permissions"></ul>
-      </div>
-      <div class="permission-group">
-        <h3>Optional</h3>
-        <ul class="detail-permission-list" id="detail-optional-permissions"></ul>
-      </div>
-    </section>
-
-    <section class="detail-section" aria-label="Publisher links" hidden>
-      <h2 class="detail-section-title">Links</h2>
-      <div class="detail-links-list" id="detail-links"></div>
-    </section>
-
-    <hr class="detail-rule">
-
-    <!-- App info chips -->
-    <section class="detail-section" aria-label="App information">
-      <h2 class="detail-section-title">App info</h2>
-      <dl class="detail-chips">
-        <div class="chip">
-          <dt>Developer</dt>
-          <dd id="detail-dev"></dd>
+    <section class="detail-hero-layout" aria-label="App overview">
+      <div class="detail-hero-main">
+        <div class="detail-identity">
+          <div class="detail-icon" id="detail-icon" aria-hidden="true"></div>
+          <div class="detail-identity-body">
+            <p class="detail-kicker">NOVABYTE APPLICATION</p>
+            <h1 class="detail-name" id="detail-name"><span class="verified-badge" id="detail-verified" hidden></span></h1>
+            <p class="detail-author" id="detail-author"></p>
+            <div class="detail-cats" id="detail-cats"></div>
+          </div>
         </div>
-        <div class="chip">
-          <dt>App ID</dt>
-          <dd><code id="detail-id"></code></dd>
+        <div class="detail-install-row">
+          <a class="detail-download-btn" id="detail-download" href="#" download>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+            <span>Download app</span>
+          </a>
+          <span class="detail-install-hint">For NovaByte OS</span>
         </div>
-      </dl>
+        <div class="detail-stats" id="detail-stats">
+          <div class="stat-item">
+            <span class="stat-value" id="detail-version"></span>
+            <span class="stat-label">Version</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value" id="detail-size"></span>
+            <span class="stat-label">Download size</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">.novaapp</span>
+            <span class="stat-label">Package format</span>
+          </div>
+        </div>
+        <div class="detail-trust-callout">
+          <span class="trust-check" aria-hidden="true">✓</span>
+          <span><strong>Checked for NovaByte</strong><br>Package signature and file integrity are verified.</span>
+        </div>
+      </div>
+      <section class="detail-section detail-screenshots" id="detail-screenshots" aria-label="Screenshots" hidden>
+        <div class="detail-gallery-heading">
+          <p class="detail-kicker">TAKE A CLOSER LOOK</p>
+          <h2 class="detail-section-title">Inside the app</h2>
+        </div>
+        <div class="detail-screenshot-list" id="detail-screenshot-list"></div>
+      </section>
     </section>
 
-    <hr class="detail-rule">
+    <div class="detail-content-grid">
+      <main class="detail-primary">
+        <section class="detail-section detail-about" aria-label="About this app">
+          <p class="detail-kicker">OVERVIEW</p>
+          <h2 class="detail-section-title">About this app</h2>
+          <div class="detail-desc-wrap" id="detail-desc-wrap">
+            <p class="detail-desc" id="detail-desc"></p>
+            <button class="read-more-btn hidden" id="read-more-btn" aria-expanded="false">More</button>
+          </div>
+        </section>
 
-    <!-- How to install -->
-    <section class="detail-section" aria-label="How to install">
-      <h2 class="detail-section-title">How to install</h2>
-      <ol class="install-steps">
-        <li>Download the <code>.novaapp</code> file using the Install button above.</li>
-        <li>Open <strong>App Manager</strong> on NovaByte OS.</li>
-        <li>Drag the file in, or use <em>File → Install package</em>.</li>
-      </ol>
-    </section>
+        <section class="detail-section detail-release-notes-section" id="detail-release-notes-section" aria-label="Release notes" hidden>
+          <p class="detail-kicker">LATEST RELEASE</p>
+          <h2 class="detail-section-title">What’s new</h2>
+          <p class="detail-release-notes-copy" id="detail-release-notes"></p>
+        </section>
 
+        <section class="detail-section detail-permissions" id="detail-permissions" aria-label="Requested permissions" hidden>
+          <p class="detail-kicker">TRANSPARENCY</p>
+          <h2 class="detail-section-title">Permissions</h2>
+          <p class="detail-metadata-note">Declared by this package. NovaByte OS still controls and prompts for access.</p>
+          <div class="permission-group">
+            <h3>Required</h3>
+            <ul class="detail-permission-list" id="detail-required-permissions"></ul>
+          </div>
+          <div class="permission-group">
+            <h3>Optional</h3>
+            <ul class="detail-permission-list" id="detail-optional-permissions"></ul>
+          </div>
+        </section>
+
+        <section class="detail-section detail-links-section" aria-label="Publisher links" hidden>
+          <p class="detail-kicker">FROM THE PUBLISHER</p>
+          <h2 class="detail-section-title">Useful links</h2>
+          <div class="detail-links-list" id="detail-links"></div>
+        </section>
+      </main>
+
+      <aside class="detail-sidebar">
+        <section class="detail-section detail-info-section" aria-label="App information">
+          <p class="detail-kicker">AT A GLANCE</p>
+          <h2 class="detail-section-title">App information</h2>
+          <dl class="detail-chips">
+            <div class="chip">
+              <dt>Developer</dt>
+              <dd id="detail-dev"></dd>
+            </div>
+            <div class="chip">
+              <dt>App ID</dt>
+              <dd><code id="detail-id"></code></dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="detail-section detail-install-section" aria-label="How to install">
+          <p class="detail-kicker">GETTING STARTED</p>
+          <h2 class="detail-section-title">Install in a few steps</h2>
+          <ol class="install-steps">
+            <li>Download the package above.</li>
+            <li>Open <strong>App Manager</strong> on NovaByte OS.</li>
+            <li>Choose <em>Install package</em> and select the downloaded file.</li>
+          </ol>
+        </section>
+      </aside>
+    </div>
   </div>
 </div>
 
