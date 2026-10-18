@@ -799,6 +799,7 @@ code {
   width: 100%;
   max-height: 250px;
   object-fit: cover;
+}
 
 .read-more-btn {
   display: inline-block;
