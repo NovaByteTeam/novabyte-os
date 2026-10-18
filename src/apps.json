@@ -14,22 +14,7 @@
       {
         "version": "2.0.0",
         "date": "2026-09-14",
-        "notes": "Complete rewrite. Added colour search, OS theme sync, and curated collections. Wallhaven API updated to v2."
-      },
-      {
-        "version": "1.3.1",
-        "date": "2026-07-02",
-        "notes": "Fixed crash when Wallhaven returns empty results for certain tags."
-      },
-      {
-        "version": "1.3.0",
-        "date": "2026-06-18",
-        "notes": "One-tap apply action. Favourite list now syncs across devices via NovaByte cloud."
-      },
-      {
-        "version": "1.2.0",
-        "date": "2026-04-30",
-        "notes": "Initial public release with basic browse and apply support."
+        "notes": "Initial release."
       }
     ]
   },
