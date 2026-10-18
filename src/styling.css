@@ -2052,10 +2052,8 @@ body::before {
 }
 
 .screenshot-preview-close {
-  position: absolute;
-  z-index: 1;
-  top: 12px;
-  right: 12px;
+  justify-self: end;
+  margin-bottom: -2px;
   padding: 8px 12px;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 999px;
