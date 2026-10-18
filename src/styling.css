@@ -1012,14 +1012,14 @@ body::before {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  flex: 0 1 390px;
+  flex: 1 1 0;
   min-width: 0;
 }
 
 .search-wrap {
-  flex: 1 1 260px;
+  flex: 1 1 180px;
   min-width: 0;
-  width: min(340px, 100%);
+  max-width: 340px;
 }
 
 .search-input {
