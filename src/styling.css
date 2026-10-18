@@ -1955,6 +1955,39 @@ body::before {
   font-size: 0.7rem;
 }
 
+.detail-root-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 190, 75, 0.3);
+  border-radius: 11px;
+  background: rgba(245, 190, 75, 0.08);
+  color: #f2d38e;
+  font-size: 0.67rem;
+  line-height: 1.45;
+}
+
+.detail-root-warning[hidden] { display: none; }
+
+.root-warning-icon {
+  flex: 0 0 24px;
+  font-size: 1rem;
+}
+
+.detail-root-warning strong {
+  color: #f5c842;
+  font-size: 0.7rem;
+}
+
+.detail-root-warning code {
+  font-family: monospace;
+  font-size: 0.68rem;
+  background: rgba(245, 190, 75, 0.12);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
 .detail-screenshots {
   display: flex;
   flex-direction: column;
@@ -2363,6 +2396,64 @@ body::before {
 
 .publisher-card { padding: clamp(18px, 4vw, 30px); }
 .publisher-auth-form { display: grid; gap: 16px; max-width: 540px; }
+
+.publisher-rules {
+  border: 1px solid rgba(245, 190, 75, 0.2);
+  border-radius: 12px;
+  background: rgba(245, 190, 75, 0.05);
+  padding: 0;
+  overflow: hidden;
+}
+
+.publisher-rules[open] { padding-bottom: 16px; }
+
+.publisher-rules-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #f2d38e;
+  list-style: none;
+  user-select: none;
+}
+
+.publisher-rules-summary::-webkit-details-marker { display: none; }
+
+.publisher-rules-summary:hover { background: rgba(245, 190, 75, 0.07); }
+
+.publisher-rules-icon { font-size: 1rem; flex: 0 0 auto; }
+
+.publisher-rules-heading {
+  margin: 14px 16px 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #f5c842;
+}
+
+.publisher-rules-list {
+  margin: 0 16px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.publisher-rules-item {
+  font-size: 0.75rem;
+  color: #c9b87a;
+  line-height: 1.5;
+}
+
+.publisher-rules-note {
+  margin: 14px 16px 0;
+  font-size: 0.7rem;
+  color: #8a7a52;
+  font-style: italic;
+}
 .publisher-account-form { display: grid; gap: 22px; max-width: 700px; }
 .publisher-app-form { display: grid; gap: 14px; }
 

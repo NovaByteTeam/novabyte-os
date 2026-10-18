@@ -666,6 +666,109 @@ class PublisherPortal {
       ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version.${publishImmediately ? ' Your account is authorized to publish without a separate review.' : ''}`
       : `All listing details are required. The package manifest ID and version must match the details below.${publishImmediately ? ' Your account is authorized to publish without a separate review.' : ''}`);
     form.appendChild(status);
+
+    if (!update) {
+      const rules = makeElement('details', 'publisher-rules');
+      const summary = makeElement('summary', 'publisher-rules-summary', '');
+      const summaryIcon = makeElement('span', 'publisher-rules-icon', '📋');
+      const summaryText = makeElement('span', '', 'Store requirements — read before submitting');
+      summary.append(summaryIcon, summaryText);
+      rules.appendChild(summary);
+
+      const sections = [
+        {
+          heading: 'Signing & integrity',
+          items: [
+            'Must be digitally signed by NovaByte. Self-signed packages will not be listed.',
+            'Must include tamper protection. Packages that can be modified after signing will not be accepted.',
+            'The exact build submitted must be the one that gets signed and listed. Swapping the package after approval is a permanent ban.',
+          ],
+        },
+        {
+          heading: 'Code',
+          items: [
+            'No minification or obfuscation. Obfuscated packages are blocked at runtime — submit readable code.',
+            'No dynamic code execution: eval, new Function, or setTimeout/setInterval called with a string.',
+            'No bundled binaries or executables. The package may only contain web assets.',
+          ],
+        },
+        {
+          heading: 'Network',
+          items: [
+            'No network requests to domains not declared in the manifest. Apps may not phone home to anything not approved during review.',
+            'No remote script loading. All dependencies must be bundled inside the .novaapp.',
+            'Third-party dependencies must be pinned to an exact version, not a range.',
+          ],
+        },
+        {
+          heading: 'Permissions',
+          items: [
+            'Every declared permission must include a short human-readable justification in the manifest. Vague or missing justifications will be rejected.',
+            'Apps may not request permissions at runtime beyond what is declared in the manifest.',
+            'Apps declaring system:root are banned unless there is a specific, compelling reason the app cannot function inside the sandbox. Every system:root submission is held for manual scrutiny.',
+          ],
+        },
+        {
+          heading: 'Security patch level',
+          items: [
+            'Apps declaring vfs:write, vfs:delete, device:geolocation, system:settings, net:internal, or admin:system — or that handle passwords, tokens, encryption keys, or personal data — must declare minSecurityPatch in their manifest. Submissions without it are rejected immediately.',
+          ],
+        },
+        {
+          heading: 'Content & behaviour',
+          items: [
+            'No ads, trackers, or analytics of any kind. No third-party SDKs that phone home.',
+            'Apps must not silently run in the background after the user closes them unless a background permission is declared and the user is informed at install time.',
+            'Apps must not auto-launch on boot without explicit user consent at install time.',
+          ],
+        },
+        {
+          heading: 'Data handling',
+          items: [
+            'Apps must not persist or transmit user data beyond what is needed for their stated purpose.',
+            'Data written to VFS must be scoped to the app\'s own directory.',
+            'Apps must not store credentials — passwords, tokens, keys — in plaintext anywhere in VFS.',
+          ],
+        },
+        {
+          heading: 'Manifest hygiene',
+          items: [
+            'App name, description, and declared permissions must accurately reflect what the app actually does. Misrepresentation is grounds for removal and a permanent ban.',
+            'Version numbers must follow a consistent scheme — semver is recommended.',
+          ],
+        },
+        {
+          heading: 'Abuse prevention',
+          items: [
+            'Apps must not attempt to detect whether they are being reviewed. If caught, permanent ban with no appeal.',
+            'No UI that mimics NovaByte OS system dialogs or NovaByte branding.',
+            'No cryptocurrency mining or use of the user\'s hardware for anything outside the app\'s stated purpose.',
+          ],
+        },
+        {
+          heading: 'Updates',
+          items: [
+            'Every update, including patch releases, goes through full review again from scratch. No fast-track exemptions.',
+          ],
+        },
+      ];
+
+      for (const section of sections) {
+        const heading = makeElement('p', 'publisher-rules-heading', section.heading);
+        const list = makeElement('ul', 'publisher-rules-list');
+        for (const text of section.items) {
+          const item = makeElement('li', 'publisher-rules-item', text);
+          list.appendChild(item);
+        }
+        rules.append(heading, list);
+      }
+
+      const note = makeElement('p', 'publisher-rules-note',
+        'These rules apply to store listings only. Apps reviewed and signed for self-hosting are not subject to them.');
+      rules.appendChild(note);
+      form.appendChild(rules);
+    }
+
     let packageData = null;
 
     const packagePicker = this.makePackagePicker(data => {

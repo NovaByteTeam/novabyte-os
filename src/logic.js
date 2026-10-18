@@ -334,6 +334,7 @@ const detailOptionalPermissions = document.getElementById('detail-optional-permi
 const detailReleaseNotes = document.getElementById('detail-release-notes');
 const detailReleaseNotesSection = document.getElementById('detail-release-notes-section');
 const detailLinks = document.getElementById('detail-links');
+const detailRootWarning   = document.getElementById('detail-root-warning');
 const detailSafetyBar     = document.getElementById('detail-safety-bar');
 const detailSafetyFill    = document.getElementById('detail-safety-fill');
 const detailSafetyLabel   = document.getElementById('detail-safety-label');
@@ -617,6 +618,9 @@ function renderPackageDetails(app, pkg) {
   detailOptionalPermissions.closest('.permission-group').hidden = detailOptionalPermissions.childElementCount === 0;
   detailPermissions.hidden = detailRequiredPermissions.childElementCount === 0 && detailOptionalPermissions.childElementCount === 0;
 
+  const allPerms = [...(Array.isArray(required) ? required : []), ...(Array.isArray(optional) ? optional : [])];
+  detailRootWarning.hidden = !allPerms.includes('system:root');
+
   detailScreenshotList.replaceChildren();
   const screenshots = Array.isArray(app.screenshots) && app.screenshots.length
     ? app.screenshots
@@ -775,6 +779,9 @@ function openDetail(app) {
   // Show "More" button only if text is long enough to get clamped
   // (rough heuristic: >200 chars is almost certainly going to clamp at 4 lines)
   readMoreBtn.classList.toggle('hidden', desc.length <= 200);
+
+  // Hide until permissions are confirmed by renderPackageDetails
+  detailRootWarning.hidden = true;
 
   // Safety confidence bar — pending until verification resolves
   updateSafetyBar('pending');
