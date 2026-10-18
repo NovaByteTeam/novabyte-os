@@ -25,7 +25,11 @@
 
 > **App catalogue note:** The [public website](https://novabyteteam.github.io/novabyte-os/) is separate from the built-in NBOSP App Store. Its publisher portal accepts verified-email submissions for new apps and updates; submissions stay private until maintainer review. Approved website releases are digitally signed and integrity-checked before publication.
 >
-> **Store requirements:** Apps listed in the official store must be digitally signed by NovaByte — self-signed packages will not be listed, regardless of content. Your `.novaapp` must also include tamper protection; packages that can be modified after signing will not be accepted.
+> **Store requirements:** The following apply to apps listed in the official store only. If you had your app reviewed and signed by NovaByte for self-hosting on your own site, none of these are required — you're free to distribute that build however you like.
+>
+> - Must be digitally signed by NovaByte. Self-signed packages will not be listed, regardless of content.
+> - Must include tamper protection. Packages that can be modified after signing will not be accepted.
+> - Must not use any minification or obfuscation. Obfuscated packages are blocked at runtime anyway, so they will never work in the store — submit readable code or the app won't function.
 >
 > **Review and permission pruning:** We review every submission manually. If your app is safe, it will be accepted — but we will remove any declared permissions we determine are unnecessary. If you declare a permission your app never actually uses (for example, `vfs.read` with no VFS reads anywhere in the code), we strip it before the store release. This is a privacy and security measure, not a judgment on your app. Your app is still accepted; the manifest is just trimmed to what it genuinely needs.
 >
