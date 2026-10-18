@@ -23,6 +23,8 @@
 
 **→ [Check out the live site](https://novabyteteam.github.io/novabyte-os/)**
 
+> **App catalogue note:** This public website is separate from the built-in NBOSP App Store. Apps published on the website are reviewed, digitally signed, and integrity-checked.
+
 <br>
 
 [**Close-Source Notice**](#-close-source-announcement--23052026) · [**BuildScript**](#-nbosp-buildscript--close-source-your-own-project) · [**Download v3**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**NovaByte Services**](#-novabyte-services--licensing) · [**Update System**](#-update-system) · [**Nova Core Services**](#-nova-core-services) · [**Security**](#-security) · [**Versions**](#-versions)
@@ -153,7 +155,7 @@ These are the **actual features pulled directly from the source code** — not g
 |🖩 **NBOSP Calculator**|Standard arithmetic with live expression preview. Supports `+`, `-`, `*`, `/`, `%`, parentheses, and decimal input. Backspace, clear, keyboard support. **No scientific mode, no history, no unit conversion.**|
 |🎵 **NBOSP Music**|Scans the virtual filesystem for audio files and plays supported formats with a library view, seek and volume controls, shuffle, and repeat. Playback preferences persist between sessions.|
 |📦 **NBOSP App Manager**|Install `.novaapp` packages from disk or by drag-and-drop. Every file inside a package is run through the built-in scanner before trust/integrity checks — a flagged file blocks the install outright with a "Malicious File" warning, no override. Manage web apps (add by URL). Pin/unpin apps to the taskbar. Enable/disable installed apps. Set apps to auto-launch on boot. Install log. Verified/Unverified badge on each installed app, based on signature checks against the built-in trust store. **No update management.**|
-|🛒 **NBOSP App Store**|Built-in storefront that fetches the live app catalogue from `novabyteteam.github.io/novabyte-os`. Fetches each `.novaapp`, verifies its signature against the trust store, checks its integrity hash (blake3/sha256/sha512 — whatever the package declares), and installs silently on pass. A revoked signature or a hash mismatch blocks the install outright with no override. Install/Uninstall buttons stay in sync with App Manager's installed state — installing from the Store and uninstalling from App Manager (or vice versa) reflects immediately in both. Runs via the unrestricted gate as a trusted system app — no permission prompts. **No update management, no categories, no screenshots.**|
+|🛒 **NBOSP App Store**|Built-in storefront for the live catalogue at `novabyteteam.github.io/novabyte-os`, with search, category filters, publisher and package details, screenshots, and app icons. Shows signature-verification badges for trusted publishers. Before installing or updating, downloads the `.novaapp`, verifies its signature against the trust store, and checks its declared integrity hash (BLAKE3, SHA-256, or SHA-512); revoked signatures and hash mismatches block the operation. Install, Update, and Uninstall actions stay in sync with App Manager's installed state. The Store checks for app updates at startup and on a configurable interval, notifies users when updates are available, and offers a manual **Check now** action; update notifications include an **Open store** action. Runs via the unrestricted gate as a trusted system app — no permission prompts.|
 
 #### Hidden apps and system services
 
