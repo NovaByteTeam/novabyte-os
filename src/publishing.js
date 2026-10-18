@@ -681,7 +681,7 @@ class PublisherPortal {
           items: [
             'Must be digitally signed by NovaByte. Self-signed packages will not be listed.',
             'Must include tamper protection. Packages that can be modified after signing will not be accepted.',
-            'The exact build submitted must be the one that gets signed and listed. Swapping the package after approval is a permanent ban.',
+            'The exact build submitted must be the one that gets signed and listed. Submitting a different package after approval means the listing will be removed.',
           ],
         },
         {
@@ -703,9 +703,9 @@ class PublisherPortal {
         {
           heading: 'Permissions',
           items: [
-            'Every declared permission must include a short human-readable justification in the manifest. Vague or missing justifications will be rejected.',
+            'Every declared permission must include a short human-readable justification in the manifest. Vague or missing justifications mean the submission won\'t be accepted.',
             'Apps may not request permissions at runtime beyond what is declared in the manifest.',
-            'Apps declaring system:root are banned unless there is a specific, compelling reason the app cannot function inside the sandbox. Every system:root submission is held for manual scrutiny.',
+            'Apps declaring system:root won\'t be published unless there is a specific, compelling reason the app cannot function inside the sandbox. Every system:root submission is held for manual scrutiny.',
           ],
         },
         {
@@ -727,14 +727,14 @@ class PublisherPortal {
         {
           heading: 'Manifest hygiene',
           items: [
-            'App name, description, and declared permissions must accurately reflect what the app actually does. Misrepresentation is grounds for removal and a permanent ban.',
+            'App name, description, and declared permissions must accurately reflect what the app actually does. Misrepresentation means the app won\'t be published, and any existing listing will be removed.',
             'Version numbers must follow a consistent scheme — semver is recommended.',
           ],
         },
         {
           heading: 'Abuse prevention',
           items: [
-            'Apps must not attempt to detect whether they are being reviewed. If caught, permanent ban with no appeal.',
+            'Apps must not attempt to detect whether they are being reviewed. If this is found, the submission won\'t be accepted.',
             'No UI that mimics NovaByte OS system dialogs or NovaByte branding.',
             'No cryptocurrency mining or use of the user\'s hardware for anything outside the app\'s stated purpose.',
           ],
