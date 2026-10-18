@@ -13,7 +13,7 @@
     "versionHistory": [
       {
         "version": "2.0.0",
-        "date": "2026-09-14",
+        "date": "2026-10-18",
         "notes": "Initial release."
       }
     ]
@@ -35,7 +35,7 @@
     "versionHistory": [
       {
         "version": "1.0.0",
-        "date": "2026-10-01",
+        "date": "2026-10-18",
         "notes": "Initial release. Side-by-side edit + preview mode, preview-only mode, and live rendering of CommonMark syntax."
       }
     ]
