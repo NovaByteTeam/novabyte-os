@@ -23,7 +23,7 @@
 
 **→ [Check out the live site](https://novabyteteam.github.io/novabyte-os/)**
 
-> **App catalogue note:** This public website is separate from the built-in NBOSP App Store. Apps published on the website are reviewed, digitally signed, and integrity-checked.
+> **App catalogue note:** The [public website](https://novabyteteam.github.io/novabyte-os/) is separate from the built-in NBOSP App Store. Its publisher portal accepts verified-email submissions for new apps and updates; submissions stay private until maintainer review. Approved website releases are digitally signed and integrity-checked before publication.
 
 <br>
 

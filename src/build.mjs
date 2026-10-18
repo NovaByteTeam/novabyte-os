@@ -12,6 +12,7 @@ const OUT_FILE = `${SRC_DIR}/index.html`;
 const html = readFileSync(`${SRC_DIR}/markup.html`, 'utf8');
 const css = readFileSync(`${SRC_DIR}/styling.css`, 'utf8');
 const js = readFileSync(`${SRC_DIR}/logic.js`, 'utf8');
+const publishingJs = readFileSync(`${SRC_DIR}/publishing.js`, 'utf8');
 const revokedSignatures = JSON.parse(
   readFileSync('../NBOSP/js/platform/security/revoked-signatures.json', 'utf8')
 );
@@ -31,7 +32,11 @@ const { code: flattenedCss } = await esbuildTransform(css, { loader: 'css', mini
 
 // --- Purge unused CSS rules (checks against tags/classes/ids actually used in the HTML + JS) ---
 const purgeResult = await new PurgeCSS().purge({
-  content: [{ raw: html, extension: 'html' }, { raw: js, extension: 'js' }],
+  content: [
+    { raw: html, extension: 'html' },
+    { raw: js, extension: 'js' },
+    { raw: publishingJs, extension: 'js' },
+  ],
   css: [{ raw: flattenedCss }],
   safelist: {
     // keep anything toggled purely via JS, plus scroll-triggered/state classes
@@ -92,7 +97,8 @@ const finalHtml = await minifyHtml(outHtml, {
 
 writeFileSync(OUT_FILE, finalHtml);
 
-const before = Buffer.byteLength(html, 'utf8') + Buffer.byteLength(css, 'utf8') + Buffer.byteLength(js, 'utf8');
+const before = Buffer.byteLength(html, 'utf8') + Buffer.byteLength(css, 'utf8')
+  + Buffer.byteLength(js, 'utf8') + Buffer.byteLength(publishingJs, 'utf8');
 const after = Buffer.byteLength(finalHtml, 'utf8');
 console.log(`Before: ${(before / 1024).toFixed(1)} KB`);
 console.log(`After:  ${(after / 1024).toFixed(1)} KB`);

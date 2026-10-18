@@ -1,4 +1,5 @@
 import { blake3 } from '@noble/hashes/blake3.js';
+import { publisherPortal } from './publishing.js';
 
 // Icon SVG paths — Lucide-compatible strokes, inline so there's no icon library dep.
 const ICONS = {
@@ -339,7 +340,13 @@ async function loadApps() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const catalog = await res.json();
     if (!Array.isArray(catalog)) throw new Error('App catalog must contain a list.');
-    allApps = catalog.filter(app =>
+    const remoteCatalog = await publisherPortal.fetchPublishedApps().catch(error => {
+      console.warn('[Store] Could not load community-published apps:', error);
+      return [];
+    });
+    const mergedCatalog = new Map(catalog.map(app => [app.id, app]));
+    for (const app of remoteCatalog) mergedCatalog.set(app.id, app);
+    allApps = [...mergedCatalog.values()].filter(app =>
       app &&
       typeof app.id === 'string' &&
       typeof app.name === 'string' &&
@@ -810,4 +817,14 @@ function escHtml(str) {
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 
+publisherPortal.init({
+  onCatalogChanged: loadApps,
+  showStore: () => {
+    document.getElementById('publisher-view').classList.add('hidden');
+    detailView.classList.add('hidden');
+    storeView.classList.remove('hidden');
+    siteHeader.classList.remove('hidden');
+    window.scrollTo(0, 0);
+  },
+});
 loadApps();

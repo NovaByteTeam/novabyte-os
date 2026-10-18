@@ -36,9 +36,30 @@
         </svg>
         <input class="search-input" type="search" placeholder="Search apps…" aria-label="Search apps" id="search-input">
       </div>
+      <nav class="publisher-nav" id="publisher-nav" aria-label="Publisher account">
+        <button class="publisher-nav-button" id="publisher-signin" type="button">Sign in</button>
+        <button class="publisher-nav-button publisher-nav-primary" id="publisher-signup" type="button">Sign up</button>
+        <button class="publisher-nav-button hidden" id="publisher-publish" type="button">Publish apps</button>
+        <button class="publisher-nav-button hidden" id="publisher-my-apps" type="button">My apps</button>
+        <button class="publisher-nav-button hidden" id="publisher-review" type="button">Review queue</button>
+        <button class="publisher-nav-button hidden" id="publisher-signout" type="button">Sign out</button>
+      </nav>
     </div>
   </div>
 </header>
+
+<main class="publisher-view hidden" id="publisher-view" aria-live="polite">
+  <div class="shell publisher-shell">
+    <div class="publisher-page-heading">
+      <button class="publisher-back" id="publisher-back" type="button">← Back to store</button>
+      <p class="detail-kicker">NOVABYTE PUBLISHER PORTAL</p>
+      <h1 id="publisher-title">Publisher account</h1>
+      <p id="publisher-subtitle">Sign in to submit an app for review.</p>
+    </div>
+    <p class="publisher-notice" id="publisher-notice" role="status" aria-live="polite" hidden></p>
+    <section class="publisher-content" id="publisher-content"></section>
+  </div>
+</main>
 
 <!-- ── Store browse view ───────────────────────────────────────── -->
 <main class="store-view" id="store-view">
