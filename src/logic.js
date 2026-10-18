@@ -271,6 +271,10 @@ const grid          = document.getElementById('apps-grid');
 const gridLoading   = document.getElementById('grid-loading');
 const gridEmpty     = document.getElementById('grid-empty');
 const gridHeading   = document.getElementById('grid-heading');
+const sectionEyebrow = document.getElementById('section-eyebrow');
+const resultsCount  = document.getElementById('results-count');
+const catalogCount  = document.getElementById('catalog-count');
+const categoryBar   = document.querySelector('.category-bar');
 const searchInput   = document.getElementById('search-input');
 const backBtn       = document.getElementById('back-btn');
 
@@ -282,6 +286,7 @@ const featuredAuthor  = document.getElementById('featured-author');
 const featuredDesc    = document.getElementById('featured-desc');
 const featuredBadges  = document.getElementById('featured-badges');
 const featuredVersion = document.getElementById('featured-version');
+const featuredArt     = document.getElementById('featured-art');
 
 const detailIcon     = document.getElementById('detail-icon');
 const detailName     = document.getElementById('detail-name');
@@ -310,7 +315,16 @@ async function loadApps() {
   try {
     const res = await fetch('apps.json');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    allApps = await res.json();
+    const catalog = await res.json();
+    if (!Array.isArray(catalog)) throw new Error('App catalog must contain a list.');
+    allApps = catalog.filter(app =>
+      app &&
+      typeof app.id === 'string' &&
+      typeof app.name === 'string' &&
+      typeof app.file === 'string'
+    );
+    renderCategories();
+    catalogCount.textContent = String(allApps.length).padStart(2, '0');
   } catch (err) {
     console.error('Could not load apps.json:', err);
     allApps = [];
@@ -321,17 +335,62 @@ async function loadApps() {
   }
 }
 
+function renderCategories() {
+  const categories = [...new Set(allApps.flatMap(app =>
+    Array.isArray(app.categories) ? app.categories.filter(category => typeof category === 'string') : []
+  ))].sort((a, b) => a.localeCompare(b));
+  const labels = { personalization: 'Personalization' };
+  const entries = [
+    { id: 'all', label: 'All apps', count: allApps.length },
+    ...categories.map(id => ({
+      id,
+      label: labels[id] || id.replace(/[-_]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
+      count: allApps.filter(app => app.categories?.includes(id)).length,
+    })),
+  ];
+  if (!entries.some(entry => entry.id === activeCategory)) activeCategory = 'all';
+
+  categoryBar.replaceChildren();
+  for (const entry of entries) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `cat-btn${entry.id === activeCategory ? ' is-active' : ''}`;
+    button.dataset.cat = entry.id;
+    button.setAttribute('aria-pressed', String(entry.id === activeCategory));
+    const label = document.createElement('span');
+    label.textContent = entry.label;
+    const count = document.createElement('span');
+    count.className = 'category-count';
+    count.textContent = String(entry.count);
+    button.append(label, count);
+    categoryBar.appendChild(button);
+  }
+}
+
 // ── Featured ───────────────────────────────────────────────────────────────
 
 function renderFeatured() {
   // Only show featured when browsing all categories with no search
-  if (activeCategory !== 'all' || searchQuery || allApps.length === 0) {
+  const app = allApps.find(candidate => candidate.featured === true)
+    || (allApps.length >= 4 ? allApps[0] : null);
+  if (activeCategory !== 'all' || searchQuery || !app) {
     featuredSection.hidden = true;
+    featuredName.dataset.appId = '';
+    featuredArt.replaceChildren();
     return;
   }
-  const app = allApps[0];
   featuredSection.hidden = false;
+  featuredName.dataset.appId = app.id;
   setAppIcon(featuredIcon, app);
+  featuredArt.replaceChildren();
+  const screenshot = Array.isArray(app.screenshots) ? safeWebUrl(app.screenshots[0]) : null;
+  if (screenshot) {
+    const image = document.createElement('img');
+    image.src = screenshot;
+    image.alt = '';
+    image.loading = 'lazy';
+    featuredArt.appendChild(image);
+  }
   featuredName.textContent = app.name;
   const featuredVerified = document.createElement('span');
   featuredVerified.className = 'verified-badge';
@@ -372,9 +431,16 @@ function renderGrid() {
 
   const apps = filteredApps();
   // In default view, skip first app — it's in the featured slot
-  const gridApps = (activeCategory === 'all' && !searchQuery && apps.length > 0)
-    ? apps.slice(1)
+  const gridApps = (activeCategory === 'all' && !searchQuery && apps.length > 0 && !featuredSection.hidden)
+    ? apps.filter(app => app.id !== (featuredSection.hidden ? null : featuredName.dataset.appId))
     : apps;
+  resultsCount.textContent = `${apps.length} ${apps.length === 1 ? 'app' : 'apps'}`;
+  gridHeading.textContent = activeCategory === 'all' && !searchQuery
+    ? 'All apps'
+    : searchQuery
+      ? `Results for "${searchQuery}"`
+      : activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1);
+  sectionEyebrow.textContent = searchQuery ? 'FIND YOUR NEXT APP' : activeCategory === 'all' ? 'THE CATALOG' : 'BROWSE BY CATEGORY';
 
   if (apps.length === 0) {
     gridEmpty.classList.remove('hidden');
@@ -384,11 +450,6 @@ function renderGrid() {
 
   gridEmpty.classList.add('hidden');
   gridHeading.hidden = false;
-  gridHeading.textContent = activeCategory === 'all' && !searchQuery
-    ? 'All apps'
-    : searchQuery
-      ? `Results for "${searchQuery}"`
-      : activeCategory.charAt(0).toUpperCase() + activeCategory.slice(1);
 
   for (const app of gridApps) {
     const card = document.createElement('article');
@@ -397,6 +458,7 @@ function renderGrid() {
     card.setAttribute('role', 'button');
     card.setAttribute('aria-label', `View ${app.name}`);
     card.dataset.id = app.id;
+    card.dataset.category = app.categories?.[0] || 'other';
 
     card.innerHTML = `
       <div class="card-icon"></div>
@@ -581,8 +643,12 @@ backBtn.addEventListener('click', closeDetail);
 document.querySelector('.category-bar').addEventListener('click', e => {
   const btn = e.target.closest('.cat-btn');
   if (!btn) return;
-  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('is-active'));
+  document.querySelectorAll('.cat-btn').forEach(b => {
+    b.classList.remove('is-active');
+    b.setAttribute('aria-pressed', 'false');
+  });
   btn.classList.add('is-active');
+  btn.setAttribute('aria-pressed', 'true');
   activeCategory = btn.dataset.cat;
   renderFeatured();
   renderGrid();

@@ -44,14 +44,30 @@
 <main class="store-view" id="store-view">
   <div class="shell">
 
+    <section class="store-intro" aria-labelledby="store-heading">
+      <div class="intro-copy">
+        <p class="intro-eyebrow"><span class="intro-spark"></span> THE NOVABYTE APP CATALOG</p>
+        <h1 id="store-heading">A better OS starts<br>with <span>the right apps.</span></h1>
+        <p class="intro-description">A growing collection of useful, carefully packaged apps for your NovaByte desktop.</p>
+      </div>
+      <div class="intro-stats" aria-label="Catalog statistics">
+        <div class="intro-stat-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div>
+          <strong id="catalog-count">—</strong>
+          <span>apps to explore</span>
+        </div>
+        <div class="intro-stat-divider"></div>
+        <div class="intro-trust">
+          <span class="trust-check" aria-hidden="true">✓</span>
+          <span>Signatures<br>checked</span>
+        </div>
+      </div>
+    </section>
+
     <nav class="category-bar" aria-label="Filter by category">
-      <button class="cat-btn is-active" data-cat="all">All</button>
-      <button class="cat-btn" data-cat="productivity">Productivity</button>
-      <button class="cat-btn" data-cat="utilities">Utilities</button>
-      <button class="cat-btn" data-cat="personalization">Personalisation</button>
-      <button class="cat-btn" data-cat="creative">Creative</button>
-      <button class="cat-btn" data-cat="system">System</button>
-      <button class="cat-btn" data-cat="games">Games</button>
+      <button class="cat-btn is-active" data-cat="all" aria-pressed="true">All apps</button>
     </nav>
 
     <!-- Featured slot — first app gets promoted here -->
@@ -60,7 +76,7 @@
         <div class="featured-glow" aria-hidden="true"></div>
         <div class="featured-icon" id="featured-icon" aria-hidden="true"></div>
         <div class="featured-body">
-          <p class="featured-label">Featured</p>
+          <p class="featured-label"><span aria-hidden="true">✦</span> Editor’s pick</p>
           <h2 class="featured-name" id="featured-name"></h2>
           <p class="featured-author" id="featured-author"></p>
           <p class="featured-desc" id="featured-desc"></p>
@@ -69,6 +85,7 @@
             <span class="featured-version" id="featured-version"></span>
           </div>
         </div>
+        <div class="featured-art" id="featured-art" aria-hidden="true"></div>
         <div class="featured-cta" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
@@ -76,7 +93,13 @@
     </section>
 
     <section class="grid-section" aria-label="All apps">
-      <h2 class="section-heading" id="grid-heading">All apps</h2>
+      <div class="section-heading-row">
+        <div>
+          <p class="section-eyebrow" id="section-eyebrow">THE CATALOG</p>
+          <h2 class="section-heading" id="grid-heading">All apps</h2>
+        </div>
+        <span class="results-count" id="results-count"></span>
+      </div>
       <div class="apps-grid" id="apps-grid" aria-live="polite">
         <div class="grid-loading" id="grid-loading" aria-label="Loading apps">
           <span class="loading-dot"></span>
