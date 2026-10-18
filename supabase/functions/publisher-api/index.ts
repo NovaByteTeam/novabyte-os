@@ -175,7 +175,7 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
     if (!existingOwner || existingOwner.owner_id !== user.id) {
       throw new PublisherError('You can submit updates only for apps you own.');
     }
-    const published = await getOne('published_apps', 'app_id', appId);
+    const published = await getOne('publisher_catalog_apps', 'app_id', appId);
     if (!published) throw new PublisherError('This app is not currently published.');
     if (compareVersions(version, published.version) !== 1) {
       throw new PublisherError('An update must use a version newer than the currently published version.');
@@ -255,7 +255,7 @@ async function myApps(user: { id: string }) {
   ]);
   const ids = Array.isArray(owners) ? owners.map(row => row.app_id).filter((id): id is string => typeof id === 'string') : [];
   const apps = ids.length
-    ? await rest('published_apps', {
+    ? await rest('publisher_catalog_apps', {
       query: queryString({ select: '*', app_id: `in.(${ids.join(',')})` }),
     })
     : [];
@@ -313,7 +313,7 @@ async function publishSubmission(submission: Record<string, any>) {
     releaseNotes: submission.changelog,
   };
   const signedPackage = await signAndVerifyPackage(pkg);
-  const previous = await getOne('published_apps', 'app_id', submission.app_id);
+  const previous = await getOne('publisher_catalog_apps', 'app_id', submission.app_id);
   if (submission.type === 'new') {
     if (previous) throw new PublisherError('This app ID was published by another account while this submission was under review.');
     if ((await loadStaticAppIds()).has(submission.app_id)) {
@@ -414,7 +414,7 @@ async function deletePublishedApp(user: { id: string }, body: Record<string, unk
   const owner = await getOne('publisher_app_owners', 'app_id', appId);
   if (!owner || owner.owner_id !== user.id) throw new PublisherError('You can remove only apps published from your account.', 403);
 
-  const matching = await rest('published_apps', {
+  const matching = await rest('publisher_catalog_apps', {
     query: queryString({ select: 'app_id', app_id: `eq.${appId}` }),
   });
   if (!Array.isArray(matching) || !matching.length) throw new PublisherError('This app is not currently published.', 404);
@@ -451,7 +451,7 @@ async function deletePublishedApp(user: { id: string }, body: Record<string, unk
       throw new PublisherError('Could not remove the published packages. The catalog entry remains available.', 502);
     }
   }
-  await rest('published_apps', { method: 'DELETE', query: queryString({ app_id: `eq.${appId}` }), prefer: 'return=minimal' });
+  await rest('publisher_catalog_apps', { method: 'DELETE', query: queryString({ app_id: `eq.${appId}` }), prefer: 'return=minimal' });
   return { deleted: true };
 }
 

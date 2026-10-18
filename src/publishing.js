@@ -229,7 +229,7 @@ class PublisherPortal {
       select: 'app_id,name,version,author,description,categories,icon,file,size,screenshots,links,release_notes,version_history',
       order: 'published_at.desc',
     });
-    const result = await this.request(`/rest/v1/published_apps?${params}`);
+    const result = await this.request(`/rest/v1/publisher_catalog_apps?${params}`);
     if (!Array.isArray(result)) throw new Error('The published app catalog returned an invalid response.');
     return result.map(app => ({
       id: app.app_id,

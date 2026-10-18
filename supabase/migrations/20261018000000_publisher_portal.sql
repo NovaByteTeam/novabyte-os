@@ -1,6 +1,6 @@
 create extension if not exists pgcrypto with schema extensions;
 
-create table if not exists public.published_apps (
+create table if not exists public.publisher_catalog_apps (
   app_id text primary key check (app_id ~ '^[a-z0-9][a-z0-9._-]{1,119}$'),
   name text not null,
   version text not null,
@@ -18,7 +18,7 @@ create table if not exists public.published_apps (
 );
 
 create table if not exists public.publisher_app_owners (
-  app_id text primary key references public.published_apps(app_id) on delete cascade,
+  app_id text primary key references public.publisher_catalog_apps(app_id) on delete cascade,
   owner_id uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
@@ -51,16 +51,16 @@ create unique index if not exists publisher_one_active_submission_per_app_idx
   on public.publisher_submissions(app_id)
   where status in ('pending', 'changes_requested');
 
-alter table public.published_apps enable row level security;
+alter table public.publisher_catalog_apps enable row level security;
 alter table public.publisher_app_owners enable row level security;
 alter table public.publisher_submissions enable row level security;
 
-grant select on public.published_apps to anon, authenticated;
+grant select on public.publisher_catalog_apps to anon, authenticated;
 grant select on public.publisher_app_owners, public.publisher_submissions to authenticated;
 
-drop policy if exists "Published apps are publicly readable" on public.published_apps;
+drop policy if exists "Published apps are publicly readable" on public.publisher_catalog_apps;
 create policy "Published apps are publicly readable"
-  on public.published_apps for select
+  on public.publisher_catalog_apps for select
   to anon, authenticated
   using (true);
 
@@ -156,8 +156,8 @@ begin
     raise exception 'Publisher does not own this app';
   end if;
 
-  insert into public.published_apps
-    select (jsonb_populate_record(null::public.published_apps, p_app)).*
+  insert into public.publisher_catalog_apps
+    select (jsonb_populate_record(null::public.publisher_catalog_apps, p_app)).*
     on conflict (app_id) do update set
       name = excluded.name,
       version = excluded.version,

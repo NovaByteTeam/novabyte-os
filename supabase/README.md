@@ -27,7 +27,8 @@ supabase db push
 
 The migration creates:
 
-- A public-read-only `published_apps` catalog table.
+- A public-read-only `publisher_catalog_apps` catalog table, named separately
+  to avoid collisions with existing project tables.
 - Private ownership and submission tables protected by row-level security.
 - A private `publisher-submissions` bucket with per-user upload paths.
 - A public-read-only `published-packages` bucket. Only the Edge Function's
