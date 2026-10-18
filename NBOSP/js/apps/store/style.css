@@ -359,6 +359,14 @@
   outline-offset: 3px;
 }
 
+.app-actions,
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
 .app-icon {
   display: grid;
   width: 54px;
@@ -522,6 +530,17 @@
 .btn-install:not(:disabled):hover {
   border-color: rgba(116, 183, 255, 0.48);
   background: rgba(70, 148, 235, 0.24);
+}
+
+.btn-update {
+  border-color: rgba(110, 220, 177, 0.28);
+  background: rgba(62, 171, 132, 0.14);
+  color: #9ce8c9;
+}
+
+.btn-update:not(:disabled):hover {
+  border-color: rgba(110, 220, 177, 0.48);
+  background: rgba(62, 171, 132, 0.23);
 }
 
 .btn-uninstall {
@@ -895,6 +914,11 @@
   }
 
   .detail-install {
+    width: auto;
+    flex: 1 1 0;
+  }
+
+  .detail-actions {
     width: 100%;
   }
 }

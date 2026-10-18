@@ -33,7 +33,54 @@
   }
 
   function isInstalled(appId) {
-    return getInstalledApps().some(a => a.id === appId);
+    return Boolean(getInstalledApp(appId));
+  }
+
+  function getInstalledApp(appId) {
+    return getInstalledApps().find(app => app.id === appId) || null;
+  }
+
+  function compareVersions(left, right) {
+    const parse = value => {
+      if (typeof value !== 'string') return null;
+      const match = value.match(/^[v=]?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+      if (!match) return null;
+      return {
+        core: match.slice(1, 4).map(Number),
+        prerelease: match[4] ? match[4].split('.') : null,
+      };
+    };
+    const a = parse(left);
+    const b = parse(right);
+    if (!a || !b) return null;
+
+    for (let index = 0; index < a.core.length; index++) {
+      if (a.core[index] !== b.core[index]) return a.core[index] > b.core[index] ? 1 : -1;
+    }
+    if (!a.prerelease || !b.prerelease) {
+      if (a.prerelease === b.prerelease) return 0;
+      return a.prerelease ? -1 : 1;
+    }
+    for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index++) {
+      if (a.prerelease[index] === undefined) return -1;
+      if (b.prerelease[index] === undefined) return 1;
+      if (a.prerelease[index] === b.prerelease[index]) continue;
+      const aNumeric = /^\d+$/.test(a.prerelease[index]);
+      const bNumeric = /^\d+$/.test(b.prerelease[index]);
+      if (aNumeric && bNumeric) return Number(a.prerelease[index]) > Number(b.prerelease[index]) ? 1 : -1;
+      if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+      return a.prerelease[index] > b.prerelease[index] ? 1 : -1;
+    }
+    return 0;
+  }
+
+  function hasUpdate(app) {
+    const installed = getInstalledApp(app.id);
+    return Boolean(
+      installed &&
+      installed.system !== true &&
+      compareVersions(app.version, installed.version) === 1
+    );
   }
 
   function notify(title, body, type = 'info') {
@@ -381,12 +428,22 @@
     return { pkg, verified: result.verified, signer: result.signer };
   }
 
-  async function installApp(app, btn) {
+  async function installApp(app, btn, { updating = false } = {}) {
+    const existingApp = getInstalledApp(app.id);
     btn.disabled = true;
-    btn.textContent = 'Downloading…';
+    btn.textContent = updating ? 'Updating…' : 'Downloading…';
 
     try {
+      if (updating && (!existingApp || !hasUpdate(app))) {
+        throw new Error('This app does not have an available update.');
+      }
       const { pkg, verified, signer } = await fetchAndVerify(app);
+      if (updating && pkg.manifest?.version !== app.version) {
+        throw new Error('The downloaded package version does not match the app catalog.');
+      }
+      if (updating && compareVersions(pkg.manifest?.version, existingApp.version) !== 1) {
+        throw new Error('The downloaded package is not newer than the installed version.');
+      }
       btn.textContent = 'Installing…';
 
       const system = verified === true &&
@@ -405,7 +462,7 @@
         signer,
         system,
         source: 'store',
-        installedAt: Date.now(),
+        installedAt: existingApp?.installedAt || Date.now(),
         revoked: false,
         tampered: false,
       };
@@ -437,16 +494,16 @@
       if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
       if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
 
-      notify('App Installed', `${appData.name} v${appData.version} installed successfully.`, 'success');
-
-      btn.textContent = 'Uninstall';
-      btn.className = 'app-btn btn-uninstall';
-      btn.disabled = false;
-      btn.onclick = () => uninstallApp(app, btn);
+      notify(
+        updating ? 'App Updated' : 'App Installed',
+        `${appData.name} v${appData.version} ${updating ? 'updated' : 'installed'} successfully.`,
+        'success'
+      );
+      if (typeof rerenderCurrentView === 'function') rerenderCurrentView();
 
     } catch (err) {
-      notify('Install Failed', err.message || String(err), 'error');
-      btn.textContent = 'Install';
+      notify(updating ? 'Update Failed' : 'Install Failed', err.message || String(err), 'error');
+      btn.textContent = updating ? 'Update' : 'Get';
       btn.disabled = false;
     }
   }
@@ -507,6 +564,7 @@
       btn.className = 'app-btn btn-install';
       btn.disabled = false;
       btn.onclick = () => installApp(app, btn);
+      if (typeof rerenderCurrentView === 'function') rerenderCurrentView();
 
     } catch (err) {
       notify('Uninstall Failed', err.message || String(err), 'error');
@@ -568,12 +626,24 @@
     openButton.appendChild(info);
     openButton.addEventListener('click', () => showDetails(app));
 
+    const actions = document.createElement('div');
+    actions.className = 'app-actions';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'app-btn';
     bindInstallButton(app, btn);
+    actions.appendChild(btn);
+    if (hasUpdate(app)) {
+      const updateButton = document.createElement('button');
+      updateButton.type = 'button';
+      updateButton.className = 'app-btn btn-update';
+      updateButton.textContent = 'Update';
+      updateButton.setAttribute('aria-label', `Update ${app.name} to version ${app.version}`);
+      updateButton.addEventListener('click', () => installApp(app, updateButton, { updating: true }));
+      actions.appendChild(updateButton);
+    }
     card.appendChild(openButton);
-    card.appendChild(btn);
+    card.appendChild(actions);
 
     return card;
   }
@@ -830,7 +900,19 @@
         action.type = 'button';
         action.className = 'app-btn detail-install';
         bindInstallButton(app, action);
-        hero.append(icon, identity, action);
+        const actions = document.createElement('div');
+        actions.className = 'detail-actions';
+        actions.appendChild(action);
+        if (hasUpdate(app)) {
+          const updateButton = document.createElement('button');
+          updateButton.type = 'button';
+          updateButton.className = 'app-btn btn-update detail-install';
+          updateButton.textContent = 'Update';
+          updateButton.setAttribute('aria-label', `Update ${app.name} to version ${app.version}`);
+          updateButton.addEventListener('click', () => installApp(app, updateButton, { updating: true }));
+          actions.appendChild(updateButton);
+        }
+        hero.append(icon, identity, actions);
         detail.appendChild(hero);
 
         const contentGrid = document.createElement('div');
