@@ -10,7 +10,7 @@
 
 [![Node](https://img.shields.io/badge/Node.js-26+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-22c55e?style=flat-square)](#automatic-startup)
-[![License](https://img.shields.io/badge/License-Apache 2.0-6b7280?style=flat-square)](#license)
+[![License](https://img.shields.io/badge/License-Apache%202.0-6b7280?style=flat-square)](https://www.apache.org/licenses/LICENSE-2.0)
 [![No Telemetry](https://img.shields.io/badge/Telemetry-None-22c55e?style=flat-square&logo=shieldsdotio&logoColor=white)](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)
 
 <br>
