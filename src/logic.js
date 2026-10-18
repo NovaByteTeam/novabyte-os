@@ -622,7 +622,7 @@ function updateSafetyBar(state) {
   // state: 'pending' | 'verified' | 'unverified'
   const configs = {
     pending:    { pct: 0,   label: 'Checking signature…', mod: 'pending' },
-    verified:   { pct: 100, label: '100% — Signature & integrity verified', mod: 'verified' },
+    verified:   { pct: 100, label: '100% — Reviewed and signed by NovaByte', mod: 'verified' },
     unverified: { pct: 0,   label: 'Unverified — no trusted signature found', mod: 'unverified' },
   };
   const { pct, label, mod } = configs[state] ?? configs.unverified;
