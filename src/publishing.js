@@ -10,6 +10,19 @@ function errorMessage(payload, fallback) {
   return payload?.msg || payload?.message || payload?.error_description || payload?.error || fallback;
 }
 
+function emailFailureNotice(reason) {
+  if (reason === 'not_configured') {
+    return 'Email was not sent: configure RESEND_API_KEY and PUBLISHER_NOTIFICATION_FROM in Supabase Edge Function secrets.';
+  }
+  if (reason === 'provider_rejected') {
+    return 'Email was not sent: Resend rejected the message. Check the API key and verify the sender address/domain in Resend.';
+  }
+  if (reason === 'network_error') {
+    return 'Email was not sent because the email service could not be reached. Check the publisher-api logs and try again.';
+  }
+  return 'Email notification could not be sent.';
+}
+
 function encodePath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
@@ -812,7 +825,7 @@ class PublisherPortal {
         const result = await this.call('submit', { submissionId, submission: metadata });
         await this.open('my-apps');
         this.setNotice(result.notificationSent === false
-          ? 'Submission queued, but the email notification could not be sent. It is still visible in the review queue.'
+          ? `Submission queued and visible in the review queue. ${emailFailureNotice(result.notificationError)}`
           : 'Submission sent for review. You will receive an email when its status changes.', result.notificationSent === false ? 'warning' : 'success');
       } catch (error) {
         this.setNotice(error.message || String(error), 'error');
@@ -953,8 +966,6 @@ class PublisherPortal {
         if (submission.download_url) {
           const download = makeElement('a', 'publisher-download', 'Download package for review');
           download.href = submission.download_url;
-          download.target = '_blank';
-          download.rel = 'noopener noreferrer';
           download.download = `${submission.app_id}-${submission.version}.novaapp`;
           item.appendChild(download);
         }
@@ -985,8 +996,6 @@ class PublisherPortal {
     if (submission.download_url) {
       const download = makeElement('a', 'publisher-download', 'Download package for review');
       download.href = submission.download_url;
-      download.target = '_blank';
-      download.rel = 'noopener noreferrer';
       download.download = `${submission.app_id}-${submission.version}.novaapp`;
       card.appendChild(download);
     }
@@ -1064,7 +1073,7 @@ class PublisherPortal {
         });
         await this.renderReviewQueue();
         this.setNotice(result.notificationSent === false
-          ? `${label}, but the publisher email could not be sent.`
+          ? `${label}. ${emailFailureNotice(result.notificationError)}`
           : `${label}.`, result.notificationSent === false ? 'warning' : 'success');
         if (action === 'publish') this.onCatalogChanged();
       } catch (error) {

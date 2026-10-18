@@ -154,7 +154,7 @@ export async function downloadSubmission(path: string) {
   return { pkg: pkg as Record<string, any>, byteLength: bytes.byteLength };
 }
 
-export async function makeSignedDownloadUrl(path: string) {
+export async function makeSignedDownloadUrl(path: string, fileName: string) {
   requiredEnv('SUPABASE_URL', SUPABASE_URL);
   const response = await fetch(
     `${SUPABASE_URL}/storage/v1/object/sign/${SUBMISSION_BUCKET}/${encodePath(path)}`,
@@ -173,26 +173,37 @@ export async function makeSignedDownloadUrl(path: string) {
     console.error('[publisher-api] Could not create reviewer download link:', result);
     throw new PublisherError('Could not create the private package review link.', 502);
   }
-  return `${SUPABASE_URL}/storage/v1${result.signedURL}`;
+  const signedUrl = new URL(`${SUPABASE_URL}/storage/v1${result.signedURL}`);
+  signedUrl.searchParams.set('download', fileName);
+  return signedUrl.toString();
 }
 
-export async function sendEmail(to: string, subject: string, html: string) {
+export type EmailResult =
+  | { sent: true }
+  | { sent: false; reason: 'not_configured' | 'provider_rejected' | 'network_error' };
+
+export async function sendEmail(to: string, subject: string, html: string): Promise<EmailResult> {
   const apiKey = Deno.env.get('RESEND_API_KEY');
   const from = Deno.env.get('PUBLISHER_NOTIFICATION_FROM');
   if (!apiKey || !from) {
     console.error('[publisher-api] Email not sent: RESEND_API_KEY or PUBLISHER_NOTIFICATION_FROM is not configured.');
-    return false;
+    return { sent: false, reason: 'not_configured' };
   }
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: [to], subject, html }),
-  });
-  if (!response.ok) {
-    console.error(`[publisher-api] Email delivery failed (${response.status}):`, await response.text());
-    return false;
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: [to], subject, html }),
+    });
+    if (!response.ok) {
+      console.error(`[publisher-api] Email delivery failed (${response.status}):`, await response.text());
+      return { sent: false, reason: 'provider_rejected' };
+    }
+  } catch (error) {
+    console.error('[publisher-api] Email delivery request failed:', error);
+    return { sent: false, reason: 'network_error' };
   }
-  return true;
+  return { sent: true };
 }
 
 export async function getAccountEmail(userId: string) {

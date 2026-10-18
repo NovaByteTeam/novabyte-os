@@ -232,12 +232,12 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
       status: 'pending',
     },
   });
-  const notificationSent = await sendEmail(
+  const notification = await sendEmail(
     ADMIN_EMAIL,
     `NovaByte app ${type} submitted: ${String(metadata.name)} v${version}`,
     `<p>A verified publisher submitted an app for review.</p><p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
   );
-  return { submitted: true, notificationSent };
+  return { submitted: true, notificationSent: notification.sent, notificationError: notification.sent ? undefined : notification.reason };
 }
 
 async function myApps(user: { id: string }) {
@@ -275,7 +275,10 @@ async function reviewQueue(user: { email?: string }) {
   const submissions = await Promise.all((Array.isArray(rows) ? rows : []).map(async row => ({
     ...row,
     owner_email: await getAccountEmail(row.owner_id),
-    download_url: await makeSignedDownloadUrl(row.package_path),
+    download_url: await makeSignedDownloadUrl(
+      row.package_path,
+      `${row.app_id}-${row.version}.novaapp`,
+    ),
     has_reviewed_package: Boolean(row.review_package_path),
   })));
   return { submissions };
@@ -407,12 +410,12 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
   }
   const recipient = await getAccountEmail(submission.owner_id);
   const label = decision === 'publish' ? 'published' : decision === 'reject' ? 'rejected' : 'needs changes';
-  const notificationSent = await sendEmail(
+  const notification = await sendEmail(
     recipient,
     `NovaByte app ${label}: ${submission.app_id} v${submission.version}`,
     `<p>Your submission for <strong>${escapeHtml(submission.app_id)}</strong> v${escapeHtml(submission.version)} was ${escapeHtml(label)}.</p>${note ? `<p>Reviewer note: ${escapeHtml(note)}</p>` : ''}${decision === 'publish' ? '<p>Your app is now available in the NovaByte catalog.</p>' : '<p>Sign in to My Apps to see the review status.</p>'}`,
   );
-  return { reviewed: true, notificationSent };
+  return { reviewed: true, notificationSent: notification.sent, notificationError: notification.sent ? undefined : notification.reason };
 }
 
 async function deletePublishedApp(user: { id: string }, body: Record<string, unknown>) {

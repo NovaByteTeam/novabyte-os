@@ -97,9 +97,11 @@ only exist in the function environment.
   the public catalog.
 - Rejection and change requests notify the publisher. Publishers can withdraw
   their own submissions or remove their own published app from the catalog.
-- Email notification delivery uses Resend. If its secrets are absent or
-  delivery fails, the operation remains visible in the portal and the UI
-  reports that the notification did not send.
+- Email notification delivery uses Resend. If its secrets are absent, Resend
+  rejects the sender, or the request cannot reach Resend, the submission/review
+  action remains complete. The portal reports which configuration or delivery
+  issue needs attention; check the `publisher-api` Edge Function logs for
+  provider details.
 
 Before announcing the portal, test a new submission and an update using a
 non-production app, verify the package signature from the live site and NBOSP,
