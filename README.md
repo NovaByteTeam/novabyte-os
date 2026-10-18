@@ -71,6 +71,9 @@
 > - Apps must not attempt to detect whether they are being reviewed — for example, checking for a sandbox environment and behaving differently. If we catch this, it is a permanent ban with no appeal.
 > - No UI that mimics NovaByte OS system dialogs or NovaByte branding to deceive users.
 > - No cryptocurrency mining or any use of the user's hardware for computation that does not directly serve the app's stated purpose.
+> - Apps declaring `system:root` are banned from the store unless there is a specific, compelling reason the app cannot function inside the sandbox — for example, a developer tool that needs unsandboxed host-page execution by design. "We wanted more access" is not a reason. Every `system:root` submission is held for manual scrutiny and will be rejected if the justification is vague or unconvincing. If approved, the store listing will clearly indicate the app runs unsandboxed so users know what they are installing.
+>
+> > ⚠️ **Users:** if you need an app that declares `system:root`, it is strongly recommended you install it from the official store rather than a third-party source. Store-listed `system:root` apps have been manually reviewed and signed by NovaByte. A self-hosted or unknown-source `system:root` app runs completely unsandboxed with full access to the OS host page — only install one if you trust the source entirely.
 >
 > **Review and permission pruning:** We review every submission manually. If your app is safe, it will be accepted — but we will remove any declared permissions we determine are unnecessary. If you declare a permission your app never actually uses (for example, `vfs.read` with no VFS reads anywhere in the code), we strip it before the store release. This is a privacy and security measure, not a judgment on your app. Your app is still accepted; the manifest is just trimmed to what it genuinely needs.
 >
