@@ -285,11 +285,18 @@ class PublisherPortal {
   async call(action, payload = {}) {
     await this.ensureSession();
     if (!this.user || !this.session) throw new Error('Sign in with a verified email to continue.');
-    return this.request('/functions/v1/publisher-api', {
-      method: 'POST',
-      token: this.session.access_token,
-      body: { action, ...payload },
-    });
+    try {
+      return await this.request('/functions/v1/publisher-api', {
+        method: 'POST',
+        token: this.session.access_token,
+        body: { action, ...payload },
+      });
+    } catch (error) {
+      if (error.message === 'Unknown publisher action.' && ['hosted-apps', 'dehost-app'].includes(action)) {
+        throw new Error('The publisher API is outdated. From the repository root, deploy the latest function with: npx supabase functions deploy publisher-api --project-ref jcrptxtmieveoijdbtqa');
+      }
+      throw error;
+    }
   }
 
   async uploadReviewedPackage(submissionId, file) {
