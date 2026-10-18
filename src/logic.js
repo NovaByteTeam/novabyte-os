@@ -16,6 +16,24 @@ function iconSvg(name) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" aria-hidden="true">${paths}</svg>`;
 }
 
+function setAppIcon(container, app) {
+  const icon = typeof app.icon === 'string' ? app.icon : '';
+  const hasImageIcon = /^(?:data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,|https:\/\/|\/|apps\/)/i.test(icon);
+  if (!hasImageIcon) {
+    container.innerHTML = iconSvg(icon);
+    return;
+  }
+
+  const image = document.createElement('img');
+  image.src = icon;
+  image.alt = `${app.name} icon`;
+  image.loading = 'lazy';
+  image.onerror = () => {
+    container.innerHTML = iconSvg(icon);
+  };
+  container.replaceChildren(image);
+}
+
 function badgesHtml(categories = []) {
   return categories.map(c => `<span class="badge">${escHtml(c)}</span>`).join('');
 }
@@ -86,7 +104,7 @@ function renderFeatured() {
   }
   const app = allApps[0];
   featuredSection.hidden = false;
-  featuredIcon.innerHTML = iconSvg(app.icon);
+  setAppIcon(featuredIcon, app);
   featuredName.textContent = app.name;
   featuredAuthor.textContent = app.author ?? '';
   featuredDesc.textContent = app.description ?? '';
@@ -146,7 +164,7 @@ function renderGrid() {
     card.dataset.id = app.id;
 
     card.innerHTML = `
-      <div class="card-icon">${iconSvg(app.icon)}</div>
+      <div class="card-icon"></div>
       <div class="card-body">
         <div class="card-name">${escHtml(app.name)}</div>
         <div class="card-author">${escHtml(app.author ?? '')}</div>
@@ -160,6 +178,7 @@ function renderGrid() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
     `;
+    setAppIcon(card.querySelector('.card-icon'), app);
 
     card.addEventListener('click', () => openDetail(app));
     card.addEventListener('keydown', e => {
@@ -173,7 +192,7 @@ function renderGrid() {
 // ── Detail view ────────────────────────────────────────────────────────────
 
 function openDetail(app) {
-  detailIcon.innerHTML = iconSvg(app.icon);
+  setAppIcon(detailIcon, app);
   detailName.textContent = app.name;
   detailAuthor.textContent = app.author ?? '';
   detailCats.innerHTML = badgesHtml(app.categories);

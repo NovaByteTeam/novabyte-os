@@ -6,7 +6,7 @@
     "author": "WallPlusCrafts",
     "description": "Browse, favourite and apply beautiful wallpapers from Wallhaven — with curated collections, colour search, OS theme sync and one-tap actions.",
     "categories": ["utilities", "personalization"],
-    "icon": "image",
+    "icon": "apps/icons/com.novabyte.wallpaperhub.svg",
     "file": "apps/com.novabyte.wallpaperhub.novaapp",
     "size": "146 KB"
   }
