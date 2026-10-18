@@ -237,7 +237,7 @@ const AppSandbox = (() => {
   // switch statement. Anything else is dropped rather than forwarded, since
   // an unrecognized string is silently ignored downstream anyway (console.warn)
   // but there's no reason to let an app probe for future built-ins.
-  const ALLOWED_NOTIF_ACTIONS = new Set(['settings', 'open-settings', 'openSettings']);
+  const ALLOWED_NOTIF_ACTIONS = new Set(['settings', 'open-settings', 'openSettings', 'open-store']);
   // Sliding-window rate limit: N notifications per app per window.
   const NOTIF_RATE_LIMIT_MAX = 10;
   const NOTIF_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute

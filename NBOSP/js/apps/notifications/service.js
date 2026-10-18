@@ -288,6 +288,16 @@ const Notify = {
               }
             }
             break;
+          case 'open-store':
+            if (typeof WM !== 'undefined' && typeof WM.createWindow === 'function') {
+              WM.createWindow('com.nbosp.store');
+            } else {
+              console.warn('[Notify] Cannot open Store — WM.createWindow unavailable');
+              if (typeof EventLog !== 'undefined') {
+                EventLog.log({ app: 'Notify', category: 'system', severity: 'warn', message: 'Open Store action failed — WM unavailable', data: { action: notif.action, appName: notif.appName } });
+              }
+            }
+            break;
           default:
             console.warn('[Notify] Unknown built-in action:', notif.action);
             if (typeof EventLog !== 'undefined') {

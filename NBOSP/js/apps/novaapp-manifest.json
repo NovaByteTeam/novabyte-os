@@ -103,6 +103,11 @@
     "systemService": true
   },
   {
+    "id": "com.nbosp.service.store-updates",
+    "file": "js/apps/com.nbosp.service.store-updates.novaapp",
+    "systemService": true
+  },
+  {
     "id": "com.nbosp.service.background-apps",
     "file": "js/apps/com.nbosp.service.background-apps.novaapp",
     "systemService": true

@@ -10,5 +10,20 @@
     "file": "apps/com.novabyte.wallpaperhub.novaapp",
     "size": "146 KB",
     "screenshots": ["apps/screenshots/wallpaperhub-main.jpg"]
+  },
+  {
+    "id": "com.tools.mdpreviewer",
+    "name": "Markdown Previewer",
+    "version": "1.0.0",
+    "author": "DirazCoder",
+    "description": "Open .md files and preview them live. Side-by-side edit + preview, or preview-only.",
+    "categories": ["utilities"],
+    "icon": "apps/icons/com.tools.mdpreviewer.svg",
+    "file": "apps/com.tools.mdpreviewer.novaapp",
+    "size": "157 KB",
+    "screenshots": [
+      "apps/screenshots/markdown-previewer.jpg",
+      "apps/screenshots/markdown-previewer-preview.jpg"
+    ]
   }
 ]

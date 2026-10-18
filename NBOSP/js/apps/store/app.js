@@ -685,12 +685,22 @@
       let activeCategory = 'all';
       let query = '';
       let selectedAppId = null;
+      let settingsOpen = false;
 
       const header = document.createElement('header');
       header.className = 'store-header';
       const brand = document.createElement('div');
       brand.className = 'store-brand';
       brand.innerHTML = '<span class="store-brand-mark" aria-hidden="true">N</span><span><span class="store-title">NovaByte</span><span class="store-brand-subtitle">Store</span></span>';
+      const settingsButton = document.createElement('button');
+      settingsButton.type = 'button';
+      settingsButton.className = 'store-settings-button';
+      settingsButton.textContent = 'Settings';
+      settingsButton.setAttribute('aria-label', 'Store settings');
+      settingsButton.addEventListener('click', () => {
+        settingsOpen = !settingsOpen;
+        renderView();
+      });
       const searchWrap = document.createElement('label');
       searchWrap.className = 'store-search-wrap';
       searchWrap.setAttribute('aria-label', 'Search apps');
@@ -701,7 +711,7 @@
       search.className = 'store-search';
       search.autocomplete = 'off';
       searchWrap.appendChild(search);
-      header.append(brand, searchWrap);
+      header.append(brand, settingsButton, searchWrap);
 
       const page = document.createElement('main');
       page.className = 'store-page';
@@ -755,7 +765,104 @@
         return wrap;
       }
 
+      function renderSettings() {
+        header.classList.add('detail-header');
+        searchWrap.hidden = true;
+        settingsButton.setAttribute('aria-pressed', 'true');
+        page.replaceChildren();
+
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.className = 'back-button';
+        back.innerHTML = '<span aria-hidden="true">←</span> Store';
+        back.addEventListener('click', () => {
+          settingsOpen = false;
+          renderView();
+        });
+        page.appendChild(back);
+
+        const panel = document.createElement('section');
+        panel.className = 'detail-panel store-settings-panel';
+        const title = document.createElement('h1');
+        title.textContent = 'Update settings';
+        const description = document.createElement('p');
+        description.className = 'detail-description';
+        description.textContent = 'The Store checks for updates once after startup. Choose how often it checks again while NovaByte is running.';
+        const label = document.createElement('label');
+        label.className = 'store-settings-field';
+        label.htmlFor = 'store-update-interval';
+        label.textContent = 'Check for updates every';
+        const interval = document.createElement('select');
+        interval.id = 'store-update-interval';
+        interval.className = 'store-update-interval';
+        const currentInterval = window.StoreUpdateService?.getIntervalMinutes?.()
+          ?? Number(localStorage.getItem('nova_store_update_interval_minutes') ?? 60);
+        for (const [minutes, text] of [
+          [0, 'Startup only'],
+          [15, '15 minutes'],
+          [30, '30 minutes'],
+          [60, '1 hour'],
+          [120, '2 hours'],
+          [360, '6 hours'],
+          [720, '12 hours'],
+          [1440, '24 hours'],
+        ]) {
+          const option = document.createElement('option');
+          option.value = String(minutes);
+          option.textContent = text;
+          option.selected = minutes === currentInterval;
+          interval.appendChild(option);
+        }
+        const controls = document.createElement('div');
+        controls.className = 'store-settings-controls';
+        const checkButton = document.createElement('button');
+        checkButton.type = 'button';
+        checkButton.className = 'app-btn btn-install';
+        checkButton.textContent = 'Check now';
+        const status = document.createElement('p');
+        status.className = 'store-settings-status';
+        interval.addEventListener('change', () => {
+          try {
+            const service = window.StoreUpdateService;
+            if (!service?.setIntervalMinutes) {
+              throw new Error('The update service is unavailable. Restart NovaByte and try again.');
+            }
+            service.setIntervalMinutes(interval.value);
+            status.textContent = `Update checks set to ${interval.options[interval.selectedIndex].text.toLowerCase()}.`;
+          } catch (error) {
+            status.textContent = error.message || String(error);
+            console.error('[AppStore] Could not save update interval:', error);
+          }
+        });
+        checkButton.addEventListener('click', async () => {
+          const service = window.StoreUpdateService;
+          if (!service?.checkNow) {
+            status.textContent = 'The update service is unavailable. Restart NovaByte and try again.';
+            return;
+          }
+          checkButton.disabled = true;
+          checkButton.textContent = 'Checking…';
+          status.textContent = '';
+          try {
+            const updates = await service.checkNow();
+            status.textContent = updates.length
+              ? `${updates.length} app update${updates.length === 1 ? '' : 's'} available. See the update notifications or browse your apps.`
+              : 'Your installed apps are up to date.';
+          } catch (error) {
+            status.textContent = `Could not check for updates: ${error.message || String(error)}`;
+            console.error('[AppStore] Manual update check failed:', error);
+          } finally {
+            checkButton.disabled = false;
+            checkButton.textContent = 'Check now';
+          }
+        });
+        controls.append(checkButton, status);
+        panel.append(title, description, label, interval, controls);
+        page.appendChild(panel);
+      }
+
       function renderBrowse() {
+        settingsButton.setAttribute('aria-pressed', 'false');
         header.classList.remove('detail-header');
         searchWrap.hidden = false;
         page.replaceChildren();
@@ -853,6 +960,7 @@
       }
 
       function renderDetails(app) {
+        settingsButton.setAttribute('aria-pressed', 'false');
         header.classList.add('detail-header');
         searchWrap.hidden = true;
         page.replaceChildren();
@@ -995,6 +1103,10 @@
 
       function renderView(options = {}) {
         if (options.detail !== undefined) selectedAppId = options.detail;
+        if (settingsOpen) {
+          renderSettings();
+          return;
+        }
         const selectedApp = allApps.find(app => app.id === selectedAppId);
         if (selectedApp) renderDetails(selectedApp);
         else {
@@ -1014,6 +1126,10 @@
       // appmanager) installs or removes something while we're open
       window.addEventListener('storage', event => {
         if (event.key === APPS_KEY) renderView();
+        if (event.key === 'nova_store_update_interval_minutes' && settingsOpen) renderView();
+      });
+      window.addEventListener('nova-store-update-settings-changed', () => {
+        if (settingsOpen) renderView();
       });
 
       try {

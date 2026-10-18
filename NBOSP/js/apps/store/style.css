@@ -97,6 +97,29 @@
   font-size: 11px;
 }
 
+.store-settings-button {
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid var(--store-border);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--store-muted);
+  cursor: pointer;
+}
+
+.store-settings-button:hover,
+.store-settings-button[aria-pressed="true"] {
+  border-color: rgba(116, 183, 255, 0.36);
+  background: var(--store-accent-soft);
+  color: #b9dcff;
+}
+
+.store-settings-button:focus-visible,
+.store-update-interval:focus-visible {
+  outline: 2px solid var(--store-accent);
+  outline-offset: 3px;
+}
+
 .store-search-wrap {
   position: relative;
   display: flex;
@@ -137,6 +160,53 @@
   border-color: rgba(116, 183, 255, 0.56);
   background: rgba(255, 255, 255, 0.055);
   box-shadow: 0 0 0 3px rgba(77, 157, 246, 0.11);
+}
+
+.store-settings-panel {
+  max-width: 680px;
+  margin-top: 14px;
+}
+
+.store-settings-panel h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.store-settings-panel > .detail-description {
+  margin-bottom: 22px;
+}
+
+.store-settings-field {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--store-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.store-update-interval {
+  min-width: 210px;
+  min-height: 38px;
+  padding: 0 34px 0 11px;
+  border: 1px solid var(--store-border);
+  border-radius: 9px;
+  background: var(--store-raised);
+  color: var(--store-text);
+}
+
+.store-settings-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.store-settings-status {
+  flex: 1 1 240px;
+  margin: 0;
+  color: var(--store-muted);
+  font-size: 11px;
 }
 
 .store-page {
