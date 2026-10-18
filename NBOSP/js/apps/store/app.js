@@ -325,7 +325,7 @@
   }
 
   function appendScreenshots(parent, app, pkg) {
-    const screenshots = Array.isArray(app.screenshots)
+    const screenshots = Array.isArray(app.screenshots) && app.screenshots.length
       ? app.screenshots
       : Array.isArray(pkg.manifest?.screenshots) ? pkg.manifest.screenshots : [];
     if (!screenshots.length) return;

@@ -2348,6 +2348,7 @@ body::before {
 .publisher-notice.is-error { border-color: rgba(255, 100, 115, 0.35); background: rgba(255, 100, 115, 0.08); color: #ffb0b8; }
 
 .publisher-content { display: grid; gap: 16px; }
+.publisher-section-heading { margin: 14px 0 0; font-size: 1.15rem; }
 
 .publisher-card,
 .publisher-review-card,
@@ -2475,6 +2476,7 @@ body::before {
 .publisher-app-main { flex: 1; min-width: 0; }
 .publisher-app-main h2,
 .publisher-review-card h2 { font-size: 1.05rem; overflow-wrap: anywhere; }
+.publisher-review-card h3 { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
 .publisher-app-meta { margin-top: 4px; color: #8fd9ed; font-size: 0.75rem; overflow-wrap: anywhere; }
 .publisher-app-description { margin-top: 8px; color: var(--text-secondary); font-size: 0.82rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .publisher-menu-trigger { flex: 0 0 auto; padding: 7px 10px; }

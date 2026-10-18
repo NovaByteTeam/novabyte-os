@@ -91,6 +91,9 @@ only exist in the function environment.
 - The reviewer inbox is available only to the verified
   `dirazmuhammad400@gmail.com` account. Other users cannot list, download, or
   change submissions, even if they manually call the Edge Function.
+- The reviewer can dehost any community-published app from Review Apps.
+  Dehosting removes the public catalog entry and deletes all package files for
+  that app; the static built-in catalog is not affected.
 - Approval validates the package ID/version, applies the reviewed listing
   metadata, recalculates SHA-512 file and payload integrity hashes, signs the
   package with the server-side Ed25519 key, and only then adds the release to

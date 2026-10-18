@@ -27,6 +27,60 @@ const STATIC_CATALOG_URL = Deno.env.get('PUBLIC_CATALOG_URL')
   || 'https://novabyteteam.github.io/novabyte-os/apps.json';
 const APP_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,119}$/;
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+const SCREENSHOT_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i;
+const SCREENSHOT_URL = /^https:\/\//i;
+const SCREENSHOT_PATH = /^screenshots\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif)$/i;
+
+function screenshotReferences(pkg: Record<string, any>) {
+  const screenshots = pkg.manifest?.screenshots;
+  if (screenshots === undefined) return [];
+  if (!Array.isArray(screenshots) || screenshots.length > 5) {
+    throw new PublisherError('The package must contain no more than five valid screenshots.');
+  }
+  for (const screenshot of screenshots) {
+    if (typeof screenshot !== 'string') {
+      throw new PublisherError('The package contains an invalid screenshot reference.');
+    }
+  }
+  return screenshots;
+}
+
+function packageScreenshots(pkg: Record<string, any>) {
+  const screenshots = screenshotReferences(pkg);
+  for (const screenshot of screenshots) {
+    if (SCREENSHOT_DATA_URL.test(screenshot) || SCREENSHOT_URL.test(screenshot)) continue;
+    if (!SCREENSHOT_PATH.test(screenshot) || typeof pkg.files?.[screenshot] !== 'string') {
+      throw new PublisherError(`The package is missing screenshot file "${screenshot}".`);
+    }
+  }
+  return screenshots;
+}
+
+function preserveSubmissionScreenshots(
+  submittedPackage: Record<string, any>,
+  reviewedPackage: Record<string, any>,
+) {
+  const submittedScreenshots = packageScreenshots(submittedPackage);
+  const reviewedScreenshots = screenshotReferences(reviewedPackage);
+  const screenshots = [...reviewedScreenshots];
+  for (const screenshot of reviewedScreenshots) {
+    if (SCREENSHOT_PATH.test(screenshot) && typeof reviewedPackage.files[screenshot] !== 'string') {
+      const submittedImage = submittedPackage.files[screenshot];
+      if (typeof submittedImage !== 'string') {
+        throw new PublisherError(`The reviewed package is missing screenshot file "${screenshot}".`);
+      }
+      reviewedPackage.files[screenshot] = submittedImage;
+    }
+  }
+  for (const screenshot of submittedScreenshots) {
+    if (!screenshots.includes(screenshot)) screenshots.push(screenshot);
+    if (SCREENSHOT_PATH.test(screenshot) && typeof reviewedPackage.files[screenshot] !== 'string') {
+      reviewedPackage.files[screenshot] = submittedPackage.files[screenshot];
+    }
+  }
+  packageScreenshots({ ...reviewedPackage, manifest: { ...reviewedPackage.manifest, screenshots } });
+  reviewedPackage.manifest.screenshots = screenshots;
+}
 
 function requiredText(value: unknown, label: string, maximum: number, minimum = 1) {
   if (typeof value !== 'string') throw new PublisherError(`${label} is required.`);
@@ -207,6 +261,7 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
   if (!pkg.files || typeof pkg.files !== 'object' || Array.isArray(pkg.files)) {
     throw new PublisherError('The package does not contain a valid file map.');
   }
+  packageScreenshots(pkg);
   const files = Object.entries(pkg.files);
   const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
   if (!files.length || files.some(([path, encoded]) =>
@@ -282,6 +337,17 @@ async function reviewQueue(user: { email?: string }) {
     has_reviewed_package: Boolean(row.review_package_path),
   })));
   return { submissions };
+}
+
+async function hostedAppsForReview(user: { email?: string }) {
+  requireAdmin(user);
+  const apps = await rest('publisher_catalog_apps', {
+    query: queryString({
+      select: 'app_id,name,version,author,published_at',
+      order: 'published_at.desc',
+    }),
+  });
+  return { apps: Array.isArray(apps) ? apps : [] };
 }
 
 function imageDataUri(pkg: Record<string, any>, value: unknown) {
@@ -418,11 +484,7 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
   return { reviewed: true, notificationSent: notification.sent, notificationError: notification.sent ? undefined : notification.reason };
 }
 
-async function deletePublishedApp(user: { id: string }, body: Record<string, unknown>) {
-  const appId = requiredText(body.appId, 'App ID', 120);
-  const owner = await getOne('publisher_app_owners', 'app_id', appId);
-  if (!owner || owner.owner_id !== user.id) throw new PublisherError('You can remove only apps published from your account.', 403);
-
+async function removePublishedApp(appId: string) {
   const matching = await rest('publisher_catalog_apps', {
     query: queryString({ select: 'app_id', app_id: `eq.${appId}` }),
   });
@@ -462,6 +524,19 @@ async function deletePublishedApp(user: { id: string }, body: Record<string, unk
   }
   await rest('publisher_catalog_apps', { method: 'DELETE', query: queryString({ app_id: `eq.${appId}` }), prefer: 'return=minimal' });
   return { deleted: true };
+}
+
+async function deletePublishedApp(user: { id: string }, body: Record<string, unknown>) {
+  const appId = requiredText(body.appId, 'App ID', 120);
+  const owner = await getOne('publisher_app_owners', 'app_id', appId);
+  if (!owner || owner.owner_id !== user.id) throw new PublisherError('You can remove only apps published from your account.', 403);
+  return removePublishedApp(appId);
+}
+
+async function dehostPublishedApp(user: { email?: string }, body: Record<string, unknown>) {
+  requireAdmin(user);
+  const appId = requiredText(body.appId, 'App ID', 120);
+  return removePublishedApp(appId);
 }
 
 async function withdraw(user: { id: string }, body: Record<string, unknown>) {
@@ -522,6 +597,12 @@ Deno.serve(async request => {
       ) {
         throw new PublisherError('The reviewed package must match the submission app ID and version and contain package files.');
       }
+      const { pkg: submittedPackage } = await downloadSubmission(submission.package_path);
+      preserveSubmissionScreenshots(submittedPackage, pkg);
+      const reviewedBytes = new TextEncoder().encode(JSON.stringify(pkg));
+      if (reviewedBytes.byteLength > MAX_PACKAGE_BYTES) {
+        throw new PublisherError('The reviewed package with preserved screenshots exceeds the 25 MB limit.');
+      }
       const reviewPath = `${id}/reviewed.novaapp`;
       await storageRequest(SUBMISSION_BUCKET, reviewPath, {
         method: 'POST',
@@ -530,7 +611,7 @@ Deno.serve(async request => {
           'x-upsert': 'true',
           'cache-control': 'no-store',
         },
-        body: bytes,
+        body: reviewedBytes,
       });
       await rest('publisher_submissions', {
         method: 'PATCH',
@@ -547,8 +628,10 @@ Deno.serve(async request => {
     if (action === 'submit') return respond(await submit(user, body));
     if (action === 'my-apps') return respond(await myApps(user));
     if (action === 'review-list') return respond(await reviewQueue(user));
+    if (action === 'hosted-apps') return respond(await hostedAppsForReview(user));
     if (action === 'review') return respond(await review(user, body));
     if (action === 'delete-app') return respond(await deletePublishedApp(user, body));
+    if (action === 'dehost-app') return respond(await dehostPublishedApp(user, body));
     if (action === 'withdraw') return respond(await withdraw(user, body));
     if (user.email?.trim().toLowerCase() === ADMIN_EMAIL) requireAdmin(user);
     throw new PublisherError('Unknown publisher action.', 404);

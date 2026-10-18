@@ -270,6 +270,14 @@ function packageImageUrl(value, pkg) {
   return safeAssetUrl(value);
 }
 
+function packageDownloadUrl(value, fileName) {
+  const url = new URL(value, document.baseURI);
+  if (url.pathname.includes('/storage/v1/object/')) {
+    url.searchParams.set('download', fileName);
+  }
+  return url.href;
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 
 let allApps = [];
@@ -585,7 +593,9 @@ function renderPackageDetails(app, pkg) {
   detailPermissions.hidden = detailRequiredPermissions.childElementCount === 0 && detailOptionalPermissions.childElementCount === 0;
 
   detailScreenshotList.replaceChildren();
-  const screenshots = Array.isArray(app.screenshots) ? app.screenshots : manifest.screenshots;
+  const screenshots = Array.isArray(app.screenshots) && app.screenshots.length
+    ? app.screenshots
+    : manifest.screenshots;
   if (Array.isArray(screenshots)) {
     for (const source of screenshots) {
       const src = packageImageUrl(source, pkg);
@@ -725,8 +735,9 @@ function openDetail(app) {
   detailVersion.textContent = `v${app.version}`;
   detailSize.textContent = app.size ?? '—';
   detailDev.textContent = app.author ?? '—';
-  detailDownload.href = app.file;
-  detailDownload.download = app.file.split('/').pop();
+  const packageFileName = `${app.id}-${app.version}.novaapp`;
+  detailDownload.href = packageDownloadUrl(app.file, packageFileName);
+  detailDownload.download = packageFileName;
   renderPackageDetails(app, null);
 
   // Description + read-more

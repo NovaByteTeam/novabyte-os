@@ -27,6 +27,12 @@ function encodePath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
+function packageDownloadUrl(value, fileName) {
+  const url = new URL(value, location.href);
+  url.searchParams.set('download', fileName);
+  return url.href;
+}
+
 function makeElement(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -945,35 +951,73 @@ class PublisherPortal {
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
-      const result = await this.call('review-list');
+      const [result, hostedResult] = await Promise.all([
+        this.call('review-list'),
+        this.call('hosted-apps'),
+      ]);
       this.nodes.content.replaceChildren();
       const queue = Array.isArray(result.submissions) ? result.submissions : [];
-      if (!queue.length) {
+      const hostedApps = Array.isArray(hostedResult.apps) ? hostedResult.apps : [];
+      if (!queue.length && !hostedApps.length) {
         this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'The review queue is clear.'));
         return;
       }
-      const list = makeElement('div', 'publisher-app-list');
-      for (const submission of queue) {
-        const item = makeElement('article', 'publisher-review-card');
-        const info = submission.metadata || {};
-        item.append(
-          makeElement('p', 'detail-kicker', `${submission.type} · ${submission.status}`),
-          makeElement('h2', '', `${info.name || submission.app_id} v${submission.version}`),
-          makeElement('p', 'publisher-app-meta', `${submission.app_id} · submitted ${new Date(submission.created_at).toLocaleString()}`),
-          makeElement('p', 'publisher-app-description', info.description || ''),
-          makeElement('p', 'publisher-review-changelog', submission.changelog || 'No changelog supplied.')
-        );
-        if (submission.download_url) {
-          const download = makeElement('a', 'publisher-download', 'Download package for review');
-          download.href = submission.download_url;
-          download.download = `${submission.app_id}-${submission.version}.novaapp`;
-          item.appendChild(download);
+      if (queue.length) {
+        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Submissions awaiting review'));
+        const list = makeElement('div', 'publisher-app-list');
+        for (const submission of queue) {
+          const item = makeElement('article', 'publisher-review-card');
+          const info = submission.metadata || {};
+          item.append(
+            makeElement('p', 'detail-kicker', `${submission.type} · ${submission.status}`),
+            makeElement('h2', '', `${info.name || submission.app_id} v${submission.version}`),
+            makeElement('p', 'publisher-app-meta', `${submission.app_id} · submitted ${new Date(submission.created_at).toLocaleString()}`),
+            makeElement('p', 'publisher-app-description', info.description || ''),
+            makeElement('p', 'publisher-review-changelog', submission.changelog || 'No changelog supplied.')
+          );
+          if (submission.download_url) {
+            const download = makeElement('a', 'publisher-download', 'Download package for review');
+            download.href = packageDownloadUrl(
+              submission.download_url,
+              `${submission.app_id}-${submission.version}.novaapp`,
+            );
+            download.download = `${submission.app_id}-${submission.version}.novaapp`;
+            item.appendChild(download);
+          }
+          const reviewButton = this.makeAction('Review submission', () => this.renderReviewForm(submission));
+          item.appendChild(reviewButton);
+          list.appendChild(item);
         }
-        const reviewButton = this.makeAction('Review submission', () => this.renderReviewForm(submission));
-        item.appendChild(reviewButton);
-        list.appendChild(item);
+        this.nodes.content.appendChild(list);
       }
-      this.nodes.content.appendChild(list);
+      if (hostedApps.length) {
+        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Hosted community apps'));
+        this.nodes.content.appendChild(makeElement('p', 'publisher-help', 'Dehosting removes the app from the public catalog and deletes its published package files.'));
+        const list = makeElement('div', 'publisher-app-list');
+        for (const app of hostedApps) {
+          const item = makeElement('article', 'publisher-review-card');
+          item.append(
+            makeElement('h3', '', `${app.name} v${app.version}`),
+            makeElement('p', 'publisher-app-meta', `${app.app_id} · by ${app.author || 'unknown publisher'}`),
+          );
+          const dehost = this.makeAction('Dehost app', async () => {
+            if (!window.confirm(`Dehost ${app.name} (${app.app_id})? It will be removed from the public catalog and its hosted package files will be deleted.`)) return;
+            dehost.disabled = true;
+            try {
+              await this.call('dehost-app', { appId: app.app_id });
+              await this.renderReviewQueue();
+              this.setNotice(`${app.name} was removed from the public catalog.`, 'success');
+              this.onCatalogChanged();
+            } catch (error) {
+              this.setNotice(error.message || String(error), 'error');
+              dehost.disabled = false;
+            }
+          }, 'is-danger');
+          item.appendChild(dehost);
+          list.appendChild(item);
+        }
+        this.nodes.content.appendChild(list);
+      }
     } catch (error) {
       loading.textContent = error.message || 'Could not load the review queue.';
       loading.classList.add('is-error');
@@ -995,7 +1039,10 @@ class PublisherPortal {
     for (const line of lines) card.appendChild(makeElement('p', 'publisher-review-line', line));
     if (submission.download_url) {
       const download = makeElement('a', 'publisher-download', 'Download package for review');
-      download.href = submission.download_url;
+      download.href = packageDownloadUrl(
+        submission.download_url,
+        `${submission.app_id}-${submission.version}.novaapp`,
+      );
       download.download = `${submission.app_id}-${submission.version}.novaapp`;
       card.appendChild(download);
     }
