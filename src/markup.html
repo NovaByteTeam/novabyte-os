@@ -107,7 +107,7 @@
     <div class="detail-identity">
       <div class="detail-icon" id="detail-icon" aria-hidden="true"></div>
       <div class="detail-identity-body">
-        <h1 class="detail-name" id="detail-name"></h1>
+        <h1 class="detail-name" id="detail-name"><span class="verified-badge" id="detail-verified" hidden></span></h1>
         <p class="detail-author" id="detail-author"></p>
         <div class="detail-cats" id="detail-cats"></div>
       </div>
@@ -141,6 +141,36 @@
         <p class="detail-desc" id="detail-desc"></p>
         <button class="read-more-btn hidden" id="read-more-btn" aria-expanded="false">More</button>
       </div>
+    </section>
+
+    <hr class="detail-rule">
+
+    <section class="detail-section" id="detail-release-notes-section" aria-label="Release notes" hidden>
+      <h2 class="detail-section-title">What’s new</h2>
+      <p class="detail-release-notes" id="detail-release-notes"></p>
+    </section>
+
+    <section class="detail-section" id="detail-screenshots" aria-label="Screenshots" hidden>
+      <h2 class="detail-section-title">Screenshots</h2>
+      <div class="detail-screenshot-list" id="detail-screenshot-list"></div>
+    </section>
+
+    <section class="detail-section" id="detail-permissions" aria-label="Requested permissions" hidden>
+      <h2 class="detail-section-title">Permissions</h2>
+      <p class="detail-metadata-note">Declared by this package. NovaByte OS still controls and prompts for access.</p>
+      <div class="permission-group">
+        <h3>Required</h3>
+        <ul class="detail-permission-list" id="detail-required-permissions"></ul>
+      </div>
+      <div class="permission-group">
+        <h3>Optional</h3>
+        <ul class="detail-permission-list" id="detail-optional-permissions"></ul>
+      </div>
+    </section>
+
+    <section class="detail-section" aria-label="Publisher links" hidden>
+      <h2 class="detail-section-title">Links</h2>
+      <div class="detail-links-list" id="detail-links"></div>
     </section>
 
     <hr class="detail-rule">

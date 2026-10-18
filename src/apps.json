@@ -8,6 +8,7 @@
     "categories": ["utilities", "personalization"],
     "icon": "apps/icons/com.novabyte.wallpaperhub.svg",
     "file": "apps/com.novabyte.wallpaperhub.novaapp",
-    "size": "146 KB"
+    "size": "146 KB",
+    "screenshots": ["apps/screenshots/wallpaperhub-main.jpg"]
   }
 ]

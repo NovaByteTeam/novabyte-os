@@ -1,3 +1,5 @@
+import { blake3 } from '@noble/hashes/blake3.js';
+
 // Icon SVG paths — Lucide-compatible strokes, inline so there's no icon library dep.
 const ICONS = {
   'file-text': `<polyline points="14 2 14 8 20 8"/><path d="M20 8V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>`,
@@ -38,6 +40,222 @@ function badgesHtml(categories = []) {
   return categories.map(c => `<span class="badge">${escHtml(c)}</span>`).join('');
 }
 
+const packageCache = new Map();
+const verificationCache = new Map();
+const pendingBadges = new WeakMap();
+let siteTrustDataPromise;
+const badgeObserver = typeof IntersectionObserver === 'function'
+  ? new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        badgeObserver.unobserve(entry.target);
+        const pending = pendingBadges.get(entry.target);
+        if (pending) verifyBadge(pending.badge, pending.app);
+      }
+    })
+  : null;
+
+async function fetchPackage(app) {
+  if (!packageCache.has(app.id)) {
+    const request = (async () => {
+      const response = await fetch(new URL(app.file, document.baseURI));
+      if (!response.ok) throw new Error(`Package request failed (${response.status})`);
+      const pkg = await response.json();
+      if (!pkg || pkg.novabyte_app !== true || pkg.manifest?.id !== app.id) {
+        throw new Error(`Package identity does not match catalog entry "${app.id}".`);
+      }
+      return pkg;
+    })();
+    packageCache.set(app.id, request);
+    request.catch(() => packageCache.delete(app.id));
+  }
+  return packageCache.get(app.id);
+}
+
+function loadSiteTrustData() {
+  if (!siteTrustDataPromise) {
+    siteTrustDataPromise = Promise.all([
+      fetch('trusted-signers.json').then(response => {
+        if (!response.ok) throw new Error(`Trusted signer list request failed (${response.status})`);
+        return response.json();
+      }),
+      fetch('revoked-signatures.json').then(response => {
+        if (!response.ok) throw new Error(`Revocation list request failed (${response.status})`);
+        return response.json();
+      }),
+    ]).then(([signers, revocations]) => {
+      if (!Array.isArray(signers) || !Array.isArray(revocations)) {
+        throw new Error('Store verification data must contain lists.');
+      }
+      return { signers, revocations };
+    });
+  }
+  return siteTrustDataPromise;
+}
+
+function signingPayload(pkg) {
+  return JSON.stringify({
+    novabyte_app: pkg.novabyte_app,
+    manifest: pkg.manifest,
+    files: pkg.files,
+    compiled_at: pkg.compiled_at,
+  });
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function decodeHex(hex) {
+  if (typeof hex !== 'string' || !/^(?:[0-9a-f]{2})+$/i.test(hex)) return null;
+  return new Uint8Array(hex.match(/.{2}/g).map(byte => Number.parseInt(byte, 16)));
+}
+
+function decodeBase64(encoded) {
+  if (typeof encoded !== 'string') return null;
+  const binary = atob(encoded);
+  return Uint8Array.from(binary, character => character.charCodeAt(0));
+}
+
+async function digest(method, bytes) {
+  if (method === 'blake3') return blake3(bytes);
+  if (method !== 'sha256' && method !== 'sha512') return null;
+  const algorithm = method === 'sha256' ? 'SHA-256' : 'SHA-512';
+  return new Uint8Array(await crypto.subtle.digest(algorithm, bytes));
+}
+
+async function verifyPackageIntegrity(pkg) {
+  if (!pkg.integrity) return false;
+  const { method, payloadHash, fileHashes } = pkg.integrity;
+  if (method === 'none' || !payloadHash) return true;
+
+  const payloadDigest = await digest(method, new TextEncoder().encode(signingPayload(pkg)));
+  if (!payloadDigest || bytesToHex(payloadDigest) !== String(payloadHash).toLowerCase()) return false;
+
+  for (const [file, expectedHash] of Object.entries(fileHashes || {})) {
+    const fileBytes = decodeBase64(pkg.files?.[file]);
+    if (!fileBytes) return false;
+    const fileDigest = await digest(method, fileBytes);
+    if (!fileDigest || bytesToHex(fileDigest) !== String(expectedHash).toLowerCase()) return false;
+  }
+  return true;
+}
+
+async function verifyPackageSignature(pkg, app) {
+  const { signers, revocations } = await loadSiteTrustData();
+  const signature = pkg.signature;
+  if (typeof signature !== 'string' || !signature) return null;
+  const revoked = revocations.some(record =>
+    (typeof record === 'string' ? record : record?.signature) === signature
+  );
+  if (revoked) return null;
+
+  const method = String(pkg.signing?.method || 'ed25519').toLowerCase();
+  if (method !== 'ed25519' || !(await verifyPackageIntegrity(pkg))) return null;
+  const signatureBytes = decodeHex(signature);
+  if (!signatureBytes) return null;
+  const payload = new TextEncoder().encode(signingPayload(pkg));
+
+  for (const signer of signers) {
+    if (String(signer.method || 'ed25519').toLowerCase() !== method || !signer.publicKey) continue;
+    try {
+      const key = await crypto.subtle.importKey(
+        'jwk',
+        signer.publicKey,
+        { name: 'Ed25519' },
+        false,
+        ['verify']
+      );
+      if (await crypto.subtle.verify({ name: 'Ed25519' }, key, signatureBytes, payload)) {
+        return { name: signer.name || app.author || 'Trusted publisher' };
+      }
+    } catch (error) {
+      console.warn(`[Store] Could not verify ${app.id} with signer ${signer.name || signer.id}:`, error);
+    }
+  }
+  return null;
+}
+
+function verifyCatalogApp(app) {
+  if (!verificationCache.has(app.id)) {
+    const verification = fetchPackage(app)
+      .then(pkg => verifyPackageSignature(pkg, app))
+      .catch(error => {
+        console.warn(`[Store] Could not verify ${app.id}:`, error);
+        return null;
+      });
+    verificationCache.set(app.id, verification);
+  }
+  return verificationCache.get(app.id);
+}
+
+function verifyBadge(badge, app) {
+  badge.hidden = true;
+  verifyCatalogApp(app).then(result => {
+    if (!result) return;
+    badge.textContent = '✓ Verified';
+    badge.title = `Signature and integrity verified: ${result.name}`;
+    badge.setAttribute('aria-label', `Verified publisher: ${result.name}`);
+    badge.hidden = false;
+  });
+}
+
+function attachVerifiedBadge(badge, app, observeTarget, eager = false) {
+  badge.hidden = true;
+  if (!eager && badgeObserver && observeTarget) {
+    pendingBadges.set(observeTarget, { badge, app });
+    badgeObserver.observe(observeTarget);
+    return;
+  }
+  verifyBadge(badge, app);
+}
+
+function permissionName(permission) {
+  const labels = {
+    'clipboard:read': 'Read clipboard',
+    'clipboard:write': 'Write clipboard',
+    'net:external': 'Internet access',
+    'net:internal': 'Internal network access',
+    'net:websocket': 'WebSocket access',
+    'device:notifications': 'Notifications',
+    'device:camera': 'Camera',
+    'device:microphone': 'Microphone',
+    'device:geolocation': 'Location',
+    'vfs:access': 'Shared files',
+    'vfs:read': 'Read files',
+    'vfs:write': 'Write files',
+    'vfs:delete': 'Delete files',
+  };
+  return labels[permission] || permission;
+}
+
+function safeWebUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value, document.baseURI);
+    return url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function packageImageUrl(value, pkg) {
+  if (typeof value !== 'string') return null;
+  if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,/i.test(value)) return value;
+  const packagedFile = pkg?.files?.[value];
+  if (typeof packagedFile === 'string') {
+    const extension = value.split('.').pop()?.toLowerCase();
+    const mime = extension === 'svg' ? 'image/svg+xml'
+      : extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg'
+      : extension === 'gif' ? 'image/gif'
+      : extension === 'webp' ? 'image/webp'
+      : extension === 'png' ? 'image/png'
+      : null;
+    if (mime) return `data:${mime};base64,${packagedFile}`;
+  }
+  return safeWebUrl(value);
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 
 let allApps = [];
@@ -67,6 +285,7 @@ const featuredVersion = document.getElementById('featured-version');
 
 const detailIcon     = document.getElementById('detail-icon');
 const detailName     = document.getElementById('detail-name');
+const detailVerified = document.getElementById('detail-verified');
 const detailAuthor   = document.getElementById('detail-author');
 const detailCats     = document.getElementById('detail-cats');
 const detailDesc     = document.getElementById('detail-desc');
@@ -76,6 +295,14 @@ const detailSize     = document.getElementById('detail-size');
 const detailDev      = document.getElementById('detail-dev');
 const detailDownload = document.getElementById('detail-download');
 const readMoreBtn    = document.getElementById('read-more-btn');
+const detailScreenshots = document.getElementById('detail-screenshots');
+const detailScreenshotList = document.getElementById('detail-screenshot-list');
+const detailPermissions = document.getElementById('detail-permissions');
+const detailRequiredPermissions = document.getElementById('detail-required-permissions');
+const detailOptionalPermissions = document.getElementById('detail-optional-permissions');
+const detailReleaseNotes = document.getElementById('detail-release-notes');
+const detailReleaseNotesSection = document.getElementById('detail-release-notes-section');
+const detailLinks = document.getElementById('detail-links');
 
 // ── Fetch apps ─────────────────────────────────────────────────────────────
 
@@ -106,6 +333,11 @@ function renderFeatured() {
   featuredSection.hidden = false;
   setAppIcon(featuredIcon, app);
   featuredName.textContent = app.name;
+  const featuredVerified = document.createElement('span');
+  featuredVerified.className = 'verified-badge';
+  featuredVerified.textContent = '✓ Verified';
+  attachVerifiedBadge(featuredVerified, app, featuredCard);
+  featuredName.appendChild(featuredVerified);
   featuredAuthor.textContent = app.author ?? '';
   featuredDesc.textContent = app.description ?? '';
   featuredBadges.innerHTML = badgesHtml(app.categories);
@@ -133,7 +365,10 @@ function filteredApps() {
 }
 
 function renderGrid() {
-  for (const card of grid.querySelectorAll('.app-card')) card.remove();
+  for (const card of grid.querySelectorAll('.app-card')) {
+    badgeObserver?.unobserve(card);
+    card.remove();
+  }
 
   const apps = filteredApps();
   // In default view, skip first app — it's in the featured slot
@@ -166,7 +401,7 @@ function renderGrid() {
     card.innerHTML = `
       <div class="card-icon"></div>
       <div class="card-body">
-        <div class="card-name">${escHtml(app.name)}</div>
+        <div class="card-name"><span>${escHtml(app.name)}</span><span class="verified-badge" hidden></span></div>
         <div class="card-author">${escHtml(app.author ?? '')}</div>
         <p class="card-desc">${escHtml(app.description ?? '')}</p>
         <div class="card-footer">
@@ -178,6 +413,7 @@ function renderGrid() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
     `;
+    attachVerifiedBadge(card.querySelector('.verified-badge'), app, card);
     setAppIcon(card.querySelector('.card-icon'), app);
 
     card.addEventListener('click', () => openDetail(app));
@@ -191,9 +427,106 @@ function renderGrid() {
 
 // ── Detail view ────────────────────────────────────────────────────────────
 
+function fillPermissionList(container, permissions) {
+  container.replaceChildren();
+  for (const permission of permissions) {
+    if (typeof permission !== 'string') continue;
+    const item = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = permissionName(permission);
+    const code = document.createElement('code');
+    code.textContent = permission;
+    item.append(label, code);
+    container.appendChild(item);
+  }
+}
+
+function appLinks(app, manifest) {
+  const labels = {
+    homepage: 'Website',
+    website: 'Website',
+    support: 'Support',
+    supportUrl: 'Support',
+    source: 'Source code',
+    sourceUrl: 'Source code',
+    repository: 'Source code',
+    repositoryUrl: 'Source code',
+    privacyPolicy: 'Privacy policy',
+    privacyPolicyUrl: 'Privacy policy',
+    documentation: 'Documentation',
+    docs: 'Documentation',
+    issues: 'Report an issue',
+    issuesUrl: 'Report an issue',
+  };
+  const sources = [app.links, manifest.links];
+  const candidates = sources.flatMap(source => Array.isArray(source)
+    ? source
+    : Object.entries(source || {}).map(([label, url]) => ({ label, url })));
+  for (const key of Object.keys(labels)) {
+    for (const url of [app[key], manifest[key]]) {
+      if (url) candidates.push({ label: labels[key], url });
+    }
+  }
+
+  const seen = new Set();
+  return candidates.flatMap(candidate => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const href = safeWebUrl(candidate.url || candidate.href);
+    if (!href || seen.has(href)) return [];
+    seen.add(href);
+    const rawLabel = candidate.label || candidate.title || '';
+    return [{ label: labels[rawLabel] || rawLabel || 'More information', href }];
+  });
+}
+
+function renderPackageDetails(app, pkg) {
+  const manifest = pkg?.manifest || {};
+  const releaseNotes = app.releaseNotes || manifest.releaseNotes;
+  detailReleaseNotesSection.hidden = !(typeof releaseNotes === 'string' && releaseNotes.trim());
+  detailReleaseNotes.textContent = detailReleaseNotesSection.hidden ? '' : releaseNotes;
+
+  const required = Array.isArray(app.permissions) ? app.permissions : manifest.permissions;
+  const optional = Array.isArray(app.optionalPermissions) ? app.optionalPermissions : manifest.optionalPermissions;
+  fillPermissionList(detailRequiredPermissions, Array.isArray(required) ? required : []);
+  fillPermissionList(detailOptionalPermissions, Array.isArray(optional) ? optional : []);
+  detailRequiredPermissions.closest('.permission-group').hidden = detailRequiredPermissions.childElementCount === 0;
+  detailOptionalPermissions.closest('.permission-group').hidden = detailOptionalPermissions.childElementCount === 0;
+  detailPermissions.hidden = detailRequiredPermissions.childElementCount === 0 && detailOptionalPermissions.childElementCount === 0;
+
+  detailScreenshotList.replaceChildren();
+  const screenshots = Array.isArray(app.screenshots) ? app.screenshots : manifest.screenshots;
+  if (Array.isArray(screenshots)) {
+    for (const source of screenshots) {
+      const src = packageImageUrl(source, pkg);
+      if (!src) continue;
+      const image = document.createElement('img');
+      image.src = src;
+      image.alt = `${app.name} screenshot`;
+      image.loading = 'lazy';
+      const figure = document.createElement('figure');
+      figure.appendChild(image);
+      detailScreenshotList.appendChild(figure);
+    }
+  }
+  detailScreenshots.hidden = detailScreenshotList.childElementCount === 0;
+
+  detailLinks.replaceChildren();
+  for (const link of appLinks(app, manifest)) {
+    const anchor = document.createElement('a');
+    anchor.href = link.href;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.textContent = link.label;
+    detailLinks.appendChild(anchor);
+  }
+  detailLinks.closest('.detail-section').hidden = detailLinks.childElementCount === 0;
+}
+
 function openDetail(app) {
   setAppIcon(detailIcon, app);
-  detailName.textContent = app.name;
+  detailName.replaceChildren(document.createTextNode(app.name), detailVerified);
+  detailVerified.textContent = '✓ Verified';
+  attachVerifiedBadge(detailVerified, app, null, true);
   detailAuthor.textContent = app.author ?? '';
   detailCats.innerHTML = badgesHtml(app.categories);
   detailId.textContent = app.id;
@@ -202,6 +535,7 @@ function openDetail(app) {
   detailDev.textContent = app.author ?? '—';
   detailDownload.href = app.file;
   detailDownload.download = app.file.split('/').pop();
+  renderPackageDetails(app, null);
 
   // Description + read-more
   const desc = app.description ?? '';
@@ -219,6 +553,13 @@ function openDetail(app) {
   detailView.classList.remove('hidden');
   window.scrollTo(0, 0);
   backBtn.focus();
+
+  fetchPackage(app).then(pkg => {
+    if (detailId.textContent !== app.id || detailView.classList.contains('hidden')) return;
+    renderPackageDetails(app, pkg);
+  }).catch(error => {
+    console.warn(`[Store] Could not load detail metadata for ${app.id}:`, error);
+  });
 }
 
 readMoreBtn.addEventListener('click', () => {

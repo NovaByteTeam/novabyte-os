@@ -2,7 +2,7 @@
 // steps as before (CSS purge, CSS minify, JS minify, HTML minify), just reading
 // from three files instead of regex-slicing one.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { transform as esbuildTransform } from 'esbuild';
+import { build as esbuildBuild, transform as esbuildTransform } from 'esbuild';
 import { minify as minifyHtml } from 'html-minifier-next';
 import { PurgeCSS } from 'purgecss';
 
@@ -12,6 +12,16 @@ const OUT_FILE = `${SRC_DIR}/index.html`;
 const html = readFileSync(`${SRC_DIR}/markup.html`, 'utf8');
 const css = readFileSync(`${SRC_DIR}/styling.css`, 'utf8');
 const js = readFileSync(`${SRC_DIR}/logic.js`, 'utf8');
+const revokedSignatures = JSON.parse(
+  readFileSync('../NBOSP/js/platform/security/revoked-signatures.json', 'utf8')
+);
+if (!Array.isArray(revokedSignatures)) {
+  throw new Error('NBOSP revoked-signatures.json must contain a list.');
+}
+writeFileSync(
+  `${SRC_DIR}/revoked-signatures.json`,
+  JSON.stringify(revokedSignatures)
+);
 
 // PurgeCSS's own CSS parser doesn't reliably handle native nesting (`&.is-revealed { ... }`
 // inside a parent rule) — it was silently dropping the whole nested block, which killed
@@ -40,12 +50,17 @@ const purgedCss = purgeResult[0].css;
 
 // --- Minify the purged CSS and the JS via esbuild ---
 const { code: minifiedCss } = await esbuildTransform(purgedCss, { loader: 'css', minify: true, legalComments: 'none', target: 'esnext' });
-const { code: minifiedJs } = await esbuildTransform(js, {
-  loader: 'js',
+const { outputFiles: [jsOutput] } = await esbuildBuild({
+  entryPoints: ['logic.js'],
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'browser',
   minify: true,
   target: 'esnext',
   legalComments: 'none',
 });
+const minifiedJs = jsOutput.text;
 
 // --- Inline both back into the HTML shell so production ships as one file ---
 // (keeps the deploy artifact identical in shape to the old single-file build —
