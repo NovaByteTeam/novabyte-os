@@ -59,6 +59,7 @@ class PublisherPortal {
       signUp: document.getElementById('publisher-signup'),
       publish: document.getElementById('publisher-publish'),
       myApps: document.getElementById('publisher-my-apps'),
+      account: document.getElementById('publisher-account'),
       review: document.getElementById('publisher-review'),
       signOut: document.getElementById('publisher-signout'),
     };
@@ -302,6 +303,7 @@ class PublisherPortal {
     this.nodes.signUp.classList.toggle('hidden', signedIn);
     this.nodes.publish.classList.toggle('hidden', !signedIn);
     this.nodes.myApps.classList.toggle('hidden', !signedIn);
+    this.nodes.account.classList.toggle('hidden', !signedIn);
     this.nodes.signOut.classList.toggle('hidden', !signedIn);
     this.nodes.review.classList.toggle(
       'hidden',
@@ -352,9 +354,109 @@ class PublisherPortal {
       this.renderPublish();
     } else if (page === 'my-apps') {
       await this.renderMyApps();
+    } else if (page === 'account') {
+      this.renderAccount();
     } else if (page === 'review') {
       this.renderReviewQueue();
     }
+  }
+
+  renderAccount() {
+    const displayName = this.user?.user_metadata?.display_name || '';
+    this.setPage('Manage account', 'Update your publisher profile and password.');
+    const form = makeElement('form', 'publisher-card publisher-account-form');
+    const identity = makeElement('div', 'publisher-account-identity');
+    identity.append(
+      makeElement('span', 'publisher-account-label', 'Signed in as'),
+      makeElement('strong', 'publisher-account-email', this.user?.email || '')
+    );
+    const verified = makeElement('p', 'publisher-account-verified',
+      this.user?.email_confirmed_at || this.user?.confirmed_at ? 'Email verified' : 'Email not verified');
+    const name = makeField('Display name', {
+      id: 'publisher-account-name',
+      value: displayName,
+      placeholder: 'Your name or publisher name',
+      maxLength: 80,
+    });
+    const section = makeElement('div', 'publisher-account-section');
+    section.append(
+      makeElement('h2', '', 'Profile'),
+      makeElement('p', 'publisher-form-intro', 'This name identifies you in your publisher profile and app listings.'),
+      name.label
+    );
+    form.append(identity, verified, section);
+
+    const passwordSection = makeElement('div', 'publisher-account-section');
+    passwordSection.append(
+      makeElement('h2', '', 'Change password'),
+      makeElement('p', 'publisher-form-intro', 'Leave these fields blank to keep your current password.')
+    );
+    const password = makeField('New password', {
+      id: 'publisher-account-password',
+      type: 'password',
+      required: false,
+      placeholder: 'At least 10 characters',
+    });
+    password.input.autocomplete = 'new-password';
+    password.input.minLength = 10;
+    const confirmPassword = makeField('Confirm new password', {
+      id: 'publisher-account-password-confirm',
+      type: 'password',
+      required: false,
+      placeholder: 'Enter the new password again',
+    });
+    confirmPassword.input.autocomplete = 'new-password';
+    passwordSection.append(password.label, confirmPassword.label);
+    form.appendChild(passwordSection);
+
+    const save = makeElement('button', 'publisher-submit', 'Save account changes');
+    save.type = 'submit';
+    form.appendChild(save);
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      if (password.input.value !== confirmPassword.input.value) {
+        this.setNotice('The new passwords do not match.', 'error');
+        confirmPassword.input.focus();
+        return;
+      }
+      if (password.input.value && password.input.value.length < 10) {
+        this.setNotice('The new password must be at least 10 characters.', 'error');
+        password.input.focus();
+        return;
+      }
+      if (!name.input.value.trim()) {
+        this.setNotice('Display name cannot be empty.', 'error');
+        name.input.focus();
+        return;
+      }
+      const updates = {
+        user_metadata: {
+          ...(this.user?.user_metadata || {}),
+          display_name: name.input.value.trim(),
+        },
+      };
+      if (password.input.value) updates.password = password.input.value;
+      save.disabled = true;
+      save.textContent = 'Saving…';
+      try {
+        const updatedUser = await this.request('/auth/v1/user', {
+          method: 'PUT',
+          token: this.session.access_token,
+          body: updates,
+        });
+        this.user = updatedUser;
+        password.input.value = '';
+        confirmPassword.input.value = '';
+        this.setNotice('Account changes saved.', 'success');
+      } catch (error) {
+        this.setNotice(error.message || String(error), 'error');
+      } finally {
+        save.disabled = false;
+        save.textContent = 'Save account changes';
+      }
+    });
+    this.nodes.content.appendChild(form);
   }
 
   renderAuth(mode) {
@@ -869,6 +971,7 @@ class PublisherPortal {
     this.nodes.signUp.addEventListener('click', () => navigate('signup'));
     this.nodes.publish.addEventListener('click', () => navigate('publish'));
     this.nodes.myApps.addEventListener('click', () => navigate('my-apps'));
+    this.nodes.account.addEventListener('click', () => navigate('account'));
     this.nodes.review.addEventListener('click', () => navigate('review'));
     this.nodes.signOut.addEventListener('click', async () => {
       try {

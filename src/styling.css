@@ -2360,7 +2360,27 @@ body::before {
 
 .publisher-card { padding: clamp(18px, 4vw, 30px); }
 .publisher-auth-form { display: grid; gap: 16px; max-width: 540px; }
+.publisher-account-form { display: grid; gap: 22px; max-width: 700px; }
 .publisher-app-form { display: grid; gap: 14px; }
+
+.publisher-account-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  background: rgba(4, 9, 17, 0.34);
+}
+
+.publisher-account-label,
+.publisher-account-verified { color: var(--text-secondary); font-size: 0.8rem; }
+.publisher-account-email { overflow-wrap: anywhere; font-size: 0.86rem; }
+.publisher-account-verified { margin-top: -16px; color: #a5e8c9; }
+.publisher-account-section { display: grid; gap: 12px; }
+.publisher-account-section h2 { font-size: 1rem; }
 
 .publisher-field {
   display: grid;
