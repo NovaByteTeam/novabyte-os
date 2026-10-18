@@ -97,7 +97,7 @@ const finalHtml = await minifyHtml(outHtml, {
 
 const finalHtmlWithBundle = finalHtml.replace(
   /<script\b[^>]*\bid=["']?novabyte-module-bundle["']?[^>]*><\/script>/i,
-  `<script type="module">${minifiedJs.trim()}</script>`
+  () => `<script type="module">${minifiedJs.trim()}</script>`
 );
 if (finalHtmlWithBundle === finalHtml) throw new Error('Could not insert the bundled website JavaScript.');
 writeFileSync(OUT_FILE, finalHtmlWithBundle);
