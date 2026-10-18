@@ -49,6 +49,29 @@
 > **Updates**
 > - Every update, including patch releases, goes through full review again from scratch before it can be listed. There are no fast-track or trusted-developer exemptions. Updates are the most common vector for slipping malicious changes in post-approval.
 >
+> **Security patch level**
+> - Apps that declare any of the following permissions — `vfs:write`, `vfs:delete`, `device:geolocation`, `system:settings`, `net:internal`, `admin:system` — or that handle passwords, tokens, encryption keys, or personal data must declare `minSecurityPatch` in their manifest. Submissions without it are rejected immediately, no review. This is non-negotiable.
+>
+> **Content & behaviour**
+> - No ads, trackers, or analytics of any kind. No third-party SDKs that phone home, no pixel tracking, nothing.
+> - Apps must not silently run in the background after the user closes them unless a background permission is explicitly declared in the manifest and the user is clearly informed at install time.
+> - Apps must not auto-launch on boot without explicit user consent at install time.
+>
+> **Data handling**
+> - Apps must not persist or transmit user data beyond what is needed for their stated purpose.
+> - Any data written to VFS must be scoped to the app's own directory. Reading or writing outside it requires an explicitly declared and approved permission.
+> - Apps must not store credentials — passwords, tokens, keys — in plaintext anywhere in VFS.
+>
+> **Manifest hygiene**
+> - Every permission declared in the manifest must include a short human-readable justification explaining why the app needs it. Vague or missing justifications will be rejected.
+> - App name, description, and declared permissions must accurately reflect what the app actually does. Misrepresentation is grounds for immediate removal and a permanent ban.
+> - Version numbers must follow a consistent scheme — semver is recommended. Arbitrary or reused version strings make update tracking unreliable and will be flagged.
+>
+> **Abuse prevention**
+> - Apps must not attempt to detect whether they are being reviewed — for example, checking for a sandbox environment and behaving differently. If we catch this, it is a permanent ban with no appeal.
+> - No UI that mimics NovaByte OS system dialogs or NovaByte branding to deceive users.
+> - No cryptocurrency mining or any use of the user's hardware for computation that does not directly serve the app's stated purpose.
+>
 > **Review and permission pruning:** We review every submission manually. If your app is safe, it will be accepted — but we will remove any declared permissions we determine are unnecessary. If you declare a permission your app never actually uses (for example, `vfs.read` with no VFS reads anywhere in the code), we strip it before the store release. This is a privacy and security measure, not a judgment on your app. Your app is still accepted; the manifest is just trimmed to what it genuinely needs.
 >
 > **Store version vs. self-hosted version:** The `.novaapp` you distribute from your own site and the one listed in the store may differ. Pruned permissions, tamper-protection requirements, and any adjustments made during review mean the store build is not guaranteed to be byte-for-byte identical to whatever you host yourself. If you need to update your self-hosted version, you manage that independently — the store listing is its own artifact.
