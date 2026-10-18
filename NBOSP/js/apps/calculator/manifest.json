@@ -2,7 +2,7 @@
   "id": "com.nbosp.calculator",
   "name": "Calculator",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Perform everyday calculations with NovaByte's built-in calculator.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

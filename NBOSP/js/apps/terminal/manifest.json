@@ -3,7 +3,7 @@
   "name": "Terminal",
   "version": "3.0.2",
   "description": "Run commands and interact with NovaByte OS through the terminal.",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "terminal",

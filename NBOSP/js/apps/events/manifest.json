@@ -2,7 +2,7 @@
   "id": "com.nbosp.events",
   "name": "Events",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Review a unified timeline of console output, permission activity, and package events.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

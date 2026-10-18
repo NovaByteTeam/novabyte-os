@@ -2,7 +2,7 @@
   "id": "com.nbosp.clock",
   "name": "Clock",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Keep time, set alarms, and use the timer and stopwatch.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

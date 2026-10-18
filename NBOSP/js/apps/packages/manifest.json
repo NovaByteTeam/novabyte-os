@@ -2,7 +2,7 @@
   "id": "com.nbosp.packages",
   "name": "Packages",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Sign and verify NovaByte app packages and their integrity metadata.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

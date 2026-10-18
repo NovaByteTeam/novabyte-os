@@ -3,7 +3,7 @@
   "name": "App Manager",
   "version": "3.0.2",
   "description": "Install and manage NovaByte apps, including .novaapp packages and web apps.",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "package",

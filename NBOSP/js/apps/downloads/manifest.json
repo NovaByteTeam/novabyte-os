@@ -2,7 +2,7 @@
   "id": "com.nbosp.downloads",
   "name": "Downloads",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "View and manage files downloaded through NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

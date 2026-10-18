@@ -2,7 +2,7 @@
   "id": "com.nbosp.devconsole",
   "name": "Console",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Run JavaScript directly in the NovaByte OS context for development and debugging.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

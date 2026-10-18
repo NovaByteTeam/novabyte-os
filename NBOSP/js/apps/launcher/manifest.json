@@ -3,7 +3,7 @@
   "name": "Launcher",
   "version": "3.0.2",
   "description": "The NovaByte desktop shell for accessing apps and the operating system.",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "home",

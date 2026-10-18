@@ -3,7 +3,7 @@
   "name": "Store",
   "version": "3.0.2",
   "description": "Browse, verify, and install apps for NovaByte OS.",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",
   "icon": "shop",

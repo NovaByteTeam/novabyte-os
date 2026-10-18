@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.server-events-bridge",
   "name": "Server Events Bridge",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Connects server-side events to the NovaByte OS event system.",
   "version": "3.0.2",
   "entry": "service.js",

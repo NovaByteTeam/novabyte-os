@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.default-apps",
   "name": "Default Apps Service",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Routes supported links and file types to their configured default apps.",
   "version": "3.0.2",
   "entry": "service.js",

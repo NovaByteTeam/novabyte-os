@@ -2,7 +2,7 @@
   "id": "com.nbosp.search",
   "name": "Search",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Search NovaByte OS for apps and available system content.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

@@ -2,7 +2,7 @@
   "id": "com.nbosp.perf",
   "name": "Perf Monitor",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Monitor live performance metrics, including frame rate, memory, DOM, tasks, and network activity.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

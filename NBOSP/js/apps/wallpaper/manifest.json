@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.wallpaper",
   "name": "Wallpaper Service",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Applies built-in and custom desktop wallpapers across the NovaByte shell.",
   "version": "3.0.2",
   "entry": "service.js",

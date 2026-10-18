@@ -1,7 +1,7 @@
 {
   "id": "com.nbosp.service.system-events",
   "name": "System Events Service",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Dispatches and coordinates system-wide lifecycle and application events.",
   "version": "3.0.2",
   "entry": "service.js",

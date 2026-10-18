@@ -2,7 +2,7 @@
   "id": "com.nbosp.inspector",
   "name": "Inspector",
   "version": "3.0.2",
-  "author": "NovaByteOfficial",
+  "author": "DirazCoder",
   "description": "Inspect registered apps and currently open windows in NovaByte OS.",
   "entry": "index.html",
   "unrestrictedEntry": "app.js",

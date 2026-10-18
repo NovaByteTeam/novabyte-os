@@ -709,12 +709,6 @@ class PublisherPortal {
           ],
         },
         {
-          heading: 'Security patch level',
-          items: [
-            'Apps declaring vfs:write, vfs:delete, device:geolocation, system:settings, net:internal, or admin:system — or that handle passwords, tokens, encryption keys, or personal data — must declare minSecurityPatch in their manifest. Submissions without it are rejected immediately.',
-          ],
-        },
-        {
           heading: 'Content & behaviour',
           items: [
             'No ads, trackers, or analytics of any kind. No third-party SDKs that phone home.',

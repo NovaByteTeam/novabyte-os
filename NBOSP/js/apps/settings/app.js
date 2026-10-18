@@ -2554,7 +2554,7 @@ registerApp({
       // Legal
       const { wrap: lgWrap, rows: lgRows } = mkSection('Legal \u0026 Licences', '\u2696\uFE0F');
       lgRows.appendChild(mkRow('Licence',   'Apache 2.0'));
-      lgRows.appendChild(mkRow('Copyright', '\u00A9 2026 NovaByteOfficial'));
+      lgRows.appendChild(mkRow('Copyright', '\u00A9 2026 DirazCoder'));
       body.appendChild(lgWrap);
 
       // Copy system info
