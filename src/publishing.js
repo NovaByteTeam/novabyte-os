@@ -964,6 +964,16 @@ class PublisherPortal {
         const submissionId = crypto.randomUUID();
         const packagePath = `${this.user.id}/${submissionId}.novaapp`;
         const packageForUpload = JSON.parse(JSON.stringify(packageData.pkg));
+        // Strip store-only data before upload — none of this belongs in the installable package.
+        // Screenshot image data: paths in manifest.screenshots cover the store listing.
+        for (const path of Object.keys(packageForUpload.files)) {
+          if (path.startsWith('screenshots/')) delete packageForUpload.files[path];
+        }
+        // Store metadata fields injected into the manifest during submission: the runtime
+        // doesn't use them and they shouldn't be in what the OS reads as the app manifest.
+        for (const field of ['screenshots', 'links', 'releaseNotes']) {
+          delete packageForUpload.manifest[field];
+        }
         const selectedScreenshots = [...(screenshots.input.files || [])];
         if (selectedScreenshots.some(file => !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type))) {
           throw new Error('Screenshots must be PNG, JPEG, WebP, or GIF images.');
