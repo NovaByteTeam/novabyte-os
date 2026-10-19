@@ -1210,4 +1210,196 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(createFile).not.toHaveBeenCalled();
     expect(responses[0].result.file.path).toBe('/Documents/notes.txt');
   });
+
+  it('blocks system-only Settings and Clock IPC before any handler side effect', async () => {
+    const responses = [];
+    const forbidden = [...AppSandbox._internal.GUEST_FORBIDDEN_IPC_APIS];
+    const grantPermission = vi.fn();
+    const saveItem = vi.fn();
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: () => true,
+      grantPermission,
+      revokePermission: vi.fn(),
+      resetPermission: vi.fn(),
+    });
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: saveItem, removeItem: vi.fn() });
+
+    try {
+      for (let i = 0; i < forbidden.length; i++) {
+        const api = forbidden[i];
+        expect(AppSandbox._internal.API_HANDLERS[api]).toBeUndefined();
+        await AppSandbox._internal.handleAPICall(
+          api,
+          { appId: 'com.victim.other-app', permission: 'system:root', granted: true, mode: 'factory-reset' },
+          'forbidden-' + i,
+          { id: 'third-party.malicious' },
+          { __directResponder: message => responses.push(message) },
+          {}
+        );
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses).toHaveLength(forbidden.length);
+    expect(responses.every(message => message.error?.code === 'PERMISSION_DENIED')).toBe(true);
+    expect(grantPermission).not.toHaveBeenCalled();
+    expect(saveItem).not.toHaveBeenCalled();
+  });
+
+  it('escapes script-breaking launch option values as literal unicode escapes', () => {
+    const options = {
+      note: '</script><script>window.pwned=true</script> & suffix',
+      separator: '\u2028 and \u2029',
+    };
+    const html = AppSandbox._internal.injectCapabilityShim(
+      '<!doctype html><html><body>entry</body></html>',
+      { id: 'com.example.options' },
+      options
+    );
+    const match = html.match(/window\.__NOVA_APP_OPTIONS__=([\s\S]*?);<\/script>/);
+    expect(match).not.toBeNull();
+    expect(match[1]).toContain('\\u003c/script\\u003e');
+    expect(match[1]).toContain('\\u0026');
+    expect(match[1]).toContain('\\u2028');
+    expect(match[1]).toContain('\\u2029');
+    expect(JSON.parse(match[1])).toEqual(options);
+    expect(html).not.toContain('</script><script>window.pwned=true');
+  });
+
+  it('injects transparent-root CSS even when entry HTML has no head element', () => {
+    const html = AppSandbox._internal.injectCapabilityShim(
+      '<main id="app">fragment entry</main>',
+      { id: 'com.example.transparent', transparent: true },
+      {}
+    );
+    expect(html).toContain('<style id="novaapp-transparent-root">html,body{background:transparent;}</style>');
+    expect(html.indexOf('novaapp-transparent-root')).toBeLessThan(html.indexOf('window.__NOVA_APP_OPTIONS__'));
+  });
+
+  it('emits syntactically valid XHR bridge code with callbacks, binary bodies, and CRLF headers', () => {
+    const shim = AppSandbox._internal.buildCapabilityShim(false);
+    const script = shim.slice(shim.indexOf('<script>') + 8, shim.lastIndexOf('</script>'));
+
+    expect(() => new Function(script)).not.toThrow();
+    expect(shim).toContain("const propertyHandler = xhr['on' + type]");
+    expect(shim).toContain('headerLines.join(\'\\r\\n\')');
+    expect(shim).toContain("responseType === 'arraybuffer'");
+    expect(shim).toContain('XHR request body exceeds the 6 MiB limit');
+    expect(shim).toContain("bodyEncoding: encodedBody.bodyEncoding");
+  });
+
+  it('classifies WebSocket URLs and requires net:internal for private destinations', async () => {
+    const classify = AppSandbox._internal.resolveAndClassifyWebSocketUrl;
+    expect(classify('wss://socket.example.com/events')).toMatchObject({ valid: true, isInternal: false });
+    expect(classify('ws://127.0.0.1:9000/events')).toMatchObject({ valid: true, isInternal: true });
+    expect(classify('ws://192.168.1.4:9000')).toMatchObject({ valid: true, isInternal: true });
+    expect(classify('ws://[::1]:9000')).toMatchObject({ valid: true, isInternal: true });
+    expect(classify('ws://router.local:9000')).toMatchObject({ valid: true, isInternal: true });
+    expect(classify('ws://printer:9000')).toMatchObject({ valid: true, isInternal: true });
+    expect(classify('wss://169.254.169.254/metadata')).toMatchObject({ valid: false });
+    expect(classify('https://socket.example.com')).toMatchObject({ valid: false });
+
+    const responses = [];
+    const WebSocketMock = vi.fn(function() {});
+    vi.stubGlobal('WebSocket', WebSocketMock);
+    vi.stubGlobal('AppPermissionManager', { isGranted: permission => permission === 'net:websocket' });
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:net:websocket',
+        { url: 'ws://127.0.0.1:9000/private' },
+        'internal-ws-denied',
+        { id: 'third-party.app' },
+        { __directResponder: message => responses.push(message) },
+        { wsConnections: new Map() }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(WebSocketMock).not.toHaveBeenCalled();
+    expect(responses[0].error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('cleans nested views, popups, and subscriptions using the captured sandbox record', () => {
+    const removeNestedCleanup = vi.fn();
+    const removeView = vi.fn();
+    const unsubscribeAppearance = vi.fn();
+    const discardPopup = vi.fn();
+    const record = {
+      nestedWebviews: new Map([['nested-1', { cleanups: [removeNestedCleanup], view: { remove: removeView } }]]),
+      appearanceSubscription: unsubscribeAppearance,
+      pendingNewWindows: new Map([['popup-1', { discard: discardPopup }]]),
+    };
+    const sandboxes = AppSandbox._internal._activeSandboxes;
+    sandboxes.set('record-cleanup-test', record);
+    sandboxes.delete('record-cleanup-test'); // destroy() deletes before running cleanup
+    AppSandbox._internal.cleanupSandboxRecord(record, []);
+
+    expect(removeNestedCleanup).toHaveBeenCalledOnce();
+    expect(removeView).toHaveBeenCalledOnce();
+    expect(unsubscribeAppearance).toHaveBeenCalledOnce();
+    expect(discardPopup).toHaveBeenCalledOnce();
+    expect(record.nestedWebviews.size).toBe(0);
+    expect(record.pendingNewWindows.size).toBe(0);
+  });
+
+  it('closes sandbox WebSockets after the registry entry has already been removed', () => {
+    const socket = { close: vi.fn() };
+    const record = { wsConnections: new Map([['ws-1', { ws: socket }]]) };
+    const listeners = new Map();
+    const webview = {
+      addEventListener: vi.fn((name, handler) => listeners.set(name, handler)),
+      removeEventListener: vi.fn(name => listeners.delete(name)),
+    };
+    const sandboxId = 'websocket-cleanup-test';
+    const teardown = AppSandbox._internal.setupAPIBridge(webview, { id: 'com.example.cleanup' }, sandboxId, record);
+    AppSandbox._internal._activeSandboxes.set(sandboxId, record);
+    AppSandbox._internal._activeSandboxes.delete(sandboxId);
+    teardown();
+
+    expect(socket.close).toHaveBeenCalledWith(1000, 'sandbox closed');
+    expect(record.wsConnections.size).toBe(0);
+    expect(listeners.size).toBe(0);
+  });
+
+  it('blocks relaunch cleanup while a sandbox still uses the shared app partition', async () => {
+    const appId = 'com.example.partition-active';
+    AppSandbox._internal._activeSandboxes.set('active-partition-user', { appId });
+    AppSandbox._internal.partitionCleanupRequired.add(appId);
+    try {
+      await expect(AppSandbox._internal.ensureExecutionPartitionClean(appId))
+        .rejects.toThrow(/close all existing windows before relaunching/);
+    } finally {
+      AppSandbox._internal._activeSandboxes.delete('active-partition-user');
+      AppSandbox._internal.partitionCleanupRequired.delete(appId);
+    }
+  });
+
+  it('does not report partition cleanup success if the partition cannot be cleared', async () => {
+    const listeners = new Map();
+    const webview = {
+      style: {},
+      setAttribute: vi.fn(),
+      addEventListener: vi.fn((name, handler) => listeners.set(name, handler)),
+      removeEventListener: vi.fn(name => listeners.delete(name)),
+      remove: vi.fn(),
+      clearData: vi.fn(),
+      set src(_value) { queueMicrotask(() => listeners.get('loadabort')?.({ reason: 'blocked' })); },
+    };
+    vi.stubGlobal('document', { createElement: () => webview, body: { appendChild: vi.fn() } });
+    vi.stubGlobal('window', { location: { origin: 'http://localhost' } });
+    vi.stubGlobal('fetch', vi.fn(async url => url === '/api/apps/serve/register'
+      ? { ok: true, json: async () => ({ baseUrl: '/api/apps/serve/cleanup-test' }) }
+      : { ok: true }));
+    try {
+      await expect(AppSandbox._internal.clearAppPartitionsByName('com.example.cleanup', ['app_com.example.cleanup']))
+        .rejects.toThrow(/navigation failed/);
+      expect(webview.clearData).not.toHaveBeenCalled();
+      expect(webview.remove).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/apps\/serve\/unregister\/sandbox_clr_com\.example\.cleanup_\d+$/), expect.objectContaining({ method: 'DELETE' }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
 });

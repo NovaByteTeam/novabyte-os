@@ -143,6 +143,19 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
       expect(APM.isGranted('vfs:read', 'app1')).toBe(false);
       expect(APM.isGranted('vfs:write', 'app1')).toBe(false);
     });
+
+    it('notifies AppSandbox when revokeAllPermissions removes same-origin access', async () => {
+      const APM = require('../../js/platform/security/app-permission-manager.js');
+      const handlePermissionRevoked = vi.fn();
+      vi.stubGlobal('AppSandbox', { handlePermissionRevoked });
+      try {
+        await APM.grantPermission('sandbox:same-origin', 'app1');
+        await APM.revokeAllPermissions('app1');
+        expect(handlePermissionRevoked).toHaveBeenCalledWith('sandbox:same-origin', 'app1');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   describe('getAppPermissions / getStats / getConsentLog', () => {
