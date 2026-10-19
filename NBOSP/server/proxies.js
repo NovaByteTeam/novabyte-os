@@ -387,7 +387,7 @@ const appProxyLimiter = rateLimit({
 
 function setupAppNetworkProxy(app) {
     app.post('/api/proxy', appProxyLimiter, requireSession, async (req, res) => {
-        const { url: rawUrl, method: rawMethod, headers: reqHeaders, body: reqBody } = req.body ?? {};
+        const { url: rawUrl, method: rawMethod, headers: reqHeaders, body: reqBody, bodyEncoding = 'utf8' } = req.body ?? {};
         debugLog('PROXY_REQUEST_IN', { rawUrl, rawMethod });
 
         // Validate URL
@@ -436,11 +436,23 @@ function setupAppNetworkProxy(app) {
             return res.status(400).json({ error: `Method not allowed: ${method}` });
         }
 
-        // Body must be a string (or absent) — fetch/undici can't serialize an
-        // arbitrary object, and letting one through just turns into a confusing
-        // 502 "Network error" later for what's actually a bad request now.
+        // JSON IPC carries request bodies as UTF-8 strings or explicitly
+        // base64-encoded bytes. Decode binary bodies only when the caller marks
+        // them as such; do not guess based on payload contents.
         if (reqBody !== undefined && reqBody !== null && typeof reqBody !== 'string') {
             return res.status(400).json({ error: 'body must be a string' });
+        }
+        let outgoingBody = reqBody ?? null;
+        if (bodyEncoding === 'base64') {
+            if (typeof reqBody !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(reqBody)) {
+                return res.status(400).json({ error: 'Invalid base64 request body' });
+            }
+            outgoingBody = Buffer.from(reqBody, 'base64');
+            if (outgoingBody.length > 6 * 1024 * 1024) {
+                return res.status(413).json({ error: 'Request body too large' });
+            }
+        } else if (bodyEncoding !== 'utf8') {
+            return res.status(400).json({ error: 'Unsupported request body encoding' });
         }
 
         // Strip hop-by-hop headers that must not be forwarded
@@ -505,7 +517,7 @@ function setupAppNetworkProxy(app) {
                 hopResp = await _pinnedFetch(currentUrl, {
                     method,
                     headers: outHeaders,
-                    body: (method === 'GET' || method === 'HEAD') ? undefined : (reqBody ?? null),
+                    body: (method === 'GET' || method === 'HEAD') ? undefined : outgoingBody,
                     redirect: 'manual',
                     signal: controller.signal,
                 }, dnsResult);
