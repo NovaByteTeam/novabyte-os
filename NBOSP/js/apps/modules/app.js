@@ -49,8 +49,10 @@ registerApp({
       { id: 'app-permission-manager', path: 'js/platform/security/app-permission-manager.js' },
       { id: 'system-events', path: 'js/apps/system-events/service.js' },
       { id: 'base-utils', path: 'js/core/utils/base-utils.js' },
-      { id: 'debug-overlay', path: 'js/core/utils/debug-overlay.js' },
+      { id: 'debug-overlay', path: 'js/apps/debug-overlay/service.js' },
     ];
+    const LEGACY_DEBUG_OVERLAY_PATH = 'js/core/utils/debug-overlay.js';
+    const DEBUG_OVERLAY_PATH = 'js/apps/debug-overlay/service.js';
 
     function loadJSON(key, fallback) {
       try {
@@ -73,6 +75,12 @@ registerApp({
 
     let modules = loadJSON(STORAGE_KEY, null);
     if (!Array.isArray(modules) || !modules.length) modules = DEFAULT_MODULES.slice();
+    let modulesPathMigrated = false;
+    modules = modules.map(module => {
+      if (module?.path !== LEGACY_DEBUG_OVERLAY_PATH) return module;
+      modulesPathMigrated = true;
+      return { ...module, path: DEBUG_OVERLAY_PATH };
+    });
 
     // Manual safe/unsafe overrides, keyed by path. Auto-detection (see
     // isDangerous below) is a heuristic and can be wrong in both
@@ -92,6 +100,21 @@ registerApp({
     function saveModules() { saveJSON(STORAGE_KEY, modules); }
     function saveSafety() { saveJSON(SAFETY_KEY, safety); }
     function saveHistory() { saveJSON(HISTORY_KEY, reloadHistory); }
+    function migratePathKey(record) {
+      if (!record || typeof record !== 'object' ||
+          !Object.prototype.hasOwnProperty.call(record, LEGACY_DEBUG_OVERLAY_PATH)) {
+        return false;
+      }
+      if (!Object.prototype.hasOwnProperty.call(record, DEBUG_OVERLAY_PATH)) {
+        record[DEBUG_OVERLAY_PATH] = record[LEGACY_DEBUG_OVERLAY_PATH];
+      }
+      delete record[LEGACY_DEBUG_OVERLAY_PATH];
+      return true;
+    }
+
+    if (modulesPathMigrated) saveModules();
+    if (migratePathKey(safety)) saveSafety();
+    if (migratePathKey(reloadHistory)) saveHistory();
 
     // Heuristic for "this module owns state other live code depends on
     // and reloading it can desync the UI" — e.g. wm.js's

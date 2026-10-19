@@ -529,5 +529,3 @@ const DebugOverlay = (() => {
 })();
 
 window.DebugOverlay = DebugOverlay;
-
-if (typeof module !== 'undefined' && module.exports) module.exports = DebugOverlay;

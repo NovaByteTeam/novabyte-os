@@ -219,6 +219,10 @@ app.get('/api/files/metadata', (req, res) => res.json({}));
 const _appServeRegistry = new Map();
 const _APP_SERVE_TTL = 30 * 60 * 1000; // 30 min
 
+function _normalizeAppServePath(filePath) {
+    return String(filePath).replace(/\\/g, '/').replace(/^(?:\.\/)+/, '');
+}
+
 function _pruneAppServeRegistry() {
     const cutoff = Date.now() - _APP_SERVE_TTL;
     for (const [k, v] of _appServeRegistry) {
@@ -250,8 +254,14 @@ app.post('/api/apps/serve/register', (req, res) => {
         return res.status(400).json({ error: 'Invalid sandboxId format' });
     }
     _pruneAppServeRegistry();
+    const normalizedFiles = new Map();
+    for (const [filePath, fileData] of Object.entries(files)) {
+        const normalizedPath = _normalizeAppServePath(filePath);
+        if (!normalizedFiles.has(normalizedPath)) normalizedFiles.set(normalizedPath, fileData);
+    }
     _appServeRegistry.set(sandboxId, {
         files,
+        normalizedFiles,
         allowExternalFrames: allowExternalFrames === true,
         created: Date.now()
     });
@@ -287,8 +297,12 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
     const raw = req.params.file;
     const filePath = Array.isArray(raw) ? raw.join('/') : (raw || 'index.html');
 
-    const fileData = entry.files[filePath];
-    if (!fileData) return res.status(404).end();
+    const hasExactPath = Object.prototype.hasOwnProperty.call(entry.files, filePath);
+    const normalizedPath = _normalizeAppServePath(filePath);
+    const hasNormalizedPath = entry.normalizedFiles.has(normalizedPath);
+    if (!hasExactPath && !hasNormalizedPath) return res.status(404).end();
+    const fileData = hasExactPath ? entry.files[filePath] : entry.normalizedFiles.get(normalizedPath);
+    if (!fileData && fileData !== '') return res.status(404).end();
 
     const ext = String(filePath).split('.').pop().toLowerCase();
 

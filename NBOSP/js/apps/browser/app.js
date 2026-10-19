@@ -1,13 +1,3 @@
-// Shared network activity log, read by Perf Monitor's Network tab.
-//
-// Defined during script evaluation, not inside init(), so the
-// log exists the moment this script evaluates regardless of which windows
-// are open. Perf Monitor could open before Browser, or Browser traffic
-// could fire before Perf Monitor ever opens, and neither app controls the
-// other's load order — synchronous script evaluation is the safe option.
-//
-// Guarded with `window.NetworkLog ||` so re-including this script doesn't
-// clobber entries already pushed.
 (function () {
   const BROWSER_APP_ID = 'com.nbosp.browser';
   const packageFiles = window.__novaUnrestrictedPackage?.files || {};
@@ -30,27 +20,6 @@
       return `src="data:image/png;base64,${encoded}"`;
     });
   }
-
-window.NetworkLog = window.NetworkLog || {
-  entries: [],
-  MAX_ENTRIES: 500, // ring buffer — a busy session could otherwise grow unbounded
-  _renderFn: null,  // set by Perf Monitor while its Network tab is visible
-
-  push(entry) {
-    this.entries.unshift(entry);
-    if (this.entries.length > this.MAX_ENTRIES) this.entries.length = this.MAX_ENTRIES;
-    this._renderFn?.();
-  },
-
-  getAll() {
-    return this.entries;
-  },
-
-  clear() {
-    this.entries.length = 0;
-    this._renderFn?.();
-  },
-};
 
 registerApp({
   id: BROWSER_APP_ID, name: 'Browser', icon: 'globe',

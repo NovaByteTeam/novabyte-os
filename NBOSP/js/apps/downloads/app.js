@@ -4,7 +4,7 @@ registerApp({
   description: 'Download Manager',
   defaultSize: [580, 460], minSize: [400, 300],
 
-  init(content, _state) {
+  init(content, state) {
     // ── NovaByte runtime guard ─────────────────────────────────────────────────
     if (!window.AppDirs?.getVFSDir('com.nbosp.downloads', 'files')) {
       content.style.cssText =
@@ -17,22 +17,8 @@ registerApp({
       return;
     }
 
-    const SK = 'nova_downloads';
-
-    // ── Storage helpers ────────────────────────────────────────────────────────
-    // FIX #2: validate parsed value is actually an Array.
-    function load() {
-      try {
-        const parsed = JSON.parse(localStorage.getItem(SK) ?? '[]');
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    }
-
-    // FIX #1: save now catches storage errors (quota exceeded / private mode).
-    function save(arr) {
-      try { lsSave(SK, arr); } catch { /* degrade silently */ }
+    if (typeof window.Downloads?.getAll !== 'function') {
+      throw new Error('Downloads History system service is unavailable');
     }
 
     // ── Formatters ─────────────────────────────────────────────────────────────
@@ -104,7 +90,7 @@ registerApp({
     root.appendChild(list);
 
     // ── Row builder ────────────────────────────────────────────────────────────
-    function buildRow(item, idx) {
+    function buildRow(item) {
       const row = createEl('div', {
         className: 'dl-row',
         style: 'display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border-subtle);transition:background 0.1s;',
@@ -146,9 +132,7 @@ registerApp({
         title: 'Remove',
       });
       delBtn.setAttribute('aria-label', `Remove ${String(item.name ?? 'download').slice(0, 200)}`);
-      // FIX #4 (partial): store idx as data attribute so the delegated handler
-      // re-validates it against a fresh load() before splicing.
-      delBtn.dataset.del = String(idx);
+      delBtn.dataset.del = String(item.id);
       delBtn.innerHTML = svgIcon('x', 14); // OS-controlled — safe
 
       row.append(ico, info, badge, delBtn);
@@ -177,30 +161,23 @@ registerApp({
 
     // ── Event delegation: delete ───────────────────────────────────────────────
     // FIX #10: single handler on the container instead of one closure per button.
-    // FIX #4:  idx is re-validated against a fresh load() before any splice.
     list.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-del]');
       if (!btn) return;
-      const idx = parseInt(btn.dataset.del, 10);
-      if (!Number.isFinite(idx) || idx < 0) return;
-      const arr = load();
-      if (idx >= arr.length) return; // stale-index guard
-      arr.splice(idx, 1);
-      save(arr);
-      render();
+      window.Downloads.remove(btn.dataset.del);
     });
 
     // ── Render ─────────────────────────────────────────────────────────────────
     // FIX #12 #15: replaceChildren(fragment) — single reflow instead of N appends.
     function render() {
-      const items = load(); // FIX: single load() call for the whole render pass
+      const items = window.Downloads.getAll();
       const frag  = document.createDocumentFragment();
 
       if (items.length === 0) {
         frag.appendChild(buildEmpty());
       } else {
-        for (let i = 0; i < items.length; i++) {
-          frag.appendChild(buildRow(items[i], i));
+        for (const item of items) {
+          frag.appendChild(buildRow(item));
         }
       }
 
@@ -209,14 +186,11 @@ registerApp({
 
     // ── Clear completed ────────────────────────────────────────────────────────
     clearBtn.addEventListener('click', () => {
-      save(load().filter((it) => it.status === 'downloading'));
-      render();
+      window.Downloads.clearCompleted();
     });
 
-    // ── Hook render into the global Downloads API for live updates ────────────
-    // FIX #11 (mitigated): guard against missing API; the strong ref is an
-    // intentional NovaByte contract and cannot be avoided without OS-level change.
-    if (window.Downloads) window.Downloads._renderFn = render;
+    state.cleanups = state.cleanups || [];
+    state.cleanups.push(window.Downloads.subscribe(render));
 
     render();
   },

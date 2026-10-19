@@ -27,90 +27,15 @@ registerApp({
       content.append(warn, msg);
       return;
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    // TRIGRAM INDEX
-    // Maps every 3-char lowercase substring → Set of items that contain it.
-    // Lookup is O(1) per trigram, intersection is O(hits) — not O(total items).
-    // Falls back gracefully to linear scan for queries shorter than 3 chars.
-    // ════════════════════════════════════════════════════════════════════════
-
-    /** @param {string} s @returns {string[]} */
-    function trigrams(s) {
-      const out = [];
-      for (let i = 0; i <= s.length - 3; i++) out.push(s.slice(i, i + 3));
-      return out;
-    }
-
-    /**
-     * Build a trigram index from an array of items.
-     * Stores only 3-grams for memory efficiency.
-     * @param {Array}    items
-     * @param {Function} keyFn  — returns the string(s) to index for each item
-     * @returns {Map<string, Set>}
-     */
-    function buildTrigramIndex(items, keyFn) {
-      const index = new Map();
-      for (const item of items) {
-        const keys = [].concat(keyFn(item));
-        for (const key of keys) {
-          const lk = (key || '').toLowerCase();
-          for (let i = 0; i <= lk.length - 3; i++) {
-            const gram = lk.slice(i, i + 3);
-            let bucket = index.get(gram);
-            if (!bucket) { bucket = new Set(); index.set(gram, bucket); }
-            bucket.add(item);
-          }
-        }
-      }
-      return index;
-    }
-
-    /**
-     * Linear scan fallback for queries shorter than 3 chars.
-     */
-    function linearSearch(items, lq, verifyFn) {
-      const out = [];
-      for (const item of items) {
-        if (verifyFn(item, lq)) out.push(item);
-      }
-      return out;
-    }
-
-    /**
-     * Query a trigram index.
-     * Uses the rarest trigram bucket as the starting candidate set,
-     * then verifies each candidate actually contains the full query.
-     * For queries shorter than 3 chars, falls back to linear scan.
-     * @param {Map}    index
-     * @param {string} lq     — already-lowercased query
-     * @param {Function} verifyFn — (item, lq) => boolean for full-string check
-     * @param {Array}  [allItems] — optional full item list for linear fallback
-     * @returns {Array}
-     */
-    function queryIndex(index, lq, verifyFn, allItems) {
-      if (!lq) return [];
-      if (lq.length < 3) return linearSearch(allItems || [], lq, verifyFn);
-      let best = null;
-      for (let i = 0; i <= lq.length - 3; i++) {
-        const gram = lq.slice(i, i + 3);
-        const bucket = index.get(gram);
-        if (!bucket) return [];
-        if (best === null || bucket.size < best.size) best = bucket;
-      }
-      if (!best) return [];
-      const out = [];
-      for (const item of best) {
-        if (verifyFn(item, lq)) out.push(item);
-      }
-      return out;
+    if (!window.SearchIndex || typeof window.Downloads?.getAll !== 'function') {
+      throw new Error('Search Index or Downloads History system service is unavailable');
     }
 
     // ════════════════════════════════════════════════════════════════════════
     // FILE INDEX — built once on init, updated on FS mutation events
     // ════════════════════════════════════════════════════════════════════════
 
-    let fileIndex = new Map();
+    let fileIndex = SearchIndex.build([], f => f.name || '');
     let fileItems = [];
     let filePathCache = new Map();
 
@@ -118,7 +43,7 @@ registerApp({
       try {
         if (!window.FS?.files) return;
         fileItems = [...FS.files.values()].filter(f => f.type === 'file');
-        fileIndex = buildTrigramIndex(fileItems, f => f.name || '');
+        fileIndex = SearchIndex.build(fileItems, f => f.name || '');
         filePathCache = new Map();
         for (const f of fileItems) {
           filePathCache.set(f.id, FS.getPath ? FS.getPath(f.id) : (f.name || ''));
@@ -142,9 +67,8 @@ registerApp({
 
     function searchFiles(lq) {
       if (!lq) return [];
-      return queryIndex(fileIndex, lq, (f, q) =>
+      return SearchIndex.search(fileIndex, lq, (f, q) =>
         (f.name || '').toLowerCase().includes(q),
-        fileItems
       );
     }
 
@@ -156,61 +80,48 @@ registerApp({
     const localCache = {
       contacts:      null,
       downloads:     null,
-      contactIndex:  new Map(),
-      downloadIndex: new Map(),
+      contactIndex:  SearchIndex.build([], c => [c.name || '', c.email || '', c.phone || '']),
+      downloadIndex: SearchIndex.build([], d => d.name || ''),
 
       _loadContacts() {
         try { this.contacts = JSON.parse(localStorage.getItem('nova_contacts') || '[]'); }
         catch { this.contacts = []; }
-        this.contactIndex = buildTrigramIndex(
+        this.contactIndex = SearchIndex.build(
           this.contacts,
           c => [c.name || '', c.email || '', c.phone || '']
         );
       },
 
       _loadDownloads() {
-        try { this.downloads = JSON.parse(localStorage.getItem('nova_downloads') || '[]'); }
-        catch { this.downloads = []; }
-        this.downloadIndex = buildTrigramIndex(this.downloads, d => d.name || '');
+        this.downloads = window.Downloads.getAll();
+        this.downloadIndex = SearchIndex.build(this.downloads, d => d.name || '');
       },
 
       searchContacts(lq) {
         if (this.contacts === null) this._loadContacts();
-        return queryIndex(this.contactIndex, lq, (c, q) =>
+        return SearchIndex.search(this.contactIndex, lq, (c, q) =>
           (c.name  || '').toLowerCase().includes(q) ||
           (c.email || '').toLowerCase().includes(q) ||
-          (c.phone || '').toLowerCase().includes(q),
-          this.contacts
+          (c.phone || '').toLowerCase().includes(q)
         );
       },
 
       searchDownloads(lq) {
         if (this.downloads === null) this._loadDownloads();
-        return queryIndex(this.downloadIndex, lq, (d, q) =>
-          (d.name || '').toLowerCase().includes(q),
-          this.downloads
+        return SearchIndex.search(this.downloadIndex, lq, (d, q) =>
+          (d.name || '').toLowerCase().includes(q)
         );
       },
 
-      invalidateContacts()  { this.contacts  = null; this.contactIndex  = new Map(); },
-      invalidateDownloads() { this.downloads = null; this.downloadIndex = new Map(); },
+      invalidateContacts()  { this.contacts  = null; this.contactIndex  = SearchIndex.build([], c => [c.name || '', c.email || '', c.phone || '']); },
+      invalidateDownloads() { this.downloads = null; this.downloadIndex = SearchIndex.build([], d => d.name || ''); },
     };
 
-    function patchLocalStorageInvalidation() {
-      const watched = ['nova_contacts', 'nova_downloads'];
-      const origSet = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = function(key, value) {
-        origSet(key, value);
-        if (key === 'nova_contacts')  localCache.invalidateContacts();
-        if (key === 'nova_downloads') localCache.invalidateDownloads();
-      };
-    }
-    patchLocalStorageInvalidation();
-
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'nova_contacts')  localCache.invalidateContacts();
-      if (e.key === 'nova_downloads') localCache.invalidateDownloads();
-    });
+    state.cleanups = state.cleanups || [];
+    state.cleanups.push(
+      SearchIndex.watchStorage(['nova_contacts'], () => localCache.invalidateContacts()),
+      window.Downloads.subscribe(() => localCache.invalidateDownloads())
+    );
 
     // ════════════════════════════════════════════════════════════════════════
     // WEB CACHE — DDG responses, 2-minute TTL

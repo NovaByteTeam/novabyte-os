@@ -11,10 +11,15 @@ const readWorkspaceFile = path => readFileSync(
 describe('built-in service boundaries', () => {
   it('lists each extracted service in both runtime manifests', () => {
     const serviceIds = [
+      'com.nbosp.service.app-loader-optimiser',
       'com.nbosp.service.wallpaper',
       'com.nbosp.service.lock-screen',
       'com.nbosp.service.tray',
       'com.nbosp.service.screenshots',
+      'com.nbosp.service.network-activity-log',
+      'com.nbosp.service.debug-overlay',
+      'com.nbosp.service.search-index',
+      'com.nbosp.service.downloads-history',
     ];
     const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
     const packageManifest = JSON.parse(readWorkspaceFile('../../js/apps/novaapp-manifest.json'));
@@ -23,12 +28,13 @@ describe('built-in service boundaries', () => {
     for (const id of serviceIds) {
       expect(runtimeServices).toContainEqual({ id, entry: 'service.js' });
       expect(runtimeServices.findIndex(service => service.id === id)).toBeLessThan(systemEventsIndex);
-      expect(packageManifest).toContainEqual({
+      expect(packageManifest).toContainEqual(expect.objectContaining({
         id,
         file: `js/apps/${id}.novaapp`,
         systemService: true,
-      });
+      }));
     }
+    expect(packageManifest.every(bundle => /^[a-f0-9]{64}$/.test(bundle.cacheKey || ''))).toBe(true);
   });
 
   it('applies preset and custom wallpapers through the wallpaper service', () => {
@@ -71,9 +77,14 @@ describe('built-in service boundaries', () => {
       addEventListener() {},
       removeEventListener() {},
     };
+    const storage = new Map();
     const context = {
       window,
       document,
+      localStorage: {
+        getItem: key => storage.get(key) ?? null,
+        setItem: (key, value) => storage.set(key, value),
+      },
       OS: {
         windows: new Map(),
         settings: { get: () => null },
@@ -98,10 +109,15 @@ describe('built-in service boundaries', () => {
       console,
     };
     const servicePaths = [
+      '../../js/apps/app-loader-optimiser/service.js',
       '../../js/apps/wallpaper/service.js',
       '../../js/apps/lock-screen/service.js',
       '../../js/apps/tray/service.js',
       '../../js/apps/screenshots/service.js',
+      '../../js/apps/network-activity-log/service.js',
+      '../../js/apps/debug-overlay/service.js',
+      '../../js/apps/search-index/service.js',
+      '../../js/apps/downloads-history/service.js',
       '../../js/apps/system-events/service.js',
     ];
 
@@ -113,6 +129,245 @@ describe('built-in service boundaries', () => {
     expect(window.LockScreenService).toBeDefined();
     expect(window.TrayService).toBeDefined();
     expect(window.ScreenshotService).toBeDefined();
+    expect(window.DebugOverlay).toBeDefined();
+    expect(window.NetworkLog).toBeDefined();
+    expect(window.SearchIndex).toBeDefined();
+    expect(window.Downloads).toBeDefined();
+    expect(window.AppLoaderOptimizer).toBeDefined();
+  });
+
+  it('keeps the network activity log bounded and observable outside the Browser app', () => {
+    const serviceSource = readWorkspaceFile('../../js/apps/network-activity-log/service.js');
+    const window = {};
+    runInNewContext(serviceSource, { window });
+
+    const rendered = [];
+    window.NetworkLog._renderFn = () => rendered.push(window.NetworkLog.entries.length);
+    for (let i = 0; i < 501; i++) {
+      window.NetworkLog.push({ url: `https://example.test/${i}` });
+    }
+
+    expect(window.NetworkLog.entries).toHaveLength(500);
+    expect(window.NetworkLog.getAll()[0].url).toBe('https://example.test/500');
+    expect(rendered).toHaveLength(501);
+    window.NetworkLog.clear();
+    expect(window.NetworkLog.getAll()).toHaveLength(0);
+    expect(rendered.at(-1)).toBe(0);
+  });
+
+  it('provides reusable trigram indexes with short-query fallback and storage watchers', () => {
+    const serviceSource = readWorkspaceFile('../../js/apps/search-index/service.js');
+    const values = new Map();
+    const storageListeners = new Map();
+    const window = {
+      addEventListener: (type, listener) => storageListeners.set(type, listener),
+    };
+    const localStorage = {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    runInNewContext(serviceSource, { window, localStorage, console });
+
+    const items = [
+      { name: 'NovaByte Search' },
+      { name: 'Search Index' },
+      { name: 'Calendar' },
+    ];
+    const index = window.SearchIndex.build(items, item => item.name);
+
+    expect(window.SearchIndex.search(index, 'SEARCH', (item, query) =>
+      item.name.toLowerCase().includes(query)
+    )).toEqual(items.slice(0, 2));
+    expect(window.SearchIndex.search(index, 'ca', (item, query) =>
+      item.name.toLowerCase().includes(query)
+    )).toEqual([items[2]]);
+
+    const observed = [];
+    const unsubscribe = window.SearchIndex.watchStorage(['nova_contacts'], key => observed.push(key));
+    localStorage.setItem('nova_contacts', '[]');
+    localStorage.setItem('other', 'value');
+    storageListeners.get('storage')({ key: 'nova_contacts' });
+    expect(observed).toEqual(['nova_contacts', 'nova_contacts']);
+    unsubscribe();
+    localStorage.setItem('nova_contacts', '[{}]');
+    expect(observed).toHaveLength(2);
+  });
+
+  it('owns download history mutations and notifies subscribers', () => {
+    const serviceSource = readWorkspaceFile('../../js/apps/downloads-history/service.js');
+    const values = new Map();
+    const storageListeners = new Map();
+    const window = {
+      addEventListener: (type, listener) => storageListeners.set(type, listener),
+    };
+    const localStorage = {
+      getItem: key => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    runInNewContext(serviceSource, {
+      window,
+      localStorage,
+      crypto: { randomUUID: (() => {
+        let id = 0;
+        return () => `id-${++id}`;
+      })() },
+      Uint8Array,
+      Date,
+      console,
+    });
+
+    const changes = [];
+    const unsubscribe = window.Downloads.subscribe((items, change) => changes.push([items, change]));
+    const done = window.Downloads.add('report.pdf', 'https://example.test/report.pdf', 42, 'application/pdf');
+    const active = window.Downloads.add('image.png', '', 0, 'image/png');
+    expect(window.Downloads.getAll().map(item => item.name)).toEqual(['image.png', 'report.pdf']);
+    expect(window.Downloads.setStatus(active.id, 'downloading', 5)).toBe(true);
+    expect(window.Downloads.remove(done.id)).toBe(true);
+    expect(window.Downloads.clearCompleted()).toBe(true);
+    expect(window.Downloads.getAll().map(item => item.id)).toEqual([active.id]);
+    expect(changes.map(([, change]) => change)).toEqual(['add', 'add', 'status', 'remove', 'clear-completed']);
+
+    storageListeners.get('storage')({ key: 'nova_downloads' });
+    expect(changes.at(-1)[1]).toBe('storage');
+    unsubscribe();
+    window.Downloads.add('later.txt', '', 1, 'text/plain');
+    expect(changes).toHaveLength(6);
+  });
+
+  it('prefetches package bundles concurrently, reuses requests, and releases cached packages', async () => {
+    const serviceSource = readWorkspaceFile('../../js/apps/app-loader-optimiser/service.js');
+    const requests = new Map();
+    const requestOptions = [];
+    let activeRequests = 0;
+    let maximumConcurrentRequests = 0;
+    const window = {};
+    const context = {
+      window,
+      fetch: async (file, options) => {
+        requests.set(file, (requests.get(file) || 0) + 1);
+        requestOptions.push(options);
+        activeRequests++;
+        maximumConcurrentRequests = Math.max(maximumConcurrentRequests, activeRequests);
+        await Promise.resolve();
+        activeRequests--;
+        return { ok: true, json: async () => ({ file }) };
+      },
+      Date,
+      Promise,
+      Map,
+      TypeError,
+      Error,
+    };
+    runInNewContext(serviceSource, context);
+
+    const bundles = [
+      { id: 'com.nbosp.shell-ui', file: 'shell.novaapp' },
+      { id: 'com.nbosp.service.app-loader-optimiser', file: 'optimizer.novaapp' },
+      { id: 'com.nbosp.app-a', file: 'app-a.novaapp' },
+      { id: 'com.nbosp.app-b', file: 'app-b.novaapp' },
+      { id: 'com.nbosp.service.a', file: 'service-a.novaapp' },
+    ];
+    const stats = await window.AppLoaderOptimizer.start(bundles);
+
+    expect(stats.packages).toBe(4);
+    expect(maximumConcurrentRequests).toBe(4);
+    expect(requestOptions).toHaveLength(4);
+    expect(requestOptions.every(options => options.cache === 'no-cache')).toBe(true);
+    await window.AppLoaderOptimizer.getPackage('app-a.novaapp');
+    expect(requests.get('app-a.novaapp')).toBe(1);
+    window.AppLoaderOptimizer.clear();
+    await window.AppLoaderOptimizer.getPackage('app-a.novaapp');
+    expect(requests.get('app-a.novaapp')).toBe(2);
+  });
+
+  it('restores persisted packages after a full process restart when the server is unavailable', async () => {
+    const serviceSource = readWorkspaceFile('../../js/apps/app-loader-optimiser/service.js');
+    const records = new Map();
+    let storeCreated = false;
+    const indexedDB = {
+      open() {
+        const request = {};
+        queueMicrotask(() => {
+          const db = {
+            objectStoreNames: { contains: () => storeCreated },
+            createObjectStore() { storeCreated = true; },
+            transaction() {
+              let transaction;
+              const store = {
+                get: key => {
+                  const result = {};
+                  queueMicrotask(() => {
+                    result.onsuccess?.({ target: { result: records.get(key) } });
+                  });
+                  return result;
+                },
+                put: value => {
+                  records.set(value.file, value);
+                  queueMicrotask(() => transaction.oncomplete?.());
+                },
+              };
+              transaction = {
+                objectStore: () => store,
+                oncomplete: null,
+                onerror: null,
+                onabort: null,
+              };
+              return transaction;
+            },
+          };
+          request.result = db;
+          if (!storeCreated) request.onupgradeneeded?.({ target: { result: db } });
+          request.onsuccess?.({ target: { result: db } });
+        });
+        return request;
+      },
+    };
+    const pkg = { manifest: { id: 'com.nbosp.app-a', version: '1.0.0' } };
+    const cacheKey = 'stable-content-fingerprint';
+    let firstFetches = 0;
+    const firstWindow = {};
+    runInNewContext(serviceSource, {
+      window: firstWindow,
+      indexedDB,
+      fetch: async () => {
+        firstFetches++;
+        return { ok: true, json: async () => pkg };
+      },
+    });
+    await firstWindow.AppLoaderOptimizer.getPackage('app-a.novaapp', cacheKey);
+    expect(firstFetches).toBe(1);
+    expect(records.get('app-a.novaapp').pkg).toEqual(pkg);
+
+    const restartedWindow = {};
+    runInNewContext(serviceSource, {
+      window: restartedWindow,
+      indexedDB,
+      fetch: async () => { throw new Error('server unavailable'); },
+    });
+    await expect(restartedWindow.AppLoaderOptimizer.getPackage('app-a.novaapp', cacheKey))
+      .resolves.toEqual(pkg);
+
+    const changedWindow = {};
+    let changedFetches = 0;
+    runInNewContext(serviceSource, {
+      window: changedWindow,
+      indexedDB,
+      fetch: async () => {
+        changedFetches++;
+        return { ok: true, json: async () => ({ manifest: { version: '2.0.0' } }) };
+      },
+    });
+    await changedWindow.AppLoaderOptimizer.getPackage('app-a.novaapp', 'new-content-fingerprint');
+    expect(changedFetches).toBe(1);
+
+    const missingWindow = {};
+    runInNewContext(serviceSource, {
+      window: missingWindow,
+      indexedDB,
+      fetch: async () => ({ ok: false, status: 404 }),
+    });
+    await expect(missingWindow.AppLoaderOptimizer.getPackage('app-a.novaapp', cacheKey))
+      .rejects.toMatchObject({ status: 404 });
   });
 
   it('uses the existing Scanner API for executable and active-content checks', async () => {

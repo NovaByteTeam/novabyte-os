@@ -632,14 +632,22 @@ async function startConfiguredHomeApp() {
 
       let pkg;
       try {
-        const response = await fetch(bundle.file, { cache: 'no-store' });
-        if (response.status === 404) {
+        if (typeof window.AppLoaderOptimizer?.getPackage === 'function') {
+          pkg = await window.AppLoaderOptimizer.getPackage(bundle.file, bundle.cacheKey);
+        } else {
+          const response = await fetch(bundle.file, { cache: 'no-cache' });
+          if (response.status === 404) {
+            await removeBundledSystem(bundle.id, 'source file missing');
+            continue;
+          }
+          if (!response.ok) throw new Error(`package ${response.status}`);
+          pkg = await response.json();
+        }
+      } catch (e) {
+        if (e?.status === 404) {
           await removeBundledSystem(bundle.id, 'source file missing');
           continue;
         }
-        if (!response.ok) throw new Error(`package ${response.status}`);
-        pkg = await response.json();
-      } catch (e) {
         console.warn('[BOOT] Failed to read bundled NovaApp', bundle.id, e);
         continue;
       }
@@ -673,6 +681,7 @@ async function startConfiguredHomeApp() {
       }
     }
 
+    window.AppLoaderOptimizer?.clear?.();
   }
 
   function registerWithFiles(appData) {

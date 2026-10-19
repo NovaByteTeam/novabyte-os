@@ -85,7 +85,7 @@ The `NBOSP/` folder in this repo is the **free, open base of NovaByte**.
 
 #### Hidden apps and system services
 
-In **App Manager**, user-facing built-in apps remain visible by default. The **Show hidden apps** toggle also reveals the eight developer tools, the built-in Launcher, fourteen headless system services, and the Shell UI package. Developer Mode must be enabled in Settings to use the developer tools; trying to open one while it is off explains how to enable it. The Launcher, Shell UI package, and services are OS-managed and cannot be opened from App Manager. Services also cannot be disabled or uninstalled individually.
+In **App Manager**, user-facing built-in apps remain visible by default. The **Show hidden apps** toggle also reveals the eight developer tools, the built-in Launcher, twenty headless system services, and the Shell UI package. Developer Mode must be enabled in Settings to use the developer tools; trying to open one while it is off explains how to enable it. The Launcher, Shell UI package, and services are OS-managed and cannot be opened from App Manager. Services also cannot be disabled or uninstalled individually.
 
 |App|What it actually does|
 |:--|:--------------------|
@@ -196,8 +196,7 @@ novabyte-os/
 │  │  │  │  ├── system-service-loader.js # Loads trusted system packages before OS boot
 │  │  │  │  └── workers.js     # Multi-threaded worker management
 │  │  │  └── utils/            # Shared utilities
-│  │  │    ├── base-utils.js   # Base utility functions
-│  │  │    └── debug-overlay.js # Runtime diagnostics overlay
+│  │  │    └── base-utils.js   # Base utility functions
 │  │  ├── platform/            # Platform framework modules (nested by concern)
 │  │  │  ├── security/         # Security modules
 │  │  │  │  ├── frame-security.js        # NW.js frame security validation

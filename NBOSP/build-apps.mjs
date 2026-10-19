@@ -299,6 +299,38 @@ function computePackageIntegrity(pkg) {
   return { method: 'sha512', payloadHash, fileHashes };
 }
 
+function computePackageCacheKey(pkg) {
+  return createHash('sha256')
+    .update(JSON.stringify({ manifest: pkg.manifest, files: pkg.files }))
+    .digest('hex');
+}
+
+async function updatePackageCacheKeys(builtPackages) {
+  const manifestPath = path.join(appsDir, 'novaapp-manifest.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw new Error(`Cannot update NovaApp cache keys in ${manifestPath}: ${error.message}`);
+  }
+  if (!Array.isArray(manifest)) {
+    throw new Error(`Cannot update NovaApp cache keys: ${manifestPath} must contain an array`);
+  }
+
+  let changed = false;
+  for (const bundle of manifest) {
+    const cacheKey = builtPackages.get(bundle?.id);
+    if (cacheKey && bundle.cacheKey !== cacheKey) {
+      bundle.cacheKey = cacheKey;
+      changed = true;
+    }
+  }
+  if (changed) {
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  }
+}
+
 /**
  * Builds one application package in memory.
  */
@@ -392,7 +424,7 @@ async function buildOne(
       `- skip ${appDirName}: no manifest.json, not an app dir`
     );
 
-    return;
+    return null;
   }
 
   const pkg = await packageApp(
@@ -414,6 +446,7 @@ async function buildOne(
     privateKey
   );
   pkg.integrity = computePackageIntegrity(pkg);
+  const cacheKey = computePackageCacheKey(pkg);
 
   const outPath = path.join(
     appsDir,
@@ -436,6 +469,7 @@ async function buildOne(
       fileCount === 1 ? '' : 's'
     }, signed as ${pkg.signing.signer}, source untouched)`
   );
+  return { id: appId, cacheKey };
 }
 
 async function main() {
@@ -495,12 +529,15 @@ async function main() {
   const privateKey =
     await loadSigningKey();
 
+  const builtPackages = new Map();
   for (const dirName of dirs) {
-    await buildOne(
+    const built = await buildOne(
       dirName,
       privateKey
     );
+    if (built) builtPackages.set(built.id, built.cacheKey);
   }
+  await updatePackageCacheKeys(builtPackages);
 }
 
 main().catch((err) => {

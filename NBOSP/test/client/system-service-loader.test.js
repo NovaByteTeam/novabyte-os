@@ -15,12 +15,64 @@ function response(data) {
   };
 }
 
+function createPersistentPackageCache() {
+  const records = new Map();
+  let storeCreated = false;
+  return {
+    records,
+    indexedDB: {
+      open() {
+        const request = {};
+        queueMicrotask(() => {
+          const db = {
+            objectStoreNames: { contains: () => storeCreated },
+            createObjectStore() { storeCreated = true; },
+            transaction() {
+              let transaction;
+              const store = {
+                get: key => {
+                  const result = {};
+                  queueMicrotask(() => result.onsuccess?.({
+                    target: { result: records.get(key) },
+                  }));
+                  return result;
+                },
+                put: value => {
+                  records.set(value.file, value);
+                  const result = {};
+                  queueMicrotask(() => {
+                    result.onsuccess?.({ target: { result: undefined } });
+                    transaction.oncomplete?.();
+                  });
+                  return result;
+                },
+              };
+              transaction = {
+                objectStore: () => store,
+                oncomplete: null,
+                onerror: null,
+                onabort: null,
+              };
+              return transaction;
+            },
+          };
+          request.result = db;
+          if (!storeCreated) request.onupgradeneeded?.({ target: { result: db } });
+          request.onsuccess?.({ target: { result: db } });
+        });
+        return request;
+      },
+    },
+  };
+}
+
 function createLoaderContext({
   trusted = true,
   integrityValid = true,
   missingPackage = null,
   services: configuredServices,
   firstServiceScripts = ['service.js'],
+  indexedDB,
 } = {}) {
   const services = [
     {
@@ -39,6 +91,7 @@ function createLoaderContext({
     id,
     file: `js/apps/${id}.novaapp`,
     systemService: true,
+    cacheKey: `fingerprint-${id}`,
   }));
   const packages = new Map(services.map(({ id, entry, scripts }, index) => [
     `js/apps/${id}.novaapp`,
@@ -65,6 +118,7 @@ function createLoaderContext({
   const context = {
     atob,
     TextDecoder,
+    ...(indexedDB ? { indexedDB } : {}),
     started,
     boot,
     addEventListener: vi.fn((type, listener) => eventListeners.set(type, listener)),
@@ -79,13 +133,10 @@ function createLoaderContext({
       if (packages.has(url)) return response(packages.get(url));
       return { ok: false, status: 404 };
     }),
-    AppPackage: {
-      verifyIntegrity: vi.fn(async () => integrityValid),
-    },
     UnrestrictedGate: {
       checkUnrestrictedApp: vi.fn(async () => ({
-        allowed: trusted,
-        reason: 'test denial',
+        allowed: trusted && integrityValid,
+        reason: integrityValid ? 'test denial' : 'package integrity check failed',
       })),
     },
     localStorage: { setItem: vi.fn() },
@@ -119,6 +170,36 @@ function createLoaderContext({
 }
 
 describe('SystemServiceLoader', () => {
+  it('loads the optimizer itself from persistent storage after a process restart', async () => {
+    const optimizerId = 'com.nbosp.service.app-loader-optimiser';
+    const services = [{ id: optimizerId, entry: 'service.js' }];
+    const cache = createPersistentPackageCache();
+    const first = createLoaderContext({ services, indexedDB: cache.indexedDB });
+    const optimizerPackage = first.packages.get(`js/apps/${optimizerId}.novaapp`);
+    optimizerPackage.files['service.js'] = btoa(
+      'window.started.push("optimizer"); ' +
+      'window.AppLoaderOptimizer = { start: () => Promise.resolve({}) };'
+    );
+    runInNewContext(loaderSource, first.context);
+    await first.context.SystemServiceLoader.load();
+    expect(first.context.fetch.mock.calls.filter(([url]) =>
+      url === `js/apps/${optimizerId}.novaapp`
+    )).toHaveLength(1);
+
+    const restarted = createLoaderContext({ services, indexedDB: cache.indexedDB });
+    restarted.packages.get(`js/apps/${optimizerId}.novaapp`).files['service.js'] =
+      optimizerPackage.files['service.js'];
+    runInNewContext(loaderSource, restarted.context);
+    await restarted.context.SystemServiceLoader.load();
+
+    expect(restarted.context.fetch.mock.calls.filter(([url]) =>
+      url === `js/apps/${optimizerId}.novaapp`
+    )).toHaveLength(0);
+    expect(restarted.started).toEqual(['optimizer']);
+    expect(cache.records.get(`js/apps/${optimizerId}.novaapp`).cacheKey)
+      .toBe(`fingerprint-${optimizerId}`);
+  });
+
   it('verifies and starts trusted services sequentially in manifest order', async () => {
     const { context, statusElements, started, boot } = createLoaderContext();
     runInNewContext(loaderSource, context);
@@ -136,6 +217,33 @@ describe('SystemServiceLoader', () => {
       system: true,
       headlessSystemService: true,
     });
+  });
+
+  it('starts the App Loader Optimiser before loading later service packages', async () => {
+    const optimizerId = 'com.nbosp.service.app-loader-optimiser';
+    const services = [
+      { id: optimizerId, entry: 'service.js' },
+      { id: 'com.example.next', entry: 'service.js' },
+    ];
+    const { context, packages, started } = createLoaderContext({ services });
+    const optimizerPackage = packages.get(`js/apps/${optimizerId}.novaapp`);
+    optimizerPackage.files['service.js'] = btoa(
+      'window.started.push("optimizer"); ' +
+      'window.AppLoaderOptimizer = {' +
+      ' getPackage: async file => window.optimizerPackages.get(file),' +
+      ' start: bundles => { window.prefetchedBundles = bundles; return Promise.resolve({ packages: bundles.length }); }' +
+      '};'
+    );
+    context.optimizerPackages = new Map([
+      [`js/apps/com.example.next.novaapp`, packages.get('js/apps/com.example.next.novaapp')],
+    ]);
+    runInNewContext(loaderSource, context);
+
+    await context.SystemServiceLoader.load();
+
+    expect(started).toEqual(['optimizer', 2]);
+    expect(context.prefetchedBundles).toHaveLength(2);
+    expect(context.SystemServiceLoader.listLoadedServices()).toHaveLength(2);
   });
 
   it('continues startup when an individual service package is missing', async () => {

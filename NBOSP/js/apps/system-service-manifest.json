@@ -1,5 +1,9 @@
 [
   {
+    "id": "com.nbosp.service.app-loader-optimiser",
+    "entry": "service.js"
+  },
+  {
     "id": "com.nbosp.shell-ui",
     "entry": "wm.js",
     "scripts": ["wm.js", "menu.js", "modals.js", "desktop.js"],
@@ -7,6 +11,18 @@
   },
   {
     "id": "com.nbosp.service.event-log",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.downloads-history",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.search-index",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.network-activity-log",
     "entry": "service.js"
   },
   {
@@ -59,6 +75,10 @@
   },
   {
     "id": "com.nbosp.service.lock-screen",
+    "entry": "service.js"
+  },
+  {
+    "id": "com.nbosp.service.debug-overlay",
     "entry": "service.js"
   },
   {

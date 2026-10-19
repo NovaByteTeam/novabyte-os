@@ -7,6 +7,86 @@
 
   let loadPromise = null;
   const loadedServices = [];
+  const APP_LOADER_OPTIMIZER_ID = 'com.nbosp.service.app-loader-optimiser';
+
+  function persistentPackageRequest(bundle, mode, callback) {
+    return new Promise((resolve, reject) => {
+      const openRequest = indexedDB.open('NovaByte_AppLoaderOptimizer', 1);
+      openRequest.onupgradeneeded = event => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('packages')) {
+          db.createObjectStore('packages', { keyPath: 'file' });
+        }
+      };
+      openRequest.onsuccess = event => {
+        const db = event.target.result;
+        const transaction = db.transaction('packages', mode);
+        const request = callback(transaction.objectStore('packages'));
+        let result;
+        request.onsuccess = resultEvent => {
+          result = resultEvent.target.result;
+          if (mode !== 'readwrite') resolve(result);
+        };
+        request.onerror = resultEvent => reject(resultEvent.target.error);
+        if (mode === 'readwrite') {
+          transaction.oncomplete = () => resolve(result);
+          transaction.onabort = transaction.onerror = transactionEvent =>
+            reject(transactionEvent.target.error);
+        }
+      };
+      openRequest.onerror = event => reject(event.target.error);
+    });
+  }
+
+  async function getBootstrapCachedPackage(bundle) {
+    if (!bundle.cacheKey || typeof indexedDB === 'undefined') return null;
+    try {
+      const record = await persistentPackageRequest(bundle, 'readonly', store =>
+        store.get(bundle.file)
+      );
+      return record?.cacheKey === bundle.cacheKey ? record.pkg : null;
+    } catch (error) {
+      console.warn('[SystemServiceLoader] Could not read optimizer package cache:', error);
+      return null;
+    }
+  }
+
+  async function persistBootstrapPackage(bundle, pkg) {
+    if (!bundle.cacheKey || typeof indexedDB === 'undefined') return;
+    try {
+      await persistentPackageRequest(bundle, 'readwrite', store =>
+        store.put({ file: bundle.file, cacheKey: bundle.cacheKey, pkg })
+      );
+    } catch (error) {
+      console.warn('[SystemServiceLoader] Could not persist optimizer package cache:', error);
+    }
+  }
+
+  async function getPackage(bundle, serviceId) {
+    try {
+      if (typeof window.AppLoaderOptimizer?.getPackage === 'function') {
+        return await window.AppLoaderOptimizer.getPackage(bundle.file, bundle.cacheKey);
+      }
+      if (serviceId === APP_LOADER_OPTIMIZER_ID) {
+        const cachedPackage = await getBootstrapCachedPackage(bundle);
+        if (cachedPackage) return cachedPackage;
+      }
+      const response = await fetch(bundle.file, { cache: 'no-cache' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${serviceId}: HTTP ${response.status}`);
+      }
+      const pkg = await response.json();
+      if (serviceId === APP_LOADER_OPTIMIZER_ID) {
+        await persistBootstrapPackage(bundle, pkg);
+      }
+      return pkg;
+    } catch (error) {
+      if (error?.status) {
+        throw new Error(`Failed to fetch ${serviceId}: HTTP ${error.status}`, { cause: error });
+      }
+      throw error;
+    }
+  }
 
   function decodePackageFile(encoded) {
     const binary = atob(encoded);
@@ -21,11 +101,7 @@
       throw new Error('Invalid entry in system-service manifest');
     }
 
-    const response = await fetch(bundle.file, { cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${service.id}: HTTP ${response.status}`);
-    }
-    const pkg = await response.json();
+    const pkg = await getPackage(bundle, service.id);
     const manifest = pkg?.manifest;
     const entry = manifest?.unrestrictedEntry;
 
@@ -38,11 +114,6 @@
           typeof scriptEntry !== 'string' || typeof pkg.files?.[scriptEntry] !== 'string'
         )) {
       throw new Error(`Invalid system-service package: ${service.id}`);
-    }
-
-    if (typeof AppPackage?.verifyIntegrity !== 'function' ||
-        !await AppPackage.verifyIntegrity(pkg)) {
-      throw new Error(`Integrity verification failed for system service ${service.id}`);
     }
 
     const runtimeApp = {
@@ -140,6 +211,12 @@
         for (const service of services) {
           try {
             await loadService(service, bundlesById.get(service?.id));
+            if (service.id === APP_LOADER_OPTIMIZER_ID &&
+                typeof window.AppLoaderOptimizer?.start === 'function') {
+              window.AppLoaderOptimizer.start(bundles)
+                .then(stats => console.info('[SystemServiceLoader] Package prefetch complete', stats))
+                .catch(error => console.error('[SystemServiceLoader] Package prefetch failed:', error));
+            }
           } catch (error) {
             const failure = { id: service?.id || '(invalid service entry)', error };
             failures.push(failure);

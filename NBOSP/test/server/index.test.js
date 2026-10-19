@@ -41,9 +41,13 @@ vi.mock('../../server/core/ssl.js', () => ({
   configureSSL: vi.fn(() => ({ server: mockServer })),
 }));
 
-vi.mock('../../server/middleware.js', () => ({
-  setupMiddleware: vi.fn(),
-}));
+vi.mock('../../server/middleware.js', async () => {
+  const expressModule = await vi.importActual('express');
+  const express = expressModule.default || expressModule;
+  return {
+    setupMiddleware: vi.fn(app => app.use(express.json())),
+  };
+});
 
 vi.mock('../../server/routes.js', () => ({
   mountRoutes: vi.fn(),
@@ -69,6 +73,36 @@ describe('server/core/index.js — server bootstrap', () => {
     expect(mod).toBeDefined();
     expect(typeof mod.app).toBe('function');
     expect(mod.server).toBeDefined();
+  });
+
+  it('serves third-party package files whose stored paths use relative or Windows separators', async () => {
+    const { app } = await import('../../server/core/index.js');
+    const request = (await import('supertest')).default;
+    const sandboxId = 'sandbox_local.vaultcraft.app_1440c7ca-a2fd-44f8-8b0c-eaa319937f03';
+    const script = 'window.passwordStrength = true;';
+
+    await request(app)
+      .post('/api/apps/serve/register')
+      .send({
+        sandboxId,
+        files: {
+          './password-strength.js': btoa(script),
+          'scripts\\helper.js': btoa('window.helper = true;'),
+        },
+      })
+      .expect(200);
+
+    const scriptResponse = await request(app)
+      .get(`/api/apps/serve/${sandboxId}/password-strength.js`)
+      .expect(200);
+    expect(scriptResponse.headers['content-type']).toMatch(/^application\/javascript/);
+    expect(scriptResponse.text).toBe(script);
+
+    const nestedScriptResponse = await request(app)
+      .get(`/api/apps/serve/${sandboxId}/scripts/helper.js`)
+      .expect(200);
+    expect(nestedScriptResponse.headers['content-type']).toMatch(/^application\/javascript/);
+    expect(nestedScriptResponse.text).toBe('window.helper = true;');
   });
 
   it('mocks are correctly wired for ssl, middleware, routes, and favicons', async () => {

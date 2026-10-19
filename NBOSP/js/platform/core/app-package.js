@@ -280,6 +280,19 @@ const AppPackage = (() => {
     };
   }
 
+  async function mapWithConcurrency(items, mapper, concurrency = 4) {
+    const results = new Array(items.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(items.length, concurrency);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        results[index] = await mapper(items[index]);
+      }
+    }));
+    return results;
+  }
+
   async function computeIntegrity(pkg, method = DEFAULT_INTEGRITY_METHOD) {
     const m = method || DEFAULT_INTEGRITY_METHOD;
     const hasher = _getHasher(m);
@@ -288,15 +301,14 @@ const AppPackage = (() => {
     const payload = new TextEncoder().encode(_signingPayload(pkg));
     const payloadHash = await hasher.hash(payload);
 
-    const fileHashes = {};
-    for (const [relPath, encoded] of Object.entries(pkg.files || {})) {
+    const fileEntries = await mapWithConcurrency(Object.entries(pkg.files || {}), async ([relPath, encoded]) => {
       const binary = atob(encoded);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      fileHashes[relPath] = await hasher.hash(bytes);
-    }
+      return [relPath, await hasher.hash(bytes)];
+    });
 
-    return { method: m, payloadHash, fileHashes };
+    return { method: m, payloadHash, fileHashes: Object.fromEntries(fileEntries) };
   }
 
   async function verifyIntegrity(pkg) {
@@ -311,16 +323,17 @@ const AppPackage = (() => {
     const currentPayloadHash = await hasher.hash(payload);
     if (currentPayloadHash !== payloadHash) return false;
 
-    for (const [relPath, expectedHash] of Object.entries(fileHashes || {})) {
+    const entries = Object.entries(fileHashes || {});
+    if (entries.some(([relPath]) => !pkg.files?.[relPath])) return false;
+
+    const checks = await mapWithConcurrency(entries, async ([relPath, expectedHash]) => {
       const encoded = pkg.files?.[relPath];
-      if (!encoded) return false;
       const binary = atob(encoded);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const currentFileHash = await hasher.hash(bytes);
-      if (currentFileHash !== expectedHash) return false;
-    }
-    return true;
+      return (await hasher.hash(bytes)) === expectedHash;
+    });
+    return checks.every(Boolean);
   }
 
   // ─── Signing & verification ─────────────────────────────────────────────────
