@@ -897,46 +897,46 @@ class PublisherPortal {
 
     const fields = {};
     if (!update) {
-      fields.name = makeField(‘App name’, { id: ‘listing-name’, value: ‘’, placeholder: ‘My NovaByte app’, maxLength: 80 });
-      fields.appId = makeField(‘Unique app ID’, { id: ‘listing-id’, value: ‘’, placeholder: ‘com.example.myapp’, maxLength: 120 });
-      fields.author = makeField(‘Publisher / developer’, { id: ‘listing-author’, value: ‘’, placeholder: ‘Your publisher name’, maxLength: 80 });
-      fields.version = makeField(‘Version’, { id: ‘listing-version’, value: ‘’, placeholder: ‘1.0.0’, maxLength: 40 });
-      fields.description = makeField(‘Description’, { id: ‘listing-description’, type: ‘textarea’, value: ‘’, placeholder: ‘What does the app do?’, maxLength: 1000 });
-      fields.categories = makeField(‘Categories (comma-separated)’, { id: ‘listing-categories’, value: ‘’, placeholder: ‘utilities, productivity’, maxLength: 160 });
-      fields.website = makeField(‘Website URL’, { id: ‘listing-website’, value: ‘’, required: false, placeholder: ‘https://example.com’, maxLength: 500 });
-      fields.source = makeField(‘Source code URL’, { id: ‘listing-source’, value: ‘’, required: false, placeholder: ‘https://github.com/…’, maxLength: 500 });
-      fields.support = makeField(‘Support URL’, { id: ‘listing-support’, value: ‘’, required: false, placeholder: ‘https://example.com/support’, maxLength: 500 });
+      fields.name = makeField('App name', { id: 'listing-name', value: '', placeholder: 'My NovaByte app', maxLength: 80 });
+      fields.appId = makeField('Unique app ID', { id: 'listing-id', value: '', placeholder: 'com.example.myapp', maxLength: 120 });
+      fields.author = makeField('Publisher / developer', { id: 'listing-author', value: '', placeholder: 'Your publisher name', maxLength: 80 });
+      fields.version = makeField('Version', { id: 'listing-version', value: '', placeholder: '1.0.0', maxLength: 40 });
+      fields.description = makeField('Description', { id: 'listing-description', type: 'textarea', value: '', placeholder: 'What does the app do?', maxLength: 1000 });
+      fields.categories = makeField('Categories (comma-separated)', { id: 'listing-categories', value: '', placeholder: 'utilities, productivity', maxLength: 160 });
+      fields.website = makeField('Website URL', { id: 'listing-website', value: '', required: false, placeholder: 'https://example.com', maxLength: 500 });
+      fields.source = makeField('Source code URL', { id: 'listing-source', value: '', required: false, placeholder: 'https://github.com/…', maxLength: 500 });
+      fields.support = makeField('Support URL', { id: 'listing-support', value: '', required: false, placeholder: 'https://example.com/support', maxLength: 500 });
       form.append(fields.name.label, fields.appId.label, fields.author.label, fields.version.label,
         fields.description.label, fields.categories.label, fields.website.label, fields.source.label, fields.support.label);
-      fields.changelog = makeField(‘Release notes / changelog’, { id: ‘listing-changelog’, type: ‘textarea’, placeholder: ‘Describe the first release.’, maxLength: 4000 });
+      fields.changelog = makeField('Release notes / changelog', { id: 'listing-changelog', type: 'textarea', placeholder: 'Describe the first release.', maxLength: 4000 });
       form.appendChild(fields.changelog.label);
     } else {
-      fields.version = makeField(‘New version’, { id: ‘update-version’, value: ‘’, placeholder: ‘Read from .novaapp package’, maxLength: 40 });
+      fields.version = makeField('New version', { id: 'update-version', value: '', placeholder: 'Read from .novaapp package', maxLength: 40 });
 
       // Optional description override — pre-filled with current so publisher can edit or leave as-is
-      const descOverrideWrap = makeElement(‘div’, ‘publisher-optional-field-wrap’);
-      const descToggle = makeElement(‘button’, ‘publisher-inline-action publisher-optional-toggle’, ‘＋ Update app description (optional)’);
-      descToggle.type = ‘button’;
-      fields.description = makeField(‘Updated description’, {
-        id: ‘update-description’,
-        type: ‘textarea’,
+      const descOverrideWrap = makeElement('div', 'publisher-optional-field-wrap');
+      const descToggle = makeElement('button', 'publisher-inline-action publisher-optional-toggle', '＋ Update app description (optional)');
+      descToggle.type = 'button';
+      fields.description = makeField('Updated description', {
+        id: 'update-description',
+        type: 'textarea',
         required: false,
-        value: app.description || ‘’,
-        placeholder: ‘Leave blank to keep the current description.’,
+        value: app.description || '',
+        placeholder: 'Leave blank to keep the current description.',
         maxLength: 1000,
       });
       const descLabel = fields.description.label;
-      descLabel.classList.add(‘hidden’);
-      descToggle.addEventListener(‘click’, () => {
-        const hidden = descLabel.classList.toggle(‘hidden’);
+      descLabel.classList.add('hidden');
+      descToggle.addEventListener('click', () => {
+        const hidden = descLabel.classList.toggle('hidden');
         descToggle.textContent = hidden
-          ? ‘＋ Update app description (optional)’
-          : ‘− Hide description field’;
+          ? '＋ Update app description (optional)'
+          : '− Hide description field';
         if (!hidden) fields.description.input.focus();
       });
       descOverrideWrap.append(descToggle, descLabel);
 
-      fields.changelog = makeField(‘What\’s new in this version?’, { id: ‘update-changelog’, type: ‘textarea’, placeholder: ‘Describe the changes in this release.’, maxLength: 4000 });
+      fields.changelog = makeField('What\'s new in this version?', { id: 'update-changelog', type: 'textarea', placeholder: 'Describe the changes in this release.', maxLength: 4000 });
       form.append(fields.version.label, descOverrideWrap, fields.changelog.label);
     }
 
@@ -1168,7 +1168,7 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Review Apps', 'Inspect each submitted package, download it for review, then upload the reviewed .novaapp. Approval signs that reviewed package with NovaByte’s trusted key and publishes it.');
+    this.setPage('Review Apps', 'Inspect each submitted package, download it for review, then upload the reviewed .novaapp. Approval signs that reviewed package with NovaByte's trusted key and publishes it.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
