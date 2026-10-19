@@ -57,6 +57,63 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     }
   });
 
+  it('exposes additive novaOS API v2 storage with normalized results', async () => {
+    const legacyApi = { ipc: vi.fn() };
+    const sandboxWindow = { nova: legacyApi };
+    const calls = [];
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      if (type === 'nova:storage:get') {
+        return Promise.resolve(payload.key === 'theme'
+          ? { success: true, value: 'dark' }
+          : { success: true, value: null });
+      }
+      if (type === 'nova:storage:keys') {
+        return Promise.resolve({ success: true, keys: ['theme', 'layout'] });
+      }
+      return Promise.resolve({ success: true });
+    });
+
+    const source = AppSandbox._internal.buildNovaOSFacadeSource();
+    expect(() => new Function('window', 'ipc', source)).not.toThrow();
+    new Function('window', 'ipc', source)(sandboxWindow, fakeIpc);
+
+    const api = sandboxWindow.novaOS;
+    expect(sandboxWindow.nova).toBe(legacyApi);
+    expect(api.apiVersion).toBe(2);
+    expect(api.capabilities.has('storage.v2')).toBe(true);
+    expect(api.capabilities.has('networking.v2')).toBe(false);
+    expect(api.capabilities.has(undefined)).toBe(false);
+    expect(Object.isFrozen(api)).toBe(true);
+    expect(Object.isFrozen(api.storage)).toBe(true);
+
+    expect(await api.storage.get('theme')).toBe('dark');
+    expect(await api.storage.get('missing')).toBeNull();
+    expect(await api.storage.set('theme', 'light')).toBeUndefined();
+    expect(await api.storage.remove('draft')).toBeUndefined();
+    expect(await api.storage.clear()).toBeUndefined();
+    expect(await api.storage.keys()).toEqual(['theme', 'layout']);
+
+    expect(calls).toEqual([
+      { type: 'nova:storage:get', payload: { key: 'theme' } },
+      { type: 'nova:storage:get', payload: { key: 'missing' } },
+      { type: 'nova:storage:set', payload: { key: 'theme', value: 'light' } },
+      { type: 'nova:storage:delete', payload: { key: 'draft' } },
+      { type: 'nova:storage:clear', payload: {} },
+      { type: 'nova:storage:keys', payload: {} },
+    ]);
+  });
+
+  it('preserves storage bridge errors through novaOS v2', async () => {
+    const hostError = Object.assign(new Error('Storage quota exceeded'), { code: 'STORAGE_FULL' });
+    const fakeIpc = vi.fn(() => Promise.reject(hostError));
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+
+    await expect(sandboxWindow.novaOS.storage.set('large', 'value')).rejects.toBe(hostError);
+    expect(fakeIpc).toHaveBeenCalledWith('nova:storage:set', { key: 'large', value: 'value' });
+  });
+
   it('mediates permitted nested webviews through the host sibling bridge', () => {
     const shim = AppSandbox._internal.buildCapabilityShim(true);
     const script = shim.slice(shim.indexOf('<script>') + 8, shim.lastIndexOf('</script>'));
@@ -70,6 +127,10 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(shim).toContain("attributeFilter: ['class', 'style', 'hidden']");
     expect(shim).toContain('visible: !proxy.hidden && style.display !== \'none\'');
     expect(shim).toContain('window.nova.browser = Object.freeze({');
+    expect(shim).toContain('window.novaOS = Object.freeze({');
+    expect(shim).toContain("'storage.v2': true");
+    expect(shim).toContain("ipc('nova:storage:delete', { key: key })");
+
     expect(shim).toContain("ipc('nova:home:openDefaultAppsSettings', {})");
     expect(shim).toContain("ipc('nova:home:apps:list', {})");
     expect(shim).toContain("ipc('nova:home:apps:launch', { appId: appId })");
