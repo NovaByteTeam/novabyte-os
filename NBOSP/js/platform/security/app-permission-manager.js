@@ -660,14 +660,21 @@ const AppPermissionManager = (() => {
     // Keep an explicit denial so launch-time low-risk auto-grants cannot
     // silently undo the user's choice. resetPermission() clears it to pending.
     await persistDenial(permission, appId);
-    if (permission === PERMISSION_TYPES.SYSTEM_ROOT && typeof AppSandbox !== 'undefined') {
-      AppSandbox.reloadAfterRootRevocation?.(`Root permission for ${appId} was revoked`);
+    if (typeof AppSandbox !== 'undefined') {
+      if (permission === PERMISSION_TYPES.SYSTEM_ROOT) {
+        AppSandbox.reloadAfterRootRevocation?.(`Root permission for ${appId} was revoked`);
+      }
+      // sandbox:same-origin changes the guest's effective origin/security
+      // boundary. Existing guests do not retroactively lose their sandbox
+      // token, so close them and schedule a mandatory partition wipe.
+      AppSandbox.handlePermissionRevoked?.(permission, appId);
     }
   }
 
   async function revokeAllPermissions(appId) {
     assertValidAppId(appId);
     const rootGrantExists = permissionGrants.has(makeAppScopedKey(appId, PERMISSION_TYPES.SYSTEM_ROOT));
+    const sameOriginGrantExists = permissionGrants.has(makeAppScopedKey(appId, PERMISSION_TYPES.SANDBOX_SAME_ORIGIN));
     const prefix = makeAppScopedKey(appId, '');
     let count = 0;
     for (const key of permissionGrants.keys()) {
@@ -677,8 +684,13 @@ const AppPermissionManager = (() => {
       if (key.startsWith(prefix)) rateLimitState.delete(key);
     }
     await saveToStorage();
-    if (rootGrantExists && typeof AppSandbox !== 'undefined') {
-      AppSandbox.reloadAfterRootRevocation?.(`All permissions for ${appId} were revoked`);
+    if (typeof AppSandbox !== 'undefined') {
+      if (rootGrantExists) {
+        AppSandbox.reloadAfterRootRevocation?.(`All permissions for ${appId} were revoked`);
+      }
+      if (sameOriginGrantExists) {
+        AppSandbox.handlePermissionRevoked?.(PERMISSION_TYPES.SANDBOX_SAME_ORIGIN, appId);
+      }
     }
     console.log(`[AppPermissionManager] Revoked all permissions for ${appId}`);
     if (typeof EventLog !== 'undefined') {

@@ -39,6 +39,13 @@ const AppSandbox = (() => {
   const openDialogs = new Map();
   const shareDialogs = new Map();
 
+  // App execution partitions are shared by every window of the same app id.
+  // When policy requires the partition to be wiped, remember that requirement
+  // until clearData() completes successfully; launches fail closed while a
+  // required wipe is pending or has failed.
+  const partitionCleanupPromises = new Map();
+  const partitionCleanupRequired = new Set();
+
   function getRootAuditEntries() {
     if (rootAuditEntries) return rootAuditEntries.slice();
     try {
@@ -384,6 +391,39 @@ const AppSandbox = (() => {
   // integer, short forms like "127.1") into plain dotted-decimal before this
   // ever sees the hostname, so a strict dotted-decimal parse here is safe —
   // it's not re-opening the encodings URL already collapsed.
+  // WebSocket destinations use their own protocols, but must enforce the
+  // same public-vs-internal boundary as fetch(). Literal private/loopback,
+  // link-local, first-party internal, and metadata hosts never qualify as
+  // public just because the caller has the low-risk net:websocket grant.
+  function resolveAndClassifyWebSocketUrl(rawUrl) {
+    if (typeof rawUrl !== 'string' || rawUrl.trim() === '') {
+      return { valid: false, error: 'Invalid WebSocket URL' };
+    }
+    let resolved;
+    try {
+      resolved = new URL(rawUrl);
+    } catch {
+      return { valid: false, error: 'Invalid WebSocket URL' };
+    }
+    if (!['ws:', 'wss:'].includes(resolved.protocol)) {
+      return { valid: false, error: 'Only ws and wss URLs are allowed' };
+    }
+    if (resolved.username || resolved.password) {
+      return { valid: false, error: 'Credentials in WebSocket URLs are not allowed' };
+    }
+    const hostname = resolved.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (BLOCKED_METADATA_HOSTS.has(hostname)) {
+      return { valid: false, error: 'Cloud metadata endpoints are not reachable from apps' };
+    }
+    // Local-only DNS namespaces and single-label intranet names are internal
+    // too, even though they are not literal private IP addresses. This blocks
+    // common aliases such as router.local and printer.lan from using the
+    // low-risk public-WebSocket grant alone.
+    const internalDnsSuffixes = ['.localhost', '.local', '.lan', '.internal', '.home.arpa', '.test'];
+    const localDnsName = !hostname.includes('.') || internalDnsSuffixes.some(suffix => hostname.endsWith(suffix));
+    return { valid: true, url: resolved.href, isInternal: isInternalHost(hostname) || localDnsName };
+  }
+
   function parseIPv4(hostname) {
     const parts = hostname.split('.');
     if (parts.length !== 4) return null;
@@ -4232,7 +4272,7 @@ const AppSandbox = (() => {
   // Network: fetch
 
   async function handleNetFetch({ payload, requestId, app, webview }) {
-    const { url: rawUrl, method, headers, body } = payload ?? {};
+    const { url: rawUrl, method, headers, body, bodyEncoding } = payload ?? {};
     if (!rawUrl) {
       return respondError(webview, 'nova:net:fetch', requestId, 'INVALID_ARGS', 'url is required');
     }
@@ -4271,6 +4311,20 @@ const AppSandbox = (() => {
       }
     }
     try {
+      let requestBody = body ?? null;
+      if (bodyEncoding === 'base64' && typeof body === 'string') {
+        try {
+          const binary = atob(body);
+          if (binary.length > 6 * 1024 * 1024) {
+            return respondError(webview, 'nova:net:fetch', requestId, 'PAYLOAD_TOO_LARGE', 'Binary request body exceeds the 6 MiB limit');
+          }
+          requestBody = Uint8Array.from(binary, character => character.charCodeAt(0));
+        } catch (error) {
+          return respondError(webview, 'nova:net:fetch', requestId, 'INVALID_ARGS', 'Invalid base64 request body');
+        }
+      } else if (bodyEncoding && bodyEncoding !== 'utf8') {
+        return respondError(webview, 'nova:net:fetch', requestId, 'INVALID_ARGS', 'Unsupported request body encoding');
+      }
       let resStatus, resStatusText, resHeaders, resBody, resBodyEncoding = 'utf8';
 
       if (classified.isInternal) {
@@ -4279,7 +4333,7 @@ const AppSandbox = (() => {
         const res = await fetch(classified.url, {
           method: safeMethod,
           headers: headerObj,
-          body: body ?? null,
+          body: requestBody,
         });
         resStatus = res.status;
         resStatusText = res.statusText;
@@ -4306,7 +4360,7 @@ const AppSandbox = (() => {
         const { status: proxyStatus, ok, json: proxyJson } = await authedJsonFetch('/api/proxy', {
           method: 'POST',
           app,
-          body: { url: classified.url, method: safeMethod, headers: headerObj, body: body ?? null },
+          body: { url: classified.url, method: safeMethod, headers: headerObj, body: body ?? null, bodyEncoding: bodyEncoding || 'utf8' },
         });
         if (!ok) {
           return respondError(webview, 'nova:net:fetch', requestId, 'NETWORK_ERROR', proxyJson?.error || `Proxy request failed (${proxyStatus})`);
@@ -4344,11 +4398,18 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('net:websocket', app.id)) {
       return respondError(webview, 'nova:net:websocket', requestId, 'PERMISSION_DENIED', 'net:websocket permission required');
     }
+    const classified = resolveAndClassifyWebSocketUrl(url);
+    if (!classified.valid) {
+      return respondError(webview, 'nova:net:websocket', requestId, 'INVALID_ARGS', classified.error);
+    }
+    if (classified.isInternal && !AppPermissionManager.isGranted('net:internal', app.id)) {
+      return respondError(webview, 'nova:net:websocket', requestId, 'PERMISSION_DENIED', 'net:internal permission required for private or first-party WebSocket destinations');
+    }
     let ws;
     try {
       ws = protocols?.length
-        ? new WebSocket(url, protocols)
-        : new WebSocket(url);
+        ? new WebSocket(classified.url, protocols)
+        : new WebSocket(classified.url);
     } catch (e) {
       return respondError(webview, 'nova:net:websocket', requestId, 'INVALID_ARGS', e?.message || 'Unknown error');
     }
@@ -5254,6 +5315,25 @@ const AppSandbox = (() => {
   // of a long if/else chain makes the dispatch O(1) and lets new APIs be
   // added by appending a single entry.
 
+  // These implementations are host-only Settings/Clock functionality, not
+  // capabilities for arbitrary package code. Keep them out of the generic
+  // guest handler table and explicitly reject them at dispatch time so an
+  // accidental future registration cannot silently expose system-wide state.
+  const GUEST_FORBIDDEN_IPC_APIS = new Set([
+    'nova:system:permissions:list', 'nova:system:permissions:set', 'nova:system:permissions:reset',
+    'nova:system:data:backup', 'nova:system:data:restore', 'nova:system:dialog',
+    'nova:system:developer-mode:confirm', 'nova:system:boot-recovery', 'nova:system:data:clear',
+    'nova:system:default-apps:get', 'nova:system:default-apps:choose', 'nova:system:default-apps:set',
+    'nova:system:launch-snake', 'nova:system:storage:estimate',
+    'nova:system:admin-mode:get', 'nova:system:admin-mode:set',
+    'nova:system:preferences:get', 'nova:system:preferences:set',
+    'nova:clock:state:get', 'nova:clock:state:persist', 'nova:clock:alarms:get',
+    'nova:clock:alarms:set', 'nova:clock:alarm:dialog', 'nova:clock:timer:set-preset',
+    'nova:clock:timer:start', 'nova:clock:timer:pause', 'nova:clock:timer:restart',
+    'nova:clock:timer:reset', 'nova:clock:stopwatch:start', 'nova:clock:stopwatch:pause',
+    'nova:clock:stopwatch:reset', 'nova:clock:stopwatch:lap',
+  ]);
+
   const API_HANDLERS = {
     'nova:nested-webview': handleNestedWebview,
     'nova:files:open': handleScopedFileOpen,
@@ -5330,42 +5410,6 @@ const AppSandbox = (() => {
     'nova:contacts:write': handleContactsWrite,
     'nova:contacts:delete': handleContactsDelete,
     'nova:system:info': handleSystemInfo,
-    'nova:clock:state:get': handleClockStateGet,
-    'nova:clock:state:persist': handleClockStatePersist,
-    'nova:clock:alarms:get': handleClockAlarmsGet,
-    'nova:clock:alarms:set': handleClockAlarmsSet,
-    'nova:clock:alarm:dialog': handleClockAlarmDialog,
-    'nova:clock:timer:set-preset': handleClockTimerSetPreset,
-    'nova:clock:timer:start': handleClockTimerStart,
-    'nova:clock:timer:pause': handleClockTimerPause,
-    'nova:clock:timer:restart': handleClockTimerRestart,
-    'nova:clock:timer:reset': handleClockTimerReset,
-    'nova:clock:stopwatch:start': handleClockStopwatchStart,
-    'nova:clock:stopwatch:pause': handleClockStopwatchPause,
-    'nova:clock:stopwatch:reset': handleClockStopwatchReset,
-    'nova:clock:stopwatch:lap': handleClockStopwatchLap,
-    // Settings-only channels. The Settings app reaches these features
-    // directly through OS.system.* rather than via IPC, so these entries
-    // are never dispatched on a live code path — they're kept here as the
-    // canonical implementation for any future IPC surface to reuse.
-    'nova:system:permissions:list': handleSystemPermissionsList,
-    'nova:system:permissions:set': handleSystemPermissionsSet,
-    'nova:system:permissions:reset': handleSystemPermissionsReset,
-    'nova:system:data:backup': handleSystemDataBackup,
-    'nova:system:data:restore': handleSystemDataRestore,
-    'nova:system:dialog': handleSystemDialog,
-    'nova:system:developer-mode:confirm': handleSystemDeveloperModeConfirm,
-    'nova:system:boot-recovery': handleSystemBootRecovery,
-    'nova:system:data:clear': handleSystemDataClear,
-    'nova:system:default-apps:get': handleSystemDefaultAppsGet,
-    'nova:system:default-apps:choose': handleSystemDefaultAppsChoose,
-    'nova:system:default-apps:set': handleSystemDefaultAppsSet,
-    'nova:system:launch-snake': handleSystemLaunchSnake,
-    'nova:system:storage:estimate': handleSystemStorageEstimate,
-    'nova:system:admin-mode:get': handleSystemAdminModeGet,
-    'nova:system:admin-mode:set': handleSystemAdminModeSet,
-    'nova:system:preferences:get': handleSystemPreferencesGet,
-    'nova:system:preferences:set': handleSystemPreferencesSet,
     'nova:ready': handleReady,
     'nova:dialog:open': handleDialogOpen,
     'nova:dialog:save': handleDialogSave,
@@ -5380,6 +5424,9 @@ const AppSandbox = (() => {
   // bridge. Unknown types get an UNKNOWN_API error response.
   async function handleAPICall(type, payload, requestId, app, webview, sandbox) {
     try {
+      if (GUEST_FORBIDDEN_IPC_APIS.has(type)) {
+        return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'This system capability is only available through trusted OS UI');
+      }
       const handler = API_HANDLERS[type];
       if (!handler) {
         return respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
@@ -5439,7 +5486,7 @@ const AppSandbox = (() => {
   //
   // setupAPIBridge returns an array of teardown steps that createSandbox
   // collects alongside the other setup functions. destroy() runs them all.
-  function setupAPIBridge(webview, app, sandboxId) {
+  function setupAPIBridge(webview, app, sandboxId, sandboxRecord) {
     const teardown = [];
 
     const consoleHandler = (event) => {
@@ -5461,7 +5508,8 @@ const AppSandbox = (() => {
       // host-initiated read that doesn't land in the visible log stream
       // the way console.log broadcasts do.
       const { type, requestId } = data;
-      if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(API_HANDLERS, type)) {
+      if (typeof type !== 'string'
+        || (!Object.prototype.hasOwnProperty.call(API_HANDLERS, type) && !GUEST_FORBIDDEN_IPC_APIS.has(type))) {
         log('warn', `Rejected IPC message with unknown/disallowed type from ${app?.id || 'unknown app'}: ${String(type)}`);
         return;
       }
@@ -5515,12 +5563,13 @@ const AppSandbox = (() => {
       eventSubscriptions.delete(sandboxId);
 
       // Close any lingering WebSockets so they don't outlive the sandbox.
-      const sandbox = activeSandboxes.get(sandboxId);
-      if (sandbox?.wsConnections) {
-        for (const [, wsState] of sandbox.wsConnections) {
+      // Use the captured record: destroy() deliberately removes its registry
+      // entry before calling cleanup to prevent re-entrant double teardown.
+      if (sandboxRecord?.wsConnections) {
+        for (const [, wsState] of sandboxRecord.wsConnections) {
           try { wsState.ws.close(1000, 'sandbox closed'); } catch { /* already closed */ }
         }
-        sandbox.wsConnections.clear();
+        sandboxRecord.wsConnections.clear();
       }
 
       // Close any open file dialog so the overlay doesn't linger in the DOM,
@@ -6613,7 +6662,8 @@ const AppSandbox = (() => {
     else if (body == null) bodyStr = null;
     else bodyStr = String(body);
 
-    return ipc('nova:net:fetch', { url: url, method: method, headers: headerObj, body: bodyStr })
+    const bodyEncoding = init.bodyEncoding === 'base64' ? 'base64' : 'utf8';
+    return ipc('nova:net:fetch', { url: url, method: method, headers: headerObj, body: bodyStr, bodyEncoding: bodyEncoding })
       .then(function(res) {
         if (!res || !res.success) throw new TypeError('Fetch failed');
         const responseInit = { status: res.status, statusText: res.statusText, headers: new Headers(res.headers || {}) };
@@ -6637,81 +6687,254 @@ const AppSandbox = (() => {
   // override normally; it only stops an app from un-shadowing the native
   // fetch/XHR/WebSocket to bypass nova:net:* permission checks entirely.
 
-  // Minimal XMLHttpRequest override that routes through the fetch shim.
-  // Covers the common API surface (open/send/setRequestHeader/onload/onerror/
-  // onreadystatechange/status/responseText). Advanced features (upload
-  // events, progress, responseType blob, the timeout property's auto-fire
-  // of a 'timeout' event) are not implemented — apps needing those should
-  // use fetch directly.
+  // XMLHttpRequest-compatible bridge for common async requests. Callbacks set
+  // through onload/onerror/onreadystatechange and addEventListener share the
+  // same dispatch path. Binary/FormData bodies are encoded explicitly because
+  // IPC payloads are JSON and cannot carry raw ArrayBuffers or Blobs.
   function NovaXHR() {
     const xhr = this;
-    let method = 'GET', url = '', headers = {}, body = null;
-    let state = 0;
-    // aborted flag tracks whether the caller cancelled the request so
-    // the late-arriving fetch callback can short-circuit instead of
-    // mutating state and firing load/error listeners on a dead object
-    // (the previous version's abort() set state=0 but the fetch still
-    // resolved and overwrote everything, so abort was effectively a no-op
-    // for any request that had already been sent).
-    let aborted = false;
-    const listeners = { load: [], error: [], readystatechange: [], loadend: [], abort: [] };
+    let method = 'GET', url = '', headers = {}, sent = false;
+    let state = 0, aborted = false, timedOut = false, timer = null;
+    let status = 0, statusText = '', responseText = '', responseBytes = null;
+    let responseHeaders = {}, responseHeadersText = '';
+    const listeners = Object.create(null);
+    ['readystatechange', 'loadstart', 'load', 'error', 'timeout', 'abort', 'loadend', 'progress'].forEach(function(type) {
+      listeners[type] = [];
+    });
+
+    function fire(type, event) {
+      const ev = event || { type: type, target: xhr, currentTarget: xhr, lengthComputable: false, loaded: 0, total: 0 };
+      const propertyHandler = xhr['on' + type];
+      if (typeof propertyHandler === 'function') {
+        try { propertyHandler.call(xhr, ev); } catch (e) { setTimeout(function() { throw e; }, 0); }
+      }
+      (listeners[type] || []).slice().forEach(function(handler) {
+        try { handler.call(xhr, ev); } catch (e) { setTimeout(function() { throw e; }, 0); }
+      });
+    }
+
+    function changeState(next) {
+      state = next;
+      fire('readystatechange');
+    }
+
+    function finishTimer() {
+      if (timer !== null) { clearTimeout(timer); timer = null; }
+    }
+
+    function bytesToBase64(bytes) {
+      // Keep browser-to-host IPC and the matching server proxy within one
+      // bounded binary-request size. Fail explicitly rather than truncating.
+      if (bytes.length > 6 * 1024 * 1024) throw new RangeError('XHR request body exceeds the 6 MiB limit');
+      let binary = '';
+      // Chunking avoids argument-count and call-stack limits for large bodies.
+      for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+        const chunk = bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length));
+        for (let i = 0; i < chunk.length; i++) binary += String.fromCharCode(chunk[i]);
+      }
+      return btoa(binary);
+    }
+
+    function safeHeaderValue(value) {
+      return String(value).replace(/[\\r\\n]/g, '');
+    }
+
+    function setHeaderIfMissing(name, value) {
+      const lower = name.toLowerCase();
+      if (!Object.keys(headers).some(function(key) { return key.toLowerCase() === lower; })) headers[name] = value;
+    }
+
+    async function normalizeBody(value) {
+      if (value == null) return { body: null, bodyEncoding: 'utf8' };
+      if (typeof value === 'string') return { body: value, bodyEncoding: 'utf8' };
+      if (typeof URLSearchParams !== 'undefined' && value instanceof URLSearchParams) {
+        setHeaderIfMissing('Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8');
+        return { body: value.toString(), bodyEncoding: 'utf8' };
+      }
+      if (typeof FormData !== 'undefined' && value instanceof FormData) {
+        const boundary = '----NovaXHR' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        const parts = [];
+        for (const [rawName, entryValue] of value.entries()) {
+          const name = safeHeaderValue(rawName).replace(/"/g, '%22');
+          if (typeof Blob !== 'undefined' && entryValue instanceof Blob) {
+            const filename = safeHeaderValue(entryValue.name || 'blob').replace(/"/g, '%22');
+            parts.push('--' + boundary + '\\r\\nContent-Disposition: form-data; name="' + name + '"; filename="' + filename + '"\\r\\n');
+            parts.push('Content-Type: ' + (entryValue.type || 'application/octet-stream') + '\\r\\n\\r\\n');
+            parts.push(entryValue);
+            parts.push('\\r\\n');
+          } else {
+            parts.push('--' + boundary + '\\r\\nContent-Disposition: form-data; name="' + name + '"\\r\\n\\r\\n' + String(entryValue) + '\\r\\n');
+          }
+        }
+        parts.push('--' + boundary + '--\\r\\n');
+        const multipart = new Blob(parts, { type: 'multipart/form-data; boundary=' + boundary });
+        if (multipart.size > 6 * 1024 * 1024) throw new RangeError('XHR request body exceeds the 6 MiB limit');
+        const multipartBytes = new Uint8Array(await multipart.arrayBuffer());
+        setHeaderIfMissing('Content-Type', 'multipart/form-data; boundary=' + boundary);
+        return { body: bytesToBase64(multipartBytes), bodyEncoding: 'base64' };
+      }
+      if (typeof Blob !== 'undefined' && value instanceof Blob) {
+        if (value.size > 6 * 1024 * 1024) throw new RangeError('XHR request body exceeds the 6 MiB limit');
+        if (value.type) setHeaderIfMissing('Content-Type', value.type);
+        return { body: bytesToBase64(new Uint8Array(await value.arrayBuffer())), bodyEncoding: 'base64' };
+      }
+      if (value instanceof ArrayBuffer) {
+        return { body: bytesToBase64(new Uint8Array(value)), bodyEncoding: 'base64' };
+      }
+      if (ArrayBuffer.isView(value)) {
+        return { body: bytesToBase64(new Uint8Array(value.buffer, value.byteOffset, value.byteLength)), bodyEncoding: 'base64' };
+      }
+      throw new TypeError('Unsupported XMLHttpRequest body type');
+    }
 
     Object.defineProperty(this, 'readyState', { get: function() { return state; }, configurable: true });
-    Object.defineProperty(this, 'status', { get: function() { return xhr._status || 0; }, configurable: true });
-    Object.defineProperty(this, 'statusText', { get: function() { return xhr._statusText || ''; }, configurable: true });
-    Object.defineProperty(this, 'responseText', { get: function() { return xhr._responseText || ''; }, configurable: true });
-    Object.defineProperty(this, 'response', { get: function() { return xhr._responseText || ''; }, configurable: true });
+    Object.defineProperty(this, 'status', { get: function() { return status; }, configurable: true });
+    Object.defineProperty(this, 'statusText', { get: function() { return statusText; }, configurable: true });
+    Object.defineProperty(this, 'responseText', {
+      get: function() {
+        if (xhr.responseType !== '' && xhr.responseType !== 'text') throw new Error('responseText is unavailable when responseType is not text');
+        return responseText;
+      }, configurable: true
+    });
+    Object.defineProperty(this, 'response', {
+      get: function() {
+        if (state < 3) return null;
+        if (xhr.responseType === 'json') {
+          if (!responseText) return null;
+          try { return JSON.parse(responseText); } catch { return null; }
+        }
+        if (xhr.responseType === 'arraybuffer') return responseBytes ? responseBytes.slice(0) : new ArrayBuffer(0);
+        if (xhr.responseType === 'blob') return new Blob([responseBytes || new ArrayBuffer(0)], { type: responseHeaders['content-type'] || '' });
+        return responseText;
+      }, configurable: true
+    });
     Object.defineProperty(this, 'responseURL', { get: function() { return url; }, configurable: true });
+    Object.defineProperty(this, 'responseXML', { get: function() { return null; }, configurable: true });
+    this.responseType = '';
+    this.timeout = 0;
+    this.withCredentials = false;
+    this.upload = { addEventListener: function() {}, removeEventListener: function() {} };
 
-    this.open = function(m, u) { method = (m || 'GET').toUpperCase(); url = u || ''; state = 1; };
-    this.setRequestHeader = function(k, v) { headers[k] = v; };
-    this.getAllResponseHeaders = function() { return xhr._responseHeaders || ''; };
-    this.getResponseHeader = function(k) { return (xhr._responseHeaderMap || {})[k.toLowerCase()] || null; };
-    this.abort = function() {
-      aborted = true;
-      state = 0;
-      listeners.abort.forEach(function(h) { h.call(xhr); });
+    this.open = function(m, u, async) {
+      if (async === false) throw new Error('Synchronous XMLHttpRequest is not supported by the Nova bridge');
+      method = (m || 'GET').toUpperCase();
+      if (!ALLOWED_XHR_METHODS.has(method)) throw new TypeError('Unsupported XMLHttpRequest method');
+      url = String(u || '');
+      headers = {};
+      status = 0;
+      statusText = '';
+      responseText = '';
+      responseBytes = null;
+      responseHeaders = {};
+      responseHeadersText = '';
+      aborted = false;
+      timedOut = false;
+      sent = false;
+      finishTimer();
+      changeState(1);
     };
-    this.addEventListener = function(type, handler) { if (listeners[type]) listeners[type].push(handler); };
+
+    this.setRequestHeader = function(name, value) {
+      if (state !== 1 || sent) throw new Error('XMLHttpRequest is not in the OPENED state');
+      const key = String(name);
+      const existing = Object.keys(headers).find(function(item) { return item.toLowerCase() === key.toLowerCase(); });
+      if (existing) headers[existing] += ', ' + safeHeaderValue(value);
+      else headers[key] = safeHeaderValue(value);
+    };
+
+    this.getAllResponseHeaders = function() { return state < 2 ? '' : responseHeadersText; };
+    this.getResponseHeader = function(name) {
+      if (state < 2 || !name) return null;
+      return responseHeaders[String(name).toLowerCase()] || null;
+    };
+    this.overrideMimeType = function(mime) { xhr._overrideMimeType = String(mime || ''); };
+    this.addEventListener = function(type, handler) {
+      if (typeof handler === 'function' && listeners[type]) listeners[type].push(handler);
+    };
     this.removeEventListener = function(type, handler) {
       if (listeners[type]) listeners[type] = listeners[type].filter(function(h) { return h !== handler; });
     };
+    this.dispatchEvent = function(event) {
+      if (!event || typeof event.type !== 'string') return true;
+      fire(event.type, event);
+      return !event.defaultPrevented;
+    };
 
-    this.send = function(b) {
-      body = b;
-      novaFetchImpl(url, { method: method, headers: headers, body: typeof body === 'string' ? body : null })
-        .then(function(res) {
-          if (aborted) return; // caller cancelled — drop silently
-          state = 2;
-          xhr._status = res.status;
-          xhr._statusText = res.statusText;
-          const headerMap = {};
+    this.abort = function() {
+      if (state === 0 || state === 4) { aborted = true; finishTimer(); return; }
+      aborted = true;
+      finishTimer();
+      changeState(0);
+      fire('abort');
+      fire('loadend');
+    };
+
+    this.send = function(value) {
+      if (state !== 1 || sent) throw new Error('XMLHttpRequest must be opened before send and sent only once');
+      sent = true;
+      aborted = false;
+      timedOut = false;
+      fire('loadstart');
+      if (Number(xhr.timeout) > 0) {
+        timer = setTimeout(function() {
+          if (state === 4 || aborted) return;
+          timedOut = true;
+          aborted = true;
+          state = 4;
+          fire('readystatechange');
+          fire('timeout');
+          fire('loadend');
+        }, Number(xhr.timeout));
+      }
+      (async function() {
+        try {
+          const encodedBody = (method === 'GET' || method === 'HEAD')
+            ? { body: null, bodyEncoding: 'utf8' }
+            : await normalizeBody(value);
+          if (aborted) return;
+          const res = await novaFetchImpl(url, {
+            method: method,
+            headers: headers,
+            body: encodedBody.body,
+            bodyEncoding: encodedBody.bodyEncoding,
+          });
+          if (aborted) return;
+          status = res.status;
+          statusText = res.statusText;
+          responseHeaders = {};
           const headerLines = [];
-          res.headers.forEach(function(v, k) { headerMap[k.toLowerCase()] = v; headerLines.push(k + ': ' + v); });
-          xhr._responseHeaderMap = headerMap;
-          xhr._responseHeaders = headerLines.join('\\r\\n');
-          listeners.readystatechange.forEach(function(h) { h.call(xhr); });
-          return res.text();
-        })
-        .then(function(text) {
+          res.headers.forEach(function(v, k) {
+            const lower = k.toLowerCase();
+            responseHeaders[lower] = v;
+            headerLines.push(k + ': ' + v);
+          });
+          responseHeadersText = headerLines.join('\\r\\n');
+          if (responseHeadersText) responseHeadersText += '\\r\\n';
+          changeState(2);
+          const data = await res.arrayBuffer();
           if (aborted) return;
-          xhr._responseText = text;
-          state = 3;
-          listeners.readystatechange.forEach(function(h) { h.call(xhr); });
-          state = 4;
-          listeners.readystatechange.forEach(function(h) { h.call(xhr); });
-          listeners.load.forEach(function(h) { h.call(xhr); });
-          listeners.loadend.forEach(function(h) { h.call(xhr); });
-        })
-        .catch(function(err) {
-          if (aborted) return;
-          xhr._error = err;
-          state = 4;
-          listeners.error.forEach(function(h) { h.call(xhr, err); });
-          listeners.loadend.forEach(function(h) { h.call(xhr); });
-        });
+          responseBytes = data;
+          try { responseText = new TextDecoder().decode(data); } catch { responseText = ''; }
+          changeState(3);
+          changeState(4);
+          finishTimer();
+          fire('load');
+          fire('loadend');
+        } catch (err) {
+          if (aborted || timedOut) return;
+          finishTimer();
+          status = 0;
+          statusText = '';
+          responseText = '';
+          responseBytes = null;
+          changeState(4);
+          fire('error', { type: 'error', target: xhr, currentTarget: xhr, error: err });
+          fire('loadend');
+        }
+      })();
     };
   }
+  const ALLOWED_XHR_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
   // Override WebSocket — route through the IPC bridge instead of letting
   // the guest open a raw socket unmediated. This closes the gap where
   // 'new WebSocket(...)' bypassed nova:net:websocket's permission check
@@ -7575,17 +7798,30 @@ const AppSandbox = (() => {
       : null;
     const shim = buildCapabilityShim(allowNestedWebview, initialUrl);
     const cspMeta = buildRelaxedCspMeta(allowExternalFrames);
+    // Add transparent document-root styling through the same unconditional
+    // prefix path as the capability shim. This works for fragments or HTML
+    // that omit/mangle <head>, because the HTML parser creates implied roots.
+    const transparentStyle = app?.transparent
+      ? '<style id="novaapp-transparent-root">html,body{background:transparent;}</style>\n'
+      : '';
+    // This string is embedded in an executable HTML <script>. Replacement
+    // strings must produce literal backslash-u sequences in the output; using
+    // '\u003c' at runtime would merely replace '<' with itself and leave
+    // a caller-controlled </script> able to terminate the script element.
     const safeOptions = JSON.stringify(launchOptions || {})
-      .replace(/</g, '\u003c').replace(/>/g, '\u003e').replace(/&/g, '\u0026')
-      .replace(/\u2028/g, '\u2028').replace(/\u2029/g, '\u2029');
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/&/g, '\\u0026')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
     const launchOptionsShim = '<script>window.__NOVA_APP_OPTIONS__=' + safeOptions + ';<\/script>';
     const doctypeMatch = html.match(LEADING_DOCTYPE_RE);
     if (doctypeMatch) {
       const doctype = doctypeMatch[0];
       const rest = html.slice(doctype.length);
-      return doctype + '\n' + launchOptionsShim + '\n' + shim + '\n' + cspMeta + '\n' + rest;
+      return doctype + '\n' + transparentStyle + launchOptionsShim + '\n' + shim + '\n' + cspMeta + '\n' + rest;
     }
-    return launchOptionsShim + '\n' + shim + '\n' + cspMeta + '\n' + html;
+    return transparentStyle + launchOptionsShim + '\n' + shim + '\n' + cspMeta + '\n' + html;
   }
 
   // App loading
@@ -7616,25 +7852,7 @@ const AppSandbox = (() => {
         const shimmedFiles = Object.assign({}, app.files);
         const rawHtml = decodeBase64Utf8(shimmedFiles[app.entry]);
         const allowExternalFrames = isExternalFramesPermitted(app);
-        const transparentHtml = app.transparent
-          ? rawHtml.replace(
-              /<head(\s[^>]*)?>/i,
-              (m) => `${m}<style id=\"novaapp-transparent-root\">
-                /* transparent: true enables an alpha-capable app surface; it
-                   must not force the app's own UI to become transparent. Only
-                   the document roots start transparent, and explicit app CSS
-                   (including solid backgrounds on body, #app, cards, etc.) is
-                   free to paint an opaque surface normally. */
-                html,body{background:transparent;}
-                /* Descendant elements keep their normal CSS backgrounds. The
-                   transparent app surface comes from the document roots, so an
-                   app can leave its surrounding canvas glassy while explicitly
-                   painting a child surface (search bar, card, toolbar, etc.)
-                   with any solid background it wants. */
-              </style>`
-            )
-          : rawHtml;
-        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(transparentHtml, app, launchOptions));
+        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(rawHtml, app, launchOptions));
 
         const regRes = await fetch('/api/apps/serve/register', {
           method: 'POST',
@@ -8041,7 +8259,7 @@ const AppSandbox = (() => {
       ? { id: requestedFile.id, node: requestedFile }
       : null;
 
-    activeSandboxes.set(sandboxId, {
+    const sandboxRecord = {
       appId: app.id,
       iframe: webview,
       webview: webview,
@@ -8056,7 +8274,8 @@ const AppSandbox = (() => {
       homeSurface: state?.homeSurface === true,
       homeLoadTimer: null,
       cleanup: null, // populated below after all setup runs
-    });
+    };
+    activeSandboxes.set(sandboxId, sandboxRecord);
     if (state?.content && getComputedStyle(state.content).position === 'static') {
       state.content.style.position = 'relative';
     }
@@ -8089,29 +8308,12 @@ const AppSandbox = (() => {
 
     eventSubscriptions.set(sandboxId, new Map());
 
-    teardownFns.push(setupAPIBridge(webview, app, sandboxId));
+    teardownFns.push(setupAPIBridge(webview, app, sandboxId, sandboxRecord));
     teardownFns.push(setupErrorHandling(webview, app));
     teardownFns.push(setupPermissionRequestGate(webview, app));
 
     // Compose all teardowns into the sandbox's cleanup function.
-    activeSandboxes.get(sandboxId).cleanup = () => {
-      for (const entry of activeSandboxes.get(sandboxId)?.nestedWebviews?.values() || []) {
-        for (const cleanup of entry.cleanups) {
-          try { cleanup(); } catch (e) { log('debug', 'nested webview cleanup step threw', e); }
-        }
-        entry.view.remove();
-      }
-      activeSandboxes.get(sandboxId)?.nestedWebviews?.clear();
-      activeSandboxes.get(sandboxId)?.appearanceSubscription?.();
-      if (activeSandboxes.has(sandboxId)) activeSandboxes.get(sandboxId).appearanceSubscription = null;
-      for (const pending of activeSandboxes.get(sandboxId)?.pendingNewWindows?.values() || []) {
-        try { pending.discard(); } catch (e) { log('debug', 'pending popup cleanup step threw', e); }
-      }
-      activeSandboxes.get(sandboxId)?.pendingNewWindows?.clear();
-      for (const fn of teardownFns) {
-        try { fn(); } catch (e) { log('debug', 'sandbox cleanup step threw', e); }
-      }
-    };
+    sandboxRecord.cleanup = () => cleanupSandboxRecord(sandboxRecord, teardownFns);
 
     log('debug', `Created webview sandbox for ${app.name} (${sandboxId})`);
     if (typeof EventLog !== 'undefined') {
@@ -8119,6 +8321,26 @@ const AppSandbox = (() => {
     }
 
     return webview;
+  }
+
+  function cleanupSandboxRecord(sandboxRecord, teardownFns = []) {
+    if (!sandboxRecord) return;
+    for (const entry of sandboxRecord.nestedWebviews?.values() || []) {
+      for (const cleanup of entry.cleanups || []) {
+        try { cleanup(); } catch (e) { log('debug', 'nested webview cleanup step threw', e); }
+      }
+      try { entry.view.remove(); } catch (e) { log('debug', 'nested webview removal failed', e); }
+    }
+    sandboxRecord.nestedWebviews?.clear();
+    try { sandboxRecord.appearanceSubscription?.(); } catch (e) { log('debug', 'appearance unsubscribe failed', e); }
+    sandboxRecord.appearanceSubscription = null;
+    for (const pending of sandboxRecord.pendingNewWindows?.values() || []) {
+      try { pending.discard(); } catch (e) { log('debug', 'pending popup cleanup step threw', e); }
+    }
+    sandboxRecord.pendingNewWindows?.clear();
+    for (const fn of teardownFns) {
+      try { fn(); } catch (e) { log('debug', 'sandbox cleanup step threw', e); }
+    }
   }
 
   // Run a trusted first-party app directly in the host document, matching the
@@ -8278,6 +8500,7 @@ const AppSandbox = (() => {
 
   async function launchHome(app, container) {
     if (!container) throw new Error('Home surface container is required');
+    await ensureExecutionPartitionClean(app?.id);
     if (typeof DefaultApps === 'undefined'
       || !DefaultApps.getAppsForCategory('home').some(candidate => candidate.id === app?.id)) {
       throw new Error('App is not registered as an available Home app');
@@ -8333,6 +8556,7 @@ const AppSandbox = (() => {
     }
 
     if (hasRootExecutionGrant(app)) return launchRootApp(app, container, state, options);
+    await ensureExecutionPartitionClean(app.id);
 
     // Re-run the package-level security gate at every launch. Never trust a
     // cached boolean supplied by the caller: the gate re-checks bundle
@@ -8421,6 +8645,71 @@ const AppSandbox = (() => {
     };
   }
 
+  function queueExecutionPartitionCleanup(appId) {
+    if (!appId) return Promise.resolve();
+    partitionCleanupRequired.add(appId);
+    const prior = partitionCleanupPromises.get(appId) || Promise.resolve();
+    const cleanup = prior.catch(() => {}).then(() => clearAppExecutionPartition(appId));
+    partitionCleanupPromises.set(appId, cleanup);
+    cleanup.then(() => {
+      if (partitionCleanupPromises.get(appId) === cleanup) {
+        partitionCleanupRequired.delete(appId);
+        partitionCleanupPromises.delete(appId);
+      }
+    }, (error) => {
+      // Keep the required marker after failure so the next launch retries and
+      // fails closed instead of silently reusing dirty storage.
+      log('error', `Required storage cleanup failed for ${appId}; future launch is blocked until retry succeeds`, error);
+      if (partitionCleanupPromises.get(appId) === cleanup) partitionCleanupPromises.delete(appId);
+    });
+    return cleanup;
+  }
+
+  async function ensureExecutionPartitionClean(appId) {
+    const pending = partitionCleanupPromises.get(appId);
+    if (pending) {
+      try { await pending; } catch { /* retry below; required marker remains set */ }
+    }
+    if (partitionCleanupRequired.has(appId)) {
+      const activeSibling = [...activeSandboxes.values()].some(sandbox => sandbox.appId === appId);
+      if (activeSibling) {
+        throw new Error(`App storage cleanup for ${appId} is pending; close all existing windows before relaunching`);
+      }
+      await queueExecutionPartitionCleanup(appId);
+    }
+    if (partitionCleanupRequired.has(appId)) {
+      throw new Error(`App storage cleanup has not succeeded for ${appId}; refusing to launch with a potentially dirty partition`);
+    }
+  }
+
+  // Called by AppPermissionManager when a live app loses sandbox:same-origin.
+  // Close all of that app's guests immediately and require a partition wipe;
+  // the wipe runs once no sibling window can still be using the shared app id
+  // partition. The next launch awaits/retries it before creating a renderer.
+  function handlePermissionRevoked(permission, appId) {
+    if (permission !== 'sandbox:same-origin' || !appId) return false;
+    partitionCleanupRequired.add(appId);
+    const affected = [...activeSandboxes.entries()]
+      .filter(([, sandbox]) => sandbox.appId === appId)
+      .map(([sandboxId, sandbox]) => ({ sandboxId, windowId: sandbox.windowId }));
+    for (const { sandboxId, windowId } of affected) {
+      try {
+        if (windowId && typeof WM !== 'undefined' && typeof WM.closeWindow === 'function') {
+          WM.closeWindow(windowId);
+        } else {
+          destroy(sandboxId);
+        }
+      } catch (error) {
+        log('warn', `Could not close ${appId} after sandbox:same-origin revocation`, error);
+        destroy(sandboxId);
+      }
+    }
+    if (![...activeSandboxes.values()].some(sandbox => sandbox.appId === appId)) {
+      queueExecutionPartitionCleanup(appId).catch(() => {});
+    }
+    return true;
+  }
+
   // Destroy a sandbox by ID. Tears down listeners, WebSockets, event
   // subscriptions, open dialogs, and unregisters app files from the serve
   // route. Safe to call multiple times — second call is a no-op.
@@ -8476,15 +8765,19 @@ const AppSandbox = (() => {
     // Only wipe for apps that weren't granted allow-same-origin at
     // creation. Best-effort: a failure here shouldn't block teardown.
     const appId = sandbox.appId;
-    // Read the actual token on the webview instead of re-deriving the grant;
-    // this keeps teardown consistent with the decision made at creation.
+    // Do not wipe the app-id partition while another window of the same app
+    // is still running; all those windows share the same persisted partition.
+    const anotherWindowUsesPartition = [...activeSandboxes.values()].some(entry => entry.appId === appId);
     const webviewHasSameOrigin = !!sandbox.webview
       && typeof sandbox.webview.getAttribute === 'function'
       && (sandbox.webview.getAttribute('sandbox') || '').split(/\s+/).includes('allow-same-origin');
-    const sameOriginPermitted = webviewHasSameOrigin;
-    if (appId && !sameOriginPermitted) {
-      clearAppExecutionPartition(appId).catch(e => {
-        log('warn', 'destroy() — failed to clear storage partition for', appId, e);
+    // The effective sandbox attribute is authoritative here. A permission
+    // grant without the manifest flag does not add allow-same-origin, so its
+    // partition still needs the normal cleanup when the final window closes.
+    const mustClearPartition = partitionCleanupRequired.has(appId) || !webviewHasSameOrigin;
+    if (appId && mustClearPartition && !anotherWindowUsesPartition) {
+      queueExecutionPartitionCleanup(appId).catch(e => {
+        log('error', 'destroy() — failed to clear storage partition for', appId, e);
       });
     }
 
@@ -8642,70 +8935,68 @@ const AppSandbox = (() => {
   // doesn't exist yet, and gets created+immediately-cleared, which is
   // harmless).
   async function clearAppPartitionsByName(appId, partitionNames) {
-    if (!appId) return;
+    if (!appId) throw new Error('appId is required to clear app storage');
 
-    // clearData() only actually reaches a partition's real storage once a
-    // webview on that partition has completed a genuine same-origin
-    // navigation — about:blank never establishes a session against this
-    // partition, so clearData silently no-ops against it. So we register
-    // a minimal blank page through the same /api/apps/serve/register
-    // mechanism real app launches use (see loadAppContent above), giving
-    // the webview a real same-origin page inside the correct partition
-    // before calling clearData.
+    // ClearData only works after a real same-origin navigation in the target
+    // partition. Failure to register/navigate/clear is an error, never a
+    // successful no-op: callers use the result to decide whether a new app
+    // renderer may safely reuse the partition.
+    const sandboxId = 'sandbox_clr_' + String(appId).replace(/[^\w.-]/g, '_') + '_' + Date.now();
     let baseUrl;
-    try {
-      const sandboxId = `sandbox_clr_${appId.replace(/[^\w.-]/g, '_')}_${Date.now()}`;
-      // Use encodeBase64Utf8 rather than bare btoa for consistency with the
-      // rest of this module — btoa throws on non-Latin1 input, and even
-      // though this particular payload is ASCII-only today, the helper is
-      // the convention everywhere else.
-      const files = { 'index.html': encodeBase64Utf8('<!doctype html><html><body></body></html>') };
-      const regRes = await fetch('/api/apps/serve/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sandboxId, files }),
-      });
-      if (!regRes.ok) throw new Error(`register failed: ${regRes.status}`);
-      ({ baseUrl } = await regRes.json());
-    } catch {
-      // Registration failed — fall back to about:blank rather than
-      // hard-failing; clearData will likely no-op, but this keeps the
-      // caller's Promise resolving instead of hanging or throwing.
-      baseUrl = null;
+    const files = { 'index.html': encodeBase64Utf8('<!doctype html><html><body></body></html>') };
+    const regRes = await fetch('/api/apps/serve/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sandboxId, files }),
+    });
+    if (!regRes.ok) throw new Error('Storage cleanup page registration failed: ' + regRes.status);
+    ({ baseUrl } = await regRes.json());
+    if (typeof baseUrl !== 'string' || !baseUrl) {
+      await fetch('/api/apps/serve/unregister/' + encodeURIComponent(sandboxId), { method: 'DELETE' }).catch(() => {});
+      throw new Error('Storage cleanup page registration returned no base URL');
     }
 
-    const clearPartition = partitionName => new Promise(resolve => {
+    const clearPartition = partitionName => new Promise((resolve, reject) => {
       const wv = document.createElement('webview');
-      wv.setAttribute('partition', `persist:${partitionName}`);
+      wv.setAttribute('partition', 'persist:' + partitionName);
       wv.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
-      // Correct key set for this NW.js build's <webview> clearData(), confirmed
-      // by testing against real data: 'filesystem' must be 'fileSystems'
-      // (capitalized S), and 'serviceWorkers'/'cacheStorage' are rejected
-      // outright on this build ("Unexpected property") — the webview tag's
-      // ClearDataTypeSet here is a narrower, older subset than the full
-      // chrome.browsingData schema.
       const clearTypes = { appcache: true, cache: true, cookies: true, fileSystems: true, indexedDB: true, localStorage: true, webSQL: true };
-      // settled flag guards against the loadstop clearData callback and
-      // the safety timeout both firing — the second call would otherwise
-      // try to wv.remove() an already-removed element (caught by the
-      // try/catch, but noisy in logs and conceptually wrong).
       let settled = false;
-      const finish = () => {
+      let clearing = false;
+      const finish = error => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeoutId);
+        wv.removeEventListener('loadstop', onLoadStop);
+        wv.removeEventListener('loadabort', onLoadAbort);
         try { wv.remove(); } catch { /* already removed */ }
-        resolve();
+        if (error) reject(error); else resolve();
       };
-      wv.addEventListener('loadstop', () => {
-        try { wv.clearData({}, clearTypes, finish); } catch { finish(); }
-      });
-      wv.addEventListener('loadabort', finish);
+      const onLoadStop = () => {
+        if (settled || clearing) return;
+        clearing = true;
+        try {
+          wv.clearData({}, clearTypes, () => finish());
+        } catch (error) {
+          finish(new Error('clearData failed for partition ' + partitionName + ': ' + (error?.message || error)));
+        }
+      };
+      const onLoadAbort = event => finish(new Error('Storage cleanup navigation failed for ' + partitionName + (event?.reason ? ': ' + event.reason : '')));
+      const timeoutId = setTimeout(() => finish(new Error('Storage cleanup timed out for partition ' + partitionName)), CLEAR_PARTITION_TIMEOUT_MS);
+      wv.addEventListener('loadstop', onLoadStop);
+      wv.addEventListener('loadabort', onLoadAbort);
       document.body.appendChild(wv);
-      wv.src = baseUrl ? (window.location.origin + baseUrl + '/index.html') : 'about:blank';
-      setTimeout(finish, CLEAR_PARTITION_TIMEOUT_MS);
+      wv.src = window.location.origin + baseUrl + '/index.html';
     });
 
-    await Promise.all(partitionNames.map(clearPartition));
+    try {
+      await Promise.all(partitionNames.map(clearPartition));
+    } finally {
+      // The temporary served page must not accumulate in the server registry.
+      await fetch('/api/apps/serve/unregister/' + encodeURIComponent(sandboxId), { method: 'DELETE' }).catch(error => {
+        log('warn', 'Could not unregister temporary storage-cleanup page', error);
+      });
+    }
   }
 
   async function clearAppExecutionPartition(appId) {
@@ -8732,6 +9023,7 @@ const AppSandbox = (() => {
     launch,
     launchHome,
     destroy,
+    handlePermissionRevoked,
     getSandbox,
     getAllSandboxes,
     clearAppPartition,
@@ -8767,10 +9059,18 @@ const AppSandbox = (() => {
       decodeBase64Utf8,
       generateRequestId,
       resolveAndClassifyUrl,
+      resolveAndClassifyWebSocketUrl,
       isInternalHost,
+      handlePermissionRevoked,
+      GUEST_FORBIDDEN_IPC_APIS,
+      cleanupSandboxRecord,
+      clearAppPartitionsByName,
+      ensureExecutionPartitionClean,
+      partitionCleanupRequired,
       parsePositiveInt,
       validateStorageKey,
       handleAPICall,
+      setupAPIBridge,
       API_HANDLERS,
       buildCapabilityShim,
       deferPackagedScripts,
@@ -8780,6 +9080,8 @@ const AppSandbox = (() => {
       // Test-only helpers for resetting module state between tests.
       _resetState() {
         activeSandboxes.clear();
+        partitionCleanupPromises.clear();
+        partitionCleanupRequired.clear();
         rootExecutionApps.clear();
         rootAuditSubscribers.clear();
         rootRevocationReloadScheduled = false;
