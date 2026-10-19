@@ -1168,7 +1168,7 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Review Apps', 'Inspect each submitted package, download it for review, then upload the reviewed .novaapp. Approval signs that reviewed package with NovaByte's trusted key and publishes it.');
+    this.setPage('Review Apps', 'Inspect each submitted package, download it for review, then upload the reviewed .novaapp. Approval signs that reviewed package with NovaByte\'s trusted key and publishes it.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
