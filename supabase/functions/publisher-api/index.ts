@@ -6,6 +6,7 @@ import {
   PublisherError,
   corsHeaders,
   downloadSubmission,
+  downloadPublishedPackage,
   errorResponse,
   escapeHtml,
   getAccountEmail,
@@ -201,6 +202,7 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
   parseVersion(version);
   const changelog = requiredText(submission.changelog, 'Release notes', 4000, 3);
   const existingOwner = await getOne('publisher_app_owners', 'app_id', appId);
+  let publishedApp: Record<string, any> | null = null;
   let metadata: Record<string, unknown>;
 
   if (type === 'new') {
@@ -231,9 +233,9 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
     if (!existingOwner || existingOwner.owner_id !== user.id) {
       throw new PublisherError('You can submit updates only for apps you own.');
     }
-    const published = await getOne('publisher_catalog_apps', 'app_id', appId);
-    if (!published) throw new PublisherError('This app is not currently published.');
-    if (compareVersions(version, published.version) !== 1) {
+    publishedApp = await getOne('publisher_catalog_apps', 'app_id', appId);
+    if (!publishedApp) throw new PublisherError('This app is not currently published.');
+    if (compareVersions(version, publishedApp.version) !== 1) {
       throw new PublisherError('An update must use a version newer than the currently published version.');
     }
     const active = await rest('publisher_submissions', {
@@ -246,11 +248,11 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
     });
     if (Array.isArray(active) && active.length) throw new PublisherError('This app already has an update awaiting review.');
     metadata = {
-      name: published.name,
-      author: published.author,
-      description: published.description,
-      categories: published.categories,
-      links: published.links,
+      name: publishedApp.name,
+      author: publishedApp.author,
+      description: publishedApp.description,
+      categories: publishedApp.categories,
+      links: publishedApp.links,
     };
   }
 
@@ -262,6 +264,18 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
   if (!pkg.files || typeof pkg.files !== 'object' || Array.isArray(pkg.files)) {
     throw new PublisherError('The package does not contain a valid file map.');
   }
+  if (type === 'update' && publishedApp) {
+    const missingScreenshots = screenshotReferences(pkg).filter(screenshot =>
+      SCREENSHOT_PATH.test(screenshot) && typeof pkg.files[screenshot] !== 'string'
+    );
+    if (missingScreenshots.length) {
+      const previousPackage = await downloadPublishedPackage(`${appId}/${publishedApp.version}.novaapp`);
+      for (const screenshot of missingScreenshots) {
+        const image = previousPackage.pkg.files?.[screenshot];
+        if (typeof image === 'string') pkg.files[screenshot] = image;
+      }
+    }
+  }
   packageScreenshots(pkg);
   const files = Object.entries(pkg.files);
   const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
@@ -272,7 +286,8 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
   )) {
     throw new PublisherError('The package contains an invalid file or unsafe path.');
   }
-  if (byteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The package exceeds the 25 MB upload limit.');
+  const submissionByteLength = new TextEncoder().encode(JSON.stringify(pkg)).byteLength;
+  if (submissionByteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The package exceeds the 25 MB upload limit.');
 
   await rest('publisher_submissions', {
     method: 'POST',

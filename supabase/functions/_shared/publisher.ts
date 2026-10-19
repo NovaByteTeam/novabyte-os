@@ -154,6 +154,27 @@ export async function downloadSubmission(path: string) {
   return { pkg: pkg as Record<string, any>, byteLength: bytes.byteLength };
 }
 
+export async function downloadPublishedPackage(path: string) {
+  const response = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${PUBLISHED_BUCKET}/${encodePath(path)}`,
+    { headers: { apikey: getServiceKey(), Authorization: `Bearer ${getServiceKey()}` } },
+  );
+  if (!response.ok) {
+    const result = await readResponse(response);
+    console.error('[publisher-api] Could not download published package:', result);
+    throw new PublisherError('The currently published package is unavailable.', 404);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The published package exceeds the 25 MB limit.');
+  let pkg: unknown;
+  try {
+    pkg = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new PublisherError('The currently published package is not valid package JSON.');
+  }
+  return { pkg: pkg as Record<string, any>, byteLength: bytes.byteLength };
+}
+
 export async function makeSignedDownloadUrl(path: string, fileName: string) {
   requiredEnv('SUPABASE_URL', SUPABASE_URL);
   const response = await fetch(
