@@ -5963,6 +5963,54 @@ const AppSandbox = (() => {
     return _isolatedTransportScriptCache;
   }
 
+  // Source for the additive, modern app-facing API. Keep the facade thin: all
+  // operations still go through the existing IPC bridge and host-side handlers,
+  // which preserve per-app isolation, validation, quotas, and permission checks.
+  // This is source text because the code runs inside each sandboxed app document.
+  function buildNovaOSFacadeSource() {
+    return `
+  // NovaByte platform API v2. The legacy window.nova surface above remains
+  // available with its original return shapes and error behavior.
+  const NOVAOS_SUPPORTED_CAPABILITIES = Object.freeze({
+    'storage.v2': true,
+  });
+  window.novaOS = Object.freeze({
+    apiVersion: 2,
+    capabilities: Object.freeze({
+      has: function(name) {
+        return typeof name === 'string'
+          && Object.prototype.hasOwnProperty.call(NOVAOS_SUPPORTED_CAPABILITIES, name)
+          && NOVAOS_SUPPORTED_CAPABILITIES[name] === true;
+      },
+    }),
+    storage: Object.freeze({
+      // get() returns the stored value directly, or null when the key is absent.
+      get: function(key) {
+        return ipc('nova:storage:get', { key: key }).then(function(result) {
+          return result && Object.prototype.hasOwnProperty.call(result, 'value')
+            ? result.value
+            : null;
+        });
+      },
+      // Mutations resolve with undefined; host-side errors still reject the promise.
+      set: function(key, value) {
+        return ipc('nova:storage:set', { key: key, value: value }).then(function() {});
+      },
+      remove: function(key) {
+        return ipc('nova:storage:delete', { key: key }).then(function() {});
+      },
+      clear: function() {
+        return ipc('nova:storage:clear', {}).then(function() {});
+      },
+      keys: function() {
+        return ipc('nova:storage:keys', {}).then(function(result) {
+          return result && Array.isArray(result.keys) ? result.keys : [];
+        });
+      },
+    }),
+  });`;
+  }
+
   // Builds the capability shim string for a given app. `nestedWebviewAllowed`
   // is baked in as a literal at injection time (not re-checked async inside
   // the guest — permission grants are host-side and the guest has no safe
@@ -6590,6 +6638,10 @@ const AppSandbox = (() => {
       openLink: function(url) { return ipc('nova:email:open-link', { url: url }); }
     }
   };
+
+  // Add a v2 facade without replacing or mutating the established v1 object.
+  // Both API surfaces use the same secure IPC bridge and host-side services.
+  ${buildNovaOSFacadeSource()}
 
   // Self-triggered handshake — every app gets this automatically on load,
   // rather than needing to remember to call it. Runs the same
@@ -9073,6 +9125,7 @@ const AppSandbox = (() => {
       setupAPIBridge,
       API_HANDLERS,
       buildCapabilityShim,
+      buildNovaOSFacadeSource,
       deferPackagedScripts,
       buildIsolatedTransportScript,
       isNestedWebviewPermitted,
