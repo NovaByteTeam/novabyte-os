@@ -680,61 +680,123 @@ function updateSafetyBar(state) {
 
 // ── Version history ────────────────────────────────────────────────────────
 
+function makeVersionEntry(entry, app, isCurrent) {
+  const item = document.createElement('li');
+  item.className = 'vh-entry';
+
+  const header = document.createElement('div');
+  header.className = 'vh-header';
+
+  const versionTag = document.createElement('span');
+  versionTag.className = 'vh-version';
+  versionTag.textContent = `v${entry.version}`;
+
+  if (isCurrent) {
+    const currentPill = document.createElement('span');
+    currentPill.className = 'vh-current';
+    currentPill.textContent = 'latest';
+    header.append(versionTag, currentPill);
+  } else {
+    header.append(versionTag);
+  }
+
+  if (entry.date) {
+    const date = document.createElement('time');
+    date.className = 'vh-date';
+    date.dateTime = entry.date;
+    try {
+      date.textContent = new Date(entry.date).toLocaleDateString('en-GB', {
+        day: 'numeric', month: 'short', year: 'numeric',
+      });
+    } catch {
+      date.textContent = entry.date;
+    }
+    header.append(date);
+  }
+
+  item.appendChild(header);
+
+  if (entry.notes) {
+    const notes = document.createElement('p');
+    notes.className = 'vh-notes';
+    notes.textContent = entry.notes;
+    item.appendChild(notes);
+  }
+
+  return item;
+}
+
 function renderVersionHistory(app) {
-  const entries = Array.isArray(app.versionHistory) ? app.versionHistory : [];
-  detailVersionHistory.hidden = entries.length === 0;
-  if (entries.length === 0) return;
+  // Normalize entries: versionHistory array, falling back to current release info
+  let entries = Array.isArray(app.versionHistory) ? [...app.versionHistory] : [];
+
+  // Ensure current version always has an entry
+  const hasCurrentEntry = entries.some(e => e?.version === app.version);
+  if (!hasCurrentEntry && app.version) {
+    entries.unshift({
+      version: app.version,
+      notes: app.releaseNotes || null,
+      date: null,
+    });
+  }
+
+  // Filter and sort newest-first. Prefer explicit date fields; fall back to treating
+  // the current app version as the most recent regardless of position in the array.
+  const valid = entries
+    .filter(e => e && typeof e.version === 'string')
+    .sort((a, b) => {
+      // Current version always sorts first
+      if (a.version === app.version) return -1;
+      if (b.version === app.version) return 1;
+      // If both have dates, sort by date descending
+      if (a.date && b.date) return new Date(b.date) - new Date(a.date);
+      // Entries with a date outrank ones without
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return 0;
+    });
+
+  detailVersionHistory.hidden = valid.length === 0;
+  if (valid.length === 0) return;
 
   detailVersionHistoryList.replaceChildren();
-  for (const entry of entries) {
-    if (!entry || typeof entry.version !== 'string') continue;
 
-    const item = document.createElement('li');
-    item.className = 'vh-entry';
+  // Always show the latest (first) entry prominently
+  const latest = valid[0];
+  const latestItem = makeVersionEntry(latest, app, true);
+  latestItem.classList.add('vh-entry--latest');
+  detailVersionHistoryList.appendChild(latestItem);
 
-    const header = document.createElement('div');
-    header.className = 'vh-header';
+  if (valid.length <= 1) return;
 
-    const versionTag = document.createElement('span');
-    versionTag.className = 'vh-version';
-    versionTag.textContent = `v${escHtml(entry.version)}`;
+  // Older entries hidden behind a toggle
+  const olderEntries = valid.slice(1);
+  const olderList = document.createElement('ol');
+  olderList.className = 'vh-older-list';
+  olderList.setAttribute('reversed', '');
+  olderList.hidden = true;
 
-    // Mark current version
-    if (entry.version === app.version) {
-      const currentPill = document.createElement('span');
-      currentPill.className = 'vh-current';
-      currentPill.textContent = 'current';
-      header.append(versionTag, currentPill);
-    } else {
-      header.append(versionTag);
-    }
-
-    if (entry.date) {
-      const date = document.createElement('time');
-      date.className = 'vh-date';
-      date.dateTime = entry.date;
-      // Format as "14 Sep 2026" — readable without being ambiguous
-      try {
-        date.textContent = new Date(entry.date).toLocaleDateString('en-GB', {
-          day: 'numeric', month: 'short', year: 'numeric',
-        });
-      } catch {
-        date.textContent = entry.date;
-      }
-      header.append(date);
-    }
-
-    item.appendChild(header);
-
-    if (entry.notes) {
-      const notes = document.createElement('p');
-      notes.className = 'vh-notes';
-      notes.textContent = entry.notes;
-      item.appendChild(notes);
-    }
-
-    detailVersionHistoryList.appendChild(item);
+  for (const entry of olderEntries) {
+    olderList.appendChild(makeVersionEntry(entry, app, false));
   }
+
+  const olderCount = olderEntries.length;
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.className = 'vh-toggle';
+  toggleBtn.textContent = `${olderCount} older version${olderCount === 1 ? '' : 's'}`;
+  toggleBtn.setAttribute('aria-expanded', 'false');
+
+  toggleBtn.addEventListener('click', () => {
+    const expanded = olderList.hidden;
+    olderList.hidden = !expanded;
+    toggleBtn.setAttribute('aria-expanded', String(expanded));
+    toggleBtn.textContent = expanded
+      ? `Hide older versions`
+      : `${olderCount} older version${olderCount === 1 ? '' : 's'}`;
+  });
+
+  detailVersionHistoryList.append(toggleBtn, olderList);
 }
 
 detailScreenshotList.addEventListener('click', event => {

@@ -782,25 +782,86 @@ class PublisherPortal {
     });
     form.appendChild(packagePicker.field.label);
 
-    const screenshots = makeField('Screenshots (up to 5 images)', {
+    // ── Screenshot manager ──────────────────────────────────────────────────
+    // For updates: shows existing screenshots with individual delete + add new.
+    // For new apps: plain multi-file picker.
+
+    const screenshotsSection = makeElement('div', 'publisher-screenshots-section');
+    const screenshotsHeading = makeElement('p', 'publisher-field-label', update
+      ? 'Screenshots — existing (click × to remove, or add new below)'
+      : 'Screenshots (up to 5 images)');
+    screenshotsSection.appendChild(screenshotsHeading);
+
+    const screenshotHelp = makeElement('p', 'publisher-form-intro', update
+      ? 'Screenshots are optional. Existing ones are kept unless you remove them. You can add new ones below — combined total may not exceed 5.'
+      : 'Optional. PNG, JPEG, WebP, or GIF; each image may be up to 5 MB.');
+
+    // Existing screenshots state (for update mode) — list of { path, dataUrl } kept from the app
+    let existingScreenshots = [];
+    let deletedExistingPaths = new Set();
+
+    if (update && Array.isArray(app.screenshots) && app.screenshots.length) {
+      existingScreenshots = app.screenshots.map((src, index) => ({
+        path: typeof src === 'string' ? src : `screenshots/screenshot-${index + 1}`,
+        src: typeof src === 'string' ? src : null,
+      }));
+    }
+
+    const existingGrid = makeElement('div', 'publisher-screenshot-preview publisher-screenshot-existing');
+    const screenshotPreview = makeElement('div', 'publisher-screenshot-preview');
+    let screenshotObjectUrls = [];
+
+    const renderExistingScreenshots = () => {
+      existingGrid.replaceChildren();
+      if (!existingScreenshots.length) {
+        existingGrid.hidden = true;
+        return;
+      }
+      existingGrid.hidden = false;
+      for (const item of existingScreenshots) {
+        if (deletedExistingPaths.has(item.path)) continue;
+        const figure = makeElement('figure', 'publisher-screenshot-item');
+        if (item.src) {
+          const img = document.createElement('img');
+          img.src = item.src;
+          img.alt = item.path;
+          figure.appendChild(img);
+        }
+        const deleteBtn = makeElement('button', 'publisher-screenshot-delete', '×');
+        deleteBtn.type = 'button';
+        deleteBtn.title = `Remove ${item.path}`;
+        deleteBtn.setAttribute('aria-label', `Remove screenshot ${item.path}`);
+        deleteBtn.addEventListener('click', () => {
+          deletedExistingPaths.add(item.path);
+          renderExistingScreenshots();
+        });
+        const caption = makeElement('figcaption', '', item.path.split('/').pop());
+        figure.append(deleteBtn, caption);
+        existingGrid.appendChild(figure);
+      }
+      if (existingGrid.childElementCount === 0) existingGrid.hidden = true;
+    };
+
+    renderExistingScreenshots();
+
+    const screenshots = makeField(update ? 'Add new screenshots' : '', {
       id: 'listing-screenshots',
       type: 'file',
       required: false,
     });
     screenshots.input.accept = 'image/png,image/jpeg,image/webp,image/gif';
     screenshots.input.multiple = true;
-    const screenshotHelp = makeElement('p', 'publisher-form-intro',
-      'Optional. PNG, JPEG, WebP, or GIF; each image may be up to 5 MB. These images will be added to the .novaapp package.');
-    const screenshotPreview = makeElement('div', 'publisher-screenshot-preview');
-    let screenshotObjectUrls = [];
+
     screenshots.input.addEventListener('change', () => {
       for (const url of screenshotObjectUrls) URL.revokeObjectURL(url);
       screenshotObjectUrls = [];
       screenshotPreview.replaceChildren();
       const selected = [...(screenshots.input.files || [])];
-      if (selected.length > MAX_SCREENSHOTS) {
+      const kept = existingScreenshots.filter(item => !deletedExistingPaths.has(item.path)).length;
+      const total = kept + selected.length;
+      if (total > MAX_SCREENSHOTS) {
         screenshots.input.value = '';
-        this.setNotice(`Choose no more than ${MAX_SCREENSHOTS} screenshots.`, 'error');
+        this.setNotice(`Total screenshots cannot exceed ${MAX_SCREENSHOTS} (you have ${kept} existing + ${selected.length} new).`, 'error');
         return;
       }
       if (selected.some(file => !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type))) {
@@ -824,9 +885,11 @@ class PublisherPortal {
         preview.append(image, caption);
         screenshotPreview.appendChild(preview);
       }
-      if (selected.length) this.setNotice(`${selected.length} screenshot${selected.length === 1 ? '' : 's'} selected.`, 'info');
+      if (selected.length) this.setNotice(`${selected.length} new screenshot${selected.length === 1 ? '' : 's'} selected.`, 'info');
     });
-    form.append(screenshots.label, screenshotHelp, screenshotPreview);
+
+    screenshotsSection.append(screenshotHelp, existingGrid, screenshots.label, screenshotPreview);
+    form.appendChild(screenshotsSection);
     this.contentCleanup = () => {
       for (const url of screenshotObjectUrls) URL.revokeObjectURL(url);
       screenshotObjectUrls = [];
@@ -834,27 +897,47 @@ class PublisherPortal {
 
     const fields = {};
     if (!update) {
-      fields.name = makeField('App name', { id: 'listing-name', value: '', placeholder: 'My NovaByte app', maxLength: 80 });
-      fields.appId = makeField('Unique app ID', { id: 'listing-id', value: '', placeholder: 'com.example.myapp', maxLength: 120 });
-      fields.author = makeField('Publisher / developer', { id: 'listing-author', value: '', placeholder: 'Your publisher name', maxLength: 80 });
-      fields.version = makeField('Version', { id: 'listing-version', value: '', placeholder: '1.0.0', maxLength: 40 });
-      fields.description = makeField('Description', { id: 'listing-description', type: 'textarea', value: '', placeholder: 'What does the app do?', maxLength: 1000 });
-      fields.categories = makeField('Categories (comma-separated)', { id: 'listing-categories', value: '', placeholder: 'utilities, productivity', maxLength: 160 });
-      fields.website = makeField('Website URL', { id: 'listing-website', value: '', required: false, placeholder: 'https://example.com', maxLength: 500 });
-      fields.source = makeField('Source code URL', { id: 'listing-source', value: '', required: false, placeholder: 'https://github.com/…', maxLength: 500 });
-      fields.support = makeField('Support URL', { id: 'listing-support', value: '', required: false, placeholder: 'https://example.com/support', maxLength: 500 });
+      fields.name = makeField(‘App name’, { id: ‘listing-name’, value: ‘’, placeholder: ‘My NovaByte app’, maxLength: 80 });
+      fields.appId = makeField(‘Unique app ID’, { id: ‘listing-id’, value: ‘’, placeholder: ‘com.example.myapp’, maxLength: 120 });
+      fields.author = makeField(‘Publisher / developer’, { id: ‘listing-author’, value: ‘’, placeholder: ‘Your publisher name’, maxLength: 80 });
+      fields.version = makeField(‘Version’, { id: ‘listing-version’, value: ‘’, placeholder: ‘1.0.0’, maxLength: 40 });
+      fields.description = makeField(‘Description’, { id: ‘listing-description’, type: ‘textarea’, value: ‘’, placeholder: ‘What does the app do?’, maxLength: 1000 });
+      fields.categories = makeField(‘Categories (comma-separated)’, { id: ‘listing-categories’, value: ‘’, placeholder: ‘utilities, productivity’, maxLength: 160 });
+      fields.website = makeField(‘Website URL’, { id: ‘listing-website’, value: ‘’, required: false, placeholder: ‘https://example.com’, maxLength: 500 });
+      fields.source = makeField(‘Source code URL’, { id: ‘listing-source’, value: ‘’, required: false, placeholder: ‘https://github.com/…’, maxLength: 500 });
+      fields.support = makeField(‘Support URL’, { id: ‘listing-support’, value: ‘’, required: false, placeholder: ‘https://example.com/support’, maxLength: 500 });
       form.append(fields.name.label, fields.appId.label, fields.author.label, fields.version.label,
         fields.description.label, fields.categories.label, fields.website.label, fields.source.label, fields.support.label);
-    } else {
-      fields.version = makeField('New version', { id: 'update-version', value: '', placeholder: 'Read from .novaapp package', maxLength: 40 });
-      fields.changelog = makeField('What’s new in this version?', { id: 'update-changelog', type: 'textarea', placeholder: 'Describe the changes in this release.', maxLength: 4000 });
-      form.append(fields.version.label, fields.changelog.label);
-    }
-    if (!update) {
-      fields.changelog = makeField('Release notes / changelog', { id: 'listing-changelog', type: 'textarea', placeholder: 'Describe the first release.', maxLength: 4000 });
+      fields.changelog = makeField(‘Release notes / changelog’, { id: ‘listing-changelog’, type: ‘textarea’, placeholder: ‘Describe the first release.’, maxLength: 4000 });
       form.appendChild(fields.changelog.label);
     } else {
-      fields.changelog = fields.changelog || makeField('What’s new in this version?', { id: 'update-changelog', type: 'textarea', placeholder: 'Describe the changes in this release.', maxLength: 4000 });
+      fields.version = makeField(‘New version’, { id: ‘update-version’, value: ‘’, placeholder: ‘Read from .novaapp package’, maxLength: 40 });
+
+      // Optional description override — pre-filled with current so publisher can edit or leave as-is
+      const descOverrideWrap = makeElement(‘div’, ‘publisher-optional-field-wrap’);
+      const descToggle = makeElement(‘button’, ‘publisher-inline-action publisher-optional-toggle’, ‘＋ Update app description (optional)’);
+      descToggle.type = ‘button’;
+      fields.description = makeField(‘Updated description’, {
+        id: ‘update-description’,
+        type: ‘textarea’,
+        required: false,
+        value: app.description || ‘’,
+        placeholder: ‘Leave blank to keep the current description.’,
+        maxLength: 1000,
+      });
+      const descLabel = fields.description.label;
+      descLabel.classList.add(‘hidden’);
+      descToggle.addEventListener(‘click’, () => {
+        const hidden = descLabel.classList.toggle(‘hidden’);
+        descToggle.textContent = hidden
+          ? ‘＋ Update app description (optional)’
+          : ‘− Hide description field’;
+        if (!hidden) fields.description.input.focus();
+      });
+      descOverrideWrap.append(descToggle, descLabel);
+
+      fields.changelog = makeField(‘What\’s new in this version?’, { id: ‘update-changelog’, type: ‘textarea’, placeholder: ‘Describe the changes in this release.’, maxLength: 4000 });
+      form.append(fields.version.label, descOverrideWrap, fields.changelog.label);
     }
 
     const submit = makeElement('button', 'publisher-submit',
@@ -882,23 +965,42 @@ class PublisherPortal {
         const packagePath = `${this.user.id}/${submissionId}.novaapp`;
         const packageForUpload = JSON.parse(JSON.stringify(packageData.pkg));
         const selectedScreenshots = [...(screenshots.input.files || [])];
-        if (selectedScreenshots.length > MAX_SCREENSHOTS) {
-          throw new Error(`Choose no more than ${MAX_SCREENSHOTS} screenshots.`);
-        }
         if (selectedScreenshots.some(file => !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type))) {
           throw new Error('Screenshots must be PNG, JPEG, WebP, or GIF images.');
         }
         if (selectedScreenshots.some(file => file.size > MAX_SCREENSHOT_BYTES)) {
           throw new Error('Each screenshot must be no larger than 5 MB.');
         }
-        if (selectedScreenshots.length) {
-          const screenshotPaths = [];
-          for (const [index, file] of selectedScreenshots.entries()) {
-            const extension = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' })[file.type];
-            const path = `screenshots/publisher-${index + 1}.${extension}`;
-            packageForUpload.files[path] = arrayBufferToBase64(await file.arrayBuffer());
-            screenshotPaths.push(path);
+
+        // Build the final screenshots list: kept existing + newly added
+        const screenshotPaths = [];
+        if (update) {
+          // Keep existing paths that weren't deleted
+          for (const item of existingScreenshots) {
+            if (!deletedExistingPaths.has(item.path)) screenshotPaths.push(item.path);
           }
+          // Remove deleted package-relative screenshot files from the package
+          for (const path of deletedExistingPaths) {
+            // Only delete package-relative paths (not external URLs)
+            if (!path.startsWith('http://') && !path.startsWith('https://') && !path.startsWith('/')) {
+              delete packageForUpload.files[path];
+            }
+          }
+        }
+        // Append new screenshots — use a unique suffix per file to avoid colliding with
+        // any existing package-relative path (e.g. screenshots/publisher-2.png)
+        const uploadId = Date.now();
+        for (const [index, file] of selectedScreenshots.entries()) {
+          const extension = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' })[file.type];
+          const path = `screenshots/publisher-${uploadId}-${index + 1}.${extension}`;
+          packageForUpload.files[path] = arrayBufferToBase64(await file.arrayBuffer());
+          screenshotPaths.push(path);
+        }
+        const totalScreenshots = screenshotPaths.length;
+        if (totalScreenshots > MAX_SCREENSHOTS) {
+          throw new Error(`Total screenshots cannot exceed ${MAX_SCREENSHOTS}.`);
+        }
+        if (totalScreenshots > 0) {
           packageForUpload.manifest.screenshots = screenshotPaths;
         }
         const uploadFile = new File([JSON.stringify(packageForUpload)], packageData.file.name, {
@@ -923,6 +1025,9 @@ class PublisherPortal {
           version,
           packagePath,
           changelog: fields.changelog.input.value.trim(),
+          ...(fields.description?.input.value.trim()
+            ? { description: fields.description.input.value.trim() }
+            : {}),
         } : {
           type: 'new',
           appId: fields.appId.input.value.trim(),

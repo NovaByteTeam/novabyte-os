@@ -2761,3 +2761,105 @@ body::before {
   line-height: 1.6;
   margin: 0;
 }
+
+/* Latest entry stands out a bit more */
+.vh-entry--latest {
+  border-inline-start-color: oklch(72% 0.22 200 / .6);
+}
+
+.vh-entry--latest .vh-version {
+  font-size: 0.85rem;
+}
+
+/* Toggle button for older versions */
+.vh-toggle {
+  margin-top: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-mid);
+  background: transparent;
+  color: var(--glow-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.vh-toggle:hover {
+  border-color: var(--glow-primary);
+  background: oklch(72% 0.22 200 / .08);
+}
+
+/* Older version entries list */
+.vh-older-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+/* ── Publisher screenshot manager ──────────────────────────────────────────── */
+
+.publisher-screenshots-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.publisher-field-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.publisher-screenshot-existing {
+  margin-top: 4px;
+}
+
+/* Delete button overlaid on existing screenshot */
+.publisher-screenshot-item {
+  position: relative;
+}
+
+.publisher-screenshot-delete {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 100, 115, 0.45);
+  background: rgba(10, 15, 25, 0.85);
+  color: #ffb0b8;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.publisher-screenshot-item:hover .publisher-screenshot-delete,
+.publisher-screenshot-item:focus-within .publisher-screenshot-delete {
+  opacity: 1;
+}
+
+/* Optional field toggle */
+.publisher-optional-field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.publisher-optional-toggle {
+  align-self: flex-start;
+  font-size: 0.8rem;
+  color: var(--glow-primary);
+  border-color: oklch(72% 0.22 200 / .3);
+}
