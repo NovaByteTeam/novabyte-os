@@ -1084,7 +1084,9 @@ class PublisherPortal {
     this.nodes.content.appendChild(loading);
     try {
       const result = await this.call('my-apps');
-      const published = Array.isArray(result.apps) ? result.apps : [];
+      const published = Array.isArray(result.apps)
+        ? result.apps.map(app => ({ ...app, id: app.id || app.app_id }))
+        : [];
       const submissions = Array.isArray(result.submissions) ? result.submissions : [];
       this.nodes.content.replaceChildren();
       const publishButton = this.makeAction('＋ Publish a new app', () => this.open('publish'), 'publisher-submit');
