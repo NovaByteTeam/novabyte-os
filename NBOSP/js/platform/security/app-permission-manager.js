@@ -664,9 +664,7 @@ const AppPermissionManager = (() => {
       if (permission === PERMISSION_TYPES.SYSTEM_ROOT) {
         AppSandbox.reloadAfterRootRevocation?.(`Root permission for ${appId} was revoked`);
       }
-      // sandbox:same-origin changes the guest's effective origin/security
-      // boundary. Existing guests do not retroactively lose their sandbox
-      // token, so close them and schedule a mandatory partition wipe.
+      // Active guest contexts cannot retroactively lose security capabilities.
       AppSandbox.handlePermissionRevoked?.(permission, appId);
     }
   }
@@ -675,6 +673,7 @@ const AppPermissionManager = (() => {
     assertValidAppId(appId);
     const rootGrantExists = permissionGrants.has(makeAppScopedKey(appId, PERMISSION_TYPES.SYSTEM_ROOT));
     const sameOriginGrantExists = permissionGrants.has(makeAppScopedKey(appId, PERMISSION_TYPES.SANDBOX_SAME_ORIGIN));
+    const nestedWebviewGrantExists = permissionGrants.has(makeAppScopedKey(appId, PERMISSION_TYPES.SANDBOX_NESTED_WEBVIEW));
     const prefix = makeAppScopedKey(appId, '');
     let count = 0;
     for (const key of permissionGrants.keys()) {
@@ -690,6 +689,9 @@ const AppPermissionManager = (() => {
       }
       if (sameOriginGrantExists) {
         AppSandbox.handlePermissionRevoked?.(PERMISSION_TYPES.SANDBOX_SAME_ORIGIN, appId);
+      }
+      if (nestedWebviewGrantExists) {
+        AppSandbox.handlePermissionRevoked?.(PERMISSION_TYPES.SANDBOX_NESTED_WEBVIEW, appId);
       }
     }
     console.log(`[AppPermissionManager] Revoked all permissions for ${appId}`);

@@ -86,14 +86,29 @@
     }
   }
 
+  function getLatestReleaseNotes(app) {
+    const currentNotes = [app.releaseNotes, app.release_notes]
+      .find(notes => typeof notes === 'string' && notes.trim());
+    if (currentNotes) return currentNotes.trim();
+
+    const history = Array.isArray(app.versionHistory)
+      ? app.versionHistory
+      : Array.isArray(app.version_history) ? app.version_history : [];
+    const currentRelease = history.find(entry => entry?.version === app.version);
+    return typeof currentRelease?.notes === 'string' ? currentRelease.notes.trim() : '';
+  }
+
   function notifyUpdate(app, installed) {
     if (typeof Notify === 'undefined' || typeof Notify.show !== 'function') {
       console.warn('[StoreUpdateService] Notifications are unavailable; update notification will be retried.');
       return false;
     }
+    const releaseNotes = getLatestReleaseNotes(app);
     Notify.show({
       title: `${app.name} needs updating`,
-      body: `Version ${app.version} is available (installed: ${installed.version || 'unknown'}).`,
+      body: `Version ${app.version} is available (installed: ${installed.version || 'unknown'}).${
+        releaseNotes ? `\n\nWhat’s new in v${app.version}:\n${releaseNotes}` : ''
+      }`,
       type: 'info',
       appName: 'Store',
       appId: 'com.nbosp.store',
@@ -128,7 +143,13 @@
         if (!installed || typeof installed.id !== 'string' || installed.system === true) continue;
         const app = catalogById.get(installed.id);
         if (!app || compareVersions(app.version, installed.version) !== 1) continue;
-        updates.push({ id: app.id, name: app.name, installedVersion: installed.version, version: app.version });
+        updates.push({
+          id: app.id,
+          name: app.name,
+          installedVersion: installed.version,
+          version: app.version,
+          releaseNotes: getLatestReleaseNotes(app),
+        });
         if (notified[app.id] === app.version || !notifyUpdate(app, installed)) continue;
         notified[app.id] = app.version;
         notificationHistoryChanged = true;

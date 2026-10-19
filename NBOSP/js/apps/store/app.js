@@ -85,6 +85,79 @@
     );
   }
 
+  function getReleaseTrack(app, manifestReleaseNotes = '') {
+    const history = Array.isArray(app.versionHistory)
+      ? app.versionHistory
+      : Array.isArray(app.version_history) ? app.version_history : [];
+    const entries = history
+      .filter(entry => entry && typeof entry === 'object' && typeof entry.version === 'string')
+      .map(entry => ({
+        version: entry.version,
+        date: typeof entry.date === 'string' ? entry.date : '',
+        notes: typeof entry.notes === 'string' ? entry.notes.trim() : '',
+      }));
+    const currentNotes = [app.releaseNotes, app.release_notes, manifestReleaseNotes]
+      .find(notes => typeof notes === 'string' && notes.trim())?.trim() || '';
+    const currentIndex = entries.findIndex(entry => entry.version === app.version);
+
+    if (currentIndex !== -1) {
+      const [currentEntry] = entries.splice(currentIndex, 1);
+      if (currentNotes) currentEntry.notes = currentNotes;
+      entries.push(currentEntry);
+    } else if (typeof app.version === 'string' && app.version) {
+      entries.push({ version: app.version, date: '', notes: currentNotes });
+    }
+
+    return {
+      entries,
+      latest: entries.length ? entries[entries.length - 1] : null,
+    };
+  }
+
+  function createReleaseTrack(app, manifestReleaseNotes = '') {
+    const { entries, latest } = getReleaseTrack(app, manifestReleaseNotes);
+    const section = document.createElement('section');
+    section.className = 'detail-panel detail-release-track';
+    const heading = document.createElement('h2');
+    heading.textContent = 'Release track';
+    section.appendChild(heading);
+
+    const current = document.createElement('div');
+    current.className = 'release-track-current';
+    const currentTitle = document.createElement('h3');
+    currentTitle.textContent = latest
+      ? `Latest release · v${latest.version}`
+      : 'Latest release';
+    const currentNotes = document.createElement('p');
+    currentNotes.className = 'detail-release-notes';
+    currentNotes.textContent = latest?.notes || 'No release notes were provided for this release.';
+    current.append(currentTitle, currentNotes);
+    section.appendChild(current);
+
+    const previousEntries = entries.slice(0, -1).reverse();
+    if (previousEntries.length) {
+      const historyTitle = document.createElement('h3');
+      historyTitle.className = 'release-track-history-title';
+      historyTitle.textContent = 'Previous releases';
+      const history = document.createElement('ol');
+      history.className = 'release-track-history';
+      for (const entry of previousEntries) {
+        const item = document.createElement('li');
+        const version = document.createElement('h4');
+        version.textContent = `v${entry.version}${entry.date ? ` · ${entry.date}` : ''}`;
+        item.appendChild(version);
+        if (entry.notes) {
+          const notes = document.createElement('p');
+          notes.textContent = entry.notes;
+          item.appendChild(notes);
+        }
+        history.appendChild(item);
+      }
+      section.append(historyTitle, history);
+    }
+    return section;
+  }
+
   function notify(title, body, type = 'info') {
     if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
       Notify.show({ title, body, type, appName: 'App Store', appId: STORE_ID });
@@ -550,9 +623,14 @@
       if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
       if (typeof WM !== 'undefined' && WM.updateTaskbar) WM.updateTaskbar();
 
+      const releaseNotes = updating
+        ? getReleaseTrack(app, pkg.manifest?.releaseNotes).latest?.notes
+        : '';
       notify(
         updating ? 'App Updated' : 'App Installed',
-        `${appData.name} v${appData.version} ${updating ? 'updated' : 'installed'} successfully.`,
+        `${appData.name} v${appData.version} ${updating ? 'updated' : 'installed'} successfully.${
+          releaseNotes ? `\n\nWhat’s new in v${appData.version}:\n${releaseNotes}` : ''
+        }`,
         'success'
       );
       if (typeof rerenderCurrentView === 'function') rerenderCurrentView();
@@ -1090,14 +1168,6 @@
         description.textContent = app.description || 'The publisher has not provided a description for this app.';
         about.append(aboutTitle, description);
 
-        if (app.releaseNotes) {
-          const notesTitle = document.createElement('h3');
-          notesTitle.textContent = 'What’s new';
-          const notes = document.createElement('p');
-          notes.className = 'detail-release-notes';
-          notes.textContent = app.releaseNotes;
-          about.append(notesTitle, notes);
-        }
         contentGrid.appendChild(about);
 
         const sidebar = document.createElement('aside');
@@ -1131,24 +1201,15 @@
         sidebar.appendChild(trustNote);
         contentGrid.appendChild(sidebar);
         detail.appendChild(contentGrid);
+        let releaseTrack = createReleaseTrack(app);
+        detail.appendChild(releaseTrack);
 
         page.appendChild(detail);
         page.scrollTop = 0;
         fetchPackage(app).then(pkg => {
           if (!detail.isConnected) return;
           const manifest = pkg.manifest || {};
-          const releaseNotes = app.releaseNotes || manifest.releaseNotes;
-          if (!app.releaseNotes && typeof releaseNotes === 'string' && releaseNotes.trim()) {
-            const notes = document.createElement('section');
-            notes.className = 'detail-panel detail-release-notes-panel';
-            const heading = document.createElement('h2');
-            heading.textContent = 'What’s new';
-            const content = document.createElement('p');
-            content.className = 'detail-release-notes';
-            content.textContent = releaseNotes;
-            notes.append(heading, content);
-            detail.appendChild(notes);
-          }
+          releaseTrack.replaceWith(createReleaseTrack(app, manifest.releaseNotes));
           appendPermissionPanel(detail, manifest);
           appendLinksPanel(detail, app, manifest);
           appendScreenshots(detail, app, pkg);

@@ -648,7 +648,7 @@ const AppSandbox = (() => {
       // something. executeScript's callback is (results), not (err); the
       // injected push statement returns undefined either way, so we wrap it
       // in a try/catch that returns a boolean.
-      const code = `(function(){try{window.__novaInbox=window.__novaInbox||[];window.__novaInbox.push(JSON.parse(atob(${b64Literal})));return true;}catch(e){return false;}})();`;
+      const code = `(function(){try{var binary=atob(${b64Literal});var bytes=Uint8Array.from(binary,function(character){return character.charCodeAt(0);});var json=new TextDecoder('utf-8').decode(bytes);window.__novaInbox=window.__novaInbox||[];window.__novaInbox.push(JSON.parse(json));return true;}catch(e){return false;}})();`;
       if (typeof webview?.executeScript !== 'function') {
         log('warn', `Cannot respond to ${type}: webview executeScript unavailable`);
         return;
@@ -1087,10 +1087,10 @@ const AppSandbox = (() => {
           closeDialog();
           return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'Selected folder is outside this app\'s writable VFS');
         }
-        const content = payload.content || '';
-        const mimeType = payload.mimeType || 'text/plain';
+        let saveData;
         try {
-          const newNode = await FS.createFile(currentFolderId, name, content, mimeType);
+          saveData = normalizeVfsSavePayload(payload, name);
+          const newNode = await FS.createFile(currentFolderId, name, saveData.content, saveData.mimeType);
           closeDialog();
           respond(webview, type, requestId, {
             success: true,
@@ -1577,7 +1577,9 @@ const AppSandbox = (() => {
   }
 
   async function handleNestedWebview({ payload, requestId, app, webview, sandbox }) {
-    if (!sandbox?.nestedWebviewAllowed) {
+    if (!sandbox?.nestedWebviewOptedIn
+      || typeof AppPermissionManager === 'undefined'
+      || AppPermissionManager.isGranted('sandbox:nested-webview', app?.id) !== true) {
       return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'sandbox:nested-webview permission required');
     }
     const id = payload?.id;
@@ -1631,6 +1633,35 @@ const AppSandbox = (() => {
       // normal websites an opaque origin and prevents their cookies and
       // persistent storage from working.
       child.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;border:0;display:none;z-index:1;';
+      const contextMenuMarker = app.id === 'com.nbosp.browser'
+        ? `__NOVA_BROWSER_CONTEXT_MENU__:${generateRequestId()}:`
+        : null;
+      const contextMenuScript = `(() => {
+        if (window.__novaContextMenuBridgeInstalled) return;
+        window.__novaContextMenuBridgeInstalled = true;
+        const marker = ${JSON.stringify(contextMenuMarker)};
+        document.addEventListener('contextmenu', event => {
+          event.preventDefault();
+          const element = event.target;
+          const link = element?.closest?.('a');
+          const image = element?.tagName === 'IMG' ? element : element?.closest?.('img');
+          const selection = window.getSelection?.().toString().trim() || '';
+          const payload = {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            linkUrl: link?.href || '',
+            linkText: (link?.textContent || '').trim().slice(0, 120),
+            imageUrl: image?.src || '',
+            imageAlt: image?.alt || '',
+            selectedText: selection.slice(0, 500),
+            pageUrl: location.href,
+            pageTitle: document.title,
+          };
+          try { console.log(marker + JSON.stringify(payload)); } catch (_) {}
+        }, true);
+      })();`;
 
       // The Browser hides page scrollbars for a consistent viewport, but its
       // old loadstop-only insertCSS ran after the first paint and let the
@@ -1685,7 +1716,45 @@ const AppSandbox = (() => {
         respond(webview, 'nova:nested-webview:event', id, result);
       };
       for (const name of ['loadstart', 'loadredirect', 'loadcommit', 'loadstop', 'contentload', 'loadabort', 'loaderror', 'close', 'crashed', 'exit', 'did-fail-load', 'enter-html-full-screen', 'leave-html-full-screen', 'unresponsive', 'responsive', 'permissionrequest', 'consolemessage']) {
-        const listener = event => sendEvent(name, event);
+        const listener = event => {
+          if (name === 'loadstop' && contextMenuMarker) {
+            try {
+              child.executeScript({ code: contextMenuScript }, results => {
+                if (Array.isArray(results) && results[0] === false) {
+                  log('warn', `Could not install nested browser context menu bridge for ${app?.id || 'app'}`);
+                }
+              });
+            } catch (error) {
+              log('warn', 'Could not install nested browser context menu bridge', error);
+            }
+          }
+          if (name === 'consolemessage' && typeof event?.message === 'string' && event.message.startsWith(contextMenuMarker)) {
+            let context;
+            try { context = JSON.parse(event.message.slice(contextMenuMarker.length)); }
+            catch (error) {
+              log('warn', 'Ignored malformed nested browser context menu event', error);
+              return;
+            }
+            if (!Number.isFinite(context?.clientX) || !Number.isFinite(context?.clientY)
+              || !Number.isFinite(context?.viewportWidth) || !Number.isFinite(context?.viewportHeight)) return;
+            const bounded = value => typeof value === 'string' ? value.slice(0, 2000) : '';
+            sendEvent('contextmenu', {
+              clientX: context.clientX,
+              clientY: context.clientY,
+              viewportWidth: context.viewportWidth,
+              viewportHeight: context.viewportHeight,
+              linkUrl: bounded(context.linkUrl),
+              linkText: bounded(context.linkText),
+              imageUrl: bounded(context.imageUrl),
+              imageAlt: bounded(context.imageAlt),
+              selectedText: bounded(context.selectedText),
+              pageUrl: bounded(context.pageUrl),
+              pageTitle: bounded(context.pageTitle),
+            });
+            return;
+          }
+          sendEvent(name, event);
+        };
         child.addEventListener(name, listener);
         cleanups.push(() => child.removeEventListener(name, listener));
       }
@@ -1869,6 +1938,246 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Unsupported nested webview operation');
     }
     return respond(webview, 'nova:nested-webview', requestId, { success: true });
+  }
+
+  async function handleContextMenuShow({ payload, requestId, app, webview, sandbox }) {
+    if (!isNestedWebviewPermitted(app)) {
+      return respondError(webview, 'nova:context-menu:show', requestId, 'PERMISSION_DENIED', 'sandbox:nested-webview permission required');
+    }
+    const hostContextMenu = window.ContextMenu;
+    if (typeof hostContextMenu?.show !== 'function'
+      || typeof webview?.getBoundingClientRect !== 'function'
+      || !sandbox) {
+      return respondError(webview, 'nova:context-menu:show', requestId, 'UNAVAILABLE', 'Host context menus are unavailable');
+    }
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    const items = payload?.items;
+    if (!Number.isFinite(x) || !Number.isFinite(y)
+      || !Array.isArray(items) || items.length === 0 || items.length > 100) {
+      return respondError(webview, 'nova:context-menu:show', requestId, 'INVALID_ARGS', 'A context menu requires finite coordinates and 1-100 items');
+    }
+
+    const menuItems = [];
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return respondError(webview, 'nova:context-menu:show', requestId, 'INVALID_ARGS', 'Each context menu item must be an object');
+      }
+      if (item.separator === true) {
+        menuItems.push({ separator: true });
+        continue;
+      }
+      if (typeof item.label !== 'string' || !item.label.trim() || item.label.length > 120
+        || (item.icon !== undefined && (typeof item.icon !== 'string' || item.icon.length > 64))
+        || (item.shortcut !== undefined && (typeof item.shortcut !== 'string' || item.shortcut.length > 32))
+        || (item.disabled !== undefined && typeof item.disabled !== 'boolean')
+        || (item.danger !== undefined && typeof item.danger !== 'boolean')) {
+        return respondError(webview, 'nova:context-menu:show', requestId, 'INVALID_ARGS', 'Invalid context menu item');
+      }
+      menuItems.push({
+        label: item.label,
+        icon: item.icon,
+        shortcut: item.shortcut,
+        disabled: item.disabled === true,
+        danger: item.danger === true,
+        _selectionIndex: menuItems.length,
+      });
+    }
+    if (!menuItems.some(item => !item.separator)) {
+      return respondError(webview, 'nova:context-menu:show', requestId, 'INVALID_ARGS', 'A context menu must contain a selectable item');
+    }
+
+    const rect = webview.getBoundingClientRect();
+    let resolveSelection;
+    const selection = new Promise(resolve => { resolveSelection = resolve; });
+    sandbox.contextMenuCleanup?.();
+    let menuElement;
+    const cleanup = () => {
+      if (sandbox.contextMenuCleanup === cleanup) sandbox.contextMenuCleanup = null;
+      hostContextMenu.hide(menuElement);
+    };
+    menuElement = hostContextMenu.show(rect.left + x, rect.top + y, menuItems, resolveSelection);
+    sandbox.contextMenuCleanup = cleanup;
+
+    const selectedIndex = await selection;
+    if (sandbox.contextMenuCleanup === cleanup) sandbox.contextMenuCleanup = null;
+    return respond(webview, 'nova:context-menu:show', requestId, {
+      cancelled: selectedIndex === null,
+      index: selectedIndex,
+    });
+  }
+
+  async function handleContextMenuHide({ requestId, webview, sandbox }) {
+    const wasOpen = typeof sandbox?.contextMenuCleanup === 'function';
+    sandbox?.contextMenuCleanup?.();
+    return respond(webview, 'nova:context-menu:hide', requestId, { success: true, wasOpen });
+  }
+
+  async function handleOverlayShow({ payload, requestId, app, webview, sandbox }) {
+    if (!isNestedWebviewPermitted(app)) {
+      return respondError(webview, 'nova:overlay:show', requestId, 'PERMISSION_DENIED', 'sandbox:nested-webview permission required');
+    }
+    if (typeof document === 'undefined'
+      || typeof document.createElement !== 'function'
+      || typeof document.body?.appendChild !== 'function'
+      || typeof DOMPurify === 'undefined'
+      || typeof DOMPurify.sanitize !== 'function'
+      || typeof webview?.getBoundingClientRect !== 'function'
+      || !sandbox) {
+      return respondError(webview, 'nova:overlay:show', requestId, 'UNAVAILABLE', 'Host app overlays are unavailable');
+    }
+
+    const html = payload?.html;
+    const css = payload?.css === undefined ? '' : payload.css;
+    const bounds = payload?.bounds && typeof payload.bounds === 'object' ? payload.bounds : {};
+    const initialRect = webview.getBoundingClientRect();
+    if (typeof html !== 'string' || html.length > 100_000
+      || typeof css !== 'string' || css.length > 50_000) {
+      return respondError(webview, 'nova:overlay:show', requestId, 'INVALID_ARGS', 'Overlay HTML and CSS must be strings within the size limits');
+    }
+    const requested = [
+      bounds.left ?? 0,
+      bounds.top ?? 0,
+      bounds.width ?? webview.clientWidth ?? initialRect.width,
+      bounds.height ?? webview.clientHeight ?? initialRect.height,
+    ].map(Number);
+    if (!requested.every(Number.isFinite) || requested[2] <= 0 || requested[3] <= 0) {
+      return respondError(webview, 'nova:overlay:show', requestId, 'INVALID_ARGS', 'Overlay bounds require finite coordinates and positive dimensions');
+    }
+
+    let sanitizedHtml;
+    try {
+      sanitizedHtml = DOMPurify.sanitize(html, {
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'base', 'meta', 'link'],
+        FORBID_ATTR: ['srcdoc'],
+      });
+    } catch (error) {
+      return respondError(webview, 'nova:overlay:show', requestId, 'SANITIZE_FAILED', error?.message || 'Could not sanitize overlay HTML');
+    }
+
+    const iframe = document.createElement('iframe');
+    const hostWindow = sandbox.state?.element;
+    const overlayParent = hostWindow?.isConnected && typeof hostWindow.appendChild === 'function'
+      ? hostWindow
+      : document.body;
+    const windowScoped = overlayParent !== document.body;
+    iframe.setAttribute('sandbox', 'allow-same-origin');
+    iframe.setAttribute('aria-label', `${app.name || app.id} overlay`);
+    iframe.style.position = windowScoped ? 'absolute' : 'fixed';
+    iframe.style.border = '0';
+    iframe.style.zIndex = '2147483647';
+    iframe.style.background = 'transparent';
+    iframe.style.display = 'block';
+    iframe.style.overflow = 'hidden';
+    const csp = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src 'none'; connect-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
+    iframe.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;min-height:100%;background:transparent}</style></head><body></body></html>`;
+
+    const overlayId = generateRequestId();
+    const cleanups = [];
+    let responseSent = false;
+    const updateBounds = () => {
+      if (!iframe.isConnected) return;
+      const rect = webview.getBoundingClientRect();
+      const maxWidth = Math.max(0, webview.clientWidth || rect.width);
+      const maxHeight = Math.max(0, webview.clientHeight || rect.height);
+      const left = Math.max(0, Math.min(maxWidth, requested[0]));
+      const top = Math.max(0, Math.min(maxHeight, requested[1]));
+      let hostLeft = rect.left + left;
+      let hostTop = rect.top + top;
+      if (windowScoped) {
+        const windowRect = hostWindow.getBoundingClientRect();
+        hostLeft -= windowRect.left;
+        hostTop -= windowRect.top;
+      }
+      iframe.style.left = `${hostLeft}px`;
+      iframe.style.top = `${hostTop}px`;
+      iframe.style.width = `${Math.min(requested[2], maxWidth - left)}px`;
+      iframe.style.height = `${Math.min(requested[3], maxHeight - top)}px`;
+    };
+    const cleanup = () => {
+      if (sandbox.overlayCleanup === cleanup) sandbox.overlayCleanup = null;
+      if (!responseSent) {
+        responseSent = true;
+        respondError(webview, 'nova:overlay:show', requestId, 'CANCELLED', 'Overlay was closed before rendering completed');
+      }
+      for (const remove of cleanups) remove();
+      iframe.remove();
+    };
+    sandbox.overlayCleanup?.();
+    sandbox.overlayCleanup = cleanup;
+    const renderTimeout = setTimeout(() => {
+      if (responseSent) return;
+      responseSent = true;
+      cleanup();
+      respondError(webview, 'nova:overlay:show', requestId, 'RENDER_FAILED', 'Timed out while loading the host overlay');
+    }, 15_000);
+    cleanups.push(() => clearTimeout(renderTimeout));
+
+    const onLoad = () => {
+      if (sandbox.overlayCleanup !== cleanup) {
+        cleanup();
+        return;
+      }
+      try {
+        const overlayDocument = iframe.contentDocument;
+        if (!overlayDocument?.body || !overlayDocument.head) throw new Error('Overlay document is unavailable');
+        const style = overlayDocument.createElement('style');
+        style.textContent = css;
+        overlayDocument.head.appendChild(style);
+        overlayDocument.body.innerHTML = sanitizedHtml;
+
+        const forwardEvent = event => {
+          const eventTarget = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
+          if (event.type === 'submit' || eventTarget?.closest?.('a')) event.preventDefault();
+          const target = eventTarget?.closest?.('[data-nova-action], [data-nova-field]');
+          if (!target) return;
+          const result = {
+            overlayId,
+            type: event.type,
+            action: target.getAttribute('data-nova-action')?.slice(0, 100) || null,
+            field: target.getAttribute('data-nova-field')?.slice(0, 100) || null,
+          };
+          if (typeof target.value === 'string') result.value = target.value.slice(0, 4096);
+          if (typeof target.checked === 'boolean') result.checked = target.checked;
+          if (typeof event.key === 'string') result.key = event.key.slice(0, 64);
+          respond(webview, 'nova:overlay:event', generateRequestId(), result);
+        };
+        for (const eventName of ['click', 'input', 'change', 'submit', 'keydown']) {
+          overlayDocument.addEventListener(eventName, forwardEvent);
+          cleanups.push(() => overlayDocument.removeEventListener(eventName, forwardEvent));
+        }
+        updateBounds();
+        window.addEventListener('resize', updateBounds);
+        window.addEventListener('scroll', updateBounds, true);
+        window.addEventListener('pointermove', updateBounds, { passive: true });
+        cleanups.push(() => {
+          window.removeEventListener('resize', updateBounds);
+          window.removeEventListener('scroll', updateBounds, true);
+          window.removeEventListener('pointermove', updateBounds);
+        });
+        responseSent = true;
+        return respond(webview, 'nova:overlay:show', requestId, { success: true, overlayId });
+      } catch (error) {
+        responseSent = true;
+        cleanup();
+        return respondError(webview, 'nova:overlay:show', requestId, 'RENDER_FAILED', error?.message || 'Could not render app overlay');
+      }
+    };
+    iframe.addEventListener('load', onLoad, { once: true });
+    iframe.addEventListener('error', () => {
+      if (responseSent) return;
+      responseSent = true;
+      cleanup();
+      respondError(webview, 'nova:overlay:show', requestId, 'RENDER_FAILED', 'Could not load the host overlay document');
+    }, { once: true });
+    overlayParent.appendChild(iframe);
+    return undefined;
+  }
+
+  async function handleOverlayHide({ requestId, webview, sandbox }) {
+    const wasOpen = typeof sandbox?.overlayCleanup === 'function';
+    sandbox?.overlayCleanup?.();
+    return respond(webview, 'nova:overlay:hide', requestId, { success: true, wasOpen });
   }
 
   // Permission requests
@@ -5148,6 +5457,59 @@ const AppSandbox = (() => {
     }
   }
 
+  function normalizeVfsSavePayload(payload, filename) {
+    let content = typeof payload?.content === 'string' ? payload.content : '';
+    let mimeType = typeof payload?.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(payload.mimeType)
+      ? payload.mimeType
+      : '';
+    const dataUrl = content.match(/^data:([^,]*),(.*)$/is);
+    let base64Data = false;
+
+    if (dataUrl) {
+      const [mediaType = '', ...parameters] = dataUrl[1].split(';');
+      const isBase64 = parameters.some(parameter => parameter.toLowerCase() === 'base64');
+      mimeType = /^[\w.+-]+\/[\w.+-]+$/.test(mediaType) ? mediaType : mimeType;
+      base64Data = isBase64;
+      if (!isBase64) {
+        if (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml') {
+          throw new Error('Image data must be provided as Base64 or a Base64 data URL.');
+        }
+        try {
+          content = decodeURIComponent(dataUrl[2]);
+        } catch {
+          throw new Error('The selected data URL is malformed.');
+        }
+      } else {
+        content = dataUrl[2].replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      }
+    }
+
+    const extension = String(filename || '').match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+    const imageMimeTypes = {
+      gif: 'image/gif',
+      jpeg: 'image/jpeg',
+      jpg: 'image/jpeg',
+      png: 'image/png',
+      svg: 'image/svg+xml',
+      webp: 'image/webp',
+    };
+    if ((!mimeType || mimeType === 'text/plain' || mimeType === 'application/octet-stream') && imageMimeTypes[extension]) {
+      mimeType = imageMimeTypes[extension];
+    }
+    mimeType ||= 'text/plain';
+
+    if (mimeType.startsWith('image/') && (mimeType !== 'image/svg+xml' || base64Data)) {
+      const base64 = content.replace(/\s/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      const paddedBase64 = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+      if (!paddedBase64 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(paddedBase64)) {
+        throw new Error('Image content must be valid Base64 data.');
+      }
+      content = paddedBase64;
+    }
+
+    return { content, mimeType };
+  }
+
   async function handleSysDialogSave({ payload, requestId, app, webview }) {
     const broadAccess = hasVfsAccess(app.id);
     if (!hasVfsWrite(app.id)) {
@@ -5167,8 +5529,7 @@ const AppSandbox = (() => {
       if (!resolveFile({ id: picked.folderId }, app.id, true, broadAccess)) {
         return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected folder is outside this app\'s writable VFS');
       }
-      const content = payload?.content || '';
-      const mimeType = payload?.mimeType || 'text/plain';
+      const { content, mimeType } = normalizeVfsSavePayload(payload, picked.name);
       const existing = FS.listDir(picked.folderId).find(node =>
         node.type === 'file' && node.name === picked.name
       );
@@ -5176,7 +5537,7 @@ const AppSandbox = (() => {
         return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s writable VFS');
       }
       const newNode = existing
-        ? await FS.writeFile(existing.id, content)
+        ? await FS.writeFile(existing.id, content, mimeType)
         : await FS.createFile(picked.folderId, picked.name, content, mimeType);
       if (!newNode) throw new Error('Unable to write the selected file');
       respond(webview, 'nova:sysdialog:save', requestId, {
@@ -5240,14 +5601,17 @@ const AppSandbox = (() => {
     if (typeof payload?.content !== 'string') {
       return respondError(webview, 'nova:files:save', requestId, 'INVALID_ARGS', 'content must be a string up to 10 MB');
     }
-    const size = new TextEncoder().encode(payload.content).byteLength;
+    let saveData;
+    try {
+      saveData = normalizeVfsSavePayload(payload, payload.filename);
+    } catch (error) {
+      return respondError(webview, 'nova:files:save', requestId, 'INVALID_ARGS', error?.message || 'Invalid file content');
+    }
+    const size = new TextEncoder().encode(saveData.content).byteLength;
     if (size > 10_000_000) {
       return respondError(webview, 'nova:files:save', requestId, 'INVALID_ARGS', 'content must be a string up to 10 MB');
     }
     const suggestedName = typeof payload.filename === 'string' ? payload.filename.slice(0, 255) : '';
-    const mimeType = typeof payload.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(payload.mimeType)
-      ? payload.mimeType
-      : 'text/plain';
     try {
       const picked = await window.SystemDialogs.save({
         title: typeof payload.title === 'string' ? payload.title.slice(0, 100) : 'Save file',
@@ -5267,13 +5631,18 @@ const AppSandbox = (() => {
       if (existing && !canPickerAccess(existing, app.id, { writable: true, sharedWrite: true })) {
         return respondError(webview, 'nova:files:save', requestId, 'PERMISSION_DENIED', 'Selected file is outside the accessible VFS');
       }
+      const finalSaveData = normalizeVfsSavePayload(payload, picked.name);
+      const finalSize = new TextEncoder().encode(finalSaveData.content).byteLength;
+      if (finalSize > 10_000_000) {
+        return respondError(webview, 'nova:files:save', requestId, 'INVALID_ARGS', 'content must be a string up to 10 MB');
+      }
       const saved = existing
-        ? await FS.writeFile(existing.id, payload.content)
-        : await FS.createFile(picked.folderId, picked.name, payload.content, mimeType);
+        ? await FS.writeFile(existing.id, finalSaveData.content, finalSaveData.mimeType)
+        : await FS.createFile(picked.folderId, picked.name, finalSaveData.content, finalSaveData.mimeType);
       if (!saved) throw new Error('Could not save the selected file');
       return respond(webview, 'nova:files:save', requestId, {
         cancelled: false,
-        file: { name: saved.name, path: FS.getPath(saved.id), mimeType: saved.mimeType || mimeType, size },
+        file: { name: saved.name, path: FS.getPath(saved.id), mimeType: saved.mimeType || finalSaveData.mimeType, size: finalSize },
       });
     } catch (error) {
       return respondError(webview, 'nova:files:save', requestId, 'PICKER_ERROR', error?.message || 'Could not save the selected file');
@@ -5336,6 +5705,10 @@ const AppSandbox = (() => {
 
   const API_HANDLERS = {
     'nova:nested-webview': handleNestedWebview,
+    'nova:context-menu:show': handleContextMenuShow,
+    'nova:context-menu:hide': handleContextMenuHide,
+    'nova:overlay:show': handleOverlayShow,
+    'nova:overlay:hide': handleOverlayHide,
     'nova:files:open': handleScopedFileOpen,
     'nova:files:save': handleScopedFileSave,
     'nova:share': handleShare,
@@ -5713,17 +6086,23 @@ const AppSandbox = (() => {
   // The shim also exposes window.nova for apps that want to call the IPC
   // bridge directly (e.g. to request permissions or subscribe to events).
 
-  // Whether sandboxed guest content may instantiate its own nested
-  // <webview>. Every sandboxed package must opt in in its manifest and hold
-  // the separate sandbox:nested-webview grant. Fail closed on errors.
-  function isNestedWebviewPermitted(app) {
+  // A package may opt in to mediated nested webviews with allowNestedWebview
+  // or by declaring sandbox:nested-webview. The API can then be exposed
+  // before consent so apps can request the grant at runtime; every host
+  // operation still checks the active user-controlled grant.
+  function isNestedWebviewOptedIn(app) {
     if (!app) return false;
-    // Prefer the flattened launch field, but accept the original manifest
-    // too. Some install/restore paths preserve the manifest and permissions
-    // while omitting the flattened convenience field.
-    const manifestOptIn = app.allowNestedWebview === true
-      || app.manifest?.allowNestedWebview === true;
-    if (!manifestOptIn) return false;
+    const declaredPermissions = [
+      ...(Array.isArray(app.permissions) ? app.permissions : []),
+      ...(Array.isArray(app.manifest?.permissions) ? app.manifest.permissions : []),
+    ];
+    return app.allowNestedWebview === true
+      || app.manifest?.allowNestedWebview === true
+      || declaredPermissions.includes('sandbox:nested-webview');
+  }
+
+  function isNestedWebviewPermitted(app) {
+    if (!isNestedWebviewOptedIn(app)) return false;
     try {
       return AppPermissionManager?.isGranted('sandbox:nested-webview', app.id) === true;
     } catch (_) {
@@ -6011,20 +6390,17 @@ const AppSandbox = (() => {
   });`;
   }
 
-  // Builds the capability shim string for a given app. `nestedWebviewAllowed`
-  // is baked in as a literal at injection time (not re-checked async inside
-  // the guest — permission grants are host-side and the guest has no safe
-  // synchronous way to ask), so this must be regenerated per-app/per-load
-  // rather than reused as a static constant.
-  function buildCapabilityShim(nestedWebviewAllowed, initialUrl = null) {
+  // Builds the capability shim string for a given app. Whether the package
+  // opted in is baked in at injection time; user permission is checked on
+  // each host operation so a runtime grant can enable the API without reload.
+  function buildCapabilityShim(nestedWebviewOptedIn, initialUrl = null) {
   return `<script>
 (function() {
   'use strict';
   const REQUEST_TIMEOUT_MS = 30000;
-  // Baked in at injection time from the host-side permission check —
-  // see isNestedWebviewPermitted() in app-sandbox.js. Never trust a guest
-  // to self-report this.
-  const __NOVA_NESTED_WEBVIEW_ALLOWED__ = ${nestedWebviewAllowed ? 'true' : 'false'};
+  // Baked in from the package manifest. Actual permission is checked by the
+  // host for every nested-webview IPC request.
+  const __NOVA_NESTED_WEBVIEW_OPTED_IN__ = ${nestedWebviewOptedIn ? 'true' : 'false'};
   let __NOVA_PENDING_INITIAL_URL__ = ${JSON.stringify(initialUrl)};
 
   // A handful of channels block on a human making a decision in a native
@@ -6039,6 +6415,7 @@ const AppSandbox = (() => {
   // surfaces as an error rather than hanging the caller forever.
   const INTERACTIVE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
   const INTERACTIVE_CHANNELS = {
+    'nova:context-menu:show': true,
     'nova:download': true,
     'nova:share': true,
     'nova:files:open': true,
@@ -6200,6 +6577,13 @@ const AppSandbox = (() => {
       return;
     }
 
+    if (msg.type === 'nova:overlay:event:response' && msg.result) {
+      for (let i = 0; i < overlayListeners.length; i++) {
+        try { overlayListeners[i](msg.result); } catch (_) {}
+      }
+      return;
+    }
+
     // Pushed WebSocket events (message/error/close) — also unprompted,
     // sent with a fresh requestId that was never registered in
     // pendingRequests, so without this branch they'd hit the
@@ -6356,6 +6740,7 @@ const AppSandbox = (() => {
   // these unprompted, not in response to a specific ipc() call, so they
   // need their own dispatch rather than the requestId-keyed one above).
   const eventListeners = {}; // eventName -> [callback, ...]
+  const overlayListeners = [];
   const appearanceListeners = [];
   let appearanceSubscriptionPromise = null;
   const launchListeners = [];
@@ -6408,6 +6793,30 @@ const AppSandbox = (() => {
           if (index >= 0) appearanceListeners.splice(index, 1);
           throw error;
         });
+      },
+      contextMenu: {
+        show: function(x, y, items) {
+          return ipc('nova:context-menu:show', { x: x, y: y, items: items });
+        },
+        hide: function() {
+          return ipc('nova:context-menu:hide', {});
+        },
+      },
+      overlay: {
+        show: function(options) {
+          return ipc('nova:overlay:show', options || {});
+        },
+        hide: function() {
+          return ipc('nova:overlay:hide', {});
+        },
+        onEvent: function(callback) {
+          if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+          overlayListeners.push(callback);
+          return function() {
+            const index = overlayListeners.indexOf(callback);
+            if (index >= 0) overlayListeners.splice(index, 1);
+          };
+        },
       },
     },
     app: {
@@ -7131,11 +7540,9 @@ const AppSandbox = (() => {
   // capability than anything else this shim gates, since none of the outer
   // sandbox's own webview attributes (nodeintegration, partition, sandbox
   // tokens) apply to a tag the guest instantiates itself. Blocked by
-  // default; only bypassed when the host baked in
-  // __NOVA_NESTED_WEBVIEW_ALLOWED__ = true for this specific app (system
-  // apps, or a .novaapp that both declared allowNestedWebview in its
-  // manifest AND holds the 'sandbox:nested-webview' grant — see
-  // isNestedWebviewPermitted() host-side).
+  // default; only mediated when the host baked in
+  // __NOVA_NESTED_WEBVIEW_OPTED_IN__ = true for this package. Every operation
+  // is still checked against the current sandbox:nested-webview grant.
   //
   // Three insertion paths are covered, since blocking only one leaves the
   // others wide open:
@@ -7153,7 +7560,7 @@ const AppSandbox = (() => {
   // The old navigation delay was only a timing workaround and still created
   // a native guest inside the app's guest. The proxy below instead creates
   // permitted native webviews as siblings of the outer app webview.
-  if (__NOVA_NESTED_WEBVIEW_ALLOWED__) {
+  if (__NOVA_NESTED_WEBVIEW_OPTED_IN__) {
     const originalCreateElementForNav = Document.prototype.createElement;
     Document.prototype.createElement = function(tagName, options) {
       const el = originalCreateElementForNav.call(this, tagName, options);
@@ -7190,7 +7597,7 @@ const AppSandbox = (() => {
     };
   }
 
-  if (__NOVA_NESTED_WEBVIEW_ALLOWED__) {
+  if (__NOVA_NESTED_WEBVIEW_OPTED_IN__) {
     const nativeCreateElement = Document.prototype.createElement;
     const nestedProxies = new Map();
     window.__novaNestedWebviewProxies = nestedProxies;
@@ -7474,6 +7881,24 @@ const AppSandbox = (() => {
             });
           }
         };
+        this._onContextMenu = event => {
+          const rect = element.getBoundingClientRect();
+          const viewportWidth = Number(event.viewportWidth) || rect.width || 1;
+          const viewportHeight = Number(event.viewportHeight) || rect.height || 1;
+          const scaleX = rect.width / viewportWidth;
+          const scaleY = rect.height / viewportHeight;
+          this._emit('contextmenu', {
+            clientX: rect.left + Number(event.clientX) * scaleX,
+            clientY: rect.top + Number(event.clientY) * scaleY,
+            linkUrl: event.linkUrl || '',
+            linkText: event.linkText || '',
+            imageUrl: event.imageUrl || '',
+            imageAlt: event.imageAlt || '',
+            selectedText: event.selectedText || '',
+            pageUrl: event.pageUrl || '',
+            pageTitle: event.pageTitle || '',
+          });
+        };
         element.addEventListener('loadstart', this._onLoadStart);
         element.addEventListener('loadredirect', this._onLoadRedirect);
         element.addEventListener('loadcommit', this._onLoadCommit);
@@ -7484,6 +7909,7 @@ const AppSandbox = (() => {
         element.addEventListener('crashed', this._onCrash);
         element.addEventListener('newwindow', this._onNewWindow);
         element.addEventListener('permissionrequest', this._onPermissionRequest);
+        element.addEventListener('contextmenu', this._onContextMenu);
         if (pollingInterval > 0) {
           this._pollTimer = setInterval(() => {
             this.refreshState().catch(error => this._reportStateError(error));
@@ -7615,6 +8041,7 @@ const AppSandbox = (() => {
         this.element.removeEventListener('crashed', this._onCrash);
         this.element.removeEventListener('newwindow', this._onNewWindow);
         this.element.removeEventListener('permissionrequest', this._onPermissionRequest);
+        this.element.removeEventListener('contextmenu', this._onContextMenu);
         this.element.remove();
         this._emit('destroy', {});
       }
@@ -7672,7 +8099,7 @@ const AppSandbox = (() => {
     });
   }
 
-  if (!__NOVA_NESTED_WEBVIEW_ALLOWED__) {
+  if (!__NOVA_NESTED_WEBVIEW_OPTED_IN__) {
     const originalCreateElement = Document.prototype.createElement;
     Document.prototype.createElement = function(tagName, options) {
       if (typeof tagName === 'string' && tagName.toLowerCase() === 'webview') {
@@ -7841,14 +8268,14 @@ const AppSandbox = (() => {
   function injectCapabilityShim(html, app, launchOptions = {}) {
     if (typeof html !== 'string') return html;
     html = deferPackagedScripts(html);
-    const allowNestedWebview = isNestedWebviewPermitted(app);
+    const nestedWebviewOptedIn = isNestedWebviewOptedIn(app);
     const allowExternalFrames = isExternalFramesPermitted(app);
-    const initialUrl = allowNestedWebview
+    const initialUrl = isNestedWebviewPermitted(app)
       && typeof launchOptions.url === 'string'
       && canNestedWebviewNavigate(app, launchOptions.url)
       ? resolveAndClassifyUrl(launchOptions.url).url
       : null;
-    const shim = buildCapabilityShim(allowNestedWebview, initialUrl);
+    const shim = buildCapabilityShim(nestedWebviewOptedIn, initialUrl);
     const cspMeta = buildRelaxedCspMeta(allowExternalFrames);
     // Add transparent document-root styling through the same unconditional
     // prefix path as the capability shim. This works for fragments or HTML
@@ -8184,7 +8611,7 @@ const AppSandbox = (() => {
     // crypto.randomUUID for collision resistance — Date.now() alone can
     // collide if two sandboxes are created in the same millisecond.
     const sandboxId = generateSandboxId(app.id);
-    const nestedWebviewAllowed = isNestedWebviewPermitted(app);
+    const nestedWebviewOptedIn = isNestedWebviewOptedIn(app);
 
     // Isolated storage partition, keyed by app.id ONLY (not sandboxId).
     // The 'persist:' prefix makes a given partition NAME durable across
@@ -8321,7 +8748,7 @@ const AppSandbox = (() => {
       wsConnections: new Map(),
       nestedWebviews: new Map(),
       pendingNewWindows: new Map(),
-      nestedWebviewAllowed,
+      nestedWebviewOptedIn,
       openFile,
       homeSurface: state?.homeSurface === true,
       homeLoadTimer: null,
@@ -8377,6 +8804,10 @@ const AppSandbox = (() => {
 
   function cleanupSandboxRecord(sandboxRecord, teardownFns = []) {
     if (!sandboxRecord) return;
+    try { sandboxRecord.contextMenuCleanup?.(); } catch (e) { log('debug', 'context menu cleanup step threw', e); }
+    sandboxRecord.contextMenuCleanup = null;
+    try { sandboxRecord.overlayCleanup?.(); } catch (e) { log('debug', 'app overlay cleanup step threw', e); }
+    sandboxRecord.overlayCleanup = null;
     for (const entry of sandboxRecord.nestedWebviews?.values() || []) {
       for (const cleanup of entry.cleanups || []) {
         try { cleanup(); } catch (e) { log('debug', 'nested webview cleanup step threw', e); }
@@ -8734,12 +9165,28 @@ const AppSandbox = (() => {
     }
   }
 
-  // Called by AppPermissionManager when a live app loses sandbox:same-origin.
-  // Close all of that app's guests immediately and require a partition wipe;
-  // the wipe runs once no sibling window can still be using the shared app id
-  // partition. The next launch awaits/retries it before creating a renderer.
+  // Called by AppPermissionManager when a live app loses a sandbox capability.
   function handlePermissionRevoked(permission, appId) {
-    if (permission !== 'sandbox:same-origin' || !appId) return false;
+    if (!appId) return false;
+    if (permission === 'sandbox:nested-webview') {
+      for (const sandbox of activeSandboxes.values()) {
+        if (sandbox.appId !== appId) continue;
+        try { sandbox.overlayCleanup?.(); } catch (error) { log('warn', 'App overlay cleanup failed after permission revocation', error); }
+        for (const entry of sandbox.nestedWebviews?.values() || []) {
+          for (const cleanup of entry.cleanups || []) {
+            try { cleanup(); } catch (error) { log('warn', 'Nested webview cleanup failed after permission revocation', error); }
+          }
+          try { entry.view.remove(); } catch (error) { log('warn', 'Nested webview removal failed after permission revocation', error); }
+        }
+        sandbox.nestedWebviews?.clear();
+        for (const pending of sandbox.pendingNewWindows?.values() || []) {
+          try { pending.discard(); } catch (error) { log('warn', 'Pending popup cleanup failed after permission revocation', error); }
+        }
+        sandbox.pendingNewWindows?.clear();
+      }
+      return true;
+    }
+    if (permission !== 'sandbox:same-origin') return false;
     partitionCleanupRequired.add(appId);
     const affected = [...activeSandboxes.entries()]
       .filter(([, sandbox]) => sandbox.appId === appId)
@@ -9122,12 +9569,15 @@ const AppSandbox = (() => {
       parsePositiveInt,
       validateStorageKey,
       handleAPICall,
+      respond,
+      normalizeVfsSavePayload,
       setupAPIBridge,
       API_HANDLERS,
       buildCapabilityShim,
       buildNovaOSFacadeSource,
       deferPackagedScripts,
       buildIsolatedTransportScript,
+      isNestedWebviewOptedIn,
       isNestedWebviewPermitted,
       RELAXED_CSP_META,
       // Test-only helpers for resetting module state between tests.

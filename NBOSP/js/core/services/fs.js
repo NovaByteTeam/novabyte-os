@@ -239,10 +239,11 @@ const FS = {
     return node;
   },
 
-  async writeFile(id, content) {
+  async writeFile(id, content, mimeType) {
     const node = this.files.get(id);
     if (!node) return null;
     node.content = content;
+    if (typeof mimeType === 'string' && mimeType) node.mimeType = mimeType;
     node.size = new Blob([content]).size;
     node.modified = Date.now();
     try { node.sha256 = await OS.workers.crypto.call('sha256', content); } catch (e) { }

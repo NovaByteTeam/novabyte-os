@@ -840,9 +840,55 @@
 
 .detail-permissions,
 .detail-links,
+.detail-release-track,
 .detail-release-notes-panel,
 .detail-screenshots {
   margin-top: 14px;
+}
+
+.detail-release-track h3 {
+  margin: 0 0 8px;
+  color: var(--store-text);
+  font-size: 12px;
+}
+
+.release-track-current {
+  padding: 12px;
+  border: 1px solid rgba(110, 220, 177, 0.16);
+  border-radius: 10px;
+  background: rgba(62, 171, 132, 0.06);
+}
+
+.release-track-history-title {
+  margin-top: 18px !important;
+}
+
+.release-track-history {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.release-track-history li {
+  padding: 10px 12px;
+  border-left: 2px solid rgba(116, 183, 255, 0.3);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.release-track-history h4 {
+  margin: 0 0 5px;
+  color: #cfdae8;
+  font-size: 11px;
+}
+
+.release-track-history p {
+  margin: 0;
+  color: #b4c1d1;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-line;
 }
 
 .detail-metadata-note {

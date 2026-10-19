@@ -2,6 +2,28 @@ import { describe, it, expect, vi } from 'vitest';
 import AppSandbox from '../../js/platform/security/app-sandbox.js';
 
 describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
+  it('preserves Unicode in host-to-app VFS responses', () => {
+    const guestWindow = {};
+    const webview = {
+      executeScript: ({ code }, callback) => {
+        const delivered = new Function('window', `return ${code}`)(guestWindow);
+        callback([delivered]);
+      },
+    };
+    const content = 'A — café — 日本語 😀';
+
+    AppSandbox._internal.respond(webview, 'nova:dialog:open', 'unicode-file-open', {
+      success: true,
+      file: { name: 'notes.txt', content },
+    });
+
+    expect(guestWindow.__novaInbox[0]).toMatchObject({
+      type: 'nova:dialog:open:response',
+      requestId: 'unicode-file-open',
+      result: { file: { content } },
+    });
+  });
+
   it('runs a root-enabled Home app in the host instead of forcing it into a sandbox', async () => {
     AppSandbox._internal._resetState();
     const init = vi.fn();
@@ -138,6 +160,10 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(shim).toContain('openWith: function(fileId)');
     expect(shim).toContain('appearance: {');
     expect(shim).toContain('set: function(appearance)');
+    expect(shim).toContain('contextMenu: {');
+    expect(shim).toContain("ipc('nova:context-menu:show'");
+    expect(shim).toContain('overlay: {');
+    expect(shim).toContain("ipc('nova:overlay:show'");
     expect(shim).toContain('launch: function(appId, options)');
     expect(shim).toContain('onStateChange: function(callback)');
     expect(shim).toContain('share: function(data)');
@@ -317,7 +343,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     const shim = AppSandbox._internal.buildCapabilityShim(false);
     const script = shim.slice(shim.indexOf('<script>') + 8, shim.lastIndexOf('</script>'));
 
-    expect(shim).toContain('const __NOVA_NESTED_WEBVIEW_ALLOWED__ = false;');
+    expect(shim).toContain('const __NOVA_NESTED_WEBVIEW_OPTED_IN__ = false;');
     expect(() => new Function(script)).not.toThrow();
     expect(AppSandbox._internal.API_HANDLERS['nova:nested-webview']).toBeTypeOf('function');
   });
@@ -467,13 +493,63 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       'nova:nested-webview',
       { action: 'create', id: 'nvw_test' },
       'request-test',
-      { id: 'third-party.app' },
+      { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
       webview,
-      { nestedWebviewAllowed: false }
+      { nestedWebviewOptedIn: false }
     );
 
     expect(responses).toHaveLength(1);
     expect(responses[0].error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('exposes opted-in browser APIs before consent but enforces the grant on the host', async () => {
+    const responses = [];
+    const app = {
+      id: 'com.novabrowser.app',
+      manifest: { permissions: ['net:external', 'sandbox:nested-webview'] },
+    };
+    vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => false) });
+
+    try {
+      const html = AppSandbox._internal.injectCapabilityShim('<!doctype html><html></html>', app);
+      expect(html).toContain('const __NOVA_NESTED_WEBVIEW_OPTED_IN__ = true;');
+      expect(AppSandbox._internal.isNestedWebviewPermitted(app)).toBe(false);
+
+      await AppSandbox._internal.handleAPICall(
+        'nova:nested-webview',
+        { action: 'create', id: 'nvw_consent' },
+        'nested-webview-before-consent',
+        app,
+        { __directResponder: message => responses.push(message) },
+        { nestedWebviewOptedIn: true, nestedWebviews: new Map() }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('removes live nested views when their permission is revoked', () => {
+    const cleanup = vi.fn();
+    const remove = vi.fn();
+    const discard = vi.fn();
+    const sandboxId = 'permission-revoke-test';
+    AppSandbox._internal._activeSandboxes.set(sandboxId, {
+      appId: 'com.novabrowser.app',
+      nestedWebviews: new Map([['view', { cleanups: [cleanup], view: { remove } }]]),
+      pendingNewWindows: new Map([['popup', { discard }]]),
+    });
+
+    try {
+      expect(AppSandbox.handlePermissionRevoked('sandbox:nested-webview', 'com.novabrowser.app')).toBe(true);
+    } finally {
+      AppSandbox._internal._activeSandboxes.delete(sandboxId);
+    }
+
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(discard).toHaveBeenCalledOnce();
   });
 
   it('gives nested sites a separate stable partition without inheriting the app sandbox', async () => {
@@ -491,6 +567,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       appendChild: vi.fn(),
     };
     vi.stubGlobal('document', { createElement: vi.fn(() => child) });
+    vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => true) });
 
     try {
       await AppSandbox._internal.handleAPICall(
@@ -502,7 +579,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
           getAttribute: vi.fn(() => 'allow-scripts allow-forms'),
           __directResponder: message => responses.push(message),
         },
-        { nestedWebviewAllowed: true, nestedWebviews: new Map(), state: { content: parent } }
+        { nestedWebviewOptedIn: true, nestedWebviews: new Map(), state: { content: parent } }
       );
     } finally {
       vi.unstubAllGlobals();
@@ -554,17 +631,19 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     const responses = [];
     const child = { setAttribute: vi.fn(), removeAttribute: vi.fn() };
     vi.stubGlobal('window', { location: { origin: 'https://novabyte.test' } });
-    vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => false) });
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: vi.fn(permission => permission === 'sandbox:nested-webview'),
+    });
 
     try {
       await AppSandbox._internal.handleAPICall(
         'nova:nested-webview',
         { action: 'attribute', id: 'nvw_network', name: 'src', value: 'https://www.google.com/' },
         'nested-network-denied',
-        { id: 'third-party.app' },
+        { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
         { __directResponder: message => responses.push(message) },
         {
-          nestedWebviewAllowed: true,
+          nestedWebviewOptedIn: true,
           nestedWebviews: new Map([['nvw_network', { view: child }]]),
         }
       );
@@ -585,31 +664,36 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     };
     const webview = { __directResponder: message => responses.push(message) };
     const sandbox = {
-      nestedWebviewAllowed: true,
+      nestedWebviewOptedIn: true,
       nestedWebviews: new Map([['nvw_api', { view: child }]]),
     };
+    vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => true) });
 
-    await AppSandbox._internal.handleAPICall(
-      'nova:nested-webview',
-      { action: 'command', id: 'nvw_api', command: 'canGoBack' },
-      'browser-can-go-back',
-      { id: 'com.example.browser' },
-      webview,
-      sandbox
-    );
-    expect(responses.at(-1).result).toEqual({ value: true });
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:nested-webview',
+        { action: 'command', id: 'nvw_api', command: 'canGoBack' },
+        'browser-can-go-back',
+        { id: 'com.example.browser' },
+        webview,
+        sandbox
+      );
+      expect(responses.at(-1).result).toEqual({ value: true });
 
-    await AppSandbox._internal.handleAPICall(
-      'nova:nested-webview',
-      {
-        action: 'command', id: 'nvw_api', command: 'find',
-        query: 'Nova', options: { matchCase: false, backward: true },
-      },
-      'browser-find',
-      { id: 'com.example.browser' },
-      webview,
-      sandbox
-    );
+      await AppSandbox._internal.handleAPICall(
+        'nova:nested-webview',
+        {
+          action: 'command', id: 'nvw_api', command: 'find',
+          query: 'Nova', options: { matchCase: false, backward: true },
+        },
+        'browser-find',
+        { id: 'com.example.browser' },
+        webview,
+        sandbox
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
     expect(child.find).toHaveBeenCalledWith('Nova', { matchCase: false, backward: true }, expect.any(Function));
     expect(responses.at(-1).result).toEqual({ activeMatchOrdinal: 1, numberOfMatches: 3 });
   });
@@ -705,7 +789,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       vi.unstubAllGlobals();
     }
 
-    expect(writeFile).toHaveBeenCalledWith('existing-file', 'exported text');
+    expect(writeFile).toHaveBeenCalledWith('existing-file', 'exported text', 'text/plain');
     expect(responses[0].result.file).toMatchObject({
       name: 'notes.txt',
       path: '/Documents/notes.txt',
@@ -933,6 +1017,260 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(responses[1].error.code).toBe('INVALID_ARGS');
   });
 
+  it('renders sandbox app context menus in the host layer and returns the selected item', async () => {
+    const responses = [];
+    let dismissMenu;
+    const show = vi.fn((_x, _y, _items, onDismiss) => {
+      dismissMenu = onDismiss;
+      return { id: 'host-menu' };
+    });
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'sandbox:nested-webview',
+    });
+    vi.stubGlobal('window', { ContextMenu: { show, hide: vi.fn() } });
+
+    try {
+      const request = AppSandbox._internal.handleAPICall(
+        'nova:context-menu:show',
+        {
+          x: 24,
+          y: 38,
+          items: [
+            { label: 'Open', icon: 'folder' },
+            { separator: true },
+            { label: 'Delete', danger: true },
+          ],
+        },
+        'context-menu-select',
+        { id: 'third-party.app' },
+        {
+          getBoundingClientRect: () => ({ left: 100, top: 50 }),
+          __directResponder: message => responses.push(message),
+        },
+        {}
+      );
+      dismissMenu(2);
+      await request;
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(show).toHaveBeenCalledWith(
+      124,
+      88,
+      [
+        { label: 'Open', icon: 'folder', shortcut: undefined, disabled: false, danger: false, _selectionIndex: 0 },
+        { separator: true },
+        { label: 'Delete', icon: undefined, shortcut: undefined, disabled: false, danger: true, _selectionIndex: 2 },
+      ],
+      expect.any(Function)
+    );
+    expect(responses[0].result).toEqual({ cancelled: false, index: 2 });
+  });
+
+  it('resolves a pending context-menu request when a newer menu replaces it', async () => {
+    const dismissers = new Map();
+    const menus = [];
+    const responses = [];
+    let nextMenuId = 0;
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'sandbox:nested-webview',
+    });
+    vi.stubGlobal('window', {
+      ContextMenu: {
+        show: vi.fn((_x, _y, _items, onDismiss) => {
+          const menu = { id: ++nextMenuId };
+          menus.push(menu);
+          dismissers.set(menu, onDismiss);
+          return menu;
+        }),
+        hide: vi.fn(menu => dismissers.get(menu)?.(null)),
+      },
+    });
+
+    const sandbox = {};
+    const app = { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } };
+    const webview = {
+      getBoundingClientRect: () => ({ left: 0, top: 0 }),
+      __directResponder: message => responses.push(message),
+    };
+    try {
+      const firstRequest = AppSandbox._internal.handleAPICall(
+        'nova:context-menu:show',
+        { x: 1, y: 2, items: [{ label: 'First' }] },
+        'context-menu-first',
+        app,
+        webview,
+        sandbox
+      );
+      const secondRequest = AppSandbox._internal.handleAPICall(
+        'nova:context-menu:show',
+        { x: 3, y: 4, items: [{ label: 'Second' }] },
+        'context-menu-second',
+        app,
+        webview,
+        sandbox
+      );
+
+      await firstRequest;
+      expect(responses[0].result).toEqual({ cancelled: true, index: null });
+      expect(sandbox.contextMenuCleanup).toBeTypeOf('function');
+
+      dismissers.get(menus[1])?.(null);
+      await secondRequest;
+      expect(responses[1].result).toEqual({ cancelled: true, index: null });
+      expect(sandbox.contextMenuCleanup).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('cancels a host-rendered context menu when the sandbox closes', async () => {
+    let dismissMenu;
+    const hide = vi.fn((_menu) => dismissMenu(null));
+    const sandbox = {};
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'sandbox:nested-webview',
+    });
+    vi.stubGlobal('window', {
+      ContextMenu: {
+        show: vi.fn((_x, _y, _items, onDismiss) => {
+          dismissMenu = onDismiss;
+          return { id: 'host-menu' };
+        }),
+        hide,
+      },
+    });
+
+    const request = AppSandbox._internal.handleAPICall(
+      'nova:context-menu:show',
+      { x: 1, y: 2, items: [{ label: 'Open' }] },
+      'context-menu-cancel',
+      { id: 'third-party.app' },
+      { getBoundingClientRect: () => ({ left: 0, top: 0 }), __directResponder: vi.fn() },
+      sandbox
+    );
+    try {
+      AppSandbox._internal.cleanupSandboxRecord(sandbox);
+      await request;
+      expect(hide).toHaveBeenCalledOnce();
+      expect(sandbox.contextMenuCleanup).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('renders sanitized app overlays above browser views and forwards marked interactions', async () => {
+    const responses = [];
+    const documentListeners = new Map();
+    const frameListeners = new Map();
+    const overlayDocument = {
+      body: { innerHTML: '' },
+      head: { appendChild: vi.fn() },
+      createElement: vi.fn(() => ({ textContent: '' })),
+      addEventListener: (type, listener) => documentListeners.set(type, listener),
+      removeEventListener: vi.fn(),
+    };
+    const frame = {
+      style: {},
+      contentDocument: overlayDocument,
+      isConnected: false,
+      setAttribute: vi.fn(),
+      addEventListener: (type, listener) => frameListeners.set(type, listener),
+      remove: vi.fn(function() { this.isConnected = false; }),
+    };
+    const sanitize = vi.fn(html => `sanitized:${html}`);
+    const hostWindow = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const appWindow = {
+      isConnected: true,
+      appendChild: vi.fn(element => {
+        element.isConnected = true;
+        frameListeners.get('load')();
+      }),
+      getBoundingClientRect: () => ({ left: 30, top: 40 }),
+    };
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'sandbox:nested-webview',
+    });
+    vi.stubGlobal('DOMPurify', { sanitize });
+    vi.stubGlobal('window', hostWindow);
+    vi.stubGlobal('document', {
+      createElement: vi.fn(() => frame),
+      body: { appendChild: vi.fn() },
+    });
+
+    const sandbox = { state: { element: appWindow } };
+    const webview = {
+      clientWidth: 320,
+      clientHeight: 200,
+      getBoundingClientRect: () => ({ left: 40, top: 60, width: 320, height: 200 }),
+      __directResponder: message => responses.push(message),
+    };
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:overlay:show',
+        {
+          html: '<button data-nova-action="dismiss">Close</button>',
+          css: '.panel { color: white; }',
+          bounds: { left: 10, top: 20, width: 120, height: 80 },
+        },
+        'overlay-show',
+        { id: 'third-party.app', name: 'Third Party', manifest: { permissions: ['sandbox:nested-webview'] } },
+        webview,
+        sandbox
+      );
+
+      expect(sanitize).toHaveBeenCalledWith(
+        '<button data-nova-action="dismiss">Close</button>',
+        expect.objectContaining({ FORBID_TAGS: expect.arrayContaining(['script', 'iframe']) })
+      );
+      expect(frame.setAttribute).toHaveBeenCalledWith('sandbox', 'allow-same-origin');
+      expect(frame.srcdoc).toContain("script-src 'none'");
+      expect(frame.style.position).toBe('absolute');
+      expect(frame.style.left).toBe('20px');
+      expect(frame.style.top).toBe('40px');
+      expect(frame.style.width).toBe('120px');
+      expect(frame.style.height).toBe('80px');
+      expect(appWindow.appendChild).toHaveBeenCalledOnce();
+      expect(document.body.appendChild).not.toHaveBeenCalled();
+      expect(overlayDocument.body.innerHTML).toBe('sanitized:<button data-nova-action="dismiss">Close</button>');
+      expect(overlayDocument.head.appendChild.mock.calls[0][0].textContent).toBe('.panel { color: white; }');
+      expect(responses[0].result.success).toBe(true);
+
+      const eventTarget = {
+        nodeType: 1,
+        value: '',
+        checked: false,
+        closest: selector => selector === 'a' ? null : eventTarget,
+        getAttribute: name => name === 'data-nova-action' ? 'dismiss' : null,
+      };
+      documentListeners.get('click')({
+        type: 'click',
+        target: eventTarget,
+        preventDefault: vi.fn(),
+      });
+      expect(responses[1].type).toBe('nova:overlay:event:response');
+      expect(responses[1].result).toMatchObject({ type: 'click', action: 'dismiss', field: null });
+
+      await AppSandbox._internal.handleAPICall(
+        'nova:overlay:hide',
+        {},
+        'overlay-hide',
+        { id: 'third-party.app' },
+        webview,
+        sandbox
+      );
+      expect(frame.remove).toHaveBeenCalledOnce();
+      expect(sandbox.overlayCleanup).toBeNull();
+      expect(responses[2].result).toMatchObject({ success: true, wasOpen: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('allows low-risk app launch and rate-limits repeated launches', async () => {
     const responses = [];
     const createWindow = vi.fn(() => ({ id: 'target-window' }));
@@ -1012,7 +1350,9 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     const parent = { isConnected: true, style: {}, appendChild: vi.fn() };
     vi.stubGlobal('document', { createElement: vi.fn(() => child) });
     vi.stubGlobal('window', { location: { origin: 'https://novabyte.test' } });
-    vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => false) });
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: vi.fn(permission => permission === 'sandbox:nested-webview'),
+    });
 
     try {
       await AppSandbox._internal.handleAPICall(
@@ -1021,7 +1361,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         'nested-navigation-create',
         { id: 'third-party.app' },
         { getAttribute: () => null, __directResponder: vi.fn() },
-        { nestedWebviewAllowed: true, nestedWebviews: new Map(), state: { content: parent } }
+        { nestedWebviewOptedIn: true, nestedWebviews: new Map(), state: { content: parent } }
       );
     } finally {
       vi.unstubAllGlobals();
@@ -1098,13 +1438,24 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(childViews.every(view => view.clearData.mock.calls.length === 1)).toBe(true);
   });
 
-  it('honors nested-webview manifest opt-in while still requiring the permission grant', () => {
+  it('honors nested-webview manifest opt-in or permission declaration while requiring the grant', () => {
     vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => true) });
     try {
       expect(AppSandbox._internal.isNestedWebviewPermitted({
         id: 'third-party.app',
         manifest: { allowNestedWebview: true },
       })).toBe(true);
+      expect(AppSandbox._internal.isNestedWebviewPermitted({
+        id: 'third-party.browser',
+        manifest: { permissions: ['net:external', 'sandbox:nested-webview'] },
+      })).toBe(true);
+      expect(AppSandbox._internal.injectCapabilityShim(
+        '<!doctype html><html></html>',
+        {
+          id: 'third-party.browser',
+          manifest: { permissions: ['sandbox:nested-webview'] },
+        }
+      )).toContain('const __NOVA_NESTED_WEBVIEW_OPTED_IN__ = true;');
       expect(AppSandbox._internal.isNestedWebviewPermitted({
         id: 'third-party.app',
         manifest: { allowNestedWebview: false },
@@ -1114,6 +1465,10 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       expect(AppSandbox._internal.isNestedWebviewPermitted({
         id: 'third-party.app',
         manifest: { allowNestedWebview: true },
+      })).toBe(false);
+      expect(AppSandbox._internal.isNestedWebviewPermitted({
+        id: 'third-party.browser',
+        manifest: { permissions: ['sandbox:nested-webview'] },
       })).toBe(false);
     } finally {
       vi.unstubAllGlobals();
@@ -1267,9 +1622,62 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       vi.unstubAllGlobals();
     }
 
-    expect(writeFile).toHaveBeenCalledWith('file-1', 'updated text');
+    expect(writeFile).toHaveBeenCalledWith('file-1', 'updated text', 'text/plain');
     expect(createFile).not.toHaveBeenCalled();
     expect(responses[0].result.file.path).toBe('/Documents/notes.txt');
+  });
+
+  it('saves Base64 image data URLs as VFS binary content with the right MIME type', async () => {
+    const responses = [];
+    const folder = { id: 'app-data', type: 'folder' };
+    const createFile = vi.fn(async (folderId, name, content, mimeType) => ({
+      id: 'saved-image',
+      name,
+      content,
+      mimeType,
+    }));
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'vfs:write',
+    });
+    vi.stubGlobal('window', {
+      SystemDialogs: { save: async () => ({ folderId: folder.id, name: 'wallhaven.jpg' }) },
+    });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([[folder.id, folder]]),
+      getPath: id => id === folder.id ? '/data/example_app' : '/data/example_app/wallhaven.jpg',
+      listDir: () => [],
+      createFile,
+    });
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:sysdialog:save',
+        {
+          suggestedName: 'wallhaven.jpg',
+          content: 'data:image/jpeg;base64,/9j/2Q==',
+          mimeType: 'text/plain',
+        },
+        'save-jpeg-test',
+        { id: 'example.app' },
+        { __directResponder: message => responses.push(message) },
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(createFile).toHaveBeenCalledWith(folder.id, 'wallhaven.jpg', '/9j/2Q==', 'image/jpeg');
+    expect(responses[0].result.file.name).toBe('wallhaven.jpg');
+  });
+
+  it('infers image MIME types from file extensions for raw Base64 content', () => {
+    expect(AppSandbox._internal.normalizeVfsSavePayload({
+      content: '/9j/2Q==',
+    }, 'wallhaven.jpg')).toEqual({
+      content: '/9j/2Q==',
+      mimeType: 'image/jpeg',
+    });
   });
 
   it('blocks system-only Settings and Clock IPC before any handler side effect', async () => {

@@ -2,7 +2,7 @@ const ContextMenu = {
   current: null,
   _activeDismiss: null, // Track the current event handler for absolute safety
 
-  show(x, y, items) {
+  show(x, y, items, onDismiss) {
     ContextMenu.hide();
     
     const menu = createEl('div', { className: 'context-menu', role: 'menu' });
@@ -28,6 +28,7 @@ const ContextMenu = {
       
       // Store reference to the specific action directly on the DOM element for event delegation
       if (item.action) btn._action = item.action;
+      if (Number.isInteger(item._selectionIndex)) btn._selectionIndex = item._selectionIndex;
 
       if (item.icon) {
         const iconEl = createEl('span');
@@ -59,12 +60,13 @@ const ContextMenu = {
     menu.style.top = y + 'px';
 
     ContextMenu.current = menu;
+    menu.__onDismiss = typeof onDismiss === 'function' ? onDismiss : null;
     menu.style.visibility = '';
 
     menu.addEventListener('click', (e) => {
       const btn = e.target.closest('.ctx-item');
       if (btn) {
-        ContextMenu.hide();
+        ContextMenu.hide(menu, Number.isInteger(btn._selectionIndex) ? btn._selectionIndex : null);
         if (btn._action) btn._action();
       }
     });
@@ -78,16 +80,24 @@ const ContextMenu = {
     
     ContextMenu._activeDismiss = dismiss;
     document.addEventListener('pointerdown', dismiss, { capture: true, passive: true });
+    return menu;
   },
 
-  hide() {
-    if (ContextMenu.current) {
-      ContextMenu.current.remove();
+  hide(expectedMenu = null, selection = null) {
+    const current = ContextMenu.current;
+    if (expectedMenu && current !== expectedMenu) return;
+    if (current) {
+      current.remove();
       ContextMenu.current = null;
     }
     if (ContextMenu._activeDismiss) {
       document.removeEventListener('pointerdown', ContextMenu._activeDismiss, { capture: true });
       ContextMenu._activeDismiss = null;
+    }
+    if (current?.__onDismiss) {
+      const onDismiss = current.__onDismiss;
+      current.__onDismiss = null;
+      onDismiss(selection);
     }
   }
 };
