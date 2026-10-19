@@ -5,8 +5,8 @@ import {
   SUBMISSION_BUCKET,
   PublisherError,
   corsHeaders,
-  downloadSubmission,
   downloadPublishedPackage,
+  downloadSubmission,
   errorResponse,
   escapeHtml,
   getAccountEmail,
@@ -256,7 +256,7 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
     };
   }
 
-  const { pkg, byteLength } = await downloadSubmission(packagePath);
+  const { pkg } = await downloadSubmission(packagePath);
   if (pkg.novabyte_app !== true || !pkg.manifest || pkg.manifest.id !== appId) {
     throw new PublisherError('The package manifest ID does not match this submission.');
   }
