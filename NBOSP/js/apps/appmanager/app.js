@@ -26,6 +26,38 @@
     });
   }
 
+  // Used only by the legacy launch fallback below. Keep its v2 storage
+  // facade aligned with AppSandbox while routing through the fallback bridge.
+  function buildNovaOSCompatShim() {
+    return `window.novaOS = Object.freeze({
+      apiVersion: 2,
+      capabilities: Object.freeze({
+        has: function(name) { return typeof name === 'string' && name === 'storage.v2'; },
+      }),
+      storage: Object.freeze({
+        get: function(key) {
+          return window.nova.ipc('nova:storage:get', { key: key }).then(function(result) {
+            return result && Object.prototype.hasOwnProperty.call(result, 'value') ? result.value : null;
+          });
+        },
+        set: function(key, value) {
+          return window.nova.ipc('nova:storage:set', { key: key, value: value }).then(function() {});
+        },
+        remove: function(key) {
+          return window.nova.ipc('nova:storage:delete', { key: key }).then(function() {});
+        },
+        clear: function() {
+          return window.nova.ipc('nova:storage:clear', {}).then(function() {});
+        },
+        keys: function() {
+          return window.nova.ipc('nova:storage:keys', {}).then(function(result) {
+            return result && Array.isArray(result.keys) ? result.keys : [];
+          });
+        },
+      }),
+    });`;
+  }
+
   function resolvePackageIcon(appData) {
     const icon = appData?.icon;
     if (typeof icon !== 'string' || !icon || /^(?:data:|https?:\/\/|\/)/i.test(icon)) {
@@ -1013,7 +1045,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               const shimmedFiles = Object.assign({}, appData.files);
               let serveHtml = html;
               const relaxed = buildSandboxCSP(appData);
-              const inline = '<script>(function(){var o=window.location.origin;window.nova={ipc:function(t,e){var r=new Promise(function(r,s){var a="s"+Math.random().toString(36).slice(2)+Date.now().toString(36),n=setTimeout(function(){p.has(a)&&(p.delete(a),s(TypeError("timeout "+t)))},3e4);p.set(a,{resolve:r,reject:s,timer:n}),window.parent.postMessage({type:t,requestId:a,payload:e||{}},o)});return r}};var p=new Map;window.addEventListener("message",function(t){if(t.origin!==o)return;var e=t.data;if(!e||!e.requestId)return;if(e.type==="nova:ready:response"&&e.result){var r=e.result.permissions||[];try{window.allowedPermissions=r,window.__novaPermResponse=e.result}catch(t){}}var s=p.get(e.requestId);if(!s)return;clearTimeout(s.timer),p.delete(e.requestId),e.error?s.reject(TypeError(e.error.message||String(e.error))):s.resolve(e.result)});window.__novaPrivateStore={}})<\/script>\n';
+              const inline = '<script>(function(){var o=window.location.origin;window.nova={ipc:function(t,e){var r=new Promise(function(r,s){var a="s"+Math.random().toString(36).slice(2)+Date.now().toString(36),n=setTimeout(function(){p.has(a)&&(p.delete(a),s(TypeError("timeout "+t)))},3e4);p.set(a,{resolve:r,reject:s,timer:n}),window.parent.postMessage({type:t,requestId:a,payload:e||{}},o)});return r}};' + buildNovaOSCompatShim() + 'var p=new Map;window.addEventListener("message",function(t){if(t.origin!==o)return;var e=t.data;if(!e||!e.requestId)return;if(e.type==="nova:ready:response"&&e.result){var r=e.result.permissions||[];try{window.allowedPermissions=r,window.__novaPermResponse=e.result}catch(t){}}var s=p.get(e.requestId);if(!s)return;clearTimeout(s.timer),p.delete(e.requestId),e.error?s.reject(TypeError(e.error.message||String(e.error))):s.resolve(e.result)});window.__novaPrivateStore={}})<\/script>\n';
               if (!/<head[\s>]/i.test(serveHtml)) {
                 serveHtml = inline + '\n' + relaxed + '\n' + serveHtml;
               } else {
@@ -1111,7 +1143,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             }
 
             const relaxed = buildSandboxCSP(appData);
-            const inline = '<script>(function(){var o=window.location.origin;window.nova={ipc:function(t,e){var r=new Promise(function(r,s){var a="s"+Math.random().toString(36).slice(2)+Date.now().toString(36),n=setTimeout(function(){p.has(a)&&(p.delete(a),s(TypeError("timeout "+t)))},3e4);p.set(a,{resolve:r,reject:s,timer:n}),window.parent.postMessage({type:t,requestId:a,payload:e||{}},o)});return r}};var p=new Map;window.addEventListener("message",function(t){if(t.origin!==o)return;var e=t.data;if(!e||!e.requestId)return;if(e.type==="nova:ready:response"&&e.result){var r=e.result.permissions||[];try{window.allowedPermissions=r,window.__novaPermResponse=e.result}catch(t){}}var s=p.get(e.requestId);if(!s)return;clearTimeout(s.timer),p.delete(e.requestId),e.error?s.reject(TypeError(e.error.message||String(e.error))):s.resolve(e.result)});window.__novaPrivateStore={}})<\/script>\n';
+            const inline = '<script>(function(){var o=window.location.origin;window.nova={ipc:function(t,e){var r=new Promise(function(r,s){var a="s"+Math.random().toString(36).slice(2)+Date.now().toString(36),n=setTimeout(function(){p.has(a)&&(p.delete(a),s(TypeError("timeout "+t)))},3e4);p.set(a,{resolve:r,reject:s,timer:n}),window.parent.postMessage({type:t,requestId:a,payload:e||{}},o)});return r}};' + buildNovaOSCompatShim() + 'var p=new Map;window.addEventListener("message",function(t){if(t.origin!==o)return;var e=t.data;if(!e||!e.requestId)return;if(e.type==="nova:ready:response"&&e.result){var r=e.result.permissions||[];try{window.allowedPermissions=r,window.__novaPermResponse=e.result}catch(t){}}var s=p.get(e.requestId);if(!s)return;clearTimeout(s.timer),p.delete(e.requestId),e.error?s.reject(TypeError(e.error.message||String(e.error))):s.resolve(e.result)});window.__novaPrivateStore={}})<\/script>\n';
             if (!/<head[\s>]/i.test(wrappedHtml)) {
               wrappedHtml = inline + '\n' + relaxed + '\n' + wrappedHtml;
             } else {
