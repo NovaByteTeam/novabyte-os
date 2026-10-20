@@ -47,11 +47,15 @@ fs.writeFileSync(
 );
 
 try {
-  const result = spawnSync(binaryPath, ["--headless", "--disable-gpu", "--no-sandbox", testAppDir], {
-    cwd: appDir,
-    encoding: "utf8",
-    timeout: 30_000,
-  });
+  const result = spawnSync(
+    binaryPath,
+    ["--headless", "--disable-gpu", "--disable-software-rasterizer", "--no-sandbox", testAppDir],
+    {
+      cwd: appDir,
+      encoding: "utf8",
+      timeout: 30_000,
+    },
+  );
 
   const failureDetails = [
     `status: ${result.status}`,
