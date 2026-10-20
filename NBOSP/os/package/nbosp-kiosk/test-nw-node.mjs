@@ -53,11 +53,15 @@ try {
     timeout: 30_000,
   });
 
-  if (result.error) throw result.error;
-  const details = fs.existsSync(errorPath)
-    ? fs.readFileSync(errorPath, "utf8")
-    : [result.stderr, result.stdout].filter(Boolean).join("\n");
-  assert.equal(result.status, 0, details);
+  const failureDetails = [
+    `status: ${result.status}`,
+    `signal: ${result.signal}`,
+    result.error ? `spawn error: ${result.error.message}` : "",
+    result.stderr,
+    result.stdout,
+    fs.existsSync(errorPath) ? fs.readFileSync(errorPath, "utf8") : "",
+  ].filter(Boolean).join("\n");
+  assert.equal(result.status, 0, failureDetails);
   assert.equal(fs.readFileSync(resultPath, "utf8"), "NBOSP_NWJS_NODE_RUNTIME_OK");
   console.log("Headless NW.js app and better-sqlite3 runtime test passed.");
 } finally {
