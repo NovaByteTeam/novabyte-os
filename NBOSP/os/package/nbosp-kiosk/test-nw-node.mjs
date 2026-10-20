@@ -20,11 +20,15 @@ const errorPath = path.join(testAppDir, "error");
 fs.mkdirSync(testAppDir);
 fs.writeFileSync(
   path.join(testAppDir, "package.json"),
-  JSON.stringify({ name: "nbosp-nw-node-test", main: "index.html" }),
+  JSON.stringify({
+    name: "nbosp-nw-node-test",
+    main: "index.html",
+    "node-main": "test.js",
+  }),
 );
 fs.writeFileSync(
   path.join(testAppDir, "index.html"),
-  '<!doctype html><script src="test.js"></script>',
+  "<!doctype html><title>NW.js runtime check</title>",
 );
 fs.writeFileSync(
   path.join(testAppDir, "test.js"),
@@ -36,11 +40,11 @@ fs.writeFileSync(
     '  const db = new Database(":memory:");',
     '  assert.equal(db.prepare("SELECT 42 AS answer").get().answer, 42);',
     '  db.close();',
-    '  require("node:fs").writeFileSync(__dirname + "/result", "NBOSP_NWJS_NODE_RUNTIME_OK");',
+    '  require("node:fs").writeFileSync(require("node:path").join(__dirname, "result"), "NBOSP_NWJS_NODE_RUNTIME_OK");',
     '  nw.App.quit();',
     '} catch (error) {',
     '  console.error(error.stack || error);',
-    '  require("node:fs").writeFileSync(__dirname + "/error", error.stack || String(error));',
+    '  require("node:fs").writeFileSync(require("node:path").join(__dirname, "error"), error.stack || String(error));',
     '  process.exit(1);',
     '}',
   ].join("\n"),
@@ -57,7 +61,7 @@ try {
     },
   );
 
-  const failureDetails = [
+  const diagnostics = [
     `status: ${result.status}`,
     `signal: ${result.signal}`,
     result.error ? `spawn error: ${result.error.message}` : "",
@@ -65,8 +69,13 @@ try {
     result.stdout,
     fs.existsSync(errorPath) ? fs.readFileSync(errorPath, "utf8") : "",
   ].filter(Boolean).join("\n");
-  assert.equal(result.status, 0, failureDetails);
-  assert.equal(fs.readFileSync(resultPath, "utf8"), "NBOSP_NWJS_NODE_RUNTIME_OK");
+  assert.equal(result.status, 0, diagnostics);
+  const resultMarker = fs.existsSync(resultPath) ? fs.readFileSync(resultPath, "utf8") : null;
+  assert.equal(
+    resultMarker,
+    "NBOSP_NWJS_NODE_RUNTIME_OK",
+    `NW.js exited without completing its Node integration check.\n${diagnostics}`,
+  );
   console.log("Headless NW.js app and better-sqlite3 runtime test passed.");
 } finally {
   fs.rmSync(testAppDir, { recursive: true, force: true });
