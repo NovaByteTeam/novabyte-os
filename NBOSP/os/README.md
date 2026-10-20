@@ -42,7 +42,10 @@ The manual GitHub Actions workflow runs `npm ci` in `NBOSP`, builds the Linux
 x64 NW.js application, adjusts its window settings for fullscreen Wayland
 kiosk mode, and installs the complete app bundle into the ISO at `/opt/nbosp`.
 At boot, Buildroot starts Cage on the VMware display and launches NW.js as the
-unprivileged `nbosp` user. The build uploads the ISO artifact
+unprivileged `nbosp` user. The server child process uses NW.js's bundled Node
+runtime; CI tests that runtime with `better-sqlite3` before starting the
+Buildroot build, avoiding a separate Node.js-from-source package in the image.
+The build uploads the ISO artifact
 `nbosp-live-x86_64`; there is no separate NW.js artifact.
 
 The kiosk user runs with the Linux account and device-group permissions, but

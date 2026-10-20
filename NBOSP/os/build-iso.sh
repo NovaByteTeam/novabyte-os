@@ -37,7 +37,6 @@ for option in \
   BR2_TOOLCHAIN_HAS_THREADS_NPTL \
   BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_EUDEV \
   BR2_PACKAGE_EUDEV \
-  BR2_PACKAGE_NODEJS \
   BR2_PACKAGE_LIBGTK3 \
   BR2_PACKAGE_LIBGTK3_WAYLAND \
   BR2_PACKAGE_LIBNSS \
@@ -54,6 +53,11 @@ do
     exit 1
   fi
 done
+
+if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
+  echo "Buildroot Node.js must stay disabled; the kiosk uses NW.js's bundled Node runtime." >&2
+  exit 1
+fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" nbosp-kiosk-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
