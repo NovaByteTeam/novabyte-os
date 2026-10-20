@@ -49,7 +49,7 @@ fs.writeFileSync(
 try {
   const result = spawnSync(
     binaryPath,
-    ["--headless", "--disable-gpu", "--disable-software-rasterizer", "--no-sandbox", testAppDir],
+    ["--disable-gpu", "--no-sandbox", testAppDir],
     {
       cwd: appDir,
       encoding: "utf8",
