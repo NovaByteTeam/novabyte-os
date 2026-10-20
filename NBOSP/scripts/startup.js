@@ -55,6 +55,13 @@ async function bootstrap(appDir) {
   // Sanitize heap flag to prevent flag injection vulnerabilities
   const heapMb  = /^\d+$/.test(rawHeap) ? rawHeap : '1024';
   const nodeOptions = [`--max-old-space-size=${heapMb}`, '--expose-gc'];
+  const serverEnv = {
+    ...process.env,
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, ...nodeOptions].filter(Boolean).join(' '),
+  };
+  if (nodeBin !== 'node') {
+    serverEnv.NWJS_RUN_AS_NODE = '1';
+  }
 
   const serverScript = path.join(appDir, 'server', 'core', 'index.js');
   // Share an unguessable, per-launch credential with the host renderer and
@@ -63,14 +70,11 @@ async function bootstrap(appDir) {
   process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = crypto.randomBytes(32).toString('hex');
   const server = spawn(
     nodeBin,
-    ['--nodejs', serverScript],
+    [serverScript],
     {
       cwd: appDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        NODE_OPTIONS: [process.env.NODE_OPTIONS, ...nodeOptions].filter(Boolean).join(' '),
-      },
+      env: serverEnv,
     }
   );
 

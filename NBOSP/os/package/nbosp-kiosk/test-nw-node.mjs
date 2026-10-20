@@ -19,6 +19,7 @@ fs.writeFileSync(
   scriptPath,
   [
     'const assert = require("node:assert/strict");',
+    'assert.equal(typeof process.versions.nw, "string");',
     'const Database = require("better-sqlite3");',
     'const db = new Database(":memory:");',
     'assert.equal(db.prepare("SELECT 42 AS answer").get().answer, 42);',
@@ -28,10 +29,11 @@ fs.writeFileSync(
 );
 
 try {
-  const result = spawnSync(binaryPath, ["--nodejs", scriptPath], {
+  const result = spawnSync(binaryPath, [scriptPath], {
     cwd: appDir,
     env: {
       ...process.env,
+      NWJS_RUN_AS_NODE: "1",
       NODE_OPTIONS: "--max-old-space-size=1024 --expose-gc",
     },
     encoding: "utf8",
@@ -39,7 +41,7 @@ try {
   });
 
   if (result.error) throw result.error;
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, 0, [result.stderr, result.stdout].filter(Boolean).join("\n"));
   assert.match(result.stdout, /NBOSP_NWJS_NODE_RUNTIME_OK/);
   console.log("NW.js Node mode and better-sqlite3 runtime test passed.");
 } finally {
