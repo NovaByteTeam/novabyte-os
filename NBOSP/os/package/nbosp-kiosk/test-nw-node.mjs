@@ -47,7 +47,7 @@ try {
     [
       'try {',
       '  const assert = require("node:assert/strict");',
-      '  assert.equal(typeof process.versions.nw, "string");',
+      '  assert.equal(typeof process.versions.node, "string");',
       '  const Database = require("better-sqlite3");',
       '  const db = new Database(":memory:");',
       '  assert.equal(db.prepare("SELECT 42 AS answer").get().answer, 42);',
@@ -95,7 +95,7 @@ try {
     "NBOSP_NWJS_NODE_RUNTIME_OK",
     `NW.js exited without completing its Node integration check.\n${diagnostics}`,
   );
-  console.log("NW.js app and better-sqlite3 runtime test passed.");
+  console.log("NW.js node-main and better-sqlite3 runtime test passed.");
 } finally {
   fs.rmSync(testAppDir, { recursive: true, force: true });
   fs.rmSync(testRuntimeDir, { recursive: true, force: true });
