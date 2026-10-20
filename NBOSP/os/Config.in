@@ -1,3 +1,5 @@
 menu "NBOSP"
 
+source "$BR2_EXTERNAL_NBOSP_PATH/package/nbosp-kiosk/Config.in"
+
 endmenu

@@ -37,6 +37,12 @@ jobs:
         working-directory: NBOSP
         run: node build.mjs linux
 
+      - name: Prepare NW.js app for Wayland kiosk
+        run: |
+          node NBOSP/os/package/nbosp-kiosk/prepare-kiosk.mjs build/linux-x64
+          mkdir -p NBOSP/os/package/nbosp-kiosk/source
+          cp -a build/linux-x64/. NBOSP/os/package/nbosp-kiosk/source/
+
       - name: Install Buildroot and ISO host dependencies
         run: |
           sudo apt-get update
@@ -58,9 +64,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: NBOSP/os/output
-          key: nbosp-buildroot-output-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
+          key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/Config.in', 'NBOSP/os/package/nbosp-kiosk/nbosp-kiosk.mk', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
           restore-keys: |
-            nbosp-buildroot-output-${{ runner.os }}-
+            nbosp-buildroot-output-v2-${{ runner.os }}-
 
       - name: Build bootable NBOSP ISO
         run: bash NBOSP/os/build-iso.sh
@@ -70,13 +76,5 @@ jobs:
         with:
           name: nbosp-live-x86_64
           path: NBOSP/os/output/images/nbosp-live.iso
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload Linux NW.js app and production dependencies
-        uses: actions/upload-artifact@v4
-        with:
-          name: nbosp-nwjs-linux-x64
-          path: build/linux-x64/
           if-no-files-found: error
           retention-days: 14

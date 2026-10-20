@@ -39,12 +39,13 @@ experimental x86_64 boot ISO, open the repository's [Actions
 page](https://github.com/NovaByteTeam/novabyte-os/actions), select **Build
 NBOSP OS ISO**, and click **Run workflow**. When it completes, download the
 `nbosp-live-x86_64` artifact from that run. It boots Linux to a console and is
-intended for testing in a VMware x86_64 VM; it does not yet start the NBOSP
-desktop.
+intended for testing in a VMware x86_64 VM and boots directly into the NBOSP
+desktop in fullscreen kiosk mode.
 
-The workflow also builds the Linux NW.js app and uploads it separately as
-`nbosp-nwjs-linux-x64`. Neither the app bundle nor its dependencies are part
-of the ISO yet. Workflow artifacts are temporary and retained for 14 days.
+The workflow builds the Linux NW.js app, bundles it with its production
+dependencies into the ISO, and configures it to launch fullscreen under the
+Wayland kiosk compositor. Workflow artifacts are temporary and retained for
+14 days.
 
 To run the current NBOSP desktop from source, see [Running NBOSP](#running-nbosp).
 

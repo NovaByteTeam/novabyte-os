@@ -1,0 +1,6 @@
+config BR2_PACKAGE_NBOSP_KIOSK
+	bool "NBOSP NW.js kiosk app"
+	depends on BR2_x86_64
+	select BR2_PACKAGE_NODEJS
+	help
+	  Install the Linux NW.js application bundle into the target filesystem.

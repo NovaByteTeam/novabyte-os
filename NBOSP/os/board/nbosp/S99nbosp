@@ -1,0 +1,51 @@
+#!/bin/sh
+
+case "$1" in
+  start)
+    app="/opt/nbosp/NovaByte"
+    if [ ! -x "$app" ]; then
+      echo "NBOSP kiosk app is missing or not executable: $app" >&2
+      exit 1
+    fi
+
+    runtime_dir="/run/user/1000"
+    mkdir -p "$runtime_dir"
+    chown nbosp:nbosp "$runtime_dir"
+    chmod 0700 "$runtime_dir"
+    mkdir -p /home/nbosp/.config/novabyte
+    chown -R nbosp:nbosp /home/nbosp/.config
+
+    attempt=0
+    while [ "$attempt" -lt 30 ]; do
+      [ -S /run/seatd.sock ] && [ -e /dev/dri/card0 ] && break
+      sleep 1
+      attempt=$((attempt + 1))
+    done
+
+    if [ ! -S /run/seatd.sock ] || [ ! -e /dev/dri/card0 ]; then
+      echo "NBOSP kiosk could not find seatd or the VMware DRM device" >&2
+      exit 1
+    fi
+
+    start-stop-daemon --start --background --make-pidfile \
+      --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \
+      -f -s -w -c 1 -- /bin/su -s /bin/sh nbosp -c \
+      'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/usr/bin/node; exec /usr/bin/cage -- /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform --ozone-platform=wayland >>/home/nbosp/nbosp-kiosk.log 2>&1'
+    ;;
+  stop)
+    if [ -f /run/nbosp-kiosk.pid ]; then
+      kill "$(cat /run/nbosp-kiosk.pid)" 2>/dev/null || true
+      rm -f /run/nbosp-kiosk.pid
+    fi
+    ;;
+  restart|reload)
+    "$0" stop
+    "$0" start
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}" >&2
+    exit 1
+    ;;
+esac
+
+exit 0
