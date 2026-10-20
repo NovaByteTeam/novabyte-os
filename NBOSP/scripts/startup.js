@@ -54,6 +54,7 @@ async function bootstrap(appDir) {
   const rawHeap = process.env.SERVER_HEAP_MB;
   // Sanitize heap flag to prevent flag injection vulnerabilities
   const heapMb  = /^\d+$/.test(rawHeap) ? rawHeap : '1024';
+  const nodeOptions = [`--max-old-space-size=${heapMb}`, '--expose-gc'];
 
   const serverScript = path.join(appDir, 'server', 'core', 'index.js');
   // Share an unguessable, per-launch credential with the host renderer and
@@ -62,8 +63,15 @@ async function bootstrap(appDir) {
   process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = crypto.randomBytes(32).toString('hex');
   const server = spawn(
     nodeBin,
-    [`--max-old-space-size=${heapMb}`, '--expose-gc', serverScript],
-    { cwd: appDir, stdio: ['ignore', 'pipe', 'pipe'], env: process.env }
+    [serverScript],
+    {
+      cwd: appDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, ...nodeOptions].filter(Boolean).join(' '),
+      },
+    }
   );
 
   let opened = false;

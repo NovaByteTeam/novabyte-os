@@ -28,8 +28,12 @@ fs.writeFileSync(
 );
 
 try {
-  const result = spawnSync(binaryPath, ["--max-old-space-size=1024", "--expose-gc", scriptPath], {
+  const result = spawnSync(binaryPath, [scriptPath], {
     cwd: appDir,
+    env: {
+      ...process.env,
+      NODE_OPTIONS: "--max-old-space-size=1024 --expose-gc",
+    },
     encoding: "utf8",
     timeout: 30_000,
   });
