@@ -63,7 +63,7 @@ async function bootstrap(appDir) {
   process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = crypto.randomBytes(32).toString('hex');
   const server = spawn(
     nodeBin,
-    [serverScript],
+    ['--nodejs', serverScript],
     {
       cwd: appDir,
       stdio: ['ignore', 'pipe', 'pipe'],

@@ -28,7 +28,7 @@ fs.writeFileSync(
 );
 
 try {
-  const result = spawnSync(binaryPath, [scriptPath], {
+  const result = spawnSync(binaryPath, ["--nodejs", scriptPath], {
     cwd: appDir,
     env: {
       ...process.env,
