@@ -1,16 +1,6 @@
 name: Build NBOSP OS ISO
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'NBOSP/**'
-      - '.github/workflows/nbosp-os-iso.yml'
-  pull_request:
-    paths:
-      - 'NBOSP/**'
-      - '.github/workflows/nbosp-os-iso.yml'
   workflow_dispatch:
 
 permissions:

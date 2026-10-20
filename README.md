@@ -15,7 +15,7 @@
 
 <br>
 
-> **⚠️ This is a fun project — not a real OS.** That said, `.novaapp` packages run untrusted code, and you should treat them with the same caution you would any unknown executable. It doesn't matter that this is a hobby project; you're still running code you didn't write. Install apps you trust, from sources you trust.
+> **⚠️ The current NBOSP desktop is an NW.js application, not yet a standalone Linux desktop OS.** An experimental Buildroot x86_64 image is being developed; its current milestone boots Linux to a console and does not launch NBOSP. `.novaapp` packages run untrusted code, so install apps only from sources you trust.
 
 <br>
 
@@ -34,9 +34,19 @@
 
 ## ⬇️ Download
 
-**→ [Download pre-built binaries](https://github.com/NovaByteTeam/novabyte-os/releases/tag/NBOSP-PREBUILT)**
+There are currently no automatically published desktop binaries. To build the
+experimental x86_64 boot ISO, open the repository's [Actions
+page](https://github.com/NovaByteTeam/novabyte-os/actions), select **Build
+NBOSP OS ISO**, and click **Run workflow**. When it completes, download the
+`nbosp-live-x86_64` artifact from that run. It boots Linux to a console and is
+intended for testing in a VMware x86_64 VM; it does not yet start the NBOSP
+desktop.
 
-Pre-built cross-platform binaries for NovaByte, built directly from the current NBOSP source — no cloning or `npm install` required, just download and run.
+The workflow also builds the Linux NW.js app and uploads it separately as
+`nbosp-nwjs-linux-x64`. Neither the app bundle nor its dependencies are part
+of the ISO yet. Workflow artifacts are temporary and retained for 14 days.
+
+To run the current NBOSP desktop from source, see [Running NBOSP](#running-nbosp).
 
 -----
 
