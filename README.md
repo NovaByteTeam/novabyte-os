@@ -15,7 +15,7 @@
 
 <br>
 
-> **NBOSP is a Linux-based operating system with an NW.js desktop environment.** Its x86_64 Buildroot image is in development and currently boots to a Linux console. `.novaapp` packages can run untrusted code, so install apps only from sources you trust.
+> **NBOSP is a Linux-based operating system with an NW.js desktop environment, designed to run in a virtual machine rather than replace your main OS.** Its x86_64 Buildroot image is in development and currently boots to a Linux console. `.novaapp` packages can run untrusted code, so install apps only from sources you trust.
 
 <br>
 
