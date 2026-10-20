@@ -14,10 +14,15 @@ if (!fs.existsSync(binaryPath) || !fs.existsSync(path.join(appDir, "node_modules
   throw new Error("NW.js binary or better-sqlite3 dependency is missing");
 }
 
-const testAppDir = path.join(appDir, `.nbosp-nw-node-test-${process.pid}`);
+const testAppDir = path.join(path.dirname(appDir), `.nbosp-nw-node-test-${process.pid}`);
 const resultPath = path.join(testAppDir, "result");
 const errorPath = path.join(testAppDir, "error");
 fs.mkdirSync(testAppDir);
+fs.symlinkSync(
+  path.join(appDir, "node_modules"),
+  path.join(testAppDir, "node_modules"),
+  process.platform === "win32" ? "junction" : "dir",
+);
 fs.writeFileSync(
   path.join(testAppDir, "package.json"),
   JSON.stringify({
@@ -76,7 +81,7 @@ try {
     "NBOSP_NWJS_NODE_RUNTIME_OK",
     `NW.js exited without completing its Node integration check.\n${diagnostics}`,
   );
-  console.log("Headless NW.js app and better-sqlite3 runtime test passed.");
+  console.log("NW.js app and better-sqlite3 runtime test passed.");
 } finally {
   fs.rmSync(testAppDir, { recursive: true, force: true });
 }
