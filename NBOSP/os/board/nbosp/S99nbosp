@@ -17,13 +17,22 @@ case "$1" in
 
     attempt=0
     while [ "$attempt" -lt 30 ]; do
-      [ -S /run/seatd.sock ] && [ -e /dev/dri/card0 ] && break
+      seatd_ready=false
+      drm_ready=false
+      [ -S /run/seatd.sock ] && seatd_ready=true
+      [ -e /dev/dri/card0 ] && drm_ready=true
+      [ "$seatd_ready" = true ] && [ "$drm_ready" = true ] && break
       sleep 1
       attempt=$((attempt + 1))
     done
 
-    if [ ! -S /run/seatd.sock ] || [ ! -e /dev/dri/card0 ]; then
-      echo "NBOSP kiosk could not find seatd or the VMware DRM device" >&2
+    if [ ! -S /run/seatd.sock ]; then
+      echo "NBOSP kiosk: seatd socket missing at /run/seatd.sock" >&2
+      exit 1
+    fi
+    if [ ! -e /dev/dri/card0 ]; then
+      echo "NBOSP kiosk: VMware DRM device missing; available DRM devices:" >&2
+      ls -la /dev/dri >&2 2>/dev/null || echo "  /dev/dri does not exist" >&2
       exit 1
     fi
 

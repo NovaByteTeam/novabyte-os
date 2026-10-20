@@ -38,6 +38,11 @@ three-second timeout; Linux writes to the virtual display and serial console.
 The initial root filesystem is an in-memory initramfs, so this milestone does
 not partition or modify a VM disk.
 
+If boot reaches the console but the kiosk reports a missing VMware DRM device,
+use a newly built ISO with `CONFIG_DRM_VMWGFX=y` and ensure the VM has a
+connected virtual display. The kernel also includes VMware-compatible
+`e1000`, `e1000e`, and `vmxnet3` network drivers for the VM's virtual NIC.
+
 The manual GitHub Actions workflow runs `npm ci` in `NBOSP`, builds the Linux
 x64 NW.js application, adjusts its window settings for fullscreen Wayland
 kiosk mode, and installs the complete app bundle into the ISO at `/opt/nbosp`.
