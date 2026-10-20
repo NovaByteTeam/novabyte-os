@@ -1,0 +1,74 @@
+name: Build NBOSP OS ISO
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'NBOSP/**'
+      - '.github/workflows/nbosp-os-iso.yml'
+  pull_request:
+    paths:
+      - 'NBOSP/**'
+      - '.github/workflows/nbosp-os-iso.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: NBOSP/package-lock.json
+
+      - name: Cache NW.js SDK
+        uses: actions/cache@v4
+        with:
+          path: NBOSP/.nwjs-cache
+          key: nwjs-sdk-${{ runner.os }}-${{ hashFiles('NBOSP/package.json') }}
+          restore-keys: |
+            nwjs-sdk-${{ runner.os }}-
+
+      - name: Install NBOSP dependencies
+        working-directory: NBOSP
+        run: npm ci
+
+      - name: Build Linux NW.js app
+        working-directory: NBOSP
+        run: node build.mjs linux
+
+      - name: Install Buildroot and ISO host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex file wget cpio unzip rsync \
+            python3 perl patch gzip bzip2 xz-utils libncurses-dev libelf-dev libssl-dev curl \
+            grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools
+
+      - name: Build bootable NBOSP ISO
+        run: bash NBOSP/os/build-iso.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: nbosp-live-x86_64
+          path: NBOSP/os/output/images/nbosp-live.iso
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Linux NW.js app and production dependencies
+        uses: actions/upload-artifact@v4
+        with:
+          name: nbosp-nwjs-linux-x64
+          path: build/linux-x64/
+          if-no-files-found: error
+          retention-days: 14
