@@ -44,6 +44,24 @@ jobs:
             python3 perl patch gzip bzip2 xz-utils libncurses-dev libelf-dev libssl-dev curl \
             grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools
 
+      - name: Cache Buildroot source and downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            NBOSP/os/.buildroot
+            NBOSP/os/.downloads
+          key: nbosp-buildroot-source-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh') }}
+          restore-keys: |
+            nbosp-buildroot-source-${{ runner.os }}-
+
+      - name: Cache Buildroot compiled output
+        uses: actions/cache@v4
+        with:
+          path: NBOSP/os/output
+          key: nbosp-buildroot-output-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
+          restore-keys: |
+            nbosp-buildroot-output-${{ runner.os }}-
+
       - name: Build bootable NBOSP ISO
         run: bash NBOSP/os/build-iso.sh
 

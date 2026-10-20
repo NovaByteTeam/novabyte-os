@@ -44,6 +44,10 @@ its production dependencies and NW.js runtime) as a separate workflow
 artifact. For now it is built alongside the boot ISO, not launched during
 boot; kiosk/Wayland integration is a later milestone.
 
+The workflow caches the Buildroot source/downloads and compiled output, along
+with the NW.js SDK and npm cache, to speed up later manual runs. The first
+successful Buildroot run still needs to compile the toolchain and kernel.
+
 ## Next milestone
 
 After confirming reliable boot, add VMware-compatible DRM graphics, Wayland,
