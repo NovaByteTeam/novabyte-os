@@ -15,7 +15,7 @@
 
 <br>
 
-> **⚠️ The current NBOSP desktop is an NW.js application, not yet a standalone Linux desktop OS.** An experimental Buildroot x86_64 image is being developed; its current milestone boots Linux to a console and does not launch NBOSP. `.novaapp` packages run untrusted code, so install apps only from sources you trust.
+> **NBOSP is a Linux-based operating system with an NW.js desktop environment.** Its x86_64 Buildroot image is in development and currently boots to a Linux console. `.novaapp` packages can run untrusted code, so install apps only from sources you trust.
 
 <br>
 
