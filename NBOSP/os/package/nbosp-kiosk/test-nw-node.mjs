@@ -14,36 +14,52 @@ if (!fs.existsSync(binaryPath) || !fs.existsSync(path.join(appDir, "node_modules
   throw new Error("NW.js binary or better-sqlite3 dependency is missing");
 }
 
-const scriptPath = path.join(appDir, `.nbosp-nw-node-test-${process.pid}.cjs`);
+const testAppDir = path.join(appDir, `.nbosp-nw-node-test-${process.pid}`);
+const resultPath = path.join(testAppDir, "result");
+const errorPath = path.join(testAppDir, "error");
+fs.mkdirSync(testAppDir);
 fs.writeFileSync(
-  scriptPath,
+  path.join(testAppDir, "package.json"),
+  JSON.stringify({ name: "nbosp-nw-node-test", main: "index.html" }),
+);
+fs.writeFileSync(
+  path.join(testAppDir, "index.html"),
+  '<!doctype html><script src="test.js"></script>',
+);
+fs.writeFileSync(
+  path.join(testAppDir, "test.js"),
   [
-    'const assert = require("node:assert/strict");',
-    'assert.equal(typeof process.versions.nw, "string");',
-    'const Database = require("better-sqlite3");',
-    'const db = new Database(":memory:");',
-    'assert.equal(db.prepare("SELECT 42 AS answer").get().answer, 42);',
-    "db.close();",
-    'console.log("NBOSP_NWJS_NODE_RUNTIME_OK");',
+    'try {',
+    '  const assert = require("node:assert/strict");',
+    '  assert.equal(typeof process.versions.nw, "string");',
+    '  const Database = require("better-sqlite3");',
+    '  const db = new Database(":memory:");',
+    '  assert.equal(db.prepare("SELECT 42 AS answer").get().answer, 42);',
+    '  db.close();',
+    '  require("node:fs").writeFileSync(__dirname + "/result", "NBOSP_NWJS_NODE_RUNTIME_OK");',
+    '  nw.App.quit();',
+    '} catch (error) {',
+    '  console.error(error.stack || error);',
+    '  require("node:fs").writeFileSync(__dirname + "/error", error.stack || String(error));',
+    '  process.exit(1);',
+    '}',
   ].join("\n"),
 );
 
 try {
-  const result = spawnSync(binaryPath, [scriptPath], {
+  const result = spawnSync(binaryPath, ["--headless", "--disable-gpu", "--no-sandbox", testAppDir], {
     cwd: appDir,
-    env: {
-      ...process.env,
-      NWJS_RUN_AS_NODE: "1",
-      NODE_OPTIONS: "--max-old-space-size=1024 --expose-gc",
-    },
     encoding: "utf8",
     timeout: 30_000,
   });
 
   if (result.error) throw result.error;
-  assert.equal(result.status, 0, [result.stderr, result.stdout].filter(Boolean).join("\n"));
-  assert.match(result.stdout, /NBOSP_NWJS_NODE_RUNTIME_OK/);
-  console.log("NW.js Node mode and better-sqlite3 runtime test passed.");
+  const details = fs.existsSync(errorPath)
+    ? fs.readFileSync(errorPath, "utf8")
+    : [result.stderr, result.stdout].filter(Boolean).join("\n");
+  assert.equal(result.status, 0, details);
+  assert.equal(fs.readFileSync(resultPath, "utf8"), "NBOSP_NWJS_NODE_RUNTIME_OK");
+  console.log("Headless NW.js app and better-sqlite3 runtime test passed.");
 } finally {
-  fs.rmSync(scriptPath, { force: true });
+  fs.rmSync(testAppDir, { recursive: true, force: true });
 }

@@ -43,7 +43,7 @@ jobs:
           mkdir -p NBOSP/os/package/nbosp-kiosk/source
           cp -a build/linux-x64/. NBOSP/os/package/nbosp-kiosk/source/
 
-      - name: Verify bundled NW.js Node runtime
+      - name: Verify headless NW.js Node integration
         run: node NBOSP/os/package/nbosp-kiosk/test-nw-node.mjs build/linux-x64/NovaByte build/linux-x64/package.nw
 
       - name: Install Buildroot and ISO host dependencies
