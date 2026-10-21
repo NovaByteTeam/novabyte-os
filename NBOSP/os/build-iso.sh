@@ -45,6 +45,8 @@ for option in \
   BR2_PACKAGE_DEJAVU \
   BR2_PACKAGE_DEJAVU_SANS \
   BR2_PACKAGE_DEJAVU_MONO \
+  BR2_PACKAGE_XORGPROTO \
+  BR2_PACKAGE_LIBGLVND \
   BR2_PACKAGE_CAGE \
   BR2_PACKAGE_WLROOTS_XWAYLAND \
   BR2_PACKAGE_XWAYLAND \
@@ -86,7 +88,7 @@ if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
 fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-  cage-dirclean wlroots-dirclean xwayland-dirclean mesa3d-dirclean linux-dirclean nbosp-kiosk-dirclean \
+  cage-dirclean wlroots-dirclean xwayland-dirclean xorgproto-dirclean libglvnd-dirclean mesa3d-dirclean linux-dirclean nbosp-kiosk-dirclean \
   nbosp-install-dirclean nbosp-power-dirclean
 if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/sbin/lsblk" \
@@ -116,6 +118,10 @@ if ! find "$OUTPUT_DIR/target/usr/lib" -type f -name 'vmwgfx_dri.so' -print -qui
 fi
 if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libGLX_mesa.so*' -print -quit | grep -q .; then
   echo "Mesa GLX support is missing from the target image." >&2
+  exit 1
+fi
+if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libGL.so.1*' -print -quit | grep -q .; then
+  echo "The OpenGL libGL.so.1 dispatch library is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -f "$OUTPUT_DIR/target/opt/nbosp/lib/libffmpeg.so" ]]; then

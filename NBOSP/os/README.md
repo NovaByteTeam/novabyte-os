@@ -96,11 +96,14 @@ XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
 The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
 NW.js running through XWayland; Chromium is configured to use GPU rasterization
-and zero-copy buffers through desktop OpenGL. The build checks that the SVGA
-DRI driver and Mesa GLX library are present. In VMware, enable **Accelerate 3D
-graphics** for the VM; the kernel log confirms that `vmwgfx` detects the
-virtual GPU, but Chromium's actual renderer should be confirmed from its GPU
-log in the VM.
+and zero-copy buffers through desktop OpenGL. Xorg protocol headers are enabled
+explicitly because Mesa's GLX client build requires `GL/glxproto.h`. libglvnd
+provides the standard `libGL.so.1` dispatch library Chromium needs to initialize
+desktop OpenGL; the image build verifies that it is present alongside Mesa's
+GLX library and SVGA DRI driver. In VMware,
+enable **Accelerate 3D graphics** for the VM; the kernel log confirms that
+`vmwgfx` detects the virtual GPU, but Chromium's actual renderer should be
+confirmed from its GPU log in the VM.
 The Display Scale setting is passed to NW.js/Chromium with
 `--force-device-scale-factor`, which scales the complete NovaByte UI. Changing
 the setting requires restarting the system from the launchpad; it does not
@@ -113,9 +116,10 @@ bypass flags; verification for external sites remains enabled.
 DejaVu Sans/Mono fonts and Fontconfig are included so Chromium and the UI have
 installed text fonts. The Whiteglass Xcursor theme is included, and Cage uses
 a software-rendered cursor to avoid invisible hardware cursors in VMware.
-The image build clean-rebuilds Cage, wlroots, and XWayland so a restored
-Buildroot output cache cannot leave the compositor without its XWayland
-backend. It also checks that Mesa's `vmwgfx_dri.so` SVGA driver and GLX library
+The image build clean-rebuilds Cage, wlroots, XWayland, Xorg protocol headers,
+libglvnd, and Mesa so a restored Buildroot output cache cannot leave the
+compositor without its XWayland backend, GLX headers, or OpenGL dispatch
+library. It also checks that Mesa's `vmwgfx_dri.so` SVGA driver and GLX library
 are present.
 CI first opens a minimal NW.js app under Xvfb, then checks Node access and the
 `better-sqlite3` native module before starting the Buildroot build. The image

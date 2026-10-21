@@ -166,32 +166,31 @@
             textContent: 'Choose the virtual hard disk you added for NovaByte. The live ISO is not a destination disk.',
             style: 'line-height:1.55;color:var(--text-secondary)'
           });
-          const select = document.createElement('select');
-          select.setAttribute('aria-label', 'Installation disk');
-          Object.assign(select.style, {
-            padding: '12px',
-            color: 'var(--text-primary)',
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border)',
-            borderRadius: '7px',
-            font: 'inherit'
+          const diskChoices = createEl('div', {
+            role: 'group',
+            'aria-label': 'Installation disk',
+            style: 'display:flex;flex-direction:column;gap:8px;max-height:150px;overflow:auto'
           });
-          const placeholder = document.createElement('option');
-          placeholder.value = '';
-          placeholder.textContent = disks.length ? 'Select a disk…' : 'No supported disks found';
-          select.appendChild(placeholder);
-          for (const disk of disks) {
-            const option = document.createElement('option');
-            option.value = disk.device;
-            option.textContent = `${disk.device}${disk.model ? ` — ${disk.model}` : ''} (${formatSize(disk.size)})`;
-            option.selected = disk.device === selectedDevice;
-            select.appendChild(option);
+          if (!disks.length) {
+            diskChoices.appendChild(createEl('div', {
+              textContent: 'No supported disks found.',
+              style: 'padding:12px;border:1px solid var(--border);border-radius:7px;color:var(--text-secondary)'
+            }));
           }
-          select.disabled = !disks.length;
-          select.addEventListener('change', () => {
-            selectedDevice = select.value;
-            nextButton.disabled = !selectedDisk();
-          });
+          for (const disk of disks) {
+            const selected = disk.device === selectedDevice;
+            const choice = createEl('button', {
+              type: 'button',
+              'aria-pressed': String(selected),
+              textContent: `${disk.device}${disk.model ? ` — ${disk.model}` : ''} (${formatSize(disk.size)})`,
+              style: `padding:12px;text-align:left;color:var(--text-primary);background:${selected ? 'var(--accent-muted)' : 'var(--bg-secondary)'};border:1px solid ${selected ? 'var(--accent)' : 'var(--border)'};border-radius:7px;font:inherit;cursor:pointer`
+            });
+            choice.addEventListener('click', () => {
+              selectedDevice = disk.device;
+              renderStep();
+            });
+            diskChoices.appendChild(choice);
+          }
           const refreshButton = createEl('button', {
             textContent: 'Refresh disk list',
             style: 'align-self:flex-start;padding:8px 12px;border:1px solid var(--border);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer'
@@ -205,7 +204,7 @@
             textContent: 'For safety, use a separate, disposable VMware virtual disk. Never select a disk containing files you want to keep.',
             style: 'padding:14px;border:1px solid var(--text-warning,#d29922);border-radius:8px;color:var(--text-warning,#d29922);line-height:1.5'
           });
-          body.append(explanation, select, refreshButton, safety);
+          body.append(explanation, diskChoices, refreshButton, safety);
           nextButton.textContent = 'Review disk';
         } else if (step === 1) {
           const disk = selectedDisk();
