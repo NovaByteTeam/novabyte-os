@@ -100,7 +100,10 @@ and zero-copy buffers through desktop OpenGL. Xorg protocol headers are enabled
 explicitly because Mesa's GLX client build requires `GL/glxproto.h`. libglvnd
 provides the standard `libGL.so.1` dispatch library Chromium needs to initialize
 desktop OpenGL; the image build verifies that it is present alongside Mesa's
-GLX library and SVGA DRI driver. In VMware,
+GLX library and SVGA DRI driver. XWayland's GLX server also needs Mesa's
+`GL/internal/dri_interface.h`; the build stages that private header from the
+matching Mesa source into the toolchain sysroot before compiling XWayland.
+In VMware,
 enable **Accelerate 3D graphics** for the VM; the kernel log confirms that
 `vmwgfx` detects the virtual GPU, but Chromium's actual renderer should be
 confirmed from its GPU log in the VM.

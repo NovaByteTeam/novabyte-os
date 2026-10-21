@@ -160,10 +160,9 @@ const Boot = {
    *
    * @param {boolean} isSafeMode
    */
-  async initSubsystems(isSafeMode) {
-    const linuxNative = typeof process !== 'undefined' && process.platform === 'linux';
-    if (linuxNative) document.documentElement.classList.add('nbosp-linux-performance');
-    let migrateLegacyStorage = false;
+   async initSubsystems(isSafeMode) {
+     const linuxNative = typeof process !== 'undefined' && process.platform === 'linux';
+     let migrateLegacyStorage = false;
     if (linuxNative) {
       const path = require('path');
       const home = require('os').homedir();

@@ -90,6 +90,16 @@ fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   cage-dirclean wlroots-dirclean xwayland-dirclean xorgproto-dirclean libglvnd-dirclean mesa3d-dirclean linux-dirclean nbosp-kiosk-dirclean \
   nbosp-install-dirclean nbosp-power-dirclean
+make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
+make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
+MESA3D_VERSION="$(sed -n 's/^MESA3D_VERSION = //p' "$BUILDROOT_DIR/package/mesa3d/mesa3d.mk")"
+MESA_DRI_INTERFACE="$OUTPUT_DIR/build/mesa3d-$MESA3D_VERSION/include/GL/internal/dri_interface.h"
+STAGING_DRI_INTERFACE="$OUTPUT_DIR/host/x86_64-buildroot-linux-gnu/sysroot/usr/include/GL/internal/dri_interface.h"
+if [[ ! -f "$MESA_DRI_INTERFACE" ]]; then
+  echo "Mesa's XWayland DRI interface header is missing: $MESA_DRI_INTERFACE" >&2
+  exit 1
+fi
+install -D -m 0644 "$MESA_DRI_INTERFACE" "$STAGING_DRI_INTERFACE"
 if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/sbin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/usr/bin/lsblk" \
