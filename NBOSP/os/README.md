@@ -60,6 +60,8 @@ directory because NovaByte generates its environment secrets and TLS
 certificates there on first boot. Cage runs the compositor on Wayland and
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
+The image build clean-rebuilds Cage, wlroots and XWayland so a restored
+Buildroot output cache cannot leave Cage compiled without its XWayland backend.
 CI first opens a minimal NW.js app under Xvfb, then checks Node access and the
 `better-sqlite3` native module before starting the Buildroot build. The image
 does not build a separate Node.js package. The build uploads the ISO artifact

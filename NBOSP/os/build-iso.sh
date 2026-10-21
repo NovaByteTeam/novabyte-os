@@ -43,6 +43,7 @@ for option in \
   BR2_PACKAGE_LIBNSPR \
   BR2_PACKAGE_CAGE \
   BR2_PACKAGE_WLROOTS_XWAYLAND \
+  BR2_PACKAGE_XWAYLAND \
   BR2_PACKAGE_SEATD_DAEMON \
   BR2_PACKAGE_DBUS \
   BR2_PACKAGE_XKEYBOARD_CONFIG \
@@ -62,8 +63,15 @@ if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
   exit 1
 fi
 
-make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" nbosp-kiosk-dirclean
+make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+  cage-dirclean wlroots-dirclean xwayland-dirclean nbosp-kiosk-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
+
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
+  echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
+  exit 1
+fi
+
 bash "$OS_DIR/board/nbosp/post-image.sh" "$OUTPUT_DIR/images"
 
 echo "ISO ready: $OUTPUT_DIR/images/nbosp-live.iso"
