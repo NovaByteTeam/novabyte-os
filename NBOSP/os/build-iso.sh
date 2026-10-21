@@ -101,6 +101,10 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
 fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
+  echo "Cage compositor is missing from the target image." >&2
+  exit 1
+fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
   echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
   exit 1

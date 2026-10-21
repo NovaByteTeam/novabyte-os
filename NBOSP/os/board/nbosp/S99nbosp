@@ -7,6 +7,10 @@ case "$1" in
       echo "NBOSP kiosk app is missing or not executable: $app" >&2
       exit 1
     fi
+    if [ ! -x /usr/bin/cage ]; then
+      echo "NBOSP kiosk: Cage is missing" >&2
+      exit 1
+    fi
 
     runtime_dir="/run/user/1000"
     mkdir -p "$runtime_dir"
@@ -49,10 +53,31 @@ case "$1" in
       exit 1
     fi
 
+    display_scale=1
+    scale_file=/home/nbosp/.config/novabyte/display-scale
+    if [ -f "$scale_file" ]; then
+      display_scale="$(cat "$scale_file")"
+    fi
+    case "$display_scale" in
+      1|1.25|1.5|1.75|2) ;;
+      *)
+        echo "NBOSP kiosk: invalid saved display scale '$display_scale'; using 1" >&2
+        display_scale=1
+        ;;
+    esac
+
+    cat > /run/nbosp-kiosk-session.sh <<SESSION
+#!/bin/sh
+exec /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform \
+  --ozone-platform=x11 --force-device-scale-factor="$display_scale" \
+  --allow-insecure-localhost --enable-logging=stderr
+SESSION
+    chmod 0755 /run/nbosp-kiosk-session.sh
+
     start-stop-daemon --start --background --make-pidfile \
       --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \
       -f -s -w -c 1 -- /bin/sh -c \
-      'su -s /bin/sh nbosp -c "export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=24; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /usr/bin/cage -- /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform --ozone-platform=x11 --allow-insecure-localhost --enable-logging=stderr" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null'
+      'su -s /bin/sh nbosp -c "export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=24 XDG_CURRENT_DESKTOP=cage; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /usr/bin/cage -- /run/nbosp-kiosk-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null'
     ;;
   stop)
     if [ -f /run/nbosp-kiosk.pid ]; then

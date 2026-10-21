@@ -1862,6 +1862,21 @@ function showOpenWithDialog(fileNode) {
 
 window.showOpenWithDialog = showOpenWithDialog;
 
+function persistDisplayScale() {
+  if (typeof process === 'undefined' || process.platform !== 'linux') return;
+
+  const scale = Number(OS.settings.get('displayScale') || 1);
+  if (![1, 1.25, 1.5, 1.75, 2].includes(scale)) {
+    throw new Error(`Unsupported display scale: ${scale}`);
+  }
+
+  const fs = require('fs');
+  const path = require('path');
+  const configDir = path.join(require('os').homedir(), '.config', 'novabyte');
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(configDir, 'display-scale'), `${scale}\n`, { mode: 0o600 });
+}
+
 OS.events.on('settings:changed', async ({ key }) => {
   // Apply settings in the running host immediately. The Settings app is a
   // sandboxed webview, so it must never try to reach host-only DOM nodes itself.
@@ -1900,6 +1915,15 @@ OS.events.on('settings:changed', async ({ key }) => {
       case 'cursorSize':
         Boot?.applyCursorSize?.(OS.settings.get.bind(OS.settings));
         break;
+      case 'displayScale':
+        persistDisplayScale();
+        Notify.show({
+          title: 'Display scale saved',
+          body: 'Restart the system from the launchpad to apply the new Chromium display scale.',
+          type: 'info',
+          appName: 'Settings'
+        });
+        break;
       case 'username':
         OS.username = OS.settings.get('username') || 'user';
         document.getElementById('lock-username')?.replaceChildren(document.createTextNode(OS.username));
@@ -1917,9 +1941,31 @@ OS.events.on('settings:changed', async ({ key }) => {
     }
   } catch (e) {
     console.warn('[Desktop] immediate settings apply failed:', key, e);
+    if (key === 'displayScale') {
+      Notify.show({
+        title: 'Display scale could not be saved',
+        body: e?.message || String(e),
+        type: 'error',
+        appName: 'Settings'
+      });
+    }
   }
 
   if (key === 'rootAccessEnabled' && OS.settings.get('rootAccessEnabled') !== true
     && typeof AppSandbox !== 'undefined'
     && AppSandbox.reloadAfterRootRevocation?.('Root Access was disabled')) return;
 });
+
+if (typeof process !== 'undefined' && process.platform === 'linux') {
+  try {
+    persistDisplayScale();
+  } catch (error) {
+    console.error('[Desktop] Could not persist display scale:', error);
+    Notify.show({
+      title: 'Display scale could not be saved',
+      body: error?.message || String(error),
+      type: 'error',
+      appName: 'Settings'
+    });
+  }
+}

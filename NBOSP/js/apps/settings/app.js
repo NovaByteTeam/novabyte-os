@@ -1389,6 +1389,53 @@ registerApp({
         style: { color: 'var(--text-secondary)', fontSize: '12px', marginTop: '-8px', marginBottom: '20px' }
       }));
 
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        const displayScaleGroup = createEl('div', { className: 'nook-group' });
+        displayScaleGroup.appendChild(createEl('div', {
+          className: 'nook-group-title',
+          textContent: 'Display Scale'
+        }));
+        const displayScaleRow = createEl('div', { className: 'nook-row' });
+        displayScaleRow.appendChild(createEl('span', {
+          className: 'nook-row-label',
+          textContent: 'Scale NovaByte'
+        }));
+        const displayScaleSelect = document.createElement('select');
+        displayScaleSelect.setAttribute('aria-label', 'Display scale');
+        Object.assign(displayScaleSelect.style, {
+          padding: '8px',
+          color: 'var(--text-primary)',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+          borderRadius: '6px'
+        });
+        const displayScales = [
+          { value: 1, label: '100%' },
+          { value: 1.25, label: '125%' },
+          { value: 1.5, label: '150%' },
+          { value: 1.75, label: '175%' },
+          { value: 2, label: '200%' }
+        ];
+        const currentDisplayScale = Number(OS.settings.get('displayScale') || 1);
+        for (const scale of displayScales) {
+          const option = document.createElement('option');
+          option.value = String(scale.value);
+          option.textContent = scale.label;
+          option.selected = scale.value === currentDisplayScale;
+          displayScaleSelect.appendChild(option);
+        }
+        displayScaleSelect.addEventListener('change', () => {
+          OS.settings.set('displayScale', Number(displayScaleSelect.value));
+        }, { signal: lifecycle.signal });
+        displayScaleRow.appendChild(displayScaleSelect);
+        displayScaleGroup.appendChild(displayScaleRow);
+        displayScaleGroup.appendChild(createEl('p', {
+          textContent: 'Changes Chromium’s scale for the full NovaByte desktop. Restart the system from the launchpad to apply it.',
+          style: { color: 'var(--text-secondary)', fontSize: '12px', lineHeight: '1.5', margin: '8px 0 0' }
+        }));
+        mainContent.appendChild(displayScaleGroup);
+      }
+
       // Icon Size
       const iconSizeGroup = createEl('div', { className: 'nook-group' });
       iconSizeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Icon Size' }));

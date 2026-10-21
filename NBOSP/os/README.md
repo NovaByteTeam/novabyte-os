@@ -94,6 +94,10 @@ directory because NovaByte generates its environment secrets and TLS
 certificates there on first boot. Cage runs the compositor on Wayland and
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
+The Display Scale setting is passed to NW.js/Chromium with
+`--force-device-scale-factor`, which scales the complete NovaByte UI. Changing
+the setting requires restarting the system from the launchpad; it does not
+alter the display mode or scale other Wayland clients.
 NW.js receives `--allow-insecure-localhost` directly at launch because Chromium
 in the Buildroot image rejected the per-device localhost CA despite the app
 importing it into the user's NSS database. First-run certificate cleanup also
@@ -102,8 +106,9 @@ bypass flags; verification for external sites remains enabled.
 DejaVu Sans/Mono fonts and Fontconfig are included so Chromium and the UI have
 installed text fonts. The Whiteglass Xcursor theme is included and selected at
 startup to provide a visible pointer.
-The image build clean-rebuilds Cage, wlroots and XWayland so a restored
-Buildroot output cache cannot leave Cage compiled without its XWayland backend.
+The image build clean-rebuilds Cage, wlroots, and XWayland so a restored
+Buildroot output cache cannot leave the compositor without its XWayland
+backend.
 CI first opens a minimal NW.js app under Xvfb, then checks Node access and the
 `better-sqlite3` native module before starting the Buildroot build. The image
 does not build a separate Node.js package. The build uploads the ISO artifact

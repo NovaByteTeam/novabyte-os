@@ -86,137 +86,215 @@
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        gap: '14px',
-        padding: '24px',
+        gap: '18px',
+        padding: '28px',
         height: '100%',
         color: 'var(--text-primary)',
         fontFamily: 'var(--font-ui, sans-serif)'
       });
 
+      const header = createEl('div', { style: 'display:flex;flex-direction:column;gap:8px' });
       const title = createEl('h1', {
         textContent: 'Install NovaByte OS',
-        style: 'font-size:22px;margin:0'
+        style: 'font-size:24px;margin:0'
       });
       const description = createEl('p', {
-        textContent: 'Choose a disk to install the live system onto. The installer creates a bootable disk for both VMware BIOS and UEFI firmware.',
-        style: 'margin:0;line-height:1.5;color:var(--text-muted)'
+        textContent: 'A short guided setup will prepare a disk and install the live system.',
+        style: 'margin:0;line-height:1.5;color:var(--text-secondary)'
       });
-      const warning = createEl('div', {
-        textContent: 'Warning: every partition and file on the selected disk will be permanently erased.',
-        style: 'padding:12px;border:1px solid var(--text-danger,#f85149);border-radius:8px;color:var(--text-danger,#f85149);font-weight:600'
-      });
-      const select = document.createElement('select');
-      select.setAttribute('aria-label', 'Installation disk');
-      Object.assign(select.style, {
-        padding: '10px',
-        color: 'var(--text-primary)',
-        background: 'var(--bg-secondary)',
-        border: '1px solid var(--border)',
-        borderRadius: '6px'
-      });
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = 'Select a disk';
-      select.appendChild(placeholder);
+      header.append(title, description);
 
+      const progressLabel = createEl('div', {
+        style: 'font-size:13px;color:var(--text-secondary);font-weight:600'
+      });
+      const progressTrack = createEl('div', {
+        style: 'display:flex;gap:6px'
+      });
       let disks = [];
-      try {
-        disks = listDisks();
-      } catch (error) {
-        console.error('[Install NovaByte] Disk discovery failed:', error);
-      }
-      for (const disk of disks) {
-        const option = document.createElement('option');
-        option.value = disk.device;
-        option.textContent = `${disk.device}${disk.model ? ` — ${disk.model}` : ''} (${formatSize(disk.size)})`;
-        select.appendChild(option);
-      }
-      if (!disks.length) {
-        placeholder.textContent = 'No supported disks found';
-        select.disabled = true;
-      }
-
-      const installButton = createEl('button', {
-        textContent: 'Install to disk…',
-        style: 'align-self:flex-start;padding:10px 18px;border:0;border-radius:6px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer'
+      let selectedDevice = '';
+      let step = 0;
+      let installOutput = '';
+      let running = false;
+      let installationFailed = false;
+      const stages = ['Choose a disk', 'Review and confirm', 'Installing', 'Complete'];
+      const body = createEl('div', { style: 'display:flex;flex:1;min-height:0;flex-direction:column;gap:16px' });
+      const footer = createEl('div', { style: 'display:flex;justify-content:space-between;gap:12px;margin-top:auto' });
+      const backButton = createEl('button', {
+        textContent: 'Back',
+        style: 'padding:10px 16px;border:1px solid var(--border);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer'
       });
-      installButton.disabled = !disks.length;
-      const status = createEl('div', {
-        textContent: 'No changes will be made until you confirm the exact disk name.',
-        style: 'color:var(--text-muted);line-height:1.45'
+      const nextButton = createEl('button', {
+        textContent: 'Continue',
+        style: 'padding:10px 18px;border:0;border-radius:7px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer'
       });
-      const output = createEl('pre', {
-        style: 'box-sizing:border-box;flex:1;min-height:80px;overflow:auto;margin:0;padding:12px;border-radius:6px;background:var(--bg-secondary);white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 monospace'
-      });
-
-      const appendOutput = text => {
-        output.textContent = `${output.textContent}${text}`.slice(-16000);
-        output.scrollTop = output.scrollHeight;
+      const refreshDisks = () => {
+        try {
+          disks = listDisks();
+        } catch (error) {
+          console.error('[Install NovaByte] Disk discovery failed:', error);
+          disks = [];
+        }
       };
-
-      installButton.addEventListener('click', async () => {
-        const device = select.value;
-        if (!disks.some(disk => disk.device === device)) {
-          Notify.show({ title: 'Choose a disk', body: 'Select a supported installation disk first.', type: 'warning', appName: 'Install NovaByte' });
-          return;
+      const selectedDisk = () => disks.find(disk => disk.device === selectedDevice);
+      const appendOutput = text => {
+        installOutput = `${installOutput}${text}`.slice(-16000);
+        const output = body.querySelector('pre');
+        if (output) {
+          output.textContent = installOutput;
+          output.scrollTop = output.scrollHeight;
         }
-
-        const body = document.createElement('div');
-        body.appendChild(createEl('p', {
-          textContent: `This will erase all data on ${device}. Type ERASE ${device} to confirm.`,
-          style: 'line-height:1.5'
-        }));
-        const confirmation = document.createElement('input');
-        confirmation.type = 'text';
-        confirmation.autocomplete = 'off';
-        confirmation.spellcheck = false;
-        confirmation.setAttribute('aria-label', `Type ERASE ${device} to confirm`);
-        confirmation.placeholder = `ERASE ${device}`;
-        Object.assign(confirmation.style, {
-          boxSizing: 'border-box',
-          width: '100%',
-          padding: '10px',
-          color: 'var(--text-primary)',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border)',
-          borderRadius: '6px'
+      };
+      const renderProgress = () => {
+        progressLabel.textContent = `Step ${Math.min(step + 1, stages.length)} of ${stages.length} — ${stages[step]}`;
+        progressTrack.replaceChildren();
+        stages.forEach((label, index) => {
+          progressTrack.appendChild(createEl('div', {
+            'aria-label': label,
+            style: `height:4px;flex:1;border-radius:4px;background:${index <= step ? 'var(--accent)' : 'var(--border)'}`
+          }));
         });
-        body.appendChild(confirmation);
+      };
+      const renderStep = () => {
+        renderProgress();
+        body.replaceChildren();
+        backButton.hidden = step === 0 || step === 3 || running;
+        nextButton.hidden = step === 2 || step === 3;
+        nextButton.disabled = step === 0 ? !selectedDisk() : false;
 
-        const confirmationModal = showModal(
-          'Confirm disk erasure',
-          body,
-          [
-            { label: 'Cancel' },
-            { label: 'Erase and install', danger: true, value: 'install' }
-          ]
-        );
-        confirmation.focus();
-        const action = await confirmationModal;
-        if (action !== 'install') return;
-        if (confirmation.value.trim() !== `ERASE ${device}`) {
-          Notify.show({ title: 'Confirmation did not match', body: `Type ERASE ${device} exactly to continue.`, type: 'error', appName: 'Install NovaByte' });
-          return;
+        if (step === 0) {
+          const explanation = createEl('p', {
+            textContent: 'Choose the virtual hard disk you added for NovaByte. The live ISO is not a destination disk.',
+            style: 'line-height:1.55;color:var(--text-secondary)'
+          });
+          const select = document.createElement('select');
+          select.setAttribute('aria-label', 'Installation disk');
+          Object.assign(select.style, {
+            padding: '12px',
+            color: 'var(--text-primary)',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: '7px',
+            font: 'inherit'
+          });
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = disks.length ? 'Select a disk…' : 'No supported disks found';
+          select.appendChild(placeholder);
+          for (const disk of disks) {
+            const option = document.createElement('option');
+            option.value = disk.device;
+            option.textContent = `${disk.device}${disk.model ? ` — ${disk.model}` : ''} (${formatSize(disk.size)})`;
+            option.selected = disk.device === selectedDevice;
+            select.appendChild(option);
+          }
+          select.disabled = !disks.length;
+          select.addEventListener('change', () => {
+            selectedDevice = select.value;
+            nextButton.disabled = !selectedDisk();
+          });
+          const refreshButton = createEl('button', {
+            textContent: 'Refresh disk list',
+            style: 'align-self:flex-start;padding:8px 12px;border:1px solid var(--border);border-radius:7px;background:transparent;color:var(--text-primary);cursor:pointer'
+          });
+          refreshButton.addEventListener('click', () => {
+            refreshDisks();
+            if (!selectedDisk()) selectedDevice = '';
+            renderStep();
+          });
+          const safety = createEl('div', {
+            textContent: 'For safety, use a separate, disposable VMware virtual disk. Never select a disk containing files you want to keep.',
+            style: 'padding:14px;border:1px solid var(--text-warning,#d29922);border-radius:8px;color:var(--text-warning,#d29922);line-height:1.5'
+          });
+          body.append(explanation, select, refreshButton, safety);
+          nextButton.textContent = 'Review disk';
+        } else if (step === 1) {
+          const disk = selectedDisk();
+          if (!disk) {
+            step = 0;
+            renderStep();
+            return;
+          }
+          const warning = createEl('div', {
+            textContent: 'This operation permanently erases every partition and file on the selected disk.',
+            style: 'padding:16px;border:1px solid var(--text-danger,#f85149);border-radius:8px;color:var(--text-danger,#f85149);font-weight:700;line-height:1.5'
+          });
+          const summary = createEl('div', {
+            textContent: `${disk.device}${disk.model ? ` — ${disk.model}` : ''}\n${formatSize(disk.size)}`,
+            style: 'padding:16px;border-radius:8px;background:var(--bg-secondary);white-space:pre-line;line-height:1.6;font-family:var(--font-mono,monospace)'
+          });
+          const prompt = createEl('p', {
+            textContent: `To confirm you selected the correct disk, type ERASE ${disk.device} below.`,
+            style: 'line-height:1.5;color:var(--text-secondary)'
+          });
+          const confirmation = document.createElement('input');
+          confirmation.type = 'text';
+          confirmation.autocomplete = 'off';
+          confirmation.spellcheck = false;
+          confirmation.setAttribute('aria-label', `Type ERASE ${disk.device} to confirm`);
+          confirmation.placeholder = `ERASE ${disk.device}`;
+          Object.assign(confirmation.style, {
+            boxSizing: 'border-box',
+            width: '100%',
+            padding: '12px',
+            color: 'var(--text-primary)',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: '7px',
+            font: 'inherit'
+          });
+          confirmation.addEventListener('input', () => {
+            nextButton.disabled = confirmation.value.trim() !== `ERASE ${disk.device}`;
+          });
+          body.append(warning, summary, prompt, confirmation);
+          nextButton.textContent = 'Erase and install';
+          nextButton.disabled = true;
+        } else if (step === 2) {
+          const status = createEl('div', {
+            textContent: `Installing to ${selectedDevice}. Do not power off the VM.`,
+            style: 'font-weight:600;line-height:1.5'
+          });
+          const output = createEl('pre', {
+            textContent: installOutput || 'Starting the installer…',
+            style: 'box-sizing:border-box;flex:1;min-height:100px;overflow:auto;margin:0;padding:14px;border-radius:8px;background:var(--bg-secondary);white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 var(--font-mono,monospace)'
+          });
+          body.append(status, output);
+          nextButton.hidden = true;
+          startInstallation(status);
+        } else {
+          body.append(
+            createEl('div', { textContent: 'NovaByte is installed.', style: 'font-size:20px;font-weight:700' }),
+            createEl('p', {
+              textContent: `Installation to ${selectedDevice} completed. Restart the VM, disconnect the live ISO, and boot from the installed disk.`,
+              style: 'line-height:1.6;color:var(--text-secondary)'
+            })
+          );
+          nextButton.hidden = true;
+          backButton.hidden = true;
         }
-
-        installButton.disabled = true;
-        select.disabled = true;
-        status.textContent = `Installing to ${device}. Do not power off the VM.`;
-        output.textContent = '';
-
-        let finished = false;
+      };
+      const startInstallation = status => {
+        if (running) return;
+        running = true;
+        backButton.hidden = true;
+        installOutput = '';
         const childProcess = require('child_process');
         let child;
         try {
-          child = childProcess.spawn(INSTALLER, [device, `ERASE:${device}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+          child = childProcess.spawn(INSTALLER, [selectedDevice, `ERASE:${selectedDevice}`], {
+            stdio: ['ignore', 'pipe', 'pipe']
+          });
         } catch (error) {
+          running = false;
+          installationFailed = true;
+          console.error('[Install NovaByte] Could not start installer:', error);
           status.textContent = 'The installer could not be started.';
           appendOutput(`${error.message}\n`);
-          installButton.disabled = false;
-          select.disabled = false;
+          backButton.hidden = false;
+          backButton.textContent = 'Back to disk selection';
           return;
         }
 
+        let finished = false;
         child.stdout.setEncoding('utf8');
         child.stderr.setEncoding('utf8');
         child.stdout.on('data', appendOutput);
@@ -224,27 +302,30 @@
         child.on('error', error => {
           if (finished) return;
           finished = true;
+          running = false;
+          installationFailed = true;
           console.error('[Install NovaByte] Installer process failed:', error);
-          status.textContent = 'Installation failed. The disk may have been changed; review the output before retrying.';
+          status.textContent = 'Installation failed. The disk may have changed; review the output before trying again.';
           appendOutput(`${error.message}\n`);
-          installButton.disabled = false;
-          select.disabled = false;
+          backButton.hidden = false;
+          backButton.textContent = 'Back to disk selection';
         });
         child.on('close', async code => {
           if (finished) return;
           finished = true;
+          running = false;
           if (code !== 0) {
-            status.textContent = `Installation failed with exit code ${code ?? 'unknown'}. The disk may have been changed; review the output before retrying.`;
-            installButton.disabled = false;
-            select.disabled = false;
+            installationFailed = true;
+            status.textContent = `Installation failed with exit code ${code ?? 'unknown'}. The disk may have changed; review the output before trying again.`;
+            backButton.hidden = false;
+            backButton.textContent = 'Back to disk selection';
             return;
           }
-          status.textContent = `NovaByte was installed to ${device}. You can restart from the launchpad when ready.`;
+
           try {
             await removeInstallerDesktopShortcut();
           } catch (error) {
             console.error('[Install NovaByte] Could not remove its desktop shortcut:', error);
-            status.textContent = `NovaByte was installed to ${device}, but its desktop shortcut could not be removed. You can remove it manually from the desktop.`;
             Notify.show({
               title: 'Desktop shortcut cleanup failed',
               body: error?.message || String(error),
@@ -252,11 +333,44 @@
               appName: 'Install NovaByte'
             });
           }
-          Notify.show({ title: 'Installation complete', body: `NovaByte is installed to ${device}. Restart the VM to boot from it.`, type: 'success', appName: 'Install NovaByte' });
+          step = 3;
+          renderStep();
+          Notify.show({
+            title: 'Installation complete',
+            body: `NovaByte is installed to ${selectedDevice}. Restart the VM to boot from it.`,
+            type: 'success',
+            appName: 'Install NovaByte'
+          });
         });
-      });
+      };
 
-      content.append(title, description, warning, select, installButton, status, output);
+      backButton.addEventListener('click', () => {
+        if (installationFailed) {
+          installationFailed = false;
+          step = 0;
+          selectedDevice = '';
+          renderStep();
+        } else if (step > 0 && step < 3 && !running) {
+          step--;
+          renderStep();
+        }
+      });
+      nextButton.addEventListener('click', () => {
+        if (step === 0 && selectedDisk()) {
+          step = 1;
+          renderStep();
+        } else if (step === 1 && selectedDisk()) {
+          const confirmation = body.querySelector('input');
+          if (confirmation?.value.trim() === `ERASE ${selectedDevice}`) {
+            step = 2;
+            renderStep();
+          }
+        }
+      });
+      footer.append(backButton, nextButton);
+      content.append(header, progressLabel, progressTrack, body, footer);
+      refreshDisks();
+      renderStep();
     }
   });
 })();
