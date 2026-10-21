@@ -52,7 +52,9 @@ kiosk mode, and installs the complete app bundle into the ISO at `/opt/nbosp`.
 At boot, Buildroot starts Cage on the VMware display and launches NW.js as the
 unprivileged `nbosp` user. Cage and NW.js output is appended to
 `/home/nbosp/nbosp-kiosk.log` and mirrored to the configured `ttyS0` serial
-console for debugging without switching virtual terminals. CI first opens a
+console for debugging without switching virtual terminals. The kiosk is
+started inside a fresh D-Bus session to avoid inheriting a malformed session
+bus address. CI first opens a
 minimal NW.js app under Xvfb, then checks Node access and the `better-sqlite3`
 native module before starting the Buildroot build. The image does not build a
 separate Node.js package. The build uploads the ISO artifact
