@@ -59,7 +59,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex file wget cpio unzip rsync \
             python3 perl patch gzip bzip2 xz-utils libncurses-dev libelf-dev libssl-dev curl \
-            grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools
+            grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools \
+            libx11-dev libxext-dev libxrandr-dev libgl-dev libgles-dev \
+            libwayland-dev wayland-protocols libxshmfence-dev libglx-dev \
+            mesa-common-dev libepoxy-dev
 
       - name: Cache Buildroot source and downloads
         uses: actions/cache@v4
