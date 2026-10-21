@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,7 +33,12 @@ describe('scripts/certs.js — kiosk localhost certificate handling', () => {
       },
     }));
 
-    await expect(ensureCerts(appDir)).resolves.toBe(true);
+    const trustInstaller = vi.fn(() => true);
+    await expect(ensureCerts(appDir, trustInstaller)).resolves.toBe(true);
+    if (process.platform === 'linux') {
+      expect(trustInstaller).toHaveBeenCalledOnce();
+      expect(trustInstaller).toHaveBeenCalledWith(path.join(appDir, 'ca.crt'));
+    }
 
     const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
     expect(manifest.window['chromium-args']).toContain('--allow-insecure-localhost');

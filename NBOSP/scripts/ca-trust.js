@@ -3,6 +3,7 @@
 const fs                        = require('fs');
 const os                        = require('os');
 const path                      = require('path');
+const crypto                    = require('crypto');
 const { execFileSync }          = require('child_process');
 
 function installCaTrustWindows(caCrtPath) {
@@ -54,19 +55,39 @@ function installCaTrustLinux(caCrtPath) {
 
     if (certutil) {
       const nssDb = path.join(os.homedir(), '.pki', 'nssdb');
+      const dbPath = `sql:${nssDb}`;
+      const nickname = 'NovaByte Local CA';
 
-      if (!fs.existsSync(nssDb)) {
-        fs.mkdirSync(nssDb, { recursive: true });
-        execFileSync(certutil, ['-N', '-d', `sql:${nssDb}`, '--empty-password'], { stdio: 'pipe', timeout: 15_000 });
+      fs.mkdirSync(nssDb, { recursive: true });
+      if (!fs.existsSync(path.join(nssDb, 'cert9.db'))) {
+        execFileSync(certutil, ['-N', '-d', dbPath, '--empty-password'], { stdio: 'pipe', timeout: 15_000 });
       }
 
-      try {
-        execFileSync(certutil, ['-D', '-d', `sql:${nssDb}`, '-n', 'NovaByte Local CA'], { stdio: 'pipe', timeout: 10_000 });
-      } catch (_) {}
+      const existing = execFileSync(certutil, ['-L', '-d', dbPath], {
+        encoding: 'utf8', stdio: 'pipe', timeout: 15_000,
+      });
+      if (existing.split(/\r?\n/).some(line => line.trimStart().startsWith(`${nickname} `))) {
+        execFileSync(certutil, ['-D', '-d', dbPath, '-n', nickname], { stdio: 'pipe', timeout: 10_000 });
+      }
 
-      execFileSync(certutil, ['-A', '-d', `sql:${nssDb}`, '-t', 'C,,', '-n', 'NovaByte Local CA', '-i', caCrtPath], {
+      execFileSync(certutil, ['-A', '-d', dbPath, '-t', 'C,,', '-n', nickname, '-i', caCrtPath], {
         stdio: 'pipe', timeout: 15_000,
       });
+      const trusted = execFileSync(certutil, ['-L', '-d', dbPath], {
+        encoding: 'utf8', stdio: 'pipe', timeout: 15_000,
+      });
+      const trustEntry = trusted.split(/\r?\n/).find(line => line.trimStart().startsWith(`${nickname} `));
+      if (!trustEntry || !/\sC,,\s*$/.test(trustEntry)) {
+        throw new Error('The CA was imported, but NSS does not report it as a trusted SSL CA.');
+      }
+      const exported = execFileSync(certutil, ['-L', '-d', dbPath, '-n', nickname, '-a'], {
+        encoding: 'utf8', stdio: 'pipe', timeout: 15_000,
+      });
+      const importedFingerprint = new crypto.X509Certificate(exported).fingerprint256;
+      const sourceFingerprint = new crypto.X509Certificate(fs.readFileSync(caCrtPath)).fingerprint256;
+      if (importedFingerprint !== sourceFingerprint) {
+        throw new Error('The NSS CA certificate does not match the certificate served by NovaByte.');
+      }
       console.log('[NovaByte] CA installed in NSS db (Chromium will trust it).');
       nssOk = true;
     } else {

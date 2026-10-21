@@ -41,6 +41,7 @@ for option in \
   BR2_PACKAGE_LIBGTK3_WAYLAND \
   BR2_PACKAGE_LIBNSS \
   BR2_PACKAGE_LIBNSPR \
+  BR2_PACKAGE_CA_CERTIFICATES \
   BR2_PACKAGE_FONTCONFIG \
   BR2_PACKAGE_NOTO_EMOJI \
   BR2_PACKAGE_DEJAVU \
@@ -48,6 +49,7 @@ for option in \
   BR2_PACKAGE_DEJAVU_MONO \
   BR2_PACKAGE_XORGPROTO \
   BR2_PACKAGE_LIBGLVND \
+  BR2_PACKAGE_LIBEPOXY \
   BR2_PACKAGE_CAGE \
   BR2_PACKAGE_WLROOTS_XWAYLAND \
   BR2_PACKAGE_XWAYLAND \
@@ -111,8 +113,8 @@ fi
 GRAPHICS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-graphics-signature"
 GRAPHICS_SIGNATURE="$(
   {
-    printf '%s\n' 'nbosp-graphics-stack-v1'
-    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBGLVND|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
+    printf '%s\n' 'nbosp-graphics-stack-v2'
+    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
   } | sha256sum | cut -d ' ' -f 1
 )"
 if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
@@ -168,6 +170,26 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
   echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
   exit 1
 fi
+XWAYLAND_BUILD_DIR="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit)"
+XWAYLAND_BUILD_OPTIONS="$XWAYLAND_BUILD_DIR/meson-info/intro-buildoptions.json"
+if [[ -z "$XWAYLAND_BUILD_DIR" || ! -f "$XWAYLAND_BUILD_OPTIONS" ]]; then
+  echo "XWayland Meson build options are missing; cannot verify GLX and glamor support." >&2
+  exit 1
+fi
+python3 - "$XWAYLAND_BUILD_OPTIONS" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as options_file:
+    options = {item["name"]: item["value"] for item in json.load(options_file)}
+
+missing = [name for name in ("glx", "glamor") if options.get(name) is not True]
+if missing:
+    raise SystemExit(
+        "XWayland must be built with GLX and glamor enabled; disabled: "
+        + ", ".join(missing)
+    )
+PY
 if ! find "$OUTPUT_DIR/target/usr/lib" -type f -name 'vmwgfx_dri.so' -print -quit | grep -q .; then
   echo "Mesa's VMware SVGA DRI driver is missing from the target image." >&2
   exit 1
@@ -182,6 +204,18 @@ if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libGL.so.
 fi
 if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libgbm.so*' -print -quit | grep -q .; then
   echo "Mesa GBM is missing from the target image; XWayland glamor cannot initialize without it." >&2
+  exit 1
+fi
+if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libepoxy.so*' -print -quit | grep -q .; then
+  echo "libepoxy is missing from the target image; XWayland glamor cannot initialize." >&2
+  exit 1
+fi
+if [[ ! -s "$OUTPUT_DIR/target/etc/ssl/certs/ca-certificates.crt" ]]; then
+  echo "The public CA certificate bundle is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/certutil" ]]; then
+  echo "NSS certutil is missing from the target image; the kiosk cannot verify its local CA trust." >&2
   exit 1
 fi
 if [[ ! -f "$OUTPUT_DIR/target/opt/nbosp/lib/libffmpeg.so" ]]; then

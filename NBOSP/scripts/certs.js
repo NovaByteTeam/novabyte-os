@@ -130,7 +130,7 @@ async function stripSpkiFromPackageJson(appDir) {
  * @param {string} appDir
  * @returns {Promise<boolean>}
  */
-async function ensureCerts(appDir) {
+async function ensureCerts(appDir, trustInstaller = installCaTrust) {
   const dataDir = getRuntimeDataDir(appDir);
   const paths   = certPaths(dataDir);
   const fresh   = await certsAreFresh(paths);
@@ -141,7 +141,7 @@ async function ensureCerts(appDir) {
     trusted = true;
   } catch (_) {}
 
-  if (fresh && trusted) {
+  if (fresh && trusted && process.platform !== 'linux') {
     console.log('[NovaByte] Certs OK, CA already trusted — HTTPS ready.');
     await stripSpkiFromPackageJson(appDir);
     return true;
@@ -172,7 +172,7 @@ async function ensureCerts(appDir) {
   }
 
   console.log('[NovaByte] Installing CA into OS trust store...');
-  const ok = installCaTrust(paths.CA_CRT);
+  const ok = trustInstaller(paths.CA_CRT);
 
   if (ok) {
     await fs.promises.writeFile(paths.CA_TRUSTED_FLAG, new Date().toISOString(), 'utf8');

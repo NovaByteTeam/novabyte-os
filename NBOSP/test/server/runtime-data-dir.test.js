@@ -60,7 +60,7 @@ describe('Linux runtime data directory', () => {
     }
     process.env.NBOSP_DATA_DIR = dataDir;
 
-    await expect(ensureCerts(appDir)).resolves.toBe(true);
+    await expect(ensureCerts(appDir, () => true)).resolves.toBe(true);
     await expect(fs.access(path.join(appDir, 'cert.key'))).rejects.toThrow();
   });
 });

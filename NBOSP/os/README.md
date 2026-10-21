@@ -103,6 +103,9 @@ Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
 The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
 NW.js running through XWayland; Chromium is configured to use GPU rasterization
 and zero-copy buffers using Chromium's supported Linux EGL/ANGLE default.
+libepoxy is included so Buildroot enables XWayland's glamor path as well as
+GLX. The ISO build verifies XWayland's configured Meson options, not just the
+presence of GL libraries, before producing the image.
 Mesa GBM is enabled explicitly as well, since XWayland's glamor path needs it
 to initialize accelerated rendering. The ISO build verifies that `libgbm`
 ships in the target image.
@@ -112,10 +115,9 @@ library; the image build verifies that it is present alongside Mesa's GLX
 library and SVGA DRI driver. XWayland's GLX server also needs Mesa's
 `GL/internal/dri_interface.h`; the build stages that private header from the
 matching Mesa source into the toolchain sysroot before compiling XWayland.
-In VMware,
-enable **Accelerate 3D graphics** for the VM; the kernel log confirms that
-`vmwgfx` detects the virtual GPU, but Chromium's actual renderer should be
-confirmed from its GPU log in the VM.
+In VMware, enable **Accelerate 3D graphics** for the VM. The image build checks
+for XWayland GLX/glamor, Mesa GBM, libepoxy, and the VMware SVGA driver; still
+confirm Chromium's actual renderer from its GPU log in the VM.
 NovaByte's built-in HTML select controls open an in-page listbox instead of
 Chromium's native popup, avoiding popup-positioning differences in the
 XWayland kiosk. Select controls rendered inside external websites in the
@@ -136,14 +138,12 @@ exposes virtual Ethernet by default; Wi-Fi and Bluetooth require suitable
 guest-visible adapters, kernel drivers, and any firmware those adapters need.
 The ISO includes common wireless kernel drivers and selected Intel Wi-Fi
 firmware, but does not bundle firmware for every vendor or model.
-NW.js receives `--allow-insecure-localhost` directly at launch because Chromium
-in the Buildroot image rejected the per-device localhost CA despite the app
-importing it into the user's NSS database. First-run certificate cleanup also
-preserves this localhost-only exception while stripping broader certificate
-bypass flags; verification for external sites remains enabled.
-The local HTTPS certificate warning can therefore remain in Chromium's log;
-the exception is limited to localhost and does not disable certificate checks
-for external sites.
+The image includes the public CA bundle so Chromium and Node can validate
+external HTTPS sites. At each Linux kiosk start, NovaByte refreshes its local
+CA entry in the kiosk user's NSS database and verifies the imported certificate
+and SSL trust flags against the CA used by the server. NW.js retains
+`--allow-insecure-localhost` as a localhost-only fallback; broad certificate
+verification bypasses remain disabled.
 DejaVu Sans/Mono and Noto Color Emoji fonts and Fontconfig are included so
 Chromium and the UI can render text and emoji without downloading fonts at
 runtime. The emoji font is pinned to a Noto Emoji source revision and its OFL
@@ -166,10 +166,12 @@ installer. The tty2 console remains available for debugging.
 The VMware Open VM Tools guest daemon and its resolution helper are included;
 installing a separate Tools ISO inside the guest is unnecessary.
 The kernel command line explicitly selects the SRSO `safe-ret` mitigation.
-The VMware guest cannot install microcode for the host CPU; the log may still
-report `Vulnerable: Safe RET, no microcode`, meaning the kernel side is
-mitigated but the additional microcode-dependent user-space protection is
-unavailable. Keep the VMware host firmware and hypervisor updated.
+The guest cannot provide the host CPU microcode required for the additional
+IBPB protection. If the host CPU is affected, update its BIOS/UEFI firmware
+and VMware, then fully power off and cold-start the VM. The guest may continue
+to report `Vulnerable: Safe RET, no microcode` when the host does not expose
+the required microcode; do not disable the kernel mitigation to hide that
+status.
 
 The workflow caches the Buildroot source/downloads and compiled output, along
 with the NW.js SDK and npm cache, to speed up later manual runs. The local
