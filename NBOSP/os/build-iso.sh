@@ -87,6 +87,14 @@ fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   cage-dirclean wlroots-dirclean xwayland-dirclean nbosp-kiosk-dirclean \
   nbosp-install-dirclean nbosp-power-dirclean
+if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
+  && ! -x "$OUTPUT_DIR/target/sbin/lsblk" \
+  && ! -x "$OUTPUT_DIR/target/usr/bin/lsblk" \
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/lsblk" ]]; then
+  echo "Cached util-linux output lacks lsblk; rebuilding util-linux." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    util-linux-dirclean
+fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
@@ -127,8 +135,11 @@ if [[ ! -x "$OUTPUT_DIR/target/sbin/grub-install" \
   echo "grub-install is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/usr/bin/lsblk" && ! -x "$OUTPUT_DIR/target/usr/sbin/lsblk" ]]; then
-  echo "GRUB installation tools or lsblk are missing from the target image." >&2
+if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
+  && ! -x "$OUTPUT_DIR/target/sbin/lsblk" \
+  && ! -x "$OUTPUT_DIR/target/usr/bin/lsblk" \
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/lsblk" ]]; then
+  echo "lsblk is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/sfdisk" && ! -x "$OUTPUT_DIR/target/usr/bin/sfdisk" ]]; then

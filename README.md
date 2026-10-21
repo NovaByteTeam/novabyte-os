@@ -1,260 +1,120 @@
 <div align="center">
 
-<div><img src="./logo.svg" width="120" height="120" alt="NovaByte OS Logo" /></div>
+<img src="./logo.svg" width="120" height="120" alt="NovaByte OS logo" />
 
 # NovaByte OS
 
-**A browser-based operating system you can fork and make your own.**
+**A Linux-based kiosk operating system with an NW.js desktop.**
 
-<br>
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-6b7280?style=flat-square)](https://www.apache.org/licenses/LICENSE-2.0)
+[![No telemetry](https://img.shields.io/badge/Telemetry-None-22c55e?style=flat-square)](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)
 
-[![Node](https://img.shields.io/badge/Node.js-26+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-22c55e?style=flat-square)](#automatic-startup)
-[![License](https://img.shields.io/badge/License-Apache%202.0-6b7280?style=flat-square)](https://www.apache.org/licenses/LICENSE-2.0)
-[![No Telemetry](https://img.shields.io/badge/Telemetry-None-22c55e?style=flat-square&logo=shieldsdotio&logoColor=white)](https://github.com/NovaByteTeam/novabyte-os/tree/main/NBOSP)
+**NBOSP (NovaByte Open Source Project)** is a Linux-based operating system.
+It uses the Linux kernel and a Buildroot-generated root filesystem, then starts
+NovaByte's NW.js desktop in a fullscreen kiosk session. The experimental
+bootable image currently targets x86_64 VMware virtual machines.
 
-<br>
-
-> **NBOSP is a Linux-based operating system with an NW.js desktop environment, designed to run in a virtual machine rather than replace your main OS.** Its x86_64 Buildroot image is in development and currently boots to a Linux console. `.novaapp` packages can run untrusted code, so install apps only from sources you trust.
-
-<br>
-
-**→ [Check out the live site](https://novabyteteam.github.io/novabyte-os/)**
-
-> **Publishing apps:** The store is real but this is a fun project — it's a place to share and test apps inside NovaByte. Details on the [Publish Apps](https://novabyteteam.github.io/novabyte-os/) page.
-
-<br>
-
-[**Download**](#-download) · [**NBOSP**](#-nbosp--novabyte-open-source-project) · [**Security**](#-security)
+[Live site](https://novabyteteam.github.io/novabyte-os/) ·
+[Build the Linux ISO](#build-the-linux-iso) ·
+[NBOSP OS build guide](./NBOSP/os/README.md)
 
 </div>
 
------
-
-
-## ⬇️ Download
-
-There are currently no automatically published desktop binaries. To build the
-experimental x86_64 boot ISO, open the repository's [Actions
-page](https://github.com/NovaByteTeam/novabyte-os/actions), select **Build
-NBOSP OS ISO**, and click **Run workflow**. When it completes, download the
-`nbosp-live-x86_64` artifact from that run. It boots Linux to a console and is
-intended for testing in a VMware x86_64 VM and boots directly into the NBOSP
-desktop in fullscreen kiosk mode.
-
-The workflow builds the Linux NW.js app, bundles it with its production
-dependencies into the ISO, and configures it to launch fullscreen under the
-Wayland kiosk compositor. Workflow artifacts are temporary and retained for
-14 days.
-
-To run the current NBOSP desktop from source, see [Running NBOSP](#running-nbosp).
-
------
-
-## 🛠️ Building .novaapp Apps? Use NovaByte Studio
-
-**[NovaByte Studio](https://github.com/NovaByteOfficial/novapack-studio)** is the best tool for creating and testing `.novaapp` packages. It bundles NBOSP so you can build and test your app without setting up NBOSP separately — just download Studio and start building.
-
-**[Download NovaByte Studio →](https://github.com/NovaByteOfficial/novapack-studio/releases)**
-
 ---
 
-## 🆓 NBOSP — NovaByte Open Source Project
+## What is in this repository?
 
-The `NBOSP/` folder in this repo is the **free, open base of NovaByte**.
+- **`NBOSP/`** — the Linux OS userspace, NW.js kiosk desktop, local server,
+  built-in apps, and tests. NBOSP is licensed under Apache 2.0.
+- **`NBOSP/os/`** — the Buildroot configuration, board support, and packages
+  used to make the experimental bootable Linux image.
+- **`.github/workflows/nbosp-os-iso.yml`** — the manually triggered GitHub
+  Actions workflow for producing the ISO.
 
+The NW.js desktop provides the graphical shell: window management, files,
+browser, settings, app management, and other built-in tools. Optional apps can
+be packaged as `.novaapp` files. In the Linux image, user files and settings
+are stored on the Linux filesystem.
 
+## Develop NBOSP
 
-- Use, copy, modify, fork, sell, and redistribute it under the Apache 2.0 licence.
-- Preserve the copyright notices and the `LICENSE` text.
-- Basic security (rate limiting, CSRF protection, security headers) is built in.
-- No telemetry.
-- All listed apps are built specifically for NBOSP and are free to use, customise, or modify however you like.
+The ISO is built on a Linux host (including WSL2). To run the NW.js desktop
+from source while developing, install Node.js and npm, then run:
 
-### 📱 What the NBOSP Apps Actually Do
-
-
-
-|App|What it actually does|
-|:--|:--------------------|
-|📁 **NBOSP Files**|Browse the virtual filesystem in icon or sortable list view, navigate folders, and search by filename. Create, rename, copy, move, paste, and select multiple files; use Trash to restore or permanently delete items. Drag-and-drop imports are scanned before saving.|
-|📝 **NBOSP TextEdit**|Edit plain-text files with line numbers, current line/column and word count, Tab indentation, and automatic bracket pairing. Open or save files in the virtual filesystem, use Save As, and press Ctrl+S to save.|
-|💻 **NBOSP Terminal**|Run a shell-like command set against the virtual filesystem, including file operations, search, text processing, pipes, command chaining, and output redirection. Includes command history, aliases, variables, autocomplete, and multiple tabs; it does not run commands in the host operating system shell.|
-|🌐 **NBOSP Browser**|Browse sites in an NW.js WebView with tabs, bookmarks, history, and incognito mode. Includes find-in-page, zoom, mobile/desktop user-agent switching, popup blocking, and per-tab WebView/iframe mode selection.|
-|📅 **NBOSP Calendar**|Create and manage events in month, week, day, or agenda views, with a mini calendar and upcoming-event list. Events include dates, times, descriptions, and colours; scheduled events can trigger system notifications while NovaByte is running.|
-|📧 **NBOSP Email**|Connect multiple IMAP, POP3, or Exchange accounts. View combined or per-account mail and common folders; search, paginate, and select messages in batches; compose, reply, and forward.|
-|🖼 **NBOSP Gallery**|Find image files in the virtual filesystem and browse them in a grid. Open images in a lightbox with previous/next navigation, filename and position, and keyboard controls.|
-|⬇️ **NBOSP Downloads**|View browser downloads with filename, size, date, and status. Remove individual entries or clear completed downloads; download history is retained between launches and shared with other OS features.|
-|👤 **NBOSP Contacts**|Create, edit, and delete contacts with names, email addresses, phone numbers, and notes. Search the contact list and browse alphabetically.|
-|🔍 **NBOSP Search**|Search apps, files, contacts, and downloads, with live web results from DuckDuckGo. Results open the matching app, file, contact, or browser page; local indexes update when the underlying contact or download data changes.|
-|🕐 **NBOSP Clock**|View an analog and digital clock, manage labeled alarms with weekday repeats, run a configurable countdown timer, and use a stopwatch.|
-|⚙️ **NBOSP Settings**|Configure themes and accent colour, language/region and clock preferences, desktop and wallpaper, default apps, accessibility, privacy, storage, and other system settings. Includes system information and recovery-related controls.|
-|🖩 **NBOSP Calculator**|Evaluate arithmetic expressions with parentheses, decimals, and common operators. Includes live result preview, keyboard input, backspace, and clear controls.|
-|🎵 **NBOSP Music**|Find and play supported audio files from the virtual filesystem. Browse the library and control playback, seeking, and volume; shuffle and repeat are available.|
-|📦 **NBOSP App Manager**|Install and manage `.novaapp` packages and web apps. Review package trust and integrity status; potentially unsafe files are scanned and blocked when flagged, and package tampering is surfaced before launch. Manage app enablement, taskbar pins, auto-launch, and installation history.|
-|🛒 **NBOSP App Store**|Browse and search the app catalogue by category, inspect publisher details, screenshots, and release history, and install, update, or uninstall apps. Package signatures, revocation status, and integrity are checked before installation; the Store also checks for updates on a schedule and on demand.|
-
-#### Hidden apps and system services
-
-In **App Manager**, user-facing built-in apps remain visible by default. The **Show hidden apps** toggle also reveals the eight developer tools, the built-in Launcher, and the Shell UI package. Developer Mode must be enabled in Settings to use the developer tools; trying to open one while it is off explains how to enable it. The Launcher and Shell UI package are OS-managed and cannot be opened from App Manager.
-
-|App|What it actually does|
-|:--|:--------------------|
-|🖥️ **NBOSP Console**|Evaluate arbitrary JavaScript in the full OS context with no sandboxing. Live REPL with input history. **Extremely dangerous in the wrong hands — this is not a toy.**|
-|🔍 **NBOSP Inspector**|Inspect registered apps and open windows. View app state, force-close arbitrary windows, export app state. **Can terminate any app without confirmation.**|
-|📦 **NBOSP Packages**|Sign and verify `.novaapp` packages. Inspect package manifests, signatures, and permissions. **Can install unsigned or unverified packages and add locally-generated keys to the trust store for the current session.**|
-|📊 **NBOSP Perf Monitor**|Live FPS, memory usage, DOM node count, and long-task tracking. Per-window DOM breakdowns. **For debugging performance regressions only.**|
-|🔐 **NBOSP Permissions**|Review, grant, and revoke permissions across all registered apps. Bulk operations supported. **Can grant or revoke any permission for any app without user consent.**|
-|🧩 **NBOSP Modules**|Hot-reload OS JS modules without restarting NovaByte OS. Live module inspection and dynamic import. **Can execute arbitrary module paths at runtime.**|
-|🌐 **NBOSP System Access**|Inspect network proxy/SSRF configuration and browse the virtual filesystem. **Can read internal VFS paths and probe network settings.**|
-|📋 **NBOSP Events**|Unified event timeline showing console output, permission events, and package events in one filtered view. Search, severity filter, export. **For debugging OS-level activity only.**|
-
------
-
-## 🚀 Getting Started
-
-### Running NBOSP
-
-```bash
+```sh
 git clone https://github.com/NovaByteTeam/novabyte-os.git
 cd novabyte-os/NBOSP
 npm start
 ```
 
-The window opens automatically — no manual browser navigation needed.
+The `start` script bootstraps dependencies and app assets before opening the
+NW.js desktop. The Linux OS image is built separately as described below. To
+run the test suite, use:
 
-> [!NOTE]
-> NBOSP automatically checks for dependencies on startup. If `node_modules` is missing, the required packages are installed automatically before launch. This only happens on first run or if dependencies have been removed.
-
-**On first launch, three things happen automatically:**
-
-- Project dependencies are installed if required.
-- A `.env` file is generated with a secure random `SESSION_SECRET` and sensible defaults.
-- A local HTTPS certificate and CA are generated. A native OS prompt will appear asking you to trust the CA — click **Yes** (Windows) or enter your password (macOS/Linux). This only happens once. After that, the app opens over HTTPS with no browser warnings, permanently.
-
------
-
-## 🔐 Security
-
-- Uses **HTTPS** with self-signed certificates locally
-- **CSRF protection** and **rate limiting** are active on all API routes
-- `.novaapp` packages are signed (Ed25519) and checked against a built-in trust store (`trust-store.js`) on install; unsigned or unrecognized signatures show an explicit warning dialog rather than installing silently
-  - The "Verified" badge means the package was signed with NovaByte's own private signing key — the only key `trust-store.js` currently trusts. That key is held offline by NovaByte and is not distributed to developers.
-  - Before signing, submitted apps are reviewed manually (permissions, code, local malware/AV scanning) by NovaByte on a local machine that never touches the network — there is no automated review queue or scanning service yet. This is a manual process today, not an enforced pipeline in code.
-  - Anyone can self-sign their own `.novaapp` for local testing with their own keypair; self-signed packages will always show as **Unverified**, since no key but NovaByte's is in the trust store.
-- **Scanner** (`NBOSP/js/apps/scanner/service.js`, loaded from the trusted system-service package) is a lightweight client-side heuristic, not a full antivirus. It checks files imported through the desktop/Files vault and files inside `.novaapp` packages before installation for disguised executables and active content in rendered formats. A flagged package is blocked from installation. The scanner is a first line of defense, not a substitute for security review; it runs in the client and can be bypassed by someone with DevTools access, and it does not unpack archives or provide comprehensive malware detection.
-
-If you discover a security vulnerability, please **open a private issue** or contact the maintainer directly rather than filing a public bug report.
-
------
-
-## 🗂 Repository Structure
-
-```
-novabyte-os/
-├── NBOSP/                    # NovaByte Open Source Project (free, no rules)
-│  ├── index.html              # Single entry point (nonce injection target)
-│  ├── style.css               # Global styles
-│  ├── ui-init.js              # UI initialization hooks
-│  ├── client.js               # Minimal ~11-line entry point stub
-│  ├── vitest.config.js        # Vitest test configuration
-│  ├── test/                   # Vitest test suite
-│  │  ├── setup.js
-│  │  ├── client/              # Client-side tests
-│  │  └── server/              # Server-side tests
-│  ├── server/                 # Backend modules
-│  │  ├── core/                # Core server modules (nested)
-│  │  │  ├── index.js          # Main Express entry point (330 lines)
-│  │  │  ├── middleware.js     # Helmet CSP, CORS, rate limiting, CSRF, sessions (250 lines)
-│  │  │  ├── ssl.js            # HTTPS/HTTP server factory with graceful fallback (50 lines)
-│  │  │  ├── env.js            # Environment validation with fallback secrets (50 lines)
-│  │  │  ├── events-routes.js  # SSE endpoint exposing ServerEventLog to the client
-│  │  │  └── server-event-log.js # Server-side event log (SSRF blocks, proxy errors)
-│  │  ├── security/            # Local admin-mode state (separate from security/ at repo root)
-│  │  │  └── admin-state.js    # Local admin-flag store backing req.user.role and admin:* gates
-│  │  ├── routes.js            # Sub-router composition and mounting
-│  │  ├── favicons.js          # Favicon proxy with SSRF protection, DB caching (400 lines)
-│  │  └── proxies.js           # Email image proxy (500 lines)
-│  ├── scripts/                # Launcher modules
-│  │  ├── startup.js           # NW.js app initialization, window spawn, logging streams
-│  │  ├── env.js               # Platform-specific environment validation, secret generation
-│  │  ├── certs.js             # HTTPS certificate generation and validation
-│  │  ├── ca-trust.js          # Local CA trust (Windows certutil, macOS security, Linux NSS)
-│  │  ├── bootstrap.js         # Dependency auto-install, first-run setup, self-healing config
-│  │  ├── logger.js            # Centralized logging and output capture
-│  │  └── utils.js             # Shared utilities for platform-specific operations
-│  ├── security/               # Security modules
-│  │  ├── routes.js            # Security API endpoints
-│  │  └── middleware.js        # CSRF validation, IP blocking, request validation
-│  ├── email/                  # Email modules
-│  │  ├── index.js             # Route definitions and account management
-│  │  ├── controller.js        # Request handlers and business logic
-│  │  ├── credentials.js       # Encrypted credential storage and retrieval
-│  │  ├── helpers.js           # Email HTML processing: image proxying, sanitization
-│  │  └── protocols/           # Email protocol implementations
-│  │    ├── imapClient.js      # IMAP connection and message fetching
-│  │    ├── pop3Client.js      # POP3 connection and message fetching
-│  │    └── ewsClient.js       # Exchange Web Services (EWS) client
-│  ├── js/
-│  │  ├── core/                # Core system modules (nested by domain)
-│  │  │  ├── core/             # Kernel & boot layer
-│  │  │  │  ├── boot.js        # Boot sequence and startup orchestration
-│  │  │  │  ├── init.js        # Security & initialization
-│  │  │  │  └── kernel.js      # Kernel loop
-│  │  │  ├── events/           # Event-related core modules
-│  │  │  ├── services/         # Core OS services
-│  │  │  │  ├── fs.js          # Virtual filesystem API
-│  │  │  │  ├── system-service-loader.js # Loads trusted system packages before OS boot
-│  │  │  │  └── workers.js     # Multi-threaded worker management
-│  │  │  └── utils/            # Shared utilities
-│  │  │    └── base-utils.js   # Base utility functions
-│  │  ├── platform/            # Platform framework modules (nested by concern)
-│  │  │  ├── security/         # Security modules
-│  │  │  │  ├── frame-security.js        # NW.js frame security validation
-│  │  │  │  ├── app-sandbox.js           # App sandbox enforcement
-│  │  │  │  ├── app-permission-manager.js # Permission system
-│  │  │  │  ├── app-permissions-bootstrap.js # Permission bootstrap
-│  │  │  │  ├── app-scheduler.js         # Tier-1 background wake scheduler (system:background)
-│  │  │  │  ├── trust-store.js           # Built-in trust store for .novaapp signatures
-│  │  │  │  └── revoked-signatures.json  # Revoked signature blocklist
-│  │  │  ├── core/             # Core platform modules
-│  │  │  │  ├── app-registry.js          # Full app registry
-│  │  │  │  ├── app-package.js           # App package management
-│  │  │  │  └── nova-app-package-store.js # Installed .novaapp store
-│  │  │  └── ui/              # Platform UI modules
-│  │  │    ├── my-apps-manager.js        # User app management
-│  │  │    └── web-app-manager.js        # Web app management
-│  │  └── apps/               # One source directory per built-in app or service
-│  │     ├── <app-dir>/manifest.json, app source files, and assets
-│  │     ├── shell-ui/         # Trusted host UI: window manager, menus, modals, desktop
-│  │     ├── service packages use service.js instead of an app window entry
-│  │     ├── novaapp-manifest.json       # Trusted built-in package allowlist
-│  │     └── system-service-manifest.json # Ordered system-package startup list
-│  ├── data/                   # Gitignored — generated at runtime, not part of the repo
-│  │  ├── favicons.db          # Persistent SQLite favicon cache
-│  │  ├── sessions.db          # Express session store (backs admin:users session list/revoke)
-│  │  └── admin-state.json     # Local admin-mode flag (Settings → Privacy & Security → Admin Access)
-│  └── assets/
-├── .gitignore
-├── LICENSE
-├── logo.svg
-└── README.md
+```sh
+npm test
 ```
 
------
+## Build the Linux ISO
 
-## 📄 License
+The ISO targets **x86_64 VMware virtual machines** and is experimental. It
+uses Buildroot, the Linux kernel, Wayland, Cage, XWayland, and a bundled Linux
+NW.js runtime to start NovaByte in fullscreen kiosk mode.
 
-<div align="center">
+To build through GitHub Actions:
 
-### 📜 Repository License Breakdown
+1. Open the repository's [Actions page](https://github.com/NovaByteTeam/novabyte-os/actions).
+2. Select **Build NBOSP OS ISO** and choose **Run workflow**.
+3. When the workflow succeeds, download the `nbosp-live-x86_64` artifact. It is
+   retained for 14 days.
 
-|Directory|License Type|Terms & Permissions|
-|:--------|:-----------|:------------------|
-|📁 `NBOSP/`|**Apache 2.0 License**|Free to copy, modify, fork, sell, and redistribute. Attribution required — preserve copyright notices and the license text.|
+For local builds, use Linux or WSL2 with the source tree inside the Linux
+filesystem (not `/mnt/c`). Install the host packages listed in
+[`NBOSP/os/README.md`](./NBOSP/os/README.md), then run:
 
-*See `LICENSE` for the complete Apache 2.0 legal text governing the open-source base.*
+```sh
+cd NBOSP/os
+bash build-iso.sh
+```
 
------
+The ISO is written to `NBOSP/os/output/images/nbosp-live.iso`. See the OS
+build guide for dependencies, boot troubleshooting, and installation details.
 
-</div>
+### Testing and persistence
+
+Test the ISO in a disposable VMware VM. The live system runs from an
+in-memory initramfs, so changes made during a live session are lost at
+shutdown. For persistence, the desktop includes an installer that writes to a
+selected disk. **The installer erases and repartitions that disk.** Use a
+separate disposable virtual disk and verify the selected device before
+confirming. Do not select a host or physical disk containing data you need.
+
+The image is not yet validated for general physical hardware, other
+hypervisors, or production use. For UEFI guests, disable Secure Boot because
+the GRUB bootloader is unsigned.
+
+## Apps and NovaByte Studio
+
+Use [NovaByte Studio](https://github.com/NovaByteOfficial/novapack-studio) to
+create and test `.novaapp` packages. Install apps only from sources you trust:
+packages can contain executable code, and app-level isolation is not a
+security boundary.
+
+## Security
+
+- The local desktop server uses HTTPS, CSRF protections, and rate limiting.
+- Package signature and integrity indicators do not guarantee that an app is
+  safe. Review package source and permissions before installing.
+- The built-in file scanner uses heuristics; it is not antivirus and can miss
+  malicious content.
+- The kiosk's Linux account is unprivileged, but installed apps do not each
+  run in a separate Linux security sandbox.
+
+For a suspected vulnerability, contact the maintainer privately instead of
+posting exploit details publicly.
+
+## License
+
+`NBOSP/` is licensed under Apache 2.0. See [`LICENSE`](./LICENSE) for the
+license text and preserve the required copyright and license notices when
+redistributing.
