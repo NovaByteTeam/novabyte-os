@@ -39,6 +39,15 @@ case "$1" in
       echo "NBOSP kiosk: dbus-run-session is missing" >&2
       exit 1
     fi
+    app_data_dir="/opt/nbosp/package.nw"
+    if [ ! -d "$app_data_dir" ]; then
+      echo "NBOSP kiosk: app data directory is missing: $app_data_dir" >&2
+      exit 1
+    fi
+    if ! chown -R nbosp:nbosp "$app_data_dir"; then
+      echo "NBOSP kiosk: cannot grant nbosp write access to $app_data_dir" >&2
+      exit 1
+    fi
 
     start-stop-daemon --start --background --make-pidfile \
       --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \

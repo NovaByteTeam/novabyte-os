@@ -54,10 +54,12 @@ unprivileged `nbosp` user. Cage and NW.js output is appended to
 `/home/nbosp/nbosp-kiosk.log` and mirrored to the configured `ttyS0` serial
 console for debugging without switching virtual terminals. The kiosk is
 started inside a fresh D-Bus session to avoid inheriting a malformed session
-bus address. CI first opens a
-minimal NW.js app under Xvfb, then checks Node access and the `better-sqlite3`
-native module before starting the Buildroot build. The image does not build a
-separate Node.js package. The build uploads the ISO artifact
+bus address. At startup the `nbosp` account owns the bundled `package.nw`
+directory because NovaByte generates its environment secrets and TLS
+certificates there on first boot. CI first opens a minimal NW.js app under
+Xvfb, then checks Node access and the `better-sqlite3` native module before
+starting the Buildroot build. The image does not build a separate Node.js
+package. The build uploads the ISO artifact
 `nbosp-live-x86_64`; there is no separate NW.js artifact.
 
 The kiosk user runs with the Linux account and device-group permissions, but
