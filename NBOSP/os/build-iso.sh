@@ -174,7 +174,10 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/blkid" \
   echo "blkid is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -d "$OUTPUT_DIR/target/usr/lib/grub/i386-pc" || ! -d "$OUTPUT_DIR/target/usr/lib/grub/x86_64-efi" ]]; then
+if [[ ! -d "$OUTPUT_DIR/target/lib/grub/i386-pc" \
+  && ! -d "$OUTPUT_DIR/target/usr/lib/grub/i386-pc" \
+  || ! -d "$OUTPUT_DIR/target/lib/grub/x86_64-efi" \
+  && ! -d "$OUTPUT_DIR/target/usr/lib/grub/x86_64-efi" ]]; then
   echo "GRUB BIOS or UEFI modules are missing from the target image." >&2
   exit 1
 fi
