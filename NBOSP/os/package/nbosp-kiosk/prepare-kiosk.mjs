@@ -35,6 +35,7 @@ manifest.window = {
   "chromium-args": [
     "--no-first-run",
     "--disable-devtools",
+    "--allow-insecure-localhost",
     "--enable-features=UseOzonePlatform",
     "--ozone-platform=x11",
     "--user-data-dir=/home/nbosp/.config/novabyte",

@@ -60,6 +60,11 @@ directory because NovaByte generates its environment secrets and TLS
 certificates there on first boot. Cage runs the compositor on Wayland and
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
+NW.js receives `--allow-insecure-localhost` directly at launch because Chromium
+in the Buildroot image rejected the per-device localhost CA despite the app
+importing it into the user's NSS database. First-run certificate cleanup also
+preserves this localhost-only exception while stripping broader certificate
+bypass flags; verification for external sites remains enabled.
 The image build clean-rebuilds Cage, wlroots and XWayland so a restored
 Buildroot output cache cannot leave Cage compiled without its XWayland backend.
 CI first opens a minimal NW.js app under Xvfb, then checks Node access and the

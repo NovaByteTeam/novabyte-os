@@ -109,7 +109,6 @@ async function stripSpkiFromPackageJson(appDir) {
     const args    = parsed.window['chromium-args'] || '';
     const cleaned = args
       .replace(/--ignore-certificate-errors(?!-spki)\s*/g, '')
-      .replace(/--allow-insecure-localhost\s*/g, '')
       .replace(/--ignore-certificate-errors-spki-list=\S*\s*/g, '')
       .trim();
 
