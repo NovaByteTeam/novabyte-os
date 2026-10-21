@@ -90,8 +90,12 @@ make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
 if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/sbin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/usr/bin/lsblk" \
-  && ! -x "$OUTPUT_DIR/target/usr/sbin/lsblk" ]]; then
-  echo "Cached util-linux output lacks lsblk; rebuilding util-linux." >&2
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/lsblk" \
+  || ! -x "$OUTPUT_DIR/target/bin/sfdisk" \
+  && ! -x "$OUTPUT_DIR/target/sbin/sfdisk" \
+  && ! -x "$OUTPUT_DIR/target/usr/bin/sfdisk" \
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/sfdisk" ]]; then
+  echo "Cached util-linux output lacks lsblk or sfdisk; rebuilding util-linux." >&2
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     util-linux-dirclean
 fi
@@ -142,19 +146,31 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   echo "lsblk is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/sfdisk" && ! -x "$OUTPUT_DIR/target/usr/bin/sfdisk" ]]; then
+if [[ ! -x "$OUTPUT_DIR/target/bin/sfdisk" \
+  && ! -x "$OUTPUT_DIR/target/sbin/sfdisk" \
+  && ! -x "$OUTPUT_DIR/target/usr/bin/sfdisk" \
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/sfdisk" ]]; then
   echo "sfdisk is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/mkfs.vfat" && ! -x "$OUTPUT_DIR/target/usr/bin/mkfs.vfat" ]]; then
+if [[ ! -x "$OUTPUT_DIR/target/bin/mkfs.vfat" \
+  && ! -x "$OUTPUT_DIR/target/sbin/mkfs.vfat" \
+  && ! -x "$OUTPUT_DIR/target/usr/bin/mkfs.vfat" \
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/mkfs.vfat" ]]; then
   echo "mkfs.vfat is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/mkfs.ext4" && ! -x "$OUTPUT_DIR/target/usr/bin/mkfs.ext4" ]]; then
+if [[ ! -x "$OUTPUT_DIR/target/bin/mkfs.ext4" \
+  && ! -x "$OUTPUT_DIR/target/sbin/mkfs.ext4" \
+  && ! -x "$OUTPUT_DIR/target/usr/bin/mkfs.ext4" \
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/mkfs.ext4" ]]; then
   echo "mkfs.ext4 is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/usr/bin/blkid" && ! -x "$OUTPUT_DIR/target/usr/sbin/blkid" ]]; then
+if [[ ! -x "$OUTPUT_DIR/target/bin/blkid" \
+  && ! -x "$OUTPUT_DIR/target/sbin/blkid" \
+  && ! -x "$OUTPUT_DIR/target/usr/bin/blkid" \
+  && ! -x "$OUTPUT_DIR/target/usr/sbin/blkid" ]]; then
   echo "blkid is missing from the target image." >&2
   exit 1
 fi
