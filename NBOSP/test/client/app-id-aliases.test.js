@@ -6,7 +6,8 @@ require('../../js/platform/core/app-id-aliases.js');
 describe('built-in app ID migration', () => {
   it('resolves legacy package IDs and launcher slugs', () => {
     expect(window.NovaAppIdAliases.canonicalize('com.nbosp.quill')).toBe('com.nbosp.textedit');
-    expect(window.NovaAppIdAliases.canonicalize('shell')).toBe('terminal');
+    expect(window.NovaAppIdAliases.canonicalize('shell')).toBe('com.nbosp.terminal');
+    expect(window.NovaAppIdAliases.canonicalize('terminal')).toBe('com.nbosp.terminal');
     expect(window.NovaAppIdAliases.canonicalize('com.nbosp.vault')).toBe('com.nbosp.files');
     expect(window.NovaAppIdAliases.canonicalize('com.example.app')).toBe('com.example.app');
   });

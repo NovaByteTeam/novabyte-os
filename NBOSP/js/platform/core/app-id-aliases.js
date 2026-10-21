@@ -6,7 +6,8 @@
     'com.nbosp.shell': 'com.nbosp.terminal',
     'com.nbosp.vault': 'com.nbosp.files',
     quill: 'textedit',
-    shell: 'terminal',
+    shell: 'com.nbosp.terminal',
+    terminal: 'com.nbosp.terminal',
     vault: 'files',
   });
 

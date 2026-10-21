@@ -1887,6 +1887,49 @@
 
 /* menus — context menu and the Alt+Tab / Cmd+Tab app switcher. */
 @layer menus {
+  .nova-select-popup {
+    position: fixed;
+    z-index: 2147483000;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.25));
+    border-radius: var(--r-sm, 10px);
+    background: #111722;
+    color: var(--text-primary, #e6edf3);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+    font: 13px/1.4 var(--font-ui, sans-serif);
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  .nova-select-option {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    padding: 6px 9px;
+    border-radius: 6px;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+  .nova-select-option:hover,
+  .nova-select-option.active {
+    background: var(--accent-muted, rgba(88, 166, 255, 0.15));
+    color: var(--text-primary, #e6edf3);
+  }
+  .nova-select-option[aria-selected="true"]::after {
+    content: '\2713';
+    margin-inline-start: auto;
+    padding-inline-start: 10px;
+    color: var(--accent, #58a6ff);
+  }
+  .nova-select-option.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .nova-select-option.disabled:hover {
+    background: transparent;
+  }
+
   .context-menu {
     position: fixed;
     z-index: var(--z-popup);

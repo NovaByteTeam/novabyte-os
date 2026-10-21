@@ -42,6 +42,7 @@ for option in \
   BR2_PACKAGE_LIBNSS \
   BR2_PACKAGE_LIBNSPR \
   BR2_PACKAGE_FONTCONFIG \
+  BR2_PACKAGE_NOTO_EMOJI \
   BR2_PACKAGE_DEJAVU \
   BR2_PACKAGE_DEJAVU_SANS \
   BR2_PACKAGE_DEJAVU_MONO \
@@ -62,6 +63,7 @@ for option in \
   BR2_PACKAGE_MESA3D_OPENGL_EGL \
   BR2_PACKAGE_MESA3D_OPENGL_ES \
   BR2_PACKAGE_MESA3D_OPENGL_GLX \
+  BR2_PACKAGE_MESA3D_GBM \
   BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SVGA \
   BR2_PACKAGE_NBOSP_KIOSK \
   BR2_PACKAGE_NBOSP_POWER \
@@ -148,12 +150,20 @@ if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libGL.so.
   echo "The OpenGL libGL.so.1 dispatch library is missing from the target image." >&2
   exit 1
 fi
+if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libgbm.so*' -print -quit | grep -q .; then
+  echo "Mesa GBM is missing from the target image; XWayland glamor cannot initialize without it." >&2
+  exit 1
+fi
 if [[ ! -f "$OUTPUT_DIR/target/opt/nbosp/lib/libffmpeg.so" ]]; then
   echo "NW.js runtime library libffmpeg.so is missing from /opt/nbosp/lib in the target image." >&2
   exit 1
 fi
 if [[ ! -d "$OUTPUT_DIR/target/usr/share/fonts/dejavu" ]]; then
   echo "DejaVu fonts were enabled but are missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -f "$OUTPUT_DIR/target/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf" ]]; then
+  echo "Noto Color Emoji is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -f "$OUTPUT_DIR/target/usr/share/icons/whiteglass/cursors/left_ptr" \

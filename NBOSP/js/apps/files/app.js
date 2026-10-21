@@ -1251,6 +1251,7 @@
       this.currentPath = this.path.resolve(options.path || this.os.homedir());
       this.state._linuxPath = this.currentPath;
       this.selectedPath = null;
+      this.selectedPaths = new Set();
       this.renderVersion = 0;
       this.controller = new AbortController();
       if (!Array.isArray(state.cleanups)) state.cleanups = [];
@@ -1306,8 +1307,9 @@
       toolbar.append(this.pathInput, this.searchInput);
 
       this.list = createEl('div', {
-        role: 'list',
+        role: 'listbox',
         'aria-label': 'Linux files and folders',
+        tabIndex: 0,
         style: 'flex:1;min-height:0;overflow:auto;padding:8px;'
       });
       this.status = createEl('div', {
@@ -1328,6 +1330,10 @@
           ]);
           return;
         }
+        if (!this.selectedPaths.has(row.dataset.path)) {
+          this.selectedPaths = new Set([row.dataset.path]);
+          this.updateSelection();
+        }
         this.selectedPath = row.dataset.path;
         this.showContextMenu(event, row._entry);
       }, { signal: this.controller.signal });
@@ -1338,12 +1344,35 @@
       this.list.addEventListener('click', event => {
         const row = event.target.closest('[data-path]');
         if (!row || !this.list.contains(row)) return;
-        this.selectedPath = row.dataset.path;
-        for (const item of this.list.querySelectorAll('[data-path]')) {
-          item.style.background = item === row ? 'var(--accent-muted)' : '';
+        const path = row.dataset.path;
+        if (event.ctrlKey || event.metaKey) {
+          if (this.selectedPaths.has(path)) this.selectedPaths.delete(path);
+          else this.selectedPaths.add(path);
+        } else {
+          this.selectedPaths = new Set([path]);
         }
+        this.selectedPath = this.selectedPaths.has(path) ? path : null;
+        this.updateSelection();
+      }, { signal: this.controller.signal });
+      this.list.addEventListener('keydown', event => {
+        if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a') return;
+        event.preventDefault();
+        this.selectedPaths = new Set(
+          [...this.list.querySelectorAll('[data-path]')].map(row => row.dataset.path)
+        );
+        this.selectedPath = null;
+        this.updateSelection();
       }, { signal: this.controller.signal });
       this.render();
+    }
+
+    updateSelection() {
+      for (const row of this.list.querySelectorAll('[data-path]')) {
+        const selected = this.selectedPaths.has(row.dataset.path);
+        row.setAttribute('aria-selected', String(selected));
+        row.style.background = selected ? 'var(--accent-muted)' : 'transparent';
+        row.style.userSelect = 'none';
+      }
     }
 
     async navigate(target) {
@@ -1356,6 +1385,7 @@
         this.pathInput.value = nextPath;
         this.searchInput.value = '';
         this.selectedPath = null;
+        this.selectedPaths.clear();
         await this.render();
       } catch (error) {
         Notify.show({ title: 'Cannot open folder', body: error.message, type: 'error', appName: 'Files' });
@@ -1400,9 +1430,10 @@
         for (const entry of rows) {
           const row = createEl('button', {
             type: 'button',
-            role: 'listitem',
+            role: 'option',
             'data-path': entry.path,
-            style: 'width:100%;display:grid;grid-template-columns:minmax(0,1fr) 100px 170px;gap:10px;text-align:left;padding:8px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;'
+            'aria-selected': String(this.selectedPaths.has(entry.path)),
+            style: `width:100%;display:grid;grid-template-columns:minmax(0,1fr) 100px 170px;gap:10px;text-align:left;padding:8px;border:0;border-radius:6px;background:${this.selectedPaths.has(entry.path) ? 'var(--accent-muted)' : 'transparent'};color:inherit;cursor:pointer;user-select:none;`
           });
           row._entry = entry;
           row.append(

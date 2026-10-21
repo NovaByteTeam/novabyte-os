@@ -236,6 +236,15 @@ async function main() {
   console.log(`Running npm ci --omit=dev in staged copy (native to ${process.platform})...`);
   execSync("npm ci --omit=dev", { cwd: stageDir, stdio: "inherit" });
 
+  // The clean staging copy excludes the generated vendor file. Recreate it
+  // from the staged production dependency so the served script is shipped.
+  const purifySource = path.join(stageDir, "node_modules", "dompurify", "dist", "purify.min.js");
+  const purifyTarget = path.join(stageDir, "js", "purify.min.js");
+  if (!fs.existsSync(purifySource)) {
+    throw new Error(`DOMPurify vendor script is missing after npm install: ${purifySource}`);
+  }
+  fs.copyFileSync(purifySource, purifyTarget);
+
   // 4. nw-builder is a devDependency, so it's deliberately NOT in stageDir's
   // node_modules after the --omit=dev install above. Resolve it instead from
   // build.mjs's OWN location (NBOSP root, i.e. __dirname / nbospDir) — this

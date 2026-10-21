@@ -719,6 +719,247 @@
     return el;
   }
 
+  function installSelectPopup() {
+    if (!hasDocument || !hasWindow || !document.addEventListener ||
+        window.__novaSelectPopupInstalled) return;
+
+    window.__novaSelectPopupInstalled = true;
+    let activeSelect = null;
+    let activeOptionIndex = -1;
+    let popup = null;
+    let typeahead = '';
+    let typeaheadTimer = null;
+    let popupId = 0;
+    let pointerSelect = null;
+
+    function closeSelectPopup(restoreFocus = false) {
+      if (popup) popup.remove();
+      if (activeSelect) {
+        activeSelect.setAttribute('aria-expanded', 'false');
+        activeSelect.removeAttribute('aria-controls');
+        activeSelect.removeAttribute('aria-activedescendant');
+        if (restoreFocus) activeSelect.focus();
+      }
+      if (typeaheadTimer !== null) {
+        clearTimeout(typeaheadTimer);
+        typeaheadTimer = null;
+      }
+      activeSelect = null;
+      activeOptionIndex = -1;
+      popup = null;
+    }
+
+    function enabledOptionIndex(select, start, direction) {
+      const options = select.options;
+      for (let index = start; index >= 0 && index < options.length; index += direction) {
+        if (!options[index].disabled) return index;
+      }
+      return -1;
+    }
+
+    function updateActiveOption(index) {
+      if (!popup || !activeSelect) return;
+      const option = popup.querySelector(`[data-option-index="${index}"]`);
+      if (!option) return;
+      activeOptionIndex = index;
+      popup.querySelectorAll('[role="option"]').forEach(item => {
+        item.classList.toggle('active', item === option);
+      });
+      activeSelect.setAttribute('aria-activedescendant', option.id);
+      option.scrollIntoView?.({ block: 'nearest' });
+    }
+
+    function positionSelectPopup() {
+      if (!popup || !activeSelect) return;
+      const rect = activeSelect.getBoundingClientRect();
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+      const margin = 8;
+      const gap = 4;
+      const availableBelow = viewportHeight - rect.bottom - margin - gap;
+      const availableAbove = rect.top - margin - gap;
+      const openAbove = availableBelow < 160 && availableAbove > availableBelow;
+      const availableHeight = Math.max(80, openAbove ? availableAbove : availableBelow);
+      const width = Math.min(Math.max(rect.width, 180), viewportWidth - margin * 2);
+      const left = Math.min(
+        Math.max(margin, rect.left),
+        viewportWidth - width - margin
+      );
+
+      popup.style.width = `${width}px`;
+      popup.style.maxHeight = `${Math.min(260, availableHeight)}px`;
+      popup.style.left = `${left}px`;
+      popup.style.right = 'auto';
+      if (openAbove) {
+        popup.style.top = 'auto';
+        popup.style.bottom = `${Math.max(margin, viewportHeight - rect.top + gap)}px`;
+      } else {
+        popup.style.bottom = 'auto';
+        popup.style.top = `${Math.min(rect.bottom + gap, viewportHeight - margin)}px`;
+      }
+    }
+
+    function openSelectPopup(select) {
+      if (select.disabled || !select.options.length || !document.body) return;
+      closeSelectPopup();
+      activeSelect = select;
+      popup = document.createElement('div');
+      popup.className = 'nova-select-popup';
+      popup.id = `nova-select-popup-${++popupId}`;
+      popup.setAttribute('role', 'listbox');
+      popup.setAttribute('aria-label',
+        select.getAttribute('aria-label') ||
+        select.labels?.[0]?.textContent?.trim() ||
+        select.name ||
+        'Options'
+      );
+
+      Array.from(select.options).forEach((sourceOption, index) => {
+        const option = document.createElement('div');
+        option.className = 'nova-select-option';
+        option.id = `${popup.id}-option-${index}`;
+        option.dataset.optionIndex = String(index);
+        option.setAttribute('role', 'option');
+        option.setAttribute('aria-selected', String(index === select.selectedIndex));
+        option.setAttribute('aria-disabled', String(sourceOption.disabled));
+        option.textContent = sourceOption.label;
+        if (sourceOption.disabled) option.classList.add('disabled');
+        popup.appendChild(option);
+      });
+
+      document.body.appendChild(popup);
+      select.setAttribute('aria-expanded', 'true');
+      select.setAttribute('aria-controls', popup.id);
+      positionSelectPopup();
+      const selected = enabledOptionIndex(select, select.selectedIndex, 1);
+      updateActiveOption(selected === -1
+        ? enabledOptionIndex(select, 0, 1)
+        : selected
+      );
+    }
+
+    function commitActiveOption() {
+      if (!activeSelect || activeOptionIndex < 0) return;
+      const select = activeSelect;
+      const option = select.options[activeOptionIndex];
+      if (!option || option.disabled) return;
+      const changed = select.selectedIndex !== activeOptionIndex;
+      select.selectedIndex = activeOptionIndex;
+      closeSelectPopup();
+      if (changed) {
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+
+    document.addEventListener('pointerdown', event => {
+      pointerSelect = null;
+      const option = event.target.closest?.('.nova-select-option');
+      if (option && popup?.contains(option)) {
+        event.preventDefault();
+        if (!option.classList.contains('disabled')) {
+          activeOptionIndex = Number(option.dataset.optionIndex);
+          commitActiveOption();
+        }
+        return;
+      }
+
+      const select = event.target.closest?.('select');
+      if (!select) {
+        if (activeSelect) closeSelectPopup();
+        return;
+      }
+
+      event.preventDefault();
+      pointerSelect = select;
+      select.focus({ preventScroll: true });
+      if (activeSelect === select) closeSelectPopup();
+      else openSelectPopup(select);
+    }, true);
+
+    document.addEventListener('click', event => {
+      const select = event.target.closest?.('select');
+      if (!select) return;
+      event.preventDefault();
+      if (event.detail !== 0 && pointerSelect === select) {
+        pointerSelect = null;
+        return;
+      }
+      if (activeSelect !== select) openSelectPopup(select);
+    }, true);
+
+    document.addEventListener('keydown', event => {
+      const select = event.target.closest?.('select');
+      if (!select) return;
+
+      if (event.key === 'Escape' && activeSelect === select) {
+        event.preventDefault();
+        closeSelectPopup(true);
+        return;
+      }
+
+      const direction = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+      if (direction) {
+        event.preventDefault();
+        if (activeSelect !== select) {
+          openSelectPopup(select);
+        } else {
+          const next = enabledOptionIndex(select, activeOptionIndex + direction, direction);
+          if (next !== -1) updateActiveOption(next);
+        }
+        return;
+      }
+
+      if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault();
+        if (activeSelect !== select) openSelectPopup(select);
+        const index = event.key === 'Home'
+          ? enabledOptionIndex(select, 0, 1)
+          : enabledOptionIndex(select, select.options.length - 1, -1);
+        updateActiveOption(index);
+        return;
+      }
+
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (activeSelect === select) commitActiveOption();
+        else openSelectPopup(select);
+        return;
+      }
+
+      if (event.key === 'Tab' && activeSelect === select) {
+        closeSelectPopup();
+        return;
+      }
+
+      if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
+      typeahead += event.key.toLocaleLowerCase();
+      if (typeaheadTimer !== null) clearTimeout(typeaheadTimer);
+      typeaheadTimer = setTimeout(() => {
+        typeahead = '';
+        typeaheadTimer = null;
+      }, 700);
+      const start = activeSelect === select ? activeOptionIndex + 1 : select.selectedIndex + 1;
+      const options = Array.from(select.options);
+      const ordered = [...options.slice(start), ...options.slice(0, start)];
+      const matchedOption = ordered.find(option =>
+        !option.disabled && option.label.toLocaleLowerCase().startsWith(typeahead)
+      );
+      const match = matchedOption ? options.indexOf(matchedOption) : -1;
+      if (match !== -1) {
+        event.preventDefault();
+        if (activeSelect !== select) openSelectPopup(select);
+        updateActiveOption(match);
+      }
+    }, true);
+
+    document.addEventListener('scroll', positionSelectPopup, true);
+    window.addEventListener?.('resize', positionSelectPopup);
+    window.addEventListener?.('blur', () => closeSelectPopup());
+  }
+
+  installSelectPopup();
+
   // Return HTML markup for an icon. Three cases:
   //   1. Inline SVG (UI_ICONS) — scalable, no HTTP request.
   //   2. data: URL — escaped and embedded as <img>.

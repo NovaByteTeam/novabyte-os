@@ -111,7 +111,7 @@ document.addEventListener('keydown', (e) => {
   }
 
   if ((e.metaKey || e.ctrlKey) && e.key === 'e') { e.preventDefault(); WM.createWindow('com.nbosp.files'); }
-  if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === 't') { e.preventDefault(); WM.createWindow('terminal'); }
+  if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === 't') { e.preventDefault(); WM.createWindow('com.nbosp.terminal'); }
   if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); window.LockScreenService.lockScreen(); }
   if ((e.metaKey || e.ctrlKey) && e.key === 'd') { e.preventDefault(); WM.minimizeAll(); }
   if (e.key === 'PrintScreen' && !e.altKey) { e.preventDefault(); window.ScreenshotService.capture('desktop'); }

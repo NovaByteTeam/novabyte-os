@@ -98,6 +98,9 @@ Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
 The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
 NW.js running through XWayland; Chromium is configured to use GPU rasterization
 and zero-copy buffers using Chromium's supported Linux EGL/ANGLE default.
+Mesa GBM is enabled explicitly as well, since XWayland's glamor path needs it
+to initialize accelerated rendering. The ISO build verifies that `libgbm`
+ships in the target image.
 Xorg protocol headers are enabled explicitly because Mesa's GLX client build
 requires `GL/glxproto.h`. libglvnd provides the standard `libGL.so.1` dispatch
 library; the image build verifies that it is present alongside Mesa's GLX
@@ -108,6 +111,10 @@ In VMware,
 enable **Accelerate 3D graphics** for the VM; the kernel log confirms that
 `vmwgfx` detects the virtual GPU, but Chromium's actual renderer should be
 confirmed from its GPU log in the VM.
+NovaByte's built-in HTML select controls open an in-page listbox instead of
+Chromium's native popup, avoiding popup-positioning differences in the
+XWayland kiosk. Select controls rendered inside external websites in the
+Browser app remain managed by Chromium.
 The Display Scale setting is passed to NW.js/Chromium with
 `--force-device-scale-factor`, which scales the complete NovaByte UI. Changing
 the setting requires restarting the system from the launchpad; it does not
@@ -117,9 +124,15 @@ in the Buildroot image rejected the per-device localhost CA despite the app
 importing it into the user's NSS database. First-run certificate cleanup also
 preserves this localhost-only exception while stripping broader certificate
 bypass flags; verification for external sites remains enabled.
-DejaVu Sans/Mono fonts and Fontconfig are included so Chromium and the UI have
-installed text fonts. The Whiteglass Xcursor theme is included, and Cage uses
-a software-rendered cursor to avoid invisible hardware cursors in VMware.
+The local HTTPS certificate warning can therefore remain in Chromium's log;
+the exception is limited to localhost and does not disable certificate checks
+for external sites.
+DejaVu Sans/Mono and Noto Color Emoji fonts and Fontconfig are included so
+Chromium and the UI can render text and emoji without downloading fonts at
+runtime. The emoji font is pinned to a Noto Emoji source revision and its OFL
+license is included in the image. The Whiteglass Xcursor theme is included,
+and Cage uses a software-rendered cursor to avoid invisible hardware cursors
+in VMware.
 The image build keeps Buildroot's cached kernel and graphics outputs. It
 clean-rebuilds Mesa, libglvnd, and XWayland only when the graphics configuration
 signature changes, and checks that `libGL.so.1`, Mesa's `vmwgfx_dri.so` SVGA
@@ -135,6 +148,11 @@ ephemeral: files and app data are lost at shutdown unless you use the disk
 installer. The tty2 console remains available for debugging.
 The VMware Open VM Tools guest daemon and its resolution helper are included;
 installing a separate Tools ISO inside the guest is unnecessary.
+The kernel command line explicitly selects the SRSO `safe-ret` mitigation.
+The VMware guest cannot install microcode for the host CPU; the log may still
+report `Vulnerable: Safe RET, no microcode`, meaning the kernel side is
+mitigated but the additional microcode-dependent user-space protection is
+unavailable. Keep the VMware host firmware and hypervisor updated.
 
 The workflow caches the Buildroot source/downloads and compiled output, along
 with the NW.js SDK and npm cache, to speed up later manual runs. The local

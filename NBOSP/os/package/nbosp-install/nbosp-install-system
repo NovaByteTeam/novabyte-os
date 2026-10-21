@@ -99,8 +99,12 @@ MINIMUM_BYTES=$((ROOTFS_BYTES + 1073741824))
 	echo "The selected disk is too small for the system image and working space" >&2
 	exit 1
 }
-tar -tzf "$ARCHIVE" > /dev/null || {
+gzip -t "$ARCHIVE" || {
 	echo "The NBOSP system archive is damaged or incomplete" >&2
+	exit 1
+}
+gzip -dc "$ARCHIVE" | tar -tf - > /dev/null || {
+	echo "The NBOSP system archive is not a readable tar archive" >&2
 	exit 1
 }
 
@@ -144,7 +148,7 @@ mount "$EFI_PART" "$EFI"
 mounted_efi=1
 
 echo "Copying the NBOSP system files"
-tar -xzf "$ARCHIVE" -C "$ROOT"
+gzip -dc "$ARCHIVE" | tar -xf - -C "$ROOT"
 mkdir -p "$ROOT/boot/grub"
 cp "$MEDIA/boot/vmlinuz" "$ROOT/boot/vmlinuz"
 cat > "$ROOT/boot/grub/grub.cfg" <<GRUB
@@ -153,7 +157,7 @@ set default=0
 search --no-floppy --fs-uuid --set=root $ROOT_UUID
 
 menuentry "NovaByte OS" {
-	linux /boot/vmlinuz root=UUID=$ROOT_UUID rootwait console=tty0 console=ttyS0,115200n8
+	linux /boot/vmlinuz root=UUID=$ROOT_UUID rootwait console=tty0 console=ttyS0,115200n8 spec_rstack_overflow=safe-ret
 }
 GRUB
 

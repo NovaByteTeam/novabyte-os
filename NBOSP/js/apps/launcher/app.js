@@ -2051,7 +2051,7 @@ if (desktopEl) {
         }
       ] : []),
       { separator: true },
-      { label: 'Open Terminal', icon: 'terminal', action: () => WM.createWindow('terminal') },
+      { label: 'Open Terminal', icon: 'terminal', action: () => WM.createWindow('com.nbosp.terminal') },
       { label: 'Open Settings', icon: 'settings', action: () => WM.createWindow('com.nbosp.settings') },
       { separator: true },
       { label: 'Refresh', action: () => renderDesktopIcons() }
