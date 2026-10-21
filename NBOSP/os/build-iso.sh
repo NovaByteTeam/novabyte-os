@@ -54,6 +54,7 @@ for option in \
   BR2_PACKAGE_XDATA_XCURSOR_THEMES \
   BR2_PACKAGE_LIBARCHIVE \
   BR2_PACKAGE_LIBARCHIVE_BSDTAR \
+  BR2_PACKAGE_UTIL_LINUX_LIBUUID \
   BR2_PACKAGE_OPENVMTOOLS \
   BR2_PACKAGE_OPENVMTOOLS_RESOLUTIONKMS \
   BR2_PACKAGE_MESA3D_OPENGL_EGL \
@@ -85,7 +86,8 @@ fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   cage-dirclean wlroots-dirclean xwayland-dirclean nbosp-kiosk-dirclean \
-  nbosp-install-dirclean nbosp-power-dirclean
+  util-linux-dirclean e2fsprogs-dirclean nbosp-install-dirclean \
+  nbosp-power-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
