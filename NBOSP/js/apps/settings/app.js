@@ -33,6 +33,7 @@ registerApp({
       { id: 'desktop',         name: 'Desktop',         icon: 'layers'        },
       { id: 'system',          name: 'System',           icon: 'processor'     },
       { id: 'date-and-region', name: 'Date and Region',  icon: 'calendar'      },
+      { id: 'connectivity',    name: 'Connectivity',     icon: 'globe'         },
       { id: 'storage',         name: 'Storage',          icon: 'database'      },
       { id: 'privacy',         name: 'Privacy',          icon: 'lock'          },
       { id: 'apps',            name: 'Apps',             icon: 'package'       },
@@ -58,6 +59,30 @@ registerApp({
       { value: 'normal', label: 'Normal',  transform: 'scale(1)'   },
       { value: 'large',  label: 'Large',   transform: 'scale(1.5)' },
       { value: 'xlarge', label: 'X-Large', transform: 'scale(2)'   }
+    ];
+
+    const KEYBOARD_LAYOUTS = [
+      { code: 'us', label: 'English (US)' },
+      { code: 'gb', label: 'English (UK)' },
+      { code: 'ca', label: 'English (Canada)' },
+      { code: 'au', label: 'English (Australia)' },
+      { code: 'de', label: 'German' },
+      { code: 'fr', label: 'French' },
+      { code: 'be', label: 'Belgian' },
+      { code: 'es', label: 'Spanish' },
+      { code: 'it', label: 'Italian' },
+      { code: 'pt', label: 'Portuguese' },
+      { code: 'br', label: 'Portuguese (Brazil)' },
+      { code: 'nl', label: 'Dutch' },
+      { code: 'se', label: 'Swedish' },
+      { code: 'no', label: 'Norwegian' },
+      { code: 'dk', label: 'Danish' },
+      { code: 'fi', label: 'Finnish' },
+      { code: 'pl', label: 'Polish' },
+      { code: 'tr', label: 'Turkish' },
+      { code: 'ru', label: 'Russian' },
+      { code: 'ua', label: 'Ukrainian' },
+      { code: 'jp', label: 'Japanese' }
     ];
 
     const SHORTCUTS_LIST = [
@@ -565,6 +590,7 @@ registerApp({
         case 'accessibility':     renderAccessibility();   break;
         case 'system':            renderSystem();          break;
         case 'date-and-region':   renderDateAndRegion();   break;
+        case 'connectivity':      renderConnectivity();   break;
         case 'storage':           renderStorage();         break;
         case 'shortcuts':         renderShortcuts();       break;
         case 'privacy':           renderPrivacy();         break;
@@ -992,10 +1018,89 @@ registerApp({
       const kbGroup = createEl('div', { className: 'nook-group' });
       kbGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Keyboard Layout' }));
       const kbRow = createEl('div', { className: 'nook-row' });
-      kbRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Detected Layout' }));
-      const kbValue = createEl('span', { style: 'color:var(--text-primary);font-weight:500;', textContent: 'Detecting...' });
-      kbRow.appendChild(kbValue);
-      kbGroup.appendChild(kbRow);
+      const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
+      if (isLinux) {
+        const kbSelect = document.createElement('select');
+        kbSelect.className = 'input';
+        kbSelect.id = 'keyboard-layout-select';
+        kbSelect.setAttribute('aria-label', 'Keyboard layout');
+        const configuredLayout = OS.settings.get('keyboardLayout');
+        const savedLayout = KEYBOARD_LAYOUTS.some(layout => layout.code === configuredLayout)
+          ? configuredLayout
+          : 'us';
+        for (const layout of KEYBOARD_LAYOUTS) {
+          const option = document.createElement('option');
+          option.value = layout.code;
+          option.textContent = layout.label;
+          option.selected = layout.code === savedLayout;
+          kbSelect.appendChild(option);
+        }
+        const kbLabel = createEl('label', {
+          className: 'nook-row-label',
+          htmlFor: 'keyboard-layout-select',
+          textContent: 'Input layout'
+        });
+        kbSelect.addEventListener('change', () => {
+          const layout = KEYBOARD_LAYOUTS.find(item => item.code === kbSelect.value);
+          if (!layout) return;
+          try {
+            const fs = require('fs');
+            const path = require('path');
+            const configDir = path.join(require('os').homedir(), '.config', 'novabyte');
+            fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+            const target = path.join(configDir, 'keyboard-layout');
+            const temporary = `${target}.${process.pid}.tmp`;
+            fs.writeFileSync(temporary, `${layout.code}\n`, { mode: 0o600 });
+            fs.renameSync(temporary, target);
+            OS.settings.set('keyboardLayout', layout.code);
+            Notify.show({
+              title: 'Keyboard Layout Saved',
+              body: `${layout.label} will be used after restarting NovaByte OS.`,
+              type: 'success',
+              appName: 'Settings'
+            });
+          } catch (error) {
+            console.error('[Settings] Failed to save keyboard layout:', error);
+            Notify.show({
+              title: 'Keyboard Layout Not Saved',
+              body: String(error?.message || error),
+              type: 'error',
+              appName: 'Settings'
+            });
+            kbSelect.value = OS.settings.get('keyboardLayout') || 'us';
+          }
+        }, { signal: lifecycle.signal });
+        kbRow.append(kbLabel, kbSelect);
+        kbGroup.appendChild(kbRow);
+        kbGroup.appendChild(createEl('p', {
+          style: 'font-size:11px;color:var(--text-muted);padding:4px 0;',
+          textContent: 'Restart NovaByte OS for the new keyboard layout to take effect.'
+        }));
+      } else {
+        kbRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Detected Layout' }));
+        const kbValue = createEl('span', {
+          style: 'color:var(--text-primary);font-weight:500;',
+          textContent: 'Detecting...'
+        });
+        kbRow.appendChild(kbValue);
+        kbGroup.appendChild(kbRow);
+
+        if (navigator.keyboard && typeof navigator.keyboard.getLayoutMap === 'function') {
+          navigator.keyboard.getLayoutMap().then(map => {
+            if (!isAlive()) return;
+            const a = map.get('KeyA');
+            const q = map.get('KeyQ');
+            let detected = 'Unknown';
+            if (a === 'a' && q === 'q') detected = 'QWERTY';
+            else if (a === 'q' && q === 'a') detected = 'AZERTY';
+            else if (a === 'a' && q === 'w') detected = 'QWERTZ';
+            else if (a) detected = 'Custom (' + a + ')';
+            kbValue.textContent = detected;
+          }).catch(() => { if (isAlive()) kbValue.textContent = 'Not available'; });
+        } else {
+          kbValue.textContent = 'Not supported';
+        }
+      }
       mainContent.appendChild(kbGroup);
 
       // Live preview
@@ -1041,25 +1146,246 @@ registerApp({
         previewEl.replaceChildren(dtDiv, curDiv);
       }
 
-      // Keyboard layout detection — async, so guard against the section
-      // being destroyed before the promise settles.
-      if (navigator.keyboard && typeof navigator.keyboard.getLayoutMap === 'function') {
-        navigator.keyboard.getLayoutMap().then(map => {
-          if (!isAlive()) return;
-          const a = map.get('KeyA');
-          const q = map.get('KeyQ');
-          let layout = 'Unknown';
-          if (a === 'a' && q === 'q') layout = 'QWERTY';
-          else if (a === 'q' && q === 'a') layout = 'AZERTY';
-          else if (a === 'a' && q === 'w') layout = 'QWERTZ';
-          else if (a) layout = 'Custom (' + a + ')';
-          kbValue.textContent = layout;
-        }).catch(() => { if (isAlive()) kbValue.textContent = 'Not available'; });
-      } else {
-        kbValue.textContent = 'Not supported';
+      updatePreview(currentRegion);
+    }
+
+    // Connectivity
+    function renderConnectivity() {
+      mainContent.appendChild(createEl('h2', { textContent: 'Connectivity', style: { marginBottom: '8px' } }));
+      mainContent.appendChild(createEl('p', {
+        textContent: 'Manage Wi-Fi, wired internet, and Bluetooth devices.',
+        style: 'margin:0 0 20px;color:var(--text-muted);font-size:13px;'
+      }));
+
+      const connectivity = window.NovaConnectivity;
+      const statusText = createEl('div', {
+        role: 'status',
+        'aria-live': 'polite',
+        style: 'font-size:13px;color:var(--text-muted);'
+      });
+      const networkGroup = createEl('section', { className: 'nook-group' });
+      networkGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Internet connection' }));
+      const networkToggle = createEl('button', {
+        className: 'btn btn-sm',
+        textContent: 'Networking: checking…',
+        disabled: true
+      });
+      const refreshNetwork = createEl('button', { className: 'btn btn-sm', textContent: 'Refresh status' });
+      const networkControls = createEl('div', { className: 'nook-row', style: 'gap:8px;flex-wrap:wrap;' });
+      networkControls.append(networkToggle, refreshNetwork);
+      networkGroup.appendChild(networkControls);
+
+      const wifiGroup = createEl('section', { className: 'nook-group' });
+      wifiGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Internet and Wi-Fi' }));
+      const wifiControls = createEl('div', { className: 'nook-row', style: 'gap:8px;flex-wrap:wrap;' });
+      const wifiToggle = createEl('button', { className: 'btn btn-sm', textContent: 'Wi-Fi: checking…', disabled: true });
+      const wifiScan = createEl('button', { className: 'btn btn-sm', textContent: 'Scan for networks' });
+      const wifiDisconnect = createEl('button', { className: 'btn btn-sm', textContent: 'Disconnect Wi-Fi' });
+      wifiControls.append(wifiToggle, wifiScan, wifiDisconnect);
+      wifiGroup.appendChild(wifiControls);
+
+      const wifiPassword = createEl('input', {
+        type: 'password',
+        autocomplete: 'current-password',
+        placeholder: 'Wi-Fi password (if required)',
+        'aria-label': 'Wi-Fi password',
+        style: 'width:100%;max-width:320px;margin:8px 0;'
+      });
+      wifiGroup.appendChild(wifiPassword);
+      const wifiList = createEl('div', { style: 'display:grid;gap:8px;margin-top:8px;' });
+      wifiGroup.appendChild(wifiList);
+
+      const bluetoothGroup = createEl('section', { className: 'nook-group' });
+      bluetoothGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Bluetooth' }));
+      const bluetoothControls = createEl('div', { className: 'nook-row', style: 'gap:8px;flex-wrap:wrap;' });
+      const bluetoothToggle = createEl('button', { className: 'btn btn-sm', textContent: 'Bluetooth: checking…', disabled: true });
+      const bluetoothScan = createEl('button', { className: 'btn btn-sm', textContent: 'Scan for devices' });
+      bluetoothControls.append(bluetoothToggle, bluetoothScan);
+      bluetoothGroup.appendChild(bluetoothControls);
+      const bluetoothList = createEl('div', { style: 'display:grid;gap:8px;margin-top:8px;' });
+      bluetoothGroup.appendChild(bluetoothList);
+
+      mainContent.append(statusText, networkGroup, wifiGroup, bluetoothGroup);
+
+      if (!connectivity) {
+        statusText.textContent = 'Connectivity service is not available in this build.';
+        return;
       }
 
-      updatePreview(currentRegion);
+      const setStatus = (message, isError = false) => {
+        statusText.textContent = message;
+        statusText.style.color = isError ? 'var(--text-danger)' : 'var(--text-muted)';
+      };
+      const runAction = async (action, successMessage) => {
+        setStatus('Working…');
+        try {
+          await action();
+          if (!isAlive()) return;
+          await refreshStatus();
+          const summary = statusText.textContent;
+          setStatus(`${successMessage}${summary ? ` ${summary}` : ''}`);
+        } catch (error) {
+          if (isAlive()) setStatus(error.message || String(error), true);
+        }
+      };
+
+      async function refreshStatus() {
+        try {
+          const status = await connectivity.getStatus();
+          if (!isAlive()) return;
+          if (!status.supported) {
+            setStatus(status.reason);
+            return;
+          }
+          statusText.textContent = `Internet: ${status.connectivity} · Network: ${status.networkState}`;
+          networkToggle.disabled = status.networkEnabled === null;
+          networkToggle.textContent = status.networkEnabled === null
+            ? 'Networking unavailable'
+            : `Networking: ${status.networkEnabled ? 'On' : 'Off'}`;
+          networkToggle.setAttribute('aria-pressed', String(status.networkEnabled === true));
+          wifiToggle.disabled = status.wifiEnabled === null;
+          wifiToggle.textContent = status.wifiEnabled === null
+            ? 'Wi-Fi unavailable'
+            : `Wi-Fi: ${status.wifiEnabled ? 'On' : 'Off'}`;
+          wifiToggle.setAttribute('aria-pressed', String(status.wifiEnabled === true));
+          bluetoothToggle.disabled = status.bluetoothEnabled === null;
+          bluetoothToggle.textContent = status.bluetoothEnabled === null
+            ? 'Bluetooth unavailable'
+            : `Bluetooth: ${status.bluetoothEnabled ? 'On' : 'Off'}`;
+          bluetoothToggle.setAttribute('aria-pressed', String(status.bluetoothEnabled === true));
+          const errors = [status.wifiError, status.bluetoothError].filter(Boolean);
+          if (errors.length) setStatus(`Internet: ${status.connectivity} · ${errors.join(' · ')}`, true);
+        } catch (error) {
+          if (isAlive()) setStatus(error.message || String(error), true);
+        }
+      }
+
+      networkToggle.addEventListener('click', () => {
+        const currentlyEnabled = networkToggle.getAttribute('aria-pressed') === 'true';
+        void runAction(() => connectivity.setNetworkingEnabled(!currentlyEnabled), 'Networking setting updated.');
+      }, { signal: lifecycle.signal });
+      refreshNetwork.addEventListener('click', () => { void refreshStatus(); }, { signal: lifecycle.signal });
+
+      wifiToggle.addEventListener('click', () => {
+        const currentlyEnabled = wifiToggle.getAttribute('aria-pressed') === 'true';
+        void runAction(() => connectivity.setWifiEnabled(!currentlyEnabled), 'Wi-Fi setting updated.');
+      }, { signal: lifecycle.signal });
+
+      wifiScan.addEventListener('click', async () => {
+        wifiScan.disabled = true;
+        wifiList.replaceChildren();
+        setStatus('Scanning for Wi-Fi networks…');
+        try {
+          const networks = await connectivity.getWifiNetworks();
+          if (!isAlive()) return;
+          if (!networks.length) {
+            wifiList.appendChild(createEl('div', {
+              className: 'nook-row-label',
+              textContent: 'No Wi-Fi networks found. Check that a wireless adapter is available.'
+            }));
+          }
+          for (const network of networks) {
+            const row = createEl('div', {
+              className: 'nook-row',
+              style: 'gap:10px;flex-wrap:wrap;align-items:center;'
+            });
+            row.appendChild(createEl('span', {
+              className: 'nook-row-label',
+              textContent: `${network.ssid} · ${network.security} · ${network.signal}%`
+            }));
+            const connect = createEl('button', { className: 'btn btn-sm', textContent: 'Connect' });
+            connect.addEventListener('click', () => {
+              void runAction(
+                () => connectivity.connectWifi(network.ssid, wifiPassword.value),
+                `Connected to ${network.ssid}.`
+              ).finally(() => { if (isAlive()) wifiPassword.value = ''; });
+            }, { signal: lifecycle.signal });
+            row.appendChild(connect);
+            wifiList.appendChild(row);
+          }
+          setStatus(`Found ${networks.length} Wi-Fi network(s).`);
+        } catch (error) {
+          if (isAlive()) setStatus(error.message || String(error), true);
+        } finally {
+          wifiScan.disabled = false;
+        }
+      }, { signal: lifecycle.signal });
+
+      wifiDisconnect.addEventListener('click', () => {
+        void runAction(() => connectivity.disconnectWifi(), 'Wi-Fi disconnected.');
+      }, { signal: lifecycle.signal });
+
+      bluetoothToggle.addEventListener('click', () => {
+        const currentlyEnabled = bluetoothToggle.getAttribute('aria-pressed') === 'true';
+        void runAction(() => connectivity.setBluetoothEnabled(!currentlyEnabled), 'Bluetooth setting updated.');
+      }, { signal: lifecycle.signal });
+
+      bluetoothScan.addEventListener('click', async () => {
+        bluetoothScan.disabled = true;
+        bluetoothList.replaceChildren();
+        setStatus('Scanning for Bluetooth devices…');
+        try {
+          const devices = await connectivity.scanBluetooth();
+          if (!isAlive()) return;
+          if (!devices.length) {
+            bluetoothList.appendChild(createEl('div', {
+              className: 'nook-row-label',
+              textContent: 'No Bluetooth devices found. Make sure the device is discoverable.'
+            }));
+          }
+          for (const device of devices) {
+            const row = createEl('div', {
+              className: 'nook-row',
+              style: 'gap:8px;flex-wrap:wrap;align-items:center;'
+            });
+            row.appendChild(createEl('span', {
+              className: 'nook-row-label',
+              textContent: `${device.name} · ${device.address}`
+            }));
+            const pair = createEl('button', { className: 'btn btn-sm', textContent: 'Pair' });
+            if (device.paired) {
+              const connect = createEl('button', {
+                className: 'btn btn-sm',
+                textContent: device.connected ? 'Connected' : 'Connect',
+                disabled: device.connected
+              });
+              if (!device.connected) {
+                connect.addEventListener('click', () => {
+                  void runAction(() => connectivity.connectBluetooth(device.address), `Connected to ${device.name}.`);
+                }, { signal: lifecycle.signal });
+              }
+              const disconnect = createEl('button', {
+                className: 'btn btn-sm',
+                textContent: 'Disconnect',
+                disabled: !device.connected
+              });
+              if (device.connected) {
+                disconnect.addEventListener('click', () => {
+                  void runAction(() => connectivity.disconnectBluetooth(device.address), `Disconnected from ${device.name}.`);
+                }, { signal: lifecycle.signal });
+              }
+              const forget = createEl('button', { className: 'btn btn-sm', textContent: 'Forget' });
+              forget.addEventListener('click', () => {
+                void runAction(() => connectivity.forgetBluetooth(device.address), `Forgot ${device.name}.`);
+              }, { signal: lifecycle.signal });
+              row.append(connect, disconnect, forget);
+            } else {
+              pair.addEventListener('click', () => {
+                void runAction(() => connectivity.pairBluetooth(device.address), `Paired and connected to ${device.name}.`);
+              }, { signal: lifecycle.signal });
+              row.appendChild(pair);
+            }
+            bluetoothList.appendChild(row);
+          }
+          setStatus(`Found ${devices.length} Bluetooth device(s).`);
+        } catch (error) {
+          if (isAlive()) setStatus(error.message || String(error), true);
+        } finally {
+          bluetoothScan.disabled = false;
+        }
+      }, { signal: lifecycle.signal });
+
+      void refreshStatus();
     }
 
     // Storage
@@ -1134,43 +1460,18 @@ registerApp({
 
       const wipeBtn = createEl('button', { className: 'btn btn-danger btn-sm', style: { marginLeft: '8px' }, textContent: 'Wipe All Data' });
       wipeBtn.addEventListener('click', async () => {
-        const wipeConfirm = await showModal('Wipe All Data', 'This will delete all files, settings, and data. This action cannot be undone.', [
+        const wipeConfirm = await showModal('Wipe All Data', 'This permanently deletes your files, settings, installed apps, and app data. On NBOSP, the system will restart after clearing your user profile. The installed operating system files are not removed.', [
           { label: 'Cancel' }, { label: 'Wipe Everything', danger: true, value: 'wipe' }
         ]);
         if (!isAlive()) return;
         if (wipeConfirm !== 'wipe') return;
         Notify.show({ title: 'Wiping Data', body: 'Please wait...', type: 'warning', appName: 'Settings' });
-        localStorage.clear();
-        sessionStorage.clear();
-        // Delete IndexedDB databases sequentially
-        for (const dbName of ['NovaByte_FS', 'novabyte_opfs_fallback']) {
-          await new Promise(resolve => {
-            const req = indexedDB.deleteDatabase(dbName);
-            req.onsuccess = req.onerror = req.onblocked = () => resolve();
-          });
+        try {
+          await window.performFactoryReset();
+        } catch (err) {
+          devLog('Factory reset failed:', err);
+          if (isAlive()) Notify.show({ title: 'Reset Failed', body: err.message, type: 'error', appName: 'Settings' });
         }
-        try {
-          if (typeof OPFS !== 'undefined' && OPFS.clear) await OPFS.clear();
-        } catch (err) { devLog('OPFS.clear() failed:', err); }
-        // Each installed .novaapp runs in its own isolated webview storage
-        // partition (persist:app_<id>). That's separate from the stores
-        // above, so it survives unless cleared per app.
-        try {
-          const appIds = (typeof OS !== 'undefined' && OS.apps) ? Object.keys(OS.apps) : [];
-          if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartitions) {
-            await AppSandbox.clearAppPartitions(appIds);
-          }
-        } catch (err) { devLog('clearAppPartitions failed:', err); }
-        // nova:storage is a third IndexedDB (NovaByte_AppStorage) that apps
-        // read/write via window.nova.ipc('nova:storage:*', ...). Not scoped
-        // to currently-installed appIds, since a full wipe should also catch
-        // rows left behind by uninstalled apps.
-        try {
-          if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAllStorage) {
-            await AppSandbox.clearAllStorage();
-          }
-        } catch (err) { devLog('clearAllStorage failed:', err); }
-        location.reload();
       }, { signal: lifecycle.signal });
       clearGroup.appendChild(wipeBtn);
       mainContent.appendChild(clearGroup);

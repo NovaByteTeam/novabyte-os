@@ -71,6 +71,11 @@ guest is unnecessary.
 The launcher exposes restart and power-off controls through a dedicated
 root-owned helper that accepts only those two actions; it does not provide
 general root command execution.
+**Wipe All Data** and Recovery's **Factory Reset** clear the contents of
+`/home/nbosp` and restart the system, removing user files, settings, installed
+app data, runtime state, and the NW.js profile. They preserve the installed
+system under `/opt/nbosp` and do not repartition or reinstall the disk. Use the
+installer to replace the operating system itself.
 
 If boot reaches the console but the kiosk reports a missing VMware DRM device,
 use a newly built ISO with `CONFIG_DRM_VMWGFX=y` and ensure the VM has a
@@ -119,6 +124,18 @@ The Display Scale setting is passed to NW.js/Chromium with
 `--force-device-scale-factor`, which scales the complete NovaByte UI. Changing
 the setting requires restarting the system from the launchpad; it does not
 alter the display mode or scale other Wayland clients.
+The Date and Region settings also include a keyboard layout selector. The
+selected XKB layout is saved for the `nbosp` user and passed to Cage on its
+next start, so restart NovaByte OS after changing it. The ISO build verifies
+that every offered layout is included in the image.
+Settings includes a Connectivity section backed by NetworkManager/wpa_supplicant
+for Ethernet and Wi-Fi and BlueZ for Bluetooth scanning and pairing. Network
+control is authorized for the dedicated `nbosp` kiosk account through a
+Polkit rule scoped to network-management and Bluetooth device actions. VMware
+exposes virtual Ethernet by default; Wi-Fi and Bluetooth require suitable
+guest-visible adapters, kernel drivers, and any firmware those adapters need.
+The ISO includes common wireless kernel drivers and selected Intel Wi-Fi
+firmware, but does not bundle firmware for every vendor or model.
 NW.js receives `--allow-insecure-localhost` directly at launch because Chromium
 in the Buildroot image rejected the per-device localhost CA despite the app
 importing it into the user's NSS database. First-run certificate cleanup also

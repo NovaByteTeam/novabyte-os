@@ -154,7 +154,9 @@ async function ensureEnv(appDir) {
     throw new Error(`[NovaByte] .env validation failed:\n${errors.join('\n')}\n\nFix .env and restart.`);
   }
 
+  const inheritedNodeEnv = process.env.NODE_ENV;
   Object.assign(process.env, env);
+  if (inheritedNodeEnv) process.env.NODE_ENV = inheritedNodeEnv;
   console.log('[NovaByte] .env loaded, validated, and applied.');
 }
 

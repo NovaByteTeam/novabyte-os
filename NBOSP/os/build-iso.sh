@@ -53,6 +53,20 @@ for option in \
   BR2_PACKAGE_XWAYLAND \
   BR2_PACKAGE_SEATD_DAEMON \
   BR2_PACKAGE_DBUS \
+  BR2_PACKAGE_NETWORK_MANAGER \
+  BR2_PACKAGE_NETWORK_MANAGER_CLI \
+  BR2_PACKAGE_POLKIT \
+  BR2_PACKAGE_WPA_SUPPLICANT \
+  BR2_PACKAGE_WPA_SUPPLICANT_NL80211 \
+  BR2_PACKAGE_BLUEZ5_UTILS \
+  BR2_PACKAGE_BLUEZ5_UTILS_CLIENT \
+  BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_AUDIO \
+  BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_HID \
+  BR2_PACKAGE_BLUEZ5_UTILS_PLUGINS_HOG \
+  BR2_PACKAGE_LINUX_FIRMWARE \
+  BR2_PACKAGE_LINUX_FIRMWARE_IWLWIFI_6E \
+  BR2_PACKAGE_LINUX_FIRMWARE_IWLWIFI_9XXX \
+  BR2_PACKAGE_LINUX_FIRMWARE_IWLWIFI_22000 \
   BR2_PACKAGE_XKEYBOARD_CONFIG \
   BR2_PACKAGE_XDATA_XCURSOR_THEMES \
   BR2_PACKAGE_LIBARCHIVE \
@@ -83,6 +97,11 @@ do
     exit 1
   fi
 done
+
+if ! grep -q '^BR2_ROOTFS_OVERLAY=.*board/nbosp/rootfs-overlay' "$OUTPUT_DIR/.config"; then
+  echo "NBOSP root filesystem overlay is not configured." >&2
+  exit 1
+fi
 
 if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
   echo "Buildroot Node.js must stay disabled; the kiosk uses NW.js's bundled Node runtime." >&2
@@ -134,6 +153,17 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
   echo "Cage compositor is missing from the target image." >&2
   exit 1
 fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/nmcli" \
+  || ! -x "$OUTPUT_DIR/target/usr/bin/bluetoothctl" \
+  || ! -x "$OUTPUT_DIR/target/usr/sbin/NetworkManager" \
+  || ! -x "$OUTPUT_DIR/target/usr/sbin/wpa_supplicant" \
+  || ! -f "$OUTPUT_DIR/target/etc/init.d/S40bluetoothd" \
+  || ! -f "$OUTPUT_DIR/target/etc/init.d/S45NetworkManager" \
+  || ! -f "$OUTPUT_DIR/target/etc/init.d/S50polkitd" \
+  || ! -f "$OUTPUT_DIR/target/etc/polkit-1/rules.d/50-nbosp-connectivity.rules" ]]; then
+  echo "NetworkManager, Bluetooth control, or NBOSP connectivity authorization is missing from the target image." >&2
+  exit 1
+fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
   echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
   exit 1
@@ -171,6 +201,12 @@ if [[ ! -f "$OUTPUT_DIR/target/usr/share/icons/whiteglass/cursors/left_ptr" \
   echo "Whiteglass X cursor theme is missing from the target image." >&2
   exit 1
 fi
+for layout in us gb ca au de fr be es it pt br nl se no dk fi pl tr ru ua jp; do
+  if [[ ! -f "$OUTPUT_DIR/target/usr/share/X11/xkb/symbols/$layout" ]]; then
+    echo "XKB keyboard layout '$layout' is missing from the target image." >&2
+    exit 1
+  fi
+done
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/bsdtar" ]]; then
   echo "BSD tar is required to browse ISO files but is missing from the target image." >&2
   exit 1

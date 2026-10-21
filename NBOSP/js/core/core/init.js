@@ -676,6 +676,34 @@ function deleteIndexedDBs(dbNames) {
   })));
 }
 
+window.performFactoryReset = async function () {
+  if (!window.NovaFactoryReset || typeof window.NovaFactoryReset.performLinuxFactoryReset !== 'function') {
+    throw new Error('Factory reset service is unavailable');
+  }
+  if (await window.NovaFactoryReset.performLinuxFactoryReset()) return;
+
+  localStorage.clear();
+  sessionStorage.clear();
+
+  const results = await deleteIndexedDBs(['NovaByte_FS', 'novabyte_opfs_fallback']);
+  const failedDatabases = results.filter((result) => !result.ok);
+  if (failedDatabases.length) {
+    throw new Error(`Could not clear database(s): ${failedDatabases.map((result) => `${result.name} (${result.reason})`).join(', ')}`);
+  }
+
+  if (typeof OPFS !== 'undefined' && OPFS.clear) await OPFS.clear();
+
+  const appIds = (typeof OS !== 'undefined' && OS.apps) ? Object.keys(OS.apps) : [];
+  if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartitions) {
+    await AppSandbox.clearAppPartitions(appIds);
+  }
+  if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAllStorage) {
+    await AppSandbox.clearAllStorage();
+  }
+
+  location.reload();
+};
+
 window.recoveryAction = function (action) {
   const BOOT_ATTEMPT_KEY = 'nova_boot_attempts';
   const SAFE_MODE_KEY = 'nova_safe_mode';
@@ -865,37 +893,11 @@ window.recoveryAction = function (action) {
     if (!confirm('⚠ FACTORY RESET\n\nThis will permanently wipe ALL data:\n• All files and folders\n• All settings and preferences\n• All Group Policies\n• All application data\n\nThis CANNOT be undone. Are you absolutely sure?')) return;
     if (!confirm('Last chance — click OK to erase everything and start fresh.')) return;
 
-    localStorage.clear();
-    sessionStorage.clear();
-
-    const clearOPFS = async () => {
-      try {
-        if (typeof OPFS !== 'undefined' && OPFS.clear) await OPFS.clear();
-      } catch { }
-    };
-
-    // .novaapp data lives in per-app webview storage partitions
-    // (persist:app_<id>, see app-sandbox.js createSandbox()) — separate
-    // from localStorage/IndexedDB/OPFS, so it needs its own cleanup pass
-    const clearAppPartitions = async () => {
-      try {
-        const appIds = (typeof OS !== 'undefined' && OS.apps) ? Object.keys(OS.apps) : [];
-        if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartitions) {
-          await AppSandbox.clearAppPartitions(appIds);
-        }
-      } catch { }
-    };
-
-    (async () => {
-      const results = await deleteIndexedDBs(['NovaByte_FS', 'novabyte_opfs_fallback']);
-      const blocked = results.filter((r) => r.reason === 'blocked');
-      if (blocked.length) {
-        console.warn('[Factory Reset] Some databases were blocked and may not be fully cleared:', blocked.map((r) => r.name));
-      }
-      await clearOPFS();
-      await clearAppPartitions();
-      location.reload();
-    })();
+    recLog('Erasing user data and restarting...', 'warn');
+    window.performFactoryReset().catch((error) => {
+      console.error('[Factory Reset] Reset failed:', error);
+      recLog(`Factory reset failed: ${error.message}`, 'error');
+    });
   }
 };
 
