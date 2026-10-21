@@ -85,7 +85,7 @@ fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   cage-dirclean wlroots-dirclean xwayland-dirclean nbosp-kiosk-dirclean \
-  nbosp-install-dirclean
+  nbosp-install-dirclean nbosp-power-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
