@@ -70,5 +70,8 @@
     "nw-builder@4.18.0": true,
     "better-sqlite3@13.0.3": true,
     "nw@0.118.0-sdk": true
+  },
+  "overrides": {
+    "@nwutils/getter": "0.2.8"
   }
 }
