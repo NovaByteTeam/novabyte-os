@@ -38,7 +38,6 @@ manifest.window = {
     "--allow-insecure-localhost",
     "--enable-features=UseOzonePlatform",
     "--ozone-platform=x11",
-    "--use-gl=desktop",
     "--ignore-gpu-blocklist",
     "--enable-gpu-rasterization",
     "--enable-zero-copy",

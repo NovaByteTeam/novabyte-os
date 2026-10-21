@@ -8,6 +8,7 @@ const crypto    = require('crypto');
 const { ensureEnv }                              = require('./env');
 const { ensureCerts }                            = require('./certs');
 const { createLogStream, createConout, makeTee } = require('./logger');
+const { getRuntimeDataDir } = require('./runtime-data-dir');
 
 // Window reference module-scoped so it is accessible to global hotkey handlers
 let win = null;
@@ -22,7 +23,7 @@ async function bootstrap(appDir) {
   await Promise.all([ensureEnv(appDir), ensureCerts(appDir)]);
 
   if (process.env.HTTPS !== 'true') {
-    const envPath = path.join(appDir, '.env');
+    const envPath = path.join(getRuntimeDataDir(appDir), '.env');
     try {
       const content = await fs.promises.readFile(envPath, 'utf8');
       if (!/^HTTPS=.*$/m.test(content)) {

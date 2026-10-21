@@ -5,6 +5,7 @@ const fs = require('fs');
 const dns = require('dns');
 const Database = require('better-sqlite3');
 const { Agent, fetch: undiciFetch } = require('undici');
+const { getRuntimeDataDir } = require('../scripts/runtime-data-dir');
 
 const FAVICON_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const FAVICON_MAX = 500; // max cached entries
@@ -12,7 +13,7 @@ const FAVICON_FETCH_TIMEOUT = 4000; // 4s per attempt
 const FAVICON_MAX_REDIRECTS = 5;
 
 // Persistent favicon cache
-const FAVICON_DB_DIR = path.join(__dirname, '..', 'data');
+const FAVICON_DB_DIR = path.join(getRuntimeDataDir(path.resolve(__dirname, '..')), 'data');
 const FAVICON_DB_PATH = path.join(FAVICON_DB_DIR, 'favicons.db');
 fs.mkdirSync(FAVICON_DB_DIR, { recursive: true });
 

@@ -87,9 +87,23 @@ if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
   exit 1
 fi
 
+GRAPHICS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-graphics-signature"
+GRAPHICS_SIGNATURE="$(
+  {
+    printf '%s\n' 'nbosp-graphics-stack-v1'
+    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBGLVND|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
+  } | sha256sum | cut -d ' ' -f 1
+)"
+if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
+  || [[ "$(cat "$GRAPHICS_SIGNATURE_FILE")" != "$GRAPHICS_SIGNATURE" ]]; then
+  echo "Graphics configuration changed; rebuilding only Mesa, libglvnd, and XWayland."
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    xwayland-dirclean libglvnd-dirclean mesa3d-dirclean
+  printf '%s\n' "$GRAPHICS_SIGNATURE" > "$GRAPHICS_SIGNATURE_FILE"
+fi
+
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-  cage-dirclean wlroots-dirclean xwayland-dirclean xorgproto-dirclean libglvnd-dirclean mesa3d-dirclean linux-dirclean nbosp-kiosk-dirclean \
-  nbosp-install-dirclean nbosp-power-dirclean
+  nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
 MESA3D_VERSION="$(sed -n 's/^MESA3D_VERSION = //p' "$BUILDROOT_DIR/package/mesa3d/mesa3d.mk")"

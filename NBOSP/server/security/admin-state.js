@@ -3,8 +3,9 @@
 const fs    = require('fs');
 const path  = require('path');
 const crypto = require('crypto');
+const { getRuntimeDataDir } = require('../../scripts/runtime-data-dir');
 
-const DATA_DIR         = path.join(__dirname, '..', '..', 'data');
+const DATA_DIR         = path.join(getRuntimeDataDir(path.resolve(__dirname, '..', '..')), 'data');
 const ADMIN_STATE_PATH = path.join(DATA_DIR, 'admin-state.json');
 
 const DEFAULT_STATE = {

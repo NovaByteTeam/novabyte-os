@@ -4,6 +4,7 @@ const dns = require('dns');
 const fs = require('fs');
 const path = require('path');
 const ServerEventLog = require('./core/server-event-log');
+const { getRuntimeDataDir } = require('../scripts/runtime-data-dir');
 
 // TEMPORARY DEBUG LOGGING — remove once the net:external / proxy issue is
 // diagnosed. ServerEventLog is intentionally in-memory only (see
@@ -16,7 +17,7 @@ const ServerEventLog = require('./core/server-event-log');
 // stall time for every other concurrent request on the same process. Errors
 // are swallowed the same way the old version did (best-effort only, never
 // let debug logging break the request) — just async now instead of sync.
-const DEBUG_LOG_PATH = path.join(__dirname, '..', '..', 'server.log');
+const DEBUG_LOG_PATH = path.join(getRuntimeDataDir(path.resolve(__dirname, '..')), 'server.log');
 function debugLog(label, details) {
     const line = `[${new Date().toISOString()}] ${label} ${JSON.stringify(details)}\n`;
     fs.appendFile(DEBUG_LOG_PATH, line, () => {});

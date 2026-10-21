@@ -5,8 +5,9 @@ const https = require('https');
 const path  = require('path');
 
 function configureSSL(app) {
-  const keyPath  = path.resolve(__dirname, '..', '..', 'cert.key');
-  const certPath = path.resolve(__dirname, '..', '..', 'cert.crt');
+  const dataDir = process.env.NBOSP_DATA_DIR || path.resolve(__dirname, '..', '..');
+  const keyPath  = path.join(dataDir, 'cert.key');
+  const certPath = path.join(dataDir, 'cert.crt');
 
   if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
     throw new Error(

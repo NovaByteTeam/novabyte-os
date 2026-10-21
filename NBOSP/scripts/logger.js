@@ -2,6 +2,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { getRuntimeDataDir } = require('./runtime-data-dir');
 
 /**
  * Opens server.log in append mode.
@@ -9,7 +10,7 @@ const path = require('path');
  * @returns {fs.WriteStream}
  */
 function createLogStream(appDir) {
-  const stream = fs.createWriteStream(path.join(appDir, 'server.log'), { flags: 'a' });
+  const stream = fs.createWriteStream(path.join(getRuntimeDataDir(appDir), 'server.log'), { flags: 'a' });
   stream.on('error', (err) => {
     console.error('[NovaByte] Log stream error:', err.message);
   });

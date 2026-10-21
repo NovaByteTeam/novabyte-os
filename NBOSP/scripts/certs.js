@@ -3,6 +3,7 @@
 const fs   = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { getRuntimeDataDir } = require('./runtime-data-dir');
 
 // Absolute paths bypass NW.js wrapResolveFilename hook from subdirectories
 const _appDir = path.resolve(__dirname, '..');
@@ -130,7 +131,8 @@ async function stripSpkiFromPackageJson(appDir) {
  * @returns {Promise<boolean>}
  */
 async function ensureCerts(appDir) {
-  const paths   = certPaths(appDir);
+  const dataDir = getRuntimeDataDir(appDir);
+  const paths   = certPaths(dataDir);
   const fresh   = await certsAreFresh(paths);
   let   trusted = false;
 
@@ -148,6 +150,7 @@ async function ensureCerts(appDir) {
   if (!fresh) {
     console.log('[NovaByte] Generating CA and server certificate...');
     try {
+      await fs.promises.mkdir(dataDir, { recursive: true });
       const { caCertPem, caKeyPem, serverCertPem, serverKeyPem } = await generateCerts();
 
       await Promise.all([

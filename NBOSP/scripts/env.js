@@ -3,6 +3,7 @@
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
+const { getRuntimeDataDir } = require('./runtime-data-dir');
 
 function parseDotenv(content) {
   const env = {};
@@ -109,7 +110,8 @@ const SCHEMA = {
  * @param {string} appDir
  */
 async function ensureEnv(appDir) {
-  const envPath     = path.join(appDir, '.env');
+  const dataDir     = getRuntimeDataDir(appDir);
+  const envPath     = path.join(dataDir, '.env');
   const examplePath = path.join(appDir, '.env.example');
 
   let env = await parseEnvFile(envPath);
@@ -120,6 +122,9 @@ async function ensureEnv(appDir) {
       throw new Error('[NovaByte] FATAL: .env and .env.example are both missing or empty.');
     }
     env = { ...example };
+  }
+  if (process.platform === 'linux' && env.NODE_EXTRA_CA_CERTS && !path.isAbsolute(env.NODE_EXTRA_CA_CERTS)) {
+    env.NODE_EXTRA_CA_CERTS = path.join(dataDir, env.NODE_EXTRA_CA_CERTS);
   }
 
   const SECRETS = { SESSION_SECRET: 64, NBOSP_CRED_KEY: 32 };
@@ -133,6 +138,7 @@ async function ensureEnv(appDir) {
 
   if (Object.keys(missing).length > 0) {
     Object.assign(env, missing);
+    await fs.promises.mkdir(dataDir, { recursive: true });
     await atomicWriteEnv(envPath, env);
     console.log('[NovaByte] .env updated with generated secrets (atomic write).');
   }

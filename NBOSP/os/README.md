@@ -89,18 +89,19 @@ unprivileged `nbosp` user. Cage and NW.js output is appended to
 `/home/nbosp/nbosp-kiosk.log` and mirrored to the configured `ttyS0` serial
 console for debugging without switching virtual terminals. The kiosk is
 started inside a fresh D-Bus session to avoid inheriting a malformed session
-bus address. The NW.js bundle remains root-owned; only the `/opt/nbosp`
-directory is made writable for its small runtime `.env` and certificate files.
-User settings and profile data are stored under `/home/nbosp`. Cage runs the compositor on Wayland and
+bus address. The NW.js bundle remains root-owned. Mutable runtime state,
+including generated secrets, TLS certificates, server logs, and SQLite data,
+is stored under `/home/nbosp/.config/novabyte/runtime`. User settings and
+profile data are stored under `/home/nbosp`. Cage runs the compositor on Wayland and
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
 The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
 NW.js running through XWayland; Chromium is configured to use GPU rasterization
-and zero-copy buffers through desktop OpenGL. Xorg protocol headers are enabled
-explicitly because Mesa's GLX client build requires `GL/glxproto.h`. libglvnd
-provides the standard `libGL.so.1` dispatch library Chromium needs to initialize
-desktop OpenGL; the image build verifies that it is present alongside Mesa's
-GLX library and SVGA DRI driver. XWayland's GLX server also needs Mesa's
+and zero-copy buffers using Chromium's supported Linux EGL/ANGLE default.
+Xorg protocol headers are enabled explicitly because Mesa's GLX client build
+requires `GL/glxproto.h`. libglvnd provides the standard `libGL.so.1` dispatch
+library; the image build verifies that it is present alongside Mesa's GLX
+library and SVGA DRI driver. XWayland's GLX server also needs Mesa's
 `GL/internal/dri_interface.h`; the build stages that private header from the
 matching Mesa source into the toolchain sysroot before compiling XWayland.
 In VMware,
@@ -119,11 +120,10 @@ bypass flags; verification for external sites remains enabled.
 DejaVu Sans/Mono fonts and Fontconfig are included so Chromium and the UI have
 installed text fonts. The Whiteglass Xcursor theme is included, and Cage uses
 a software-rendered cursor to avoid invisible hardware cursors in VMware.
-The image build clean-rebuilds Cage, wlroots, XWayland, Xorg protocol headers,
-libglvnd, and Mesa so a restored Buildroot output cache cannot leave the
-compositor without its XWayland backend, GLX headers, or OpenGL dispatch
-library. It also checks that Mesa's `vmwgfx_dri.so` SVGA driver and GLX library
-are present.
+The image build keeps Buildroot's cached kernel and graphics outputs. It
+clean-rebuilds Mesa, libglvnd, and XWayland only when the graphics configuration
+signature changes, and checks that `libGL.so.1`, Mesa's `vmwgfx_dri.so` SVGA
+driver, and GLX library are present.
 CI first opens a minimal NW.js app under Xvfb, then checks Node access and the
 `better-sqlite3` native module before starting the Buildroot build. The image
 does not build a separate Node.js package. The build uploads the ISO artifact

@@ -9,6 +9,7 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 const SqliteStore = require('better-sqlite3-session-store')(session);
 const { isTrustedSystemAppRequest } = require('./rate-limit-auth');
+const { getRuntimeDataDir } = require('../scripts/runtime-data-dir');
 
 // Sessions persist to disk here so they survive server restarts —
 // without this, express-session falls back to MemoryStore, which is
@@ -16,7 +17,7 @@ const { isTrustedSystemAppRequest } = require('./rate-limit-auth');
 // Uses better-sqlite3 (already a dependency, via the favicon cache) instead
 // of session-file-store: SQLite's own locking avoids the Windows EPERM-on-
 // rename failures that file-based session storage hit in this project.
-const SESSION_DB_DIR = path.join(__dirname, '..', 'data');
+const SESSION_DB_DIR = path.join(getRuntimeDataDir(path.resolve(__dirname, '..')), 'data');
 const SESSION_DB_PATH = path.join(SESSION_DB_DIR, 'sessions.db');
 
 const EXACT_SKIP_PATHS = new Set([
