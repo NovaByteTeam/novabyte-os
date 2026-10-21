@@ -65,6 +65,9 @@ in the Buildroot image rejected the per-device localhost CA despite the app
 importing it into the user's NSS database. First-run certificate cleanup also
 preserves this localhost-only exception while stripping broader certificate
 bypass flags; verification for external sites remains enabled.
+DejaVu Sans/Mono fonts and Fontconfig are included so Chromium and the UI have
+installed text fonts. The Whiteglass Xcursor theme is included and selected at
+startup to provide a visible pointer.
 The image build clean-rebuilds Cage, wlroots and XWayland so a restored
 Buildroot output cache cannot leave Cage compiled without its XWayland backend.
 CI first opens a minimal NW.js app under Xvfb, then checks Node access and the

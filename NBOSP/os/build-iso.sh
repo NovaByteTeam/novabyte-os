@@ -41,12 +41,17 @@ for option in \
   BR2_PACKAGE_LIBGTK3_WAYLAND \
   BR2_PACKAGE_LIBNSS \
   BR2_PACKAGE_LIBNSPR \
+  BR2_PACKAGE_FONTCONFIG \
+  BR2_PACKAGE_DEJAVU \
+  BR2_PACKAGE_DEJAVU_SANS \
+  BR2_PACKAGE_DEJAVU_MONO \
   BR2_PACKAGE_CAGE \
   BR2_PACKAGE_WLROOTS_XWAYLAND \
   BR2_PACKAGE_XWAYLAND \
   BR2_PACKAGE_SEATD_DAEMON \
   BR2_PACKAGE_DBUS \
   BR2_PACKAGE_XKEYBOARD_CONFIG \
+  BR2_PACKAGE_XDATA_XCURSOR_THEMES \
   BR2_PACKAGE_MESA3D_OPENGL_EGL \
   BR2_PACKAGE_MESA3D_OPENGL_ES \
   BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SVGA \
@@ -69,6 +74,14 @@ make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
   echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -d "$OUTPUT_DIR/target/usr/share/fonts/dejavu" ]]; then
+  echo "DejaVu fonts were enabled but are missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -f "$OUTPUT_DIR/target/usr/share/icons/whiteglass/cursors/left_ptr" ]]; then
+  echo "Whiteglass X cursor theme is missing from the target image." >&2
   exit 1
 fi
 
