@@ -270,8 +270,12 @@ async function main() {
     // the "clean previous build output" step at the top of this script,
     // which deletes stageDir and outDir but not nbospDir itself.
     cacheDir: path.join(nbospDir, ".nwjs-cache"),
+    ffmpeg: targetKey === "linux",
     app: def.appExtra(icon)
   });
+  if (targetKey === "linux" && !fs.existsSync(path.join(outDir, def.folder, "lib", "libffmpeg.so"))) {
+    throw new Error("Linux NW.js bundle is missing libffmpeg.so; the kiosk runtime cannot start.");
+  }
   console.log(`Built for ${def.platform}-${def.arch} -> build/${def.folder}`);
   console.log(
     "Done. (.build-stage left in place — cleaned up automatically at the start of the next run)"

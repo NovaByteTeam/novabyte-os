@@ -39,7 +39,7 @@ case "$1" in
     start-stop-daemon --start --background --make-pidfile \
       --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \
       -f -s -w -c 1 -- /bin/sh -c \
-      'su -s /bin/sh nbosp -c "export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte; exec /usr/bin/cage -- /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform --ozone-platform=wayland" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null'
+      'su -s /bin/sh nbosp -c "export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp; exec /usr/bin/cage -- /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform --ozone-platform=wayland" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null'
     ;;
   stop)
     if [ -f /run/nbosp-kiosk.pid ]; then

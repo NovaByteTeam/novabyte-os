@@ -37,6 +37,9 @@ jobs:
         working-directory: NBOSP
         run: node build.mjs linux
 
+      - name: Verify Linux NW.js runtime libraries
+        run: test -f build/linux-x64/lib/libffmpeg.so
+
       - name: Prepare NW.js app for Wayland kiosk
         run: |
           node NBOSP/os/package/nbosp-kiosk/prepare-kiosk.mjs build/linux-x64
