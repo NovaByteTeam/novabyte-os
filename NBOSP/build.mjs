@@ -258,6 +258,10 @@ async function main() {
     path.join(nbospDir, "node_modules", "nw-builder", nwBuilderPkg.main)
   ).href;
   const { default: nwbuild } = await import(nwBuilderEntry);
+  const nwRuntimePkg = JSON.parse(
+    fs.readFileSync(path.join(nbospDir, "node_modules", "nw", "package.json"), "utf8")
+  );
+  const nwVersion = nwRuntimePkg.version.replace(/-sdk$/, "");
 
   // 5. Build only the requested platform
   const def = platformDefs[targetKey];
@@ -266,6 +270,8 @@ async function main() {
   console.log(`Building ${def.platform}-${def.arch}...`);
   await nwbuild({
     mode: "build",
+    version: nwVersion,
+    flavor: "sdk",
     srcDir: stageDir,
     glob: false,
     platform: def.platform,

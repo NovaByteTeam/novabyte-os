@@ -89,6 +89,11 @@ The manual GitHub Actions workflow runs `npm ci` in `NBOSP`, builds the Linux
 x64 NW.js application, adjusts its window settings for fullscreen Cage kiosk
 mode using XWayland, and installs the complete app bundle into the ISO at
 `/opt/nbosp`.
+The application build uses the same pinned NW.js SDK version as the `nw`
+package instead of tracking `latest`, keeping the runtime, SDK, and optional
+FFmpeg binary release in sync. Browser downloads use NW.js's Downloads API,
+save into the user's Downloads folder, and appear in the Downloads app with
+progress and completion status.
 At boot, Buildroot starts Cage on the VMware display and launches NW.js as the
 unprivileged `nbosp` user. Cage and NW.js output is appended to
 `/home/nbosp/nbosp-kiosk.log` and mirrored to the configured `ttyS0` serial

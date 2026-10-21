@@ -3,6 +3,9 @@
   "version": "3.0.2",
   "description": "NovaByte Server",
   "main": "client.js",
+  "permissions": [
+    "downloads"
+  ],
   "scripts": {
     "start": "nw .",
     "prestart": "node scripts/bootstrap.js && node scripts/build-apps-on-start.js",

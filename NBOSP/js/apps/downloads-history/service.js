@@ -3,6 +3,30 @@
 const DOWNLOADS_STORAGE_KEY = 'nova_downloads';
 const DOWNLOADS_MAX_ENTRIES = 500;
 const downloadListeners = new Set();
+const nativeDownloadIds = new Map();
+
+function safeDownloadName(item) {
+  let name = '';
+  if (item.filename) {
+    name = String(item.filename).split(/[\\/]/).pop();
+  } else {
+    try {
+      name = decodeURIComponent(new URL(item.url).pathname.split('/').pop());
+    } catch (error) {
+      console.warn('[DownloadsHistory] Could not parse download filename:', error);
+    }
+  }
+  return (name || `download_${Date.now()}`)
+    .replace(/[/\\:*?"<>|\x00-\x1f]/g, '_')
+    .trim()
+    .slice(0, 128) || `download_${Date.now()}`;
+}
+
+function nativeDownloadStatus(state) {
+  if (state === 'complete') return 'done';
+  if (state === 'interrupted') return 'failed';
+  return 'downloading';
+}
 
 function loadDownloadHistory() {
   try {
@@ -51,7 +75,7 @@ function createDownloadId() {
 }
 
 const Downloads = Object.freeze({
-  add(name, url, size, mimeType) {
+  add(name, url, size, mimeType, status = 'done') {
     const entry = {
       id: createDownloadId(),
       name: name || 'Unknown file',
@@ -59,7 +83,7 @@ const Downloads = Object.freeze({
       size: size || 0,
       mimeType: mimeType || '',
       ts: Date.now(),
-      status: 'done',
+      status,
     };
     saveDownloadHistory([entry, ...loadDownloadHistory()]);
     notifyDownloadListeners('add');
@@ -107,6 +131,53 @@ const Downloads = Object.freeze({
 });
 
 window.Downloads = Downloads;
+
+function attachNativeDownloads(api) {
+  if (!api?.onDeterminingFilename?.addListener || !api?.onCreated?.addListener || !api?.onChanged?.addListener) {
+    console.warn('[DownloadsHistory] Native downloads API is unavailable.');
+    return false;
+  }
+
+  api.onDeterminingFilename.addListener((item, suggest) => {
+    suggest({ filename: safeDownloadName(item), conflictAction: 'uniquify' });
+  });
+
+  api.onCreated.addListener(item => {
+    const entry = Downloads.add(
+      safeDownloadName(item),
+      item.url,
+      item.totalBytes > 0 ? item.totalBytes : 0,
+      item.mime || '',
+      nativeDownloadStatus(item.state),
+    );
+    if (item.state !== 'complete' && item.state !== 'interrupted') {
+      nativeDownloadIds.set(item.id, entry.id);
+    }
+  });
+
+  api.onChanged.addListener((delta, downloadId) => {
+    const entryId = nativeDownloadIds.get(downloadId);
+    if (!entryId) return;
+
+    const state = delta.state?.current;
+    const status = state ? nativeDownloadStatus(state) : undefined;
+    const size = delta.totalBytes?.current > 0
+      ? delta.totalBytes.current
+      : delta.bytesReceived?.current;
+    if (status) Downloads.setStatus(entryId, status, size);
+    else if (size != null) {
+      const current = Downloads.getAll().find(item => item.id === entryId);
+      if (current) Downloads.setStatus(entryId, current.status, size);
+    }
+    if (state === 'complete' || state === 'interrupted') nativeDownloadIds.delete(downloadId);
+  });
+
+  return true;
+}
+
+if (typeof chrome !== 'undefined' && chrome.downloads) {
+  attachNativeDownloads(chrome.downloads);
+}
 
 window.addEventListener('storage', event => {
   if (event.key === DOWNLOADS_STORAGE_KEY || event.key === null) {

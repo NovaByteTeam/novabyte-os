@@ -211,6 +211,8 @@ describe('built-in service boundaries', () => {
         let id = 0;
         return () => `id-${++id}`;
       })() },
+      URL,
+      chrome: {},
       Uint8Array,
       Date,
       console,
@@ -222,16 +224,76 @@ describe('built-in service boundaries', () => {
     const active = window.Downloads.add('image.png', '', 0, 'image/png');
     expect(window.Downloads.getAll().map(item => item.name)).toEqual(['image.png', 'report.pdf']);
     expect(window.Downloads.setStatus(active.id, 'downloading', 5)).toBe(true);
+    window.Downloads.add('temporary.zip', 'https://example.test/temporary.zip', 10, 'application/zip');
     expect(window.Downloads.remove(done.id)).toBe(true);
     expect(window.Downloads.clearCompleted()).toBe(true);
     expect(window.Downloads.getAll().map(item => item.id)).toEqual([active.id]);
-    expect(changes.map(([, change]) => change)).toEqual(['add', 'add', 'status', 'remove', 'clear-completed']);
+    expect(changes.map(([, change]) => change)).toEqual(['add', 'add', 'status', 'add', 'remove', 'clear-completed']);
 
     storageListeners.get('storage')({ key: 'nova_downloads' });
     expect(changes.at(-1)[1]).toBe('storage');
     unsubscribe();
     window.Downloads.add('later.txt', '', 1, 'text/plain');
-    expect(changes).toHaveLength(6);
+    expect(changes).toHaveLength(7);
+  });
+
+  it('saves native browser downloads and reflects their progress in Downloads', () => {
+    const serviceSource = readWorkspaceFile('../../js/apps/downloads-history/service.js');
+    const values = new Map();
+    const listeners = { created: null, changed: null, filename: null };
+    const event = key => ({
+      addListener: listener => { listeners[key] = listener; },
+    });
+    const window = { addEventListener() {} };
+    const chrome = {
+      downloads: {
+        onCreated: event('created'),
+        onChanged: event('changed'),
+        onDeterminingFilename: event('filename'),
+      },
+    };
+    runInNewContext(readWorkspaceFile('../../js/apps/downloads-history/service.js'), {
+      window,
+      localStorage: {
+        getItem: key => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, value),
+      },
+      crypto: { randomUUID: () => 'download-1' },
+      chrome,
+      URL,
+      Date,
+      console,
+    });
+
+    const suggestion = {};
+    listeners.filename({
+      filename: '/home/nbosp/Downloads/unsafe?.pdf',
+      url: 'https://example.test/file',
+    }, value => Object.assign(suggestion, value));
+    expect(suggestion).toEqual({
+      filename: 'unsafe_.pdf',
+      conflictAction: 'uniquify',
+    });
+
+    listeners.created({
+      id: 7,
+      filename: '/home/nbosp/Downloads/report.pdf',
+      url: 'https://example.test/report.pdf',
+      totalBytes: -1,
+      mime: 'application/pdf',
+      state: 'in_progress',
+    });
+    expect(window.Downloads.getAll()).toMatchObject([{
+      name: 'report.pdf',
+      url: 'https://example.test/report.pdf',
+      mimeType: 'application/pdf',
+      status: 'downloading',
+    }]);
+
+    listeners.changed({ bytesReceived: { current: 42 } }, 7);
+    expect(window.Downloads.getAll()[0].size).toBe(42);
+    listeners.changed({ state: { current: 'complete' }, totalBytes: { current: 42 } }, 7);
+    expect(window.Downloads.getAll()[0]).toMatchObject({ status: 'done', size: 42 });
   });
 
   it('prefetches package bundles concurrently, reuses requests, and releases cached packages', async () => {
