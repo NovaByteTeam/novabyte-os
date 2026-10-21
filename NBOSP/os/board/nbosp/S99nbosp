@@ -48,6 +48,10 @@ case "$1" in
       echo "NBOSP kiosk: app data directory is missing: $app_data_dir" >&2
       exit 1
     fi
+    if [ ! -f /opt/nbosp/lib/libffmpeg.so ]; then
+      echo "NBOSP kiosk: NW.js runtime library is missing: /opt/nbosp/lib/libffmpeg.so" >&2
+      exit 1
+    fi
     if ! chown -R nbosp:nbosp "$app_data_dir"; then
       echo "NBOSP kiosk: cannot grant nbosp write access to $app_data_dir" >&2
       exit 1
@@ -68,6 +72,7 @@ case "$1" in
 
     cat > /run/nbosp-kiosk-session.sh <<SESSION
 #!/bin/sh
+export LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp
 exec /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform \
   --ozone-platform=x11 --force-device-scale-factor="$display_scale" \
   --allow-insecure-localhost --enable-logging=stderr

@@ -109,6 +109,10 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
   echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
   exit 1
 fi
+if [[ ! -f "$OUTPUT_DIR/target/opt/nbosp/lib/libffmpeg.so" ]]; then
+  echo "NW.js runtime library libffmpeg.so is missing from /opt/nbosp/lib in the target image." >&2
+  exit 1
+fi
 if [[ ! -d "$OUTPUT_DIR/target/usr/share/fonts/dejavu" ]]; then
   echo "DejaVu fonts were enabled but are missing from the target image." >&2
   exit 1
