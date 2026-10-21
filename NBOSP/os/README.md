@@ -89,11 +89,18 @@ unprivileged `nbosp` user. Cage and NW.js output is appended to
 `/home/nbosp/nbosp-kiosk.log` and mirrored to the configured `ttyS0` serial
 console for debugging without switching virtual terminals. The kiosk is
 started inside a fresh D-Bus session to avoid inheriting a malformed session
-bus address. At startup the `nbosp` account owns the bundled `package.nw`
-directory because NovaByte generates its environment secrets and TLS
-certificates there on first boot. Cage runs the compositor on Wayland and
+bus address. The NW.js bundle remains root-owned; only the `/opt/nbosp`
+directory is made writable for its small runtime `.env` and certificate files.
+User settings and profile data are stored under `/home/nbosp`. Cage runs the compositor on Wayland and
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
+The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
+NW.js running through XWayland; Chromium is configured to use GPU rasterization
+and zero-copy buffers through desktop OpenGL. The build checks that the SVGA
+DRI driver and Mesa GLX library are present. In VMware, enable **Accelerate 3D
+graphics** for the VM; the kernel log confirms that `vmwgfx` detects the
+virtual GPU, but Chromium's actual renderer should be confirmed from its GPU
+log in the VM.
 The Display Scale setting is passed to NW.js/Chromium with
 `--force-device-scale-factor`, which scales the complete NovaByte UI. Changing
 the setting requires restarting the system from the launchpad; it does not
@@ -104,11 +111,12 @@ importing it into the user's NSS database. First-run certificate cleanup also
 preserves this localhost-only exception while stripping broader certificate
 bypass flags; verification for external sites remains enabled.
 DejaVu Sans/Mono fonts and Fontconfig are included so Chromium and the UI have
-installed text fonts. The Whiteglass Xcursor theme is included and selected at
-startup to provide a visible pointer.
+installed text fonts. The Whiteglass Xcursor theme is included, and Cage uses
+a software-rendered cursor to avoid invisible hardware cursors in VMware.
 The image build clean-rebuilds Cage, wlroots, and XWayland so a restored
 Buildroot output cache cannot leave the compositor without its XWayland
-backend.
+backend. It also checks that Mesa's `vmwgfx_dri.so` SVGA driver and GLX library
+are present.
 CI first opens a minimal NW.js app under Xvfb, then checks Node access and the
 `better-sqlite3` native module before starting the Buildroot build. The image
 does not build a separate Node.js package. The build uploads the ISO artifact

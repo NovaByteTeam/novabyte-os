@@ -1395,19 +1395,17 @@ registerApp({
           className: 'nook-group-title',
           textContent: 'Display Scale'
         }));
-        const displayScaleRow = createEl('div', { className: 'nook-row' });
+        const displayScaleRow = createEl('div', {
+          style: 'display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-subtle)'
+        });
         displayScaleRow.appendChild(createEl('span', {
           className: 'nook-row-label',
           textContent: 'Scale NovaByte'
         }));
-        const displayScaleSelect = document.createElement('select');
-        displayScaleSelect.setAttribute('aria-label', 'Display scale');
-        Object.assign(displayScaleSelect.style, {
-          padding: '8px',
-          color: 'var(--text-primary)',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border)',
-          borderRadius: '6px'
+        const displayScaleChoices = createEl('div', {
+          role: 'group',
+          'aria-label': 'Display scale',
+          style: 'display:flex;flex-wrap:wrap;gap:8px'
         });
         const displayScales = [
           { value: 1, label: '100%' },
@@ -1416,18 +1414,28 @@ registerApp({
           { value: 1.75, label: '175%' },
           { value: 2, label: '200%' }
         ];
+        const renderDisplayScaleChoices = selectedScale => {
+          displayScaleChoices.replaceChildren();
+          for (const scale of displayScales) {
+            const selected = scale.value === selectedScale;
+            const choice = createEl('button', {
+              type: 'button',
+              textContent: scale.label,
+              'aria-pressed': String(selected),
+              style: `min-width:64px;padding:8px 12px;border:1px solid ${selected ? 'var(--accent)' : 'var(--border)'};border-radius:7px;background:${selected ? 'var(--accent-muted)' : 'var(--bg-elevated)'};color:var(--text-primary);font:inherit;cursor:pointer`
+            });
+            choice.addEventListener('click', () => {
+              OS.settings.set('displayScale', scale.value);
+              renderDisplayScaleChoices(scale.value);
+            }, { signal: lifecycle.signal });
+            displayScaleChoices.appendChild(choice);
+          }
+        };
         const currentDisplayScale = Number(OS.settings.get('displayScale') || 1);
-        for (const scale of displayScales) {
-          const option = document.createElement('option');
-          option.value = String(scale.value);
-          option.textContent = scale.label;
-          option.selected = scale.value === currentDisplayScale;
-          displayScaleSelect.appendChild(option);
-        }
-        displayScaleSelect.addEventListener('change', () => {
-          OS.settings.set('displayScale', Number(displayScaleSelect.value));
-        }, { signal: lifecycle.signal });
-        displayScaleRow.appendChild(displayScaleSelect);
+        renderDisplayScaleChoices(displayScales.some(scale => scale.value === currentDisplayScale)
+          ? currentDisplayScale
+          : 1);
+        displayScaleRow.appendChild(displayScaleChoices);
         displayScaleGroup.appendChild(displayScaleRow);
         displayScaleGroup.appendChild(createEl('p', {
           textContent: 'Changes Chromium’s scale for the full NovaByte desktop. Restart the system from the launchpad to apply it.',

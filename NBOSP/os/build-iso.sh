@@ -59,6 +59,7 @@ for option in \
   BR2_PACKAGE_OPENVMTOOLS_RESOLUTIONKMS \
   BR2_PACKAGE_MESA3D_OPENGL_EGL \
   BR2_PACKAGE_MESA3D_OPENGL_ES \
+  BR2_PACKAGE_MESA3D_OPENGL_GLX \
   BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SVGA \
   BR2_PACKAGE_NBOSP_KIOSK \
   BR2_PACKAGE_NBOSP_POWER \
@@ -85,7 +86,7 @@ if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
 fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-  cage-dirclean wlroots-dirclean xwayland-dirclean nbosp-kiosk-dirclean \
+  cage-dirclean wlroots-dirclean xwayland-dirclean mesa3d-dirclean linux-dirclean nbosp-kiosk-dirclean \
   nbosp-install-dirclean nbosp-power-dirclean
 if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/sbin/lsblk" \
@@ -109,6 +110,14 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
   echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
   exit 1
 fi
+if ! find "$OUTPUT_DIR/target/usr/lib" -type f -name 'vmwgfx_dri.so' -print -quit | grep -q .; then
+  echo "Mesa's VMware SVGA DRI driver is missing from the target image." >&2
+  exit 1
+fi
+if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libGLX_mesa.so*' -print -quit | grep -q .; then
+  echo "Mesa GLX support is missing from the target image." >&2
+  exit 1
+fi
 if [[ ! -f "$OUTPUT_DIR/target/opt/nbosp/lib/libffmpeg.so" ]]; then
   echo "NW.js runtime library libffmpeg.so is missing from /opt/nbosp/lib in the target image." >&2
   exit 1
@@ -117,7 +126,8 @@ if [[ ! -d "$OUTPUT_DIR/target/usr/share/fonts/dejavu" ]]; then
   echo "DejaVu fonts were enabled but are missing from the target image." >&2
   exit 1
 fi
-if [[ ! -f "$OUTPUT_DIR/target/usr/share/icons/whiteglass/cursors/left_ptr" ]]; then
+if [[ ! -f "$OUTPUT_DIR/target/usr/share/icons/whiteglass/cursors/left_ptr" \
+  && ! -f "$OUTPUT_DIR/target/usr/share/icons/Whiteglass/cursors/left_ptr" ]]; then
   echo "Whiteglass X cursor theme is missing from the target image." >&2
   exit 1
 fi

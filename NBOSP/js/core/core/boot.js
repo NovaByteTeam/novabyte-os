@@ -162,6 +162,7 @@ const Boot = {
    */
   async initSubsystems(isSafeMode) {
     const linuxNative = typeof process !== 'undefined' && process.platform === 'linux';
+    if (linuxNative) document.documentElement.classList.add('nbosp-linux-performance');
     let migrateLegacyStorage = false;
     if (linuxNative) {
       const path = require('path');
@@ -186,6 +187,32 @@ const Boot = {
     await window.OPFS?.init?.();
     await FS.init();
     await window.AppDirs?.bootstrap?.();
+    if (linuxNative) {
+      try {
+        const commandLine = require('fs').readFileSync('/proc/cmdline', 'utf8');
+        const isLiveBoot = !/(?:^|\s)root=/.test(commandLine);
+        if (isLiveBoot) {
+          const desktop = FS.specialFolders?.desktop;
+          const alreadyPinned = desktop && FS.listDir(desktop).some(file => {
+            if (!file.name.endsWith('.lnk')) return false;
+            try {
+              return JSON.parse(file.content?.toString?.() || file.content || '{}')?.target === 'com.nbosp.install';
+            } catch {
+              return false;
+            }
+          });
+          if (desktop && !alreadyPinned) {
+            await FS.createFile(desktop, 'Install NovaByte.lnk', JSON.stringify({
+              target: 'com.nbosp.install',
+              type: 'app-shortcut',
+              icon: 'hard-drive'
+            }), 'application/x-app-shortcut');
+          }
+        }
+      } catch (error) {
+        console.warn('[BOOT] Could not pin Install NovaByte to the live desktop:', error);
+      }
+    }
     if (linuxNative && OS.workers.fs) {
       OS.workers.fs.terminate?.();
       OS.workers.fs = null;

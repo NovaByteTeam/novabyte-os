@@ -451,6 +451,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     const mimeTypes = {
       '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css',
       '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
+      '.lnk': 'application/x-app-shortcut',
       '.txt': 'text/plain', '.md': 'text/markdown', '.pdf': 'application/pdf',
       '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
       '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
