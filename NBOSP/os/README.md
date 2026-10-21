@@ -42,6 +42,9 @@ If boot reaches the console but the kiosk reports a missing VMware DRM device,
 use a newly built ISO with `CONFIG_DRM_VMWGFX=y` and ensure the VM has a
 connected virtual display. The kernel also includes VMware-compatible
 `e1000`, `e1000e`, and `vmxnet3` network drivers for the VM's virtual NIC.
+The boot command line keeps the VMware `e1000` interface named `eth0` for
+Buildroot DHCP and makes the serial console the userspace console so init and
+kiosk startup messages are captured by a configured VMware serial port.
 
 The manual GitHub Actions workflow runs `npm ci` in `NBOSP`, builds the Linux
 x64 NW.js application, adjusts its window settings for fullscreen Wayland

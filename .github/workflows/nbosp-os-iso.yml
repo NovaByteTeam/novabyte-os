@@ -74,12 +74,14 @@ jobs:
         with:
           path: NBOSP/os/output
           key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/Config.in', 'NBOSP/os/package/nbosp-kiosk/nbosp-kiosk.mk', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
+          restore-keys: |
+            nbosp-buildroot-output-v2-${{ runner.os }}-
 
       - name: Build bootable NBOSP ISO
         run: bash NBOSP/os/build-iso.sh
 
       - name: Save Buildroot output after a failed build
-        if: failure() && steps.cache-buildroot-output.outputs.cache-hit != 'true'
+        if: failure() && steps.cache-buildroot-output.outputs.cache-hit != 'true' && hashFiles('NBOSP/os/output/.config') != ''
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
