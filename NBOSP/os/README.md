@@ -47,8 +47,9 @@ Buildroot DHCP and makes the serial console the userspace console so init and
 kiosk startup messages are captured by a configured VMware serial port.
 
 The manual GitHub Actions workflow runs `npm ci` in `NBOSP`, builds the Linux
-x64 NW.js application, adjusts its window settings for fullscreen Wayland
-kiosk mode, and installs the complete app bundle into the ISO at `/opt/nbosp`.
+x64 NW.js application, adjusts its window settings for fullscreen Cage kiosk
+mode using XWayland, and installs the complete app bundle into the ISO at
+`/opt/nbosp`.
 At boot, Buildroot starts Cage on the VMware display and launches NW.js as the
 unprivileged `nbosp` user. Cage and NW.js output is appended to
 `/home/nbosp/nbosp-kiosk.log` and mirrored to the configured `ttyS0` serial
@@ -56,10 +57,12 @@ console for debugging without switching virtual terminals. The kiosk is
 started inside a fresh D-Bus session to avoid inheriting a malformed session
 bus address. At startup the `nbosp` account owns the bundled `package.nw`
 directory because NovaByte generates its environment secrets and TLS
-certificates there on first boot. CI first opens a minimal NW.js app under
-Xvfb, then checks Node access and the `better-sqlite3` native module before
-starting the Buildroot build. The image does not build a separate Node.js
-package. The build uploads the ISO artifact
+certificates there on first boot. Cage runs the compositor on Wayland and
+XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
+Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
+CI first opens a minimal NW.js app under Xvfb, then checks Node access and the
+`better-sqlite3` native module before starting the Buildroot build. The image
+does not build a separate Node.js package. The build uploads the ISO artifact
 `nbosp-live-x86_64`; there is no separate NW.js artifact.
 
 The kiosk user runs with the Linux account and device-group permissions, but

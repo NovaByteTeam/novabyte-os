@@ -36,7 +36,7 @@ manifest.window = {
     "--no-first-run",
     "--disable-devtools",
     "--enable-features=UseOzonePlatform",
-    "--ozone-platform=wayland",
+    "--ozone-platform=x11",
     "--user-data-dir=/home/nbosp/.config/novabyte",
   ].join(" "),
 };
