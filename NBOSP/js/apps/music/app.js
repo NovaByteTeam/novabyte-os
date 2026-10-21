@@ -156,7 +156,7 @@
       // The OS grants each app a private data directory. If it is
       // missing we cannot do anything useful, so fail loudly instead of
       // rendering a half-broken UI.
-      if (!window.AppDirs?.getVFSDir('com.nbosp.music', 'files')) {
+      if (!window.AppDirs?.getAppDataPath('com.nbosp.music', 'files')) {
         renderAppDirMissing(content);
         return;
       }

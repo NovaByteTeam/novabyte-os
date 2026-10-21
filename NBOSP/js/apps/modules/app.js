@@ -13,7 +13,7 @@ registerApp({
   // the OS's own module tree. Treat this as high-trust, same tier as
   // net:internal + system:settings, not just system:info.
   init(content, state, options) {
-    if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
+    if (!window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.settings</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
       return;

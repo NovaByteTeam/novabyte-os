@@ -11,8 +11,9 @@ registerApp({
   init(content, state, options) {
     'use strict';
 
-    // Runtime guard — this app needs the NovaByte virtual filesystem
-    if (!window.AppDirs?.getVFSDir('com.nbosp.settings', 'files')) {
+    // Runtime guard — this app needs NovaByte's filesystem services
+    if ((typeof process === 'undefined' || process.platform !== 'linux')
+        && !window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       const iconEl = createEl('div', { style: 'font-size:32px', textContent: '\u26A0\uFE0F' });
       const msg = createEl('div', { style: 'font-size:14px;text-align:center' });
@@ -1933,10 +1934,13 @@ registerApp({
         exportBtn.textContent = 'Exporting\u2026';
         try {
           // Pull every real data domain, not just the in-memory settings cache.
-          const [settings, files] = await Promise.all([
-            OS.workers.fs.call('getAllSettings').catch(() => ({ ...(OS.settings._cache || {}) })),
-            OS.workers.fs.call('getAllFiles').catch(() => [])
-          ]);
+          const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
+          const [settings, files] = isLinux
+            ? [OS.settings._cache || {}, await FS.exportNodes()]
+            : await Promise.all([
+              OS.workers.fs.call('getAllSettings').catch(() => ({ ...(OS.settings._cache || {}) })),
+              OS.workers.fs.call('getAllFiles').catch(() => [])
+            ]);
           if (!isAlive()) return;
 
           // localStorage holds per-app data with no shared key prefix —
@@ -1986,18 +1990,25 @@ registerApp({
             const data = JSON.parse(text);
 
             const writes = [];
+            const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
             if (data.settings && typeof data.settings === 'object') {
               for (const [k, v] of Object.entries(data.settings)) {
                 if (IMPORT_PROTECTED_SETTINGS.has(k)) {
                   devLog('Skipping protected setting during import:', k);
                   continue;
                 }
-                OS.settings._cache[k] = v;
-                writes.push(OS.workers.fs.call('putSetting', k, v));
+                if (isLinux) {
+                  OS.settings.set(k, v);
+                } else {
+                  OS.settings._cache[k] = v;
+                  writes.push(OS.workers.fs.call('putSetting', k, v));
+                }
               }
             }
             if (Array.isArray(data.files) && data.files.length) {
-              writes.push(OS.workers.fs.call('putFiles', data.files));
+              writes.push(isLinux
+                ? FS.importNodes(data.files)
+                : OS.workers.fs.call('putFiles', data.files));
             }
 
             // Wait for every fs-backed write to actually land before reporting success
@@ -2444,6 +2455,27 @@ registerApp({
     function renderAbout() {
       mainContent.style.padding = '0';
       const body = createEl('div', { style: 'padding:24px 28px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;flex:1;' });
+      const linuxInfo = {
+        distribution: 'Not running on Linux',
+        kernel: 'Unavailable',
+        architecture: 'Unavailable'
+      };
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        try {
+          const os = require('os');
+          const fs = require('fs');
+          linuxInfo.kernel = os.release();
+          linuxInfo.architecture = os.arch();
+          linuxInfo.distribution = 'NovaByte OS (Buildroot)';
+          const releaseFile = fs.readFileSync('/etc/os-release', 'utf8');
+          const prettyName = releaseFile.match(/^PRETTY_NAME=(.*)$/m)?.[1];
+          if (prettyName) {
+            linuxInfo.distribution = prettyName.replace(/^["']|["']$/g, '');
+          }
+        } catch (error) {
+          console.warn('[Settings] Could not read Linux release details:', error);
+        }
+      }
 
       function mkSection(title, icon) {
         const wrap = createEl('div', { style: 'background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden;' });
@@ -2478,6 +2510,9 @@ registerApp({
       logoMeta.append(lgTitle, verBadge, tagline);
       logoRow.append(logoBox, logoMeta);
       swRows.appendChild(logoRow);
+      swRows.appendChild(mkRow('Operating System', linuxInfo.distribution));
+      swRows.appendChild(mkRow('Linux Kernel', linuxInfo.kernel));
+      swRows.appendChild(mkRow('Architecture', linuxInfo.architecture));
 
       // Version row — easter egg: 7 clicks launches Snake
       const novaVersionRow = createEl('div', {
@@ -2564,6 +2599,9 @@ registerApp({
         try { tzCopy = OS.settings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
         const lines = [
           'NovaByte v' + OS.version,
+          'Operating System: ' + linuxInfo.distribution,
+          'Linux Kernel: ' + linuxInfo.kernel,
+          'Architecture: ' + linuxInfo.architecture,
           'Security Update: 2026-08-02',
           'Browser: '   + detectBrowser(),
           'Platform: '  + navigator.platform,

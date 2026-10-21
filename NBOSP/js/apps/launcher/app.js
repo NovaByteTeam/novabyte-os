@@ -8,6 +8,7 @@
 // drifted whenever a hot-reload reordered them — the grid was effectively
 // random across boots.
 const LAUNCHPAD_ORDER = Object.freeze([
+  'com.nbosp.install',      // Install NovaByte
   'com.nbosp.files',        // Files
   'com.nbosp.textedit',     // TextEdit
   'com.nbosp.terminal',     // Terminal
@@ -87,6 +88,33 @@ function _highlightMatches(target, text, query) {
 // LAUNCHPAD
 
 document.getElementById('start-btn')?.addEventListener('click', toggleLaunchpad);
+const powerActions = document.getElementById('launchpad-power-actions');
+if (powerActions) {
+  const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
+  powerActions.style.display = isLinux ? 'flex' : 'none';
+  document.getElementById('restart-system-btn')?.addEventListener('click', () => requestSystemPowerAction('restart'));
+  document.getElementById('poweroff-system-btn')?.addEventListener('click', () => requestSystemPowerAction('poweroff'));
+}
+
+async function requestSystemPowerAction(action) {
+  const isRestart = action === 'restart';
+  const confirmed = await showModal(
+    isRestart ? 'Restart NovaByte?' : 'Power off NovaByte?',
+    isRestart ? 'The system will close running apps and restart.' : 'The system will close running apps and power off.',
+    [{ label: 'Cancel' }, { label: isRestart ? 'Restart' : 'Power off', danger: true, value: 'confirm' }]
+  );
+  if (confirmed !== 'confirm') return;
+  try {
+    require('child_process').execFile('/usr/bin/nbosp-power', [action], error => {
+      if (!error) return;
+      console.error('[Launcher] System power action failed:', error);
+      Notify.show({ title: 'Power action failed', body: error.message, type: 'error', appName: 'System' });
+    });
+  } catch (error) {
+    console.error('[Launcher] Could not request system power action:', error);
+    Notify.show({ title: 'Power action unavailable', body: error.message, type: 'error', appName: 'System' });
+  }
+}
 
 function toggleLaunchpad() {
   const launchpad = document.getElementById('launchpad');

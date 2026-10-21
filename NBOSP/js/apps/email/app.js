@@ -11,7 +11,7 @@ registerApp({
 
   init(content, state, options) {
     // NovaByte runtime guard — refuse to launch without AppDirs.
-    if (!window.AppDirs?.getVFSDir('com.nbosp.email', 'files')) {
+    if (!window.AppDirs?.getAppDataPath('com.nbosp.email', 'files')) {
       const guardStyle = document.createElement('style');
       guardStyle.setAttribute('nonce', window.__cspNonce || '');
       guardStyle.textContent =

@@ -124,13 +124,14 @@ const Boot = {
     };
   },
 
-  /** @private Mirror OS.settings writes to VFS after subsystem init. */
+  /** @private Mirror web-build OS.settings writes to its legacy app data store. */
   _patchSettingsSet() {
+    if (typeof process !== 'undefined' && process.platform === 'linux') return;
     const _orig = OS.settings.set.bind(OS.settings);
     let _prefsFileId = null; // cached after first successful lookup
     OS.settings.set = function settingSet(key, value) {
       _orig(key, value);
-      const folderId = window.AppDirs?.getVFSDir?.('com.nbosp.settings', 'shared_prefs');
+      const folderId = window.AppDirs?.getAppDataPath?.('com.nbosp.settings', 'shared_prefs');
       if (!folderId) return;
       const content = JSON.stringify(OS.settings._cache, null, 2);
       if (_prefsFileId) {
@@ -160,12 +161,21 @@ const Boot = {
    * @param {boolean} isSafeMode
    */
   async initSubsystems(isSafeMode) {
-    OS.workers.fs     = createWorker(FS_WORKER_CODE, 'fs');
+    const linuxNative = typeof process !== 'undefined' && process.platform === 'linux';
+    let migrateLegacyStorage = false;
+    if (linuxNative) {
+      const path = require('path');
+      const home = require('os').homedir();
+      migrateLegacyStorage =
+        !require('fs').existsSync(path.join(home, '.local', 'share', 'novabyte', 'migration', 'vfs-imported')) ||
+        !require('fs').existsSync(path.join(home, '.config', 'novabyte', 'settings.json'));
+    }
+    if (!linuxNative || migrateLegacyStorage) {
+      OS.workers.fs = createWorker(FS_WORKER_CODE, 'fs');
+      await OS.workers.fs.call('init');
+    }
     OS.workers.search = createWorker(SEARCH_WORKER_CODE, 'search');
     OS.workers.crypto = createWorker(CRYPTO_WORKER_CODE, 'crypto');
-
-    // fs must init before the rest depend on it
-    await OS.workers.fs.call('init');
 
     await OS.settings.load().then(() => {
       if (isSafeMode && typeof OS.settings.applySafeModeDefaults === 'function') {
@@ -173,9 +183,13 @@ const Boot = {
       }
     });
 
+    await window.OPFS?.init?.();
     await FS.init();
     await window.AppDirs?.bootstrap?.();
-    await window.OPFS?.init?.();
+    if (linuxNative && OS.workers.fs) {
+      OS.workers.fs.terminate?.();
+      OS.workers.fs = null;
+    }
 
     window.__NB_RUNTIME.ready = true;
     Boot._patchSettingsSet();

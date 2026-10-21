@@ -6,7 +6,7 @@ registerApp({
 
   init(content, _state) {
     // ── NovaByte runtime guard ──────────────────────────────────────────
-    if (!window.AppDirs?.getVFSDir('com.nbosp.calendar', 'files')) {
+    if (!window.AppDirs?.getAppDataPath('com.nbosp.calendar', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.calendar</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
       return;

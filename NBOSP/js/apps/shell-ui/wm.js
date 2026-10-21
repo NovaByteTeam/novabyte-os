@@ -261,7 +261,6 @@ const WM = window.WM = (() => {
               ? 'textedit'
               : 'files';
 
-            const fileId   = generateId();
             const fileData = await file.arrayBuffer();
             let mime = file.type;
             if (!mime) {
@@ -278,16 +277,13 @@ const WM = window.WM = (() => {
               };
               mime = extMap[ext] ?? 'application/octet-stream';
             }
-            const dropNode = {
-              id: fileId,  name: file.name,  type: 'file',
-              size: file.size,  content: new Uint8Array(fileData),
-              mimeType: mime,
-              parentId: FS.specialFolders.desktop ?? FS.rootId,
-              modified: Date.now(),
-            };
-            FS.files.set(fileId, dropNode);
-            await OS.workers.fs.call('putFiles', [dropNode]);
-            wm.createWindow(targetApp, { fileId });
+            const fileNode = await FS.createFile(
+              FS.specialFolders.desktop ?? FS.rootId,
+              file.name,
+              new Uint8Array(fileData),
+              mime
+            );
+            wm.createWindow(targetApp, { fileId: fileNode.id });
           }
         }
 

@@ -8,7 +8,7 @@ registerApp({
   minSize: [340, 480],
 
   init(content, state) {
-    if (!window.AppDirs?.getVFSDir('com.nbosp.clock', 'files')) {
+    if (!window.AppDirs?.getAppDataPath('com.nbosp.clock', 'files')) {
       content.style.cssText =
         'display:flex;align-items:center;justify-content:center;height:100%;' +
         'flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';

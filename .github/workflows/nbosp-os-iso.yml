@@ -76,9 +76,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: NBOSP/os/output
-          key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/Config.in', 'NBOSP/os/package/nbosp-kiosk/nbosp-kiosk.mk', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
+          key: nbosp-buildroot-output-v3-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/**', 'NBOSP/os/package/nbosp-install/**', 'NBOSP/os/package/nbosp-power/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
           restore-keys: |
-            nbosp-buildroot-output-v2-${{ runner.os }}-
+            nbosp-buildroot-output-v3-${{ runner.os }}-
 
       - name: Build bootable NBOSP ISO
         run: bash NBOSP/os/build-iso.sh
@@ -89,7 +89,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: NBOSP/os/output
-          key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/Config.in', 'NBOSP/os/package/nbosp-kiosk/nbosp-kiosk.mk', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
+          key: nbosp-buildroot-output-v3-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/**', 'NBOSP/os/package/nbosp-install/**', 'NBOSP/os/package/nbosp-power/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4

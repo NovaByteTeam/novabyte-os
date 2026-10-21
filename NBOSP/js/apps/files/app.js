@@ -3,7 +3,7 @@
 // Registered as the "files" app.
 
 (() => {
-  const FILES_VFS_KEY = 'files';
+  const FILES_DATA_DIR = 'files';
   const MAX_NAV_HISTORY = 100;
   const SEARCH_DEBOUNCE_MS = 150;
   const PATH_ERROR_FLASH_MS = 800;
@@ -69,8 +69,7 @@
   // Host-disk counterpart to FS.uniqueName, for exportToHost's bulk path.
   // Same " (1)", " (2)"... convention, but driven by a plain Set of names
   // already seen (populated from fs.readdir, then grown in-place as the
-  // batch claims names) instead of a VFS folder listing — there's no VFS
-  // node to check here, just plain strings.
+  // batch claims names) instead of a Files listing.
   function uniqueHostName(existingNames, name) {
     if (!existingNames.has(name)) return name;
 
@@ -190,7 +189,7 @@
 
     mount() {
       // NovaByte runtime guard — refuse to launch without AppDirs.
-      if (!window.AppDirs?.getVFSDir?.('com.nbosp.files', FILES_VFS_KEY)) {
+      if (!window.AppDirs?.getAppDataPath?.('com.nbosp.files', FILES_DATA_DIR)) {
         this.renderMissingRuntimeNotice();
         return;
       }
@@ -209,7 +208,7 @@
         });
     }
 
-    // Hard-fail screen shown when the NovaByte runtime / VFS isn't present.
+    // Hard-fail screen shown when the NovaByte runtime isn't present.
     // Built with DOM APIs rather than innerHTML so there's no string-built
     // markup to leak into the page.
     renderMissingRuntimeNotice() {
@@ -869,7 +868,7 @@
       Notify.show({ title: 'Cut', body: f.name + ' ready to move', type: 'info', appName: 'Files' });
     }
 
-    // Writes one or more VFS files' bytes out to the real host filesystem.
+    // Writes one or more files' bytes out to the real host filesystem.
     // This runs in the Files app's own top-level shell window (a real Node
     // frame — unlike a .novaapp's sandboxed <webview>), so it can drive
     // NW.js's native dialogs + Node's fs module directly instead of going
@@ -885,7 +884,7 @@
     // destination folder is listed once (fs.readdir) so a name that
     // already exists there — or that collides with another file in this
     // same batch — gets suffixed " (1)", " (2)", etc., the same convention
-    // FS.uniqueName uses for the VFS. Nothing at the destination is ever
+    // FS.uniqueName uses for its storage backend. Nothing at the destination is ever
     // silently overwritten.
     async exportToHost(target) {
       const ids = Array.isArray(target) ? target : [target.id];
@@ -1239,6 +1238,340 @@
     }
   }
 
+  class LinuxFilesApp {
+    constructor(content, state, options = {}) {
+      this.content = content;
+      this.state = state;
+      this.options = options;
+      this.fs = require('fs').promises;
+      this.fsConstants = require('fs').constants;
+      this.path = require('path');
+      this.os = require('os');
+      this.childProcess = require('child_process');
+      this.currentPath = this.path.resolve(options.path || this.os.homedir());
+      this.state._linuxPath = this.currentPath;
+      this.selectedPath = null;
+      this.renderVersion = 0;
+      this.controller = new AbortController();
+      if (!Array.isArray(state.cleanups)) state.cleanups = [];
+      state.cleanups.push(() => {
+        this.controller.abort();
+        this.state._linuxPath = null;
+      });
+    }
+
+    mount() {
+      this.content.replaceChildren();
+      this.content.style.cssText = 'padding:0;height:100%;overflow:hidden;';
+      const root = createEl('div', {
+        style: 'height:100%;display:flex;flex-direction:column;min-height:0;color:var(--text-primary);'
+      });
+      const toolbar = createEl('div', {
+        style: 'display:flex;gap:6px;align-items:center;padding:8px;border-bottom:1px solid var(--border-subtle);'
+      });
+      const button = (label, title, action) => {
+        const el = createEl('button', {
+          className: 'btn btn-sm',
+          textContent: label,
+          title,
+          'aria-label': title
+        });
+        el.addEventListener('click', action, { signal: this.controller.signal });
+        return el;
+      };
+      toolbar.append(
+        button('Up', 'Open parent folder', () => this.goUp()),
+        button('Home', 'Open home folder', () => this.navigate(this.os.homedir())),
+        button('New folder', 'Create a folder', () => this.createEntry(true)),
+        button('New file', 'Create an empty file', () => this.createEntry(false)),
+        button('Refresh', 'Refresh folder', () => this.render())
+      );
+      this.pathInput = createEl('input', {
+        className: 'input',
+        value: this.currentPath,
+        'aria-label': 'Linux filesystem path',
+        style: 'flex:1;min-width:80px;'
+      });
+      this.pathInput.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        this.navigate(this.pathInput.value);
+      }, { signal: this.controller.signal });
+      this.searchInput = createEl('input', {
+        className: 'input',
+        placeholder: 'Search this folder',
+        'aria-label': 'Search files',
+        style: 'width:180px;'
+      });
+      this.searchInput.addEventListener('input', () => this.render(), { signal: this.controller.signal });
+      toolbar.append(this.pathInput, this.searchInput);
+
+      this.list = createEl('div', {
+        role: 'list',
+        'aria-label': 'Linux files and folders',
+        style: 'flex:1;min-height:0;overflow:auto;padding:8px;'
+      });
+      this.status = createEl('div', {
+        role: 'status',
+        style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);color:var(--text-muted);font-size:11px;'
+      });
+      root.append(toolbar, this.list, this.status);
+      this.content.appendChild(root);
+
+      this.list.addEventListener('contextmenu', event => {
+        const row = event.target.closest('[data-path]');
+        event.preventDefault();
+        if (!row || !this.list.contains(row)) {
+          ContextMenu.show(event.clientX, event.clientY, [
+            { label: 'New folder', action: () => this.createEntry(true) },
+            { label: 'New file', action: () => this.createEntry(false) },
+            { label: 'Refresh', action: () => this.render() }
+          ]);
+          return;
+        }
+        this.selectedPath = row.dataset.path;
+        this.showContextMenu(event, row._entry);
+      }, { signal: this.controller.signal });
+      this.list.addEventListener('dblclick', event => {
+        const row = event.target.closest('[data-path]');
+        if (row?._entry) this.openEntry(row._entry);
+      }, { signal: this.controller.signal });
+      this.list.addEventListener('click', event => {
+        const row = event.target.closest('[data-path]');
+        if (!row || !this.list.contains(row)) return;
+        this.selectedPath = row.dataset.path;
+        for (const item of this.list.querySelectorAll('[data-path]')) {
+          item.style.background = item === row ? 'var(--accent-muted)' : '';
+        }
+      }, { signal: this.controller.signal });
+      this.render();
+    }
+
+    async navigate(target) {
+      const nextPath = this.path.resolve(this.currentPath, target || '.');
+      try {
+        const stat = await this.fs.stat(nextPath);
+        if (!stat.isDirectory()) throw new Error('That path is not a folder.');
+        this.currentPath = nextPath;
+        this.state._linuxPath = nextPath;
+        this.pathInput.value = nextPath;
+        this.searchInput.value = '';
+        this.selectedPath = null;
+        await this.render();
+      } catch (error) {
+        Notify.show({ title: 'Cannot open folder', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    goUp() {
+      const parent = this.path.dirname(this.currentPath);
+      if (parent !== this.currentPath) this.navigate(parent);
+    }
+
+    async render() {
+      const version = ++this.renderVersion;
+      this.pathInput.value = this.currentPath;
+      this.list.replaceChildren(createEl('div', {
+        textContent: 'Loading…',
+        style: 'padding:12px;color:var(--text-muted);'
+      }));
+      try {
+        const entries = await this.fs.readdir(this.currentPath, { withFileTypes: true });
+        if (version !== this.renderVersion) return;
+        const query = this.searchInput.value.trim().toLocaleLowerCase();
+        const rows = await Promise.all(entries
+          .filter(entry => !query || entry.name.toLocaleLowerCase().includes(query))
+          .map(async entry => {
+            const fullPath = this.path.join(this.currentPath, entry.name);
+            const stat = await this.fs.lstat(fullPath);
+            return {
+              name: entry.name,
+              path: fullPath,
+              isDirectory: entry.isDirectory(),
+              isFile: entry.isFile(),
+              isSymlink: entry.isSymbolicLink(),
+              executable: entry.isFile() && (stat.mode & 0o111) !== 0,
+              size: stat.size,
+              modified: stat.mtime.toLocaleString()
+            };
+          }));
+        if (version !== this.renderVersion) return;
+        rows.sort((a, b) => Number(b.isDirectory) - Number(a.isDirectory) || a.name.localeCompare(b.name));
+        const fragment = document.createDocumentFragment();
+        for (const entry of rows) {
+          const row = createEl('button', {
+            type: 'button',
+            role: 'listitem',
+            'data-path': entry.path,
+            style: 'width:100%;display:grid;grid-template-columns:minmax(0,1fr) 100px 170px;gap:10px;text-align:left;padding:8px;border:0;border-radius:6px;background:transparent;color:inherit;cursor:pointer;'
+          });
+          row._entry = entry;
+          row.append(
+            createEl('span', { textContent: `${entry.isDirectory ? '📁' : entry.executable ? '⚙' : '📄'}  ${entry.name}` }),
+            createEl('span', { textContent: entry.isDirectory ? 'Folder' : entry.executable ? 'Executable' : 'File', style: 'color:var(--text-secondary);' }),
+            createEl('span', { textContent: entry.modified, style: 'color:var(--text-muted);font-size:11px;' })
+          );
+          fragment.appendChild(row);
+        }
+        this.list.replaceChildren(fragment);
+        if (!rows.length) this.list.appendChild(createEl('div', {
+          textContent: 'This folder is empty.',
+          style: 'padding:16px;color:var(--text-muted);'
+        }));
+        this.status.textContent = `${rows.length} item${rows.length === 1 ? '' : 's'} · ${this.currentPath}`;
+      } catch (error) {
+        if (version !== this.renderVersion) return;
+        this.list.replaceChildren(createEl('div', {
+          textContent: `Cannot read this folder: ${error.message}`,
+          style: 'padding:16px;color:var(--text-danger);'
+        }));
+        this.status.textContent = this.currentPath;
+      }
+    }
+
+    openEntry(entry) {
+      if (entry.isDirectory) {
+        this.navigate(entry.path);
+      } else if (entry.name.toLowerCase().endsWith('.iso')) {
+        this.browseIso(entry.path);
+      } else if (/\.(?:txt|md|json|js|mjs|c|h|css|html|htm|log|conf|ini|sh)$/i.test(entry.name)) {
+        WM.createWindow('com.nbosp.textedit', { path: entry.path });
+      } else if (entry.executable) {
+        this.runExecutable(entry.path);
+      } else {
+        this.previewFile(entry.path);
+      }
+    }
+
+    showContextMenu(event, entry) {
+      const items = [];
+      if (entry.isDirectory) {
+        items.push({ label: 'Open folder', action: () => this.navigate(entry.path) });
+      } else {
+        items.push({ label: 'Open', action: () => this.openEntry(entry) });
+        if (entry.name.toLowerCase().endsWith('.iso')) {
+          items.push({ label: 'Browse ISO contents', action: () => this.browseIso(entry.path) });
+        }
+        items.push({
+          label: 'Run Linux executable',
+          disabled: !entry.executable,
+          action: () => this.runExecutable(entry.path)
+        });
+      }
+      items.push({ separator: true });
+      items.push(
+        { label: 'Rename', action: () => this.renameEntry(entry) },
+        { label: 'Delete', danger: true, action: () => this.deleteEntry(entry) }
+      );
+      ContextMenu.show(event.clientX, event.clientY, items);
+    }
+
+    async createEntry(isDirectory) {
+      const name = await showPrompt(isDirectory ? 'New folder' : 'New file', isDirectory ? 'New folder' : 'untitled.txt');
+      if (!name || !isValidFileName(name)) return;
+      const target = this.path.join(this.currentPath, name);
+      try {
+        if (isDirectory) await this.fs.mkdir(target);
+        else await this.fs.writeFile(target, '', { flag: 'wx' });
+        await this.render();
+      } catch (error) {
+        Notify.show({ title: 'Create failed', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    async previewFile(filePath) {
+      try {
+        const stat = await this.fs.stat(filePath);
+        if (stat.size > 256 * 1024) throw new Error('Preview is limited to files under 256 KiB.');
+        const data = await this.fs.readFile(filePath);
+        if (data.includes(0)) throw new Error('This file is binary and cannot be previewed as text.');
+        await showModal(this.path.basename(filePath), data.toString('utf8'), [{ label: 'Close', primary: true }]);
+      } catch (error) {
+        Notify.show({ title: 'Cannot preview file', body: error.message, type: 'warning', appName: 'Files' });
+      }
+    }
+
+    async browseIso(filePath) {
+      try {
+        const output = await new Promise((resolve, reject) => {
+          this.childProcess.execFile('/usr/bin/bsdtar', ['-tf', '--', filePath], {
+            timeout: 15000,
+            maxBuffer: 2 * 1024 * 1024
+          }, (error, stdout) => error ? reject(error) : resolve(stdout));
+        });
+        const listing = output.split('\n').filter(Boolean).slice(0, 2000);
+        if (output.split('\n').filter(Boolean).length > listing.length) listing.push('… listing truncated');
+        await showModal(`ISO contents: ${this.path.basename(filePath)}`, listing.join('\n') || '(empty image)', [
+          { label: 'Close', primary: true }
+        ]);
+      } catch (error) {
+        console.error('[Files] ISO listing failed:', error);
+        Notify.show({ title: 'Could not read ISO', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    async runExecutable(filePath) {
+      try {
+        const stat = await this.fs.stat(filePath);
+        if (!stat.isFile()) throw new Error('Only regular files can be run.');
+        await this.fs.access(filePath, this.fsConstants.X_OK);
+        const confirmed = await showModal(
+          'Run Linux executable?',
+          `This program will run as the regular nbosp user and can change files that account can access. Only run software you trust.\n\n${filePath}`,
+          [{ label: 'Cancel' }, { label: 'Run', primary: true, value: 'run' }]
+        );
+        if (confirmed !== 'run') return;
+        const child = this.childProcess.spawn(filePath, [], {
+          cwd: this.path.dirname(filePath),
+          env: process.env,
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.once('error', error => {
+          console.error('[Files] executable launch failed:', error);
+          Notify.show({ title: 'Could not run program', body: error.message, type: 'error', appName: 'Files' });
+        });
+        child.unref();
+        Notify.show({ title: 'Program started', body: this.path.basename(filePath), type: 'success', appName: 'Files' });
+      } catch (error) {
+        Notify.show({ title: 'Cannot run program', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    async renameEntry(entry) {
+      const name = await showPrompt('Rename', entry.name);
+      if (!name || name === entry.name || name === '.' || name === '..' || /[\\/]/.test(name)) return;
+      try {
+        const target = this.path.join(this.currentPath, name);
+        try {
+          await this.fs.lstat(target);
+          throw new Error('An item with that name already exists.');
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+        await this.fs.rename(entry.path, target);
+        await this.render();
+      } catch (error) {
+        Notify.show({ title: 'Rename failed', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    async deleteEntry(entry) {
+      const confirmed = await showModal(
+        'Delete item?',
+        `Delete ${entry.name}? Folders must be empty before they can be deleted.`,
+        [{ label: 'Cancel' }, { label: 'Delete', danger: true, value: 'delete' }]
+      );
+      if (confirmed !== 'delete') return;
+      try {
+        if (entry.isDirectory) await this.fs.rmdir(entry.path);
+        else await this.fs.unlink(entry.path);
+        await this.render();
+      } catch (error) {
+        Notify.show({ title: 'Delete failed', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+  }
+
   registerApp({
     id: 'com.nbosp.files',
     name: 'Files',
@@ -1248,6 +1581,10 @@
     defaultSize: [780, 520],
     minSize: [480, 340],
     init(content, state, options) {
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        new LinuxFilesApp(content, state, options).mount();
+        return;
+      }
       const app = new FilesApp(content, state, options);
       app.mount();
     },
@@ -1269,6 +1606,20 @@
           Notify.show({ title: 'File Blocked', body: verdict.reason, type: 'error', appName: 'Security' });
           return;
         }
+      }
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        try {
+          if (!isValidFileName(file.name)) throw new Error('File name is not valid.');
+          const fs = require('fs').promises;
+          const path = require('path');
+          const destination = path.resolve(state?._linuxPath || require('os').homedir(), file.name);
+          await fs.writeFile(destination, Buffer.from(await file.arrayBuffer()), { flag: 'wx' });
+          Notify.show({ title: 'File Added', body: file.name, type: 'success', appName: 'Files' });
+        } catch (err) {
+          console.error('[Files] Linux file drop failed:', err);
+          Notify.show({ title: 'Error', body: err.message || 'Failed to add file.', type: 'error', appName: 'Files' });
+        }
+        return;
       }
       try {
         const fileId = generateId();

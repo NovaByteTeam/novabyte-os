@@ -615,7 +615,7 @@
   // Best-effort localStorage write. Operational storage failures (quota,
   // private mode, disabled storage) are swallowed because the app must
   // continue. Programmer errors (bad key, non-serialisable value) are
-  // rethrown so they surface during development. If the AppDirs VFS sync
+  // rethrown so they surface during development. If the AppDirs persistence
   // helper exists, it is invoked fire-and-forget so a slow sync never blocks
   // the caller.
   function lsSave(key, value) {
@@ -640,7 +640,7 @@
       throw err;
     }
 
-    if (hasWindow && window.AppDirs && window.AppDirs.vfsFolders && typeof window.AppDirs.syncKey === 'function') {
+    if (hasWindow && window.AppDirs && typeof window.AppDirs.syncKey === 'function') {
       try {
         const maybePromise = window.AppDirs.syncKey(key, value);
         if (maybePromise && typeof maybePromise.catch === 'function') {

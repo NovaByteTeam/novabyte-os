@@ -884,17 +884,17 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           console.log('[AM.init] TAKING LEGACY FALLBACK branch for', appId, '- AppSandbox was', typeof AppSandbox, typeof AppSandbox !== 'undefined' ? '(launch: ' + typeof AppSandbox.launch + ')' : '');
 
           // ── Private data shim injected into iframe ────────────
-          const vfsDir = (() => { try { return window.AppDirs?.getVFSDir?.(appId, 'files'); } catch { return null; } })();
+          const appDataPath = (() => { try { return window.AppDirs?.getAppDataPath?.(appId, 'files'); } catch { return null; } })();
           const safeAppId = JSON.stringify(appId);
-          const safeVfsDir = JSON.stringify(vfsDir);
+          const safeAppDataPath = JSON.stringify(appDataPath);
 
           const bridgeScript = `(function(){
             try{
               if(!window.__novaPrivateStore) window.__novaPrivateStore={};
               var s=window.__novaPrivateStore;
               s.appId=${safeAppId};
-              s.vfsDir=${safeVfsDir};
-              s.getVFSDir=function(){return ${safeVfsDir}};
+              s.appDataPath=${safeAppDataPath};
+              s.getAppDataPath=function(){return ${safeAppDataPath}};
               s.lsKey=function(k){return'nova_app_'+${safeAppId}+'_'+k};
               s.get=function(k){try{var v=localStorage.getItem(this.lsKey(k));return v?JSON.parse(v):null}catch{return null}};
               s.set=function(k,v){try{localStorage.setItem(this.lsKey(k),JSON.stringify(v))}catch{/*quota*/}};
@@ -1237,7 +1237,7 @@ registerApp({
   },
   async init(content) {
     // ── NovaByte runtime guard — refuses to launch without AppDirs ──
-    if (!window.AppDirs?.getVFSDir(APP_MANAGER_ID, 'files')) {
+    if (!window.AppDirs?.getAppDataPath(APP_MANAGER_ID, 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML = '<div style="font-size:32px">\u26A0\uFE0F</div><div style="font-size:14px;text-align:center"><b>com.nbosp.appmanager</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
       return;

@@ -2,8 +2,14 @@
 
 This milestone extends the working x86_64 Buildroot boot into a graphical
 VMware kiosk: Linux DRM/KMS with the VMware SVGA driver, Mesa, Wayland, Cage,
-and the Linux x64 NBOSP NW.js bundle launched fullscreen. The existing NBOSP
-VFS and Files app are unchanged.
+and the Linux x64 NBOSP NW.js bundle launched fullscreen. On Linux, Files browses the host filesystem directly, can list ISO contents,
+and can launch executable files as the unprivileged kiosk user after
+confirmation. The shared filesystem API maps to the kiosk user's real home
+directory, app data and package blobs are stored under
+`~/.local/share/novabyte`, settings use `~/.config/novabyte/settings.json`, and
+browser-origin state is mirrored to the native filesystem. First boot imports
+legacy VFS, OPFS, and IndexedDB data when available; the browser-backed
+filesystem remains only for non-Linux builds and that one-time migration.
 
 ## Build on Linux or WSL2
 
@@ -27,7 +33,8 @@ bash build-iso.sh
 ```
 
 The script downloads Buildroot 2025.02 once, configures the x86_64 target,
-builds the Linux 6.12.18 kernel and compressed initramfs, and creates:
+builds the Linux 6.12.18 kernel, compressed live initramfs, and a root
+filesystem archive for the installer, and creates:
 
 ```text
 NBOSP/os/output/images/nbosp-live.iso
@@ -35,8 +42,35 @@ NBOSP/os/output/images/nbosp-live.iso
 
 Attach that ISO to a VMware x86_64 VM and boot it. The GRUB menu has a
 three-second timeout; Linux writes to the virtual display and serial console.
-The initial root filesystem is an in-memory initramfs, so this milestone does
-not partition or modify a VM disk.
+The live root filesystem is an in-memory initramfs, so live-session changes
+are temporary until you install NovaByte to a VM disk.
+
+## Installing to a VM disk
+
+The launchpad includes **Install NovaByte**. Add a separate virtual hard disk
+to the test VM, start the live ISO, select that disk in the installer, and
+type the exact confirmation shown (for example, `ERASE /dev/sda`) before it
+will proceed. The installer erases every partition on the selected disk,
+creates a GPT layout, and installs BIOS and UEFI bootloaders. It checks that
+the selected disk and its partitions are not mounted. Do not select a disk
+containing data you need; the erase is irreversible.
+For UEFI guests, disable Secure Boot; the installed GRUB loader is not signed.
+
+After a successful installation, the app removes its own desktop shortcut;
+any taskbar pin is left unchanged. Restart through the launchpad's power
+controls, then remove the live ISO or change the VM boot order so it starts
+from the installed disk. The installed root filesystem is writable and keeps
+the user's home directory and NW.js profile across normal reboots. It does
+not copy data from the temporary live session into the installed system.
+
+This installer is designed for x86_64 VMware BIOS and UEFI guests. It has not
+yet been validated in VMware or against physical disks; use a disposable VM
+with a separate test disk until that verification is complete. Open VM Tools
+is built into the image, so installing a separate VMware Tools ISO inside the
+guest is unnecessary.
+The launcher exposes restart and power-off controls through a dedicated
+root-owned helper that accepts only those two actions; it does not provide
+general root command execution.
 
 If boot reaches the console but the kiosk reports a missing VMware DRM device,
 use a newly built ISO with `CONFIG_DRM_VMWGFX=y` and ensure the VM has a
@@ -76,9 +110,11 @@ does not build a separate Node.js package. The build uploads the ISO artifact
 `nbosp-live-x86_64`; there is no separate NW.js artifact.
 
 The kiosk user runs with the Linux account and device-group permissions, but
-this is not yet per-`.novaapp` process isolation. The initramfs is still
-ephemeral: files and app data are lost at shutdown. The tty2 console remains
-available for debugging.
+this is not yet per-`.novaapp` process isolation. The live initramfs remains
+ephemeral: files and app data are lost at shutdown unless you use the disk
+installer. The tty2 console remains available for debugging.
+The VMware Open VM Tools guest daemon and its resolution helper are included;
+installing a separate Tools ISO inside the guest is unnecessary.
 
 The workflow caches the Buildroot source/downloads and compiled output, along
 with the NW.js SDK and npm cache, to speed up later manual runs. The local

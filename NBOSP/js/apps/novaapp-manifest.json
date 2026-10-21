@@ -19,7 +19,7 @@
   {
     "id": "com.nbosp.browser",
     "file": "js/apps/com.nbosp.browser.novaapp",
-    "cacheKey": "6b12704dabdd7852cb0c85e97f12dfe5d2fe0806551d34045474b49df801b19f"
+    "cacheKey": "b990025ba336ca357b964488187582be664b205c76e2792dca24d5510c5e7c8a"
   },
   {
     "id": "com.nbosp.calculator",
@@ -72,9 +72,14 @@
     "cacheKey": "3e196da8616e3ab79ede3e0274c2f95fe6a9c6d9b425fff9b39b5ba66df7f36c"
   },
   {
+    "id": "com.nbosp.install",
+    "file": "js/apps/com.nbosp.install.novaapp",
+    "cacheKey": "525f7e5742198870376d9eb98c4d892f394ccef9cee175cd51f4483443d9c968"
+  },
+  {
     "id": "com.nbosp.launcher",
     "file": "js/apps/com.nbosp.launcher.novaapp",
-    "cacheKey": "3ac8ad672649f90110c2ff50ffdbac2cddfddc8cd74d41378e101e683dbe7790"
+    "cacheKey": "0eb0215dbb0728ace21a0b280101a8c16d5b9fb3ae5480f724c8f4cfff1a507d"
   },
   {
     "id": "com.nbosp.modules",
@@ -104,7 +109,7 @@
   {
     "id": "com.nbosp.textedit",
     "file": "js/apps/com.nbosp.textedit.novaapp",
-    "cacheKey": "62f968c9f28885fe358791104fc22d94be69c0c35202e46bc8ef553c3b876073"
+    "cacheKey": "3a87a6e3d37e1941402e262d608e5dc89b42d3818a5eaee304e967d402804234"
   },
   {
     "id": "com.nbosp.search",
@@ -114,12 +119,12 @@
   {
     "id": "com.nbosp.settings",
     "file": "js/apps/com.nbosp.settings.novaapp",
-    "cacheKey": "cbfefc3107d5a69ea04ae15e578d623de32b62f3ba2d3d67b6b4774d395e70f5"
+    "cacheKey": "e3a80d617b83b37e87dd2f29cef3e68693ef34427a5c956991a742412a1969cf"
   },
   {
     "id": "com.nbosp.terminal",
     "file": "js/apps/com.nbosp.terminal.novaapp",
-    "cacheKey": "66c6f5ccee841ac430f6ec87573b710cdc11ad50911e3338c2c8b0f2b9079cf9"
+    "cacheKey": "01492f647d19f9b412a5f7e2beb86ba1fd9f4e989b4a28c22e04cbb2ded42cba"
   },
   {
     "id": "com.nbosp.service.event-log",
@@ -243,7 +248,7 @@
   {
     "id": "com.nbosp.files",
     "file": "js/apps/com.nbosp.files.novaapp",
-    "cacheKey": "1efe7dca314e44c3635defe379e5263445f471346b10ce89548dac649e18bbc8"
+    "cacheKey": "8ee1a76d59d92937239ee77fe24c39f884aff21afbe3bfec74eae0c222f2e93d"
   },
   {
     "id": "com.nbosp.store",

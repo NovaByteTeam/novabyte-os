@@ -52,10 +52,25 @@ for option in \
   BR2_PACKAGE_DBUS \
   BR2_PACKAGE_XKEYBOARD_CONFIG \
   BR2_PACKAGE_XDATA_XCURSOR_THEMES \
+  BR2_PACKAGE_LIBARCHIVE \
+  BR2_PACKAGE_LIBARCHIVE_BSDTAR \
+  BR2_PACKAGE_OPENVMTOOLS \
+  BR2_PACKAGE_OPENVMTOOLS_RESOLUTIONKMS \
   BR2_PACKAGE_MESA3D_OPENGL_EGL \
   BR2_PACKAGE_MESA3D_OPENGL_ES \
   BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_SVGA \
-  BR2_PACKAGE_NBOSP_KIOSK
+  BR2_PACKAGE_NBOSP_KIOSK \
+  BR2_PACKAGE_NBOSP_POWER \
+  BR2_PACKAGE_NBOSP_INSTALL \
+  BR2_PACKAGE_DOSFSTOOLS \
+  BR2_PACKAGE_DOSFSTOOLS_MKFS_FAT \
+  BR2_PACKAGE_E2FSPROGS \
+  BR2_PACKAGE_UTIL_LINUX_BINARIES \
+  BR2_TARGET_GRUB2 \
+  BR2_TARGET_GRUB2_I386_PC \
+  BR2_TARGET_GRUB2_X86_64_EFI \
+  BR2_TARGET_GRUB2_INSTALL_TOOLS \
+  BR2_TARGET_ROOTFS_TAR
 do
   if ! grep -qx "$option=y" "$OUTPUT_DIR/.config"; then
     echo "Required Buildroot option was not enabled: $option" >&2
@@ -69,7 +84,8 @@ if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
 fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-  cage-dirclean wlroots-dirclean xwayland-dirclean nbosp-kiosk-dirclean
+  cage-dirclean wlroots-dirclean xwayland-dirclean nbosp-kiosk-dirclean \
+  nbosp-install-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
@@ -82,6 +98,58 @@ if [[ ! -d "$OUTPUT_DIR/target/usr/share/fonts/dejavu" ]]; then
 fi
 if [[ ! -f "$OUTPUT_DIR/target/usr/share/icons/whiteglass/cursors/left_ptr" ]]; then
   echo "Whiteglass X cursor theme is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/bsdtar" ]]; then
+  echo "BSD tar is required to browse ISO files but is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/bin/tar" || ! -x "$OUTPUT_DIR/target/bin/gzip" ]]; then
+  echo "BusyBox tar with gzip support is required by the disk installer." >&2
+  exit 1
+fi
+if [[ ! -u "$OUTPUT_DIR/target/usr/bin/nbosp-power" ]]; then
+  echo "Restricted power helper is missing its setuid permission." >&2
+  exit 1
+fi
+if [[ ! -u "$OUTPUT_DIR/target/usr/bin/nbosp-install" ]]; then
+  echo "Restricted disk installer helper is missing its setuid permission." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/nbosp-install-system" ]]; then
+  echo "Root-owned disk installation script is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/grub-install" && ! -x "$OUTPUT_DIR/target/usr/sbin/grub-install" ]]; then
+  echo "grub-install is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/lsblk" && ! -x "$OUTPUT_DIR/target/usr/sbin/lsblk" ]]; then
+  echo "GRUB installation tools or lsblk are missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/sfdisk" && ! -x "$OUTPUT_DIR/target/usr/bin/sfdisk" ]]; then
+  echo "sfdisk is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/mkfs.vfat" && ! -x "$OUTPUT_DIR/target/usr/bin/mkfs.vfat" ]]; then
+  echo "mkfs.vfat is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/mkfs.ext4" && ! -x "$OUTPUT_DIR/target/usr/bin/mkfs.ext4" ]]; then
+  echo "mkfs.ext4 is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/blkid" && ! -x "$OUTPUT_DIR/target/usr/sbin/blkid" ]]; then
+  echo "blkid is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -d "$OUTPUT_DIR/target/usr/lib/grub/i386-pc" || ! -d "$OUTPUT_DIR/target/usr/lib/grub/x86_64-efi" ]]; then
+  echo "GRUB BIOS or UEFI modules are missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -f "$OUTPUT_DIR/images/rootfs.tar" ]]; then
+  echo "Buildroot did not produce the root filesystem archive for disk installation." >&2
   exit 1
 fi
 

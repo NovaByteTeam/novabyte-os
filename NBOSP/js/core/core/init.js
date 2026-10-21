@@ -521,7 +521,7 @@ function handleConsoleCmd(cmd) {
         recLog('── OPFS Status ──', 'info');
         recLog('Available: ' + (OPFS.available ? 'yes' : 'no'), OPFS.available ? 'ok' : 'warn');
         recLog('Entries: ' + entries.length, 'ok');
-        recLog('Backend: ' + (OPFS.available ? 'native OPFS' : 'IndexedDB fallback'), 'ok');
+        recLog('Backend: ' + (OPFS._nativeRoot ? 'Linux filesystem' : OPFS.available ? 'Origin Private File System' : 'IndexedDB fallback'), 'ok');
       } else if (sub === 'ls') {
         const entries = await OPFS.listEntries();
         if (!entries.length) {
@@ -958,7 +958,7 @@ async function _renderFileManager() {
       <section style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
           <div>
-            <div style="font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#58a6ff;">Origin Private File System</div>
+            <div id="rec-opfs-title" style="font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#58a6ff;">Application Storage</div>
             <div style="font-size:11px;color:#6a7888;margin-top:3px;" id="rec-opfs-status">Checking…</div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -1019,11 +1019,16 @@ async function _renderOPFSSection() {
 
   try {
     await OPFS.init();
+    const titleEl = document.getElementById('rec-opfs-title');
+    const nativeStorage = !!OPFS._nativeRoot;
+    if (titleEl) titleEl.textContent = nativeStorage ? 'Linux Application Storage' : 'Origin Private File System';
     const supported = !!(OPFS.available && OPFS.root);
-    statusEl.textContent = supported ? 'Available · data is stored in the browser sandbox' : 'Unavailable in this browser · using IndexedDB fallback';
+    statusEl.textContent = nativeStorage
+      ? `Available · data is stored at ${OPFS._nativeRoot}`
+      : supported ? 'Available · data is stored in the browser sandbox' : 'Unavailable in this browser · using IndexedDB fallback';
     const entries = await OPFS.listEntries();
     if (!entries.length) {
-      container.innerHTML = '<div class="rec-fm-empty">No files found in OPFS yet</div>';
+      container.innerHTML = '<div class="rec-fm-empty">No application storage files found</div>';
       return;
     }
 

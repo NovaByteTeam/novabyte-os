@@ -1386,6 +1386,67 @@ function selectAllInOutput(tab) {
   selection.addRange(range);
 }
 
+function initLinuxTerminal(content, state) {
+  const { spawn } = require('child_process');
+  const os = require('os');
+  const controller = new AbortController();
+  const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;background:#0b0e14;color:#e6edf3;font:13px monospace;' });
+  const output = createEl('pre', {
+    role: 'log',
+    'aria-label': 'Terminal output',
+    style: 'flex:1;overflow:auto;margin:0;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;'
+  });
+  const inputRow = createEl('div', { style: 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid #30363d;' });
+  const prompt = createEl('span', { textContent: `${os.userInfo().username}@novabyte:$`, style: 'color:#79c0ff;white-space:nowrap;' });
+  const input = createEl('input', {
+    className: 'shell-input',
+    'aria-label': 'Shell command',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    style: 'flex:1;background:transparent;border:0;outline:none;color:inherit;font:inherit;'
+  });
+  inputRow.append(prompt, input);
+  root.append(output, inputRow);
+  content.replaceChildren(root);
+  content.style.cssText = 'padding:0;height:100%;overflow:hidden;';
+
+  const shell = spawn('/bin/sh', ['-i'], {
+    cwd: os.homedir(),
+    env: { ...process.env, PS1: '' },
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  const append = chunk => {
+    output.textContent += chunk.toString();
+    output.scrollTop = output.scrollHeight;
+  };
+  shell.stdout.on('data', append);
+  shell.stderr.on('data', append);
+  shell.on('error', error => append(`\n[terminal error] ${error.message}\n`));
+  shell.on('close', code => append(`\n[Shell exited with status ${code ?? 'unknown'}]\n`));
+  output.textContent = `NovaByte Linux terminal — commands run as ${os.userInfo().username}.\n`;
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      const command = input.value;
+      if (!command.trim()) return;
+      append(`\n${os.userInfo().username}@novabyte:$ ${command}\n`);
+      shell.stdin.write(`${command}\n`);
+      input.value = '';
+    } else if (event.key === 'c' && event.ctrlKey) {
+      shell.stdin.write('\u0003');
+      append('^C\n');
+    } else if (event.ctrlKey && event.key.toLowerCase() === 'l') {
+      event.preventDefault();
+      output.textContent = '';
+    }
+  }, { signal: controller.signal });
+  state.cleanups = Array.isArray(state.cleanups) ? state.cleanups : [];
+  state.cleanups.push(() => {
+    controller.abort();
+    shell.kill('SIGTERM');
+  });
+  requestAnimationFrame(() => input.focus());
+}
+
 // --- App registration ---------------------------------------------------------
 
 registerApp({
@@ -1398,8 +1459,12 @@ registerApp({
   minSize: [420, 260],
 
   init(content, state) {
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      initLinuxTerminal(content, state);
+      return;
+    }
     // Refuse to launch without NovaByte OS — the FS/OS globals won't exist.
-    if (!window.AppDirs?.getVFSDir(APP_BUNDLE_ID, 'files')) {
+    if (!window.AppDirs?.getAppDataPath(APP_BUNDLE_ID, 'files')) {
       showMissingOSMessage(content);
       return;
     }

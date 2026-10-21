@@ -58,8 +58,8 @@ registerApp({
   init(content, state, options) {
     'use strict';
 
-    // NovaByte runtime guard — refuses to launch without AppDirs.
-    if (!window.AppDirs?.getVFSDir(BROWSER_APP_ID, 'files')) {
+    const linuxNative = typeof process !== 'undefined' && process.platform === 'linux';
+    if (!linuxNative && !window.AppDirs?.getAppDataPath(BROWSER_APP_ID, 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       content.innerHTML =
         '<div style="font-size:32px">⚠️</div>' +
@@ -261,7 +261,10 @@ registerApp({
     };
 
     const PASSWORD_VAULT_FILE = 'browser-password-vault.json';
-    const passwordVaultDir = AppDirs.getVFSDir(BROWSER_APP_ID, 'files');
+    const passwordVaultPath = linuxNative
+      ? require('path').join(require('os').homedir(), '.config', 'novabyte', PASSWORD_VAULT_FILE)
+      : null;
+    const passwordVaultDir = linuxNative ? null : AppDirs.getAppDataPath(BROWSER_APP_ID, 'files');
     let passwordVaultKey = null;
     let passwordVaultEntries = null;
     let passwordVaultLastUsed = 0;
@@ -287,6 +290,17 @@ registerApp({
     }
 
     function findPasswordVaultFile() {
+      if (linuxNative) {
+        const fs = require('fs');
+        try {
+          const stat = fs.lstatSync(passwordVaultPath);
+          if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Password vault path is not a regular file.');
+          return { path: passwordVaultPath, content: fs.readFileSync(passwordVaultPath, 'utf8') };
+        } catch (error) {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        }
+      }
       if (passwordVaultFileId && FS.files.has(passwordVaultFileId)) return FS.files.get(passwordVaultFileId);
       const node = FS.listDir(passwordVaultDir).find(file => file.type === 'file' && file.name === PASSWORD_VAULT_FILE);
       passwordVaultFileId = node?.id || null;
@@ -382,6 +396,13 @@ registerApp({
     async function persistPasswordVault() {
       if (!passwordVaultKey || !passwordVaultEntries) throw new Error('Password vault is locked');
       const fileContent = await encryptPasswordVault(passwordVaultEntries, passwordVaultKey, passwordVaultSalt);
+      if (linuxNative) {
+        const fs = require('fs').promises;
+        const path = require('path');
+        await fs.mkdir(path.dirname(passwordVaultPath), { recursive: true, mode: 0o700 });
+        await fs.writeFile(passwordVaultPath, fileContent, { encoding: 'utf8', mode: 0o600 });
+        return;
+      }
       const existing = findPasswordVaultFile();
       if (existing) {
         await FS.writeFile(existing.id, fileContent);
@@ -540,8 +561,14 @@ registerApp({
       if (file) {
         const nodeCrypto = require('crypto');
         const oldContent = typeof file.content === 'string' ? file.content : '';
-        if (oldContent) await FS.writeFile(file.id, nodeCrypto.randomBytes(Buffer.byteLength(oldContent)).toString('hex'));
-        await FS.permanentDelete(file.id);
+        if (linuxNative) {
+          const fs = require('fs').promises;
+          if (oldContent) await fs.writeFile(file.path, nodeCrypto.randomBytes(Buffer.byteLength(oldContent)).toString('hex'), { mode: 0o600 });
+          await fs.unlink(file.path);
+        } else {
+          if (oldContent) await FS.writeFile(file.id, nodeCrypto.randomBytes(Buffer.byteLength(oldContent)).toString('hex'));
+          await FS.permanentDelete(file.id);
+        }
       }
       passwordVaultFileId = null;
       lockPasswordVault();

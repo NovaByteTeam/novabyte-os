@@ -318,12 +318,87 @@ function applyTheme(theme) {
 const OPFS = {
   root: null,
   available: false,
+  _nativeRoot: null,
+  _getNativePath(path = '') {
+    const pathModule = require('path');
+    const nativeFs = require('fs');
+    const root = this._nativeRoot || pathModule.join(require('os').homedir(), '.local', 'share', 'novabyte', 'storage');
+    const resolved = pathModule.resolve(root, String(path).replace(/\\/g, '/'));
+    if (resolved !== root && !resolved.startsWith(root + pathModule.sep)) {
+      throw new Error(`Storage path escapes NovaByte's data directory: ${path}`);
+    }
+    let existingPath = resolved;
+    while (true) {
+      try {
+        nativeFs.lstatSync(existingPath);
+        break;
+      } catch (error) {
+        if (error.code !== 'ENOENT' || existingPath === root) throw error;
+        existingPath = pathModule.dirname(existingPath);
+      }
+    }
+    const realRoot = nativeFs.realpathSync(root);
+    const realExistingPath = nativeFs.realpathSync(existingPath);
+    if (realExistingPath !== realRoot && !realExistingPath.startsWith(realRoot + pathModule.sep)) {
+      throw new Error(`Storage path traverses a symbolic link outside NovaByte's data directory: ${path}`);
+    }
+    return resolved;
+  },
+  async _migrateLegacyOpfs() {
+    const nativeFs = require('fs');
+    const marker = require('path').join(require('os').homedir(), '.local', 'share', 'novabyte', 'migration', 'opfs-imported');
+    if (nativeFs.existsSync(marker)) return;
+    try {
+      nativeFs.mkdirSync(require('path').dirname(marker), { recursive: true, mode: 0o700 });
+      if (navigator.storage?.getDirectory) {
+        const legacyRoot = await navigator.storage.getDirectory();
+        const copyDirectory = async (source, destination) => {
+          nativeFs.mkdirSync(destination, { recursive: true });
+          for await (const [name, entry] of source.entries()) {
+            const relativeTarget = require('path').join(require('path').relative(this._nativeRoot, destination), name);
+            const target = this._getNativePath(relativeTarget);
+            if (entry.kind === 'directory') {
+              await copyDirectory(entry, target);
+            } else if (!nativeFs.existsSync(target)) {
+              nativeFs.mkdirSync(require('path').dirname(target), { recursive: true });
+              const file = await entry.getFile();
+              nativeFs.writeFileSync(target, Buffer.from(await file.arrayBuffer()), { flag: 'wx', mode: 0o600 });
+            }
+          }
+        };
+        await copyDirectory(legacyRoot, this._nativeRoot);
+      }
+      for (const entry of await this._listIndexedDB()) {
+        const target = this._getNativePath(entry.path);
+        if (nativeFs.existsSync(target)) continue;
+        const blob = await this._getIndexedDB(entry.path);
+        if (!blob) continue;
+        nativeFs.mkdirSync(require('path').dirname(target), { recursive: true });
+        nativeFs.writeFileSync(target, Buffer.from(await blob.arrayBuffer()), { flag: 'wx', mode: 0o600 });
+      }
+      nativeFs.writeFileSync(marker, 'legacy OPFS and IndexedDB storage imported\n');
+      console.info('[Storage] Migrated legacy browser storage into the Linux filesystem');
+    } catch (error) {
+      console.error('[Storage] Could not migrate legacy browser OPFS data:', error);
+      throw error;
+    }
+  },
   // FIX: store init promise to prevent concurrent double-init
   _initPromise: null,
 
   async init() {
     if (this._initPromise) return this._initPromise;
     this._initPromise = (async () => {
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        const path = require('path');
+        const nativeFs = require('fs');
+        this._nativeRoot = path.join(require('os').homedir(), '.local', 'share', 'novabyte', 'storage');
+        nativeFs.mkdirSync(this._nativeRoot, { recursive: true });
+        this.root = { kind: 'linux-filesystem', path: this._nativeRoot };
+        this.available = true;
+        await this._migrateLegacyOpfs();
+        return true;
+      }
       try {
         if ('storage' in navigator && 'getDirectory' in navigator.storage) {
           this.root = await navigator.storage.getDirectory();
@@ -365,6 +440,14 @@ const OPFS = {
   },
 
   async writeBlob(path, blob, type = 'application/octet-stream') {
+    if (this._nativeRoot) {
+      const nativeFs = require('fs');
+      const target = this._getNativePath(path);
+      nativeFs.mkdirSync(require('path').dirname(target), { recursive: true });
+      const bytes = blob instanceof Blob ? Buffer.from(await blob.arrayBuffer()) : Buffer.from(blob);
+      nativeFs.writeFileSync(target, bytes, { mode: 0o600 });
+      return true;
+    }
     if (this.available && this.root) {
       // FIX: try/finally ensures writable stream is always closed even if write throws
       let writable;
@@ -386,6 +469,16 @@ const OPFS = {
   },
 
   async getBlob(key) {
+    if (this._nativeRoot) {
+      const nativeFs = require('fs');
+      const target = this._getNativePath(key);
+      try {
+        return new Blob([nativeFs.readFileSync(target)]);
+      } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      }
+    }
     if (this.available && this.root) {
       try {
         const fileHandle = await this._getFileHandle(key);
@@ -398,6 +491,16 @@ const OPFS = {
   },
 
   async deleteBlob(key) {
+    if (this._nativeRoot) {
+      const nativeFs = require('fs');
+      try {
+        nativeFs.unlinkSync(this._getNativePath(key));
+        return true;
+      } catch (error) {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      }
+    }
     if (this.available && this.root) {
       try {
         const parts = String(key || '').split('/').filter(Boolean);
@@ -415,6 +518,11 @@ const OPFS = {
   },
 
   async ensureDirectory(path) {
+    if (this._nativeRoot) {
+      const target = this._getNativePath(path);
+      require('fs').mkdirSync(target, { recursive: true });
+      return target;
+    }
     const root = await this.ensureRoot();
     if (!root) return null;
     const parts = String(path || '').split('/').filter(Boolean);
@@ -426,6 +534,14 @@ const OPFS = {
   },
 
   async writeText(path, text, type = 'text/plain') {
+    if (this._nativeRoot) {
+      const nativeFs = require('fs');
+      const target = this._getNativePath(path);
+      nativeFs.mkdirSync(require('path').dirname(target), { recursive: true });
+      const bytes = text instanceof Blob ? Buffer.from(await text.arrayBuffer()) : String(text);
+      nativeFs.writeFileSync(target, bytes, { mode: 0o600 });
+      return true;
+    }
     const parts = String(path || '').split('/').filter(Boolean);
     if (!parts.length) throw new Error('Path is required');
     const fileName = parts.pop();
@@ -450,6 +566,14 @@ const OPFS = {
   },
 
   async readText(path) {
+    if (this._nativeRoot) {
+      try {
+        return require('fs').readFileSync(this._getNativePath(path), 'utf8');
+      } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      }
+    }
     const blob = await this.getBlob(path);
     if (!blob) return null;
     try {
@@ -460,6 +584,15 @@ const OPFS = {
   },
 
   async deletePath(path, recursive = true) {
+    if (this._nativeRoot) {
+      try {
+        require('fs').rmSync(this._getNativePath(path), { recursive, force: false });
+        return true;
+      } catch (error) {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      }
+    }
     const parts = String(path || '').split('/').filter(Boolean);
     if (!parts.length) return false;
 
@@ -481,6 +614,27 @@ const OPFS = {
   },
 
   async listEntries() {
+    if (this._nativeRoot) {
+      const nativeFs = require('fs');
+      const path = require('path');
+      const entries = [];
+      const walk = (directory, prefix = '') => {
+        for (const item of nativeFs.readdirSync(directory, { withFileTypes: true })) {
+          const itemPath = path.join(directory, item.name);
+          const relative = prefix ? `${prefix}/${item.name}` : item.name;
+          if (item.isSymbolicLink()) continue;
+          if (item.isDirectory()) {
+            entries.push({ path: relative, name: item.name, kind: 'directory', size: 0, type: 'inode/directory', lastModified: 0 });
+            walk(itemPath, relative);
+          } else {
+            const stat = nativeFs.statSync(itemPath);
+            entries.push({ path: relative, name: item.name, kind: 'file', size: stat.size, type: '', lastModified: stat.mtimeMs });
+          }
+        }
+      };
+      walk(this._nativeRoot);
+      return entries;
+    }
     if (this.available && this.root) {
       try {
         const entries = [];
@@ -518,6 +672,13 @@ const OPFS = {
   },
 
   async clear() {
+    if (this._nativeRoot) {
+      const nativeFs = require('fs');
+      for (const name of nativeFs.readdirSync(this._nativeRoot)) {
+        nativeFs.rmSync(require('path').join(this._nativeRoot, name), { recursive: true, force: false });
+      }
+      return true;
+    }
     if (this.available && this.root) {
       try {
         const entries = [];
@@ -718,9 +879,183 @@ const AppDirs = {
     }
   },
 
+  _linuxDataRoot() {
+    return require('path').join(require('os').homedir(), '.local', 'share', 'novabyte', 'data');
+  },
+  _linuxAppPath(pkg, subdir = '') {
+    const path = require('path');
+    if (typeof pkg !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(pkg)) {
+      throw new Error(`Invalid app data package identifier: ${pkg}`);
+    }
+    const base = path.join(this._linuxDataRoot(), pkg);
+    const resolved = path.resolve(base, subdir);
+    if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+      throw new Error(`Invalid app data path: ${pkg}/${subdir}`);
+    }
+    const fs = require('fs');
+    const dataRoot = path.resolve(this._linuxDataRoot());
+    let existingPath = resolved;
+    while (true) {
+      try {
+        fs.lstatSync(existingPath);
+        break;
+      } catch (error) {
+        if (error.code !== 'ENOENT' || existingPath === dataRoot) throw error;
+        existingPath = path.dirname(existingPath);
+      }
+    }
+    const realRoot = fs.realpathSync(dataRoot);
+    const realExistingPath = fs.realpathSync(existingPath);
+    if (realExistingPath !== realRoot && !realExistingPath.startsWith(realRoot + path.sep)) {
+      throw new Error(`App data path traverses outside NovaByte's data directory: ${pkg}/${subdir}`);
+    }
+    return resolved;
+  },
+  _nativePersistenceInstalled: false,
+  _nativeBrowserStatePath() {
+    return require('path').join(require('os').homedir(), '.local', 'share', 'novabyte', 'browser-state.json');
+  },
+  _persistBrowserState() {
+    const fs = require('fs');
+    const path = require('path');
+    const statePath = this._nativeBrowserStatePath();
+    const state = Object.create(null);
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index);
+      if (key !== null) state[key] = localStorage.getItem(key);
+    }
+    fs.mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+    const temporaryPath = `${statePath}.${process.pid}.tmp`;
+    fs.writeFileSync(temporaryPath, JSON.stringify(state), { mode: 0o600 });
+    fs.renameSync(temporaryPath, statePath);
+  },
+  _removeNativeStorageKey(key) {
+    const mapping = Object.prototype.hasOwnProperty.call(this.LS_MAP, key) ? this.LS_MAP[key] : null;
+    if (!mapping) return;
+    const pkg = window.NovaAppIdAliases?.canonicalize(mapping.pkg) || mapping.pkg;
+    try {
+      require('fs').unlinkSync(require('path').join(
+        this._linuxAppPath(pkg, mapping.subdir),
+        mapping.file
+      ));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  },
+  _writeNativeStorageKey(key, value) {
+    const mapping = Object.prototype.hasOwnProperty.call(this.LS_MAP, key) ? this.LS_MAP[key] : null;
+    if (!mapping) return;
+    const pkg = window.NovaAppIdAliases?.canonicalize(mapping.pkg) || mapping.pkg;
+    const fs = require('fs');
+    const path = require('path');
+    const target = path.join(this._linuxAppPath(pkg, mapping.subdir), mapping.file);
+    const content = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(target, content, { mode: 0o600 });
+  },
+  _installNativeBrowserStatePersistence() {
+    if (this._nativePersistenceInstalled) return;
+    const storage = localStorage;
+    const originalSetItem = storage.setItem.bind(storage);
+    const originalRemoveItem = storage.removeItem.bind(storage);
+    const originalClear = storage.clear.bind(storage);
+    const persist = () => this._persistBrowserState();
+    storage.setItem = function (key, value) {
+      originalSetItem(key, value);
+      AppDirs._writeNativeStorageKey(String(key), localStorage.getItem(String(key)));
+      persist();
+    };
+    storage.removeItem = function (key) {
+      originalRemoveItem(key);
+      AppDirs._removeNativeStorageKey(String(key));
+      persist();
+    };
+    storage.clear = function () {
+      originalClear();
+      for (const key of Object.keys(AppDirs.LS_MAP)) AppDirs._removeNativeStorageKey(key);
+      persist();
+    };
+    this._nativePersistenceInstalled = true;
+  },
+  async _bootstrapLinux() {
+    const fs = require('fs');
+    const path = require('path');
+    const dataRoot = this._linuxDataRoot();
+    fs.mkdirSync(dataRoot, { recursive: true });
+    const browserStatePath = this._nativeBrowserStatePath();
+    if (fs.existsSync(browserStatePath)) {
+      const browserState = JSON.parse(fs.readFileSync(browserStatePath, 'utf8'));
+      if (!browserState || typeof browserState !== 'object' || Array.isArray(browserState)) {
+        throw new Error('Linux browser-state file must contain a JSON object');
+      }
+      for (const [key, value] of Object.entries(browserState)) {
+        if (typeof value === 'string' && localStorage.getItem(key) === null) localStorage.setItem(key, value);
+      }
+    }
+
+    const mergeDirectory = (source, destination) => {
+      if (!fs.existsSync(source)) return;
+      fs.mkdirSync(destination, { recursive: true });
+      for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+        if (entry.isSymbolicLink()) continue;
+        const from = path.join(source, entry.name);
+        const to = path.join(destination, entry.name);
+        if (fs.existsSync(to)) {
+          if (entry.isDirectory() && fs.statSync(to).isDirectory()) mergeDirectory(from, to);
+          continue;
+        }
+        fs.cpSync(from, to, { recursive: true, errorOnExist: true });
+      }
+    };
+
+    mergeDirectory(path.join(OPFS._nativeRoot || '', 'data'), dataRoot);
+    mergeDirectory(path.join(require('os').homedir(), 'data'), dataRoot);
+    this._handles = {};
+    this.appDataPaths = {};
+
+    for (const [alias, rawPkg] of Object.entries(this.PACKAGES)) {
+      const pkg = window.NovaAppIdAliases?.canonicalize(rawPkg) || rawPkg;
+      const appRoot = this._linuxAppPath(pkg);
+      for (const subdir of ['files', 'cache', 'databases', 'shared_prefs']) {
+        fs.mkdirSync(this._linuxAppPath(pkg, subdir), { recursive: true });
+      }
+      this._handles[pkg] = appRoot;
+      this.appDataPaths[pkg] = {
+        root: appRoot,
+        files: this._linuxAppPath(pkg, 'files'),
+        cache: this._linuxAppPath(pkg, 'cache'),
+        databases: this._linuxAppPath(pkg, 'databases'),
+        shared_prefs: this._linuxAppPath(pkg, 'shared_prefs'),
+      };
+      if (alias === pkg) continue;
+    }
+
+    for (const [storageKey, mapping] of Object.entries(this.LS_MAP)) {
+      const pkg = window.NovaAppIdAliases?.canonicalize(mapping.pkg) || mapping.pkg;
+      const target = path.join(this._linuxAppPath(pkg, mapping.subdir), mapping.file);
+      if (!fs.existsSync(target)) {
+        const raw = localStorage.getItem(storageKey);
+        if (raw !== null) {
+          fs.writeFileSync(target, raw, { flag: 'wx', mode: 0o600 });
+        }
+      }
+      if (fs.existsSync(target)) {
+        try { localStorage.setItem(storageKey, fs.readFileSync(target, 'utf8')); }
+        catch (error) { console.warn(`[AppDirs] Could not sync ${storageKey} from Linux app data:`, error); }
+      }
+    }
+    this._installNativeBrowserStatePersistence();
+    this._persistBrowserState();
+    console.info(`[AppDirs] App data now uses ${dataRoot}`);
+  },
+
   // Bootstrap the full directory tree — safe to call every boot (idempotent)
   async bootstrap() {
     await OPFS.init();
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      await this._bootstrapLinux();
+      return;
+    }
 
     // ── 1. OPFS physical directories ────────────────────────────────
     if (OPFS.available && OPFS.root) {
@@ -987,6 +1322,15 @@ const AppDirs = {
   async ensureAppDataFolder(appIdOrPkg) {
     appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      const fs = require('fs');
+      const root = this._linuxAppPath(pkg);
+      for (const subdir of ['files', 'cache', 'databases', 'shared_prefs']) {
+        fs.mkdirSync(this._linuxAppPath(pkg, subdir), { recursive: true });
+      }
+      this._handles[pkg] = root;
+      return root;
+    }
     if (this._handles[pkg]) return this._handles[pkg];
 
     if (OPFS.available && OPFS.root) {
@@ -1029,6 +1373,10 @@ const AppDirs = {
   async getAppDir(appIdOrPkg) {
     appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      await this.ensureAppDataFolder(pkg);
+      return this._linuxAppPath(pkg);
+    }
 
     // Runtime guard: deny requests for another app's directory unless the caller
     // has system:apps permission. System calls (no focused window) pass through.
@@ -1074,6 +1422,17 @@ const AppDirs = {
   async getPrefs(appIdOrPkg) {
     const appDir = await this.getAppDir(appIdOrPkg);
     if (!appDir) return {};
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      try {
+        return JSON.parse(require('fs').readFileSync(
+          require('path').join(appDir, 'shared_prefs', 'prefs.json'),
+          'utf8'
+        ));
+      } catch (error) {
+        if (error.code === 'ENOENT') return {};
+        throw error;
+      }
+    }
     try {
       const prefsDir = await appDir.getDirectoryHandle('shared_prefs');
       const file = await prefsDir.getFileHandle('prefs.json');
@@ -1094,6 +1453,13 @@ const AppDirs = {
   async removeAppData(appId) {
     if (!appId) return;
     appId = window.NovaAppIdAliases?.canonicalize(appId) || appId;
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      const fs = require('fs');
+      fs.rmSync(this._linuxAppPath(this.PACKAGES[appId] || appId), { recursive: true, force: true });
+      delete this._handles?.[this.PACKAGES[appId] || appId];
+      delete this.vfsFolders?.[this.PACKAGES[appId] || appId];
+      return;
+    }
     if (typeof OPFS !== 'undefined' && OPFS.available && OPFS.root) {
       try { await OPFS.deletePath('data/' + appId, true); } catch { /* ignore */ }
     }
@@ -1123,6 +1489,11 @@ const AppDirs = {
   async setPrefs(appIdOrPkg, data) {
     const appDir = await this.getAppDir(appIdOrPkg);
     if (!appDir) return false;
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      const target = require('path').join(appDir, 'shared_prefs', 'prefs.json');
+      require('fs').writeFileSync(target, JSON.stringify(data), { mode: 0o600 });
+      return true;
+    }
     // FIX: try/finally ensures writable is always closed
     let w;
     try {
@@ -1175,16 +1546,26 @@ const AppDirs = {
     'novabyte-shortcuts':     { pkg: 'com.nbosp.settings',    subdir: 'shared_prefs', file: 'shortcuts.json' },
   },
 
-  getVFSDir(appIdOrPkg, subdir) {
+  getAppDataPath(appIdOrPkg, subdir) {
     appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      return this._linuxAppPath(pkg, subdir || '');
+    }
     if (this.vfsFolders?.[pkg]) return this.vfsFolders[pkg][subdir] ?? null;
     void this.ensureAppDataFolder(pkg);
     return null;
   },
+  getVFSDir(appIdOrPkg, subdir) {
+    return this.getAppDataPath(appIdOrPkg, subdir);
+  },
 
   async syncKey(lsKey, value) {
-    const mapping = this.LS_MAP[lsKey];
+    const mapping = Object.prototype.hasOwnProperty.call(this.LS_MAP, lsKey) ? this.LS_MAP[lsKey] : null;
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      this._writeNativeStorageKey(lsKey, value);
+      return;
+    }
     if (!mapping || !this.vfsFolders) return;
     const folderId = this.getVFSDir(mapping.pkg, mapping.subdir);
     if (!folderId) return;
@@ -1213,6 +1594,13 @@ const AppDirs = {
   async clearAppData(appIdOrPkg) {
     appIdOrPkg = window.NovaAppIdAliases?.canonicalize(appIdOrPkg) || appIdOrPkg;
     const pkg = this.PACKAGES[appIdOrPkg] || appIdOrPkg;
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      const fs = require('fs');
+      const appRoot = this._linuxAppPath(pkg);
+      fs.rmSync(appRoot, { recursive: true, force: true });
+      await this.ensureAppDataFolder(pkg);
+      return true;
+    }
     if (!OPFS.available || !OPFS.root) return false;
     try {
       const data = await OPFS.root.getDirectoryHandle('data', { create: true });

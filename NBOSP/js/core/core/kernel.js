@@ -16,6 +16,23 @@ function getPinSalt() {
   return hex;
 }
 
+function isLinuxRuntime() {
+  return typeof process !== 'undefined' && process.platform === 'linux';
+}
+
+function nativeSettingsPath() {
+  return require('path').join(require('os').homedir(), '.config', 'novabyte', 'settings.json');
+}
+
+function writeNativeSettings(settings) {
+  const fs = require('fs');
+  const path = nativeSettingsPath();
+  fs.mkdirSync(require('path').dirname(path), { recursive: true, mode: 0o700 });
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(settings, null, 2), { mode: 0o600 });
+  fs.renameSync(temporaryPath, path);
+}
+
 const OS = {
   version: '3.0.2',
   securityPatch: '2026-08-02',  // NovaByte security patch date — globally readable
@@ -121,16 +138,48 @@ const OS = {
         return false;
       }
       this._cache[key] = value;
-      OS.workers.fs.call('putSetting', key, value).catch((err) => {
-        // Previously silent — a failed write left the cache and disk permanently
-        // out of sync with nothing telling anyone. Logging doesn't fix the
-        // divergence but at least it's no longer invisible.
-        OS.logger.error(`Failed to persist setting "${key}"`, err);
-      });
+      if (isLinuxRuntime()) {
+        try {
+          writeNativeSettings(this._cache);
+        } catch (err) {
+          OS.logger.error(`Failed to persist setting "${key}" to the Linux filesystem`, err);
+        }
+      } else {
+        OS.workers.fs.call('putSetting', key, value).catch((err) => {
+          OS.logger.error(`Failed to persist setting "${key}"`, err);
+        });
+      }
       OS.events.emit('settings:changed', { key, value });
     },
 
     async load() {
+      if (isLinuxRuntime()) {
+        const fs = require('fs');
+        const path = nativeSettingsPath();
+        try {
+          this._cache = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (!this._cache || typeof this._cache !== 'object' || Array.isArray(this._cache)) {
+            throw new Error('Settings file must contain a JSON object');
+          }
+          return;
+        } catch (error) {
+          if (error.code !== 'ENOENT') {
+            OS.logger.error('Failed to read Linux settings file', error);
+            throw error;
+          }
+        }
+        try {
+          this._cache = OS.workers.fs
+            ? await OS.workers.fs.call('getAllSettings')
+            : {};
+          writeNativeSettings(this._cache || {});
+          this._cache = this._cache || {};
+        } catch (err) {
+          OS.logger.error('Failed to migrate legacy settings to the Linux filesystem', err);
+          this._cache = {};
+        }
+        return;
+      }
       try {
         const all = await OS.workers.fs.call('getAllSettings');
         this._cache = all || {};

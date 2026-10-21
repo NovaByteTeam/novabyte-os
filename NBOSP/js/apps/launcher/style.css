@@ -585,6 +585,31 @@
     justify-content: center;
     position: relative;
   }
+  .launchpad-power-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin: 32px 0 0;
+  }
+  .launchpad-power-btn {
+    min-height: 40px;
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+  }
+  .launchpad-power-btn:hover {
+    background: var(--accent-muted);
+  }
+  .launchpad-power-btn.danger {
+    color: var(--text-danger);
+  }
+  .launchpad-power-btn.danger:hover {
+    background: rgba(248, 81, 73, 0.16);
+  }
   .launchpad-item {
     display: flex;
     flex-direction: column;

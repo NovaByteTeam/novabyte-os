@@ -6,7 +6,7 @@ registerApp({
 
   init(content, state) {
     // ── NovaByte runtime guard ─────────────────────────────────────────────────
-    if (!window.AppDirs?.getVFSDir('com.nbosp.downloads', 'files')) {
+    if (!window.AppDirs?.getAppDataPath('com.nbosp.downloads', 'files')) {
       content.style.cssText =
         'display:flex;align-items:center;justify-content:center;height:100%;' +
         'flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';

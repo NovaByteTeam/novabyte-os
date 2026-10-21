@@ -1,3 +1,107 @@
+function initLinuxTextEdit(content, state, options = {}) {
+  const fs = require('fs').promises;
+  const path = require('path');
+  const os = require('os');
+  const controller = new AbortController();
+  state.cleanups = Array.isArray(state.cleanups) ? state.cleanups : [];
+  state.cleanups.push(() => controller.abort());
+
+  let currentPath = options.path || options.filePath || null;
+  let modified = false;
+  const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;min-height:0;' });
+  const toolbar = createEl('div', { style: 'display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border-subtle);' });
+  const editor = createEl('textarea', {
+    className: 'quill-textarea',
+    'aria-label': 'Text editor',
+    spellcheck: 'false',
+    style: 'flex:1;resize:none;min-height:0;'
+  });
+  const status = createEl('div', { role: 'status', style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-muted);' });
+  const setStatus = () => {
+    const name = currentPath ? path.basename(currentPath) : 'Untitled';
+    status.textContent = `${name}${modified ? ' • Modified' : ''}`;
+  };
+  const addButton = (label, action) => {
+    const button = createEl('button', { className: 'btn btn-sm', textContent: label });
+    button.addEventListener('click', action, { signal: controller.signal });
+    toolbar.appendChild(button);
+  };
+  const selectPath = (saveAs, suggestedName = 'untitled.txt') => new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.style.display = 'none';
+    if (saveAs) {
+      input.setAttribute('nwsaveas', suggestedName);
+      input.setAttribute('nwworkingdir', currentPath ? path.dirname(currentPath) : os.homedir());
+    } else {
+      input.setAttribute('nwworkingdir', currentPath ? path.dirname(currentPath) : os.homedir());
+    }
+    document.body.appendChild(input);
+    const finish = value => {
+      input.remove();
+      resolve(value);
+    };
+    input.addEventListener('change', () => finish(input.value || null), { once: true });
+    input.addEventListener('cancel', () => finish(null), { once: true });
+    input.click();
+  });
+
+  const save = async saveAs => {
+    try {
+      const target = saveAs || !currentPath ? await selectPath(true, path.basename(currentPath || 'untitled.txt')) : currentPath;
+      if (!target) return;
+      await fs.writeFile(target, editor.value, 'utf8');
+      currentPath = target;
+      modified = false;
+      setStatus();
+      Notify.show({ title: 'Saved', body: path.basename(target), type: 'success', appName: 'TextEdit' });
+    } catch (error) {
+      Notify.show({ title: 'Save failed', body: error.message, type: 'error', appName: 'TextEdit' });
+    }
+  };
+
+  const open = async () => {
+    const target = await selectPath(false);
+    if (!target) return;
+    try {
+      editor.value = await fs.readFile(target, 'utf8');
+      currentPath = target;
+      modified = false;
+      setStatus();
+    } catch (error) {
+      Notify.show({ title: 'Open failed', body: error.message, type: 'error', appName: 'TextEdit' });
+    }
+  };
+
+  addButton('Open…', open);
+  addButton('Save', () => save(false));
+  addButton('Save As…', () => save(true));
+  editor.addEventListener('input', () => {
+    modified = true;
+    setStatus();
+  }, { signal: controller.signal });
+  editor.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      save(event.shiftKey);
+    }
+  }, { signal: controller.signal });
+  root.append(toolbar, editor, status);
+  content.replaceChildren(root);
+  content.style.cssText = 'padding:0;height:100%;overflow:hidden;';
+  if (currentPath) {
+    fs.readFile(currentPath, 'utf8').then(text => {
+      editor.value = text;
+      setStatus();
+    }).catch(error => {
+      console.error('[TextEdit] Could not open requested file:', error);
+      Notify.show({ title: 'Open failed', body: error.message, type: 'error', appName: 'TextEdit' });
+    });
+  } else {
+    setStatus();
+  }
+}
+
 registerApp({
   id: 'com.nbosp.textedit',
   name: 'TextEdit',
@@ -8,6 +112,10 @@ registerApp({
   minSize: [360, 260],
 
   init(content, state, options) {
+    if (typeof process !== 'undefined' && process.platform === 'linux') {
+      initLinuxTextEdit(content, state, options);
+      return;
+    }
     const ctrl = new AbortController();
     const { signal } = ctrl;
     let rafId = 0;
@@ -18,7 +126,7 @@ registerApp({
       if (rafId) cancelAnimationFrame(rafId);
     };
 
-    if (!window.AppDirs?.getVFSDir('com.nbosp.textedit', 'files')) {
+    if (!window.AppDirs?.getAppDataPath('com.nbosp.textedit', 'files')) {
       Object.assign(content.style, {
         display: 'flex',
         alignItems: 'center',
@@ -212,7 +320,7 @@ registerApp({
     }
 
     function getFilesDir() {
-      return AppDirs.getVFSDir('com.nbosp.textedit', 'files') ?? FS.specialFolders.documents;
+      return AppDirs.getAppDataPath('com.nbosp.textedit', 'files') ?? FS.specialFolders.documents;
     }
 
     function spliceText(start, end, insert) {
@@ -502,6 +610,18 @@ registerApp({
   async onDrop(droppedFile, _state) {
     try {
       const text = await droppedFile.text();
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        const fs = require('fs').promises;
+        const path = require('path');
+        if (!droppedFile.name || path.basename(droppedFile.name) !== droppedFile.name) {
+          throw new Error('Dropped file name is not valid.');
+        }
+        const destination = path.join(require('os').homedir(), droppedFile.name);
+        await fs.writeFile(destination, text, { encoding: 'utf8', flag: 'wx' });
+        WM.createWindow('com.nbosp.textedit', { path: destination });
+        Notify.show({ title: 'File Opened', body: droppedFile.name, type: 'success', appName: 'TextEdit' });
+        return;
+      }
       const fileId = globalThis.generateId?.() ?? crypto.randomUUID();
       FS.files.set(fileId, {
         id: fileId,
