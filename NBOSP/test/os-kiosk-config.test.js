@@ -17,7 +17,7 @@ describe('NBOSP VMware kiosk device configuration', () => {
       expect(content).toContain('--enable-zero-copy');
       expect(content).not.toContain('--disable-gpu');
     }
-    expect(users).toContain('video,input,seat,render,audio');
+    expect(users).toContain('video,input,seat');
     expect(startup).toContain('/dev/dri/renderD*');
     expect(startup).toContain('hardware acceleration would fail');
   });
@@ -40,11 +40,13 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(build).toContain('alsa-utils-dirclean nbosp-kiosk-dirclean');
     expect(build).toContain('target/usr/sbin/alsactl');
     expect(build).toContain('target/usr/bin/aplay');
+    expect(build).toContain('OWNER="nbosp", GROUP="render"');
+    expect(build).toContain('OWNER="nbosp", GROUP="audio"');
     expect(kernel).toContain('CONFIG_SND_HDA_INTEL=y');
     expect(kernel).toContain('CONFIG_SND_HDA_GENERIC=y');
     expect(kernel).toContain('CONFIG_SND_ENS1371=y');
-    expect(udevRules).toContain('KERNEL=="renderD*", GROUP="render", MODE="0660"');
-    expect(udevRules).toContain('SUBSYSTEM=="sound", GROUP="audio", MODE="0660"');
+    expect(udevRules).toContain('KERNEL=="renderD*", OWNER="nbosp", GROUP="render", MODE="0660"');
+    expect(udevRules).toContain('SUBSYSTEM=="sound", OWNER="nbosp", GROUP="audio", MODE="0660"');
     expect(startup).toContain('alsactl init');
     expect(startup).toContain('no ALSA sound card detected');
   });

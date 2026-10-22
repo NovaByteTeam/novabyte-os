@@ -189,10 +189,11 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/alsactl" \
   echo "ALSA control and playback utilities are missing from the target image." >&2
   exit 1
 fi
-if ! grep -Eq '^render:[^:]*:[0-9]+:' "$OUTPUT_DIR/target/etc/group" \
-  || ! grep -Eq '^audio:[^:]*:[0-9]+:([^,]+,)*nbosp(,|$)' "$OUTPUT_DIR/target/etc/group" \
-  || ! grep -Eq '^render:[^:]*:[0-9]+:([^,]+,)*nbosp(,|$)' "$OUTPUT_DIR/target/etc/group"; then
-  echo "The kiosk user is missing render/audio device-group access." >&2
+UDEV_DEVICE_RULES="$OUTPUT_DIR/target/etc/udev/rules.d/70-nbosp-device-groups.rules"
+if [[ ! -f "$UDEV_DEVICE_RULES" ]] \
+  || ! grep -Fq 'KERNEL=="renderD*", OWNER="nbosp", GROUP="render", MODE="0660"' "$UDEV_DEVICE_RULES" \
+  || ! grep -Fq 'SUBSYSTEM=="sound", OWNER="nbosp", GROUP="audio", MODE="0660"' "$UDEV_DEVICE_RULES"; then
+  echo "udev rules granting the kiosk user access to GPU and audio devices are missing." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/nmcli" \
