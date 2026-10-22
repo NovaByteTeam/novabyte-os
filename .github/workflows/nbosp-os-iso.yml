@@ -59,10 +59,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex file wget cpio unzip rsync \
             python3 perl patch gzip bzip2 xz-utils libncurses-dev libelf-dev libssl-dev curl \
-            grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools \
-            libx11-dev libxext-dev libxrandr-dev libgl-dev libgles-dev \
-            libwayland-dev wayland-protocols libxshmfence-dev libglx-dev \
-            mesa-common-dev libepoxy-dev
+            grub-common grub-pc-bin grub-efi-amd64-bin xorriso mtools
 
       - name: Cache Buildroot source and downloads
         uses: actions/cache@v4
@@ -82,15 +79,6 @@ jobs:
           key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/**', 'NBOSP/os/package/nbosp-install/**', 'NBOSP/os/package/nbosp-power/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
           restore-keys: |
             nbosp-buildroot-output-v2-${{ runner.os }}-
-
-      - name: Force XWayland rebuild from cached output
-        if: steps.cache-buildroot-output.outputs.cache-hit == 'true'
-        run: |
-          BUILDROOT_DIR="NBOSP/os/.buildroot/buildroot-2025.02"
-          OUTPUT_DIR="NBOSP/os/output"
-          if [[ -d "$BUILDROOT_DIR" ]]; then
-            make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="NBOSP/os" xwayland-dirclean
-          fi
 
       - name: Build bootable NBOSP ISO
         run: bash NBOSP/os/build-iso.sh
