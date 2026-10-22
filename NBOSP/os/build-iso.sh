@@ -117,9 +117,11 @@ GRAPHICS_SIGNATURE="$(
     grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
   } | sha256sum | cut -d ' ' -f 1
 )"
+XWAYLAND_BUILD_DIR_EARLY="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit 2>/dev/null || true)"
 if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
-  || [[ "$(cat "$GRAPHICS_SIGNATURE_FILE")" != "$GRAPHICS_SIGNATURE" ]]; then
-  echo "Graphics configuration changed; rebuilding only Mesa, libglvnd, and XWayland."
+  || [[ "$(cat "$GRAPHICS_SIGNATURE_FILE")" != "$GRAPHICS_SIGNATURE" ]] \
+  || [[ -z "$XWAYLAND_BUILD_DIR_EARLY" || ! -f "$XWAYLAND_BUILD_DIR_EARLY/meson-info/intro-buildoptions.json" ]]; then
+  echo "Graphics configuration changed or XWayland build incomplete; rebuilding Mesa, libglvnd, and XWayland."
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     xwayland-dirclean libglvnd-dirclean mesa3d-dirclean
   printf '%s\n' "$GRAPHICS_SIGNATURE" > "$GRAPHICS_SIGNATURE_FILE"
