@@ -197,18 +197,18 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/amixer" \
   echo "ALSA mixer, control, and playback utilities are missing from the target image." >&2
   exit 1
 fi
-ROOTFS_GROUP_FILE="$OUTPUT_DIR/build/buildroot-fs/tar/target/etc/group"
-if [[ ! -f "$ROOTFS_GROUP_FILE" ]] \
-  || ! grep -Eq '^render:[^:]*:[^:]*:' "$ROOTFS_GROUP_FILE"; then
-  echo "The render group is missing from the target image." >&2
-  if [[ -f "$ROOTFS_GROUP_FILE" ]]; then
-    echo "Generated group file: $ROOTFS_GROUP_FILE" >&2
-    cat "$ROOTFS_GROUP_FILE" >&2
-  fi
+ROOTFS_GROUPS="$(tar -xOf "$OUTPUT_DIR/images/rootfs.tar" ./etc/group)" || {
+  echo "Could not read /etc/group from the generated rootfs.tar image." >&2
+  exit 1
+}
+if ! grep -Eq '^render:[^:]*:[^:]*:' <<<"$ROOTFS_GROUPS"; then
+  echo "The render group is missing from /etc/group in the generated rootfs.tar image:" >&2
+  printf '%s\n' "$ROOTFS_GROUPS" >&2
   exit 1
 fi
-if ! grep -Eq '^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)' "$ROOTFS_GROUP_FILE"; then
-  echo "The kiosk user is missing from the render group in the generated root filesystem." >&2
+if ! grep -Eq '^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)' <<<"$ROOTFS_GROUPS"; then
+  echo "The kiosk user is missing from the render group in /etc/group in the generated rootfs.tar image:" >&2
+  printf '%s\n' "$ROOTFS_GROUPS" >&2
   exit 1
 fi
 if ! awk '$1 == "-" && $3 == "render" && $4 == "60000" { found = 1 } END { exit !found }' \
