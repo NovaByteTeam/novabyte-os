@@ -201,10 +201,19 @@ ROOTFS_GROUP_FILE="$OUTPUT_DIR/build/buildroot-fs/tar/target/etc/group"
 if [[ ! -f "$ROOTFS_GROUP_FILE" ]] \
   || ! grep -Eq '^render:[^:]*:[^:]*:' "$ROOTFS_GROUP_FILE"; then
   echo "The render group is missing from the target image." >&2
+  if [[ -f "$ROOTFS_GROUP_FILE" ]]; then
+    echo "Generated group file: $ROOTFS_GROUP_FILE" >&2
+    cat "$ROOTFS_GROUP_FILE" >&2
+  fi
   exit 1
 fi
 if ! grep -Eq '^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)' "$ROOTFS_GROUP_FILE"; then
   echo "The kiosk user is missing from the render group in the generated root filesystem." >&2
+  exit 1
+fi
+if ! awk '$1 == "-" && $3 == "render" && $4 == "60000" { found = 1 } END { exit !found }' \
+  "$OS_DIR/board/nbosp/users.table"; then
+  echo "The NBOSP user table does not define render with the reserved GID 60000." >&2
   exit 1
 fi
 if ! awk '$1 == "nbosp" { count = split($8, groups, ","); for (i = 1; i <= count; i++) if (groups[i] == "render") found = 1 } END { exit !found }' \
