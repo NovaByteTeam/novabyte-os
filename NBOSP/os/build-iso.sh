@@ -50,6 +50,7 @@ for option in \
   BR2_PACKAGE_ALSA_LIB \
   BR2_PACKAGE_ALSA_UTILS \
   BR2_PACKAGE_ALSA_UTILS_ALSACTL \
+  BR2_PACKAGE_ALSA_UTILS_AMIXER \
   BR2_PACKAGE_ALSA_UTILS_APLAY \
   BR2_PACKAGE_LIBDRM_VMWGFX \
   BR2_PACKAGE_XORGPROTO \
@@ -190,9 +191,14 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
   echo "Cage compositor is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/alsactl" \
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/amixer" \
+  || ! -x "$OUTPUT_DIR/target/usr/sbin/alsactl" \
   || ! -x "$OUTPUT_DIR/target/usr/bin/aplay" ]]; then
-  echo "ALSA control and playback utilities are missing from the target image." >&2
+  echo "ALSA mixer, control, and playback utilities are missing from the target image." >&2
+  exit 1
+fi
+if ! grep -Eq '^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)' "$OUTPUT_DIR/target/etc/group"; then
+  echo "The render group or kiosk user's render-group membership is missing from the target image." >&2
   exit 1
 fi
 UDEV_DEVICE_RULES="$OUTPUT_DIR/target/etc/udev/rules.d/70-nbosp-device-groups.rules"
@@ -211,6 +217,14 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/nmcli" \
   || ! -f "$OUTPUT_DIR/target/etc/init.d/S50polkitd" \
   || ! -f "$OUTPUT_DIR/target/etc/polkit-1/rules.d/50-nbosp-connectivity.rules" ]]; then
   echo "NetworkManager, Bluetooth control, or NBOSP connectivity authorization is missing from the target image." >&2
+  exit 1
+fi
+WIRED_CONNECTION="$OUTPUT_DIR/target/etc/NetworkManager/system-connections/nbosp-wired.nmconnection"
+if [[ ! -f "$WIRED_CONNECTION" ]] \
+  || ! grep -Fqx 'autoconnect=true' "$WIRED_CONNECTION" \
+  || ! grep -Fqx 'method=auto' "$WIRED_CONNECTION" \
+  || [[ "$(stat -c '%a' "$WIRED_CONNECTION")" != "600" ]]; then
+  echo "The default DHCP-enabled VMware Ethernet connection is missing or has unsafe permissions." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then

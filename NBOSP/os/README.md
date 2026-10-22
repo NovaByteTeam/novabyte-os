@@ -84,8 +84,10 @@ If boot reaches the console but the kiosk reports a missing VMware DRM device,
 use a newly built ISO with `CONFIG_DRM_VMWGFX=y` and ensure the VM has a
 connected virtual display. The kernel also includes VMware-compatible
 `e1000`, `e1000e`, and `vmxnet3` network drivers for the VM's virtual NIC.
-The boot command line keeps the VMware `e1000` interface named `eth0` for
-Buildroot DHCP and makes the serial console the userspace console so init and
+NetworkManager has a system-wide Ethernet profile that automatically connects
+with DHCP and DNS; the VMware network adapter must be enabled and connected.
+The boot command line keeps the VMware `e1000` interface named `eth0` and makes
+the serial console the userspace console so init and
 kiosk startup messages are captured by a configured VMware serial port.
 
 The manual GitHub Actions workflow runs `npm ci` in `NBOSP`, builds the Linux
@@ -109,9 +111,12 @@ profile data are stored under `/home/nbosp`. Cage runs the compositor on Wayland
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
 The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
-NW.js running through XWayland; Chromium is configured to use desktop OpenGL,
-GPU rasterization, and zero-copy buffers. udev assigns DRM render nodes to
-the dedicated `nbosp` account while retaining the standard `render` group.
+NW.js running through XWayland. Chromium explicitly requests the built
+EGL/ANGLE implementation with its OpenGL backend; the previous desktop-GL
+request was not in this NW.js build's allowed implementation list and caused
+the GPU process to exit. GPU rasterization and zero-copy buffers remain
+enabled. udev assigns DRM render nodes to the dedicated `nbosp` account and
+the `render` group, which is created in the system user table.
 Before starting the browser, the service verifies that `nbosp` can read and
 write a DRM render node rather than silently accepting the software-rendering
 fallback.
@@ -130,14 +135,15 @@ matching Mesa source into the toolchain sysroot before compiling XWayland.
 In VMware, enable **Accelerate 3D graphics** for the VM. The image build checks
 for XWayland GLX/glamor, Mesa GBM, libepoxy, and the VMware SVGA driver; still
 confirm Chromium's actual renderer from its GPU log in the VM.
-The image also includes ALSA HDA and Ensoniq ES1371 drivers, ALSA utilities,
-and initializes the mixer at kiosk startup. udev grants the kiosk account
-access to sound devices while retaining the standard `audio` group. For VMware
-audio, add or enable a virtual sound card and select **Connect at power on**.
-The attached log's HDA controller times out while probing codecs; that means
-the guest did not receive a responding audio codec, which cannot be repaired
-by ALSA mixer settings alone. With no detected card, startup logs a specific
-warning instead of claiming audio is ready.
+The image also includes ALSA HDA and Ensoniq ES1371 drivers and utilities.
+At kiosk startup, `amixer` attempts to unmute and set the common playback
+controls on the detected card; it logs a warning and the available controls
+if the card has none of those controls. udev grants the kiosk account access
+to sound devices while retaining the `audio` group. For VMware audio, add or
+enable a virtual sound card and select **Connect at power on**. The attached
+boot log detects a generic VMware HDA codec after a CORB reset timeout and
+reports that UCM configuration is absent, so ALSA's `alsactl init` did not
+reliably initialize it. The kiosk now uses direct mixer controls instead.
 NovaByte's built-in HTML select controls open an in-page listbox instead of
 Chromium's native popup, avoiding popup-positioning differences in the
 XWayland kiosk. Select controls rendered inside external websites in the
@@ -185,6 +191,11 @@ ephemeral: files and app data are lost at shutdown unless you use the disk
 installer. The tty2 console remains available for debugging.
 The VMware Open VM Tools guest daemon and its resolution helper are included;
 installing a separate Tools ISO inside the guest is unnecessary.
+The guest Terminal runs as the unprivileged `nbosp` user. This Buildroot image
+does not provide `sudo` or Debian's `apt`; the `sudo apt` commands above are
+for installing build dependencies on the Ubuntu/WSL host, not for use inside
+the guest. Add guest software through the Buildroot configuration and rebuild
+the ISO.
 The kernel command line explicitly selects the SRSO `safe-ret` mitigation.
 The guest cannot provide the host CPU microcode required for the additional
 IBPB protection. If the host CPU is affected, update its BIOS/UEFI firmware

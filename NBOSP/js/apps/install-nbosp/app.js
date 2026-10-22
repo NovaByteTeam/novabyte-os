@@ -68,7 +68,51 @@
     return removed;
   }
 
-  registerApp({
+  async function removeInstallerFromSession() {
+    let cleanupError = null;
+    try {
+      await removeInstallerDesktopShortcut();
+    } catch (error) {
+      cleanupError = error;
+      console.error('[Install NovaByte] Could not remove its desktop shortcut:', error);
+    }
+
+    OS.settings.set(
+      'pinnedApps',
+      (OS.settings.get('pinnedApps') || []).filter(id => id !== APP_ID)
+    );
+
+    if (typeof WM !== 'undefined' && WM.closeWindow && OS.windows) {
+      const windowIds = [];
+      for (const [windowId, windowState] of OS.windows) {
+        if (windowState.appId === APP_ID) windowIds.push(windowId);
+      }
+      await Promise.all(windowIds.map(windowId => WM.closeWindow(windowId, { forceKill: true })));
+    }
+
+    if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
+      AppRegistry.unregisterApp(APP_ID);
+    }
+    if (OS.apps) delete OS.apps[APP_ID];
+    const registryIndex = APP_REGISTRY.findIndex(app => app.id === APP_ID);
+    if (registryIndex !== -1) APP_REGISTRY.splice(registryIndex, 1);
+    if (typeof WM !== 'undefined') WM.updateTaskbar?.();
+    if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+    if (typeof renderLaunchpad === 'function') renderLaunchpad();
+    if (cleanupError) throw cleanupError;
+  }
+
+  function shouldRegisterInstaller() {
+    if (typeof process === 'undefined' || process.platform !== 'linux') return true;
+    try {
+      return !/(?:^|\s)root=/.test(require('fs').readFileSync('/proc/cmdline', 'utf8'));
+    } catch (error) {
+      console.error('[Install NovaByte] Could not determine whether this is an installed system:', error);
+      return true;
+    }
+  }
+
+  if (shouldRegisterInstaller()) registerApp({
     id: APP_ID,
     name: 'Install NovaByte',
     icon: 'hard-drive',
@@ -321,25 +365,25 @@
             return;
           }
 
+          step = 3;
+          renderStep();
+          Notify.show({
+            title: 'Installation complete',
+            body: `NovaByte is installed to ${selectedDevice}. The installer has been removed. Restart the VM to boot from the installed system.`,
+            type: 'success',
+            appName: 'Install NovaByte'
+          });
           try {
-            await removeInstallerDesktopShortcut();
+            await removeInstallerFromSession();
           } catch (error) {
-            console.error('[Install NovaByte] Could not remove its desktop shortcut:', error);
+            console.error('[Install NovaByte] Could not remove itself from the live session:', error);
             Notify.show({
-              title: 'Desktop shortcut cleanup failed',
+              title: 'Installer cleanup failed',
               body: error?.message || String(error),
               type: 'warning',
               appName: 'Install NovaByte'
             });
           }
-          step = 3;
-          renderStep();
-          Notify.show({
-            title: 'Installation complete',
-            body: `NovaByte is installed to ${selectedDevice}. Restart the VM to boot from it.`,
-            type: 'success',
-            appName: 'Install NovaByte'
-          });
         });
       };
 

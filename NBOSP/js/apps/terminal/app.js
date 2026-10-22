@@ -1423,7 +1423,12 @@ function initLinuxTerminal(content, state) {
   shell.stderr.on('data', append);
   shell.on('error', error => append(`\n[terminal error] ${error.message}\n`));
   shell.on('close', code => append(`\n[Shell exited with status ${code ?? 'unknown'}]\n`));
-  output.textContent = `NovaByte Linux terminal — commands run as ${os.userInfo().username}.\n`;
+  output.textContent = [
+    `NovaByte Linux terminal — commands run as ${os.userInfo().username}.`,
+    'NBOSP is a Buildroot system: apt and sudo are not available in this guest.',
+    'Open VM Tools are already included. To add system packages, update the Buildroot configuration and rebuild the ISO.',
+    ''
+  ].join('\n');
   input.addEventListener('keydown', event => {
     if (event.key === 'Enter') {
       const command = input.value;

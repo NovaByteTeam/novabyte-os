@@ -1862,11 +1862,12 @@ function showOpenWithDialog(fileNode) {
 
 window.showOpenWithDialog = showOpenWithDialog;
 
-function persistDisplayScale() {
+const DISPLAY_SCALES = [1, 1.25, 1.5, 1.75, 2];
+
+function persistDisplayScale(scale = Number(OS.settings.get('displayScale') || 1)) {
   if (typeof process === 'undefined' || process.platform !== 'linux') return;
 
-  const scale = Number(OS.settings.get('displayScale') || 1);
-  if (![1, 1.25, 1.5, 1.75, 2].includes(scale)) {
+  if (!DISPLAY_SCALES.includes(scale)) {
     throw new Error(`Unsupported display scale: ${scale}`);
   }
 
@@ -1875,6 +1876,43 @@ function persistDisplayScale() {
   const configDir = path.join(require('os').homedir(), '.config', 'novabyte');
   fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(configDir, 'display-scale'), `${scale}\n`, { mode: 0o600 });
+}
+
+if (typeof process !== 'undefined' && process.platform === 'linux') {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const configDir = path.join(require('os').homedir(), '.config', 'novabyte');
+    const scalePath = path.join(configDir, 'display-scale');
+    let scale = Number(OS.settings.get('displayScale') || 1);
+
+    try {
+      const savedScale = Number(fs.readFileSync(scalePath, 'utf8').trim());
+      if (DISPLAY_SCALES.includes(savedScale)) {
+        scale = savedScale;
+      } else {
+        console.warn('[Desktop] Invalid saved display scale; restoring from settings.');
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+
+    if (!DISPLAY_SCALES.includes(scale)) {
+      throw new Error(`Unsupported display scale: ${scale}`);
+    }
+    if (Number(OS.settings.get('displayScale') || 1) !== scale) {
+      OS.settings.set('displayScale', scale);
+    }
+    persistDisplayScale(scale);
+  } catch (error) {
+    console.error('[Desktop] Could not restore display scale:', error);
+    Notify.show({
+      title: 'Display scale could not be restored',
+      body: error?.message || String(error),
+      type: 'error',
+      appName: 'Settings'
+    });
+  }
 }
 
 OS.events.on('settings:changed', async ({ key }) => {
@@ -1955,17 +1993,3 @@ OS.events.on('settings:changed', async ({ key }) => {
     && typeof AppSandbox !== 'undefined'
     && AppSandbox.reloadAfterRootRevocation?.('Root Access was disabled')) return;
 });
-
-if (typeof process !== 'undefined' && process.platform === 'linux') {
-  try {
-    persistDisplayScale();
-  } catch (error) {
-    console.error('[Desktop] Could not persist display scale:', error);
-    Notify.show({
-      title: 'Display scale could not be saved',
-      body: error?.message || String(error),
-      type: 'error',
-      appName: 'Settings'
-    });
-  }
-}

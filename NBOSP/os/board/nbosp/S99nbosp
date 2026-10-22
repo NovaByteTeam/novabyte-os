@@ -41,6 +41,25 @@ case "$1" in
       ls -la /dev/dri >&2 2>/dev/null || echo "  /dev/dri does not exist" >&2
       exit 1
     fi
+    if ! grep -q '^render:' /etc/group; then
+      echo "NBOSP kiosk: the DRM render group is missing from /etc/group." >&2
+      exit 1
+    fi
+    vmwgfx_bound=false
+    for card in /sys/class/drm/card[0-9]*; do
+      [ -e "$card/device/driver" ] || continue
+      driver="$(basename "$(readlink -f "$card/device/driver")")"
+      if [ "$driver" = vmwgfx ]; then
+        vmwgfx_bound=true
+        break
+      fi
+    done
+    if [ "$vmwgfx_bound" != true ]; then
+      echo "NBOSP kiosk: VMware vmwgfx kernel driver is not bound to a DRM device." >&2
+      ls -la /sys/class/drm >&2
+      exit 1
+    fi
+    echo "NBOSP kiosk: VMware vmwgfx kernel driver is active."
     render_device=""
     for device in /dev/dri/renderD*; do
       [ -c "$device" ] || continue
@@ -59,13 +78,22 @@ case "$1" in
       echo "NBOSP kiosk: dbus-run-session is missing" >&2
       exit 1
     fi
-    if ! command -v alsactl >/dev/null 2>&1; then
-      echo "NBOSP audio: alsactl is missing from the image" >&2
+    if ! command -v amixer >/dev/null 2>&1; then
+      echo "NBOSP audio: amixer is missing from the image" >&2
       exit 1
     fi
     if grep -Eq '^[[:space:]]*[0-9]+[[:space:]]' /proc/asound/cards 2>/dev/null; then
-      if ! alsactl init; then
-        echo "NBOSP audio: mixer initialization failed" >&2
+      mixer_controls=0
+      for control in Master PCM Front Speaker Headphone Line Surround Center LFE; do
+        if amixer -q -c 0 sset "$control" 80% unmute >/dev/null 2>&1; then
+          mixer_controls=$((mixer_controls + 1))
+        fi
+      done
+      if [ "$mixer_controls" -gt 0 ]; then
+        echo "NBOSP audio: enabled $mixer_controls playback mixer control(s)."
+      else
+        echo "NBOSP audio: no supported playback mixer controls found on card 0." >&2
+        amixer -c 0 scontrols >&2 || true
       fi
     else
       echo "NBOSP audio: no ALSA sound card detected; check the VMware sound device connection" >&2
@@ -112,7 +140,8 @@ case "$1" in
 #!/bin/sh
 export LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp
 exec /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform \
-  --ozone-platform=x11 --use-gl=desktop \
+  --ozone-platform=x11 --use-gl=angle --use-angle=gl \
+  --disable-features=Vulkan \
   --force-device-scale-factor="$display_scale" \
   --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy \
   --allow-insecure-localhost --enable-logging=stderr

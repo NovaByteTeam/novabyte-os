@@ -1,1 +1,2 @@
-nbosp 1000 nbosp 1000 ! /home/nbosp /bin/sh video,input,seat NBOSP-kiosk-user
+- - render -1 - - - - Render device access group
+nbosp 1000 nbosp 1000 ! /home/nbosp /bin/sh video,input,seat,render NBOSP-kiosk-user
