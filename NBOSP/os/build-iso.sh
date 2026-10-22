@@ -117,10 +117,14 @@ GRAPHICS_SIGNATURE="$(
     grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
   } | sha256sum | cut -d ' ' -f 1
 )"
-XWAYLAND_BUILD_DIR_EARLY="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit 2>/dev/null || true)"
+XWAYLAND_SOURCE_DIR_EARLY="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit 2>/dev/null || true)"
+XWAYLAND_BUILD_OPTIONS_EARLY=""
+if [[ -n "$XWAYLAND_SOURCE_DIR_EARLY" ]]; then
+  XWAYLAND_BUILD_OPTIONS_EARLY="$(find "$XWAYLAND_SOURCE_DIR_EARLY" -type f -path '*/meson-info/intro-buildoptions.json' -print -quit 2>/dev/null || true)"
+fi
 if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
   || [[ "$(cat "$GRAPHICS_SIGNATURE_FILE")" != "$GRAPHICS_SIGNATURE" ]] \
-  || [[ -z "$XWAYLAND_BUILD_DIR_EARLY" || ! -f "$XWAYLAND_BUILD_DIR_EARLY/meson-info/intro-buildoptions.json" ]]; then
+  || [[ -z "$XWAYLAND_BUILD_OPTIONS_EARLY" ]]; then
   echo "Graphics configuration changed or XWayland build incomplete; rebuilding Mesa, libglvnd, and XWayland."
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     xwayland-dirclean libglvnd-dirclean mesa3d-dirclean
@@ -172,9 +176,12 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
   echo "XWayland was enabled but /usr/bin/Xwayland is missing from the target image." >&2
   exit 1
 fi
-XWAYLAND_BUILD_DIR="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit)"
-XWAYLAND_BUILD_OPTIONS="$XWAYLAND_BUILD_DIR/meson-info/intro-buildoptions.json"
-if [[ -z "$XWAYLAND_BUILD_DIR" || ! -f "$XWAYLAND_BUILD_OPTIONS" ]]; then
+XWAYLAND_SOURCE_DIR="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit)"
+XWAYLAND_BUILD_OPTIONS=""
+if [[ -n "$XWAYLAND_SOURCE_DIR" ]]; then
+  XWAYLAND_BUILD_OPTIONS="$(find "$XWAYLAND_SOURCE_DIR" -type f -path '*/meson-info/intro-buildoptions.json' -print -quit)"
+fi
+if [[ -z "$XWAYLAND_BUILD_OPTIONS" ]]; then
   echo "XWayland Meson build options are missing; cannot verify GLX and glamor support." >&2
   exit 1
 fi
