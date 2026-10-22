@@ -37,6 +37,7 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(defconfig).toContain('BR2_PACKAGE_ALSA_UTILS_APLAY=y');
     expect(build).toContain('BR2_PACKAGE_ALSA_UTILS_ALSACTL');
     expect(build).toContain('BR2_PACKAGE_ALSA_UTILS_APLAY');
+    expect(build).toContain('alsa-utils-dirclean nbosp-kiosk-dirclean');
     expect(build).toContain('target/usr/sbin/alsactl');
     expect(build).toContain('target/usr/bin/aplay');
     expect(kernel).toContain('CONFIG_SND_HDA_INTEL=y');
