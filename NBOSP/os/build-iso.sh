@@ -197,8 +197,13 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/amixer" \
   echo "ALSA mixer, control, and playback utilities are missing from the target image." >&2
   exit 1
 fi
-if ! grep -Eq '^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)' "$OUTPUT_DIR/target/etc/group"; then
-  echo "The render group or kiosk user's render-group membership is missing from the target image." >&2
+if ! grep -q '^render:' "$OUTPUT_DIR/target/etc/group"; then
+  echo "The render group is missing from the target image." >&2
+  exit 1
+fi
+if ! awk '$1 == "nbosp" { count = split($8, groups, ","); for (i = 1; i <= count; i++) if (groups[i] == "render") found = 1 } END { exit !found }' \
+  "$OS_DIR/board/nbosp/users.table"; then
+  echo "The NBOSP user table does not grant the kiosk user render-group access." >&2
   exit 1
 fi
 UDEV_DEVICE_RULES="$OUTPUT_DIR/target/etc/udev/rules.d/70-nbosp-device-groups.rules"

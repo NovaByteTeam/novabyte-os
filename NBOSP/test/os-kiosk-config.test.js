@@ -36,7 +36,9 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(users).toContain('video,input,seat');
     expect(users).toContain('- - render -1 - - - - Render device access group');
     expect(users).toContain('video,input,seat,render');
-    expect(build).toContain("grep -Eq '^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)'");
+    expect(build).toContain('grep -q \'^render:\'');
+    expect(build).toContain('split($8, groups, ",")');
+    expect(build).toContain('The NBOSP user table does not grant the kiosk user render-group access.');
     expect(startup).toContain('/dev/dri/renderD*');
     expect(startup).toContain('hardware acceleration would fail');
     expect(startup).toContain('VMware vmwgfx kernel driver is active.');
