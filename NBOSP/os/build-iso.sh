@@ -118,8 +118,8 @@ fi
 GRAPHICS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-graphics-signature"
 GRAPHICS_SIGNATURE="$(
   {
-    printf '%s\n' 'nbosp-graphics-stack-v2'
-    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
+    printf '%s\n' 'nbosp-graphics-stack-v3'
+    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBDRM|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
   } | sha256sum | cut -d ' ' -f 1
 )"
 XWAYLAND_SOURCE_DIR_EARLY="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit 2>/dev/null || true)"
@@ -127,12 +127,18 @@ XWAYLAND_BUILD_OPTIONS_EARLY=""
 if [[ -n "$XWAYLAND_SOURCE_DIR_EARLY" ]]; then
   XWAYLAND_BUILD_OPTIONS_EARLY="$(find "$XWAYLAND_SOURCE_DIR_EARLY" -type f -path '*/meson-info/intro-buildoptions.json' -print -quit 2>/dev/null || true)"
 fi
+LIBDRM_SOURCE_DIR_EARLY="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'libdrm-*' -print -quit 2>/dev/null || true)"
+LIBDRM_BUILD_OPTIONS_EARLY=""
+if [[ -n "$LIBDRM_SOURCE_DIR_EARLY" ]]; then
+  LIBDRM_BUILD_OPTIONS_EARLY="$(find "$LIBDRM_SOURCE_DIR_EARLY" -type f -path '*/meson-info/intro-buildoptions.json' -print -quit 2>/dev/null || true)"
+fi
 if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
   || [[ "$(cat "$GRAPHICS_SIGNATURE_FILE")" != "$GRAPHICS_SIGNATURE" ]] \
-  || [[ -z "$XWAYLAND_BUILD_OPTIONS_EARLY" ]]; then
-  echo "Graphics configuration changed or XWayland build incomplete; rebuilding Mesa, libglvnd, and XWayland."
+  || [[ -z "$XWAYLAND_BUILD_OPTIONS_EARLY" ]] \
+  || [[ -z "$LIBDRM_BUILD_OPTIONS_EARLY" ]]; then
+  echo "Graphics configuration changed or graphics build incomplete; rebuilding Mesa, libglvnd, libdrm, and XWayland."
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-    xwayland-dirclean libglvnd-dirclean mesa3d-dirclean
+    xwayland-dirclean libglvnd-dirclean mesa3d-dirclean libdrm-dirclean
   printf '%s\n' "$GRAPHICS_SIGNATURE" > "$GRAPHICS_SIGNATURE_FILE"
 fi
 
@@ -254,8 +260,27 @@ if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libepoxy.
   echo "libepoxy is missing from the target image; XWayland glamor cannot initialize." >&2
   exit 1
 fi
-if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libdrm_vmwgfx.so*' -print -quit | grep -q .; then
-  echo "libdrm's VMware driver is missing from the target image." >&2
+LIBDRM_SOURCE_DIR="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'libdrm-*' -print -quit)"
+LIBDRM_BUILD_OPTIONS=""
+if [[ -n "$LIBDRM_SOURCE_DIR" ]]; then
+  LIBDRM_BUILD_OPTIONS="$(find "$LIBDRM_SOURCE_DIR" -type f -path '*/meson-info/intro-buildoptions.json' -print -quit)"
+fi
+if [[ -z "$LIBDRM_BUILD_OPTIONS" ]]; then
+  echo "libdrm Meson build options are missing; cannot verify VMware support." >&2
+  exit 1
+fi
+python3 - "$LIBDRM_BUILD_OPTIONS" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as options_file:
+    options = {item["name"]: item["value"] for item in json.load(options_file)}
+
+if options.get("vmwgfx") != "enabled":
+    raise SystemExit("libdrm must be built with vmwgfx support enabled.")
+PY
+if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libdrm.so.2*' -print -quit | grep -q .; then
+  echo "The libdrm runtime library required by Mesa's VMware driver is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -f "$OUTPUT_DIR/target/etc/udev/rules.d/70-nbosp-device-groups.rules" ]]; then

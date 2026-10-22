@@ -8,6 +8,7 @@ describe('NBOSP VMware kiosk device configuration', () => {
       'utf8',
     );
     const startup = readFileSync(new URL('../os/board/nbosp/S99nbosp', import.meta.url), 'utf8');
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
     const users = readFileSync(new URL('../os/board/nbosp/users.table', import.meta.url), 'utf8');
 
     for (const content of [prepareKiosk, startup]) {
@@ -20,6 +21,11 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(users).toContain('video,input,seat');
     expect(startup).toContain('/dev/dri/renderD*');
     expect(startup).toContain('hardware acceleration would fail');
+    expect(build).toContain('BR2_PACKAGE_LIBDRM_VMWGFX');
+    expect(build).toContain('libdrm-dirclean');
+    expect(build).toContain('options.get("vmwgfx") != "enabled"');
+    expect(build).toContain("-name 'libdrm.so.2*'");
+    expect(build).not.toContain('libdrm_vmwgfx.so');
   });
 
   it('builds ALSA drivers, utilities, device permissions, and mixer initialization', () => {
