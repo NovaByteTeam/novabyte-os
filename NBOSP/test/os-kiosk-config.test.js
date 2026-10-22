@@ -26,12 +26,19 @@ describe('NBOSP VMware kiosk device configuration', () => {
     const defconfig = readFileSync(new URL('../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
     const kernel = readFileSync(new URL('../os/board/nbosp/linux.fragment', import.meta.url), 'utf8');
     const startup = readFileSync(new URL('../os/board/nbosp/S99nbosp', import.meta.url), 'utf8');
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
     const udevRules = readFileSync(
       new URL('../os/board/nbosp/rootfs-overlay/etc/udev/rules.d/70-nbosp-device-groups.rules', import.meta.url),
       'utf8',
     );
 
     expect(defconfig).toContain('BR2_PACKAGE_ALSA_UTILS=y');
+    expect(defconfig).toContain('BR2_PACKAGE_ALSA_UTILS_ALSACTL=y');
+    expect(defconfig).toContain('BR2_PACKAGE_ALSA_UTILS_APLAY=y');
+    expect(build).toContain('BR2_PACKAGE_ALSA_UTILS_ALSACTL');
+    expect(build).toContain('BR2_PACKAGE_ALSA_UTILS_APLAY');
+    expect(build).toContain('target/usr/sbin/alsactl');
+    expect(build).toContain('target/usr/bin/aplay');
     expect(kernel).toContain('CONFIG_SND_HDA_INTEL=y');
     expect(kernel).toContain('CONFIG_SND_HDA_GENERIC=y');
     expect(kernel).toContain('CONFIG_SND_ENS1371=y');

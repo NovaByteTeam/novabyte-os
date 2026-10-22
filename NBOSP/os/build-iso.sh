@@ -49,6 +49,8 @@ for option in \
   BR2_PACKAGE_DEJAVU_MONO \
   BR2_PACKAGE_ALSA_LIB \
   BR2_PACKAGE_ALSA_UTILS \
+  BR2_PACKAGE_ALSA_UTILS_ALSACTL \
+  BR2_PACKAGE_ALSA_UTILS_APLAY \
   BR2_PACKAGE_LIBDRM_VMWGFX \
   BR2_PACKAGE_XORGPROTO \
   BR2_PACKAGE_LIBGLVND \
@@ -182,8 +184,8 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
   echo "Cage compositor is missing from the target image." >&2
   exit 1
 fi
-if ! find "$OUTPUT_DIR/target/usr" \( -type f -o -type l \) -name alsactl -print -quit | grep -q . \
-  || ! find "$OUTPUT_DIR/target/usr" \( -type f -o -type l \) -name aplay -print -quit | grep -q .; then
+if [[ ! -x "$OUTPUT_DIR/target/usr/sbin/alsactl" \
+  || ! -x "$OUTPUT_DIR/target/usr/bin/aplay" ]]; then
   echo "ALSA control and playback utilities are missing from the target image." >&2
   exit 1
 fi
