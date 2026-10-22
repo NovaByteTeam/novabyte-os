@@ -83,6 +83,15 @@ jobs:
           restore-keys: |
             nbosp-buildroot-output-v2-${{ runner.os }}-
 
+      - name: Force XWayland rebuild from cached output
+        if: steps.cache-buildroot-output.outputs.cache-hit == 'true'
+        run: |
+          BUILDROOT_DIR="NBOSP/os/.buildroot/buildroot-2025.02"
+          OUTPUT_DIR="NBOSP/os/output"
+          if [[ -d "$BUILDROOT_DIR" ]]; then
+            make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="NBOSP/os" xwayland-dirclean
+          fi
+
       - name: Build bootable NBOSP ISO
         run: bash NBOSP/os/build-iso.sh
 
