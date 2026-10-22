@@ -54,6 +54,9 @@ will proceed. The installer erases every partition on the selected disk,
 creates a GPT layout, and installs BIOS and UEFI bootloaders. It checks that
 the selected disk and its partitions are not mounted. Do not select a disk
 containing data you need; the erase is irreversible.
+The installed GRUB entry passes the root partition's GPT `PARTUUID` directly
+to Linux, so the kernel can locate the ext4 root filesystem without an
+initramfs.
 For UEFI guests, disable Secure Boot; the installed GRUB loader is not signed.
 
 After a successful installation, the app removes its own desktop shortcut;
@@ -106,8 +109,11 @@ profile data are stored under `/home/nbosp`. Cage runs the compositor on Wayland
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
 The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
-NW.js running through XWayland; Chromium is configured to use GPU rasterization
-and zero-copy buffers using Chromium's supported Linux EGL/ANGLE default.
+NW.js running through XWayland; Chromium is configured to use desktop OpenGL,
+GPU rasterization, and zero-copy buffers. The kiosk account belongs to the
+`render` group, and udev assigns render nodes to that group. Before starting
+the browser, the service verifies that `nbosp` can read and write a DRM render
+node rather than silently accepting the software-rendering fallback.
 libepoxy is included so Buildroot enables XWayland's glamor path as well as
 GLX. The ISO build verifies XWayland's configured Meson options, not just the
 presence of GL libraries, before producing the image.
@@ -123,6 +129,14 @@ matching Mesa source into the toolchain sysroot before compiling XWayland.
 In VMware, enable **Accelerate 3D graphics** for the VM. The image build checks
 for XWayland GLX/glamor, Mesa GBM, libepoxy, and the VMware SVGA driver; still
 confirm Chromium's actual renderer from its GPU log in the VM.
+The image also includes ALSA HDA and Ensoniq ES1371 drivers, ALSA utilities,
+and initializes the mixer at kiosk startup. The kiosk user is in the `audio`
+group, which udev grants access to sound devices. For VMware audio, add or
+enable a virtual sound card and select **Connect at power on**. The attached
+log's HDA controller times out while probing codecs; that means the guest did
+not receive a responding audio codec, which cannot be repaired by ALSA mixer
+settings alone. With no detected card, startup logs a specific warning instead
+of claiming audio is ready.
 NovaByte's built-in HTML select controls open an in-page listbox instead of
 Chromium's native popup, avoiding popup-positioning differences in the
 XWayland kiosk. Select controls rendered inside external websites in the

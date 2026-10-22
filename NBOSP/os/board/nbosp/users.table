@@ -1,1 +1,2 @@
-nbosp 1000 nbosp 1000 ! /home/nbosp /bin/sh video,input,seat NBOSP-kiosk-user
+render -1 render -1 ! /var/empty /bin/false - DRM-render-node-access
+nbosp 1000 nbosp 1000 ! /home/nbosp /bin/sh video,input,seat,render,audio NBOSP-kiosk-user

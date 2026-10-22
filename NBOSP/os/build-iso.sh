@@ -47,6 +47,9 @@ for option in \
   BR2_PACKAGE_DEJAVU \
   BR2_PACKAGE_DEJAVU_SANS \
   BR2_PACKAGE_DEJAVU_MONO \
+  BR2_PACKAGE_ALSA_LIB \
+  BR2_PACKAGE_ALSA_UTILS \
+  BR2_PACKAGE_LIBDRM_VMWGFX \
   BR2_PACKAGE_XORGPROTO \
   BR2_PACKAGE_LIBGLVND \
   BR2_PACKAGE_LIBEPOXY \
@@ -157,8 +160,37 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
 fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
+KERNEL_CONFIG="$(find "$OUTPUT_DIR/build" -maxdepth 2 -type f -path '*/linux-*/.config' -print -quit)"
+if [[ -z "$KERNEL_CONFIG" ]]; then
+  echo "The built Linux kernel configuration is missing." >&2
+  exit 1
+fi
+for option in \
+  CONFIG_DRM_VMWGFX \
+  CONFIG_SND_HDA_INTEL \
+  CONFIG_SND_HDA_GENERIC \
+  CONFIG_SND_HDA_CODEC_REALTEK \
+  CONFIG_SND_ENS1371
+do
+  if ! grep -qx "$option=y" "$KERNEL_CONFIG"; then
+    echo "Required VMware graphics/audio kernel option is missing: $option" >&2
+    exit 1
+  fi
+done
+
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
   echo "Cage compositor is missing from the target image." >&2
+  exit 1
+fi
+if ! find "$OUTPUT_DIR/target/usr" \( -type f -o -type l \) -name alsactl -print -quit | grep -q . \
+  || ! find "$OUTPUT_DIR/target/usr" \( -type f -o -type l \) -name aplay -print -quit | grep -q .; then
+  echo "ALSA control and playback utilities are missing from the target image." >&2
+  exit 1
+fi
+if ! grep -Eq '^render:[^:]*:[0-9]+:' "$OUTPUT_DIR/target/etc/group" \
+  || ! grep -Eq '^audio:[^:]*:[0-9]+:([^,]+,)*nbosp(,|$)' "$OUTPUT_DIR/target/etc/group" \
+  || ! grep -Eq '^render:[^:]*:[0-9]+:([^,]+,)*nbosp(,|$)' "$OUTPUT_DIR/target/etc/group"; then
+  echo "The kiosk user is missing render/audio device-group access." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/nmcli" \
@@ -217,6 +249,14 @@ if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libgbm.so
 fi
 if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libepoxy.so*' -print -quit | grep -q .; then
   echo "libepoxy is missing from the target image; XWayland glamor cannot initialize." >&2
+  exit 1
+fi
+if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libdrm_vmwgfx.so*' -print -quit | grep -q .; then
+  echo "libdrm's VMware driver is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -f "$OUTPUT_DIR/target/etc/udev/rules.d/70-nbosp-device-groups.rules" ]]; then
+  echo "DRM render and ALSA device access rules are missing from the target image." >&2
   exit 1
 fi
 if [[ ! -s "$OUTPUT_DIR/target/etc/ssl/certs/ca-certificates.crt" ]]; then
