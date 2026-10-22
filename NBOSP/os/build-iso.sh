@@ -197,8 +197,14 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/amixer" \
   echo "ALSA mixer, control, and playback utilities are missing from the target image." >&2
   exit 1
 fi
-if ! grep -q '^render:' "$OUTPUT_DIR/target/etc/group"; then
+ROOTFS_GROUP_FILE="$OUTPUT_DIR/build/buildroot-fs/tar/target/etc/group"
+if [[ ! -f "$ROOTFS_GROUP_FILE" ]] \
+  || ! grep -Eq '^render:[^:]*:[^:]*:' "$ROOTFS_GROUP_FILE"; then
   echo "The render group is missing from the target image." >&2
+  exit 1
+fi
+if ! grep -Eq '^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)' "$ROOTFS_GROUP_FILE"; then
+  echo "The kiosk user is missing from the render group in the generated root filesystem." >&2
   exit 1
 fi
 if ! awk '$1 == "nbosp" { count = split($8, groups, ","); for (i = 1; i <= count; i++) if (groups[i] == "render") found = 1 } END { exit !found }' \

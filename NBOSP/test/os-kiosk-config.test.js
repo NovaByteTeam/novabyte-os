@@ -36,7 +36,9 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(users).toContain('video,input,seat');
     expect(users).toContain('- - render -1 - - - - Render device access group');
     expect(users).toContain('video,input,seat,render');
-    expect(build).toContain('grep -q \'^render:\'');
+    expect(build).toContain('ROOTFS_GROUP_FILE="$OUTPUT_DIR/build/buildroot-fs/tar/target/etc/group"');
+    expect(build).toContain('grep -Eq \'^render:[^:]*:[^:]*:\' "$ROOTFS_GROUP_FILE"');
+    expect(build).toContain('grep -Eq \'^render:[^:]*:[^:]*:([^,]*,)*nbosp(,|$)\' "$ROOTFS_GROUP_FILE"');
     expect(build).toContain('split($8, groups, ",")');
     expect(build).toContain('The NBOSP user table does not grant the kiosk user render-group access.');
     expect(startup).toContain('/dev/dri/renderD*');
