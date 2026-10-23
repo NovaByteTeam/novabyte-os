@@ -372,6 +372,12 @@ async function loadApps() {
     gridLoading.classList.add('hidden');
     renderFeatured();
     renderGrid();
+    // Open deep-linked app on first load (e.g. #com.dirazcoder.focus)
+    if (location.hash.length > 1) {
+      const id = location.hash.slice(1);
+      const app = allApps.find(a => a.id === id);
+      if (app) openDetail(app);
+    }
   }
 }
 

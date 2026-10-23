@@ -1414,7 +1414,11 @@ class PublisherPortal {
           } else {
             return this.ensureSession().then(user => {
               this.updateNavigation();
-              if (user) this.open(user.email?.trim().toLowerCase() === this.adminEmail ? 'review' : 'my-apps');
+              // Don't clobber a deep-link hash — if the URL points at a specific
+              // app (e.g. #com.dirazcoder.focus), let the store open it instead.
+              // Supabase callback hashes always contain '='; app IDs never do.
+              const hasAppHash = location.hash.length > 1 && !location.hash.includes('=');
+              if (user && !hasAppHash) this.open(user.email?.trim().toLowerCase() === this.adminEmail ? 'review' : 'my-apps');
             });
           }
         })
