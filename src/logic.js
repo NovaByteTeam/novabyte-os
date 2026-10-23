@@ -331,6 +331,8 @@ const screenshotPreviewClose = document.getElementById('screenshot-preview-close
 const detailPermissions = document.getElementById('detail-permissions');
 const detailRequiredPermissions = document.getElementById('detail-required-permissions');
 const detailOptionalPermissions = document.getElementById('detail-optional-permissions');
+const detailLicense      = document.getElementById('detail-license');
+const detailLicenseChip  = document.getElementById('detail-license-chip');
 const detailReleaseNotes = document.getElementById('detail-release-notes');
 const detailReleaseNotesSection = document.getElementById('detail-release-notes-section');
 const detailLinks = document.getElementById('detail-links');
@@ -606,6 +608,10 @@ function appLinks(app, manifest) {
 
 function renderPackageDetails(app, pkg) {
   const manifest = pkg?.manifest || {};
+  const license = app.license || manifest.license;
+  detailLicense.textContent = license || '';
+  detailLicenseChip.hidden = !license;
+
   const releaseNotes = app.releaseNotes || manifest.releaseNotes;
   detailReleaseNotesSection.hidden = !(typeof releaseNotes === 'string' && releaseNotes.trim());
   detailReleaseNotes.textContent = detailReleaseNotesSection.hidden ? '' : releaseNotes;
