@@ -633,7 +633,8 @@ class PublisherPortal {
         if (file.size > MAX_PACKAGE_BYTES) throw new Error('The package exceeds the 25 MB upload limit.');
         const pkg = JSON.parse(await file.text());
         if (
-          pkg?.novabyte_app !== true ||
+          !pkg ||
+          (pkg.novabyte_app !== undefined && pkg.novabyte_app !== true) ||
           !pkg.manifest ||
           !pkg.files ||
           typeof pkg.files !== 'object' ||
