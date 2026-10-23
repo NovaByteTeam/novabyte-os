@@ -869,6 +869,9 @@ function openDetail(app) {
   detailView.classList.remove('hidden');
   window.scrollTo(0, 0);
   backBtn.focus();
+  if (location.hash !== `#${app.id}`) {
+    history.pushState({ appId: app.id }, '', `#${app.id}`);
+  }
 
   fetchPackage(app).then(pkg => {
     if (detailId.textContent !== app.id || detailView.classList.contains('hidden')) return;
@@ -888,9 +891,21 @@ function closeDetail() {
   detailView.classList.add('hidden');
   siteHeader.classList.remove('hidden');
   storeView.classList.remove('hidden');
+  if (location.hash) {
+    history.pushState(null, '', location.pathname);
+  }
 }
 
 backBtn.addEventListener('click', closeDetail);
+
+window.addEventListener('popstate', () => {
+  const id = location.hash.slice(1);
+  if (id) {
+    const app = allApps.find(a => a.id === id);
+    if (app) { openDetail(app); return; }
+  }
+  closeDetail();
+});
 
 // ── Category filter ────────────────────────────────────────────────────────
 
