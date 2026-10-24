@@ -27,13 +27,16 @@ nbosp_gl_debug_setup() {
 LOG=/home/nbosp/xwayland-debug.log
 echo "=== $(date) Xwayland wrapper: $*" >> "$LOG"
 export LD_DEBUG=libs LD_DEBUG_OUTPUT=/home/nbosp/xwayland-ld
-if [ -x /usr/bin/strace ]; then
+# strace is opt-in (NBOSP_GL_STRACE=1). As the parent of Xwayland it can break
+# cage's startup handshake, which killed the first debug boot.
+if [ "@STRACE@" = 1 ] && [ -x /usr/bin/strace ]; then
   exec /usr/bin/strace -f -qq -Z -s 256 -o /home/nbosp/xwayland.strace \
     -e trace=file,ioctl,connect,mmap \
     /usr/bin/Xwayland "$@" -verbose 10 -logverbose 10 >> "$LOG" 2>&1
 fi
 exec /usr/bin/Xwayland "$@" -verbose 10 -logverbose 10 >> "$LOG" 2>&1
 XWRAP
+  sed -i "s/@STRACE@/${NBOSP_GL_STRACE:-0}/" /run/nbosp-debug-bin/Xwayland
   chmod 0755 /run/nbosp-debug-bin/Xwayland
   rm -f /home/nbosp/xwayland-debug.log /home/nbosp/xwayland-ld.* /home/nbosp/xwayland.strace
   : > /home/nbosp/xwayland-debug.log
