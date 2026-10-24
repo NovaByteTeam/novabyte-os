@@ -44,7 +44,13 @@ XWRAP
 
   # WLR_XWAYLAND is honoured by wlroots; the PATH prefix is a fallback in case
   # it execs plain "Xwayland". Values must not contain quotes or dollar signs.
-  gl_debug_env="PATH=/run/nbosp-debug-bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland CAGE_DEBUG=1 EGL_LOG_LEVEL=debug MESA_DEBUG=1"
+  gl_debug_env="CAGE_DEBUG=1 EGL_LOG_LEVEL=debug MESA_DEBUG=1"
+  # The Xwayland wrapper is opt-in (NBOSP_GL_XWRAP=1). In the last two debug boots
+  # cage's Xwayland died within 10-90ms whenever it was routed through it, so the
+  # default path leaves Xwayland alone and probes a second instance in the dump.
+  if [ "${NBOSP_GL_XWRAP:-0}" = 1 ]; then
+    gl_debug_env="PATH=/run/nbosp-debug-bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland $gl_debug_env"
+  fi
   chromium_gl_debug="--enable-gpu-service-logging --vmodule=gl_display=3,gl_context=3,gl_surface=3,gl_ozone_egl=3,egl_util=3,gl_utils=3,gpu_init=3,gpu_info_collector=3,gpu_service_impl=3,viz_main_impl=3,angle_platform_impl=3,gpu_feature_info=2"
 }
 
@@ -96,6 +102,11 @@ nbosp_gl_debug_dump() {
   done
   sleep 8   # let glamor init finish and Chromium's GPU process retry
 
+  # Probe: a second Xwayland on :7 against the running cage, with full verbosity.
+  # Its log should say why glamor falls back, without touching cage's own Xwayland.
+  rm -f /home/nbosp/xwayland-probe.log
+  su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/Xwayland :7 -verbose 10 -logverbose 10 -noreset > /home/nbosp/xwayland-probe.log 2>&1 & p=$!; sleep 6; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null; echo "probe exit handled" >> /home/nbosp/xwayland-probe.log' </dev/null >/dev/null 2>&1
+
   {
     echo "===== NBOSP GL DEBUG DUMP $(date) ====="
     nbosp_gl_sec "versions"
@@ -146,6 +157,10 @@ nbosp_gl_debug_dump() {
       su -s /bin/sh nbosp -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 DISPLAY=:0; glxinfo -B 2>&1' | head -60
     fi
 
+    nbosp_gl_sec "xwayland-probe.log ($(wc -l < /home/nbosp/xwayland-probe.log 2>/dev/null) lines): glamor / egl / gbm / dmabuf lines"
+    grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier|fail|error' /home/nbosp/xwayland-probe.log 2>&1 | head -120
+    nbosp_gl_sec "xwayland-probe.log: head"
+    head -40 /home/nbosp/xwayland-probe.log 2>&1
     nbosp_gl_sec "xwayland-debug.log: glamor / egl / gbm / dmabuf lines"
     grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier' /home/nbosp/xwayland-debug.log 2>&1 | head -120
     nbosp_gl_sec "xwayland-debug.log: tail"

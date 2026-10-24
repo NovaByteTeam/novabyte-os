@@ -146,10 +146,14 @@ Chromium requests. It adds:
 - Cage logs at wlroots debug level. Release Cage hard-codes the error level,
   so `patches/cage/0001-runtime-debug-logging.patch` makes it honour
   `CAGE_DEBUG`. (Cage's `-d` flag is "no client-side decorations", not debug.)
-- XWayland is launched through `/run/nbosp-debug-bin/Xwayland` (via
-  `WLR_XWAYLAND`, with a `PATH` fallback). It runs with `-verbose 10`,
-  `LD_DEBUG=libs`, and `strace -Z` of failing file/ioctl/connect calls, which
-  should show exactly which DRM, EGL, GBM or glvnd lookup glamor trips over.
+- By default the dump runs a second XWayland (`:7`) against the live cage with
+  `-verbose 10`, which should say why glamor falls back. Output:
+  `~nbosp/xwayland-probe.log`.
+- Optional, off by default (`NBOSP_GL_XWRAP=1`): launch cage's XWayland through
+  `/run/nbosp-debug-bin/Xwayland` (via `WLR_XWAYLAND`, with a `PATH` fallback).
+  It runs with `-verbose 10` and `LD_DEBUG=libs`, plus `strace -Z` if
+  `NBOSP_GL_STRACE=1`. In the first two debug boots this wrapper made XWayland
+  exit within 10-90ms, so it stays off until we know why.
   Output: `~nbosp/xwayland-debug.log`, `xwayland-ld.<pid>`, `xwayland.strace`.
 - `EGL_LOG_LEVEL=debug`, `MESA_DEBUG=1`, and Chromium `--vmodule` logging for
   the GL display/context/GPU-init code.
