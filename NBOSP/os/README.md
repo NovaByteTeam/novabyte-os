@@ -204,8 +204,9 @@ DejaVu Sans/Mono and Noto Color Emoji fonts and Fontconfig are included so
 Chromium and the UI can render text and emoji without downloading fonts at
 runtime. The emoji font is pinned to a Noto Emoji source revision and its OFL
 license is included in the image. The Whiteglass Xcursor theme is included,
-and Cage uses a software-rendered cursor to avoid invisible hardware cursors
-in VMware.
+and Cage uses the DRM hardware cursor plane. If the pointer is invisible in
+VMware, set `WLR_NO_HARDWARE_CURSORS=1` for Cage in `S99nbosp` to force a
+software cursor.
 The image build keeps Buildroot's cached kernel and graphics outputs. It
 clean-rebuilds Mesa, libglvnd, and XWayland only when the graphics configuration
 signature changes, and checks that `libGL.so.1`, Mesa's `vmwgfx_dri.so` SVGA
