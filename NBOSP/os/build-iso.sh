@@ -22,6 +22,15 @@ if [[ ! -d "$BUILDROOT_DIR" ]]; then
   tar -xJf "$ARCHIVE" --strip-components=1 -C "$BUILDROOT_DIR"
 fi
 
+# Buildroot 2025.02 ships Xwayland 23.2.4, whose glamor GBM backend refuses to
+# start unless the compositor offers wl_drm. wlroots 0.18 (cage) does not, so
+# glamor, GLX and Chromium's GPU process all fail. These are Buildroot's own
+# 2025.05 package files (Xwayland 24.1.6); copy them in on every run because the
+# extracted Buildroot tree is cached.
+XWAYLAND_OVERRIDE_DIR="$OS_DIR/overrides/xwayland"
+cp "$XWAYLAND_OVERRIDE_DIR/xwayland.mk" "$XWAYLAND_OVERRIDE_DIR/xwayland.hash" \
+  "$BUILDROOT_DIR/package/x11r7/xwayland/"
+
 if [[ ! -x "$NWJS_APP_DIR/NovaByte" || ! -f "$NWJS_APP_DIR/package.nw/package.json" ]]; then
   echo "Linux NW.js kiosk bundle missing. Run the workflow app build/staging steps first." >&2
   exit 1
@@ -119,7 +128,8 @@ fi
 GRAPHICS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-graphics-signature"
 GRAPHICS_SIGNATURE="$(
   {
-    printf '%s\n' 'nbosp-graphics-stack-v3'
+    printf '%s\n' 'nbosp-graphics-stack-v4'
+    cat "$XWAYLAND_OVERRIDE_DIR/xwayland.mk" "$XWAYLAND_OVERRIDE_DIR/xwayland.hash"
     # mesa3d-demos only adds debug tools; it must not force a Mesa/XWayland rebuild.
     grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBDRM|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config" \
       | grep -v '^BR2_PACKAGE_MESA3D_DEMOS='

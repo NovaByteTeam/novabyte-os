@@ -190,6 +190,20 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(build).toContain('cage-dirclean');
   });
 
+  it('overrides Buildroot Xwayland with a build that works without wl_drm', () => {
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
+    const mk = readFileSync(new URL('../os/overrides/xwayland/xwayland.mk', import.meta.url), 'utf8');
+    const hash = readFileSync(new URL('../os/overrides/xwayland/xwayland.hash', import.meta.url), 'utf8');
+
+    // 23.2.4 requires wl_drm, which wlroots 0.18 (cage) does not advertise.
+    expect(mk).toMatch(/^XWAYLAND_VERSION = 24\.1\./m);
+    expect(mk).not.toContain('xwayland_eglstream');
+    expect(hash).toMatch(/sha256\s+[0-9a-f]{64}\s+xwayland-24\.1\./);
+    expect(build).toContain('overrides/xwayland');
+    expect(build).toContain('"$BUILDROOT_DIR/package/x11r7/xwayland/"');
+    expect(build).toContain('"$XWAYLAND_OVERRIDE_DIR/xwayland.mk"');
+  });
+
   it('explains that guest Terminal is Buildroot, not an apt-managed distro', () => {
     const terminal = readFileSync(new URL('../js/apps/terminal/app.js', import.meta.url), 'utf8');
 
