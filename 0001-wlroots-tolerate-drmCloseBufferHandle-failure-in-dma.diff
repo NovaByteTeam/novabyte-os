@@ -1,0 +1,42 @@
+From a51b873c116ab2d04ccf690af929bebc3efabcc2 Mon Sep 17 00:00:00 2001
+From: claude <noreply@anthropic.com>
+Date: Sat, 24 Oct 2026 22:28:15 +0000
+Subject: [PATCH] wlroots: tolerate drmCloseBufferHandle failure in dmabuf
+ import check
+
+vmwgfx returns EINVAL from the GEM close ioctl for PRIME-imported
+handles. check_import_dmabuf treated that as an import failure, which
+made Xwayland get killed with a fatal protocol error.
+---
+ ...dmabuf-tolerate-close-handle-failure.patch | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+ create mode 100644 NBOSP/os/patches/wlroots/0001-dmabuf-tolerate-close-handle-failure.patch
+
+diff --git a/NBOSP/os/patches/wlroots/0001-dmabuf-tolerate-close-handle-failure.patch b/NBOSP/os/patches/wlroots/0001-dmabuf-tolerate-close-handle-failure.patch
+new file mode 100644
+index 0000000..1cd29d3
+--- /dev/null
++++ b/NBOSP/os/patches/wlroots/0001-dmabuf-tolerate-close-handle-failure.patch
+@@ -0,0 +1,19 @@
++diff --git a/types/wlr_linux_dmabuf_v1.c b/types/wlr_linux_dmabuf_v1.c
++index 57268c2..642b42f 100644
++--- a/types/wlr_linux_dmabuf_v1.c
+++++ b/types/wlr_linux_dmabuf_v1.c
++@@ -218,9 +218,12 @@ static bool check_import_dmabuf(struct wlr_dmabuf_attributes *attribs, void *dat
++ 			wlr_log_errno(WLR_DEBUG, "Failed to import DMA-BUF FD");
++ 			return false;
++ 		}
+++		// The import itself worked, so the buffer is usable. Some drivers
+++		// (vmwgfx) return EINVAL from the GEM close ioctl for handles that
+++		// came from a PRIME import. Treating that as "import failed" makes
+++		// Xwayland get killed with a fatal protocol error, so just log it.
++ 		if (drmCloseBufferHandle(linux_dmabuf->main_device_fd, handle) != 0) {
++-			wlr_log_errno(WLR_ERROR, "Failed to close buffer handle");
++-			return false;
+++			wlr_log_errno(WLR_DEBUG, "Failed to close buffer handle");
++ 		}
++ 	}
++ 	return true;
+-- 
+2.43.0
+
