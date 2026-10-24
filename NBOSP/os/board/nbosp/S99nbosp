@@ -32,9 +32,9 @@ export LD_DEBUG=libs LD_DEBUG_OUTPUT=/home/nbosp/xwayland-ld
 if [ "@STRACE@" = 1 ] && [ -x /usr/bin/strace ]; then
   exec /usr/bin/strace -f -qq -Z -s 256 -o /home/nbosp/xwayland.strace \
     -e trace=file,ioctl,connect,mmap \
-    /usr/bin/Xwayland "$@" -verbose 10 -logverbose 10 >> "$LOG" 2>&1
+    /usr/bin/Xwayland "$@" -verbose 10 >> "$LOG" 2>&1
 fi
-exec /usr/bin/Xwayland "$@" -verbose 10 -logverbose 10 >> "$LOG" 2>&1
+exec /usr/bin/Xwayland "$@" -verbose 10 >> "$LOG" 2>&1
 XWRAP
   sed -i "s/@STRACE@/${NBOSP_GL_STRACE:-0}/" /run/nbosp-debug-bin/Xwayland
   chmod 0755 /run/nbosp-debug-bin/Xwayland
@@ -105,7 +105,12 @@ nbosp_gl_debug_dump() {
   # Probe: a second Xwayland on :7 against the running cage, with full verbosity.
   # Its log should say why glamor falls back, without touching cage's own Xwayland.
   rm -f /home/nbosp/xwayland-probe.log
-  su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/Xwayland :7 -verbose 10 -logverbose 10 -noreset > /home/nbosp/xwayland-probe.log 2>&1 & p=$!; sleep 6; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null; echo "probe exit handled" >> /home/nbosp/xwayland-probe.log' </dev/null >/dev/null 2>&1
+  su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/Xwayland :7 -rootless -verbose 10 -noreset > /home/nbosp/xwayland-probe.log 2>&1 & p=$!; sleep 6; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null; echo "probe exit handled" >> /home/nbosp/xwayland-probe.log'
+  # Same probe under strace (failed calls only) to catch the lookup glamor trips on.
+  rm -f /home/nbosp/xwayland-probe.strace
+  if [ -x /usr/bin/strace ]; then
+    su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/strace -f -qq -Z -s 200 -o /home/nbosp/xwayland-probe.strace -e trace=file,ioctl,connect /usr/bin/Xwayland :8 -rootless -verbose 10 -noreset > /home/nbosp/xwayland-probe-strace.log 2>&1 & p=$!; sleep 8; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null' </dev/null >/dev/null 2>&1
+  fi </dev/null >/dev/null 2>&1
 
   {
     echo "===== NBOSP GL DEBUG DUMP $(date) ====="
@@ -161,6 +166,10 @@ nbosp_gl_debug_dump() {
     grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier|fail|error' /home/nbosp/xwayland-probe.log 2>&1 | head -120
     nbosp_gl_sec "xwayland-probe.log: head"
     head -40 /home/nbosp/xwayland-probe.log 2>&1
+    nbosp_gl_sec "xwayland-probe-strace.log (stderr of the strace'd probe)"
+    head -40 /home/nbosp/xwayland-probe-strace.log 2>&1
+    nbosp_gl_sec "xwayland-probe.strace: failed calls touching dri/drm/gbm/egl/mesa/glvnd"
+    grep -i -E 'dri|drm|gbm|egl|mesa|glvnd|render|wayland' /home/nbosp/xwayland-probe.strace 2>&1 | tail -60
     nbosp_gl_sec "xwayland-debug.log: glamor / egl / gbm / dmabuf lines"
     grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier' /home/nbosp/xwayland-debug.log 2>&1 | head -120
     nbosp_gl_sec "xwayland-debug.log: tail"

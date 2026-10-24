@@ -178,7 +178,7 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(cagePatch).toContain('getenv("CAGE_DEBUG")');
     expect(startup).toContain('NBOSP_GL_DEBUG="${NBOSP_GL_DEBUG:-1}"');
     expect(startup).toContain('WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland');
-    expect(startup).toContain('-verbose 10 -logverbose 10');
+    expect(startup).toContain('-verbose 10');
     expect(startup).toContain('/home/nbosp/nbosp-gl-debug.log');
     expect(startup).toContain('$chromium_gl_debug');
     expect(startup).toContain("'\"$gl_debug_env\"'");
