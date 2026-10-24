@@ -1,18 +1,32 @@
 #!/bin/sh
-export LIBGL_DEBUG=verbose
 
 # --- GL / WebGL bring-up debugging ------------------------------------------
-# On by default while we chase the XWayland glamor failure. Everything below is
-# inert when NBOSP_GL_DEBUG=0 is set in the init environment.
+# Controlled at runtime via /boot/nbosp-debug — no rebuild needed.
 #
-# What it does:
+# To turn debug ON:   touch /boot/nbosp-debug    (or set NBOSP_GL_DEBUG=1 in
+#                     the kernel cmdline / init env)
+# To turn debug OFF:  rm /boot/nbosp-debug
+#
+# What debug mode does:
 #   * cage logs at WLR_DEBUG (CAGE_DEBUG, via patches/cage/0001-*.patch)
 #   * cage starts a wrapper instead of Xwayland that runs it with -verbose 10,
 #     LD_DEBUG=libs and (if installed) strace of failing file/ioctl calls
 #   * Mesa EGL / Chromium GPU-process logging is turned up
 #   * ~30s after boot a dump of the whole graphics state goes to
 #     /home/nbosp/nbosp-gl-debug.log, the serial console and nbosp-kiosk.log
-NBOSP_GL_DEBUG="${NBOSP_GL_DEBUG:-1}"
+# Resolve NBOSP_GL_DEBUG. Priority: env (already set) > kernel cmdline > off.
+if [ -z "$NBOSP_GL_DEBUG" ]; then
+  _cmdline="$(cat /proc/cmdline 2>/dev/null)"
+  case "$_cmdline" in
+    *NBOSP_GL_DEBUG=1*) NBOSP_GL_DEBUG=1 ;;
+    *NBOSP_GL_DEBUG=0*) NBOSP_GL_DEBUG=0 ;;
+    *)                  NBOSP_GL_DEBUG=0 ;;
+  esac
+  unset _cmdline
+fi
+if [ "$NBOSP_GL_DEBUG" = 1 ]; then
+  export LIBGL_DEBUG=verbose
+fi
 GL_DEBUG_LOG=/home/nbosp/nbosp-gl-debug.log
 
 nbosp_gl_debug_setup() {
