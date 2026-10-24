@@ -135,6 +135,32 @@ matching Mesa source into the toolchain sysroot before compiling XWayland.
 In VMware, enable **Accelerate 3D graphics** for the VM. The image build checks
 for XWayland GLX/glamor, Mesa GBM, libepoxy, and the VMware SVGA driver; still
 confirm Chromium's actual renderer from its GPU log in the VM.
+
+### GL debug mode
+
+`S99nbosp` runs in GL debug mode by default (`NBOSP_GL_DEBUG=1`) while the
+XWayland glamor failure is being tracked down. Set `NBOSP_GL_DEBUG=0` in the
+init environment to turn it all off. It does not change which GL backend
+Chromium requests. It adds:
+
+- Cage logs at wlroots debug level. Release Cage hard-codes the error level,
+  so `patches/cage/0001-runtime-debug-logging.patch` makes it honour
+  `CAGE_DEBUG`. (Cage's `-d` flag is "no client-side decorations", not debug.)
+- XWayland is launched through `/run/nbosp-debug-bin/Xwayland` (via
+  `WLR_XWAYLAND`, with a `PATH` fallback). It runs with `-verbose 10`,
+  `LD_DEBUG=libs`, and `strace -Z` of failing file/ioctl/connect calls, which
+  should show exactly which DRM, EGL, GBM or glvnd lookup glamor trips over.
+  Output: `~nbosp/xwayland-debug.log`, `xwayland-ld.<pid>`, `xwayland.strace`.
+- `EGL_LOG_LEVEL=debug`, `MESA_DEBUG=1`, and Chromium `--vmodule` logging for
+  the GL display/context/GPU-init code.
+- `mesa3d-demos` (`eglinfo`, `glxinfo`), `wayland-utils` (`wayland-info`) and
+  `strace` in the image.
+- About 30 seconds after boot (once XWayland has started) a dump of the
+  graphics state is written to `~nbosp/nbosp-gl-debug.log`, the serial
+  console and `nbosp-kiosk.log`: library and driver listing, glvnd vendor
+  files, the libraries cage and XWayland actually mapped, their environment,
+  `eglinfo`/`glxinfo`/`wayland-info`, and the filtered XWayland logs. Attach
+  the serial log, or that file, to a bug report.
 The image also includes ALSA HDA and Ensoniq ES1371 drivers and utilities.
 At kiosk startup, `amixer` attempts to unmute and set the common playback
 controls on the detected card; it logs a warning and the available controls

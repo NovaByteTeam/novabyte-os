@@ -120,7 +120,9 @@ GRAPHICS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-graphics-signature"
 GRAPHICS_SIGNATURE="$(
   {
     printf '%s\n' 'nbosp-graphics-stack-v3'
-    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBDRM|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
+    # mesa3d-demos only adds debug tools; it must not force a Mesa/XWayland rebuild.
+    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBDRM|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config" \
+      | grep -v '^BR2_PACKAGE_MESA3D_DEMOS='
   } | sha256sum | cut -d ' ' -f 1
 )"
 XWAYLAND_SOURCE_DIR_EARLY="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit 2>/dev/null || true)"
@@ -144,7 +146,8 @@ if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
 fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-  alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean
+  alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean \
+  cage-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
 MESA3D_VERSION="$(sed -n 's/^MESA3D_VERSION = //p' "$BUILDROOT_DIR/package/mesa3d/mesa3d.mk")"

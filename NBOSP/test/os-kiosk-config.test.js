@@ -158,6 +158,38 @@ describe('NBOSP VMware kiosk device configuration', () => {
     }
   });
 
+  it('ships GL bring-up debugging that can be switched off', () => {
+    const defconfig = readFileSync(new URL('../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
+    const startup = readFileSync(new URL('../os/board/nbosp/S99nbosp', import.meta.url), 'utf8');
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
+    const cagePatch = readFileSync(
+      new URL('../os/patches/cage/0001-runtime-debug-logging.patch', import.meta.url),
+      'utf8',
+    );
+
+    for (const option of [
+      'BR2_PACKAGE_MESA3D_DEMOS=y',
+      'BR2_PACKAGE_WAYLAND_UTILS=y',
+      'BR2_PACKAGE_STRACE=y',
+    ]) {
+      expect(defconfig).toContain(option);
+    }
+    expect(defconfig).toContain('BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_NBOSP_PATH)/patches"');
+    expect(cagePatch).toContain('getenv("CAGE_DEBUG")');
+    expect(startup).toContain('NBOSP_GL_DEBUG="${NBOSP_GL_DEBUG:-1}"');
+    expect(startup).toContain('WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland');
+    expect(startup).toContain('-verbose 10 -logverbose 10');
+    expect(startup).toContain('/home/nbosp/nbosp-gl-debug.log');
+    expect(startup).toContain('$chromium_gl_debug');
+    expect(startup).toContain("'\"$gl_debug_env\"'");
+    // Debug mode must not change which GL backend Chromium asks for, and
+    // cage's -d means "no client-side decorations", not debug.
+    expect(startup).toContain('--use-angle=gl');
+    expect(startup).not.toMatch(/\/usr\/bin\/cage -d/);
+    expect(build).toContain("grep -v '^BR2_PACKAGE_MESA3D_DEMOS='");
+    expect(build).toContain('cage-dirclean');
+  });
+
   it('explains that guest Terminal is Buildroot, not an apt-managed distro', () => {
     const terminal = readFileSync(new URL('../js/apps/terminal/app.js', import.meta.url), 'utf8');
 

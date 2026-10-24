@@ -1,6 +1,166 @@
 #!/bin/sh
 export LIBGL_DEBUG=verbose
 
+# --- GL / WebGL bring-up debugging ------------------------------------------
+# On by default while we chase the XWayland glamor failure. Everything below is
+# inert when NBOSP_GL_DEBUG=0 is set in the init environment.
+#
+# What it does:
+#   * cage logs at WLR_DEBUG (CAGE_DEBUG, via patches/cage/0001-*.patch)
+#   * cage starts a wrapper instead of Xwayland that runs it with -verbose 10,
+#     LD_DEBUG=libs and (if installed) strace of failing file/ioctl calls
+#   * Mesa EGL / Chromium GPU-process logging is turned up
+#   * ~30s after boot a dump of the whole graphics state goes to
+#     /home/nbosp/nbosp-gl-debug.log, the serial console and nbosp-kiosk.log
+NBOSP_GL_DEBUG="${NBOSP_GL_DEBUG:-1}"
+GL_DEBUG_LOG=/home/nbosp/nbosp-gl-debug.log
+
+nbosp_gl_debug_setup() {
+  gl_debug_env=""
+  chromium_gl_debug=""
+  [ "$NBOSP_GL_DEBUG" = 1 ] || return 0
+
+  mkdir -p /run/nbosp-debug-bin
+  cat > /run/nbosp-debug-bin/Xwayland <<'XWRAP'
+#!/bin/sh
+# Installed by S99nbosp (NBOSP_GL_DEBUG). wlroots runs this instead of Xwayland.
+LOG=/home/nbosp/xwayland-debug.log
+echo "=== $(date) Xwayland wrapper: $*" >> "$LOG"
+export LD_DEBUG=libs LD_DEBUG_OUTPUT=/home/nbosp/xwayland-ld
+if [ -x /usr/bin/strace ]; then
+  exec /usr/bin/strace -f -qq -Z -s 256 -o /home/nbosp/xwayland.strace \
+    -e trace=file,ioctl,connect,mmap \
+    /usr/bin/Xwayland "$@" -verbose 10 -logverbose 10 >> "$LOG" 2>&1
+fi
+exec /usr/bin/Xwayland "$@" -verbose 10 -logverbose 10 >> "$LOG" 2>&1
+XWRAP
+  chmod 0755 /run/nbosp-debug-bin/Xwayland
+  rm -f /home/nbosp/xwayland-debug.log /home/nbosp/xwayland-ld.* /home/nbosp/xwayland.strace
+  : > /home/nbosp/xwayland-debug.log
+  chown nbosp:nbosp /home/nbosp/xwayland-debug.log 2>/dev/null || true
+
+  # WLR_XWAYLAND is honoured by wlroots; the PATH prefix is a fallback in case
+  # it execs plain "Xwayland". Values must not contain quotes or dollar signs.
+  gl_debug_env="PATH=/run/nbosp-debug-bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland CAGE_DEBUG=1 EGL_LOG_LEVEL=debug MESA_DEBUG=1"
+  chromium_gl_debug="--enable-gpu-service-logging --vmodule=gl_display=3,gl_context=3,gl_surface=3,gl_ozone_egl=3,egl_util=3,gl_utils=3,gpu_init=3,gpu_info_collector=3,gpu_service_impl=3,viz_main_impl=3,angle_platform_impl=3,gpu_feature_info=2"
+}
+
+nbosp_gl_find_pid() {
+  for d in /proc/[0-9]*; do
+    if [ "$(cat "$d/comm" 2>/dev/null)" = "$1" ]; then
+      echo "${d#/proc/}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+nbosp_gl_sec() {
+  echo
+  echo "===== $* ====="
+}
+
+nbosp_gl_proc_report() {
+  name="$1"
+  pid="$(nbosp_gl_find_pid "$name")" || {
+    nbosp_gl_sec "$name"
+    echo "$name is NOT running"
+    return 0
+  }
+  nbosp_gl_sec "$name pid=$pid cmdline"
+  tr '\0' ' ' < "/proc/$pid/cmdline"
+  echo
+  nbosp_gl_sec "$name environment (graphics-relevant)"
+  tr '\0' '\n' < "/proc/$pid/environ" \
+    | grep -E '^(LD_|LIBGL|EGL|MESA|WLR_|XDG_|WAYLAND|DISPLAY|PATH|GBM|LIBSEAT|CAGE)' || true
+  nbosp_gl_sec "$name mapped libraries (graphics-relevant)"
+  awk '{ print $6 }' "/proc/$pid/maps" | sort -u \
+    | grep -i -E 'EGL|GLX|libGL|gbm|epoxy|dri|glvnd|vulkan|swiftshader|libdrm|wayland|pixman' || true
+  nbosp_gl_sec "$name DRM / socket fds"
+  ls -l "/proc/$pid/fd" 2>&1 | grep -E 'dri|socket' | head -20 || true
+}
+
+nbosp_gl_debug_dump() {
+  out="$GL_DEBUG_LOG"
+  : > "$out"
+
+  # cage starts Xwayland lazily when Chromium connects; wait up to ~90s for it.
+  i=0
+  while [ "$i" -lt 45 ]; do
+    nbosp_gl_find_pid Xwayland >/dev/null && break
+    sleep 2
+    i=$((i + 1))
+  done
+  sleep 8   # let glamor init finish and Chromium's GPU process retry
+
+  {
+    echo "===== NBOSP GL DEBUG DUMP $(date) ====="
+    nbosp_gl_sec "versions"
+    uname -a
+    /usr/bin/cage -v 2>&1 | head -2
+    /usr/bin/Xwayland -version 2>&1 | head -4
+
+    nbosp_gl_sec "DRM nodes"
+    ls -la /dev/dri 2>&1
+    for card in /sys/class/drm/card[0-9]*; do
+      [ -e "$card/device/driver" ] || continue
+      echo "$card -> $(basename "$(readlink -f "$card/device/driver")")"
+    done
+
+    nbosp_gl_sec "dmesg (drm/vmwgfx)"
+    dmesg 2>&1 | grep -i -E 'vmwgfx|drm|ttm|svga' | tail -40
+
+    nbosp_gl_sec "graphics libraries in /usr/lib"
+    ls -l /usr/lib 2>&1 | grep -i -E 'libEGL|libGL|libgbm|libepoxy|libglapi|libdrm|libwayland|libxshmfence|vulkan'
+    nbosp_gl_sec "/usr/lib/dri"
+    ls -la /usr/lib/dri 2>&1
+    nbosp_gl_sec "libglvnd EGL vendor files"
+    ls -la /usr/share/glvnd/egl_vendor.d 2>&1
+    for f in /usr/share/glvnd/egl_vendor.d/*; do
+      [ -f "$f" ] && { echo "-- $f"; cat "$f"; }
+    done
+    nbosp_gl_sec "Vulkan ICDs"
+    ls -la /usr/share/vulkan/icd.d /etc/vulkan/icd.d 2>&1
+
+    nbosp_gl_sec "NW.js runtime layout"
+    ls -la /opt/nbosp 2>&1 | head -60
+    ls -la /opt/nbosp/lib /opt/nbosp/swiftshader 2>&1 | head -60
+
+    nbosp_gl_proc_report cage
+    nbosp_gl_proc_report Xwayland
+
+    if [ -x /usr/bin/wayland-info ]; then
+      nbosp_gl_sec "wayland-info (compositor globals, dmabuf/drm)"
+      su -s /bin/sh nbosp -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; wayland-info 2>&1' \
+        | grep -i -E 'interface|dmabuf|wl_drm|format|device' | head -80
+    fi
+    if [ -x /usr/bin/eglinfo ]; then
+      nbosp_gl_sec "eglinfo"
+      su -s /bin/sh nbosp -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 DISPLAY=:0; eglinfo 2>&1' | head -250
+    fi
+    if [ -x /usr/bin/glxinfo ]; then
+      nbosp_gl_sec "glxinfo -B (against XWayland :0)"
+      su -s /bin/sh nbosp -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 DISPLAY=:0; glxinfo -B 2>&1' | head -60
+    fi
+
+    nbosp_gl_sec "xwayland-debug.log: glamor / egl / gbm / dmabuf lines"
+    grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier' /home/nbosp/xwayland-debug.log 2>&1 | head -120
+    nbosp_gl_sec "xwayland-debug.log: tail"
+    tail -40 /home/nbosp/xwayland-debug.log 2>&1
+    nbosp_gl_sec "xwayland.strace: failed DRM/EGL/GBM/ioctl calls"
+    grep -E 'dri|gbm|EGL|egl|glvnd|vulkan|drm|ioctl' /home/nbosp/xwayland.strace 2>&1 | head -150
+    nbosp_gl_sec "xwayland LD_DEBUG: GL-related lines"
+    grep -h -i -E 'error|cannot|not found|libEGL|libGL\.so|libgbm|epoxy|glvnd|/dri/' /home/nbosp/xwayland-ld.* 2>&1 | head -120
+
+    echo
+    echo "===== END NBOSP GL DEBUG DUMP ====="
+  } >> "$out" 2>&1
+
+  chown nbosp:nbosp "$out" 2>/dev/null || true
+  cat "$out" > /dev/ttyS0 2>/dev/null || true
+  cat "$out" >> /home/nbosp/nbosp-kiosk.log 2>/dev/null || true
+}
+
 case "$1" in
   start)
     app="/opt/nbosp/NovaByte"
@@ -136,12 +296,14 @@ case "$1" in
         ;;
     esac
 
+    nbosp_gl_debug_setup
     cat > /run/nbosp-kiosk-session.sh <<SESSION
 #!/bin/sh
 export LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp
 exec /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform \
   --ozone-platform=x11 --use-gl=angle --use-angle=gl \
   --disable-features=Vulkan \
+  $chromium_gl_debug \
   --force-device-scale-factor="$display_scale" \
   --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy \
   --allow-insecure-localhost --enable-logging=stderr
@@ -151,7 +313,11 @@ SESSION
     start-stop-daemon --start --background --make-pidfile \
       --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \
       -f -s -w -c 1 -- /bin/sh -c \
-      'su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 XDG_CURRENT_DESKTOP=cage XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /usr/bin/cage -- /run/nbosp-kiosk-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null'
+      'su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 '"$gl_debug_env"' XDG_CURRENT_DESKTOP=cage XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /usr/bin/cage -- /run/nbosp-kiosk-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null'
+
+    if [ "$NBOSP_GL_DEBUG" = 1 ]; then
+      nbosp_gl_debug_dump </dev/null >/dev/null 2>&1 &
+    fi
     ;;
   stop)
     if [ -f /run/nbosp-kiosk.pid ]; then
