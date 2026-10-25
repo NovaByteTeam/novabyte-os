@@ -367,6 +367,7 @@ case "$1" in
     cat > /run/nbosp-kiosk-session.sh <<SESSION
 #!/bin/sh
 export LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp
+[ -x /usr/bin/nbosp-vmusr ] && /usr/bin/nbosp-vmusr &
 exec /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform \
   --ozone-platform=x11 --use-gl=angle --use-angle=gl \
   --disable-features=Vulkan \

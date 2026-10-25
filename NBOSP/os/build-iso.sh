@@ -31,6 +31,20 @@ XWAYLAND_OVERRIDE_DIR="$OS_DIR/overrides/xwayland"
 cp "$XWAYLAND_OVERRIDE_DIR/xwayland.mk" "$XWAYLAND_OVERRIDE_DIR/xwayland.hash" \
   "$BUILDROOT_DIR/package/x11r7/xwayland/"
 
+# Buildroot 2025.02 ships open-vm-tools 11.3.5 built --without-x, which drops the
+# drag and drop and clipboard plugins, and whose configure needs libfuse2 for
+# vmhgfs-fuse (this image only has libfuse3). The override is the 13.1.0 recipe
+# from Buildroot master plus a DESKTOP option. Its patches replace the old
+# ones; leftover 11.3.5 patches would fail to apply, so they are removed first.
+OPENVMTOOLS_OVERRIDE_DIR="$OS_DIR/overrides/openvmtools"
+OPENVMTOOLS_PKG_DIR="$BUILDROOT_DIR/package/openvmtools"
+rm -f "$OPENVMTOOLS_PKG_DIR"/*.patch
+cp "$OPENVMTOOLS_OVERRIDE_DIR"/patches/*.patch "$OPENVMTOOLS_PKG_DIR/"
+cp "$OPENVMTOOLS_OVERRIDE_DIR/Config.in" "$OPENVMTOOLS_OVERRIDE_DIR/openvmtools.mk" \
+  "$OPENVMTOOLS_OVERRIDE_DIR/openvmtools.hash" "$OPENVMTOOLS_OVERRIDE_DIR/S10vmtoolsd" \
+  "$OPENVMTOOLS_OVERRIDE_DIR/shutdown" "$OPENVMTOOLS_OVERRIDE_DIR/vmtoolsd.service" \
+  "$OPENVMTOOLS_PKG_DIR/"
+
 if [[ ! -x "$NWJS_APP_DIR/NovaByte" || ! -f "$NWJS_APP_DIR/package.nw/package.json" ]]; then
   echo "Linux NW.js kiosk bundle missing. Run the workflow app build/staging steps first." >&2
   exit 1
