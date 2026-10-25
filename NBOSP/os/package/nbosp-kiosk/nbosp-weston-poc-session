@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+APP_SESSION=/run/nbosp-kiosk-session.sh
+
+if [ "$#" -ne 1 ] || [ "$1" != "$APP_SESSION" ]; then
+	echo "Refusing unexpected Weston proof-of-concept app command" >&2
+	exit 2
+fi
+if [ ! -x /usr/bin/weston-terminal ]; then
+	echo "Weston proof-of-concept terminal client is missing" >&2
+	exit 1
+fi
+
+/usr/bin/weston-terminal &
+exec "$APP_SESSION"

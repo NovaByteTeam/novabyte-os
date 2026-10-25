@@ -66,6 +66,32 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       ]));
     });
 
+    it('accepts valid app IPC declarations and rejects unsupported or malformed exports', async () => {
+      const { validateManifest } = await import('../../js/platform/core/app-package.js');
+      expect(validateManifest({
+        ...validManifest,
+        ipc: {
+          exports: ['service:com.example.clock.current', 'provider:com.example.contacts.lookup'],
+          receives: ['com.example.notes.changed'],
+        },
+      }).valid).toBe(true);
+      const invalid = validateManifest({
+        ...validManifest,
+        ipc: {
+          exports: ['service:../escape', 'unknown:endpoint'],
+          receives: ['BAD ACTION'],
+          unexpected: [],
+        },
+      });
+      expect(invalid.valid).toBe(false);
+      expect(invalid.errors).toEqual(expect.arrayContaining([
+        'ipc.unexpected is not supported',
+        'ipc.exports[0] is invalid',
+        'ipc.exports[1] is invalid',
+        'ipc.receives[0] is invalid',
+      ]));
+    });
+
     it('flags missing required fields', async () => {
       const { validateManifest } = await import('../../js/platform/core/app-package.js');
       const result = validateManifest({ id: 'com.test' });
@@ -556,4 +582,3 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       expect(threw).toBe(true);
     });
   });
-});

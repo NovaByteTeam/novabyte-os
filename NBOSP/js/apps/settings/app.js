@@ -101,7 +101,8 @@ registerApp({
     ];
 
     const PERM_LABELS = {
-      'vfs:access': 'Read and edit shared files', 'vfs:read': 'Read files', 'vfs:write': 'Write app data', 'vfs:delete': 'Delete files', 'vfs:metadata': 'File metadata',
+      'fs:access': 'Manage all files (special access)', 'fs:metadata': 'Read shared file metadata',
+      'fs:read:images': 'Read shared images', 'fs:read:video': 'Read shared videos', 'fs:read:audio': 'Read shared audio',
       'net:internal': 'Internal network', 'net:external': 'Public internet', 'net:websocket': 'Public WebSocket',
       'clipboard:read': 'Read clipboard', 'clipboard:write': 'Write clipboard',
       'mail:read': 'Read emails', 'mail:write': 'Compose emails', 'mail:send': 'Send emails', 'mail:delete': 'Delete emails',
@@ -110,6 +111,7 @@ registerApp({
       'device:camera': 'Camera', 'device:microphone': 'Microphone',
       'device:geolocation': 'Location', 'device:notifications': 'Notifications',
       'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps', 'system:app-launch': 'Launch apps',
+      'apps:communicate': 'Communicate with other apps',
       'system:background': 'Background tasks', 'system:background:live': 'Keep running in background', 'system:autostart': 'Start at launch',
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
@@ -1942,6 +1944,12 @@ registerApp({
             const labelEl = createEl('div');
             labelEl.appendChild(createEl('div', { textContent: label, style: 'font-size:13px;color:var(--text-primary);font-weight:500;' }));
             labelEl.appendChild(createEl('div', { textContent: perm,  style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' }));
+            if (cat?.specialAccess) {
+              labelEl.appendChild(createEl('div', {
+                textContent: 'Special access: enable or revoke here; apps cannot prompt for it.',
+                style: 'font-size:10px;color:var(--text-muted);margin-top:2px;',
+              }));
+            }
             left.append(riskBadge, labelEl);
             row.appendChild(left);
 

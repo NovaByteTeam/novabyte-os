@@ -460,7 +460,7 @@ async function boot() {
   for (const legacyId of ['com.nbosp.quill', 'com.nbosp.shell', 'com.nbosp.vault']) {
     try {
       if (typeof AppRegistry !== 'undefined' && AppRegistry.getApp?.(legacyId)) {
-        AppRegistry.unregisterApp(legacyId);
+        await AppRegistry.uninstallApp(legacyId, { force: true });
       }
     } catch (error) {
       console.warn('[BOOT] Failed to remove stale legacy app registration', legacyId, error);
@@ -685,8 +685,15 @@ async function startConfiguredHomeApp() {
       const isBundledSystem = stored.system === true && (stored.signer === 'NovaByte System' || stored.source === 'system-bundle' || stored.manifest?.system === true);
       if (!isBundledSystem) return;
       console.warn(`[BOOT] Removing stale bundled system app (${reason}):`, id);
-      try { if (store.removeApp) await store.removeApp(id, { force: true }); } catch (e) { console.warn('[BOOT] Failed removing stored package', id, e); }
-      try { if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) AppRegistry.unregisterApp(id); } catch (e) { console.warn('[BOOT] Failed unregistering', id, e); }
+      try {
+        if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+          await AppRegistry.uninstallApp(id, { force: true });
+        } else if (store.removeApp) {
+          await store.removeApp(id, { force: true });
+        }
+      } catch (e) {
+        console.warn('[BOOT] Failed removing stored package', id, e);
+      }
       registry = registry.filter(a => a.id !== id);
       store.saveRegistry(registry);
     };
@@ -1090,8 +1097,8 @@ async function startConfiguredHomeApp() {
       delete OS.apps[appId];
       const ri = APP_REGISTRY.findIndex(a => a.id === appId);
       if (ri > -1) APP_REGISTRY.splice(ri, 1);
-      if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
-        AppRegistry.unregisterApp(appId);
+      if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+        await AppRegistry.uninstallApp(appId, { force: true });
       }
       if (window.NovaAppPackageStore?.removeApp) {
         await NovaAppPackageStore.removeApp(appId);

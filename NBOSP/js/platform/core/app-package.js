@@ -592,7 +592,48 @@ const AppPackage = (() => {
       installedDate: new Date().toISOString()
     };
 
-    const registered = (typeof AppRegistry !== 'undefined') && AppRegistry?.registerApp(appConfig, { force: !!options.force });
+    const previousApp = typeof AppRegistry !== 'undefined'
+      ? AppRegistry.getApp?.(appConfig.id) || null
+      : null;
+    const linuxIsolatedRuntime = typeof process !== 'undefined' &&
+        process.platform === 'linux' && !!process.versions?.nw;
+    if (linuxIsolatedRuntime) {
+      if (typeof window.IsolatedAppBroker?.installPackage !== 'function') {
+        throw new Error('Linux isolated app installer is unavailable; package installation was stopped');
+      }
+      if (options.force && previousApp?.linuxIsolated === true) {
+        await window.IsolatedAppBroker.terminateAppSessions(appConfig.id);
+      }
+      appConfig.linuxIsolated = await window.IsolatedAppBroker.installPackage(appConfig);
+      if (!appConfig.linuxIsolated) {
+        throw new Error('Linux isolated app package could not be registered with the root supervisor');
+      }
+    }
+
+    let registered;
+    try {
+      registered = (typeof AppRegistry !== 'undefined') &&
+        AppRegistry?.registerApp(appConfig, { force: !!options.force });
+      if (linuxIsolatedRuntime && !registered) {
+        throw new Error(`App registry refused to register ${appConfig.id}`);
+      }
+    } catch (registrationError) {
+      if (linuxIsolatedRuntime && appConfig.linuxIsolated === true) {
+        try {
+          if (previousApp?.linuxIsolated === true) {
+            await window.IsolatedAppBroker.installPackage(previousApp);
+          } else {
+            await window.IsolatedAppBroker.uninstallPackage(appConfig.id);
+          }
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [registrationError, rollbackError],
+            `Registration of ${appConfig.id} failed and its native package could not be restored`,
+          );
+        }
+      }
+      throw registrationError;
+    }
 
     if (registered && typeof window.NovaAppPackageStore !== 'undefined' && window.NovaAppPackageStore.installApp) {
       try {
@@ -610,6 +651,7 @@ const AppPackage = (() => {
           optionalPermissions: appConfig.optionalPermissions || [],
           files: appConfig.files || {},
           signature: appConfig.signature,
+          linuxIsolated: appConfig.linuxIsolated === true,
           verified,
           signer,
           source: appConfig.source,
@@ -635,8 +677,10 @@ const AppPackage = (() => {
     return { success: true, app: registered, verified, signer, warnings: validation.warnings };
   }
 
-  function uninstallPackage(appId) {
-    const result = (typeof AppRegistry !== 'undefined' && AppRegistry?.unregisterApp(appId)) || false;
+  async function uninstallPackage(appId) {
+    const result = (typeof AppRegistry !== 'undefined' && AppRegistry?.uninstallApp)
+      ? await AppRegistry.uninstallApp(appId)
+      : false;
     if (typeof EventLog !== 'undefined') {
       EventLog.log({
         app: 'Packages',
@@ -710,6 +754,8 @@ const AppPackage = (() => {
   // many UI surfaces (see the App Manager package's svgIcon()/createEl() call sites),
   // so an oversized one has an outsized cost relative to its purpose.
   const MAX_ICON_DATA_URI_BYTES = 512 * 1024; // 512KB
+  const IPC_ENDPOINT_PATTERN = /^(?:service|provider):[a-z0-9][a-z0-9._-]{0,127}$/;
+  const IPC_ACTION_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 
   function validateManifest(manifest) {
     const errors = [], warnings = [];
@@ -750,6 +796,37 @@ const AppPackage = (() => {
           handles[key].forEach((value, index) => {
             if (typeof value !== 'string' || !isValid(value)) {
               errors.push(`handles.${key}[${index}] is invalid`);
+            }
+          });
+        }
+      }
+    }
+    if (manifest.ipc !== undefined) {
+      const ipcManifest = manifest.ipc;
+      if (!ipcManifest || typeof ipcManifest !== 'object' || Array.isArray(ipcManifest)) {
+        errors.push('ipc must be an object');
+      } else {
+        for (const key of Object.keys(ipcManifest)) {
+          if (!['exports', 'receives'].includes(key)) errors.push(`ipc.${key} is not supported`);
+        }
+        for (const [key, pattern] of [
+          ['exports', IPC_ENDPOINT_PATTERN],
+          ['receives', IPC_ACTION_PATTERN],
+        ]) {
+          const values = ipcManifest[key];
+          if (values === undefined) continue;
+          if (!Array.isArray(values) || values.length > 100) {
+            errors.push(`ipc.${key} must be an array of at most 100 strings`);
+            continue;
+          }
+          const seen = new Set();
+          values.forEach((value, index) => {
+            if (typeof value !== 'string' || !pattern.test(value)) {
+              errors.push(`ipc.${key}[${index}] is invalid`);
+            } else if (seen.has(value)) {
+              errors.push(`ipc.${key}[${index}] is duplicated`);
+            } else {
+              seen.add(value);
             }
           });
         }

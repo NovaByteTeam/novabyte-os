@@ -87,6 +87,52 @@ XWRAP
   chromium_gl_debug="--enable-gpu-service-logging --vmodule=gl_display=3,gl_context=3,gl_surface=3,gl_ozone_egl=3,egl_util=3,gl_utils=3,gpu_init=3,gpu_info_collector=3,gpu_service_impl=3,viz_main_impl=3,angle_platform_impl=3,gpu_feature_info=2"
 }
 
+nbosp_app_egress_setup() {
+  command -v iptables >/dev/null 2>&1 || {
+    echo "NBOSP kiosk: iptables is required for app network isolation." >&2
+    return 1
+  }
+  command -v ip6tables >/dev/null 2>&1 || {
+    echo "NBOSP kiosk: ip6tables is required for app network isolation." >&2
+    return 1
+  }
+  if ! iptables -N NBOSP_APP_EGRESS 2>/dev/null; then
+    iptables -F NBOSP_APP_EGRESS || return 1
+  fi
+  if ! ip6tables -N NBOSP_APP_EGRESS 2>/dev/null; then
+    ip6tables -F NBOSP_APP_EGRESS || return 1
+  fi
+  iptables -C OUTPUT -j NBOSP_APP_EGRESS 2>/dev/null \
+    || iptables -I OUTPUT 1 -j NBOSP_APP_EGRESS || return 1
+  ip6tables -C OUTPUT -j NBOSP_APP_EGRESS 2>/dev/null \
+    || ip6tables -I OUTPUT 1 -j NBOSP_APP_EGRESS || return 1
+  iptables -A NBOSP_APP_EGRESS -m owner --uid-owner 20000-59999 \
+    -o lo -p tcp -d 127.0.0.1 --dport 49173 -j ACCEPT || return 1
+  iptables -A NBOSP_APP_EGRESS -m owner --uid-owner 20000-59999 \
+    -j REJECT || return 1
+  iptables -A NBOSP_APP_EGRESS -j RETURN || return 1
+  ip6tables -A NBOSP_APP_EGRESS -m owner --uid-owner 20000-59999 \
+    -j REJECT || return 1
+  ip6tables -A NBOSP_APP_EGRESS -j RETURN || return 1
+}
+
+nbosp_app_resource_setup() {
+  mkdir -p /sys/fs/cgroup || return 1
+  if ! grep -q ' /sys/fs/cgroup cgroup2 ' /proc/mounts; then
+    mount -t cgroup2 cgroup2 /sys/fs/cgroup || return 1
+  fi
+  for controller in cpu memory pids; do
+    grep -qw "$controller" /sys/fs/cgroup/cgroup.controllers || {
+      echo "NBOSP kiosk: cgroup v2 $controller controller is unavailable." >&2
+      return 1
+    }
+  done
+  printf '+cpu +memory +pids\n' > /sys/fs/cgroup/cgroup.subtree_control || return 1
+  mkdir -p /sys/fs/cgroup/nbosp-apps || return 1
+  printf '+cpu +memory +pids\n' \
+    > /sys/fs/cgroup/nbosp-apps/cgroup.subtree_control || return 1
+}
+
 nbosp_gl_find_pid() {
   for d in /proc/[0-9]*; do
     if [ "$(cat "$d/comm" 2>/dev/null)" = "$1" ]; then
@@ -362,13 +408,43 @@ case "$1" in
         keyboard_layout=us
         ;;
     esac
+    compositor_mode=weston-poc
+    compositor_file=/home/nbosp/.config/novabyte/compositor
+    if [ -f "$compositor_file" ]; then
+      compositor_mode="$(cat "$compositor_file")"
+    fi
+    case "$compositor_mode" in
+      cage|weston-poc) ;;
+      *)
+        echo "NBOSP kiosk: invalid compositor mode '$compositor_mode'; using Cage" >&2
+        compositor_mode=cage
+        ;;
+    esac
+    if ! nbosp_app_resource_setup; then
+      echo "NBOSP kiosk: failed to enforce per-app resource limits." >&2
+      exit 1
+    fi
+    if ! nbosp_app_egress_setup; then
+      echo "NBOSP kiosk: failed to enforce per-app network isolation." >&2
+      exit 1
+    fi
+    compositor_desktop=cage
+    [ "$compositor_mode" = weston-poc ] && compositor_desktop=weston
+    if [ "$compositor_mode" = weston-poc ] \
+      && { [ ! -x /usr/bin/weston ] \
+        || [ ! -x /usr/bin/weston-terminal ] \
+        || [ ! -x /usr/bin/Xwayland ] \
+        || [ ! -x /usr/bin/nbosp-weston-poc-session ]; }; then
+      echo "NBOSP kiosk: Weston proof-of-concept runtime is incomplete." >&2
+      exit 1
+    fi
 
     nbosp_gl_debug_setup
     cat > /run/nbosp-kiosk-session.sh <<SESSION
 #!/bin/sh
 export LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp
 [ -x /usr/bin/nbosp-vmusr ] && /usr/bin/nbosp-vmusr &
-exec /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform \
+exec /opt/nbosp/NovaByte --enable-features=UseOzonePlatform \
   --ozone-platform=x11 --use-gl=angle --use-angle=gl \
   --disable-features=Vulkan \
   $chromium_gl_debug \
@@ -378,10 +454,39 @@ exec /opt/nbosp/NovaByte --kiosk --enable-features=UseOzonePlatform \
 SESSION
     chmod 0755 /run/nbosp-kiosk-session.sh
 
+    if [ ! -d /run/nbosp-wayland ]; then
+      mkdir -m 2710 /run/nbosp-wayland
+    fi
+    if ! chown nbosp:nbosp-wayland /run/nbosp-wayland \
+      || ! chmod 2710 /run/nbosp-wayland; then
+      echo "NBOSP kiosk: cannot prepare the private Wayland runtime directory." >&2
+      exit 1
+    fi
+
+    cat > /run/nbosp-compositor-session.sh <<'SESSION'
+#!/bin/sh
+umask 0007
+case "${NBOSP_COMPOSITOR_MODE:-cage}" in
+  weston-poc)
+    exec /usr/bin/weston --no-config --backend=drm --shell=desktop \
+      --socket=wayland-0 --xwayland --idle-time=0 --log=/home/nbosp/weston.log -- \
+      /usr/bin/nbosp-weston-poc-session /run/nbosp-kiosk-session.sh
+    ;;
+  cage)
+    exec /usr/bin/cage -- /run/nbosp-kiosk-session.sh
+    ;;
+  *)
+    echo "Unsupported compositor mode: ${NBOSP_COMPOSITOR_MODE:-}" >&2
+    exit 2
+    ;;
+esac
+SESSION
+    chmod 0755 /run/nbosp-compositor-session.sh
+
     start-stop-daemon --start --background --make-pidfile \
       --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \
       -f -s -w -c 1 -- /bin/sh -c \
-      'n=0; while [ -f /run/nbosp-kiosk.pid ] && [ "$n" -lt 5 ]; do su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/user/1000 LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 '"$gl_debug_env"' XDG_CURRENT_DESKTOP=cage XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /usr/bin/cage -- /run/nbosp-kiosk-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null; n=$((n+1)); echo "NBOSP kiosk: session exited, restart $n of 5 allowed" >/dev/ttyS0 2>/dev/null; sleep 2; done'
+      'n=0; while [ -f /run/nbosp-kiosk.pid ] && [ "$n" -lt 5 ]; do su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/nbosp-wayland LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 NBOSP_COMPOSITOR_MODE='"$compositor_mode"' '"$gl_debug_env"' XDG_CURRENT_DESKTOP='"$compositor_desktop"' XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /run/nbosp-compositor-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null; n=$((n+1)); echo "NBOSP kiosk: session exited, restart $n of 5 allowed" >/dev/ttyS0 2>/dev/null; sleep 2; done'
 
     if [ "$NBOSP_GL_DEBUG" = 1 ]; then
       nbosp_gl_debug_dump </dev/null >/dev/null 2>&1 &

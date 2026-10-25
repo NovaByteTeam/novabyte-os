@@ -101,7 +101,7 @@ registerApp({
     // A handful of dev-tier apps (sysaccess, perf) declare their own
     // `permissions` array AND have a bootstrap-map entry. perf's two
     // sources agree exactly; sysaccess's don't (its own declared list is
-    // missing 'vfs:write', which the bootstrap map's dangerous tier
+    // missing 'fs:access', which the bootstrap map's dangerous tier
     // includes and the wrapper actually enforces on launch) — so rather
     // than silently pick one source, this unions both and tags entries
     // that came only from the declared array as tier 'declared' so a

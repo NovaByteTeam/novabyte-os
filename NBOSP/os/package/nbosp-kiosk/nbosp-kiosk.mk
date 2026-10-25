@@ -13,6 +13,8 @@ define NBOSP_KIOSK_INSTALL_TARGET_CMDS
 		$(TARGET_DIR)/etc/NetworkManager/system-connections/nbosp-wired.nmconnection
 	$(INSTALL) -D -m 0755 $(BR2_EXTERNAL_NBOSP_PATH)/board/nbosp/S99nbosp \
 		$(TARGET_DIR)/etc/init.d/S99nbosp
+	$(INSTALL) -D -m 0755 $(BR2_EXTERNAL_NBOSP_PATH)/package/nbosp-kiosk/nbosp-weston-poc-session \
+		$(TARGET_DIR)/usr/bin/nbosp-weston-poc-session
 	$(INSTALL) -D -m 0755 $(BR2_EXTERNAL_NBOSP_PATH)/board/nbosp/nbosp-recovery \
 		$(TARGET_DIR)/usr/sbin/nbosp-recovery
 endef

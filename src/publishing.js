@@ -721,8 +721,8 @@ class PublisherPortal {
           heading: 'Data handling',
           items: [
             'Apps must not persist or transmit user data beyond what is needed for their stated purpose.',
-            'Data written to VFS must be scoped to the app\'s own directory.',
-            'Apps must not store credentials — passwords, tokens, keys — in plaintext anywhere in VFS.',
+            'Data written directly by an app must be scoped to its own directory.',
+            'Apps must not store credentials — passwords, tokens, keys — in plaintext in app files.',
           ],
         },
         {

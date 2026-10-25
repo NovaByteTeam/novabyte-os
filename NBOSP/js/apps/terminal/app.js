@@ -791,9 +791,8 @@ const COMMANDS = {
     const existing = nodeFromArg(tab, name);
     if (existing) {
       if (existing.type === 'folder') return `touch: cannot touch '${name}': Is a directory`;
-      // The VFS has a write channel, but it intentionally does not expose a
-      // separate mtime mutation operation. Rewriting the same contents through
-      // vfs:write is the supported persistence path for a touched file.
+      // The file API has no separate mtime mutation operation. Rewriting the
+      // same contents through FS is the supported persistence path for touch.
       await FS.writeFile(existing.id, existing.content || '');
     } else {
       const slash = name.lastIndexOf('/');

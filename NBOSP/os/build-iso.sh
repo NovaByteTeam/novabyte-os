@@ -81,6 +81,10 @@ for option in \
   BR2_PACKAGE_LIBGLVND \
   BR2_PACKAGE_LIBEPOXY \
   BR2_PACKAGE_CAGE \
+  BR2_PACKAGE_WESTON \
+  BR2_PACKAGE_WESTON_DEFAULT_DRM \
+  BR2_PACKAGE_WESTON_XWAYLAND \
+  BR2_PACKAGE_WESTON_SHELL_DESKTOP \
   BR2_PACKAGE_WLROOTS_XWAYLAND \
   BR2_PACKAGE_XWAYLAND \
   BR2_PACKAGE_SEATD_DAEMON \
@@ -115,6 +119,7 @@ for option in \
   BR2_PACKAGE_NBOSP_KIOSK \
   BR2_PACKAGE_NBOSP_POWER \
   BR2_PACKAGE_NBOSP_INSTALL \
+  BR2_PACKAGE_NBOSP_APP_SUPERVISOR \
   BR2_PACKAGE_DOSFSTOOLS \
   BR2_PACKAGE_DOSFSTOOLS_MKFS_FAT \
   BR2_PACKAGE_E2FSPROGS \
@@ -198,6 +203,7 @@ fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean \
+  nbosp-app-supervisor-dirclean \
   wlroots-dirclean cage-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
@@ -223,6 +229,39 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
 fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
+APP_SUPERVISOR="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor"
+APP_SUPERVISOR_SERVICE="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor-service"
+APP_INIT_WRAPPER="$OUTPUT_DIR/target/sbin/nbosp-init"
+if [[ ! -x "$APP_SUPERVISOR" || -u "$APP_SUPERVISOR" \
+  || ! -x "$APP_SUPERVISOR_SERVICE" || -u "$APP_SUPERVISOR_SERVICE" \
+  || ! -x "$APP_INIT_WRAPPER" \
+  || ! -x "$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor" \
+  || ! -L "$OUTPUT_DIR/target/init" \
+  || "$(readlink "$OUTPUT_DIR/target/init")" != "sbin/nbosp-init" \
+  || ! -L "$OUTPUT_DIR/target/sbin/init" \
+  || "$(readlink "$OUTPUT_DIR/target/sbin/init")" != "nbosp-init" ]]; then
+  echo "The app supervisor or SELinux init loader is missing or has unsafe mode bits." >&2
+  exit 1
+fi
+if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
+  ./usr/sbin/nbosp-app-supervisor \
+  ./usr/sbin/nbosp-app-supervisor-service \
+  ./sbin/nbosp-init \
+  ./etc/init.d/S12nbosp-app-supervisor \
+  | awk '$1 == "-rwxr-xr-x" && $2 == "0/0" { found[$NF] = 1 } END { exit !(found["./usr/sbin/nbosp-app-supervisor"] && found["./usr/sbin/nbosp-app-supervisor-service"] && found["./sbin/nbosp-init"] && found["./etc/init.d/S12nbosp-app-supervisor"]) }'; then
+  echo "The supervisor and SELinux init files are not root-owned mode 0755 in the generated rootfs." >&2
+  exit 1
+fi
+SELINUX_POLICY_ENTRY="$(tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
+  | grep -E '^\.?/etc/selinux/targeted/policy/policy\.[0-9]+$' | head -n 1)"
+if [[ -z "$SELINUX_POLICY_ENTRY" \
+  || ! -f "$OUTPUT_DIR/target/etc/selinux/targeted/contexts/files/file_contexts" \
+  || ! -x "$OUTPUT_DIR/target/sbin/setfiles" && ! -x "$OUTPUT_DIR/target/usr/sbin/setfiles" \
+  || ! grep -qx 'SELINUX=permissive' "$OUTPUT_DIR/target/etc/selinux/config" ]]; then
+  echo "The SELinux policy, file contexts, setfiles utility, or permissive policy mode is incorrect." >&2
+  exit 1
+fi
+
 KERNEL_CONFIG="$(find "$OUTPUT_DIR/build" -maxdepth 2 -type f -path '*/linux-*/.config' -print -quit)"
 if [[ -z "$KERNEL_CONFIG" ]]; then
   echo "The built Linux kernel configuration is missing." >&2
@@ -233,16 +272,32 @@ for option in \
   CONFIG_SND_HDA_INTEL \
   CONFIG_SND_HDA_GENERIC \
   CONFIG_SND_HDA_CODEC_REALTEK \
-  CONFIG_SND_ENS1371
+  CONFIG_SND_ENS1371 \
+  CONFIG_CGROUPS \
+  CONFIG_CGROUP_SCHED \
+  CONFIG_CFS_BANDWIDTH \
+  CONFIG_MEMCG \
+  CONFIG_CGROUP_PIDS \
+  CONFIG_SECCOMP \
+  CONFIG_SECCOMP_FILTER \
+  CONFIG_CGROUP2_FS \
+  CONFIG_SECURITY \
+  CONFIG_SECURITY_SELINUX
 do
   if ! grep -qx "$option=y" "$KERNEL_CONFIG"; then
-    echo "Required VMware graphics/audio kernel option is missing: $option" >&2
+    echo "Required kernel security, graphics, or audio option is missing: $option" >&2
     exit 1
   fi
 done
 
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
   echo "Cage compositor is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/weston" \
+  || ! -x "$OUTPUT_DIR/target/usr/bin/weston-terminal" \
+  || ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
+  echo "Weston desktop shell, terminal, or XWayland is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/amixer" \

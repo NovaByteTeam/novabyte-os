@@ -165,7 +165,7 @@ registerApp({
       className: 'btn btn-sm', textContent: 'Save As…', title: 'Save a copy with a new name'
     });
     const openBtn = createEl('button', {
-      className: 'btn btn-sm', textContent: 'Open…', title: 'Open a file from the VFS'
+      className: 'btn btn-sm', textContent: 'Open…', title: 'Open a file'
     });
     const wrapBtn = createEl('button', {
       className: 'btn btn-sm', textContent: 'Word Wrap', title: 'Toggle word wrap'

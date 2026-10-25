@@ -1,8 +1,80 @@
 # NBOSP OS boot image
 
+## Per-app Linux process isolation
+
+Verified `.novaapp` packages installed by the Linux NW.js desktop are copied
+from a fixed, desktop-owned staging directory into root-owned storage. The
+desktop authenticates the package before staging it; the root supervisor
+trusts the desktop principal (UID 1000) and does not independently verify
+package signatures. The root-owned
+`S12nbosp-app-supervisor` service accepts bounded requests over
+`/run/nbosp-app-supervisor.sock` and verifies the caller with `SO_PEERCRED`.
+It accepts package install, launch, terminate, uninstall, and identity
+provisioning operations, but no caller-supplied executable, shell command, or
+filesystem path.
+
+App IDs are canonical lowercase ASCII identifiers (1–63 characters). The
+supervisor maintains a root-owned, locked UID mapping in
+`/var/lib/nbosp-apps`; it allocates stable UIDs from 20000–59999. Package
+files are installed under `/var/lib/nbosp-app-packages/APP_ID` as root-owned,
+read-only files. A fixed `/opt/nbosp/NovaByte` NW.js runtime is launched with
+the package directory as its argument. The child clears its inherited
+environment, drops to the app UID/GID, receives only the `nbosp-wayland`
+supplementary group, and sets `no_new_privs`. Its private data and runtime
+directories live under `/var/lib/nbosp-app-data/APP_ID/data`, owned by the
+app UID with mode 0700. Uninstall removes package files and private app data;
+the stable UID mapping remains reserved so that a later install cannot
+inherit another app's identity.
+
+Each package runs in its own NW.js process with renderer Node.js integration
+disabled. A root-owned NW.js `node-main` component provides a narrow bridge
+to the host's loopback broker. Per-launch bearer tokens are kept out of the
+renderer page; broker calls are checked against the isolated-process API
+allowlist and dispatched through NovaByte's existing permission handlers.
+The supervisor stops app process groups before an update or uninstall.
+
+Per-app display access requires the Weston desktop-shell mode. The boot
+script currently selects `weston-poc` by default; write `cage` to
+`/home/nbosp/.config/novabyte/compositor` on a disk-installed system and
+restart to return to Cage. Isolated launches fail closed unless Weston and its
+group-restricted Wayland socket are present. App UIDs do not receive X11 or
+XWayland access. Weston is still a shared compositor, not a per-app display
+server.
+
+This is a layered Linux UID/process sandbox, not a complete
+Android-equivalent sandbox. The app child installs a seccomp filter before
+exec that rejects privileged kernel-management, namespace, tracing, keyring,
+and selected attack-surface syscalls, while retaining the syscalls needed by
+NW.js/Chromium. The supervisor also enforces per-process limits for file size,
+open descriptors, process/thread count, locked memory, stack, and core dumps.
+Each app UID is assigned a cgroup v2 with a 2 GiB memory cap, a two-CPU quota,
+and a 256-process/thread limit; termination kills the whole app cgroup.
+Failure to mount or configure the required cgroup controllers stops the
+kiosk session.
+
+An SELinux reference policy and app domain are loaded by the early PID 1
+wrapper, which labels the initramfs before re-executing into BusyBox init.
+The policy is deliberately **permissive** during initial integration; it
+establishes labels and domain transitions but does not yet deny operations.
+SELinux enforcing mode must wait until the GitHub workflow validates the
+image's boot, labels, and app runtime accesses. Until then, filesystem and
+process isolation relies on Linux UIDs, DAC permissions, the seccomp filter,
+and cgroup controls.
+
+Kernel owner-match firewall rules deny app UIDs IPv4 and IPv6 egress except
+to the loopback broker port; failure to install those rules stops the kiosk
+session. Network access therefore goes through the broker's
+permission-checked `nova:net:fetch` API. The Wayland compositor and the
+desktop UID remain trusted components, and other kernel-visible resources
+are not all mediated by the broker. Only Linux x86_64 is supported.
+Persistent provisioning and app installation require a disk-installed
+system: the live cpio initramfs is volatile, and the supervisor deliberately
+rejects volatile backing filesystems.
+
 This milestone extends the working x86_64 Buildroot boot into a graphical
-VMware kiosk: Linux DRM/KMS with the VMware SVGA driver, Mesa, Wayland, Cage,
-and the Linux x64 NBOSP NW.js bundle launched fullscreen. On Linux, Files browses the host filesystem directly, can list ISO contents,
+VMware desktop: Linux DRM/KMS with the VMware SVGA driver, Mesa, Wayland,
+Weston desktop-shell mode by default, and Cage as a selectable alternative. The
+Linux x64 NBOSP NW.js bundle remains the main OS interface. On Linux, Files browses the host filesystem directly, can list ISO contents,
 and can launch executable files as the unprivileged kiosk user after
 confirmation. The shared filesystem API maps to the kiosk user's real home
 directory, app data and package blobs are stored under

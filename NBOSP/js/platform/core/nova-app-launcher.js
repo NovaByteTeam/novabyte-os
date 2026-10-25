@@ -884,17 +884,17 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
           console.log('[AM.init] TAKING LEGACY FALLBACK branch for', appId, '- AppSandbox was', typeof AppSandbox, typeof AppSandbox !== 'undefined' ? '(launch: ' + typeof AppSandbox.launch + ')' : '');
 
           // ── Private data shim injected into iframe ────────────
-          const vfsDir = (() => { try { return window.AppDirs?.getVFSDir?.(appId, 'files'); } catch { return null; } })();
+          const fsDir = (() => { try { return window.AppDirs?.getFSDir?.(appId, 'files'); } catch { return null; } })();
           const safeAppId = JSON.stringify(appId);
-          const safeVfsDir = JSON.stringify(vfsDir);
+          const safeFsDir = JSON.stringify(fsDir);
 
           const bridgeScript = `(function(){
             try{
               if(!window.__novaPrivateStore) window.__novaPrivateStore={};
               var s=window.__novaPrivateStore;
               s.appId=${safeAppId};
-              s.vfsDir=${safeVfsDir};
-              s.getVFSDir=function(){return ${safeVfsDir}};
+              s.fsDir=${safeFsDir};
+              s.getFSDir=function(){return ${safeFsDir}};
               s.lsKey=function(k){return'nova_app_'+${safeAppId}+'_'+k};
               s.get=function(k){try{var v=localStorage.getItem(this.lsKey(k));return v?JSON.parse(v):null}catch{return null}};
               s.set=function(k,v){try{localStorage.setItem(this.lsKey(k),JSON.stringify(v))}catch{/*quota*/}};

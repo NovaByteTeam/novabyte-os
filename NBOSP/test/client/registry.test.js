@@ -105,23 +105,23 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mod.registerApp({ id: 'perm-test', name: 'PT', permissions: ['vfs:read', 'evil:inject'] });
+    mod.registerApp({ id: 'perm-test', name: 'PT', permissions: ['fs:read:images', 'evil:inject'] });
     expect(spy).toHaveBeenCalled();
     const app = mod.getApp('perm-test');
     expect(app.permissions).not.toContain('evil:inject');
-    expect(app.permissions).toContain('vfs:read');
+    expect(app.permissions).toContain('fs:read:images');
     spy.mockRestore();
   });
 
-  it('accepts the expanded VFS and app-launch permissions', () => {
+  it('accepts the scoped filesystem and app-launch permissions', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
     mod.registerApp({
       id: 'capability-test',
       name: 'Capability test',
-      permissions: ['vfs:access', 'system:app-launch'],
+      permissions: ['fs:access', 'system:app-launch', 'apps:communicate'],
     });
-    expect(mod.getApp('capability-test').permissions).toEqual(['vfs:access', 'system:app-launch']);
+    expect(mod.getApp('capability-test').permissions).toEqual(['fs:access', 'system:app-launch', 'apps:communicate']);
   });
 
   it('preserves root permission declarations from new and restored package manifests', () => {
@@ -189,7 +189,7 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     globalThis.AppPermissionManager = undefined;
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
-    const app = mod.registerApp({ id: 'cp-app', name: 'CPA', permissions: ['vfs:read'] });
+    const app = mod.registerApp({ id: 'cp-app', name: 'CPA', permissions: ['fs:read:images'] });
     expect(mod.checkPermissions(app)).toBe(true);
     globalThis.AppPermissionManager = prev;
   });
@@ -206,7 +206,8 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     globalThis.AppPermissionManager = {
       PERMISSION_CATEGORIES: {
         'device:notifications': { risk: 'low' },
-        'vfs:read': { risk: 'medium' },
+        'fs:read:images': { risk: 'medium' },
+        'fs:access': { risk: 'critical', specialAccess: true },
         'contacts:read': { risk: 'medium' },
       },
       isGranted: permission => granted.has(permission),
@@ -225,7 +226,7 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
       mod.registerApp({
         id: 'permission-policy-app',
         name: 'Permission Policy',
-        permissions: ['device:notifications', 'vfs:read'],
+        permissions: ['device:notifications', 'fs:read:images', 'fs:access'],
         optionalPermissions: ['contacts:read'],
       });
 
@@ -233,7 +234,7 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
 
       expect(globalThis.AppPermissionManager.autoGrantLowRisk)
         .toHaveBeenCalledWith('device:notifications', 'permission-policy-app');
-      expect(requestAll).toHaveBeenCalledWith(['vfs:read'], 'permission-policy-app', 'Permission Policy');
+      expect(requestAll).toHaveBeenCalledWith(['fs:read:images'], 'permission-policy-app', 'Permission Policy');
     } finally {
       globalThis.AppPermissionManager = previousManager;
       globalThis.AppSandbox = previousSandbox;

@@ -1,8 +1,8 @@
 /**
  * SystemDialogs  —  NovaByte OS
  * ─────────────────────────────────────────────────────────────────────────
- * Real-filesystem file picker dialog. Browses the host disk via Node's fs
- * module — no VFS, no GTK, no native OS picker. Rendered entirely in the
+ * Filesystem picker dialog. Browses the host disk via Node's fs
+ * module — no GTK or native OS picker. Rendered entirely in the
  * NovaByte shell window.
  *
  * Usage:

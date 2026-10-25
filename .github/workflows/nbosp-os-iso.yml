@@ -33,6 +33,12 @@ jobs:
         working-directory: NBOSP
         run: npm ci
 
+      - name: Verify NBOSP OS integration contracts
+        run: >-
+          node --test
+          NBOSP/os/package/nbosp-app-supervisor/test-contract.mjs
+          NBOSP/os/package/nbosp-kiosk/test-windowing-poc.mjs
+
       - name: Build Linux NW.js app
         working-directory: NBOSP
         run: node build.mjs linux
@@ -76,7 +82,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: NBOSP/os/output
-          key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/**', 'NBOSP/os/package/nbosp-install/**', 'NBOSP/os/package/nbosp-power/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
+          key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/**', 'NBOSP/os/package/nbosp-install/**', 'NBOSP/os/package/nbosp-power/**', 'NBOSP/os/package/nbosp-app-supervisor/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
           restore-keys: |
             nbosp-buildroot-output-v2-${{ runner.os }}-
 
@@ -89,7 +95,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: NBOSP/os/output
-          key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/**', 'NBOSP/os/package/nbosp-install/**', 'NBOSP/os/package/nbosp-power/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
+          key: nbosp-buildroot-output-v2-${{ runner.os }}-${{ hashFiles('NBOSP/os/build-iso.sh', 'NBOSP/os/configs/**', 'NBOSP/os/board/**', 'NBOSP/os/package/nbosp-kiosk/**', 'NBOSP/os/package/nbosp-install/**', 'NBOSP/os/package/nbosp-power/**', 'NBOSP/os/package/nbosp-app-supervisor/**', 'NBOSP/os/Config.in', 'NBOSP/os/external.*') }}
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4

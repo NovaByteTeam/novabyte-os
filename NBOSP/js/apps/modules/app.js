@@ -35,7 +35,7 @@ registerApp({
     // persisted — the original hardcoded array meant any module outside
     // this exact set of 8 paths couldn't be hot-reloaded from this app at
     // all. Scoped storage key, same pattern as devconsole's history (see
-    // console.js) since there's no VFS read/write helper for small app
+    // console.js) since there is no filesystem helper for small app
     // state — lsSave/localStorage is what calendar.js, contacts.js, etc.
     // actually use.
     const STORAGE_KEY = 'nbosp_modules_list';

@@ -123,7 +123,9 @@ const MyAppsManager = (() => {
       } catch (err) {
         console.warn('[MyAppsManager] Failed to clear app data for', appId, err);
       }
-      return AppRegistry?.unregisterApp(appId) || false;
+      return AppRegistry?.uninstallApp
+        ? await AppRegistry.uninstallApp(appId)
+        : false;
     } catch (error) {
       console.error('[MyAppsManager] Failed to remove app:', error);
       if (typeof EventLog !== 'undefined') {

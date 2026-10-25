@@ -222,10 +222,11 @@ function permissionName(permission) {
     'device:camera': 'Camera',
     'device:microphone': 'Microphone',
     'device:geolocation': 'Location',
-    'vfs:access': 'Shared files',
-    'vfs:read': 'Read files',
-    'vfs:write': 'Write files',
-    'vfs:delete': 'Delete files',
+    'fs:access': 'Manage all files',
+    'fs:metadata': 'Read shared media metadata',
+    'fs:read:images': 'Read shared images',
+    'fs:read:video': 'Read shared videos',
+    'fs:read:audio': 'Read shared audio',
   };
   return labels[permission] || permission;
 }
