@@ -1961,6 +1961,83 @@ registerApp({
       return name.replace(/(\.\w+)?$/, ' (' + prefixCount + ')$1');
     }
 
+    // Streams a URL to disk with Node's http(s), so there's no CORS and no
+    // 512 MB buffer in memory. Follows up to 5 redirects, enforces
+    // DOWNLOAD_MAX_BYTES, and only renames the .part file once it's complete.
+    // Runs outside the webview session, so cookies aren't sent.
+    function streamUrlToFile(url, destPath, redirectsLeft = 5) {
+      return new Promise((resolve, reject) => {
+        const fs = require('fs');
+        const client = /^https:/i.test(url) ? require('https') : require('http');
+        const req = client.get(url, res => {
+          const { statusCode, headers } = res;
+          if (statusCode >= 300 && statusCode < 400 && headers.location) {
+            res.resume();
+            if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
+            const next = new URL(headers.location, url).href;
+            if (!/^https?:/i.test(next)) return reject(new Error('Unsupported redirect'));
+            return streamUrlToFile(next, destPath, redirectsLeft - 1).then(resolve, reject);
+          }
+          if (statusCode !== 200) {
+            res.resume();
+            return reject(new Error('HTTP ' + statusCode));
+          }
+          if (Number(headers['content-length']) > DOWNLOAD_MAX_BYTES) {
+            res.resume();
+            return reject(new Error('File too large'));
+          }
+          const partPath = destPath + '.part';
+          const out = fs.createWriteStream(partPath);
+          let received = 0;
+          let failed = false;
+          const fail = err => {
+            if (failed) return;
+            failed = true;
+            out.destroy();
+            req.destroy();
+            fs.rm(partPath, { force: true }, () => reject(err));
+          };
+          res.on('data', chunk => {
+            received += chunk.length;
+            if (received > DOWNLOAD_MAX_BYTES) fail(new Error('File too large'));
+          });
+          res.on('error', fail);
+          out.on('error', fail);
+          out.on('finish', () => {
+            if (failed) return;
+            fs.rename(partPath, destPath, err => (err ? fail(err) : resolve(received)));
+          });
+          res.pipe(out);
+        });
+        req.on('error', reject);
+        req.setTimeout(30000, () => req.destroy(new Error('Connection timed out')));
+      });
+    }
+
+    // Chromium's own download would open the host's native chooser, so the
+    // permission handler denies it and routes the URL here for the OS Save As.
+    async function saveDownloadViaDialog(url) {
+      if (!url || !/^https?:\/\//i.test(url)) return;
+      const rawName = sanitizeDownloadName(url);
+      const suggestedName = rawName.includes('.') ? rawName : rawName + '.bin';
+      const picked = await SystemDialogs.save({ title: 'Save As', suggestedName });
+      if (!picked) return;
+      if (!picked.path) {
+        Notify.show({ title: 'Download failed', body: 'Save As did not return a file path.', type: 'error', appName: 'Downloads' });
+        return;
+      }
+      const entry = window.Downloads?.add(picked.name, url, 0, '');
+      if (entry) window.Downloads.setStatus(entry.id, 'downloading');
+      try {
+        const bytes = await streamUrlToFile(url, picked.path);
+        if (entry) window.Downloads.setStatus(entry.id, 'done', bytes);
+        Notify.show({ title: 'Download complete', body: picked.name, type: 'success', appName: 'Downloads' });
+      } catch (err) {
+        if (entry) window.Downloads.setStatus(entry.id, 'failed');
+        Notify.show({ title: 'Download failed', body: String(err?.message || err), type: 'error', appName: 'Downloads' });
+      }
+    }
+
     // Webview factory — creates or returns the <webview> element for a tab.
     // Attaches all event listeners (load, error, fullscreen, permission,
     // download, new-window, context-menu) exactly once per webview.
@@ -3026,10 +3103,12 @@ registerApp({
         } else if (e.permission === 'pointerLock') {
           decide(true);
         } else if (e.permission === 'download') {
-          // Webviews deny downloads unless the embedder allows them. The
-          // catch-all below used to reject this one too, so no download
-          // link ever produced a file.
-          decide(true);
+          // Deny Chromium's own download (it opens the host's native
+          // chooser) and save through the OS Save As dialog instead.
+          decide(false);
+          saveDownloadViaDialog(e.request.url || e.url).catch(err => {
+            console.warn('[NB Browser] Download failed to start:', err);
+          });
         } else {
           decide(false);
         }
