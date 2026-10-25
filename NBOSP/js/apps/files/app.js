@@ -1485,6 +1485,14 @@
           action: () => this.runExecutable(entry.path)
         });
       }
+      if (!entry.isDirectory && /\.zip$/i.test(entry.name)) {
+        items.push({ label: 'Extract', disabled: entry.unavailable, action: () => this.extractZip(entry.path) });
+      }
+      items.push({ separator: true });
+      items.push(
+        { label: 'Copy as path', action: () => this.copyAsPath(entry) },
+        { label: 'Compress to zip', disabled: entry.unavailable, action: () => this.compressToZip(entry) }
+      );
       items.push({ separator: true });
       items.push(
         { label: 'Rename', action: () => this.renameEntry(entry) },
@@ -1555,6 +1563,90 @@
       } catch (error) {
         console.error('[Files] package install failed:', error);
         Notify.show({ title: 'Cannot install package', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    // Right-clicking inside a multi-selection acts on the whole selection.
+    actionTargets(entry) {
+      return this.selectedPaths.has(entry.path) && this.selectedPaths.size > 1
+        ? [...this.selectedPaths]
+        : [entry.path];
+    }
+
+    async copyAsPath(entry) {
+      const paths = this.actionTargets(entry);
+      try {
+        await navigator.clipboard.writeText(paths.join('\n'));
+        Notify.show({
+          title: 'Copied as path',
+          body: paths.length === 1 ? paths[0] : `${paths.length} paths`,
+          type: 'info',
+          appName: 'Files'
+        });
+      } catch (error) {
+        Notify.show({ title: 'Could not copy path', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    // First free name next to the originals: "a.zip", "a (2).zip", ...
+    async uniquePath(dir, stem, ext) {
+      for (let n = 1; n < 1000; n++) {
+        const candidate = this.path.join(dir, n === 1 ? `${stem}${ext}` : `${stem} (${n})${ext}`);
+        try {
+          await this.fs.lstat(candidate);
+        } catch (error) {
+          if (error.code === 'ENOENT') return candidate;
+          throw error;
+        }
+      }
+      throw new Error(`Too many items named "${stem}" already exist here.`);
+    }
+
+    runBsdtar(args) {
+      return new Promise((resolve, reject) => {
+        this.childProcess.execFile('/usr/bin/bsdtar', args, {
+          timeout: 10 * 60 * 1000,
+          maxBuffer: 2 * 1024 * 1024
+        }, (error, stdout, stderr) => {
+          if (error) reject(new Error(String(stderr || '').trim() || error.message));
+          else resolve();
+        });
+      });
+    }
+
+    async compressToZip(entry) {
+      const paths = this.actionTargets(entry);
+      const dir = this.path.dirname(paths[0]);
+      const names = paths.map(p => this.path.basename(p));
+      let target = null;
+      try {
+        target = await this.uniquePath(dir, names.length === 1 ? names[0] : 'Archive', '.zip');
+        // "./" keeps a name that starts with "-" from being read as an option.
+        await this.runBsdtar(['--format', 'zip', '-cf', target, '-C', dir, ...names.map(name => `./${name}`)]);
+        await this.render();
+        Notify.show({ title: 'Compressed', body: this.path.basename(target), type: 'success', appName: 'Files' });
+      } catch (error) {
+        if (target) await this.fs.rm(target, { force: true }).catch(() => {});
+        console.error('[Files] compress failed:', error);
+        Notify.show({ title: 'Compress failed', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    async extractZip(zipPath) {
+      const dir = this.path.dirname(zipPath);
+      let dest = null;
+      try {
+        // Always into a new folder, never straight into the current one.
+        dest = await this.uniquePath(dir, this.path.basename(zipPath).replace(/\.zip$/i, ''), '');
+        await this.fs.mkdir(dest);
+        await this.runBsdtar(['-xf', zipPath, '-C', dest]);
+        await this.render();
+        Notify.show({ title: 'Extracted', body: this.path.basename(dest), type: 'success', appName: 'Files' });
+      } catch (error) {
+        // dest was created by this call, so it only ever holds a partial extract.
+        if (dest) await this.fs.rm(dest, { recursive: true, force: true }).catch(() => {});
+        console.error('[Files] extract failed:', error);
+        Notify.show({ title: 'Extract failed', body: error.message, type: 'error', appName: 'Files' });
       }
     }
 
