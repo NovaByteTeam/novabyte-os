@@ -575,11 +575,37 @@ async function startBundledLauncher() {
   window.updateTaskbar();
 }
 
+// A non-bundled Home app that hangs or crashes the page never lets boot reach
+// os-booted, and init.js answers that by restarting the machine into recovery.
+// Because the choice is persisted, it would do the same on every boot. So the
+// attempt is marked before launch and cleared after; a marker found at startup
+// means the last attempt never finished, and the default is reset.
+const HOME_PENDING_KEY = 'nova_home_launch_pending';
+const HOME_START_TIMEOUT_MS = 5000; // well under the 15s boot watchdog
+
+function launchWithTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not start within ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function startConfiguredHomeApp() {
   const bundledLauncherId = 'com.nbosp.launcher';
-  const selectedId = DefaultApps?.getDefault?.('home') || bundledLauncherId;
+  let selectedId = DefaultApps?.getDefault?.('home') || bundledLauncherId;
   const root = document.getElementById('launcher-root');
   if (!root) throw new Error('Launcher root is missing from the OS page');
+
+  const interruptedId = localStorage.getItem(HOME_PENDING_KEY);
+  if (interruptedId) {
+    console.error(`[BOOT] Home app "${interruptedId}" never finished starting last time; reverting to ${bundledLauncherId}`);
+    localStorage.removeItem(HOME_PENDING_KEY);
+    if (selectedId !== bundledLauncherId) {
+      DefaultApps.setDefault?.('home', null);
+      selectedId = bundledLauncherId;
+    }
+  }
 
   if (selectedId === bundledLauncherId) {
     window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
@@ -605,11 +631,19 @@ async function startConfiguredHomeApp() {
     } else {
       window.__NOVA_ACTIVE_HOME_APP_ID__ = selectedId;
       root.replaceChildren();
+      localStorage.setItem(HOME_PENDING_KEY, selectedId);
       try {
-        await AppSandbox.launchHome(app, root);
+        // launchRootApp resolves null on failure (after scheduling its own
+        // reload), so a falsy result has to count as a failed start.
+        const launched = await launchWithTimeout(AppSandbox.launchHome(app, root), HOME_START_TIMEOUT_MS, `Home app ${selectedId}`);
+        if (!launched) throw new Error('launchHome returned no surface');
+        localStorage.removeItem(HOME_PENDING_KEY);
       } catch (error) {
         console.error(`[BOOT] Failed to start selected Home app "${selectedId}"; falling back to ${bundledLauncherId}:`, error);
+        localStorage.removeItem(HOME_PENDING_KEY);
+        DefaultApps.setDefault?.('home', null);
         window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
+        root.replaceChildren();
         await startBundledLauncher();
       }
     }
