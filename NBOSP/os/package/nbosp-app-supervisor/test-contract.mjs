@@ -68,6 +68,7 @@ describe('NBOSP app supervisor integration contract', () => {
     const postBuild = read('../../board/nbosp/post-build.sh');
     const init = read('nbosp-init.c');
     const policy = read('selinux/nbosp_app.te');
+    const interfaces = read('selinux/nbosp_app.if');
     const fileContexts = read('selinux/nbosp_app.fc');
     assert.match(defconfig, /BR2_PACKAGE_REFPOLICY=y/);
     assert.match(defconfig, /BR2_PACKAGE_REFPOLICY_POLICY_STATE_PERMISSIVE=y/);
@@ -78,6 +79,7 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(init, /run_setfiles/);
     assert.match(init, /\/bin\/busybox/);
     assert.match(policy, /domain_auto_trans\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
+    assert.match(interfaces, /exports no interfaces/);
     assert.match(fileContexts, /nbosp_app_runtime_exec_t/);
     assert.match(fileContexts, /nbosp_app_data_t/);
   });
