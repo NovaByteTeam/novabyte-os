@@ -171,6 +171,19 @@ if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
   printf '%s\n' "$GRAPHICS_SIGNATURE" > "$GRAPHICS_SIGNATURE_FILE"
 fi
 
+# gdk's X11 backend includes <epoxy/glx.h>, which libepoxy only installs when
+# it was configured with GLX (X11 + libgl present at build time). A cached
+# libepoxy from before XORG7/LIBGLVND were enabled lacks it, and libgtk3 then
+# dies in gdkdisplay-x11.c. Rebuild libepoxy first, then gtk3 on top of it.
+EPOXY_GLX_H="$OUTPUT_DIR/host/x86_64-buildroot-linux-gnu/sysroot/usr/include/epoxy/glx.h"
+if grep -qx "BR2_PACKAGE_LIBEPOXY=y" "$OUTPUT_DIR/.config" \
+  && grep -qx "BR2_PACKAGE_XORG7=y" "$OUTPUT_DIR/.config" \
+  && [[ ! -f "$EPOXY_GLX_H" ]]; then
+  echo "Cached libepoxy lacks GLX support; rebuilding libepoxy, libgtk3, gtkmm3 and openvmtools." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    openvmtools-dirclean gtkmm3-dirclean libgtk3-dirclean libepoxy-dirclean
+fi
+
 # openvmtools' desktop plugins need gtk3 with the X11 backend, and gtkmm3 is
 # configured with -Dbuild-x11-api=true to match. Buildroot never rebuilds a
 # package when its config changes, so a cached gtk3 from before that option
