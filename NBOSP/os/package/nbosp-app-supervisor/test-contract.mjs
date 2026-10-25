@@ -29,6 +29,14 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(source, /"memory.max", "2147483648\\n"/);
     assert.match(source, /"cgroup.kill", "1\\n"/);
     assert.match(source, /setgroups\(1, supplementary_groups\)/);
+    const privateData = source.match(
+      /static int ensure_private_data[\s\S]*?(?=\nstatic int provision)/)?.[0];
+    assert.ok(privateData);
+    assert.doesNotMatch(privateData, /wayland_socket/);
+    assert.match(source,
+      /static int provision[\s\S]*?char data_path\[160\][\s\S]*?relabel_path\(data_path\)/);
+    assert.match(source,
+      /static int launch_app[\s\S]*?relabel_path\(wayland_socket\)/);
     assert.doesNotMatch(source, /\b(system|popen)\s*\(/);
   });
 

@@ -807,8 +807,6 @@ static int ensure_private_data(int datafd, const char *id, uid_t uid)
 		errno = EPERM;
 		goto fail;
 	}
-	if (relabel_path(wayland_socket) < 0)
-		goto fail;
 	if (fchown(anchorfd, 0, 0) < 0 || fchmod(anchorfd, 0700) < 0 ||
 	    set_anchor_acl(anchorfd, uid) < 0 || fstat(anchorfd, &st) < 0)
 		goto fail;
@@ -892,6 +890,7 @@ fail:
 static int provision(const char *id, uid_t *provisioned_uid)
 {
 	struct app_map map = {0};
+	char data_path[160];
 	uid_t uid;
 	ssize_t existing;
 	int varfd = -1, statefd = -1, datafd = -1, lockfd = -1, result = -1;
@@ -929,6 +928,8 @@ static int provision(const char *id, uid_t *provisioned_uid)
 			goto out;
 	}
 	if (ensure_private_data(datafd, id, uid) < 0 ||
+	    snprintf(data_path, sizeof(data_path), "/var/lib/%s/%s/data",
+		     DATA_DIR, id) >= (int)sizeof(data_path) ||
 	    relabel_path(data_path) < 0)
 		goto out;
 	if (fsync(datafd) < 0)
@@ -1789,6 +1790,8 @@ static int launch_app(const char *id, const char *port_text, const char *token)
 		errno = EPERM;
 		goto fail;
 	}
+	if (relabel_path(wayland_socket) < 0)
+		goto fail;
 	memcpy(port_copy, port_text, strlen(port_text) + 1);
 	varfd = open_var_lib();
 	if (varfd < 0)
