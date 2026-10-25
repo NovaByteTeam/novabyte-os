@@ -268,7 +268,7 @@ do_info() {
 
 do_shell() {
   cls
-  warn "Root shell. Type 'exit' to return to the recovery menu."
+  warn "Linux Terminal (running as root). Type 'exit' to return to the recovery menu."
   say
   HOME=/root /bin/sh -l
 }
@@ -312,7 +312,7 @@ menu() {
   say "   6) Restore user data from a backup"
   say "   7) Check system filesystem"
   say "   8) System information and logs"
-  say "   9) Root shell"
+  say "   9) Linux Terminal"
   say "   f) Factory reset (erase all user data)"
   say "   r) Restart        p) Power off"
   say
