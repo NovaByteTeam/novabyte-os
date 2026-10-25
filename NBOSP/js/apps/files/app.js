@@ -874,12 +874,9 @@
     // NW.js's native dialogs + Node's fs module directly instead of going
     // through the nova:download IPC bridge that sandboxed apps need.
     //
-    // Single file: a `nwsaveas` dialog, same as before — lets the user
-    // rename on the way out. nwsaveas delegates to the OS's own native
-    // save dialog, and every major desktop OS's native picker warns before
-    // overwriting an existing file by default — but that's the OS's
-    // behavior, not something this code verifies or controls.
-    // Multiple files: a single `nwdirectory` dialog picks one destination
+    // Single file: SystemDialogs' Save As — lets the user
+    // rename on the way out; we confirm before overwriting.
+    // Multiple files: a single SystemDialogs folder chooser picks one destination
     // folder, then every file is written into it. Before writing, the
     // destination folder is listed once (fs.readdir) so a name that
     // already exists there — or that collides with another file in this
@@ -954,66 +951,48 @@
       });
     }
 
-    // Shows NW.js's native folder-choose dialog (nwdirectory — distinct
-    // from nwsaveas). Resolves the chosen absolute path, or null if the
-    // user cancelled.
-    pickHostDirectory() {
-      return new Promise((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.setAttribute('nwdirectory', '');
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        const finish = (path) => { input.remove(); resolve(path); };
-
-        input.addEventListener('change', () => finish(input.value || null), { once: true });
-        input.addEventListener('cancel', () => finish(null), { once: true });
-
-        input.click();
-      });
+    // Folder chooser via the in-shell SystemDialogs (no native OS dialog).
+    // Resolves the chosen absolute path, or null if the user cancelled.
+    async pickHostDirectory() {
+      const picked = await SystemDialogs.open({ title: 'Choose Destination Folder', directory: true });
+      return picked ? picked.path : null;
     }
 
-    // Exports a single file node via a native Save As dialog, resolving
+    // Exports a single file node through SystemDialogs' Save As, resolving
     // true on success, false on cancel/error. node.content is either a
     // string (text files) or a Uint8Array (binary files dropped in from
-    // the host) — Buffer.from handles both.
-    exportOneToHost(node) {
-      return new Promise((resolve) => {
-        let buffer;
-        try {
-          buffer = Buffer.from(node.content ?? '');
-        } catch (err) {
-          notifyError('Export failed', err);
-          resolve(false);
-          return;
-        }
+    // the host) — Buffer.from handles both. SystemDialogs doesn't prompt on
+    // overwrite, so the check lives here.
+    async exportOneToHost(node) {
+      let buffer;
+      try {
+        buffer = Buffer.from(node.content ?? '');
+      } catch (err) {
+        notifyError('Export failed', err);
+        return false;
+      }
 
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.setAttribute('nwsaveas', node.name || 'export');
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        const finish = (ok) => { input.remove(); resolve(ok); };
-
-        input.addEventListener('change', () => {
-          const savePath = input.value;
-          if (!savePath) { finish(false); return; }
-          require('fs').writeFile(savePath, buffer, (err) => {
-            if (err) {
-              notifyError('Export failed', err);
-              finish(false);
-            } else {
-              finish(true);
-            }
-          });
-        }, { once: true });
-
-        input.addEventListener('cancel', () => finish(false), { once: true });
-
-        input.click();
+      const dest = await SystemDialogs.save({
+        title: 'Export File',
+        suggestedName: node.name || 'export',
       });
+      if (!dest) return false;
+
+      const fs = require('fs');
+      if (fs.existsSync(dest.path)) {
+        const ok = await showModal('Replace file?', `${dest.name} already exists. Replace it?`, [
+          { label: 'Cancel', value: false },
+          { label: 'Replace', value: true, primary: true },
+        ]);
+        if (!ok) return false;
+      }
+      try {
+        await fs.promises.writeFile(dest.path, buffer);
+        return true;
+      } catch (err) {
+        notifyError('Export failed', err);
+        return false;
+      }
     }
 
     // Restore from trash: persist first, then update the UI. If persistence

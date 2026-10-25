@@ -1555,19 +1555,19 @@ registerApp({
       // ── Detail panel ───────────────────────────────────────────
       const detail = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
 
-      // Hidden file input
-      const fileInput = createEl('input', {
-        type: 'file', accept: '.novaapp', id: 'app-install-input', name: 'app-install', style: 'display:none;'
-      });
-      fileInput.multiple = true;
-      fileInput.addEventListener('change', async e => {
-        const files = Array.from(e.target.files || []);
-        fileInput.value = '';
+      // Package picker — SystemDialogs (multi-select), results wrapped as File
+      // objects so processFile/processFiles don't care where they came from.
+      installBtn.addEventListener('click', async () => {
+        const picked = await SystemDialogs.open({
+          title: 'Install .novaapp',
+          multiple: true,
+          filter: (name, isDir) => isDir || name.endsWith('.novaapp'),
+        });
+        if (!picked?.length) return;
+        const files = picked.map(f => new File([f.content], f.name, { type: f.mimeType }));
         if (files.length > 1) await processFiles(files);
-        else if (files.length === 1) await processFile(files[0]);
+        else await processFile(files[0]);
       }, listenerOpts);
-      root.appendChild(fileInput);
-      installBtn.addEventListener('click', () => fileInput.click(), listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
       // Developer tools, the built-in launcher, and headless services are
@@ -2529,10 +2529,6 @@ registerApp({
           });
           iconPreview.innerHTML = svgIcon('globe', 16);
 
-          const iconFileInp = createEl('input', {
-            type: 'file', accept: 'image/*', id: 'web-app-icon-input', name: 'web-app-icon',
-            style: 'display:none;'
-          });
           const iconPickBtn = createEl('button', {
             style: 'padding:7px 10px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);cursor:pointer;font-size:12px;'
           });
@@ -2591,20 +2587,22 @@ registerApp({
             img.src = objectUrl;
           }
 
-          iconPickBtn.addEventListener('click', () => iconFileInp.click(), listenerOpts);
-          iconFileInp.addEventListener('change', () => {
-            const file = iconFileInp.files && iconFileInp.files[0];
-            if (file) processIconFile(file);
+          iconPickBtn.addEventListener('click', async () => {
+            const picked = await SystemDialogs.open({
+              title: 'Choose Icon',
+              filter: (name, isDir) => isDir || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name),
+            });
+            if (!picked) return;
+            processIconFile(new File([picked.content], picked.name, { type: picked.mimeType }));
           }, listenerOpts);
           iconClearBtn.addEventListener('click', () => {
             customIconDataUrl = null;
-            iconFileInp.value = '';
             iconErrEl.textContent = '';
             iconPreview.innerHTML = svgIcon('globe', 16);
             iconClearBtn.style.display = 'none';
           }, listenerOpts);
 
-          iconRow.append(iconPreview, iconPickBtn, iconClearBtn, iconFileInp);
+          iconRow.append(iconPreview, iconPickBtn, iconClearBtn);
           wIcon.append(iconLabel, iconRow, iconErrEl);
 
           const errEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });

@@ -3364,44 +3364,31 @@ registerApp({
         }
         baseName = baseName.slice(0, MAX_DL_NAME_LEN) || 'page';
         const filename = /\.html?$/i.test(baseName) ? baseName : baseName + '.html';
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.setAttribute('nwsaveas', filename);
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        let settled = false;
-        const finish = (message, type) => {
-          if (settled) return;
-          settled = true;
-          input.remove();
+        const notifyResult = (message, type) => {
           if (message) {
             Notify.show({ title: type === 'success' ? 'Page saved' : 'Save page failed', body: message, type, appName: 'Browser' });
           }
         };
 
-        input.addEventListener('change', () => {
-          const savePath = input.value;
-          if (!savePath) {
-            finish();
-            return;
-          }
+        SystemDialogs.save({ title: 'Save Page As', suggestedName: filename }).then(picked => {
+          if (!picked) return;
+          const savePath = picked.path;
           try {
             webview.executeScript({
               code: 'document.documentElement ? document.documentElement.outerHTML : null'
             }, results => {
               if (chrome.runtime?.lastError) {
-                finish('Could not read the page content: ' + chrome.runtime.lastError.message, 'error');
+                notifyResult('Could not read the page content: ' + chrome.runtime.lastError.message, 'error');
                 return;
               }
               const html = Array.isArray(results) ? results[0] : null;
               if (typeof html !== 'string' || !html) {
-                finish('The page has no HTML content to save.', 'error');
+                notifyResult('The page has no HTML content to save.', 'error');
                 return;
               }
               let fs;
               try { fs = require('fs'); } catch (error) {
-                finish('Could not access the file system: ' + (error?.message || error), 'error');
+                notifyResult('Could not access the file system: ' + (error?.message || error), 'error');
                 return;
               }
               const content = html.startsWith('<!doctype') || html.startsWith('<!DOCTYPE')
@@ -3409,19 +3396,16 @@ registerApp({
                 : '<!doctype html>\n' + html;
               fs.writeFile(savePath, content, 'utf8', error => {
                 if (error) {
-                  finish('Could not write the file: ' + error.message, 'error');
+                  notifyResult('Could not write the file: ' + error.message, 'error');
                   return;
                 }
-                finish(filename + ' was saved.', 'success');
+                notifyResult(picked.name + ' was saved.', 'success');
               });
             });
           } catch (error) {
-            finish('Could not read the page content: ' + (error?.message || error), 'error');
+            notifyResult('Could not read the page content: ' + (error?.message || error), 'error');
           }
-        }, { once: true });
-
-        input.addEventListener('cancel', () => finish(), { once: true });
-        input.click();
+        }).catch(error => notifyResult('Save dialog failed: ' + (error?.message || error), 'error'));
       }
 
       function _buildWebviewMenu(ctx, pageUrl) {

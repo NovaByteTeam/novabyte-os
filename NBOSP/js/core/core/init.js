@@ -828,41 +828,55 @@ window.recoveryAction = function (action) {
   } else if (action === 'import') {
     recLog('');
     recLog('[ Import Backup ]', 'info');
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.accept = '.json';
-    inp.id = 'backup-import-input';
-    inp.name = 'backup-import';
-    inp.onchange = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const data = JSON.parse(ev.target.result);
-          if (!data.localStorage) {
-            recLog('✗ Invalid backup file format', 'err');
-            return;
-          }
-          if (!confirm(`Import backup from ${data.exportedAt}?\n\nThis will overwrite current settings. The OS will reload.`)) {
-            recLog('Cancelled.', 'warn');
-            return;
-          }
-          Object.entries(data.localStorage).forEach(([k, v]) => {
-            try {
-              localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
-            } catch { }
-          });
-          recLog(`✓ Imported ${Object.keys(data.localStorage).length} key(s) from backup`, 'ok');
-          recLog('Reloading…', 'info');
-          setTimeout(() => location.reload(), 2000);
-        } catch (e) {
-          recLog('✗ Failed to parse backup: ' + e.message, 'err');
+    const applyBackup = (raw) => {
+      try {
+        const data = JSON.parse(raw);
+        if (!data.localStorage) {
+          recLog('✗ Invalid backup file format', 'err');
+          return;
         }
-      };
-      reader.readAsText(file);
+        if (!confirm(`Import backup from ${data.exportedAt}?\n\nThis will overwrite current settings. The OS will reload.`)) {
+          recLog('Cancelled.', 'warn');
+          return;
+        }
+        Object.entries(data.localStorage).forEach(([k, v]) => {
+          try {
+            localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+          } catch { }
+        });
+        recLog(`✓ Imported ${Object.keys(data.localStorage).length} key(s) from backup`, 'ok');
+        recLog('Reloading…', 'info');
+        setTimeout(() => location.reload(), 2000);
+      } catch (e) {
+        recLog('✗ Failed to parse backup: ' + e.message, 'err');
+      }
     };
-    inp.click();
+
+    if (typeof SystemDialogs !== 'undefined') {
+      SystemDialogs.open({
+        title: 'Import Backup',
+        filter: (name, isDir) => isDir || name.endsWith('.json'),
+      }).then(f => {
+        if (!f) { recLog('Cancelled.', 'warn'); return; }
+        applyBackup(typeof f.content === 'string' ? f.content : f.content.toString('utf8'));
+      }).catch(e => recLog('✗ File dialog failed: ' + e.message, 'err'));
+    } else {
+      // Recovery screen runs before the shell services load; if SystemDialogs
+      // isn't registered yet there's no other way to pick a file.
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.accept = '.json';
+      inp.id = 'backup-import-input';
+      inp.name = 'backup-import';
+      inp.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => applyBackup(ev.target.result);
+        reader.readAsText(file);
+      };
+      inp.click();
+    }
 
   } else if (action === 'wipe-user-data') {
     if (!confirm('Wipe all user data (settings, files)? This cannot be undone.')) {

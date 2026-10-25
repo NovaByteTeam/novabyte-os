@@ -1507,17 +1507,16 @@ registerApp({
 
       // Attachments — collected client-side and sent as multipart form data
       // so the server receives the actual file bytes alongside the message.
-      const fileInp = createEl('input', {
-        type: 'file',
-        multiple: true,
-        style: 'display:none;',
-      });
       const attachListEl = createEl('div', {
         style: 'display:flex;flex-wrap:wrap;gap:4px;padding:0 12px 4px;flex-shrink:0;',
       });
       let attachedFiles = [];
-      fileInp.addEventListener('change', () => {
-        attachedFiles = [...fileInp.files];
+      // Picked through SystemDialogs; wrapped as File objects so the
+      // FormData upload below works the same as before.
+      async function pickAttachments() {
+        const picked = await SystemDialogs.open({ title: 'Attach Files', multiple: true });
+        if (!picked?.length) return;
+        attachedFiles = picked.map(f => new File([f.content], f.name, { type: f.mimeType }));
         attachListEl.replaceChildren();
         attachedFiles.forEach(f => {
           attachListEl.appendChild(createEl('span', {
@@ -1525,9 +1524,7 @@ registerApp({
             textContent: '📎 ' + f.name + ' (' + fmtSize(f.size) + ')',
           }));
         });
-        // Reset the input so selecting the same file again still fires change.
-        fileInp.value = '';
-      }, { signal: appSignal });
+      }
 
       // Footer
       const foot = createEl('div', { className: 'em-compose-foot' });
@@ -1541,7 +1538,7 @@ registerApp({
         title: 'Attach file',
       });
       const errSpan = createEl('span', { style: 'font-size:11px;color:#e55;flex:1;' });
-      attachBtn.addEventListener('click', () => fileInp.click(), { signal: appSignal });
+      attachBtn.addEventListener('click', pickAttachments, { signal: appSignal });
 
       sendBtn.addEventListener('click', async () => {
         const to = toInp.value.trim();
@@ -1586,7 +1583,7 @@ registerApp({
         }
       }, { signal: appSignal });
 
-      foot.append(sendBtn, attachBtn, fileInp, errSpan);
+      foot.append(sendBtn, attachBtn, errSpan);
       win.append(hdr, fieldsEl, attachListEl, bodyTa, foot);
       overlay.appendChild(win);
       composeOverlays.add(overlay);

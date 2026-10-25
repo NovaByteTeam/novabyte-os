@@ -175,10 +175,8 @@ registerApp({
     const ioRow = createEl('div', { style: 'display:flex;gap:8px;margin-top:8px;flex-shrink:0;' });
     const exportBtn = createEl('button', { textContent: 'Export List', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
     const importBtn = createEl('button', { textContent: 'Import List', style: 'padding:5px 10px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
-    const importFileInput = createEl('input', { type: 'file', accept: 'application/json', style: 'display:none;' });
     ioRow.appendChild(exportBtn);
     ioRow.appendChild(importBtn);
-    ioRow.appendChild(importFileInput);
     content.appendChild(ioRow);
 
     exportBtn.addEventListener('click', () => {
@@ -194,14 +192,14 @@ registerApp({
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     }, { signal: ac.signal });
 
-    importBtn.addEventListener('click', () => importFileInput.click(), { signal: ac.signal });
-
-    importFileInput.addEventListener('change', async () => {
-      const file = importFileInput.files?.[0];
-      importFileInput.value = ''; // reset so re-selecting the same file still fires 'change'
+    importBtn.addEventListener('click', async () => {
+      const file = await SystemDialogs.open({
+        title: 'Import Module List',
+        filter: (name, isDir) => isDir || name.toLowerCase().endsWith('.json'),
+      });
       if (!file) return;
       try {
-        const text = await file.text();
+        const text = typeof file.content === 'string' ? file.content : file.content.toString('utf8');
         const parsed = JSON.parse(text);
         if (!Array.isArray(parsed)) throw new Error('Expected a JSON array');
         // Validate shape before trusting it — a malformed import (missing

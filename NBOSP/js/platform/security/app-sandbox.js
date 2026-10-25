@@ -2395,9 +2395,9 @@ const AppSandbox = (() => {
   // see nodeintegration=false above). The capability shim in a guest
   // intercepts <a download> clicks on blob: URLs, reads the blob bytes,
   // and ships them here as base64. This handler is what actually shows
-  // the native "Save As" dialog and writes the bytes to disk — it only
+  // the SystemDialogs "Save As" and writes the bytes to disk — it only
   // runs in the top-level shell window, which IS a Node frame, so
-  // nwsaveas and Node's fs module both work here.
+  // SystemDialogs and Node's fs module both work here.
   //
   // No standing permission is required for this — the native save dialog
   // itself is the control: the app can propose a filename and bytes, but
@@ -2438,81 +2438,54 @@ const AppSandbox = (() => {
 
     const safeName = sanitizeDownloadFilename(filename);
 
-    return new Promise((resolve) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.setAttribute('nwsaveas', safeName);
-      input.style.display = 'none';
-      document.body.appendChild(input);
+    if (typeof window.SystemDialogs === 'undefined') {
+      return respondError(webview, 'nova:download', requestId, 'UNAVAILABLE', 'SystemDialogs not loaded');
+    }
+    if (typeof require !== 'function') {
+      return respondError(webview, 'nova:download', requestId, 'UNAVAILABLE', 'Node fs module not available in this context');
+    }
+    let fs;
+    try { fs = require('fs'); } catch (e) {
+      return respondError(webview, 'nova:download', requestId, 'UNAVAILABLE', `Could not load fs module: ${e?.message || e}`);
+    }
 
-      // Cap how long we wait for the save dialog — if the user walks away
-      // without dismissing it, the IPC call would otherwise hang forever
-      // (the guest's shim has its own 10-min timeout, but the host-side
-      // promise has none). 5 minutes is generous for a save decision and
-      // short enough that a truly forgotten dialog surfaces as an error
-      // rather than a zombie promise.
-      let settled = false;
-      const timeoutId = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        input.remove();
-        respondError(webview, 'nova:download', requestId, 'TIMEOUT', 'Save dialog timed out');
-        resolve();
-      }, DOWNLOAD_DIALOG_TIMEOUT_MS);
-
-      const finish = (fn) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutId);
-        input.remove();
-        fn();
-        resolve();
-      };
-
-      input.addEventListener('change', () => {
-        const savePath = input.value;
-        if (!savePath) {
-          finish(() => respond(webview, 'nova:download', requestId, { success: false, cancelled: true }));
-          return;
-        }
-        // Lazy-require fs: this handler only runs in the top-level shell
-        // window (a Node frame), so require() is expected to exist. If it
-        // doesn't (test/headless env missing Node integration), surface
-        // that as an explicit error rather than a ReferenceError.
-        if (typeof require !== 'function') {
-          finish(() => respondError(webview, 'nova:download', requestId, 'UNAVAILABLE', 'Node fs module not available in this context'));
-          return;
-        }
-        let fs;
-        try { fs = require('fs'); } catch (e) {
-          finish(() => respondError(webview, 'nova:download', requestId, 'UNAVAILABLE', `Could not load fs module: ${e?.message || e}`));
-          return;
-        }
-        fs.writeFile(savePath, buffer, (err) => {
-          if (err) {
-            finish(() => respondError(webview, 'nova:download', requestId, 'IO_ERROR', err?.message || 'Failed to write file'));
-          } else {
-            if (typeof EventLog !== 'undefined') {
-              EventLog.log({
-                app: 'AppSandbox',
-                category: 'downloads',
-                severity: 'info',
-                message: `${app?.id || 'unknown'}: saved download "${safeName}" (${buffer.length} bytes)`,
-                data: { appId: app?.id, filename: safeName, size: buffer.length, mimeType: mimeType || null },
-              });
-            }
-            finish(() => respond(webview, 'nova:download', requestId, { success: true }));
-          }
-        });
-      }, { once: true });
-
-      // 'cancel' fires if the user dismisses the dialog without choosing a path.
-      input.addEventListener('cancel', () => {
-        finish(() => respond(webview, 'nova:download', requestId, { success: false, cancelled: true }));
-      }, { once: true });
-
-      input.click();
+    // Cap how long we wait for the save dialog — if the user walks away
+    // without dismissing it, the IPC call would otherwise hang forever.
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), DOWNLOAD_DIALOG_TIMEOUT_MS);
     });
+    const picked = await Promise.race([
+      window.SystemDialogs.save({ title: 'Save Download', suggestedName: safeName }),
+      timeout,
+    ]).catch((e) => ({ error: e }));
+    clearTimeout(timer);
+
+    if (picked === 'timeout') {
+      return respondError(webview, 'nova:download', requestId, 'TIMEOUT', 'Save dialog timed out');
+    }
+    if (picked?.error) {
+      return respondError(webview, 'nova:download', requestId, 'IO_ERROR', picked.error?.message || 'Save dialog failed');
+    }
+    if (!picked) {
+      return respond(webview, 'nova:download', requestId, { success: false, cancelled: true });
+    }
+
+    try {
+      await fs.promises.writeFile(picked.path, buffer);
+    } catch (err) {
+      return respondError(webview, 'nova:download', requestId, 'IO_ERROR', err?.message || 'Failed to write file');
+    }
+    if (typeof EventLog !== 'undefined') {
+      EventLog.log({
+        app: 'AppSandbox',
+        category: 'downloads',
+        severity: 'info',
+        message: `${app?.id || 'unknown'}: saved download "${safeName}" (${buffer.length} bytes)`,
+        data: { appId: app?.id, filename: safeName, size: buffer.length, mimeType: mimeType || null },
+      });
+    }
+    return respond(webview, 'nova:download', requestId, { success: true });
   }
 
   // App lifecycle

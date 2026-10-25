@@ -14,6 +14,11 @@
  *     filter: (name, isDir) => isDir || name.endsWith('.txt'),
  *   });
  *
+ *   // Folder — pass directory: true; resolves { path, name } or null.
+ *   const dir = await SystemDialogs.open({ title: "Choose Folder", directory: true });
+ *
+ *   // Multiple files — pass multiple: true; click toggles, resolves an array or null.
+ *
  *   // Save — resolves to null if cancelled, otherwise:
  *   // { path, name }  (caller writes the file)
  *   const dest = await SystemDialogs.save({
@@ -83,7 +88,13 @@ const SystemDialogs = (() => {
   // ── Core dialog ────────────────────────────────────────────────────────
   function _show(opts) {
     const isSave    = opts.mode === 'save';
-    const title     = opts.title || (isSave ? 'Save As' : 'Open');
+    // directory: true (open mode only) turns the dialog into a folder chooser.
+    // Resolves { path, name } for the highlighted subfolder, or the current one.
+    const pickDir   = !isSave && opts.directory === true;
+    // multiple: true (open mode, files only) allows click-to-toggle multi-select
+    // and resolves an array of file objects (same shape as single open).
+    const multi     = !isSave && !pickDir && opts.multiple === true;
+    const title     = opts.title || (isSave ? 'Save As' : pickDir ? 'Select Folder' : 'Open');
     const filter    = typeof opts.filter === 'function' ? opts.filter : () => true;
     let   cwd       = opts.startPath || DEFAULT_START;
 
@@ -168,7 +179,7 @@ const SystemDialogs = (() => {
       nameInput.type = 'text';
       nameInput.style.flex = '1';
       nameInput.setAttribute('aria-label', isSave ? 'File name' : 'Selected file');
-      nameInput.placeholder = isSave ? 'File name…' : 'Select a file…';
+      nameInput.placeholder = isSave ? 'File name…' : pickDir ? 'Current folder' : multi ? 'Select files…' : 'Select a file…';
       if (isSave) nameInput.value = opts.suggestedName || '';
       else nameInput.readOnly = true;
 
@@ -178,8 +189,8 @@ const SystemDialogs = (() => {
 
       const confirmBtn = document.createElement('button');
       confirmBtn.className = 'btn btn-sm btn-primary';
-      confirmBtn.textContent = isSave ? 'Save' : 'Open';
-      confirmBtn.disabled = !isSave || !nameInput.value.trim();
+      confirmBtn.textContent = isSave ? 'Save' : pickDir ? 'Select' : 'Open';
+      confirmBtn.disabled = pickDir ? false : (!isSave || !nameInput.value.trim());
 
       footer.append(nameInput, cancelBtn, confirmBtn);
       dialog.append(header, toolbar, grid, footer);
@@ -189,6 +200,7 @@ const SystemDialogs = (() => {
       const history = [];
       let histIdx = -1;
       let selectedName = null;
+      const selectedSet = new Set();
 
       function pushHistory(p) {
         if (histIdx < history.length - 1) history.length = histIdx + 1;
@@ -200,9 +212,10 @@ const SystemDialogs = (() => {
         cwd = dirPath;
         if (record) pushHistory(dirPath);
         selectedName = null;
+        selectedSet.clear();
         if (!isSave) {
           nameInput.value = '';
-          confirmBtn.disabled = true;
+          confirmBtn.disabled = !pickDir;
         }
         pathBar.value = cwd;
         upBtn.disabled = (path.dirname(cwd) === cwd); // at root
@@ -215,7 +228,8 @@ const SystemDialogs = (() => {
         histIdx--;
         cwd = history[histIdx];
         selectedName = null;
-        if (!isSave) { nameInput.value = ''; confirmBtn.disabled = true; }
+        selectedSet.clear();
+        if (!isSave) { nameInput.value = ''; confirmBtn.disabled = !pickDir; }
         pathBar.value = cwd;
         upBtn.disabled = (path.dirname(cwd) === cwd);
         backBtn.disabled = histIdx <= 0;
@@ -236,7 +250,9 @@ const SystemDialogs = (() => {
       async function renderGrid() {
         grid.innerHTML = '';
         const entries = await readDir(cwd);
-        const visible = entries.filter(e => e.isDir || filter(e.name, false));
+        const visible = pickDir
+          ? entries.filter(e => e.isDir)
+          : entries.filter(e => e.isDir || filter(e.name, false));
 
         if (visible.length === 0) {
           const empty = document.createElement('div');
@@ -269,6 +285,7 @@ const SystemDialogs = (() => {
               clearSelection();
               item.classList.add('selected');
               item.setAttribute('aria-selected', 'true');
+              if (pickDir) { selectedName = entry.name; nameInput.value = entry.name; }
             });
             item.addEventListener('dblclick', () => navigateTo(path.join(cwd, entry.name)));
             item.addEventListener('keydown', e => {
@@ -276,6 +293,15 @@ const SystemDialogs = (() => {
             });
           } else {
             item.addEventListener('click', () => {
+              if (multi) {
+                const on = !selectedSet.has(entry.name);
+                item.classList.toggle('selected', on);
+                item.setAttribute('aria-selected', String(on));
+                if (on) selectedSet.add(entry.name); else selectedSet.delete(entry.name);
+                nameInput.value = selectedSet.size > 1 ? `${selectedSet.size} files selected` : ([...selectedSet][0] || '');
+                confirmBtn.disabled = selectedSet.size === 0;
+                return;
+              }
               clearSelection();
               item.classList.add('selected');
               item.setAttribute('aria-selected', 'true');
@@ -287,10 +313,15 @@ const SystemDialogs = (() => {
             item.addEventListener('dblclick', () => {
               selectedName = entry.name;
               nameInput.value = entry.name;
+              if (multi) { selectedSet.add(entry.name); confirmBtn.disabled = false; }
               doConfirm();
             });
             item.addEventListener('keydown', e => {
-              if (e.key === 'Enter') { selectedName = entry.name; doConfirm(); }
+              if (e.key === 'Enter') {
+                selectedName = entry.name;
+                if (multi) { selectedSet.add(entry.name); confirmBtn.disabled = false; }
+                doConfirm();
+              }
             });
           }
 
@@ -307,6 +338,32 @@ const SystemDialogs = (() => {
 
       async function doConfirm() {
         if (confirmBtn.disabled) return;
+        if (pickDir) {
+          const dir = selectedName ? path.join(cwd, selectedName) : cwd;
+          finish({ path: dir, name: path.basename(dir) || dir });
+          return;
+        }
+        if (multi) {
+          const names = [...selectedSet];
+          if (!names.length) return;
+          const results = [];
+          for (const n of names) {
+            const fp = path.join(cwd, n);
+            try {
+              const buf = await fs.promises.readFile(fp);
+              const mime = guessMime(n);
+              const isText = mime.startsWith('text/') || mime === 'application/json' || mime === 'application/x-sh' || mime === 'application/xml';
+              results.push({ path: fp, name: n, content: isText ? buf.toString('utf8') : buf, mimeType: mime, size: buf.length });
+            } catch (err) {
+              if (typeof Notify !== 'undefined') {
+                Notify.show({ title: 'Open failed', body: `${n}: ${err.message}`, type: 'error' });
+              }
+              return;
+            }
+          }
+          finish(results);
+          return;
+        }
         const name = nameInput.value.trim();
         if (!name) return;
         const fullPath = path.join(cwd, name);
