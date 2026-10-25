@@ -2360,65 +2360,61 @@ registerApp({
             });
             if (!text) return;
           }
-          try {
-            const data = JSON.parse(text);
-            const data = JSON.parse(text);
+          const data = JSON.parse(text);
 
-            const writes = [];
-            const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
-            if (data.settings && typeof data.settings === 'object') {
-              for (const [k, v] of Object.entries(data.settings)) {
-                if (IMPORT_PROTECTED_SETTINGS.has(k)) {
-                  devLog('Skipping protected setting during import:', k);
-                  continue;
-                }
-                if (isLinux) {
-                  OS.settings.set(k, v);
-                } else {
-                  OS.settings._cache[k] = v;
-                  writes.push(OS.workers.fs.call('putSetting', k, v));
-                }
+          const writes = [];
+          const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
+          if (data.settings && typeof data.settings === 'object') {
+            for (const [k, v] of Object.entries(data.settings)) {
+              if (IMPORT_PROTECTED_SETTINGS.has(k)) {
+                devLog('Skipping protected setting during import:', k);
+                continue;
+              }
+              if (isLinux) {
+                OS.settings.set(k, v);
+              } else {
+                OS.settings._cache[k] = v;
+                writes.push(OS.workers.fs.call('putSetting', k, v));
               }
             }
-            if (Array.isArray(data.files) && data.files.length) {
-              writes.push(isLinux
-                ? FS.importNodes(data.files)
-                : OS.workers.fs.call('putFiles', data.files));
-            }
-
-            // Wait for every fs-backed write to actually land before reporting success
-            const results = await Promise.allSettled(writes);
-            if (!isAlive()) return;
-            const failed = results.some(r => r.status === 'rejected');
-
-            if (data.localStorage && typeof data.localStorage === 'object') {
-              for (const [k, v] of Object.entries(data.localStorage)) {
-                // Skip machine/session-specific keys that must never be
-                // restored from an untrusted file
-                if (IMPORT_PROTECTED_KEYS.has(k)) {
-                  devLog('Skipping protected key during import:', k);
-                  continue;
-                }
-                try { localStorage.setItem(k, v); } catch (err) { devLog('localStorage.setItem failed for', k, err); }
-              }
-            }
-
-            if (data.settings && typeof data.settings === 'object') {
-              OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
-            }
-
-            if (!isAlive()) return;
-            if (failed) {
-              Notify.show({ title: 'Import Incomplete', body: 'Some data could not be saved. Try again.', type: 'error', appName: 'Nook' });
-            } else {
-              Notify.show({ title: 'Data Imported', body: 'All data has been imported. Restart to apply fully.', type: 'success', appName: 'Nook' });
-            }
-          } catch (err) {
-            devLog('Import failed:', err);
-            Notify.show({ title: 'Import Failed', body: 'Invalid JSON file', type: 'error', appName: 'Nook' });
           }
-        }, { signal: lifecycle.signal });
-        input.click();
+          if (Array.isArray(data.files) && data.files.length) {
+            writes.push(isLinux
+              ? FS.importNodes(data.files)
+              : OS.workers.fs.call('putFiles', data.files));
+          }
+
+          // Wait for every fs-backed write to actually land before reporting success
+          const results = await Promise.allSettled(writes);
+          if (!isAlive()) return;
+          const failed = results.some(r => r.status === 'rejected');
+
+          if (data.localStorage && typeof data.localStorage === 'object') {
+            for (const [k, v] of Object.entries(data.localStorage)) {
+              // Skip machine/session-specific keys that must never be
+              // restored from an untrusted file
+              if (IMPORT_PROTECTED_KEYS.has(k)) {
+                devLog('Skipping protected key during import:', k);
+                continue;
+              }
+              try { localStorage.setItem(k, v); } catch (err) { devLog('localStorage.setItem failed for', k, err); }
+            }
+          }
+
+          if (data.settings && typeof data.settings === 'object') {
+            OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
+          }
+
+          if (!isAlive()) return;
+          if (failed) {
+            Notify.show({ title: 'Import Incomplete', body: 'Some data could not be saved. Try again.', type: 'error', appName: 'Nook' });
+          } else {
+            Notify.show({ title: 'Data Imported', body: 'All data has been imported. Restart to apply fully.', type: 'success', appName: 'Nook' });
+          }
+        } catch (err) {
+          devLog('Import failed:', err);
+          Notify.show({ title: 'Import Failed', body: 'Invalid JSON file', type: 'error', appName: 'Nook' });
+        }
       }, { signal: lifecycle.signal });
       exportActions.appendChild(importBtn);
       exportSection.appendChild(exportActions);
