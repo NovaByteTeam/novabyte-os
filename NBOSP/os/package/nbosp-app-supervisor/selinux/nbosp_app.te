@@ -19,12 +19,12 @@ init_daemon_domain(nbosp_app_supervisor_service_t,
 
 type nbosp_app_supervisor_t;
 type nbosp_app_supervisor_exec_t;
-domain_auto_trans(nbosp_app_supervisor_service_t,
-		  nbosp_app_supervisor_exec_t,
-		  nbosp_app_supervisor_t)
+domtrans_pattern(nbosp_app_supervisor_service_t,
+		 nbosp_app_supervisor_exec_t,
+		 nbosp_app_supervisor_t)
 unconfined_domain(nbosp_app_supervisor_t)
-domain_auto_trans(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t,
-		  nbosp_app_t)
+domtrans_pattern(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t,
+		 nbosp_app_t)
 
 type nbosp_app_package_t;
 files_type(nbosp_app_package_t)
