@@ -52,6 +52,68 @@ const SystemDialogs = (() => {
     return EXT_MIME[ext] || 'application/octet-stream';
   }
 
+  // Wider table for matching an <input accept> list and for pathOnly results.
+  // It stays apart from EXT_MIME on purpose: callers that read file contents
+  // choose string vs Buffer from guessMime(), so adding text types there
+  // would turn a Latin-1 CSV into a mangled UTF-8 string.
+  const EXT_MIME_EXTRA = {
+    bmp: 'image/bmp', ico: 'image/vnd.microsoft.icon', avif: 'image/avif',
+    heic: 'image/heic', heif: 'image/heif', tif: 'image/tiff', tiff: 'image/tiff',
+    jxl: 'image/jxl',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg',
+    flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac', opus: 'audio/opus',
+    weba: 'audio/webm', mid: 'audio/midi', midi: 'audio/midi',
+    mp4: 'video/mp4', m4v: 'video/x-m4v', webm: 'video/webm', ogv: 'video/ogg',
+    mov: 'video/quicktime', avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+    mpeg: 'video/mpeg', mpg: 'video/mpeg', '3gp': 'video/3gpp',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    odt: 'application/vnd.oasis.opendocument.text',
+    ods: 'application/vnd.oasis.opendocument.spreadsheet',
+    odp: 'application/vnd.oasis.opendocument.presentation',
+    rtf: 'application/rtf', epub: 'application/epub+zip',
+    csv: 'text/csv', tsv: 'text/tab-separated-values', ics: 'text/calendar',
+    vcf: 'text/vcard', yaml: 'application/yaml', yml: 'application/yaml',
+    gz: 'application/gzip', tgz: 'application/gzip', tar: 'application/x-tar',
+    bz2: 'application/x-bzip2', xz: 'application/x-xz',
+    '7z': 'application/x-7z-compressed', rar: 'application/vnd.rar',
+    woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
+    wasm: 'application/wasm', mjs: 'text/javascript',
+    iso: 'application/x-iso9660-image', deb: 'application/vnd.debian.binary-package',
+    apk: 'application/vnd.android.package-archive',
+  };
+
+  function lookupMime(filename) {
+    const ext = (filename.split('.').pop() || '').toLowerCase();
+    return EXT_MIME[ext] || EXT_MIME_EXTRA[ext] || 'application/octet-stream';
+  }
+
+  // Turns an <input accept> string (".png,image/*,application/pdf") into a
+  // filter(name, isDir), or null when it holds no usable rule. Extension rules
+  // are strict. MIME rules let through files whose type we can't identify:
+  // the table can't cover every format, and the dialog has no "all files"
+  // switch, so hiding an unknown file would make it unpickable.
+  function acceptFilter(accept) {
+    const rules = String(accept || '').split(',').map(r => r.trim().toLowerCase())
+      .filter(r => /^\.[\w+-]+$/.test(r) || /^[\w.+-]+\/(\*|[\w.+-]+)$/.test(r));
+    if (!rules.length) return null;
+    return (name, isDir) => {
+      if (isDir) return true;
+      const lowerName = name.toLowerCase();
+      const type = lookupMime(name);
+      return rules.some(rule => {
+        if (rule.startsWith('.')) return lowerName.endsWith(rule);
+        if (type === 'application/octet-stream') return true;
+        if (rule.endsWith('/*')) return type.startsWith(rule.slice(0, -1));
+        return type === rule;
+      });
+    };
+  }
+
   // ── Icon SVGs (minimal, inline) ────────────────────────────────────────
   function folderIcon() {
     return `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L10.414 6.5A1 1 0 0 0 11.121 6.793H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>`;
@@ -99,7 +161,11 @@ const SystemDialogs = (() => {
     // themselves instead of holding all of it in memory.
     const pathOnly  = !isSave && opts.pathOnly === true;
     const title     = opts.title || (isSave ? 'Save As' : pickDir ? 'Select Folder' : 'Open');
-    const filter    = typeof opts.filter === 'function' ? opts.filter : () => true;
+    // accept: an <input accept> style list, combined with filter if both are given.
+    const customFilter = typeof opts.filter === 'function' ? opts.filter : null;
+    const acceptRule   = acceptFilter(opts.accept);
+    const filter    = (name, isDir) =>
+      (!customFilter || customFilter(name, isDir)) && (!acceptRule || acceptRule(name, isDir));
     let   cwd       = opts.startPath || DEFAULT_START;
 
     return new Promise((resolve) => {
@@ -356,7 +422,7 @@ const SystemDialogs = (() => {
             try {
               if (pathOnly) {
                 const stat = await fs.promises.stat(fp);
-                results.push({ path: fp, name: n, mimeType: guessMime(n), size: stat.size });
+                results.push({ path: fp, name: n, mimeType: lookupMime(n), size: stat.size });
                 continue;
               }
               const buf = await fs.promises.readFile(fp);
@@ -387,7 +453,7 @@ const SystemDialogs = (() => {
               }
               return;
             }
-            finish({ path: fullPath, name, mimeType: guessMime(name), size: stat.size });
+            finish({ path: fullPath, name, mimeType: lookupMime(name), size: stat.size });
           });
         } else {
           // read the file content

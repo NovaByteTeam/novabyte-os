@@ -2135,15 +2135,6 @@ registerApp({
       await expectTrue(guestFileCall('endFile', id));
     }
 
-    // Only plain extension rules (".png,.jpg") can be applied, since
-    // SystemDialogs has no MIME lookup to share. Anything else shows every
-    // file and leaves validation to the site.
-    function extensionFilter(accept) {
-      const rules = String(accept || '').split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
-      if (!rules.length || !rules.every(r => /^\.[a-z0-9]+$/.test(r))) return undefined;
-      return (name, isDir) => isDir || rules.some(ext => name.toLowerCase().endsWith(ext));
-    }
-
     // Webview factory — creates or returns the <webview> element for a tab.
     // Attaches all event listeners (load, error, fullscreen, permission,
     // download, new-window, context-menu) exactly once per webview.
@@ -3486,7 +3477,7 @@ registerApp({
           const result = await SystemDialogs.open({
             title: request.multiple ? 'Choose Files to Upload' : 'Choose File to Upload',
             multiple: request.multiple === true,
-            filter: extensionFilter(request.accept),
+            accept: request.accept,
             pathOnly: true,
           });
           const picks = result ? [].concat(result) : [];
