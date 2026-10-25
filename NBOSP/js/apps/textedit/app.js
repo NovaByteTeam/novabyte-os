@@ -8,15 +8,15 @@ function initLinuxTextEdit(content, state, options = {}) {
 
   let currentPath = options.path || options.filePath || null;
   let modified = false;
-  const root = createEl('div', { style: 'height:100%;display:flex;flex-direction:column;min-height:0;' });
-  const toolbar = createEl('div', { style: 'display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border-subtle);' });
+  const root = createEl('div', { style: 'position:absolute;inset:0;display:flex;flex-direction:column;min-height:0;overflow:hidden;' });
+  const toolbar = createEl('div', { style: 'display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border-subtle);flex-shrink:0;' });
   const editor = createEl('textarea', {
     className: 'quill-textarea',
     'aria-label': 'Text editor',
     spellcheck: 'false',
-    style: 'flex:1;resize:none;min-height:0;'
+    style: 'flex:1;resize:none;min-height:0;width:100%;box-sizing:border-box;'
   });
-  const status = createEl('div', { role: 'status', style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-muted);' });
+  const status = createEl('div', { role: 'status', style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-muted);flex-shrink:0;' });
   const setStatus = () => {
     const name = currentPath ? path.basename(currentPath) : 'Untitled';
     status.textContent = `${name}${modified ? ' • Modified' : ''}`;
@@ -26,25 +26,16 @@ function initLinuxTextEdit(content, state, options = {}) {
     button.addEventListener('click', action, { signal: controller.signal });
     toolbar.appendChild(button);
   };
-  const selectPath = (saveAs, suggestedName = 'untitled.txt') => new Promise(resolve => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.style.display = 'none';
+  const selectPath = async (saveAs, suggestedName = 'untitled.txt') => {
+    const startPath = currentPath ? path.dirname(currentPath) : os.homedir();
     if (saveAs) {
-      input.setAttribute('nwsaveas', suggestedName);
-      input.setAttribute('nwworkingdir', currentPath ? path.dirname(currentPath) : os.homedir());
+      const picked = await SystemDialogs.save({ title: 'Save As', suggestedName, startPath });
+      return picked ? picked.path : null;
     } else {
-      input.setAttribute('nwworkingdir', currentPath ? path.dirname(currentPath) : os.homedir());
+      const picked = await SystemDialogs.open({ title: 'Open File', startPath });
+      return picked ? picked.path : null;
     }
-    document.body.appendChild(input);
-    const finish = value => {
-      input.remove();
-      resolve(value);
-    };
-    input.addEventListener('change', () => finish(input.value || null), { once: true });
-    input.addEventListener('cancel', () => finish(null), { once: true });
-    input.click();
-  });
+  };
 
   const save = async saveAs => {
     try {
@@ -88,7 +79,7 @@ function initLinuxTextEdit(content, state, options = {}) {
   }, { signal: controller.signal });
   root.append(toolbar, editor, status);
   content.replaceChildren(root);
-  content.style.cssText = 'padding:0;height:100%;overflow:hidden;';
+  content.style.cssText = 'padding:0;height:100%;overflow:hidden;position:relative;';
   if (currentPath) {
     fs.readFile(currentPath, 'utf8').then(text => {
       editor.value = text;

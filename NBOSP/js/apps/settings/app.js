@@ -2334,15 +2334,34 @@ registerApp({
       exportActions.appendChild(exportBtn);
 
       const importBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Import Data' });
-      importBtn.addEventListener('click', () => {
-        const input = createEl('input', { type: 'file', accept: '.json', id: 'settings-import-input', name: 'settings-import', style: 'display:none' });
-        document.body.appendChild(input);
-        input.addEventListener('change', async () => {
-          const file = input.files[0];
-          input.remove();
-          if (!file) return;
+      importBtn.addEventListener('click', async () => {
+        try {
+          let text;
+          const isLinuxPick = typeof process !== 'undefined' && process.platform === 'linux';
+          if (isLinuxPick) {
+            const picked = await SystemDialogs.open({
+              title: 'Import Data',
+              startPath: (typeof os !== 'undefined' ? os.homedir() : null) || '/home/nbosp',
+              filter: (name, isDir) => isDir || name.endsWith('.json'),
+            });
+            if (!picked) return;
+            text = picked.content;
+          } else {
+            const input = createEl('input', { type: 'file', accept: '.json', style: 'display:none' });
+            document.body.appendChild(input);
+            text = await new Promise(resolve => {
+              input.addEventListener('change', async () => {
+                const file = input.files[0];
+                input.remove();
+                resolve(file ? await file.text() : null);
+              }, { once: true });
+              input.addEventListener('cancel', () => { input.remove(); resolve(null); }, { once: true });
+              input.click();
+            });
+            if (!text) return;
+          }
           try {
-            const text = await file.text();
+            const data = JSON.parse(text);
             const data = JSON.parse(text);
 
             const writes = [];
