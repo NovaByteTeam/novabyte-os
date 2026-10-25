@@ -62,6 +62,7 @@ for option in \
   BR2_PACKAGE_EUDEV \
   BR2_PACKAGE_LIBGTK3 \
   BR2_PACKAGE_LIBGTK3_WAYLAND \
+  BR2_PACKAGE_LIBGTK3_X11 \
   BR2_PACKAGE_LIBNSS \
   BR2_PACKAGE_LIBNSPR \
   BR2_PACKAGE_CA_CERTIFICATES \
@@ -105,6 +106,7 @@ for option in \
   BR2_PACKAGE_UTIL_LINUX_LIBUUID \
   BR2_PACKAGE_OPENVMTOOLS \
   BR2_PACKAGE_OPENVMTOOLS_RESOLUTIONKMS \
+  BR2_PACKAGE_OPENVMTOOLS_DESKTOP \
   BR2_PACKAGE_MESA3D_OPENGL_EGL \
   BR2_PACKAGE_MESA3D_OPENGL_ES \
   BR2_PACKAGE_MESA3D_OPENGL_GLX \
@@ -167,6 +169,18 @@ if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     xwayland-dirclean libglvnd-dirclean mesa3d-dirclean libdrm-dirclean
   printf '%s\n' "$GRAPHICS_SIGNATURE" > "$GRAPHICS_SIGNATURE_FILE"
+fi
+
+# openvmtools' desktop plugins need gtk3 with the X11 backend, and gtkmm3 is
+# configured with -Dbuild-x11-api=true to match. Buildroot never rebuilds a
+# package when its config changes, so a cached gtk3 from before that option
+# was enabled stays Wayland-only and gtkmm3 fails at configure time with
+# "Requested X11 backend not supported by installed gdk".
+GDK_X11_PC="$OUTPUT_DIR/host/x86_64-buildroot-linux-gnu/sysroot/usr/lib/pkgconfig/gdk-x11-3.0.pc"
+if grep -qx "BR2_PACKAGE_LIBGTK3_X11=y" "$OUTPUT_DIR/.config" && [[ ! -f "$GDK_X11_PC" ]]; then
+  echo "Cached gtk3 lacks the X11 backend; rebuilding libgtk3, gtkmm3 and openvmtools." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    openvmtools-dirclean gtkmm3-dirclean libgtk3-dirclean
 fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
