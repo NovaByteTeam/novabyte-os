@@ -1391,16 +1391,24 @@
           .filter(entry => !query || entry.name.toLocaleLowerCase().includes(query))
           .map(async entry => {
             const fullPath = this.path.join(this.currentPath, entry.name);
-            const stat = await this.fs.lstat(fullPath);
+            // A dead FUSE mount (/mnt/hgfs with shared folders off) lists fine
+            // but lstat()s with EIO. Keep the row instead of failing the folder.
+            let stat = null;
+            try {
+              stat = await this.fs.lstat(fullPath);
+            } catch (error) {
+              if (error.code !== 'EIO' && error.code !== 'ENOTCONN') throw error;
+            }
             return {
               name: entry.name,
               path: fullPath,
               isDirectory: entry.isDirectory(),
               isFile: entry.isFile(),
               isSymlink: entry.isSymbolicLink(),
-              executable: entry.isFile() && (stat.mode & 0o111) !== 0,
-              size: stat.size,
-              modified: stat.mtime.toLocaleString()
+              unavailable: stat === null,
+              executable: stat !== null && entry.isFile() && (stat.mode & 0o111) !== 0,
+              size: stat?.size ?? 0,
+              modified: stat ? stat.mtime.toLocaleString() : 'Unavailable'
             };
           }));
         if (version !== this.renderVersion) return;
