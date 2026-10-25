@@ -1,27 +1,40 @@
 #!/bin/sh
-# S41network — ensure eth0 gets a DHCP lease.
-# Runs after S40network (ifupdown) and before S45networkmanager.
-# If NM is present and brings up eth0 itself this script is a no-op.
-# If NM fails or is absent, udhcpc picks up the slack.
+# S41network — DHCP fallback for eth0 if NetworkManager doesn't configure it.
+#
+# This runs before S45 NetworkManager, so it can't wait for NM inline. It
+# forks, gives NM time to start and bring the link up, and only steps in if
+# eth0 still has no IPv4 address. Boot never waits on the network.
 
 IFACE=eth0
-TIMEOUT=8
+CONSOLE=${CONSOLE:-/dev/console}
+WAIT=${S41_WAIT:-20}
+
+fallback() {
+  ip link show "$IFACE" >/dev/null 2>&1 || { echo "S41network: $IFACE not found"; return; }
+  ip link set "$IFACE" up 2>/dev/null
+
+  i=0
+  while [ "$i" -lt "$WAIT" ]; do
+    ip addr show "$IFACE" 2>/dev/null | grep -q "inet " && return
+    sleep 1
+    i=$((i + 1))
+  done
+
+  # No carrier means nothing on the guest side can fix it: the virtual cable
+  # is unplugged (VMware adapter not connected, wrong network, etc.).
+  carrier=$(cat "/sys/class/net/$IFACE/carrier" 2>/dev/null)
+  if [ "$carrier" != 1 ]; then
+    echo "S41network: $IFACE has no link. Check that the VM network adapter is connected."
+    return
+  fi
+
+  echo "S41network: NetworkManager did not configure $IFACE, trying udhcpc"
+  udhcpc -i "$IFACE" -t 5 -T 2 -n -q || echo "S41network: no DHCP server answered on $IFACE"
+}
 
 case "$1" in
   start)
-    # Wait briefly for NM to activate the connection
-    i=0
-    while [ $i -lt $TIMEOUT ]; do
-      ip addr show "$IFACE" 2>/dev/null | grep -q "inet " && exit 0
-      sleep 1
-      i=$((i+1))
-    done
-    # NM didn't bring it up — try udhcpc directly
-    if ip link show "$IFACE" > /dev/null 2>&1; then
-      echo "S41network: NM did not activate $IFACE, falling back to udhcpc"
-      ip link set "$IFACE" up
-      udhcpc -i "$IFACE" -t 10 -n -q 2>/dev/null || true
-    fi
+    fallback </dev/null >"$CONSOLE" 2>&1 &
     ;;
   stop)
     ;;
@@ -30,3 +43,5 @@ case "$1" in
     exit 1
     ;;
 esac
+
+exit 0

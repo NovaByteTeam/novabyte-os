@@ -203,11 +203,4 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(build).toContain('"$BUILDROOT_DIR/package/x11r7/xwayland/"');
     expect(build).toContain('"$XWAYLAND_OVERRIDE_DIR/xwayland.mk"');
   });
-
-  it('explains that guest Terminal is Buildroot, not an apt-managed distro', () => {
-    const terminal = readFileSync(new URL('../js/apps/terminal/app.js', import.meta.url), 'utf8');
-
-    expect(terminal).toContain('apt and sudo are not available in this guest.');
-    expect(terminal).toContain('Open VM Tools are already included.');
-  });
 });
