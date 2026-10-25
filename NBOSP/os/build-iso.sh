@@ -51,6 +51,9 @@ if [[ ! -x "$NWJS_APP_DIR/NovaByte" || ! -f "$NWJS_APP_DIR/package.nw/package.js
 fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" nbosp_x86_64_defconfig
+# The cached Buildroot output can contain an older copy of external SELinux
+# modules; refpolicy's rsync -au does not replace files with newer sources.
+make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" refpolicy-dirclean
 for option in \
   BR2_TOOLCHAIN_BUILDROOT \
   BR2_TOOLCHAIN_BUILDROOT_GLIBC \
