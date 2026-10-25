@@ -2030,6 +2030,120 @@ registerApp({
       }
     }
 
+    // There is no native file chooser in this OS, so the guest cancels clicks
+    // on <input type="file"> and reports them here, and the host answers with
+    // SystemDialogs. The page only ever sees the result: a File set on the
+    // input, then 'input' and 'change' events, same as a native pick.
+    const FILE_PICK_MARKER = '__NBOSP_FILEPICK__:';
+    const FILE_CHUNK_BYTES = 2 * 1024 * 1024;
+
+    // Runs in the guest's isolated world, so it can cancel the click but
+    // can't patch window.showOpenFilePicker for the page's own scripts. The
+    // nonce stops a page's console.log from faking a request. Files arrive
+    // in chunks and are appended to a Blob, which Chromium keeps out of the
+    // JS heap.
+    function buildGuestFileScript(nonce) {
+      return `
+        (function () {
+          if (window.__nbosp_file) return;
+          var pending = {};
+          var seq = 0;
+          document.addEventListener('click', function (e) {
+            var el = e.composedPath ? e.composedPath()[0] : e.target;
+            if (!el || el.tagName !== 'INPUT' || el.type !== 'file' || el.disabled) return;
+            e.preventDefault();
+            var id = 'f' + (++seq);
+            pending[id] = { input: el, files: [], cur: null };
+            try {
+              console.log('${FILE_PICK_MARKER}${nonce}:' + JSON.stringify({
+                id: id, multiple: !!el.multiple, accept: el.accept || '', directory: !!el.webkitdirectory
+              }));
+            } catch (_e) {}
+          }, true);
+          window.__nbosp_file = {
+            begin: function (id, name, type) {
+              var p = pending[id];
+              if (!p) return false;
+              p.cur = { name: name, type: type, blob: new Blob([]) };
+              return true;
+            },
+            chunk: function (id, b64) {
+              var p = pending[id];
+              if (!p || !p.cur) return false;
+              var bin = atob(b64);
+              var bytes = new Uint8Array(bin.length);
+              for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              p.cur.blob = new Blob([p.cur.blob, bytes]);
+              return true;
+            },
+            endFile: function (id) {
+              var p = pending[id];
+              if (!p || !p.cur) return false;
+              p.files.push(new File([p.cur.blob], p.cur.name, { type: p.cur.type }));
+              p.cur = null;
+              return true;
+            },
+            finish: function (id) {
+              var p = pending[id];
+              if (!p) return false;
+              delete pending[id];
+              try {
+                var dt = new DataTransfer();
+                p.files.forEach(function (f) { dt.items.add(f); });
+                p.input.files = dt.files;
+                p.input.dispatchEvent(new Event('input', { bubbles: true }));
+                p.input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              } catch (_e) { return false; }
+            },
+            cancel: function (id) {
+              var p = pending[id];
+              if (!p) return false;
+              delete pending[id];
+              p.input.dispatchEvent(new Event('cancel', { bubbles: true }));
+              return true;
+            }
+          };
+        })();
+      `;
+    }
+
+    function guestFileCall(method, ...args) {
+      return '(window.__nbosp_file && window.__nbosp_file.' + method + '(' + args.map(a => JSON.stringify(a)).join(',') + '))';
+    }
+
+    // Reads a picked file from disk and feeds it to the guest chunk by chunk.
+    async function sendFileToGuest(runInGuest, id, picked) {
+      const fs = require('fs');
+      const expectTrue = async call => {
+        if ((await runInGuest(call)) !== true) throw new Error('The page stopped waiting for ' + picked.name);
+      };
+      await expectTrue(guestFileCall('begin', id, picked.name, picked.mimeType || ''));
+      const handle = await fs.promises.open(picked.path, 'r');
+      try {
+        const buf = Buffer.alloc(FILE_CHUNK_BYTES);
+        let position = 0;
+        for (;;) {
+          const { bytesRead } = await handle.read(buf, 0, buf.length, position);
+          if (bytesRead === 0) break;
+          position += bytesRead;
+          await expectTrue(guestFileCall('chunk', id, buf.toString('base64', 0, bytesRead)));
+        }
+      } finally {
+        await handle.close();
+      }
+      await expectTrue(guestFileCall('endFile', id));
+    }
+
+    // Only plain extension rules (".png,.jpg") can be applied, since
+    // SystemDialogs has no MIME lookup to share. Anything else shows every
+    // file and leaves validation to the site.
+    function extensionFilter(accept) {
+      const rules = String(accept || '').split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
+      if (!rules.length || !rules.every(r => /^\.[a-z0-9]+$/.test(r))) return undefined;
+      return (name, isDir) => isDir || rules.some(ext => name.toLowerCase().endsWith(ext));
+    }
+
     // Webview factory — creates or returns the <webview> element for a tab.
     // Attaches all event listeners (load, error, fullscreen, permission,
     // download, new-window, context-menu) exactly once per webview.
@@ -3342,6 +3456,64 @@ registerApp({
       // Re-inject the tracker after every navigation (SPAs included).
       wv.addEventListener('loadstop', () => {
         try { wv.executeScript({ code: _GUEST_CTX_SCRIPT }); } catch { /* ignore */ }
+      });
+
+      // File inputs: answer the guest's cancelled click with the OS Open dialog.
+      const fileNonce = crypto.randomUUID();
+      const fileRequestPrefix = FILE_PICK_MARKER + fileNonce + ':';
+      const guestFileScript = buildGuestFileScript(fileNonce);
+      let filePickOpen = false;
+
+      const runInGuest = code => new Promise((resolve, reject) => {
+        wv.executeScript({ code }, result => {
+          const lastError = chrome.runtime?.lastError;
+          if (lastError) reject(new Error(lastError.message));
+          else resolve(result?.[0]);
+        });
+      });
+
+      async function answerGuestFilePick(request) {
+        const id = String(request.id);
+        if (filePickOpen || request.directory) {
+          if (request.directory) {
+            Notify.show({ title: 'Folder upload unavailable', body: "Browser can't upload whole folders yet.", type: 'info', appName: 'Browser' });
+          }
+          await runInGuest(guestFileCall('cancel', id));
+          return;
+        }
+        filePickOpen = true;
+        try {
+          const result = await SystemDialogs.open({
+            title: request.multiple ? 'Choose Files to Upload' : 'Choose File to Upload',
+            multiple: request.multiple === true,
+            filter: extensionFilter(request.accept),
+            pathOnly: true,
+          });
+          const picks = result ? [].concat(result) : [];
+          if (!picks.length) {
+            await runInGuest(guestFileCall('cancel', id));
+            return;
+          }
+          for (const picked of picks) await sendFileToGuest(runInGuest, id, picked);
+          if ((await runInGuest(guestFileCall('finish', id))) !== true) throw new Error('The page did not accept the file');
+        } catch (err) {
+          Notify.show({ title: 'Upload failed', body: String(err?.message || err), type: 'error', appName: 'Browser' });
+          await runInGuest(guestFileCall('cancel', id)).catch(() => {});
+        } finally {
+          filePickOpen = false;
+        }
+      }
+
+      wv.addEventListener('consolemessage', e => {
+        const msg = e?.message;
+        if (typeof msg !== 'string' || !msg.startsWith(fileRequestPrefix)) return;
+        let request;
+        try { request = JSON.parse(msg.slice(fileRequestPrefix.length)); } catch { return; }
+        answerGuestFilePick(request).catch(err => console.warn('[NB Browser] File picker bridge failed:', err));
+      });
+
+      wv.addEventListener('loadstop', () => {
+        try { wv.executeScript({ code: guestFileScript }); } catch { /* ignore */ }
       });
 
       // Open a URL in a new tab (inherits incognito state from the source tab).

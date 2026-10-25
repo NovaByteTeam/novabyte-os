@@ -94,6 +94,10 @@ const SystemDialogs = (() => {
     // multiple: true (open mode, files only) allows click-to-toggle multi-select
     // and resolves an array of file objects (same shape as single open).
     const multi     = !isSave && !pickDir && opts.multiple === true;
+    // pathOnly: true (open mode) skips reading file contents and resolves
+    // { path, name, mimeType, size } only, for callers that stream the file
+    // themselves instead of holding all of it in memory.
+    const pathOnly  = !isSave && opts.pathOnly === true;
     const title     = opts.title || (isSave ? 'Save As' : pickDir ? 'Select Folder' : 'Open');
     const filter    = typeof opts.filter === 'function' ? opts.filter : () => true;
     let   cwd       = opts.startPath || DEFAULT_START;
@@ -350,6 +354,11 @@ const SystemDialogs = (() => {
           for (const n of names) {
             const fp = path.join(cwd, n);
             try {
+              if (pathOnly) {
+                const stat = await fs.promises.stat(fp);
+                results.push({ path: fp, name: n, mimeType: guessMime(n), size: stat.size });
+                continue;
+              }
               const buf = await fs.promises.readFile(fp);
               const mime = guessMime(n);
               const isText = mime.startsWith('text/') || mime === 'application/json' || mime === 'application/x-sh' || mime === 'application/xml';
@@ -370,6 +379,16 @@ const SystemDialogs = (() => {
 
         if (isSave) {
           finish({ path: fullPath, name });
+        } else if (pathOnly) {
+          fs.stat(fullPath, (err, stat) => {
+            if (err) {
+              if (typeof Notify !== 'undefined') {
+                Notify.show({ title: 'Open failed', body: err.message, type: 'error' });
+              }
+              return;
+            }
+            finish({ path: fullPath, name, mimeType: guessMime(name), size: stat.size });
+          });
         } else {
           // read the file content
           fs.readFile(fullPath, (err, buf) => {
