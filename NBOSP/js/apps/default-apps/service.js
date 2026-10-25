@@ -454,6 +454,20 @@ const DefaultApps = {
     return true;
   },
 
+  clearDefaultsForApp(appId) {
+    if (typeof OS === 'undefined' || !OS.settings || !isPlausibleAppId(appId)) return false;
+    const map = { ...this._getMap() };
+    let changed = false;
+    for (const [key, value] of Object.entries(map)) {
+      if (value === appId) {
+        delete map[key];
+        changed = true;
+      }
+    }
+    if (!changed) return true;
+    return OS.settings.set(SETTINGS_KEY, map) !== false;
+  },
+
   /**
    * Resolve which app should open a given file/link, honoring the user's
    * choice first and falling back to `fallbackAppId` (the pre-existing

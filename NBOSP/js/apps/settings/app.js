@@ -36,7 +36,6 @@ registerApp({
       { id: 'connectivity',    name: 'Connectivity',     icon: 'globe'         },
       { id: 'storage',         name: 'Storage',          icon: 'database'      },
       { id: 'privacy',         name: 'Privacy',          icon: 'lock'          },
-      { id: 'apps',            name: 'Apps',             icon: 'package'       },
       { id: 'root',            name: 'Root Access',      icon: 'shield'        },
       { id: 'default-apps',    name: 'Default Apps',     icon: 'default-apps'  },
       { id: 'about',           name: 'About',            icon: 'info'          }
@@ -594,7 +593,6 @@ registerApp({
         case 'storage':           renderStorage();         break;
         case 'shortcuts':         renderShortcuts();       break;
         case 'privacy':           renderPrivacy();         break;
-        case 'apps':              renderApps();            break;
         case 'root':              renderRootAccess();      break;
         case 'default-apps':      renderDefaultApps();     break;
         case 'desktop':           renderDesktop();         break;
