@@ -9,6 +9,18 @@ IFACE=eth0
 CONSOLE=${CONSOLE:-/dev/console}
 WAIT=${S41_WAIT:-20}
 
+# /etc/resolv.conf is a symlink to /tmp/resolv.conf (tmpfs), so on every boot
+# it dangles until NetworkManager gets a lease. Anything that resolves a name
+# before then (or when DHCP hands out no DNS) fails with a DNS error even
+# though the interface looks up. Seed it with public resolvers; NM replaces
+# the file as soon as a connection brings its own servers.
+seed_resolv() {
+  target=/tmp/resolv.conf
+  if ! grep -q '^nameserver' "$target" 2>/dev/null; then
+    printf '# nbosp fallback, replaced by NetworkManager\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "$target"
+  fi
+}
+
 fallback() {
   ip link show "$IFACE" >/dev/null 2>&1 || { echo "S41network: $IFACE not found"; return; }
   ip link set "$IFACE" up 2>/dev/null
@@ -57,6 +69,7 @@ diagnose() {
 
 case "$1" in
   start)
+    seed_resolv
     { fallback; sleep 3; diagnose; } </dev/null >"$CONSOLE" 2>&1 &
     ;;
   stop)

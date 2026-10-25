@@ -11,6 +11,7 @@ auto-negotiate=true
 
 [ipv4]
 method=auto
+dns=1.1.1.1;8.8.8.8;
 
 [ipv6]
 method=auto
