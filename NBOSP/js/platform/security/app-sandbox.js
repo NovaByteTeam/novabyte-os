@@ -3558,7 +3558,7 @@ const AppSandbox = (() => {
       localStorage.setItem('nova_manual_recovery', '1');
       localStorage.removeItem('nova_safe_mode');
       // Reload the HOST window, not the sandbox guest frame. The next boot
-      // sees nova_manual_recovery and opens the actual recovery environment.
+      // sees nova_manual_recovery, writes the recovery request and restarts into the Linux recovery environment.
       setTimeout(() => {
         try { location.reload(); } catch (e) { console.error('[Settings] recovery reload failed:', e); }
       }, 120);

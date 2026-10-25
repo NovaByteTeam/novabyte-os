@@ -816,7 +816,7 @@ registerApp({
       recoveryBtn.addEventListener('click', async () => {
         const confirmed = await showModal(
           'Boot to Recovery Environment',
-          'This will restart and show the recovery options screen.',
+          'This will restart the machine into the Linux recovery environment, where you can start in safe mode, clear caches, back up or restore data, or reset the system.',
           [{ label: 'Cancel' }, { label: 'Boot to Recovery', value: 'confirm', primary: true }]
         );
         if (!isAlive()) return;

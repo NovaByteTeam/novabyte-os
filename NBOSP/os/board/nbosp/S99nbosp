@@ -29,6 +29,25 @@ if [ "$NBOSP_GL_DEBUG" = 1 ]; then
 fi
 GL_DEBUG_LOG=/home/nbosp/nbosp-gl-debug.log
 
+# Recovery is entered from the GRUB entry (nbosp.recovery=1 on the kernel
+# cmdline) or from a one-shot request file the desktop drops before it
+# restarts the machine (Settings > Recovery, or the boot watchdog after
+# repeated failed starts). The request file is consumed here so it can never
+# trap the machine in recovery twice.
+RECOVERY_REQUEST=/home/nbosp/.config/novabyte/recovery-request
+nbosp_recovery_requested() {
+  [ -n "$NBOSP_RECOVERY_DONE" ] && return 1
+  [ -x /usr/sbin/nbosp-recovery ] || return 1
+  if [ -f "$RECOVERY_REQUEST" ]; then
+    rm -f "$RECOVERY_REQUEST"
+    return 0
+  fi
+  case "$(cat /proc/cmdline 2>/dev/null)" in
+    *nbosp.recovery=1*) return 0 ;;
+  esac
+  return 1
+}
+
 nbosp_gl_debug_setup() {
   gl_debug_env=""
   chromium_gl_debug=""
@@ -204,6 +223,13 @@ nbosp_gl_debug_dump() {
 
 case "$1" in
   start)
+    if nbosp_recovery_requested; then
+      # Menu runs on VT1 in place of the kiosk. -w keeps it attached to the
+      # VT; start-stop-daemon keeps init from waiting on it.
+      start-stop-daemon --start --background --exec /usr/bin/openvt -- \
+        -f -s -w -c 1 -- /usr/sbin/nbosp-recovery
+      exit 0
+    fi
     app="/opt/nbosp/NovaByte"
     if [ ! -x "$app" ]; then
       echo "NBOSP kiosk app is missing or not executable: $app" >&2
