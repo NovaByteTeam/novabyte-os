@@ -87,7 +87,6 @@ registerApp({
     const ZOOM_STEP           = 0.1;
     const OMNI_DEBOUNCE_MS    = 120;
     const OMNI_BLUR_CLOSE_MS  = 150;
-    const DOWNLOAD_MAX_BYTES  = 512 * 1024 * 1024;
     const MAX_DL_NAME_LEN     = 128;
 
     const SEARCH_ENGINES = Object.freeze({
@@ -1962,9 +1961,9 @@ registerApp({
     }
 
     // Streams a URL to disk with Node's http(s), so there's no CORS and no
-    // 512 MB buffer in memory. Follows up to 5 redirects, enforces
-    // DOWNLOAD_MAX_BYTES, and only renames the .part file once it's complete.
-    // Runs outside the webview session, so cookies aren't sent.
+    // whole-file buffer in memory. Follows up to 5 redirects and only renames
+    // the .part file once it's complete. Runs outside the webview session, so
+    // cookies aren't sent.
     function streamUrlToFile(url, destPath, redirectsLeft = 5) {
       return new Promise((resolve, reject) => {
         const fs = require('fs');
@@ -1982,10 +1981,6 @@ registerApp({
             res.resume();
             return reject(new Error('HTTP ' + statusCode));
           }
-          if (Number(headers['content-length']) > DOWNLOAD_MAX_BYTES) {
-            res.resume();
-            return reject(new Error('File too large'));
-          }
           const partPath = destPath + '.part';
           const out = fs.createWriteStream(partPath);
           let received = 0;
@@ -1997,10 +1992,7 @@ registerApp({
             req.destroy();
             fs.rm(partPath, { force: true }, () => reject(err));
           };
-          res.on('data', chunk => {
-            received += chunk.length;
-            if (received > DOWNLOAD_MAX_BYTES) fail(new Error('File too large'));
-          });
+          res.on('data', chunk => { received += chunk.length; });
           res.on('error', fail);
           out.on('error', fail);
           out.on('finish', () => {
