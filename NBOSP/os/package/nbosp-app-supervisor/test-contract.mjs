@@ -81,6 +81,8 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(init, /\/bin\/busybox/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
     assert.doesNotMatch(policy, /domain_auto_trans/);
+    assert.match(policy, /allow nbosp_app_t null_device_t:chr_file \{ getattr ioctl open read \}/);
+    assert.doesNotMatch(policy, /dev_read_null/);
     assert.match(interfaces, /exports no interfaces/);
     assert.match(fileContexts, /nbosp_app_runtime_exec_t/);
     assert.match(fileContexts, /nbosp_app_data_t/);

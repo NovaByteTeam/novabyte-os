@@ -1,7 +1,7 @@
 policy_module(nbosp_app, 1.0)
 
 gen_require(`
-	type init_t, initrc_t, lib_t, unconfined_t, user_t, var_lib_t, var_run_t, var_t;
+	type init_t, initrc_t, lib_t, null_device_t, unconfined_t, user_t, var_lib_t, var_run_t, var_t;
 	role system_r;
 ')
 
@@ -72,7 +72,7 @@ libs_use_ld_so(nbosp_app_t)
 libs_read_lib_files(nbosp_app_t)
 miscfiles_read_localization(nbosp_app_t)
 dev_read_urand(nbosp_app_t)
-dev_read_null(nbosp_app_t)
+allow nbosp_app_t null_device_t:chr_file { getattr ioctl open read };
 corenet_tcp_connect_generic_port(nbosp_app_t)
 
 type_transition nbosp_app_supervisor_t var_lib_t:dir nbosp_app_data_t
