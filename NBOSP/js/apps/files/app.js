@@ -107,6 +107,10 @@
     return EXT_TO_MIME[ext] || 'application/octet-stream';
   }
 
+  function isNovaPackage(name) {
+    return typeof name === 'string' && name.toLowerCase().endsWith('.novaapp');
+  }
+
   // HTML detection is case-insensitive so ".HTML" / ".Htm" also match.
   function isHtmlFile(node) {
     if (node?.type === 'folder') return false;
@@ -1424,8 +1428,8 @@
           });
           row._entry = entry;
           row.append(
-            createEl('span', { textContent: `${entry.isDirectory ? '📁' : entry.executable ? '⚙' : '📄'}  ${entry.name}` }),
-            createEl('span', { textContent: entry.isDirectory ? 'Folder' : entry.executable ? 'Executable' : 'File', style: 'color:var(--text-secondary);' }),
+            createEl('span', { textContent: `${entry.isDirectory ? '📁' : isNovaPackage(entry.name) ? '📦' : entry.executable ? '⚙' : '📄'}  ${entry.name}` }),
+            createEl('span', { textContent: entry.isDirectory ? 'Folder' : isNovaPackage(entry.name) ? 'NovaByte Package' : entry.executable ? 'Executable' : 'File', style: 'color:var(--text-secondary);' }),
             createEl('span', { textContent: entry.modified, style: 'color:var(--text-muted);font-size:11px;' })
           );
           fragment.appendChild(row);
@@ -1449,6 +1453,10 @@
     openEntry(entry) {
       if (entry.isDirectory) {
         this.navigate(entry.path);
+      } else if (isNovaPackage(entry.name)) {
+        // Checked before the executable branch: these files often carry the
+        // exec bit, and double-clicking one must never spawn it as a program.
+        this.installPackage(entry.path);
       } else if (entry.name.toLowerCase().endsWith('.iso')) {
         this.browseIso(entry.path);
       } else if (/\.(?:txt|md|json|js|mjs|c|h|css|html|htm|log|conf|ini|sh)$/i.test(entry.name)) {
@@ -1464,6 +1472,8 @@
       const items = [];
       if (entry.isDirectory) {
         items.push({ label: 'Open folder', action: () => this.navigate(entry.path) });
+      } else if (isNovaPackage(entry.name)) {
+        items.push({ label: 'Install', disabled: entry.unavailable, action: () => this.installPackage(entry.path) });
       } else {
         items.push({ label: 'Open', action: () => this.openEntry(entry) });
         if (entry.name.toLowerCase().endsWith('.iso')) {
@@ -1505,6 +1515,46 @@
         await showModal(this.path.basename(filePath), data.toString('utf8'), [{ label: 'Close', primary: true }]);
       } catch (error) {
         Notify.show({ title: 'Cannot preview file', body: error.message, type: 'warning', appName: 'Files' });
+      }
+    }
+
+    async installPackage(filePath) {
+      const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
+      const appManagerId = 'com.nbosp.appmanager';
+      try {
+        const stat = await this.fs.stat(filePath);
+        if (!stat.isFile()) throw new Error('Only regular files can be installed.');
+        if (stat.size > MAX_PACKAGE_BYTES) throw new Error('This package is larger than 32 MiB.');
+        const data = await this.fs.readFile(filePath);
+        // App Manager only accepts a lowercase ".novaapp" suffix.
+        const name = this.path.basename(filePath).replace(/\.novaapp$/i, '.novaapp');
+        const file = new File([data], name, { type: 'application/octet-stream' });
+
+        // Same gate the window manager applies to a dropped file.
+        if (window.Scanner) {
+          const verdict = await window.Scanner.scan(file);
+          if (!verdict.safe) {
+            Notify.show({ title: 'File Blocked', body: verdict.reason, type: 'error', appName: 'Security' });
+            return;
+          }
+        }
+
+        // Hand off to App Manager so scanning, integrity and trust checks run
+        // exactly as they do for a drop. Reuse its window if one is open.
+        let managerWindow = [...(window.OS?.windows?.values() ?? [])].find(w => w.appId === appManagerId);
+        managerWindow ??= WM.createWindow(appManagerId);
+        if (!managerWindow) throw new Error('App Manager is not available.');
+
+        // App Manager's init() is async and only then exposes its install hook.
+        const deadline = Date.now() + 8000;
+        while (typeof managerWindow.content._novaAppProcessFile !== 'function') {
+          if (Date.now() > deadline) throw new Error('App Manager took too long to open.');
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        await managerWindow.content._novaAppProcessFile(file);
+      } catch (error) {
+        console.error('[Files] package install failed:', error);
+        Notify.show({ title: 'Cannot install package', body: error.message, type: 'error', appName: 'Files' });
       }
     }
 
