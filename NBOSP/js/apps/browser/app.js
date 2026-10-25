@@ -2998,6 +2998,11 @@ registerApp({
           askSite('media');
         } else if (e.permission === 'pointerLock') {
           decide(true);
+        } else if (e.permission === 'download') {
+          // Webviews deny downloads unless the embedder allows them. The
+          // catch-all below used to reject this one too, so no download
+          // link ever produced a file.
+          decide(true);
         } else {
           decide(false);
         }
