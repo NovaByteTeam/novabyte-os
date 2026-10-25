@@ -1,0 +1,32 @@
+#!/bin/sh
+# S41network — ensure eth0 gets a DHCP lease.
+# Runs after S40network (ifupdown) and before S45networkmanager.
+# If NM is present and brings up eth0 itself this script is a no-op.
+# If NM fails or is absent, udhcpc picks up the slack.
+
+IFACE=eth0
+TIMEOUT=8
+
+case "$1" in
+  start)
+    # Wait briefly for NM to activate the connection
+    i=0
+    while [ $i -lt $TIMEOUT ]; do
+      ip addr show "$IFACE" 2>/dev/null | grep -q "inet " && exit 0
+      sleep 1
+      i=$((i+1))
+    done
+    # NM didn't bring it up — try udhcpc directly
+    if ip link show "$IFACE" > /dev/null 2>&1; then
+      echo "S41network: NM did not activate $IFACE, falling back to udhcpc"
+      ip link set "$IFACE" up
+      udhcpc -i "$IFACE" -t 10 -n -q 2>/dev/null || true
+    fi
+    ;;
+  stop)
+    ;;
+  *)
+    echo "Usage: $0 {start|stop}"
+    exit 1
+    ;;
+esac

@@ -161,20 +161,13 @@ NOVAAPP="$ROOT/opt/nbosp/package.nw/js/apps/com.nbosp.install.novaapp"
 MANIFEST="$ROOT/opt/nbosp/package.nw/js/apps/novaapp-manifest.json"
 rm -f "$NOVAAPP"
 if [ -f "$MANIFEST" ]; then
-  python3 - "$MANIFEST" <<'PYEOF'
-import sys, json
-path = sys.argv[1]
-with open(path) as f:
-    data = json.load(f)
-if isinstance(data, list):
-    data = [e for e in data if e.get('id') != 'com.nbosp.install']
-elif isinstance(data, dict):
-    for key in data:
-        if isinstance(data[key], list):
-            data[key] = [e for e in data[key] if e.get('id') != 'com.nbosp.install']
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-PYEOF
+  # Remove the 5-line entry block for com.nbosp.install from the manifest.
+  # Format is consistent: {, "id", "file", "cacheKey", } — use grep to
+  # strip all lines that reference this app id or its .novaapp file.
+  grep -v '"com\.nbosp\.install"' "$MANIFEST" \
+    | grep -v '"js/apps/com\.nbosp\.install\.novaapp"' \
+    | grep -v '"cacheKey".*3358478e' \
+    > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST" || rm -f "$MANIFEST.tmp"
 fi
 
 mkdir -p "$ROOT/boot/grub"
