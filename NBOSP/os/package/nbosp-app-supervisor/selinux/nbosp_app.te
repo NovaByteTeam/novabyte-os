@@ -1,7 +1,7 @@
 policy_module(nbosp_app, 1.0)
 
 gen_require(`
-	type init_t, initrc_t, lib_t, null_device_t, unconfined_t, user_t, var_lib_t, var_run_t, var_t;
+	type init_t, initrc_t, lib_t, null_device_t, unconfined_t, var_lib_t, var_run_t, var_t;
 	role system_r;
 ')
 
@@ -57,7 +57,6 @@ allow nbosp_app_t self:tcp_socket create_stream_socket_perms;
 allow nbosp_app_t nbosp_wayland_socket_t:sock_file write;
 allow nbosp_app_t initrc_t:unix_stream_socket connectto;
 allow nbosp_app_t unconfined_t:unix_stream_socket connectto;
-allow nbosp_app_t user_t:unix_stream_socket connectto;
 allow nbosp_app_t nbosp_wayland_socket_t:dir {
 	getattr open read search
 };
