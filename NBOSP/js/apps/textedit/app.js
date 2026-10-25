@@ -14,7 +14,9 @@ function initLinuxTextEdit(content, state, options = {}) {
     className: 'quill-textarea',
     'aria-label': 'Text editor',
     spellcheck: 'false',
-    style: 'flex:1;resize:none;min-height:0;width:100%;box-sizing:border-box;'
+    // .quill-textarea is absolutely positioned at z-index 10 for the wrapped
+    // layout below; here it sits in a flex column, so undo that or it covers the toolbar.
+    style: 'flex:1;resize:none;min-height:0;width:100%;box-sizing:border-box;position:static;height:auto;z-index:auto;padding-left:12px;'
   });
   const status = createEl('div', { role: 'status', style: 'padding:5px 10px;border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-muted);flex-shrink:0;' });
   const setStatus = () => {
