@@ -469,8 +469,15 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/bsdtar" ]]; then
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/bin/tar" || ! -x "$OUTPUT_DIR/target/bin/gzip" ]]; then
-  echo "BusyBox tar with gzip support is required by the disk installer." >&2
-  exit 1
+  echo "Cached BusyBox output lacks tar or gzip; rebuilding BusyBox." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    busybox-dirclean
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
+  if [[ ! -x "$OUTPUT_DIR/target/bin/tar" || ! -x "$OUTPUT_DIR/target/bin/gzip" ]]; then
+    echo "BusyBox tar or gzip is still missing after rebuilding BusyBox." >&2
+    exit 1
+  fi
 fi
 if [[ ! -u "$OUTPUT_DIR/target/usr/bin/nbosp-power" ]]; then
   echo "Restricted power helper is missing its setuid permission." >&2

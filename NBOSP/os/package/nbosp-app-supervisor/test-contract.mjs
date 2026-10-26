@@ -70,6 +70,14 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /refpolicy-dirclean/);
     assert.match(buildScript,
       /\]\] \\\r?\n\s+\|\| ! grep -qx 'SELINUX=permissive'/);
+    assert.match(buildScript, /Cached BusyBox output lacks tar or gzip/);
+    assert.match(buildScript, /busybox-dirclean/);
+    assert.match(buildScript, /busybox-dirclean[\s\S]*?busybox\s*\r?\n[\s\S]*?-j"\$JOBS"/);
+    assert.match(buildScript, /BusyBox tar or gzip is still missing/);
+    const busyboxFragment = read('../../board/nbosp/busybox.fragment');
+    assert.match(busyboxFragment, /CONFIG_TAR=y/);
+    assert.match(busyboxFragment, /CONFIG_FEATURE_TAR_GZIP=y/);
+    assert.match(busyboxFragment, /CONFIG_GZIP=y/);
   });
 
   it('loads and labels the permissive SELinux policy before BusyBox init', () => {
