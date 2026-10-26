@@ -68,6 +68,8 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /BR2_PACKAGE_NBOSP_APP_SUPERVISOR/);
     assert.match(buildScript, /nbosp-app-supervisor-service/);
     assert.match(buildScript, /refpolicy-dirclean/);
+    assert.match(buildScript,
+      /\]\] \\\r?\n\s+\|\| ! grep -qx 'SELINUX=permissive'/);
   });
 
   it('loads and labels the permissive SELinux policy before BusyBox init', () => {

@@ -259,8 +259,9 @@ SELINUX_POLICY_ENTRY="$(tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
   | grep -E '^\.?/etc/selinux/targeted/policy/policy\.[0-9]+$' | head -n 1)"
 if [[ -z "$SELINUX_POLICY_ENTRY" \
   || ! -f "$OUTPUT_DIR/target/etc/selinux/targeted/contexts/files/file_contexts" \
-  || ! -x "$OUTPUT_DIR/target/sbin/setfiles" && ! -x "$OUTPUT_DIR/target/usr/sbin/setfiles" \
-  || ! grep -qx 'SELINUX=permissive' "$OUTPUT_DIR/target/etc/selinux/config" ]]; then
+  || ( ! -x "$OUTPUT_DIR/target/sbin/setfiles" \
+    && ! -x "$OUTPUT_DIR/target/usr/sbin/setfiles" ) ]] \
+  || ! grep -qx 'SELINUX=permissive' "$OUTPUT_DIR/target/etc/selinux/config"; then
   echo "The SELinux policy, file contexts, setfiles utility, or permissive policy mode is incorrect." >&2
   exit 1
 fi
