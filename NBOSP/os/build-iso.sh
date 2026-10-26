@@ -239,7 +239,6 @@ if [[ ! -x "$APP_SUPERVISOR" || -u "$APP_SUPERVISOR" \
   || ! -x "$APP_SUPERVISOR_SERVICE" || -u "$APP_SUPERVISOR_SERVICE" \
   || ! -x "$APP_INIT_WRAPPER" \
   || ! -x "$OUTPUT_DIR/target/sbin/nbosp-busybox-init" \
-  || ! -x "$OUTPUT_DIR/target/sbin/init" \
   || "$(readlink "$OUTPUT_DIR/target/sbin/init" 2>/dev/null || true)" == "nbosp-init" \
   || ! -x "$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor" \
   || ! -L "$OUTPUT_DIR/target/init" \

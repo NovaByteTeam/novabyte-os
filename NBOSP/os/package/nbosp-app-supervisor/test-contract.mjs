@@ -110,7 +110,7 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(fileContexts, /nbosp-busybox-init.*init_exec_t/);
     const buildScript = read('../../build-iso.sh');
     assert.match(buildScript, /target\/sbin\/nbosp-busybox-init/);
-    assert.match(buildScript, /target\/sbin\/init/);
+    assert.doesNotMatch(buildScript, /! -x "\$OUTPUT_DIR\/target\/sbin\/init"/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
     assert.match(policy, /domain_type\(nbosp_app_supervisor_t\)/);
     assert.doesNotMatch(policy, /domain_auto_trans/);
