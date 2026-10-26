@@ -1,12 +1,25 @@
 #!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
 # NM connection files must be owner-only readable or NM ignores them
 chmod 600 "${TARGET_DIR}/etc/NetworkManager/system-connections/"*.nmconnection 2>/dev/null || true
 
 # sudoers.d files must be 0440
 chmod 440 "${TARGET_DIR}/etc/sudoers.d/nbosp" 2>/dev/null || true
 
-# Buildroot's rootfs overlay is copied without relying on host executable bits.
-chmod 0755 "${TARGET_DIR}/etc/init.d/rcS" "${TARGET_DIR}/etc/init.d/rcK"
+# Keep startup files current even when Buildroot reuses a cached target tree.
+install -D -m 0644 "${SCRIPT_DIR}/rootfs-overlay/etc/inittab" \
+	"${TARGET_DIR}/etc/inittab"
+install -D -m 0755 "${SCRIPT_DIR}/rootfs-overlay/etc/init.d/rcS" \
+	"${TARGET_DIR}/etc/init.d/rcS"
+install -D -m 0755 "${SCRIPT_DIR}/rootfs-overlay/etc/init.d/rcK" \
+	"${TARGET_DIR}/etc/init.d/rcK"
+sed -i 's/\r$//' \
+	"${TARGET_DIR}/etc/inittab" \
+	"${TARGET_DIR}/etc/init.d/rcS" \
+	"${TARGET_DIR}/etc/init.d/rcK"
 
 # SELinux policy loading and initramfs labeling must happen before BusyBox init.
 INIT_APPLET="${TARGET_DIR}/sbin/init"

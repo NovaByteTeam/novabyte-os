@@ -114,6 +114,9 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(postBuild, /cmp -s "\$PRESERVED_INIT" "\$INIT_WRAPPER"/);
     assert.match(postBuild, /Preserved BusyBox init is the SELinux wrapper/);
     assert.match(postBuild, /chmod 0755 "\$PRESERVED_INIT"/);
+    assert.match(postBuild, /install -D -m 0644 .*rootfs-overlay\/etc\/inittab/);
+    assert.match(postBuild, /install -D -m 0755 .*rootfs-overlay\/etc\/init\.d\/rcS/);
+    assert.match(postBuild, /sed -i 's\/\\r\$\/\/'/);
     assert.match(inittab, /::sysinit:\/etc\/init\.d\/rcS/);
     assert.match(inittab, /tty2::respawn:\/sbin\/getty/);
     assert.match(rcS, /for script in \/etc\/init\.d\/S\[0-9\]\[0-9\]\*/);
@@ -126,12 +129,16 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /NBOSP supervisor executable must not have the setuid bit:/);
     assert.match(buildScript, /Buildroot \/sbin\/init points back to the early SELinux wrapper/);
     assert.match(buildScript,
-      /rm -f "\$OUTPUT_DIR\/target\/sbin\/init"[\s\S]*busybox-dirclean[\s\S]*\sbusybox\r?\nmake -C/);
+      /rm -f "\$OUTPUT_DIR\/target\/sbin\/init"[\s\S]*busybox-dirclean[\s\S]*\sbusybox\r?\n[\s\S]*?make -C/);
+    assert.match(buildScript,
+      /rm -f "\$OUTPUT_DIR\/images\/rootfs\.cpio"[\s\S]*"\$OUTPUT_DIR\/images\/rootfs\.cpio\.gz"/);
     assert.match(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \.\/sbin\/init >\/dev\/null 2>&1/);
     assert.match(buildScript, /target\/etc\/init\.d\/rcS/);
     assert.match(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar"[\s\S]*\.\/etc\/inittab \.\/etc\/init\.d\/rcS/);
+    assert.match(buildScript, /rootfs\.cpio\.gz[\s\S]*cpio -it/);
+    assert.match(buildScript, /missing from the boot initramfs/);
     assert.doesNotMatch(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \| grep -qx '\.\/sbin\/init'/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);

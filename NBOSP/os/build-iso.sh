@@ -239,6 +239,10 @@ rm -f "$OUTPUT_DIR/target/sbin/init" \
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   busybox-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox
+# The ISO boots from the initramfs, so don't trust a cached filesystem image.
+rm -f "$OUTPUT_DIR/images/rootfs.cpio" \
+  "$OUTPUT_DIR/images/rootfs.cpio.gz" \
+  "$OUTPUT_DIR/images/rootfs.tar"
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
 APP_SUPERVISOR="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor"
@@ -529,6 +533,9 @@ if ! target_has_command tar || ! target_has_command gzip; then
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     busybox-dirclean
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox
+  rm -f "$OUTPUT_DIR/images/rootfs.cpio" \
+    "$OUTPUT_DIR/images/rootfs.cpio.gz" \
+    "$OUTPUT_DIR/images/rootfs.tar"
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
   if ! target_has_command tar || ! target_has_command gzip; then
     echo "BusyBox tar or gzip is still missing after rebuilding BusyBox." >&2
@@ -599,6 +606,11 @@ if [[ ! -d "$OUTPUT_DIR/target/lib/grub/i386-pc" \
 fi
 if [[ ! -f "$OUTPUT_DIR/images/rootfs.tar" ]]; then
   echo "Buildroot did not produce the root filesystem archive for disk installation." >&2
+  exit 1
+fi
+if ! gzip -dc "$OUTPUT_DIR/images/rootfs.cpio.gz" | cpio -it 2>/dev/null \
+  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1 } END { exit !(inittab && rcS) }'; then
+  echo "BusyBox init configuration or system startup script is missing from the boot initramfs." >&2
   exit 1
 fi
 
