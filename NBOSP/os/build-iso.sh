@@ -471,8 +471,22 @@ fi
 target_has_command() {
   [[ -x "$OUTPUT_DIR/target/bin/$1" || -x "$OUTPUT_DIR/target/usr/bin/$1" ]]
 }
+remove_stale_busybox_applet() {
+  local path target
+  for path in "$OUTPUT_DIR/target/bin/$1" "$OUTPUT_DIR/target/usr/bin/$1"; do
+    if [[ -L "$path" && ! -e "$path" ]]; then
+      target="$(readlink "$path")"
+      if [[ "$target" == "busybox" || "$target" == "/bin/busybox" \
+        || "$target" == "/usr/bin/busybox" ]]; then
+        rm -f -- "$path"
+      fi
+    fi
+  done
+}
 if ! target_has_command tar || ! target_has_command gzip; then
-  echo "Cached BusyBox output lacks tar or gzip; rebuilding BusyBox." >&2
+  echo "Cached BusyBox output has missing tar or gzip applets; rebuilding BusyBox." >&2
+  remove_stale_busybox_applet tar
+  remove_stale_busybox_applet gzip
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     busybox-dirclean
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox

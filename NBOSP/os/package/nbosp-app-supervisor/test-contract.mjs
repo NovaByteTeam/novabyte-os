@@ -70,7 +70,9 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /refpolicy-dirclean/);
     assert.match(buildScript,
       /\]\] \\\r?\n\s+\|\| ! grep -qx 'SELINUX=permissive'/);
-    assert.match(buildScript, /Cached BusyBox output lacks tar or gzip/);
+    assert.match(buildScript, /remove_stale_busybox_applet\(\)/);
+    assert.match(buildScript,
+      /remove_stale_busybox_applet tar[\s\S]*?remove_stale_busybox_applet gzip/);
     assert.match(buildScript, /busybox-dirclean/);
     assert.match(buildScript, /busybox-dirclean[\s\S]*?busybox\s*\r?\n[\s\S]*?-j"\$JOBS"/);
     assert.match(buildScript, /BusyBox tar or gzip is still missing/);
