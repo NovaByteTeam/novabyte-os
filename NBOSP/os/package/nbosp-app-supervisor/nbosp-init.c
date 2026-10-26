@@ -151,7 +151,7 @@ int main(void)
 		halt_on_error("NBOSP init: SELinux re-exec failed");
 	}
 
-	execv("/bin/busybox", busybox_arguments);
+	execv("/sbin/nbosp-busybox-init", busybox_arguments);
 	halt_on_error("NBOSP init: starting BusyBox init failed");
 	return 1;
 }

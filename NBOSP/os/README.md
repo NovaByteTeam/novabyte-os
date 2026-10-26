@@ -53,7 +53,9 @@ Failure to mount or configure the required cgroup controllers stops the
 kiosk session.
 
 An SELinux reference policy and app domain are loaded by the early PID 1
-wrapper, which labels the initramfs before re-executing into BusyBox init.
+wrapper, which labels the initramfs before starting a preserved standalone
+BusyBox init applet. Buildroot installs BusyBox applets as individual binaries
+with SELinux enabled, so the wrapper cannot rely on `/bin/busybox`.
 The policy is deliberately **permissive** during initial integration; it
 establishes labels and domain transitions but does not yet deny operations.
 SELinux enforcing mode must wait until the GitHub workflow validates the

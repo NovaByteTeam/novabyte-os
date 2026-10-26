@@ -238,6 +238,7 @@ APP_INIT_WRAPPER="$OUTPUT_DIR/target/sbin/nbosp-init"
 if [[ ! -x "$APP_SUPERVISOR" || -u "$APP_SUPERVISOR" \
   || ! -x "$APP_SUPERVISOR_SERVICE" || -u "$APP_SUPERVISOR_SERVICE" \
   || ! -x "$APP_INIT_WRAPPER" \
+  || ! -x "$OUTPUT_DIR/target/sbin/nbosp-busybox-init" \
   || ! -x "$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor" \
   || ! -L "$OUTPUT_DIR/target/init" \
   || "$(readlink "$OUTPUT_DIR/target/init")" != "sbin/nbosp-init" \
@@ -250,8 +251,9 @@ if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
   ./usr/sbin/nbosp-app-supervisor \
   ./usr/sbin/nbosp-app-supervisor-service \
   ./sbin/nbosp-init \
+  ./sbin/nbosp-busybox-init \
   ./etc/init.d/S12nbosp-app-supervisor \
-  | awk '$1 == "-rwxr-xr-x" && $2 == "0/0" { found[$NF] = 1 } END { exit !(found["./usr/sbin/nbosp-app-supervisor"] && found["./usr/sbin/nbosp-app-supervisor-service"] && found["./sbin/nbosp-init"] && found["./etc/init.d/S12nbosp-app-supervisor"]) }'; then
+  | awk '$1 == "-rwxr-xr-x" && $2 == "0/0" { found[$NF] = 1 } END { exit !(found["./usr/sbin/nbosp-app-supervisor"] && found["./usr/sbin/nbosp-app-supervisor-service"] && found["./sbin/nbosp-init"] && found["./sbin/nbosp-busybox-init"] && found["./etc/init.d/S12nbosp-app-supervisor"]) }'; then
   echo "The supervisor and SELinux init files are not root-owned mode 0755 in the generated rootfs." >&2
   exit 1
 fi
