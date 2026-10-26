@@ -299,6 +299,11 @@ if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
   echo "BusyBox init configuration or system startup script is missing from the generated rootfs." >&2
   exit 1
 fi
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
+  ./bin/ash ./bin/sh >/dev/null 2>&1; then
+  echo "BusyBox ash or its /bin/sh link is missing from the generated rootfs." >&2
+  exit 1
+fi
 SELINUX_POLICY_ENTRY="$(tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
   | grep -E '^\.?/etc/selinux/targeted/policy/policy\.[0-9]+$' | head -n 1)"
 if [[ -z "$SELINUX_POLICY_ENTRY" \
@@ -564,7 +569,11 @@ if [[ ! -x "$OUTPUT_DIR/target/sbin/grub-install" \
   exit 1
 fi
 if [[ ! -x "$SYSTEM_SHELL" ]]; then
-  echo "BusyBox /bin/sh is missing from the target image." >&2
+  echo "BusyBox ash or its /bin/sh link is missing from the target image." >&2
+  exit 1
+fi
+if [[ "$(readlink "$SYSTEM_SHELL" 2>/dev/null || true)" != "ash" ]]; then
+  echo "The target image /bin/sh link does not point to BusyBox ash." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
@@ -614,8 +623,8 @@ if [[ ! -f "$OUTPUT_DIR/images/rootfs.tar" ]]; then
   exit 1
 fi
 if ! gzip -dc "$OUTPUT_DIR/images/rootfs.cpio.gz" | cpio -it 2>/dev/null \
-  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "bin/sh") shell = 1 } END { exit !(inittab && rcS && shell) }'; then
-  echo "BusyBox init configuration, startup script, or shell is missing from the boot initramfs." >&2
+  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "etc/init.d/rcK") rcK = 1; if ($0 == "bin/ash") ash = 1; if ($0 == "bin/sh") shell = 1 } END { exit !(inittab && rcS && rcK && ash && shell) }'; then
+  echo "BusyBox init configuration, startup scripts, or shell is missing from the boot initramfs." >&2
   exit 1
 fi
 
