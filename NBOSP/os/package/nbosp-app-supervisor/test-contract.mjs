@@ -109,7 +109,8 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(defconfig, /BR2_PACKAGE_IPTABLES=y/);
     assert.match(kernel, /CONFIG_NETFILTER_XT_MATCH_OWNER=y/);
     assert.match(kernel, /CONFIG_SECCOMP_FILTER=y/);
-    assert.match(kernel, /CONFIG_CGROUP2_FS=y/);
+    assert.match(kernel, /CONFIG_CGROUPS=y/);
+    assert.doesNotMatch(kernel, /CONFIG_CGROUP2_FS/);
     assert.match(kernel, /CONFIG_MEMCG=y/);
     assert.match(kernel, /CONFIG_CGROUP_PIDS=y/);
     assert.match(init, /--uid-owner 20000-59999/);
