@@ -63,7 +63,9 @@ The image supplies an explicit BusyBox `/etc/inittab` and `rcS` script so init
 runs the standard `/etc/init.d/S*` service sequence instead of BusyBox's
 fallback actions when the inittab is absent. The post-build hook installs the
 startup files into cached target trees and normalizes their line endings; the
-ISO build also recreates and checks the actual CPIO initramfs it boots.
+inittab invokes the scripts through `/bin/sh` so startup does not depend on
+script executable bits or shebang handling. The ISO build also recreates and
+checks the shell and startup files in the actual CPIO initramfs it boots.
 The policy is deliberately **permissive** during initial integration; it
 establishes labels and domain transitions but does not yet deny operations.
 SELinux enforcing mode must wait until the GitHub workflow validates the

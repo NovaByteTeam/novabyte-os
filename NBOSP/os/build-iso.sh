@@ -250,6 +250,7 @@ APP_SUPERVISOR_SERVICE="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor-service
 APP_INIT_WRAPPER="$OUTPUT_DIR/target/sbin/nbosp-init"
 APP_SUPERVISOR_INIT="$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor"
 SYSTEM_INIT="$OUTPUT_DIR/target/etc/init.d/rcS"
+SYSTEM_SHELL="$OUTPUT_DIR/target/bin/sh"
 APP_BUSYBOX_INIT="$OUTPUT_DIR/target/sbin/nbosp-busybox-init"
 EARLY_INIT="$OUTPUT_DIR/target/init"
 
@@ -562,6 +563,10 @@ if [[ ! -x "$OUTPUT_DIR/target/sbin/grub-install" \
   echo "grub-install is missing from the target image." >&2
   exit 1
 fi
+if [[ ! -x "$SYSTEM_SHELL" ]]; then
+  echo "BusyBox /bin/sh is missing from the target image." >&2
+  exit 1
+fi
 if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/sbin/lsblk" \
   && ! -x "$OUTPUT_DIR/target/usr/bin/lsblk" \
@@ -609,8 +614,8 @@ if [[ ! -f "$OUTPUT_DIR/images/rootfs.tar" ]]; then
   exit 1
 fi
 if ! gzip -dc "$OUTPUT_DIR/images/rootfs.cpio.gz" | cpio -it 2>/dev/null \
-  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1 } END { exit !(inittab && rcS) }'; then
-  echo "BusyBox init configuration or system startup script is missing from the boot initramfs." >&2
+  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "bin/sh") shell = 1 } END { exit !(inittab && rcS && shell) }'; then
+  echo "BusyBox init configuration, startup script, or shell is missing from the boot initramfs." >&2
   exit 1
 fi
 

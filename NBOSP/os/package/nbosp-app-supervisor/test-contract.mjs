@@ -117,7 +117,8 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(postBuild, /install -D -m 0644 .*rootfs-overlay\/etc\/inittab/);
     assert.match(postBuild, /install -D -m 0755 .*rootfs-overlay\/etc\/init\.d\/rcS/);
     assert.match(postBuild, /sed -i 's\/\\r\$\/\/'/);
-    assert.match(inittab, /::sysinit:\/etc\/init\.d\/rcS/);
+    assert.match(inittab, /::sysinit:\/bin\/sh \/etc\/init\.d\/rcS/);
+    assert.match(inittab, /::shutdown:\/bin\/sh \/etc\/init\.d\/rcK/);
     assert.match(inittab, /tty2::respawn:\/sbin\/getty/);
     assert.match(rcS, /for script in \/etc\/init\.d\/S\[0-9\]\[0-9\]\*/);
     assert.match(rcS, /"\$script" start/);
@@ -139,6 +140,7 @@ describe('NBOSP app supervisor integration contract', () => {
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar"[\s\S]*\.\/etc\/inittab \.\/etc\/init\.d\/rcS/);
     assert.match(buildScript, /rootfs\.cpio\.gz[\s\S]*cpio -it/);
     assert.match(buildScript, /missing from the boot initramfs/);
+    assert.match(buildScript, /SYSTEM_SHELL="\$OUTPUT_DIR\/target\/bin\/sh"/);
     assert.doesNotMatch(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \| grep -qx '\.\/sbin\/init'/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
