@@ -97,6 +97,7 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(kernel, /CONFIG_SECURITY_SELINUX=y/);
     assert.match(grub, /selinux=1 enforcing=0/);
     assert.match(postBuild, /ln -sfn sbin\/nbosp-init/);
+    assert.doesNotMatch(postBuild, /ln -sfn nbosp-init.*TARGET_DIR\}\/sbin\/init/);
     assert.match(init, /selinux_init_load_policy/);
     assert.match(init, /run_setfiles/);
     assert.match(init, /file_contexts/);
@@ -109,6 +110,7 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(fileContexts, /nbosp-busybox-init.*init_exec_t/);
     const buildScript = read('../../build-iso.sh');
     assert.match(buildScript, /target\/sbin\/nbosp-busybox-init/);
+    assert.match(buildScript, /target\/sbin\/init/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
     assert.match(policy, /domain_type\(nbosp_app_supervisor_t\)/);
     assert.doesNotMatch(policy, /domain_auto_trans/);

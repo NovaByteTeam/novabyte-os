@@ -12,5 +12,4 @@ if [ ! -x "${TARGET_DIR}/sbin/init" ]; then
 fi
 cp -L "${TARGET_DIR}/sbin/init" "${TARGET_DIR}/sbin/nbosp-busybox-init"
 chmod 0755 "${TARGET_DIR}/sbin/nbosp-busybox-init"
-ln -sfn nbosp-init "${TARGET_DIR}/sbin/init"
 ln -sfn sbin/nbosp-init "${TARGET_DIR}/init"

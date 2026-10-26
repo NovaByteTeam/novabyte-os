@@ -239,11 +239,11 @@ if [[ ! -x "$APP_SUPERVISOR" || -u "$APP_SUPERVISOR" \
   || ! -x "$APP_SUPERVISOR_SERVICE" || -u "$APP_SUPERVISOR_SERVICE" \
   || ! -x "$APP_INIT_WRAPPER" \
   || ! -x "$OUTPUT_DIR/target/sbin/nbosp-busybox-init" \
+  || ! -x "$OUTPUT_DIR/target/sbin/init" \
+  || "$(readlink "$OUTPUT_DIR/target/sbin/init" 2>/dev/null || true)" == "nbosp-init" \
   || ! -x "$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor" \
   || ! -L "$OUTPUT_DIR/target/init" \
-  || "$(readlink "$OUTPUT_DIR/target/init")" != "sbin/nbosp-init" \
-  || ! -L "$OUTPUT_DIR/target/sbin/init" \
-  || "$(readlink "$OUTPUT_DIR/target/sbin/init")" != "nbosp-init" ]]; then
+  || "$(readlink "$OUTPUT_DIR/target/init")" != "sbin/nbosp-init" ]]; then
   echo "The app supervisor or SELinux init loader is missing or has unsafe mode bits." >&2
   exit 1
 fi
@@ -255,6 +255,10 @@ if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
   ./etc/init.d/S12nbosp-app-supervisor \
   | awk '$1 == "-rwxr-xr-x" && $2 == "0/0" { found[$NF] = 1 } END { exit !(found["./usr/sbin/nbosp-app-supervisor"] && found["./usr/sbin/nbosp-app-supervisor-service"] && found["./sbin/nbosp-init"] && found["./sbin/nbosp-busybox-init"] && found["./etc/init.d/S12nbosp-app-supervisor"]) }'; then
   echo "The supervisor and SELinux init files are not root-owned mode 0755 in the generated rootfs." >&2
+  exit 1
+fi
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -qx './sbin/init'; then
+  echo "Buildroot's original init applet is missing from the generated rootfs." >&2
   exit 1
 fi
 SELINUX_POLICY_ENTRY="$(tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
