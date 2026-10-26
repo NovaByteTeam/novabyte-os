@@ -468,14 +468,19 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/bsdtar" ]]; then
   echo "BSD tar is required to browse ISO files but is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/bin/tar" || ! -x "$OUTPUT_DIR/target/bin/gzip" ]]; then
+target_has_command() {
+  [[ -x "$OUTPUT_DIR/target/bin/$1" || -x "$OUTPUT_DIR/target/usr/bin/$1" ]]
+}
+if ! target_has_command tar || ! target_has_command gzip; then
   echo "Cached BusyBox output lacks tar or gzip; rebuilding BusyBox." >&2
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     busybox-dirclean
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
-  if [[ ! -x "$OUTPUT_DIR/target/bin/tar" || ! -x "$OUTPUT_DIR/target/bin/gzip" ]]; then
+  if ! target_has_command tar || ! target_has_command gzip; then
     echo "BusyBox tar or gzip is still missing after rebuilding BusyBox." >&2
+    find "$OUTPUT_DIR/target/bin" "$OUTPUT_DIR/target/usr/bin" \
+      -maxdepth 1 \( -name tar -o -name gzip -o -name busybox \) -ls >&2
     exit 1
   fi
 fi

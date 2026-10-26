@@ -74,6 +74,7 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /busybox-dirclean/);
     assert.match(buildScript, /busybox-dirclean[\s\S]*?busybox\s*\r?\n[\s\S]*?-j"\$JOBS"/);
     assert.match(buildScript, /BusyBox tar or gzip is still missing/);
+    assert.match(buildScript, /target_has_command\(\)[\s\S]*?target\/bin\/\$1[\s\S]*?target\/usr\/bin\/\$1/);
     const busyboxFragment = read('../../board/nbosp/busybox.fragment');
     assert.match(busyboxFragment, /CONFIG_TAR=y/);
     assert.match(busyboxFragment, /CONFIG_FEATURE_TAR_GZIP=y/);
