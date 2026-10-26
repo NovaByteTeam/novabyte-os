@@ -103,6 +103,8 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.doesNotMatch(init, /"-r"/);
     assert.match(init, /\/sbin\/nbosp-busybox-init/);
     assert.match(init, /\(char \*\)"init"/);
+    assert.match(init, /initramfs labeling complete/);
+    assert.match(init, /starting standalone BusyBox init/);
     assert.match(postBuild, /cp -L.*sbin\/init.*sbin\/nbosp-busybox-init/);
     assert.match(fileContexts, /nbosp-busybox-init.*init_exec_t/);
     const buildScript = read('../../build-iso.sh');

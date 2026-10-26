@@ -121,6 +121,11 @@ static int mark_selinux_ready(void)
 	return close(fd);
 }
 
+static void report_progress(const char *message)
+{
+	(void)dprintf(STDERR_FILENO, "NBOSP init: %s\n", message);
+}
+
 int main(void)
 {
 	int enforcing = 0;
@@ -134,23 +139,30 @@ int main(void)
 		NULL,
 	};
 
+	report_progress("mounting early filesystems");
 	if (mount_early_filesystems() < 0)
 		halt_on_error("NBOSP init: mounting early filesystems failed");
+	report_progress("early filesystems mounted");
 
 	ready = selinux_ready();
 	if (ready < 0)
 		halt_on_error("NBOSP init: checking SELinux load state failed");
 	if (!ready) {
+		report_progress("loading SELinux policy");
 		if (selinux_init_load_policy(&enforcing) < 0)
 			halt_on_error("NBOSP init: loading SELinux policy failed");
+		report_progress("SELinux policy loaded; labeling initramfs");
 		if (run_setfiles() < 0)
 			halt_on_error("NBOSP init: labeling initramfs failed");
+		report_progress("initramfs labeling complete");
 		if (mark_selinux_ready() < 0)
 			halt_on_error("NBOSP init: recording SELinux load state failed");
+		report_progress("SELinux state recorded; re-executing early init");
 		execv("/sbin/nbosp-init", init_arguments);
 		halt_on_error("NBOSP init: SELinux re-exec failed");
 	}
 
+	report_progress("starting standalone BusyBox init");
 	execv("/sbin/nbosp-busybox-init", busybox_arguments);
 	halt_on_error("NBOSP init: starting BusyBox init failed");
 	return 1;
