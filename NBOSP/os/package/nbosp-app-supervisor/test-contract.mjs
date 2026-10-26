@@ -79,6 +79,7 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /target_has_command\(\)[\s\S]*?target\/bin\/\$1[\s\S]*?target\/usr\/bin\/\$1/);
     const busyboxFragment = read('../../board/nbosp/busybox.fragment');
     assert.match(busyboxFragment, /^CONFIG_ASH=y$/m);
+    assert.match(busyboxFragment, /^CONFIG_INSTALL_SH_APPLET_SYMLINK=y$/m);
     assert.match(busyboxFragment, /CONFIG_TAR=y/);
     assert.match(busyboxFragment, /CONFIG_FEATURE_TAR_GZIP=y/);
     assert.match(busyboxFragment, /CONFIG_GZIP=y/);
@@ -118,8 +119,6 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(postBuild, /install -D -m 0644 .*rootfs-overlay\/etc\/inittab/);
     assert.match(postBuild, /install -D -m 0755 .*rootfs-overlay\/etc\/init\.d\/rcS/);
     assert.match(postBuild, /sed -i 's\/\\r\$\/\/'/);
-    assert.match(postBuild, /if \[ ! -x "\$\{TARGET_DIR\}\/bin\/ash" \]/);
-    assert.match(postBuild, /ln -sfn ash "\$\{TARGET_DIR\}\/bin\/sh"/);
     assert.match(inittab, /::sysinit:\/bin\/sh \/etc\/init\.d\/rcS/);
     assert.match(inittab, /::shutdown:\/bin\/sh \/etc\/init\.d\/rcK/);
     assert.match(inittab, /tty2::respawn:\/sbin\/getty/);
@@ -142,11 +141,10 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar"[\s\S]*\.\/etc\/inittab \.\/etc\/init\.d\/rcS/);
     assert.match(buildScript,
-      /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar"[\s\S]*\.\/bin\/ash \.\/bin\/sh/);
+      /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \.\/bin\/sh/);
     assert.match(buildScript, /rootfs\.cpio\.gz[\s\S]*cpio -it/);
     assert.match(buildScript, /missing from the boot initramfs/);
     assert.match(buildScript, /SYSTEM_SHELL="\$OUTPUT_DIR\/target\/bin\/sh"/);
-    assert.match(buildScript, /readlink "\$SYSTEM_SHELL"[\s\S]*!= "ash"/);
     assert.doesNotMatch(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \| grep -qx '\.\/sbin\/init'/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);

@@ -21,13 +21,6 @@ sed -i 's/\r$//' \
 	"${TARGET_DIR}/etc/init.d/rcS" \
 	"${TARGET_DIR}/etc/init.d/rcK"
 
-# SELinux-enabled BusyBox installs applets individually and may omit this alias.
-if [ ! -x "${TARGET_DIR}/bin/ash" ]; then
-	echo "BusyBox ash shell is missing; cannot provide /bin/sh for init scripts." >&2
-	exit 1
-fi
-ln -sfn ash "${TARGET_DIR}/bin/sh"
-
 # SELinux policy loading and initramfs labeling must happen before BusyBox init.
 INIT_APPLET="${TARGET_DIR}/sbin/init"
 PRESERVED_INIT="${TARGET_DIR}/sbin/nbosp-busybox-init"

@@ -64,10 +64,10 @@ runs the standard `/etc/init.d/S*` service sequence instead of BusyBox's
 fallback actions when the inittab is absent. The post-build hook installs the
 startup files into cached target trees and normalizes their line endings; the
 inittab invokes the scripts through `/bin/sh` so startup does not depend on
-script executable bits or shebang handling. Since SELinux-enabled BusyBox
-installs applets individually, the post-build hook ensures `/bin/sh` links to
-the installed `/bin/ash`. The ISO build recreates and checks the shell and
-startup files in the actual CPIO initramfs it boots.
+script executable bits or shebang handling. The BusyBox configuration
+explicitly installs its shell applet at `/bin/sh` even when SELinux causes
+individual applet binaries to be used. The ISO build recreates and checks the
+shell and startup files in the actual CPIO initramfs it boots.
 The policy is deliberately **permissive** during initial integration; it
 establishes labels and domain transitions but does not yet deny operations.
 SELinux enforcing mode must wait until the GitHub workflow validates the
