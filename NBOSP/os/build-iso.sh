@@ -275,7 +275,7 @@ if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
   echo "The supervisor and SELinux init files are not root-owned mode 0755 in the generated rootfs." >&2
   exit 1
 fi
-if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -qx './sbin/init'; then
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./sbin/init >/dev/null 2>&1; then
   echo "Buildroot's original init applet is missing from the generated rootfs." >&2
   exit 1
 fi

@@ -118,6 +118,10 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /Required NBOSP boot executable is missing or not executable:/);
     assert.match(buildScript, /NBOSP supervisor executable must not have the setuid bit:/);
     assert.match(buildScript, /Buildroot \/sbin\/init points back to the early SELinux wrapper/);
+    assert.match(buildScript,
+      /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \.\/sbin\/init >\/dev\/null 2>&1/);
+    assert.doesNotMatch(buildScript,
+      /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \| grep -qx '\.\/sbin\/init'/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
     assert.match(policy, /domain_type\(nbosp_app_supervisor_t\)/);
     assert.doesNotMatch(policy, /domain_auto_trans/);
