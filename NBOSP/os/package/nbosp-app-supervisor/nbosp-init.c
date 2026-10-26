@@ -40,8 +40,6 @@ static int run_setfiles(void)
 		(char *)"-e",
 		(char *)"/dev",
 		(char *)"-F",
-		(char *)"-r",
-		(char *)"/",
 		(char *)"/etc/selinux/targeted/contexts/files/file_contexts",
 		(char *)"/",
 		NULL,

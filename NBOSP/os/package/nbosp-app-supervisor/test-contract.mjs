@@ -99,6 +99,8 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(postBuild, /ln -sfn sbin\/nbosp-init/);
     assert.match(init, /selinux_init_load_policy/);
     assert.match(init, /run_setfiles/);
+    assert.match(init, /file_contexts/);
+    assert.doesNotMatch(init, /"-r"/);
     assert.match(init, /\/bin\/busybox/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
     assert.match(policy, /domain_type\(nbosp_app_supervisor_t\)/);
