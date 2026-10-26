@@ -245,11 +245,12 @@ APP_SUPERVISOR="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor"
 APP_SUPERVISOR_SERVICE="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor-service"
 APP_INIT_WRAPPER="$OUTPUT_DIR/target/sbin/nbosp-init"
 APP_SUPERVISOR_INIT="$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor"
+SYSTEM_INIT="$OUTPUT_DIR/target/etc/init.d/rcS"
 APP_BUSYBOX_INIT="$OUTPUT_DIR/target/sbin/nbosp-busybox-init"
 EARLY_INIT="$OUTPUT_DIR/target/init"
 
 for executable in "$APP_SUPERVISOR" "$APP_SUPERVISOR_SERVICE" \
-  "$APP_INIT_WRAPPER" "$APP_BUSYBOX_INIT" "$APP_SUPERVISOR_INIT"; do
+  "$APP_INIT_WRAPPER" "$APP_BUSYBOX_INIT" "$APP_SUPERVISOR_INIT" "$SYSTEM_INIT"; do
   if [[ ! -x "$executable" ]]; then
     echo "Required NBOSP boot executable is missing or not executable: $executable" >&2
     exit 1
@@ -286,6 +287,11 @@ if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
 fi
 if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./sbin/init >/dev/null 2>&1; then
   echo "Buildroot's original init applet is missing from the generated rootfs." >&2
+  exit 1
+fi
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
+  ./etc/inittab ./etc/init.d/rcS >/dev/null 2>&1; then
+  echo "BusyBox init configuration or system startup script is missing from the generated rootfs." >&2
   exit 1
 fi
 SELINUX_POLICY_ENTRY="$(tar -tf "$OUTPUT_DIR/images/rootfs.tar" \

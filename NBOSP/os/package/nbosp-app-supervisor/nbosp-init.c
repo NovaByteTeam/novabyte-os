@@ -14,6 +14,11 @@
 
 static int mount_early_filesystems(void)
 {
+	if (mkdir("/dev", 0755) < 0 && errno != EEXIST)
+		return -1;
+	if (mount("devtmpfs", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC,
+		  "mode=0755") < 0 && errno != EBUSY)
+		return -1;
 	if (mkdir("/proc", 0555) < 0 && errno != EEXIST)
 		return -1;
 	if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC,

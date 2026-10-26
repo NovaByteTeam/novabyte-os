@@ -58,6 +58,10 @@ BusyBox init applet. Buildroot installs BusyBox applets as individual binaries
 with SELinux enabled, so the wrapper cannot rely on `/bin/busybox`. The wrapper
 is installed at `/init`; `/sbin/init` remains Buildroot's original applet so
 BusyBox init cannot resolve its own init path back to the SELinux wrapper.
+The early wrapper mounts devtmpfs as well as proc and sysfs before handoff.
+The image supplies an explicit BusyBox `/etc/inittab` and `rcS` script so init
+runs the standard `/etc/init.d/S*` service sequence instead of BusyBox's
+fallback actions when the inittab is absent.
 The policy is deliberately **permissive** during initial integration; it
 establishes labels and domain transitions but does not yet deny operations.
 SELinux enforcing mode must wait until the GitHub workflow validates the

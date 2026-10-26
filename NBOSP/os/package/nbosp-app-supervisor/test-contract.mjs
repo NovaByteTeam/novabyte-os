@@ -89,6 +89,8 @@ describe('NBOSP app supervisor integration contract', () => {
     const grub = read('../../board/nbosp/grub.cfg');
     const postBuild = read('../../board/nbosp/post-build.sh');
     const init = read('nbosp-init.c');
+    const inittab = read('../../board/nbosp/rootfs-overlay/etc/inittab');
+    const rcS = read('../../board/nbosp/rootfs-overlay/etc/init.d/rcS');
     const policy = read('selinux/nbosp_app.te');
     const interfaces = read('selinux/nbosp_app.if');
     const fileContexts = read('selinux/nbosp_app.fc');
@@ -101,6 +103,7 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(init, /selinux_init_load_policy/);
     assert.match(init, /run_setfiles/);
     assert.match(init, /file_contexts/);
+    assert.match(init, /mount\("devtmpfs", "\/dev", "devtmpfs"/);
     assert.doesNotMatch(init, /"-r"/);
     assert.match(init, /\/sbin\/nbosp-busybox-init/);
     assert.match(init, /\(char \*\)"init"/);
@@ -111,6 +114,10 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(postBuild, /cmp -s "\$PRESERVED_INIT" "\$INIT_WRAPPER"/);
     assert.match(postBuild, /Preserved BusyBox init is the SELinux wrapper/);
     assert.match(postBuild, /chmod 0755 "\$PRESERVED_INIT"/);
+    assert.match(inittab, /::sysinit:\/etc\/init\.d\/rcS/);
+    assert.match(inittab, /tty2::respawn:\/sbin\/getty/);
+    assert.match(rcS, /for script in \/etc\/init\.d\/S\[0-9\]\[0-9\]\*/);
+    assert.match(rcS, /"\$script" start/);
     assert.match(fileContexts, /nbosp-busybox-init.*init_exec_t/);
     const buildScript = read('../../build-iso.sh');
     assert.match(buildScript, /target\/sbin\/nbosp-busybox-init/);
@@ -122,6 +129,9 @@ describe('NBOSP app supervisor integration contract', () => {
       /rm -f "\$OUTPUT_DIR\/target\/sbin\/init"[\s\S]*busybox-dirclean[\s\S]*\sbusybox\r?\nmake -C/);
     assert.match(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \.\/sbin\/init >\/dev\/null 2>&1/);
+    assert.match(buildScript, /target\/etc\/init\.d\/rcS/);
+    assert.match(buildScript,
+      /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar"[\s\S]*\.\/etc\/inittab \.\/etc\/init\.d\/rcS/);
     assert.doesNotMatch(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \| grep -qx '\.\/sbin\/init'/);
     assert.match(policy, /domtrans_pattern\(nbosp_app_supervisor_t, nbosp_app_runtime_exec_t/);
