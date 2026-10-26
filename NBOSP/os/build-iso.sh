@@ -235,15 +235,34 @@ make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 APP_SUPERVISOR="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor"
 APP_SUPERVISOR_SERVICE="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor-service"
 APP_INIT_WRAPPER="$OUTPUT_DIR/target/sbin/nbosp-init"
-if [[ ! -x "$APP_SUPERVISOR" || -u "$APP_SUPERVISOR" \
-  || ! -x "$APP_SUPERVISOR_SERVICE" || -u "$APP_SUPERVISOR_SERVICE" \
-  || ! -x "$APP_INIT_WRAPPER" \
-  || ! -x "$OUTPUT_DIR/target/sbin/nbosp-busybox-init" \
-  || "$(readlink "$OUTPUT_DIR/target/sbin/init" 2>/dev/null || true)" == "nbosp-init" \
-  || ! -x "$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor" \
-  || ! -L "$OUTPUT_DIR/target/init" \
-  || "$(readlink "$OUTPUT_DIR/target/init")" != "sbin/nbosp-init" ]]; then
-  echo "The app supervisor or SELinux init loader is missing or has unsafe mode bits." >&2
+APP_SUPERVISOR_INIT="$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor"
+APP_BUSYBOX_INIT="$OUTPUT_DIR/target/sbin/nbosp-busybox-init"
+EARLY_INIT="$OUTPUT_DIR/target/init"
+
+for executable in "$APP_SUPERVISOR" "$APP_SUPERVISOR_SERVICE" \
+  "$APP_INIT_WRAPPER" "$APP_BUSYBOX_INIT" "$APP_SUPERVISOR_INIT"; do
+  if [[ ! -x "$executable" ]]; then
+    echo "Required NBOSP boot executable is missing or not executable: $executable" >&2
+    exit 1
+  fi
+done
+for executable in "$APP_SUPERVISOR" "$APP_SUPERVISOR_SERVICE"; do
+  if [[ -u "$executable" ]]; then
+    echo "NBOSP supervisor executable must not have the setuid bit: $executable" >&2
+    exit 1
+  fi
+done
+if [[ "$(readlink "$OUTPUT_DIR/target/sbin/init" 2>/dev/null || true)" == "nbosp-init" ]]; then
+  echo "Buildroot /sbin/init points back to the early SELinux wrapper." >&2
+  exit 1
+fi
+if [[ ! -L "$EARLY_INIT" ]]; then
+  echo "The early SELinux wrapper entrypoint is not a symlink: $EARLY_INIT" >&2
+  exit 1
+fi
+EARLY_INIT_TARGET="$(readlink "$EARLY_INIT")"
+if [[ "$EARLY_INIT_TARGET" != "sbin/nbosp-init" ]]; then
+  echo "Unexpected early SELinux wrapper target: $EARLY_INIT_TARGET" >&2
   exit 1
 fi
 if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
