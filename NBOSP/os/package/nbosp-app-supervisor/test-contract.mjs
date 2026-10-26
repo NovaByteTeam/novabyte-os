@@ -107,10 +107,10 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(init, /initramfs labeling complete/);
     assert.match(init, /starting standalone BusyBox init/);
     assert.match(postBuild, /cp -L "\$INIT_APPLET" "\$PRESERVED_INIT"/);
-    assert.match(postBuild, /readlink "\$INIT_APPLET"\).* = "nbosp-init"/);
-    assert.match(postBuild, /Stale \/sbin\/init wrapper link found without a preserved BusyBox init applet/);
-    assert.match(postBuild, /cp "\$PRESERVED_INIT" "\$INIT_APPLET"/);
-    assert.match(postBuild, /chmod 0755 "\$INIT_APPLET" "\$PRESERVED_INIT"/);
+    assert.match(postBuild, /Stale \/sbin\/init wrapper link remains/);
+    assert.match(postBuild, /cmp -s "\$PRESERVED_INIT" "\$INIT_WRAPPER"/);
+    assert.match(postBuild, /Preserved BusyBox init is the SELinux wrapper/);
+    assert.match(postBuild, /chmod 0755 "\$PRESERVED_INIT"/);
     assert.match(fileContexts, /nbosp-busybox-init.*init_exec_t/);
     const buildScript = read('../../build-iso.sh');
     assert.match(buildScript, /target\/sbin\/nbosp-busybox-init/);
@@ -118,6 +118,8 @@ describe('NBOSP app supervisor integration contract', () => {
     assert.match(buildScript, /Required NBOSP boot executable is missing or not executable:/);
     assert.match(buildScript, /NBOSP supervisor executable must not have the setuid bit:/);
     assert.match(buildScript, /Buildroot \/sbin\/init points back to the early SELinux wrapper/);
+    assert.match(buildScript,
+      /rm -f "\$OUTPUT_DIR\/target\/sbin\/init"[\s\S]*busybox-dirclean[\s\S]*\sbusybox\r?\nmake -C/);
     assert.match(buildScript,
       /tar -tf "\$OUTPUT_DIR\/images\/rootfs\.tar" \.\/sbin\/init >\/dev\/null 2>&1/);
     assert.doesNotMatch(buildScript,

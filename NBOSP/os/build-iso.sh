@@ -230,6 +230,15 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     util-linux-dirclean
 fi
+# Buildroot's cached target can retain the old /sbin/init -> nbosp-init link.
+# Remove only the init paths and reinstall BusyBox so the post-build hook cannot
+# mistake the SELinux wrapper (or a stale preserved copy) for BusyBox init.
+rm -f "$OUTPUT_DIR/target/sbin/init" \
+  "$OUTPUT_DIR/target/sbin/nbosp-busybox-init" \
+  "$OUTPUT_DIR/target/init"
+make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+  busybox-dirclean
+make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
 APP_SUPERVISOR="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor"
