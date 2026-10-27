@@ -13,6 +13,7 @@ XWAYLAND_CPE_ID_VENDOR = x.org
 XWAYLAND_INSTALL_STAGING = YES
 XWAYLAND_DEPENDENCIES = \
 	libdrm \
+	mesa3d \
 	pixman \
 	wayland \
 	wayland-protocols \
