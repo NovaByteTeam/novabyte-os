@@ -11,6 +11,7 @@ describe('NBOSP SELinux init integration contract', () => {
     const makefile = read('os/package/nbosp-selinux-init/nbosp-selinux-init.mk');
     const defconfig = read('os/configs/nbosp_x86_64_defconfig');
     const policy = read('os/package/nbosp-selinux-init/selinux/nbosp_boot.fc');
+    const policyInterface = read('os/package/nbosp-selinux-init/selinux/nbosp_boot.if');
 
     assert.match(config, /config BR2_PACKAGE_NBOSP_SELINUX_INIT/);
     assert.match(config, /select BR2_PACKAGE_LIBSELINUX/);
@@ -20,6 +21,7 @@ describe('NBOSP SELinux init integration contract', () => {
     assert.match(defconfig, /package\/nbosp-selinux-init\/selinux/);
     assert.match(policy, /\/sbin\/nbosp-init.*init_exec_t/);
     assert.match(policy, /\/sbin\/nbosp-busybox-init.*init_exec_t/);
+    assert.match(policyInterface, /intentionally exports no public interfaces/);
   });
 
   it('loads and labels SELinux before handing off to standalone BusyBox init', () => {
