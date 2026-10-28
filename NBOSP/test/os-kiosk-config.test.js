@@ -8,6 +8,19 @@ import vm from 'node:vm';
 const nodeRequire = createRequire(import.meta.url);
 
 describe('NBOSP VMware kiosk device configuration', () => {
+  it('mounts sysfs before device discovery and desktop startup', () => {
+    const mounts = readFileSync(
+      new URL('../os/board/nbosp/rootfs-overlay/etc/init.d/S01mounts', import.meta.url),
+      'utf8',
+    );
+    const sysfsMount = 'mounted /sys || mount -t sysfs sysfs /sys';
+    const deviceMount = 'mounted /dev/pts || mount -t devpts';
+
+    expect(mounts).toContain('mkdir -p /sys /dev/pts /dev/shm /tmp');
+    expect(mounts.indexOf(sysfsMount)).toBeGreaterThanOrEqual(0);
+    expect(mounts.indexOf(sysfsMount)).toBeLessThan(mounts.indexOf(deviceMount));
+  });
+
   it('keeps XWayland GLX GPU acceleration and checks render-node access', () => {
     const defconfig = readFileSync(new URL('../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
     const kernel = readFileSync(new URL('../os/board/nbosp/linux.fragment', import.meta.url), 'utf8');
