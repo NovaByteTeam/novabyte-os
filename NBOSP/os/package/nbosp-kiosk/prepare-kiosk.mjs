@@ -29,9 +29,9 @@ for (const entry of sqlitePrebuilds) {
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 manifest.window = {
   ...manifest.window,
-  frame: true,
-  fullscreen: false,
-  kiosk: false,
+  frame: false,
+  fullscreen: true,
+  kiosk: true,
   "chromium-args": [
     "--no-first-run",
     "--disable-devtools",

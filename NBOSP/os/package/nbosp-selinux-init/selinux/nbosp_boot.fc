@@ -1,5 +1,0 @@
-/sbin/nbosp-init -- gen_context(system_u:object_r:init_exec_t,s0)
-/sbin/nbosp-busybox-init -- gen_context(system_u:object_r:init_exec_t,s0)
-/init -- gen_context(system_u:object_r:init_exec_t,s0)
-/bin/busybox -- gen_context(system_u:object_r:init_exec_t,s0)
-/run/nbosp-selinux-loaded -- gen_context(system_u:object_r:var_run_t,s0)

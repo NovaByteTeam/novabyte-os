@@ -18,15 +18,6 @@ chmod 1777 "${TARGET_DIR}/tmp/.X11-unix"
 install -D -m 0755 "${SCRIPT_DIR}/rootfs-overlay/etc/init.d/S01mounts" \
 	"${TARGET_DIR}/etc/init.d/S01mounts"
 
-# Buildroot's refpolicy-era x_contexts names a type our policy doesn't define
-# (seclabel_xproperty_t). Xwayland's SELinux extension then fails the property
-# label lookup and dies with "Failed to set label property on window". Drop
-# the unresolvable rules so lookups fall through to the valid defaults.
-X_CONTEXTS="${TARGET_DIR}/etc/selinux/targeted/contexts/x_contexts"
-if [ -f "${X_CONTEXTS}" ]; then
-	sed -i '/seclabel_xproperty_t/d' "${X_CONTEXTS}"
-fi
-
 # sudoers.d files must be 0440
 chmod 440 "${TARGET_DIR}/etc/sudoers.d/nbosp" 2>/dev/null || true
 
@@ -41,25 +32,3 @@ sed -i 's/\r$//' \
 	"${TARGET_DIR}/etc/inittab" \
 	"${TARGET_DIR}/etc/init.d/rcS" \
 	"${TARGET_DIR}/etc/init.d/rcK"
-
-# SELinux policy loading and initramfs labeling must happen before BusyBox init.
-INIT_APPLET="${TARGET_DIR}/sbin/init"
-PRESERVED_INIT="${TARGET_DIR}/sbin/nbosp-busybox-init"
-INIT_WRAPPER="${TARGET_DIR}/sbin/nbosp-init"
-
-if [ -L "$INIT_APPLET" ] && [ "$(readlink "$INIT_APPLET")" = "nbosp-init" ]; then
-	echo "Stale /sbin/init wrapper link remains; BusyBox must be reinstalled before applying the init wrapper." >&2
-	exit 1
-fi
-if [ ! -x "$INIT_APPLET" ]; then
-	echo "BusyBox init applet is missing; cannot install the SELinux init wrapper." >&2
-	exit 1
-fi
-
-cp -L "$INIT_APPLET" "$PRESERVED_INIT"
-if cmp -s "$PRESERVED_INIT" "$INIT_WRAPPER"; then
-	echo "Preserved BusyBox init is the SELinux wrapper, not the BusyBox init applet." >&2
-	exit 1
-fi
-chmod 0755 "$PRESERVED_INIT"
-ln -sfn sbin/nbosp-init "${TARGET_DIR}/init"

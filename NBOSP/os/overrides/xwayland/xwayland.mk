@@ -63,12 +63,7 @@ else
 XWAYLAND_CONF_OPTS += -Dsecure-rpc=false
 endif
 
-ifeq ($(BR2_PACKAGE_LIBSELINUX)$(BR2_PACKAGE_AUDIT),yy)
-XWAYLAND_CONF_OPTS += -Dxselinux=true
-XWAYLAND_DEPENDENCIES += libselinux audit
-else
 XWAYLAND_CONF_OPTS += -Dxselinux=false
-endif
 
 ifeq ($(BR2_PACKAGE_OPENSSL),y)
 XWAYLAND_CONF_OPTS += -Dsha1=libcrypto

@@ -3,32 +3,25 @@
 ## Desktop applications and boot
 
 Desktop applications continue to use NovaByte's existing app sandbox and
-permission system. The newer per-app Linux UID supervisor, process launcher,
-and associated seccomp, cgroup, and firewall isolation have been removed.
+permission system. The optional Weston multi-window proof of concept and the
+SELinux boot integration have been removed; the image boots with Buildroot's
+standard BusyBox init and launches the kiosk in Cage. The newer per-app Linux
+UID supervisor, process launcher, and associated seccomp, cgroup, and firewall
+isolation are not part of this image.
 
-The early SELinux init wrapper loads the permissive policy and labels the
-initramfs before handing off to a preserved standalone BusyBox init applet.
-Buildroot installs BusyBox applets as individual binaries with SELinux
-enabled, so the wrapper cannot rely on `/bin/busybox`. The wrapper is
-installed at `/init`; `/sbin/init` remains Buildroot's original applet so
-BusyBox init cannot resolve its own init path back to the SELinux wrapper.
-The early wrapper mounts devtmpfs as well as proc and sysfs before handoff.
 The image supplies an explicit BusyBox `/etc/inittab` and `rcS` script so init
 runs the standard `/etc/init.d/S*` service sequence instead of BusyBox's
 fallback actions when the inittab is absent. The post-build hook installs the
 startup files into cached target trees and normalizes their line endings; the
 inittab invokes the scripts through `/bin/sh` so startup does not depend on
 script executable bits or shebang handling. The BusyBox configuration
-explicitly installs its shell applet at `/bin/sh` even when SELinux causes
-individual applet binaries to be used. The ISO build recreates and checks the
-shell and startup files in the actual CPIO initramfs it boots.
-SELinux remains **permissive** during initial integration. The image does not
-enforce per-app Linux UID, seccomp, cgroup, or firewall isolation.
+explicitly installs its shell applet at `/bin/sh`. The ISO build recreates and
+checks the shell and startup files in the actual CPIO initramfs it boots.
 
 This milestone extends the working x86_64 Buildroot boot into a graphical
 VMware desktop: Linux DRM/KMS with the VMware SVGA driver, Mesa, Wayland,
-Weston desktop-shell mode by default, and Cage as a selectable alternative. The
-Linux x64 NBOSP NW.js bundle remains the main OS interface. On Linux, Files browses the host filesystem directly, can list ISO contents,
+and Cage. The Linux x64 NBOSP NW.js bundle remains the main OS interface. On
+Linux, Files browses the host filesystem directly, can list ISO contents,
 and can launch executable files as the unprivileged kiosk user after
 confirmation. The shared filesystem API maps to the kiosk user's real home
 directory, app data and package blobs are stored under

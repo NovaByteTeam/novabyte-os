@@ -362,29 +362,6 @@ case "$1" in
         keyboard_layout=us
         ;;
     esac
-    compositor_mode=weston-poc
-    compositor_file=/home/nbosp/.config/novabyte/compositor
-    if [ -f "$compositor_file" ]; then
-      compositor_mode="$(cat "$compositor_file")"
-    fi
-    case "$compositor_mode" in
-      cage|weston-poc) ;;
-      *)
-        echo "NBOSP kiosk: invalid compositor mode '$compositor_mode'; using Cage" >&2
-        compositor_mode=cage
-        ;;
-    esac
-    compositor_desktop=cage
-    [ "$compositor_mode" = weston-poc ] && compositor_desktop=weston
-    if [ "$compositor_mode" = weston-poc ] \
-      && { [ ! -x /usr/bin/weston ] \
-        || [ ! -x /usr/bin/weston-terminal ] \
-        || [ ! -x /usr/bin/Xwayland ] \
-        || [ ! -x /usr/bin/nbosp-weston-poc-session ]; }; then
-      echo "NBOSP kiosk: Weston proof-of-concept runtime is incomplete." >&2
-      exit 1
-    fi
-
     nbosp_gl_debug_setup
     cat > /run/nbosp-kiosk-session.sh <<SESSION
 #!/bin/sh
@@ -412,43 +389,14 @@ SESSION
     cat > /run/nbosp-compositor-session.sh <<'SESSION'
 #!/bin/sh
 umask 0007
-case "${NBOSP_COMPOSITOR_MODE:-cage}" in
-  weston-poc)
-    # Weston's own log never reaches the serial console, so a crash is
-    # invisible. Print its tail on failure, and after two crashes fall back to
-    # Cage so the kiosk still comes up instead of burning every restart.
-    crash_file="${XDG_RUNTIME_DIR:-/run/nbosp-wayland}/weston-crashes"
-    crashes=$(cat "$crash_file" 2>/dev/null || echo 0)
-    if [ "$crashes" -ge 2 ]; then
-      echo "NBOSP kiosk: Weston crashed $crashes times; falling back to Cage" >&2
-      exec /usr/bin/cage -- /run/nbosp-kiosk-session.sh
-    fi
-    /usr/bin/weston --no-config --backend=drm --shell=desktop \
-      --socket=wayland-0 --xwayland --idle-time=0 --log=/home/nbosp/weston.log -- \
-      /usr/bin/nbosp-weston-poc-session /run/nbosp-kiosk-session.sh
-    rc=$?
-    if [ "$rc" -ne 0 ]; then
-      echo $((crashes + 1)) > "$crash_file"
-      echo "NBOSP kiosk: weston exited with status $rc; last log lines:" >&2
-      tail -n 60 /home/nbosp/weston.log >&2 2>/dev/null || echo "(no weston.log)" >&2
-    fi
-    exit "$rc"
-    ;;
-  cage)
-    exec /usr/bin/cage -- /run/nbosp-kiosk-session.sh
-    ;;
-  *)
-    echo "Unsupported compositor mode: ${NBOSP_COMPOSITOR_MODE:-}" >&2
-    exit 2
-    ;;
-esac
+exec /usr/bin/cage -- /run/nbosp-kiosk-session.sh
 SESSION
     chmod 0755 /run/nbosp-compositor-session.sh
 
     start-stop-daemon --start --background --make-pidfile \
       --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \
       -f -s -w -c 1 -- /bin/sh -c \
-      'n=0; while [ -f /run/nbosp-kiosk.pid ] && [ "$n" -lt 5 ]; do su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/nbosp-wayland LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 NBOSP_COMPOSITOR_MODE='"$compositor_mode"' '"$gl_debug_env"' XDG_CURRENT_DESKTOP='"$compositor_desktop"' XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /run/nbosp-compositor-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null; n=$((n+1)); echo "NBOSP kiosk: session exited, restart $n of 5 allowed" >/dev/ttyS0 2>/dev/null; sleep 2; done'
+      'n=0; while [ -f /run/nbosp-kiosk.pid ] && [ "$n" -lt 5 ]; do su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/nbosp-wayland LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 '"$gl_debug_env"' XDG_CURRENT_DESKTOP=cage XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /run/nbosp-compositor-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null; n=$((n+1)); echo "NBOSP kiosk: session exited, restart $n of 5 allowed" >/dev/ttyS0 2>/dev/null; sleep 2; done'
 
     if [ "$NBOSP_GL_DEBUG" = 1 ]; then
       nbosp_gl_debug_dump </dev/null >/dev/null 2>&1 &

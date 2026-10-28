@@ -1,4 +1,0 @@
-## <summary>
-## Labels the NBOSP init wrapper and boot files for SELinux.
-## </summary>
-# This module intentionally exports no public interfaces.

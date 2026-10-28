@@ -50,10 +50,12 @@ if [[ ! -x "$NWJS_APP_DIR/NovaByte" || ! -f "$NWJS_APP_DIR/package.nw/package.js
   exit 1
 fi
 
+if [[ -f "$OUTPUT_DIR/.config" ]] \
+  && grep -Eq '^BR2_PACKAGE_(REFPOLICY|WESTON)=y$' "$OUTPUT_DIR/.config"; then
+  echo "Removing cached output from the retired SELinux and Weston sandbox experiments." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" clean
+fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" nbosp_x86_64_defconfig
-# The cached Buildroot output can contain an older copy of external SELinux
-# modules; refpolicy's rsync -au does not replace files with newer sources.
-make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" refpolicy-dirclean
 for option in \
   BR2_TOOLCHAIN_BUILDROOT \
   BR2_TOOLCHAIN_BUILDROOT_GLIBC \
@@ -84,10 +86,6 @@ for option in \
   BR2_PACKAGE_LIBGLVND \
   BR2_PACKAGE_LIBEPOXY \
   BR2_PACKAGE_CAGE \
-  BR2_PACKAGE_WESTON \
-  BR2_PACKAGE_WESTON_DEFAULT_DRM \
-  BR2_PACKAGE_WESTON_XWAYLAND \
-  BR2_PACKAGE_WESTON_SHELL_DESKTOP \
   BR2_PACKAGE_WLROOTS_XWAYLAND \
   BR2_PACKAGE_XWAYLAND \
   BR2_PACKAGE_SEATD_DAEMON \
@@ -205,7 +203,7 @@ fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean \
-  nbosp-selinux-init-dirclean wlroots-dirclean cage-dirclean
+  wlroots-dirclean cage-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
 MESA3D_VERSION="$(sed -n 's/^MESA3D_VERSION = //p' "$BUILDROOT_DIR/package/mesa3d/mesa3d.mk")"
@@ -228,53 +226,22 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     util-linux-dirclean
 fi
-# Buildroot's cached target can retain the old /sbin/init -> nbosp-init link.
-# Remove only the init paths and reinstall BusyBox so the post-build hook cannot
-# mistake the SELinux wrapper (or a stale preserved copy) for BusyBox init.
-rm -f "$OUTPUT_DIR/target/sbin/init" \
-  "$OUTPUT_DIR/target/sbin/nbosp-busybox-init" \
-  "$OUTPUT_DIR/target/init"
-make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-  busybox-dirclean
-make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox
 # The ISO boots from the initramfs, so don't trust a cached filesystem image.
 rm -f "$OUTPUT_DIR/images/rootfs.cpio" \
   "$OUTPUT_DIR/images/rootfs.cpio.gz" \
   "$OUTPUT_DIR/images/rootfs.tar"
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
-APP_INIT_WRAPPER="$OUTPUT_DIR/target/sbin/nbosp-init"
+SYSTEM_INIT_APPLET="$OUTPUT_DIR/target/sbin/init"
 SYSTEM_INIT="$OUTPUT_DIR/target/etc/init.d/rcS"
 SYSTEM_SHELL="$OUTPUT_DIR/target/bin/sh"
-APP_BUSYBOX_INIT="$OUTPUT_DIR/target/sbin/nbosp-busybox-init"
-EARLY_INIT="$OUTPUT_DIR/target/init"
 
-for executable in "$APP_INIT_WRAPPER" "$APP_BUSYBOX_INIT" "$SYSTEM_INIT"; do
+for executable in "$SYSTEM_INIT_APPLET" "$SYSTEM_INIT"; do
   if [[ ! -x "$executable" ]]; then
     echo "Required NBOSP boot executable is missing or not executable: $executable" >&2
     exit 1
   fi
 done
-if [[ "$(readlink "$OUTPUT_DIR/target/sbin/init" 2>/dev/null || true)" == "nbosp-init" ]]; then
-  echo "Buildroot /sbin/init points back to the early SELinux wrapper." >&2
-  exit 1
-fi
-if [[ ! -L "$EARLY_INIT" ]]; then
-  echo "The early SELinux wrapper entrypoint is not a symlink: $EARLY_INIT" >&2
-  exit 1
-fi
-EARLY_INIT_TARGET="$(readlink "$EARLY_INIT")"
-if [[ "$EARLY_INIT_TARGET" != "sbin/nbosp-init" ]]; then
-  echo "Unexpected early SELinux wrapper target: $EARLY_INIT_TARGET" >&2
-  exit 1
-fi
-if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
-  ./sbin/nbosp-init \
-  ./sbin/nbosp-busybox-init \
-  | awk '$1 == "-rwxr-xr-x" && $2 == "0/0" { found[$NF] = 1 } END { exit !(found["./sbin/nbosp-init"] && found["./sbin/nbosp-busybox-init"]) }'; then
-  echo "The SELinux init wrapper and BusyBox init applet are not root-owned mode 0755 in the generated rootfs." >&2
-  exit 1
-fi
 if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./sbin/init >/dev/null 2>&1; then
   echo "Buildroot's original init applet is missing from the generated rootfs." >&2
   exit 1
@@ -288,17 +255,6 @@ if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./bin/sh >/dev/null 2>&1; then
   echo "BusyBox /bin/sh is missing from the generated rootfs." >&2
   exit 1
 fi
-SELINUX_POLICY_ENTRY="$(tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
-  | grep -E '^\.?/etc/selinux/targeted/policy/policy\.[0-9]+$' | head -n 1)"
-if [[ -z "$SELINUX_POLICY_ENTRY" \
-  || ! -f "$OUTPUT_DIR/target/etc/selinux/targeted/contexts/files/file_contexts" \
-  || ( ! -x "$OUTPUT_DIR/target/sbin/setfiles" \
-    && ! -x "$OUTPUT_DIR/target/usr/sbin/setfiles" ) ]] \
-  || ! grep -qx 'SELINUX=permissive' "$OUTPUT_DIR/target/etc/selinux/config"; then
-  echo "The SELinux policy, file contexts, setfiles utility, or permissive policy mode is incorrect." >&2
-  exit 1
-fi
-
 KERNEL_CONFIG="$(find "$OUTPUT_DIR/build" -maxdepth 2 -type f -path '*/linux-*/.config' -print -quit)"
 if [[ -z "$KERNEL_CONFIG" ]]; then
   echo "The built Linux kernel configuration is missing." >&2
@@ -309,9 +265,7 @@ for option in \
   CONFIG_SND_HDA_INTEL \
   CONFIG_SND_HDA_GENERIC \
   CONFIG_SND_HDA_CODEC_REALTEK \
-  CONFIG_SND_ENS1371 \
-  CONFIG_SECURITY \
-  CONFIG_SECURITY_SELINUX
+  CONFIG_SND_ENS1371
 do
   if ! grep -qx "$option=y" "$KERNEL_CONFIG"; then
     echo "Required kernel security, graphics, or audio option is missing: $option" >&2
@@ -323,10 +277,8 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
   echo "Cage compositor is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/usr/bin/weston" \
-  || ! -x "$OUTPUT_DIR/target/usr/bin/weston-terminal" \
-  || ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
-  echo "Weston desktop shell, terminal, or XWayland is missing from the target image." >&2
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
+  echo "XWayland is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/amixer" \

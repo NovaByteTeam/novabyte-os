@@ -1,9 +1,0 @@
-config BR2_PACKAGE_NBOSP_SELINUX_INIT
-	bool "NBOSP SELinux init wrapper"
-	depends on BR2_x86_64
-	select BR2_PACKAGE_LIBSELINUX
-	select BR2_PACKAGE_POLICYCOREUTILS
-	select BR2_PACKAGE_REFPOLICY
-	help
-	  Load and label the permissive SELinux policy before handing off to
-	  BusyBox init from the early initramfs entrypoint.
