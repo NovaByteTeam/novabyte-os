@@ -122,7 +122,6 @@ for option in \
   BR2_PACKAGE_NBOSP_KIOSK \
   BR2_PACKAGE_NBOSP_POWER \
   BR2_PACKAGE_NBOSP_INSTALL \
-  BR2_PACKAGE_NBOSP_APP_SUPERVISOR \
   BR2_PACKAGE_DOSFSTOOLS \
   BR2_PACKAGE_DOSFSTOOLS_MKFS_FAT \
   BR2_PACKAGE_E2FSPROGS \
@@ -206,8 +205,7 @@ fi
 
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean \
-  nbosp-app-supervisor-dirclean \
-  wlroots-dirclean cage-dirclean
+  nbosp-selinux-init-dirclean wlroots-dirclean cage-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
 MESA3D_VERSION="$(sed -n 's/^MESA3D_VERSION = //p' "$BUILDROOT_DIR/package/mesa3d/mesa3d.mk")"
@@ -245,25 +243,15 @@ rm -f "$OUTPUT_DIR/images/rootfs.cpio" \
   "$OUTPUT_DIR/images/rootfs.tar"
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
-APP_SUPERVISOR="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor"
-APP_SUPERVISOR_SERVICE="$OUTPUT_DIR/target/usr/sbin/nbosp-app-supervisor-service"
 APP_INIT_WRAPPER="$OUTPUT_DIR/target/sbin/nbosp-init"
-APP_SUPERVISOR_INIT="$OUTPUT_DIR/target/etc/init.d/S12nbosp-app-supervisor"
 SYSTEM_INIT="$OUTPUT_DIR/target/etc/init.d/rcS"
 SYSTEM_SHELL="$OUTPUT_DIR/target/bin/sh"
 APP_BUSYBOX_INIT="$OUTPUT_DIR/target/sbin/nbosp-busybox-init"
 EARLY_INIT="$OUTPUT_DIR/target/init"
 
-for executable in "$APP_SUPERVISOR" "$APP_SUPERVISOR_SERVICE" \
-  "$APP_INIT_WRAPPER" "$APP_BUSYBOX_INIT" "$APP_SUPERVISOR_INIT" "$SYSTEM_INIT"; do
+for executable in "$APP_INIT_WRAPPER" "$APP_BUSYBOX_INIT" "$SYSTEM_INIT"; do
   if [[ ! -x "$executable" ]]; then
     echo "Required NBOSP boot executable is missing or not executable: $executable" >&2
-    exit 1
-  fi
-done
-for executable in "$APP_SUPERVISOR" "$APP_SUPERVISOR_SERVICE"; do
-  if [[ -u "$executable" ]]; then
-    echo "NBOSP supervisor executable must not have the setuid bit: $executable" >&2
     exit 1
   fi
 done
@@ -281,13 +269,10 @@ if [[ "$EARLY_INIT_TARGET" != "sbin/nbosp-init" ]]; then
   exit 1
 fi
 if ! tar --numeric-owner -tvf "$OUTPUT_DIR/images/rootfs.tar" \
-  ./usr/sbin/nbosp-app-supervisor \
-  ./usr/sbin/nbosp-app-supervisor-service \
   ./sbin/nbosp-init \
   ./sbin/nbosp-busybox-init \
-  ./etc/init.d/S12nbosp-app-supervisor \
-  | awk '$1 == "-rwxr-xr-x" && $2 == "0/0" { found[$NF] = 1 } END { exit !(found["./usr/sbin/nbosp-app-supervisor"] && found["./usr/sbin/nbosp-app-supervisor-service"] && found["./sbin/nbosp-init"] && found["./sbin/nbosp-busybox-init"] && found["./etc/init.d/S12nbosp-app-supervisor"]) }'; then
-  echo "The supervisor and SELinux init files are not root-owned mode 0755 in the generated rootfs." >&2
+  | awk '$1 == "-rwxr-xr-x" && $2 == "0/0" { found[$NF] = 1 } END { exit !(found["./sbin/nbosp-init"] && found["./sbin/nbosp-busybox-init"]) }'; then
+  echo "The SELinux init wrapper and BusyBox init applet are not root-owned mode 0755 in the generated rootfs." >&2
   exit 1
 fi
 if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./sbin/init >/dev/null 2>&1; then
@@ -325,13 +310,6 @@ for option in \
   CONFIG_SND_HDA_GENERIC \
   CONFIG_SND_HDA_CODEC_REALTEK \
   CONFIG_SND_ENS1371 \
-  CONFIG_CGROUPS \
-  CONFIG_CGROUP_SCHED \
-  CONFIG_CFS_BANDWIDTH \
-  CONFIG_MEMCG \
-  CONFIG_CGROUP_PIDS \
-  CONFIG_SECCOMP \
-  CONFIG_SECCOMP_FILTER \
   CONFIG_SECURITY \
   CONFIG_SECURITY_SELINUX
 do

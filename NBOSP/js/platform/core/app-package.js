@@ -592,48 +592,8 @@ const AppPackage = (() => {
       installedDate: new Date().toISOString()
     };
 
-    const previousApp = typeof AppRegistry !== 'undefined'
-      ? AppRegistry.getApp?.(appConfig.id) || null
-      : null;
-    const linuxIsolatedRuntime = typeof process !== 'undefined' &&
-        process.platform === 'linux' && !!process.versions?.nw;
-    if (linuxIsolatedRuntime) {
-      if (typeof window.IsolatedAppBroker?.installPackage !== 'function') {
-        throw new Error('Linux isolated app installer is unavailable; package installation was stopped');
-      }
-      if (options.force && previousApp?.linuxIsolated === true) {
-        await window.IsolatedAppBroker.terminateAppSessions(appConfig.id);
-      }
-      appConfig.linuxIsolated = await window.IsolatedAppBroker.installPackage(appConfig);
-      if (!appConfig.linuxIsolated) {
-        throw new Error('Linux isolated app package could not be registered with the root supervisor');
-      }
-    }
-
-    let registered;
-    try {
-      registered = (typeof AppRegistry !== 'undefined') &&
-        AppRegistry?.registerApp(appConfig, { force: !!options.force });
-      if (linuxIsolatedRuntime && !registered) {
-        throw new Error(`App registry refused to register ${appConfig.id}`);
-      }
-    } catch (registrationError) {
-      if (linuxIsolatedRuntime && appConfig.linuxIsolated === true) {
-        try {
-          if (previousApp?.linuxIsolated === true) {
-            await window.IsolatedAppBroker.installPackage(previousApp);
-          } else {
-            await window.IsolatedAppBroker.uninstallPackage(appConfig.id);
-          }
-        } catch (rollbackError) {
-          throw new AggregateError(
-            [registrationError, rollbackError],
-            `Registration of ${appConfig.id} failed and its native package could not be restored`,
-          );
-        }
-      }
-      throw registrationError;
-    }
+    const registered = (typeof AppRegistry !== 'undefined') &&
+      AppRegistry?.registerApp(appConfig, { force: !!options.force });
 
     if (registered && typeof window.NovaAppPackageStore !== 'undefined' && window.NovaAppPackageStore.installApp) {
       try {
@@ -651,7 +611,6 @@ const AppPackage = (() => {
           optionalPermissions: appConfig.optionalPermissions || [],
           files: appConfig.files || {},
           signature: appConfig.signature,
-          linuxIsolated: appConfig.linuxIsolated === true,
           verified,
           signer,
           source: appConfig.source,

@@ -322,12 +322,9 @@ const AppRegistry = (() => {
     return app;
   }
 
-  function unregisterApp(appId, options = {}) {
+  function unregisterApp(appId) {
     const app = installedApps.get(appId);
     if (!app) return false;
-    if (app.linuxIsolated === true && options.nativeUninstalled !== true) {
-      throw new Error(`Use AppRegistry.uninstallApp() to remove isolated Linux app ${appId}`);
-    }
     if (app.permissions?.includes('system:root') && typeof AppSandbox !== 'undefined') {
       AppSandbox.reloadAfterRootRevocation?.(`Root app ${appId} was uninstalled`);
     }
@@ -388,35 +385,13 @@ const AppRegistry = (() => {
     if (app.system === true && options.force !== true) {
       throw new Error(`System app ${appId} cannot be uninstalled`);
     }
-    let nativeUninstalled = false;
-    if (app.linuxIsolated === true) {
-      if (typeof window.IsolatedAppBroker?.uninstallPackage !== 'function') {
-        throw new Error(`Native isolated app uninstaller is unavailable for ${appId}`);
-      }
-      await window.IsolatedAppBroker.uninstallPackage(appId);
-      nativeUninstalled = true;
+    if (typeof window.NovaAppPackageStore?.removeApp === 'function') {
+      const removed = await window.NovaAppPackageStore.removeApp(app, {
+        force: options.force === true,
+      });
+      if (!removed) throw new Error(`Package storage refused to remove ${appId}`);
     }
-    try {
-      if (typeof window.NovaAppPackageStore?.removeApp === 'function') {
-        const removed = await window.NovaAppPackageStore.removeApp(app, {
-          force: options.force === true,
-        });
-        if (!removed) throw new Error(`Package storage refused to remove ${appId}`);
-      }
-    } catch (error) {
-      if (nativeUninstalled) {
-        try {
-          await window.IsolatedAppBroker.installPackage(app);
-        } catch (restoreError) {
-          throw new AggregateError(
-            [error, restoreError],
-            `Uninstall of ${appId} failed and its native package could not be restored`,
-          );
-        }
-      }
-      throw error;
-    }
-    return unregisterApp(appId, { nativeUninstalled: true });
+    return unregisterApp(appId);
   }
 
   // ── Launch ─────────────────────────────────────────────────────────────────
@@ -525,19 +500,6 @@ const AppRegistry = (() => {
     console.log(`[AppRegistry] Launching: ${app.name} (${appId})`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Launching ${app.name} (${appId})`, data: { appId, launchCount: app.launchCount } });
-    }
-
-    if (app.linuxIsolated === true) {
-      if (typeof window.IsolatedAppBroker?.launchApp !== 'function') {
-        throw new Error(`[AppRegistry] Isolated Linux runtime is unavailable for ${appId}`);
-      }
-      const result = await window.IsolatedAppBroker.launchApp(app);
-      if (state?.id && typeof WM !== 'undefined' && typeof WM.closeWindow === 'function') {
-        setTimeout(() => {
-          if (OS?.windows?.get?.(state.id) === state) WM.closeWindow(state.id);
-        }, 0);
-      }
-      return result;
     }
 
     if (typeof AppSandbox !== 'undefined') {

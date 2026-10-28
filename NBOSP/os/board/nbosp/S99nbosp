@@ -87,52 +87,6 @@ XWRAP
   chromium_gl_debug="--enable-gpu-service-logging --vmodule=gl_display=3,gl_context=3,gl_surface=3,gl_ozone_egl=3,egl_util=3,gl_utils=3,gpu_init=3,gpu_info_collector=3,gpu_service_impl=3,viz_main_impl=3,angle_platform_impl=3,gpu_feature_info=2"
 }
 
-nbosp_app_egress_setup() {
-  command -v iptables >/dev/null 2>&1 || {
-    echo "NBOSP kiosk: iptables is required for app network isolation." >&2
-    return 1
-  }
-  command -v ip6tables >/dev/null 2>&1 || {
-    echo "NBOSP kiosk: ip6tables is required for app network isolation." >&2
-    return 1
-  }
-  if ! iptables -N NBOSP_APP_EGRESS 2>/dev/null; then
-    iptables -F NBOSP_APP_EGRESS || return 1
-  fi
-  if ! ip6tables -N NBOSP_APP_EGRESS 2>/dev/null; then
-    ip6tables -F NBOSP_APP_EGRESS || return 1
-  fi
-  iptables -C OUTPUT -j NBOSP_APP_EGRESS 2>/dev/null \
-    || iptables -I OUTPUT 1 -j NBOSP_APP_EGRESS || return 1
-  ip6tables -C OUTPUT -j NBOSP_APP_EGRESS 2>/dev/null \
-    || ip6tables -I OUTPUT 1 -j NBOSP_APP_EGRESS || return 1
-  iptables -A NBOSP_APP_EGRESS -m owner --uid-owner 20000-59999 \
-    -o lo -p tcp -d 127.0.0.1 --dport 49173 -j ACCEPT || return 1
-  iptables -A NBOSP_APP_EGRESS -m owner --uid-owner 20000-59999 \
-    -j REJECT || return 1
-  iptables -A NBOSP_APP_EGRESS -j RETURN || return 1
-  ip6tables -A NBOSP_APP_EGRESS -m owner --uid-owner 20000-59999 \
-    -j REJECT || return 1
-  ip6tables -A NBOSP_APP_EGRESS -j RETURN || return 1
-}
-
-nbosp_app_resource_setup() {
-  mkdir -p /sys/fs/cgroup || return 1
-  if ! grep -q ' /sys/fs/cgroup cgroup2 ' /proc/mounts; then
-    mount -t cgroup2 cgroup2 /sys/fs/cgroup || return 1
-  fi
-  for controller in cpu memory pids; do
-    grep -qw "$controller" /sys/fs/cgroup/cgroup.controllers || {
-      echo "NBOSP kiosk: cgroup v2 $controller controller is unavailable." >&2
-      return 1
-    }
-  done
-  printf '+cpu +memory +pids\n' > /sys/fs/cgroup/cgroup.subtree_control || return 1
-  mkdir -p /sys/fs/cgroup/nbosp-apps || return 1
-  printf '+cpu +memory +pids\n' \
-    > /sys/fs/cgroup/nbosp-apps/cgroup.subtree_control || return 1
-}
-
 nbosp_gl_find_pid() {
   for d in /proc/[0-9]*; do
     if [ "$(cat "$d/comm" 2>/dev/null)" = "$1" ]; then
@@ -420,14 +374,6 @@ case "$1" in
         compositor_mode=cage
         ;;
     esac
-    if ! nbosp_app_resource_setup; then
-      echo "NBOSP kiosk: failed to enforce per-app resource limits." >&2
-      exit 1
-    fi
-    if ! nbosp_app_egress_setup; then
-      echo "NBOSP kiosk: failed to enforce per-app network isolation." >&2
-      exit 1
-    fi
     compositor_desktop=cage
     [ "$compositor_mode" = weston-poc ] && compositor_desktop=weston
     if [ "$compositor_mode" = weston-poc ] \
