@@ -156,12 +156,13 @@ describe('SystemServiceLoader', () => {
       system: true,
       source: 'system-bundle',
     });
-    const bootstrap = Buffer.from(
-      launches[1].app.files['__nova_service_bootstrap.html'],
-      'base64'
-    ).toString('utf8');
+    expect(launches[1].app.manifest).toBe(packages['com.nbosp.shell-ui'].manifest);
+    expect(launches[1].app.files).toBe(packages['com.nbosp.shell-ui'].files);
+    expect(launches[1].app.signature).toBe(packages['com.nbosp.shell-ui'].signature);
+    const bootstrap = launches[1].options.entryHtml;
     expect(bootstrap).toContain('<script src="wm.js"></script>');
     expect(bootstrap).toContain('<script src="menu.js"></script>');
+    expect(launches[1].app.files).not.toHaveProperty('__nova_service_bootstrap.html');
     expect(context.SystemServiceLoader.listLoadedServices()[1]).toMatchObject({
       id: 'com.nbosp.shell-ui',
       source: 'system-bundle',

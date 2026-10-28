@@ -76,7 +76,7 @@
 
     function persist() {
       normaliseState();
-      lsSave(STATE_KEY, state);
+      localStorage.setItem(STATE_KEY, JSON.stringify(state));
     }
 
     function loadAlarms() {
@@ -96,7 +96,7 @@
     function saveAlarms(alarms) {
       const raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
       raw.alarms = alarms;
-      lsSave(ALARMS_KEY, raw);
+      localStorage.setItem(ALARMS_KEY, JSON.stringify(raw));
     }
 
     function nowMs() { return Date.now(); }
@@ -303,7 +303,7 @@
     };
 
     function saveAccounts() {
-      lsSave(ACCTS_KEY, state.accounts);
+      localStorage.setItem(ACCTS_KEY, JSON.stringify(state.accounts));
     }
 
     function clearTimers() {

@@ -88,13 +88,6 @@
     }
   }
 
-  function encodePackageFile(source) {
-    const bytes = new TextEncoder().encode(source);
-    let binary = '';
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary);
-  }
-
   function waitForServiceGuest(webview, serviceId) {
     if (!webview?.addEventListener || !webview?.executeScript) {
       throw new Error(`Sandbox surface is unavailable for ${serviceId}`);
@@ -174,33 +167,24 @@
       throw new Error(`System service ${service.id} failed package integrity verification`);
     }
 
-    const sandboxManifest = { ...manifest };
-    delete sandboxManifest.guestEntry;
-    delete sandboxManifest.unrestrictedEntry;
     const runtimeApp = {
       ...pkg,
       id: manifest.id,
       name: manifest.name || service.id,
       entry: '__nova_service_bootstrap.html',
       type: 'blank',
-      files: { ...pkg.files },
       permissions: manifest.permissions || [],
       optionalPermissions: manifest.optionalPermissions || [],
-      manifest: sandboxManifest,
       system: true,
       verified: true,
       signer: trust.signer,
-      signature: pkg.signature,
-      signing: pkg.signing,
-      integrity: pkg.integrity,
       source: 'system-bundle',
     };
     const scripts = scriptEntries
       .map(scriptEntry => `<script src="${scriptEntry}"></script>`)
       .join('\n');
-    runtimeApp.files[runtimeApp.entry] = encodePackageFile(
-      `<!doctype html><html><head><meta charset="utf-8"><script>window.__novaServiceStartupError=null;window.addEventListener("error",event=>{window.__novaServiceStartupError=event.message||"uncaught service error"});window.addEventListener("unhandledrejection",event=>{window.__novaServiceStartupError=String(event.reason||"unhandled service rejection")});</script></head><body>${scripts}</body></html>`
-    );
+    const bootstrapHtml =
+      `<!doctype html><html><head><meta charset="utf-8"><script>window.__novaServiceStartupError=null;window.addEventListener("error",event=>{window.__novaServiceStartupError=event.message||"uncaught service error"});window.addEventListener("unhandledrejection",event=>{window.__novaServiceStartupError=String(event.reason||"unhandled service rejection")});</script></head><body>${scripts}</body></html>`;
 
     if (typeof window.AppSandbox?.launch !== 'function') {
       throw new Error(`Cannot start ${service.id}: AppSandbox is unavailable`);
@@ -215,7 +199,7 @@
       runtimeApp,
       container,
       { id: `system-service-${service.id}`, appId: service.id },
-      { systemService: true }
+      { systemService: true, entryHtml: bootstrapHtml }
     );
     if (!launchResult?.success) {
       container.remove();

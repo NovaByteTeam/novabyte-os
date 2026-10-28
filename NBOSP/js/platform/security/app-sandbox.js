@@ -9464,21 +9464,29 @@ const AppSandbox = (() => {
       return;
     }
 
-    if (app.entry && app.files && app.files[app.entry]) {
+    const injectedSystemServiceEntry =
+      launchOptions.systemService === true &&
+      app.manifest?.systemService === true &&
+      typeof launchOptions.entryHtml === 'string' &&
+      await verifySystemPackage(app)
+        ? launchOptions.entryHtml
+        : null;
+    if (app.entry && app.files &&
+        (app.files[app.entry] || injectedSystemServiceEntry !== null)) {
       try {
         const sandboxId = webview.dataset.sandboxId;
         // Inject the capability shim into the entry HTML before registering.
         // Use UTF-8-safe base64 so non-ASCII content survives the round-trip.
         const shimmedFiles = Object.assign({}, app.files);
-        const rawHtml = attachPackagedGuestEntry(
-          decodeBase64Utf8(shimmedFiles[app.entry]),
-          app
-        );
+        const rawHtml = injectedSystemServiceEntry ??
+          attachPackagedGuestEntry(decodeBase64Utf8(shimmedFiles[app.entry]), app);
         const allowExternalFrames = isExternalFramesPermitted(app);
+        const capabilityOptions = { ...launchOptions, windowId: state?.id || null };
+        delete capabilityOptions.entryHtml;
         shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(
           rawHtml,
           app,
-          { ...launchOptions, windowId: state?.id || null }
+          capabilityOptions
         ));
 
         const regRes = await fetch('/api/apps/serve/register', {
@@ -10964,6 +10972,7 @@ const AppSandbox = (() => {
       parsePositiveInt,
       validateStorageKey,
       handleAPICall,
+      loadAppContent,
       dispatchIsolatedProcessRequest,
       respond,
       normalizeFsSavePayload,

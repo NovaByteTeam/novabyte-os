@@ -60,6 +60,18 @@ function updateNotificationBadge() {
   }
 }
 
+function throttleRAF(fn) {
+  let scheduled = false;
+  return function (...args) {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      fn.apply(this, args);
+    });
+  };
+}
+
 Notify.loadPersisted();
 Notify.renderPanel();
 Notify.updateBadge();

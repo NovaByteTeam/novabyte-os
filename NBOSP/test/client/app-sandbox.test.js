@@ -149,6 +149,69 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     }
   });
 
+  it('loads signed system-service bootstrap HTML without modifying the signed package files', async () => {
+    const files = { 'service.js': Buffer.from('window.serviceStarted = true;', 'utf8').toString('base64') };
+    const app = {
+      id: 'com.nbosp.service.test',
+      entry: '__nova_service_bootstrap.html',
+      files,
+      manifest: {
+        id: 'com.nbosp.service.test',
+        guestEntry: 'service.js',
+        system: true,
+        systemService: true,
+      },
+      signature: 'signed-system-service',
+      system: true,
+      verified: true,
+      signer: 'NovaByte System',
+    };
+    const entryHtml = '<!doctype html><body><script src="service.js"></script></body>';
+    const previousLocation = window.location;
+    const fetchMock = vi.fn(async (_url, options) => ({
+      ok: true,
+      json: async () => ({ baseUrl: '/api/apps/serve/sandbox-test' }),
+      body: JSON.parse(options.body),
+    }));
+    vi.stubGlobal('AppPackage', {
+      verifyAgainstTrustStore: vi.fn(async () => ({
+        trusted: true,
+        signer: 'NovaByte System',
+      })),
+    });
+    vi.stubGlobal('TrustStore', { list: () => [], isRevoked: () => false });
+    vi.stubGlobal('OS', { settings: { get: () => undefined }, windows: new Map() });
+    vi.stubGlobal('APP_REGISTRY', []);
+    vi.stubGlobal('FS', { files: new Map(), specialFolders: {} });
+    vi.stubGlobal('fetch', fetchMock);
+    window.location = { origin: 'https://localhost' };
+    try {
+      await AppSandbox._internal.loadAppContent(
+        { dataset: { sandboxId: 'sandbox-test' } },
+        app,
+        {},
+        { systemService: true, entryHtml }
+      );
+
+      expect(app.files).toBe(files);
+      expect(app.files).not.toHaveProperty('__nova_service_bootstrap.html');
+      const registration = await fetchMock.mock.results[0].value;
+      const registeredHtml = Buffer.from(
+        registration.body.files['__nova_service_bootstrap.html'],
+        'base64'
+      ).toString('utf8');
+      expect(registeredHtml).toContain('<script src="service.js" defer></script>');
+      expect(AppPackage.verifyAgainstTrustStore).toHaveBeenCalledWith(
+        app,
+        [],
+        expect.any(Function)
+      );
+    } finally {
+      window.location = previousLocation;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('bridges hidden cryptography worker calls only for verified system packages', async () => {
     const cryptoCall = vi.fn(async (method, ...args) => `${method}:${args.join(':')}`);
     vi.stubGlobal('AppPackage', {
