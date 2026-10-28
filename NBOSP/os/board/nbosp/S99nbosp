@@ -468,9 +468,25 @@ SESSION
 umask 0007
 case "${NBOSP_COMPOSITOR_MODE:-cage}" in
   weston-poc)
-    exec /usr/bin/weston --no-config --backend=drm --shell=desktop \
+    # Weston's own log never reaches the serial console, so a crash is
+    # invisible. Print its tail on failure, and after two crashes fall back to
+    # Cage so the kiosk still comes up instead of burning every restart.
+    crash_file="${XDG_RUNTIME_DIR:-/run/nbosp-wayland}/weston-crashes"
+    crashes=$(cat "$crash_file" 2>/dev/null || echo 0)
+    if [ "$crashes" -ge 2 ]; then
+      echo "NBOSP kiosk: Weston crashed $crashes times; falling back to Cage" >&2
+      exec /usr/bin/cage -- /run/nbosp-kiosk-session.sh
+    fi
+    /usr/bin/weston --no-config --backend=drm --shell=desktop \
       --socket=wayland-0 --xwayland --idle-time=0 --log=/home/nbosp/weston.log -- \
       /usr/bin/nbosp-weston-poc-session /run/nbosp-kiosk-session.sh
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo $((crashes + 1)) > "$crash_file"
+      echo "NBOSP kiosk: weston exited with status $rc; last log lines:" >&2
+      tail -n 60 /home/nbosp/weston.log >&2 2>/dev/null || echo "(no weston.log)" >&2
+    fi
+    exit "$rc"
     ;;
   cage)
     exec /usr/bin/cage -- /run/nbosp-kiosk-session.sh
