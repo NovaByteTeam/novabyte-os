@@ -165,7 +165,10 @@ describe('NBOSP app supervisor integration contract', () => {
     const init = read('../../board/nbosp/S99nbosp');
     const broker = read('../../../js/platform/security/isolated-app-broker.js');
     assert.match(defconfig, /BR2_PACKAGE_IPTABLES=y/);
+    assert.match(kernel, /CONFIG_NETFILTER_ADVANCED=y/);
     assert.match(kernel, /CONFIG_NETFILTER_XT_MATCH_OWNER=y/);
+    assert.match(kernel, /CONFIG_IP_NF_TARGET_REJECT=y/);
+    assert.match(kernel, /CONFIG_IP6_NF_TARGET_REJECT=y/);
     assert.match(kernel, /CONFIG_SECCOMP_FILTER=y/);
     assert.match(kernel, /CONFIG_CGROUPS=y/);
     assert.doesNotMatch(kernel, /CONFIG_CGROUP2_FS/);
