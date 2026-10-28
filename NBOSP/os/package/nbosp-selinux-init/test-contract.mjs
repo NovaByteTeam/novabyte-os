@@ -21,6 +21,7 @@ describe('NBOSP SELinux init integration contract', () => {
     assert.match(defconfig, /package\/nbosp-selinux-init\/selinux/);
     assert.match(policy, /\/sbin\/nbosp-init.*init_exec_t/);
     assert.match(policy, /\/sbin\/nbosp-busybox-init.*init_exec_t/);
+    assert.match(policyInterface, /^## <summary>[\s\S]*## <\/summary>/);
     assert.match(policyInterface, /intentionally exports no public interfaces/);
   });
 
