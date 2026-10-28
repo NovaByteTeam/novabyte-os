@@ -8,15 +8,18 @@ import vm from 'node:vm';
 const nodeRequire = createRequire(import.meta.url);
 
 describe('NBOSP VMware kiosk device configuration', () => {
-  it('mounts sysfs before device discovery and desktop startup', () => {
+  it('mounts procfs and sysfs before device discovery and desktop startup', () => {
     const mounts = readFileSync(
       new URL('../os/board/nbosp/rootfs-overlay/etc/init.d/S01mounts', import.meta.url),
       'utf8',
     );
+    const procMount = 'mounted /proc || mount -t proc proc /proc';
     const sysfsMount = 'mounted /sys || mount -t sysfs sysfs /sys';
     const deviceMount = 'mounted /dev/pts || mount -t devpts';
 
-    expect(mounts).toContain('mkdir -p /sys /dev/pts /dev/shm /tmp');
+    expect(mounts).toContain('mkdir -p /proc /sys /dev/pts /dev/shm /tmp');
+    expect(mounts.indexOf(procMount)).toBeGreaterThanOrEqual(0);
+    expect(mounts.indexOf(procMount)).toBeLessThan(mounts.indexOf(sysfsMount));
     expect(mounts.indexOf(sysfsMount)).toBeGreaterThanOrEqual(0);
     expect(mounts.indexOf(sysfsMount)).toBeLessThan(mounts.indexOf(deviceMount));
   });

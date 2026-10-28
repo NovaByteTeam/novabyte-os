@@ -1,7 +1,7 @@
 #!/bin/sh
 # The custom inittab doesn't run `mount -a` and the image has no fstab, so
-# Mount sysfs before udev, DRM, and NetworkManager need its device tree. The
-# desktop also needs /dev/shm, /dev/pts, and writable /tmp.
+# Mount procfs and sysfs before udev, DRM, and the kiosk need their kernel
+# interfaces. The desktop also needs /dev/shm, /dev/pts, and writable /tmp.
 
 mounted() {
   grep -q " $1 " /proc/mounts 2>/dev/null
@@ -9,7 +9,8 @@ mounted() {
 
 case "$1" in
   start)
-    mkdir -p /sys /dev/pts /dev/shm /tmp
+    mkdir -p /proc /sys /dev/pts /dev/shm /tmp
+    mounted /proc || mount -t proc proc /proc
     mounted /sys || mount -t sysfs sysfs /sys
     mounted /dev/pts || mount -t devpts -o gid=5,mode=620,noexec,nosuid devpts /dev/pts
     mounted /dev/shm || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
