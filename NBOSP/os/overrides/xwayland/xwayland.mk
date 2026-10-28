@@ -93,7 +93,7 @@ endif
 # configure step. Make dri optional and fall back to libdrm's include path,
 # which carries the same DRI headers in any Mesa 24.x sysroot.
 define XWAYLAND_FIX_DRI_DEP
-	$(HOST_DIR)/bin/python3 $(XWAYLAND_PKGDIR)/fix-dri-dep.py $(@D)/include/meson.build
+	$(HOST_DIR)/bin/python3 $(BR2_EXTERNAL_NBOSP_PATH)/overrides/xwayland/fix-dri-dep.py $(@D)/include/meson.build
 endef
 XWAYLAND_POST_PATCH_HOOKS += XWAYLAND_FIX_DRI_DEP
 
