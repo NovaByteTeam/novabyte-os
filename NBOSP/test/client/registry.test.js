@@ -145,6 +145,7 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     }]));
     vi.resetModules();
     const restored = require('../../js/platform/core/app-registry.js');
+    restored.initialize();
     expect(restored.getApp('restored-root-package').permissions).toContain('system:root');
   });
 

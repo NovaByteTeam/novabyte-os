@@ -7,362 +7,256 @@ const loaderSource = readFileSync(
   'utf8'
 );
 
-function response(data) {
+function response(data, status = 200) {
   return {
-    ok: true,
-    status: 200,
+    ok: status >= 200 && status < 300,
+    status,
     json: async () => data,
   };
 }
 
-function createPersistentPackageCache() {
-  const records = new Map();
-  let storeCreated = false;
-  return {
-    records,
-    indexedDB: {
-      open() {
-        const request = {};
-        queueMicrotask(() => {
-          const db = {
-            objectStoreNames: { contains: () => storeCreated },
-            createObjectStore() { storeCreated = true; },
-            transaction() {
-              let transaction;
-              const store = {
-                get: key => {
-                  const result = {};
-                  queueMicrotask(() => result.onsuccess?.({
-                    target: { result: records.get(key) },
-                  }));
-                  return result;
-                },
-                put: value => {
-                  records.set(value.file, value);
-                  const result = {};
-                  queueMicrotask(() => {
-                    result.onsuccess?.({ target: { result: undefined } });
-                    transaction.oncomplete?.();
-                  });
-                  return result;
-                },
-              };
-              transaction = {
-                objectStore: () => store,
-                oncomplete: null,
-                onerror: null,
-                onabort: null,
-              };
-              return transaction;
-            },
-          };
-          request.result = db;
-          if (!storeCreated) request.onupgradeneeded?.({ target: { result: db } });
-          request.onsuccess?.({ target: { result: db } });
-        });
-        return request;
-      },
-    },
-  };
+function encode(source) {
+  return Buffer.from(source, 'utf8').toString('base64');
 }
 
 function createLoaderContext({
-  trusted = true,
-  integrityValid = true,
-  missingPackage = null,
-  services: configuredServices,
-  firstServiceScripts = ['service.js'],
-  indexedDB,
+  services = [{ id: 'com.nbosp.service.event-log', entry: 'service.js' }],
+  packages = {},
+  missingPackages = [],
 } = {}) {
-  const services = [
-    {
-      id: 'com.example.first',
-      entry: firstServiceScripts[0],
-      ...(firstServiceScripts.length === 1 && firstServiceScripts[0] === 'service.js'
-        ? {}
-        : { scripts: firstServiceScripts }),
-    },
-    { id: 'com.example.second', entry: 'service.js' },
-  ];
-  if (configuredServices) {
-    services.splice(0, services.length, ...configuredServices);
-  }
-  const bundles = services.map(({ id }) => ({
-    id,
-    file: `js/apps/${id}.novaapp`,
-    systemService: true,
-    cacheKey: `fingerprint-${id}`,
-  }));
-  const packages = new Map(services.map(({ id, entry, scripts }, index) => [
-    `js/apps/${id}.novaapp`,
-    {
-      manifest: {
-        id,
-        system: true,
-        systemService: true,
-        unrestrictedEntry: entry,
-      },
-      files: Object.fromEntries(
-        (scripts || [entry]).map((scriptEntry, scriptIndex) => [
-          scriptEntry,
-          btoa(`window.started.push(${index + 1}${scriptIndex === 0 ? '' : ' + 99'})`),
-        ])
-      ),
-      integrity: { method: 'sha512' },
-    },
-  ]));
-  const started = [];
+  const launches = [];
   const statusElements = [];
   const boot = vi.fn();
-  const eventListeners = new Map();
-  const context = {
-    atob,
-    TextDecoder,
-    ...(indexedDB ? { indexedDB } : {}),
-    started,
-    boot,
-    addEventListener: vi.fn((type, listener) => eventListeners.set(type, listener)),
-    removeEventListener: vi.fn((type, listener) => {
-      if (eventListeners.get(type) === listener) eventListeners.delete(type);
+  const headAppend = vi.fn();
+  const makeElement = () => ({
+    dataset: {},
+    style: {},
+    setAttribute() {},
+    append() {},
+    addEventListener() {},
+    remove() {},
+  });
+  const appSandbox = {
+    launch: vi.fn(async (app, container, state, options) => {
+      launches.push({ app, container, state, options });
+      return {
+        success: true,
+        sandboxId: `sandbox-${app.id}`,
+        webview: makeWebview(),
+      };
     }),
+  };
+  const context = {
+    launches,
+    boot,
     console: { info: vi.fn(), error: vi.fn() },
+    AppSandbox: appSandbox,
+    AppPackage: {
+      verifyAgainstTrustStore: vi.fn(async pkg => pkg.signature === 'valid-system-signature'
+        ? { trusted: true, signer: 'NovaByte System' }
+        : { trusted: false, signer: null }),
+      verifyIntegrity: vi.fn(async () => true),
+    },
+    TrustStore: { list: vi.fn(() => []), isRevoked: vi.fn(() => false) },
+    localStorage: { setItem: vi.fn() },
+    setTimeout,
+    clearTimeout,
+    btoa: value => Buffer.from(value, 'binary').toString('base64'),
+    TextEncoder,
     fetch: vi.fn(async url => {
       if (url === 'js/apps/system-service-manifest.json') return response(services);
-      if (url === 'js/apps/novaapp-manifest.json') return response(bundles);
-      if (url === `js/apps/${missingPackage}.novaapp`) return { ok: false, status: 404 };
-      if (packages.has(url)) return response(packages.get(url));
-      return { ok: false, status: 404 };
+      if (url === 'js/apps/novaapp-manifest.json') {
+        return response(Object.keys(packages).map(id => ({
+          id,
+          file: `js/apps/${id}.novaapp`,
+          cacheKey: `cache-${id}`,
+        })));
+      }
+      const packageId = Object.keys(packages).find(id => url === `js/apps/${id}.novaapp`);
+      if (packageId && !missingPackages.includes(packageId)) return response(packages[packageId]);
+      return response('not found', 404);
     }),
-    UnrestrictedGate: {
-      checkUnrestrictedApp: vi.fn(async () => ({
-        allowed: trusted && integrityValid,
-        reason: integrityValid ? 'test denial' : 'package integrity check failed',
-      })),
-    },
-    localStorage: { setItem: vi.fn() },
   };
   context.window = context;
   context.document = {
-    createElement: () => ({
-      dataset: {},
-      style: {},
-      append() {},
-      addEventListener() {},
-      remove() {},
-    }),
-    head: {
-      appendChild(script) {
-        try {
-          runInNewContext(script.textContent, context);
-        } catch (error) {
-          eventListeners.get('error')?.({ error, message: error.message });
-        }
-      },
-    },
+    createElement: makeElement,
+    head: { appendChild: headAppend },
     body: {
       appendChild(element) {
-        statusElements.push(element);
+        if (element.getAttribute?.('role') === 'status') statusElements.push(element);
       },
     },
   };
+  return { context, statusElements, launches, boot, appSandbox, headAppend };
+}
 
-  return { context, statusElements, packages, started, boot };
+function servicePackage(id, files) {
+  const entry = Object.keys(files)[0];
+  return {
+    signature: 'valid-system-signature',
+    manifest: {
+      id,
+      name: id,
+      version: '1.0.0',
+      guestEntry: entry,
+      system: true,
+      systemService: true,
+      headless: true,
+    },
+    files: Object.fromEntries(
+      Object.entries(files).map(([name, source]) => [name, encode(source)])
+    ),
+  };
+}
+
+function makeWebview() {
+  const listeners = new Map();
+  return {
+    addEventListener: vi.fn((type, listener) => {
+      listeners.set(type, listener);
+      if (type === 'loadstop') queueMicrotask(() => listeners.get(type)?.({}));
+    }),
+    removeEventListener: vi.fn(type => listeners.delete(type)),
+    executeScript: vi.fn((_script, callback) => callback([null])),
+  };
 }
 
 describe('SystemServiceLoader', () => {
-  it('loads the optimizer itself from persistent storage after a process restart', async () => {
-    const optimizerId = 'com.nbosp.service.app-loader-optimiser';
-    const services = [{ id: optimizerId, entry: 'service.js' }];
-    const cache = createPersistentPackageCache();
-    const first = createLoaderContext({ services, indexedDB: cache.indexedDB });
-    const optimizerPackage = first.packages.get(`js/apps/${optimizerId}.novaapp`);
-    optimizerPackage.files['service.js'] = btoa(
-      'window.started.push("optimizer"); ' +
-      'window.AppLoaderOptimizer = { start: () => Promise.resolve({}) };'
-    );
-    runInNewContext(loaderSource, first.context);
-    await first.context.SystemServiceLoader.load();
-    expect(first.context.fetch.mock.calls.filter(([url]) =>
-      url === `js/apps/${optimizerId}.novaapp`
-    )).toHaveLength(1);
-
-    const restarted = createLoaderContext({ services, indexedDB: cache.indexedDB });
-    restarted.packages.get(`js/apps/${optimizerId}.novaapp`).files['service.js'] =
-      optimizerPackage.files['service.js'];
-    runInNewContext(loaderSource, restarted.context);
-    await restarted.context.SystemServiceLoader.load();
-
-    expect(restarted.context.fetch.mock.calls.filter(([url]) =>
-      url === `js/apps/${optimizerId}.novaapp`
-    )).toHaveLength(0);
-    expect(restarted.started).toEqual(['optimizer']);
-    expect(cache.records.get(`js/apps/${optimizerId}.novaapp`).cacheKey)
-      .toBe(`fingerprint-${optimizerId}`);
-  });
-
-  it('verifies and starts trusted services sequentially in manifest order', async () => {
-    const { context, statusElements, started, boot } = createLoaderContext();
-    runInNewContext(loaderSource, context);
-
-    await context.SystemServiceLoader.load();
-
-    expect(started).toEqual([1, 2]);
-    expect(context.UnrestrictedGate.checkUnrestrictedApp).toHaveBeenCalledTimes(2);
-    expect(context.console.info).toHaveBeenCalledTimes(2);
-    expect(boot).toHaveBeenCalledOnce();
-    expect(statusElements).toHaveLength(0);
-    expect(context.SystemServiceLoader.listLoadedServices()).toHaveLength(2);
-    expect(context.SystemServiceLoader.listLoadedServices()[0]).toMatchObject({
-      id: 'com.example.first',
-      system: true,
-      headlessSystemService: true,
-    });
-  });
-
-  it('starts the App Loader Optimiser before loading later service packages', async () => {
-    const optimizerId = 'com.nbosp.service.app-loader-optimiser';
+  it('launches packaged service code through AppSandbox without host script injection', async () => {
     const services = [
-      { id: optimizerId, entry: 'service.js' },
-      { id: 'com.example.next', entry: 'service.js' },
-    ];
-    const { context, packages, started } = createLoaderContext({ services });
-    const optimizerPackage = packages.get(`js/apps/${optimizerId}.novaapp`);
-    optimizerPackage.files['service.js'] = btoa(
-      'window.started.push("optimizer"); ' +
-      'window.AppLoaderOptimizer = {' +
-      ' getPackage: async file => window.optimizerPackages.get(file),' +
-      ' start: bundles => { window.prefetchedBundles = bundles; return Promise.resolve({ packages: bundles.length }); }' +
-      '};'
-    );
-    context.optimizerPackages = new Map([
-      [`js/apps/com.example.next.novaapp`, packages.get('js/apps/com.example.next.novaapp')],
-    ]);
-    runInNewContext(loaderSource, context);
-
-    await context.SystemServiceLoader.load();
-
-    expect(started).toEqual(['optimizer', 2]);
-    expect(context.prefetchedBundles).toHaveLength(2);
-    expect(context.SystemServiceLoader.listLoadedServices()).toHaveLength(2);
-  });
-
-  it('continues startup when an individual service package is missing', async () => {
-    const { context, statusElements, started, boot } = createLoaderContext({
-      missingPackage: 'com.example.first',
-    });
-    runInNewContext(loaderSource, context);
-
-    const result = await context.SystemServiceLoader.load();
-
-    expect(started).toEqual([2]);
-    expect(result.failures).toEqual([
-      { id: 'com.example.first', message: 'Failed to fetch com.example.first: HTTP 404' },
-    ]);
-    expect(boot).toHaveBeenCalledOnce();
-    expect(statusElements).toHaveLength(1);
-  });
-
-  it('continues OS boot if an untrusted or tampered service is rejected', async () => {
-    const { context, statusElements, started, boot } = createLoaderContext({ trusted: false });
-    runInNewContext(loaderSource, context);
-
-    const result = await context.SystemServiceLoader.load();
-
-    expect(started).toEqual([]);
-    expect(result.failures).toHaveLength(2);
-    expect(boot).toHaveBeenCalledOnce();
-    expect(statusElements).toHaveLength(1);
-  });
-
-  it('still runs OS boot if a service entry throws during execution', async () => {
-    const { context, statusElements, started, boot } = createLoaderContext();
-    const originalFetch = context.fetch.getMockImplementation();
-    context.fetch.mockImplementation(async url => {
-      const result = await originalFetch(url);
-      if (url === 'js/apps/com.example.first.novaapp') {
-        const pkg = await result.json();
-        pkg.files['service.js'] = btoa('throw new Error("service failed")');
-        return response(pkg);
-      }
-      return result;
-    });
-    runInNewContext(loaderSource, context);
-
-    const result = await context.SystemServiceLoader.load();
-
-    expect(started).toEqual([2]);
-    expect(result.failures).toHaveLength(1);
-    expect(boot).toHaveBeenCalledOnce();
-    expect(statusElements).toHaveLength(1);
-  });
-
-  it('loads multiple package entries sequentially and reports non-headless packages accurately', async () => {
-    const { context, started } = createLoaderContext({
-      firstServiceScripts: ['wm.js', 'menu.js', 'modals.js', 'desktop.js'],
-    });
-    const pkg = {
-      manifest: {
-        id: 'com.example.first',
-        system: true,
-        systemService: true,
-        unrestrictedEntry: 'wm.js',
+      { id: 'com.nbosp.service.event-log', entry: 'service.js' },
+      {
+        id: 'com.nbosp.shell-ui',
+        entry: 'wm.js',
+        scripts: ['wm.js', 'menu.js'],
+        required: true,
         headless: false,
       },
-      files: Object.fromEntries(
-        ['wm.js', 'menu.js', 'modals.js', 'desktop.js'].map((entry, index) => [
-          entry,
-          btoa(`window.started.push(${index + 1})`),
-        ])
-      ),
-      integrity: { method: 'sha512' },
+    ];
+    const packages = {
+      'com.nbosp.service.event-log': servicePackage('com.nbosp.service.event-log', {
+        'service.js': 'window.eventLogStarted = true;',
+      }),
+      'com.nbosp.shell-ui': servicePackage('com.nbosp.shell-ui', {
+        'wm.js': 'window.wmStarted = true;',
+        'menu.js': 'window.menuStarted = true;',
+      }),
     };
-    context.fetch.mockImplementation(async url => {
-      if (url === 'js/apps/system-service-manifest.json') {
-        return response([
-          { id: 'com.example.first', entry: 'wm.js', scripts: ['wm.js', 'menu.js', 'modals.js', 'desktop.js'] },
-          { id: 'com.example.second', entry: 'service.js' },
-        ]);
-      }
-      if (url === 'js/apps/novaapp-manifest.json') {
-        return response([
-          { id: 'com.example.first', file: 'js/apps/com.example.first.novaapp', systemService: true },
-          { id: 'com.example.second', file: 'js/apps/com.example.second.novaapp', systemService: true },
-        ]);
-      }
-      if (url === 'js/apps/com.example.first.novaapp') return response(pkg);
-      if (url === 'js/apps/com.example.second.novaapp') {
-        return response({
-          manifest: { id: 'com.example.second', system: true, systemService: true, unrestrictedEntry: 'service.js' },
-          files: { 'service.js': btoa('window.started.push(5)') },
-        });
-      }
-      return { ok: false, status: 404 };
-    });
+    packages['com.nbosp.shell-ui'].manifest.headless = false;
+    const { context, launches, boot, appSandbox, headAppend } = createLoaderContext({ services, packages });
     runInNewContext(loaderSource, context);
 
     await context.SystemServiceLoader.load();
 
-    expect(started).toEqual([1, 2, 3, 4, 5]);
-    expect(context.SystemServiceLoader.listLoadedServices()[0]).toMatchObject({
-      id: 'com.example.first',
-      headlessSystemService: false,
+    expect(appSandbox.launch).toHaveBeenCalledTimes(2);
+    expect(headAppend).not.toHaveBeenCalled();
+    expect(launches[0].app).toMatchObject({
+      id: 'com.nbosp.service.event-log',
+      entry: '__nova_service_bootstrap.html',
+      system: true,
+      source: 'system-bundle',
     });
+    const bootstrap = Buffer.from(
+      launches[1].app.files['__nova_service_bootstrap.html'],
+      'base64'
+    ).toString('utf8');
+    expect(bootstrap).toContain('<script src="wm.js"></script>');
+    expect(bootstrap).toContain('<script src="menu.js"></script>');
+    expect(context.SystemServiceLoader.listLoadedServices()[1]).toMatchObject({
+      id: 'com.nbosp.shell-ui',
+      source: 'system-bundle',
+      headlessSystemService: false,
+      sandboxId: 'sandbox-com.nbosp.shell-ui',
+    });
+    expect(boot).toHaveBeenCalledOnce();
   });
 
-  it('routes to recovery instead of booting after a required package fails', async () => {
-    const { context, started, boot } = createLoaderContext({
-      missingPackage: 'com.example.first',
-      services: [
-        { id: 'com.example.first', entry: 'service.js', required: true },
-        { id: 'com.example.second', entry: 'service.js' },
-      ],
+  it('rejects invalid service identifiers before fetching their package', async () => {
+    const id = 'com.nbosp.service.../escape';
+    const { context, appSandbox, boot } = createLoaderContext({
+      services: [{ id, entry: 'service.js', required: true }],
     });
     runInNewContext(loaderSource, context);
 
-    await context.SystemServiceLoader.load();
+    const result = await context.SystemServiceLoader.load();
 
-    expect(started).toEqual([]);
+    expect(result.failures[0].id).toBe(id);
+    expect(context.fetch.mock.calls.some(([url]) => String(url).includes(id))).toBe(false);
+    expect(appSandbox.launch).not.toHaveBeenCalled();
     expect(context.localStorage.setItem).toHaveBeenCalledWith('nova_force_recovery', '1');
+    expect(boot).toHaveBeenCalledOnce();
+  });
+
+  it('continues OS startup when an optional packaged service is unavailable', async () => {
+    const services = [
+      { id: 'com.nbosp.service.event-log', entry: 'service.js' },
+      { id: 'com.nbosp.service.downloads-history', entry: 'service.js' },
+    ];
+    const packages = {
+      'com.nbosp.service.event-log': servicePackage('com.nbosp.service.event-log', {
+        'service.js': 'window.eventLogStarted = true;',
+      }),
+      'com.nbosp.service.downloads-history': servicePackage('com.nbosp.service.downloads-history', {
+        'service.js': 'window.downloadsStarted = true;',
+      }),
+    };
+    const { context, launches, boot } = createLoaderContext({
+      services,
+      packages,
+      missingPackages: ['com.nbosp.service.downloads-history'],
+    });
+
+    runInNewContext(loaderSource, context);
+
+    const result = await context.SystemServiceLoader.load();
+
+    expect(launches).toHaveLength(1);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0].id).toBe('com.nbosp.service.downloads-history');
+    expect(boot).toHaveBeenCalledOnce();
+  });
+
+  it('does not trust a package that only claims the system identity', async () => {
+    const id = 'com.nbosp.service.event-log';
+    const pkg = servicePackage(id, { 'service.js': 'window.eventLogStarted = true;' });
+    pkg.signature = 'invalid-signature';
+    const { context, appSandbox, boot } = createLoaderContext({
+      services: [{ id, entry: 'service.js', required: true }],
+      packages: { [id]: pkg },
+    });
+    runInNewContext(loaderSource, context);
+
+    const result = await context.SystemServiceLoader.load();
+
+    expect(result.failures[0].message).toContain('does not have a valid NovaByte System signature');
+    expect(appSandbox.launch).not.toHaveBeenCalled();
+    expect(context.localStorage.setItem).toHaveBeenCalledWith('nova_force_recovery', '1');
+    expect(boot).toHaveBeenCalledOnce();
+  });
+
+  it('continues startup after a sandbox launch failure', async () => {
+    const services = [
+      { id: 'com.nbosp.service.event-log', entry: 'service.js' },
+      { id: 'com.nbosp.service.downloads-history', entry: 'service.js' },
+    ];
+    const packages = Object.fromEntries(services.map(service => [
+      service.id,
+      servicePackage(service.id, { 'service.js': 'window.started = true;' }),
+    ]));
+    const { context, appSandbox, boot } = createLoaderContext({ services, packages });
+    appSandbox.launch
+      .mockRejectedValueOnce(new Error('sandbox startup failed'))
+      .mockResolvedValueOnce({
+        success: true,
+        sandboxId: 'sandbox-next',
+        webview: makeWebview(),
+      });
+    runInNewContext(loaderSource, context);
+
+    const result = await context.SystemServiceLoader.load();
+
+    expect(result.failures[0].id).toBe('com.nbosp.service.event-log');
+    expect(context.SystemServiceLoader.listLoadedServices()).toHaveLength(1);
     expect(boot).toHaveBeenCalledOnce();
   });
 });

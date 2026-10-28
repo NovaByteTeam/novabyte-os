@@ -364,6 +364,19 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       expect(result.valid).toBe(true);
     });
 
+    it('requires an entry for the separate system:root permission', async () => {
+      const { validateManifest } = await import('../../js/platform/core/app-package.js');
+      expect(validateManifest({
+        ...validManifest,
+        permissions: ['system:root'],
+      }).errors).toContain('system:root requires a packaged guestEntry JavaScript file');
+      expect(validateManifest({
+        ...validManifest,
+        permissions: ['system:root'],
+        guestEntry: 'root.js',
+      }).valid).toBe(true);
+    });
+
     it('accepts the supported Home role and rejects unknown app roles', () => {
       expect(AppPackage.validateManifest({
         ...validManifest,
@@ -410,6 +423,17 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       const pkg = await AppPackage.createPackage(validManifest, {});
       expect(pkg).toBeDefined();
       expect(Object.keys(pkg.files).length).toBe(0);
+    });
+
+    it('rejects root packages when their declared entry is not packaged', async () => {
+      const { createPackage } = await import('../../js/platform/core/app-package.js');
+      await expect(createPackage({
+        ...validManifest,
+        permissions: ['system:root'],
+        guestEntry: 'root.js',
+      }, {
+        'index.html': '<p>root</p>',
+      })).rejects.toThrow('Root package is missing guestEntry file "root.js"');
     });
 
     it('embeds integrity hashes when integrityMethod is provided', async () => {

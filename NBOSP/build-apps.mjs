@@ -319,12 +319,22 @@ async function updatePackageCacheKeys(builtPackages) {
   }
 
   let changed = false;
+  const manifestIds = new Set(manifest.map(bundle => bundle?.id));
   for (const bundle of manifest) {
     const cacheKey = builtPackages.get(bundle?.id);
     if (cacheKey && bundle.cacheKey !== cacheKey) {
       bundle.cacheKey = cacheKey;
       changed = true;
     }
+  }
+  for (const [id, cacheKey] of builtPackages) {
+    if (manifestIds.has(id)) continue;
+    manifest.push({
+      id,
+      file: `js/apps/${id}.novaapp`,
+      cacheKey,
+    });
+    changed = true;
   }
   if (changed) {
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -427,6 +437,7 @@ async function buildOne(
     return null;
   }
 
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const pkg = await packageApp(
     appDir
   );

@@ -1,20 +1,19 @@
-registerApp({
-  id: 'com.nbosp.calculator',
-  name: 'Calculator',
-  version: '3.0.2',
-  icon: 'calculator',
-  description: 'High-efficiency, character-code driven arithmetic engine',
-  defaultSize: [320, 440],
-  minSize: [280, 380],
-
-  init(content) {
-    // ── NovaByte runtime guard ──────────────────────────────────────────────
-    if (!window.AppDirs?.getAppDataPath('com.nbosp.calculator', 'files')) {
-      content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
-      content.innerHTML = '<div style="font-size:32px">⚠️</div><div style="font-size:14px;text-align:center"><b>com.nbosp.calculator</b><br>App data directory missing.<br>This app requires NovaByte OS.</div>';
-      return;
+(() => {
+  function createEl(tag, properties = {}) {
+    const element = document.createElement(tag);
+    for (const [key, value] of Object.entries(properties)) {
+      if (key === 'style') {
+        element.style.cssText = value;
+      } else if (key in element) {
+        element[key] = value;
+      } else {
+        element.setAttribute(key, value);
+      }
     }
+    return element;
+  }
 
+  function init(content) {
     let isEvaluated = false;
     let expr = '';
 
@@ -293,4 +292,11 @@ registerApp({
 
     return () => ac.abort();
   }
-});
+
+  const root = document.getElementById('calculator-root');
+  if (!root) throw new Error('Calculator root element is missing');
+  const cleanup = init(root);
+  if (typeof cleanup === 'function') {
+    window.addEventListener('pagehide', cleanup, { once: true });
+  }
+})();

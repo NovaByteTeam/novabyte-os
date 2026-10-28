@@ -470,7 +470,7 @@ async function boot() {
   try {
     await startConfiguredHomeApp();
   } catch (e) {
-    console.error('[BOOT] Failed to start the trusted launcher in the OS page:', e);
+    console.error('[BOOT] Failed to start the bundled Launcher in its sandbox:', e);
   }
 
   if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
@@ -522,57 +522,21 @@ async function boot() {
 // ── App Loader ─────────────────────────────────────────────────────
 async function startBundledLauncher() {
   const launcherId = 'com.nbosp.launcher';
-  const app = OS.apps?.[launcherId];
-  if (!app) throw new Error(`Bundled launcher ${launcherId} is not registered`);
-  if (!window.UnrestrictedGate?.checkUnrestrictedApp) {
-    throw new Error('UnrestrictedGate is unavailable');
-  }
-
-  const gate = await window.UnrestrictedGate.checkUnrestrictedApp(app);
-  if (!gate.allowed) {
-    throw new Error(`UnrestrictedGate rejected ${launcherId}: ${gate.reason}`);
-  }
-
-  const readPackageText = (path) => {
-    const encoded = app.files?.[path];
-    if (typeof encoded !== 'string') throw new Error(`Launcher package is missing ${path}`);
-    const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  };
-
   const root = document.getElementById('launcher-root');
   if (!root) throw new Error('Launcher root is missing from the OS page');
-  root.innerHTML = readPackageText(app.entry || app.manifest?.entry || 'index.html');
-
-  let styles = document.getElementById('launcher-package-styles');
-  if (!styles) {
-    styles = document.createElement('style');
-    styles.id = 'launcher-package-styles';
-    document.head.appendChild(styles);
+  const app = OS.apps?.[launcherId] ||
+    (typeof AppRegistry !== 'undefined' ? AppRegistry.getApp?.(launcherId) : null);
+  if (!app) throw new Error('Bundled Launcher NovaApp is unavailable');
+  if (typeof AppSandbox === 'undefined' || typeof AppSandbox.launchHome !== 'function') {
+    throw new Error('AppSandbox Home surface runtime is unavailable');
   }
-  styles.textContent = readPackageText('style.css');
-
-  const entry = app.unrestrictedEntry || app.manifest?.unrestrictedEntry;
-  if (typeof entry !== 'string' || !entry) {
-    throw new Error('Launcher package has no unrestrictedEntry');
-  }
-  const script = document.createElement('script');
-  script.textContent = `${readPackageText(entry)}\n//# sourceURL=novaapp:${launcherId}/${entry}\n`;
-  document.head.appendChild(script);
-
-  if (typeof window.renderLaunchpad !== 'function' ||
-      typeof window.toggleLaunchpad !== 'function' ||
-      typeof window.renderDesktopIcons !== 'function' ||
-      typeof window.updateTaskbar !== 'function') {
-    throw new Error('Launcher entry did not expose the full shell API');
-  }
-
-  Boot._cacheDom();
-  window.applyLauncherSettings(OS.settings.get.bind(OS.settings));
-  WM.attachTaskbar();
-  window.renderDesktopIcons();
-  window.renderLaunchpad();
-  window.updateTaskbar();
+  root.replaceChildren();
+  const launched = await launchWithTimeout(
+    AppSandbox.launchHome(app, root),
+    HOME_START_TIMEOUT_MS,
+    `Bundled Home app ${launcherId}`
+  );
+  if (!launched) throw new Error('Bundled Launcher sandbox did not start');
 }
 
 // A non-bundled Home app that hangs or crashes the page never lets boot reach

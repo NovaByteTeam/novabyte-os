@@ -5,7 +5,7 @@
   "description": "Connect supported IMAP, POP3, and Exchange accounts to read and send email.",
   "author": "DirazCoder",
   "entry": "index.html",
-  "unrestrictedEntry": "app.js",
+  "guestEntry": "app.js",
   "icon": "mail",
   "type": "blank",
   "defaultSize": [860, 580],

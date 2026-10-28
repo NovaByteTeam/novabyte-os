@@ -5,7 +5,7 @@
   "author": "DirazCoder",
   "description": "Search NovaByte OS for apps and available system content.",
   "entry": "index.html",
-  "unrestrictedEntry": "app.js",
+  "guestEntry": "app.js",
   "icon": "search",
   "type": "blank",
   "defaultSize": [

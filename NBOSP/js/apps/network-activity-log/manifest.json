@@ -5,7 +5,7 @@
   "description": "Keeps a bounded in-memory log of Browser network activity for system diagnostics.",
   "version": "3.0.2",
   "entry": "service.js",
-  "unrestrictedEntry": "service.js",
+  "guestEntry": "service.js",
   "system": true,
   "systemService": true
 }

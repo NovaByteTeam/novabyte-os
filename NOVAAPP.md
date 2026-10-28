@@ -69,7 +69,7 @@ Every app needs a `manifest.json` at the root of its directory.
 | `website` | string | — | Your site |
 | `icon` | string | `"box"` | Icon Lucide name, data URI, or URL |
 | `type` | string | `"blank"` | App type |
-| `unrestrictedEntry` | string | — | Packaged JavaScript entry for trusted system packages or apps granted `system:root` |
+| `guestEntry` | string | — | Optional packaged JavaScript entry loaded inside the app's sandbox |
 | `permissions` | array | `[]` | Required capabilities; missing sensitive grants are requested at launch, but denial does not block the app |
 | `optionalPermissions` | array | `[]` | Optional permissions — app must handle denial gracefully |
 | `defaultSize` | array | `[800, 560]` | `[width, height]` in pixels |
@@ -84,23 +84,15 @@ Every app needs a `manifest.json` at the root of its directory.
 
 Set `transparent` to `true` when the app should let the desktop show through areas not painted by its UI. The OS makes the sandboxed webview alpha-capable and makes the document's `html` and `body` backgrounds transparent; it does not force child elements to be transparent, so your app can still paint opaque panels, cards, and controls. This is a visual setting only: it does not grant host-page access, bypass the app sandbox, or make the package trusted or system-signed.
 
-### Root access (high risk)
+### Sandboxed execution and system APIs
 
-Third-party `.novaapp` packages can request host-page execution with a required `system:root` permission and a packaged JavaScript entry:
+Packages run inside an isolated app webview by default, including packages signed by NovaByte System. `system:root` is a separate, critical permission: when Developer Mode and Root Access are enabled and the user has explicitly granted it, that app's packaged `guestEntry` may execute in the OS page with unrestricted host access. This exception is based on the app-scoped root grant, not on whether the app is a system app or who signed it.
 
-```json
-{
-  "entry": "index.html",
-  "permissions": ["system:root"],
-  "unrestrictedEntry": "root.js"
-}
-```
+`guestEntry` names an optional JavaScript file included in the package. The runtime loads it inside the same sandbox as the manifest's HTML entry. Older packages may still contain `unrestrictedEntry`; it is accepted as a compatibility alias. A package declaring `system:root` must include its declared entry file.
 
-`unrestrictedEntry` must name a `.js` file included in the package. That file is the **complete app entry** for root execution: it should register the app with `registerApp(...)` and render its window from the registered `init()` function, like a trusted built-in app. It can be named `app.js` instead of `root.js` if that is the app's single host-side implementation.
+Verified NovaByte System packages receive additional undocumented framework compatibility APIs through the sandbox bridge. The OS checks the package signature against its trust store before servicing those calls. These internal APIs are not available to third-party packages, are not part of the public app API, and may change without notice. This signature-gated framework access is independent of `system:root`.
 
-Root-approved apps do not run two copies of the app. When Developer Mode and Root Access are enabled and the user grants `system:root`, the OS loads only `unrestrictedEntry` directly into the OS page; the manifest's ordinary HTML `entry` and its scripts are not also loaded. If root is unavailable or not granted, the ordinary HTML `entry` runs in the app's sandbox instead. The two launch modes are alternatives, not communicating processes, so there is no app.js-to-root.js IPC bridge. Move the UI and behavior needed in root mode into the unrestricted entry; it can use host APIs directly.
-
-Users must enable Developer Mode, turn on Root Access in Settings, and explicitly approve the app through the conspicuous root permission prompt. Root grants do not expire automatically; revoke them explicitly in Settings. Root code runs in the OS page rather than an isolated app webview and can read or modify OS data and UI. Settings provides per-app grants and a persistent log of up to 1,000 recent observed OS API calls. The log is best-effort: direct JavaScript and browser activity is not completely observable, and a root app can potentially tamper with same-origin data. Disabling Developer Mode, Root Access, or an app's root grant closes root app windows and reloads the OS page if root code has run.
+`system:root` is granted per app through its explicit confirmation flow and is available only while Developer Mode and Root Access are enabled. It is not a system-app signature or a way for a package to claim system identity. Request it only when unrestricted OS-page execution is essential.
 
 ### App ID format
 
@@ -181,9 +173,9 @@ When you hit Build in Studio, here's what happens under the hood:
 
 ### Headless system services
 
-NovaByte's built-in headless services are first-party `.novaapp` packages whose `service.js` runs in the OS page, preserving the global APIs and startup ordering used by their former standalone scripts. Their manifests use `system: true`, `systemService: true`, and `unrestrictedEntry: "service.js"`. They do not have a window or an HTML entry at runtime.
+NovaByte's built-in headless services are first-party `.novaapp` packages whose entry scripts run in dedicated AppSandbox guests. Their manifests use `system: true`, `systemService: true`, and a packaged `guestEntry`; they do not have a user-facing window. Verified system packages receive undocumented compatibility APIs through the signature-checked framework bridge, not direct OS-page access.
 
-Only IDs in `js/apps/novaapp-manifest.json` can pass the trusted system-package gate. Startup order is declared in `js/apps/system-service-manifest.json`; the loader checks package integrity and allowlist membership before executing each entry. If a service is missing or fails verification/startup, NovaByte logs the failure, skips that service, continues loading the rest, and starts the OS with a dismissible degraded-services warning. These packages execute with OS-page access and must remain first-party code. Framework/bootstrap pieces such as `boot.js`, `kernel.js`, `app-registry.js`, and trust/security initialization remain ordinary scripts because they are prerequisites for safely loading packages.
+Startup order is declared in `js/apps/system-service-manifest.json`. The loader checks package identity, integrity, and the NovaByte System signature against the trust store before launching each service in AppSandbox. A manifest's `system` field alone is not authoritative. Framework/bootstrap pieces such as `boot.js`, `kernel.js`, `app-registry.js`, and trust/security initialization remain OS-page scripts because they are prerequisites for safely loading packages.
 
 Rebuild the built-in services after changing their source with:
 
@@ -595,7 +587,7 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `system:apps` | System | Medium | Launchers, app-store-style installers, dock/dashboard replacements |
 | `system:app-launch` | System | Low | Launching an installed app without access to app inventory or management |
 | `system:events` | System | Medium | Reacting to OS-level events (theme change, etc.) |
-| `system:root` | System | Critical | Running the app's `unrestrictedEntry` as its complete host-page implementation instead of loading its HTML entry in the app sandbox; requires Developer Mode, Root Access, and a separate explicit confirmation |
+| `system:root` | System | Critical | Unrestricted OS-page execution for a packaged app entry when Developer Mode and Root Access are enabled |
 | `system:background` | System | Medium | Periodic sync/checks while closed — reminders, cache refresh, polling (see below) |
 | `system:background:live` | System | High | Staying alive after the window closes — timers, active transfers, live connections (see below) |
 | `system:autostart` | System | High | Launching automatically at OS startup with no user action at all (see below) |

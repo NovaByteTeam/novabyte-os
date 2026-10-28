@@ -5,7 +5,7 @@
   "description": "Keeps clock alarms and email notifications active while their apps are closed.",
   "version": "3.0.2",
   "entry": "service.js",
-  "unrestrictedEntry": "service.js",
+  "guestEntry": "service.js",
   "system": true,
   "systemService": true
 }
