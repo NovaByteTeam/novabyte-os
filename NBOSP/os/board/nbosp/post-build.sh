@@ -11,6 +11,21 @@ chmod 600 "${TARGET_DIR}/etc/NetworkManager/system-connections/"*.nmconnection 2
 # bind its dbus session socket there and the session restart-loops.
 chmod 1777 "${TARGET_DIR}/tmp"
 [ -d "${TARGET_DIR}/var/tmp" ] && chmod 1777 "${TARGET_DIR}/var/tmp"
+mkdir -p "${TARGET_DIR}/tmp/.X11-unix"
+chmod 1777 "${TARGET_DIR}/tmp/.X11-unix"
+# S01mounts mounts a tmpfs over /tmp at boot; make sure it's executable even
+# when Buildroot reuses a cached target tree.
+install -D -m 0755 "${SCRIPT_DIR}/rootfs-overlay/etc/init.d/S01mounts" \
+	"${TARGET_DIR}/etc/init.d/S01mounts"
+
+# Buildroot's refpolicy-era x_contexts names a type our policy doesn't define
+# (seclabel_xproperty_t). Xwayland's SELinux extension then fails the property
+# label lookup and dies with "Failed to set label property on window". Drop
+# the unresolvable rules so lookups fall through to the valid defaults.
+X_CONTEXTS="${TARGET_DIR}/etc/selinux/targeted/contexts/x_contexts"
+if [ -f "${X_CONTEXTS}" ]; then
+	sed -i '/seclabel_xproperty_t/d' "${X_CONTEXTS}"
+fi
 
 # sudoers.d files must be 0440
 chmod 440 "${TARGET_DIR}/etc/sudoers.d/nbosp" 2>/dev/null || true

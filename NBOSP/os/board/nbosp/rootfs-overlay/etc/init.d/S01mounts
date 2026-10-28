@@ -1,0 +1,23 @@
+#!/bin/sh
+# The custom inittab doesn't run `mount -a` and the image has no fstab, so
+# nothing else gives us /tmp, /dev/shm or /dev/pts. Wayland compositors need
+# shm for keymaps and buffers, Xwayland needs /tmp/.X11-unix, and dbus needs a
+# writable /tmp for the kiosk user.
+
+mounted() {
+  grep -q " $1 " /proc/mounts 2>/dev/null
+}
+
+case "$1" in
+  start)
+    mkdir -p /dev/pts /dev/shm /tmp
+    mounted /dev/pts || mount -t devpts -o gid=5,mode=620,noexec,nosuid devpts /dev/pts
+    mounted /dev/shm || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
+    mounted /tmp || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp
+    chmod 1777 /tmp /dev/shm
+    mkdir -p /tmp/.X11-unix
+    chmod 1777 /tmp/.X11-unix
+    ;;
+  stop) ;;
+esac
+exit 0
