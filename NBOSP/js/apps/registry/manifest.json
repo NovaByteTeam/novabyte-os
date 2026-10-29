@@ -5,7 +5,7 @@
   "description": "Maintains the OS registry of installed apps and their launch metadata.",
   "version": "3.0.2",
   "entry": "service.js",
-  "guestEntry": "service.js",
+  "unrestrictedEntry": "service.js",
   "system": true,
   "systemService": true
 }

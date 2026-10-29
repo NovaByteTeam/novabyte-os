@@ -5,7 +5,7 @@
   "description": "Applies built-in and custom desktop wallpapers across the NovaByte shell.",
   "version": "3.0.2",
   "entry": "service.js",
-  "guestEntry": "service.js",
+  "unrestrictedEntry": "service.js",
   "system": true,
   "systemService": true
 }

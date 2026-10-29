@@ -201,6 +201,22 @@ if grep -qx "BR2_PACKAGE_LIBGTK3_X11=y" "$OUTPUT_DIR/.config" && [[ ! -f "$GDK_X
     openvmtools-dirclean gtkmm3-dirclean libgtk3-dirclean
 fi
 
+OPENVMTOOLS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-openvmtools-signature"
+OPENVMTOOLS_SIGNATURE="$(
+  {
+    printf '%s\n' 'nbosp-openvmtools-kms-v1'
+    cat "$OPENVMTOOLS_OVERRIDE_DIR/Config.in" "$OPENVMTOOLS_OVERRIDE_DIR/openvmtools.mk" \
+      "$OPENVMTOOLS_OVERRIDE_DIR/openvmtools.hash" "$OPENVMTOOLS_OVERRIDE_DIR/S10vmtoolsd"
+    grep -E '^BR2_PACKAGE_(OPENVMTOOLS|EUDEV|LIBDRM)(_|=)' "$OUTPUT_DIR/.config"
+  } | sha256sum | cut -d ' ' -f 1
+)"
+if [[ ! -f "$OPENVMTOOLS_SIGNATURE_FILE" ]] \
+  || [[ "$(cat "$OPENVMTOOLS_SIGNATURE_FILE")" != "$OPENVMTOOLS_SIGNATURE" ]]; then
+  echo "VMware Tools configuration changed; rebuilding open-vm-tools."
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" openvmtools-dirclean
+  printf '%s\n' "$OPENVMTOOLS_SIGNATURE" > "$OPENVMTOOLS_SIGNATURE_FILE"
+fi
+
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
   alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean \
   wlroots-dirclean cage-dirclean
@@ -409,6 +425,14 @@ if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libdrm.so
 fi
 if [[ ! -f "$OUTPUT_DIR/target/etc/udev/rules.d/70-nbosp-device-groups.rules" ]]; then
   echo "DRM render and ALSA device access rules are missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/etc/init.d/S10vmtoolsd" ]]; then
+  echo "The VMware Tools daemon init script is missing from the target image." >&2
+  exit 1
+fi
+if ! find "$OUTPUT_DIR/target" -type f -name 'libresolutionKMS.so*' -print -quit | grep -q .; then
+  echo "The VMware resolution-KMS plugin is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -s "$OUTPUT_DIR/target/etc/ssl/certs/ca-certificates.crt" ]]; then

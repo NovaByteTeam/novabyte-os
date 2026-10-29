@@ -197,10 +197,10 @@ NovaByte's built-in HTML select controls open an in-page listbox instead of
 Chromium's native popup, avoiding popup-positioning differences in the
 XWayland kiosk. Select controls rendered inside external websites in the
 Browser app remain managed by Chromium.
-The Display Scale setting is passed to NW.js/Chromium with
-`--force-device-scale-factor`, which scales the complete NovaByte UI. Changing
-the setting requires restarting the system from the launchpad; it does not
-alter the display mode or scale other Wayland clients.
+The kiosk does not force Chromium's device scale factor. In the XWayland
+session, overriding it can misalign pointer hit-testing and native popup
+positions, including NW.js context menus and DevTools. Adjust the virtual
+machine's display resolution instead.
 The Date and Region settings also include a keyboard layout selector. The
 selected XKB layout is saved for the `nbosp` user and passed to Cage on its
 next start, so restart NovaByte OS after changing it. The ISO build verifies
@@ -239,8 +239,10 @@ The kiosk user runs with the Linux account and device-group permissions, but
 this is not yet per-`.novaapp` process isolation. The live initramfs remains
 ephemeral: files and app data are lost at shutdown unless you use the disk
 installer. The tty2 console remains available for debugging.
-The VMware Open VM Tools guest daemon and its resolution helper are included;
-installing a separate Tools ISO inside the guest is unnecessary.
+The VMware Open VM Tools guest daemon and its resolution-KMS plugin are
+included. The daemon waits for udev to expose the VMware DRM device before
+loading the plugin, which only probes for dynamic display support at startup.
+Installing a separate Tools ISO inside the guest is unnecessary.
 The guest Terminal runs as the unprivileged `nbosp` user. This Buildroot image
 does not provide `sudo` or Debian's `apt`; the `sudo apt` commands above are
 for installing build dependencies on the Ubuntu/WSL host, not for use inside
