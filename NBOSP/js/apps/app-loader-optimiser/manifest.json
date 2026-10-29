@@ -5,6 +5,7 @@
   "description": "Preloads bundled NovaApp packages concurrently and reuses unchanged packages from persistent local storage.",
   "version": "3.0.2",
   "entry": "service.js",
+  "unrestrictedEntry": "service.js",
   "guestEntry": "service.js",
   "system": true,
   "systemService": true

@@ -127,7 +127,7 @@
   {
     "id": "com.nbosp.service.app-loader-optimiser",
     "file": "js/apps/com.nbosp.service.app-loader-optimiser.novaapp",
-    "cacheKey": "a04fdb3bdf8d8c4ac6db4e1e09d5b1c40740e8023b2a09c8abd736e1a223b9b1"
+    "cacheKey": "b45ca614b96a78b27f3c92ab1ba54601890deaa07978198721293fb5f9a285c0"
   },
   {
     "id": "com.nbosp.service.background-apps",
@@ -207,7 +207,7 @@
   {
     "id": "com.nbosp.shell-ui",
     "file": "js/apps/com.nbosp.shell-ui.novaapp",
-    "cacheKey": "c395eb0e3cc769fefb51e1d145de52dbc2fc38ed314286bacac61d28ad01d9dd"
+    "cacheKey": "18bc674f0eb23a142b41cf9a868535b642da1b332fabc9fc65d6c70c8fadf744"
   },
   {
     "id": "com.nbosp.service.store-updates",
