@@ -9,7 +9,7 @@ registerApp({
 
   init(content, state) {
 
-    // ── Guard: require VFS dir ────────────────────────────────────────────────
+    // ── Guard: require app data directory ─────────────────────────────────────
     if (!window.AppDirs?.getAppDataPath('com.nbosp.search', 'files')) {
       content.style.cssText = [
         'display:flex', 'align-items:center', 'justify-content:center',

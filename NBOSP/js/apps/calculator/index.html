@@ -6,10 +6,23 @@
   <meta name="color-scheme" content="dark">
   <title>Calculator</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    :root {
+      --bg-base: #0d1117;
+      --bg-elevated: #161b22;
+      --bg-overlay: #21262d;
+      --text-primary: #e6edf3;
+      --text-muted: #8b949e;
+      --border-default: #30363d;
+      --accent: #238636;
+      --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body { color: var(--text-primary); font-family: system-ui, sans-serif; }
+  </style>
 </head>
 <body>
-  <main role="status" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:24px;box-sizing:border-box;text-align:center;font:13px system-ui,sans-serif;color:var(--text-muted,#8b949e)">
-    Calculator needs its trusted NovaByte host runtime.
-  </main>
+  <main id="calculator-root" aria-label="Calculator" style="width:100%;height:100%"></main>
+  <script src="app.js"></script>
 </body>
 </html>

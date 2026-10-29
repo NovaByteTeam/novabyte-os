@@ -399,16 +399,6 @@ async function uninstallApp(app) {
       await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
     }
 
-    if (window.NovaAppPackageStore?.removeApp) {
-      await NovaAppPackageStore.removeApp(app.id);
-    } else {
-      const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-      localStorage.setItem(
-        'nova_installed_apps',
-        JSON.stringify(stored.filter(a => a.id !== app.id))
-      );
-    }
-
     // Best-effort cleanup of per-app storage and data dirs — failures here
     // shouldn't abort the uninstall. clearAppPartition wipes the webview's
     // own storage partition; storageClear wipes the separate nova:storage
@@ -420,7 +410,7 @@ async function uninstallApp(app) {
       AppDirs?.removeAppData?.(app.id),
     ]);
 
-    AppRegistry?.unregisterApp?.(app.id);
+    if (AppRegistry?.uninstallApp) await AppRegistry.uninstallApp(app.id);
     if (OS.apps) delete OS.apps[app.id];
     const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
     if (ri > -1) APP_REGISTRY.splice(ri, 1);
@@ -1072,7 +1062,7 @@ async function _handleDesktopDrop(e, desktopEl) {
     // notification — fixes the race where filesAdded was always 0 in the original setTimeout.
     // FIX: binary files (images, audio, PDF, etc.) are read with readAsDataURL, not TextDecoder,
     // so they are stored intact instead of being corrupted.
-    // FIX: extract just the base64 payload from the data URL before storing — the VFS stores
+    // FIX: extract just the base64 payload from the data URL before storing — the file system stores
     // raw content strings, and apps like Music/Gallery expect base64 strings they can decode,
     // not the full data:...;base64,... wrapper.
     function extractBase64FromDataUrl(dataUrl) {
@@ -1124,7 +1114,7 @@ async function _handleDesktopDrop(e, desktopEl) {
           else reader.readAsDataURL(file);
         });
 
-        // Binary content is stored as raw base64 so VFS consumers can decode
+        // Binary content is stored as raw base64 so filesystem consumers can decode
         // the original bytes without a data-URL wrapper.
         content = useText ? result : extractBase64FromDataUrl(result);
         await FS.createFile(desktopId, file.name, content, file.type || 'application/octet-stream');
@@ -1371,13 +1361,6 @@ function renderDesktopIcons() {
                 }
                 await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
               }
-              if (window.NovaAppPackageStore?.removeApp) {
-                await NovaAppPackageStore.removeApp(app.id);
-              } else {
-                const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-                const updated = stored.filter(a => a.id !== app.id);
-                localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
-              }
               try {
                 if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
                   await AppSandbox.clearAppPartition(app.id);
@@ -1399,8 +1382,8 @@ function renderDesktopIcons() {
               } catch (err) {
                 console.warn('[Desktop] Failed to clear app data for', app.id, err);
               }
-              if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
-                AppRegistry.unregisterApp(app.id);
+              if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+                await AppRegistry.uninstallApp(app.id);
               }
               delete OS.apps[app.id];
               const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
@@ -1685,13 +1668,6 @@ function renderDesktopIcons() {
                   }
                   await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
                 }
-                if (window.NovaAppPackageStore?.removeApp) {
-                  await NovaAppPackageStore.removeApp(appId);
-                } else {
-                  const stored = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-                  const updated = stored.filter(a => a.id !== appId);
-                  localStorage.setItem('nova_installed_apps', JSON.stringify(updated));
-                }
                 try {
                   if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
                     await AppSandbox.clearAppPartition(appId);
@@ -1713,8 +1689,8 @@ function renderDesktopIcons() {
                 } catch (err) {
                   console.warn('[Desktop] Failed to clear app data for', appId, err);
                 }
-                if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
-                  AppRegistry.unregisterApp(appId);
+                if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+                  await AppRegistry.uninstallApp(appId);
                 }
                 delete OS.apps[appId];
                 const ri = APP_REGISTRY.findIndex(a => a.id === appId);

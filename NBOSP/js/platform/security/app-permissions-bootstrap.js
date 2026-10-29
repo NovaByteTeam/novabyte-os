@@ -183,9 +183,9 @@
     // Gate third-party / web apps
     _gateThirdPartyApps();
 
-    // Do not enforce VFS permissions by guessing from the focused window.
+    // Do not enforce filesystem permissions by guessing from the focused window.
     // System writes can run while an app is focused, so that check blamed
-    // unrelated apps; sandbox VFS requests are checked with their explicit app id.
+    // unrelated apps; sandbox filesystem requests use their explicit app id.
 
     // First boot: pre-grant normal permissions silently
     let isFirstBoot = false;

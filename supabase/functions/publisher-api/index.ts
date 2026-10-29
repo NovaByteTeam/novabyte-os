@@ -22,6 +22,7 @@ import {
   signAndVerifyPackage,
   storageRequest,
 } from '../_shared/publisher.ts';
+import { runAutomatedReview } from '../_shared/automated-review.js';
 
 const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') || '').replace(/\/+$/, '');
 const STATIC_CATALOG_URL = Deno.env.get('PUBLIC_CATALOG_URL')
@@ -186,7 +187,6 @@ async function getOne(table: string, key: string, value: string) {
 }
 
 async function submit(user: { id: string; email?: string }, body: Record<string, unknown>) {
-  const publishImmediately = user.email?.trim().toLowerCase() === ADMIN_EMAIL;
   const id = requiredText(body.submissionId, 'Submission ID', 64);
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
   const submission = body.submission as Record<string, unknown> | undefined;
@@ -289,6 +289,8 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
   const submissionByteLength = new TextEncoder().encode(JSON.stringify(pkg)).byteLength;
   if (submissionByteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The package exceeds the 25 MB upload limit.');
 
+  const automatedReview = runAutomatedReview(pkg, { appId, version });
+  const status = automatedReview.passed ? 'pending' : 'automated_rejected';
   await rest('publisher_submissions', {
     method: 'POST',
     body: {
@@ -300,28 +302,35 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
       metadata,
       changelog,
       package_path: packagePath,
-      status: 'pending',
+      status,
+      automated_review: automatedReview,
     },
   });
-  if (publishImmediately) {
-    await publishSubmission({
-      id,
-      app_id: appId,
-      type,
-      version,
-      metadata,
-      changelog,
-      package_path: packagePath,
-    });
-    return { submitted: true, published: true };
+  if (!automatedReview.passed) {
+    const notification = await sendEmail(
+      user.email || '',
+      `NovaByte app needs changes: ${appId} v${version}`,
+      `<p>Automated checks found issues that must be fixed before human review.</p><ul>${automatedReview.errors.map(finding => `<li>${escapeHtml(finding.message)}</li>`).join('')}</ul><p>Update your package and submit it again.</p>`,
+    );
+    return {
+      submitted: true,
+      automatedReview,
+      notificationSent: notification.sent,
+      notificationError: notification.sent ? undefined : notification.reason,
+    };
   }
 
   const notification = await sendEmail(
     ADMIN_EMAIL,
-    `NovaByte app ${type} submitted: ${String(metadata.name)} v${version}`,
-    `<p>A verified publisher submitted an app for review.</p><p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
+    `Automated checks passed: ${String(metadata.name)} v${version}`,
+    `<p>Automated checks passed. A verified publisher's app is ready for human review.</p><p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
   );
-  return { submitted: true, notificationSent: notification.sent, notificationError: notification.sent ? undefined : notification.reason };
+  return {
+    submitted: true,
+    automatedReview,
+    notificationSent: notification.sent,
+    notificationError: notification.sent ? undefined : notification.reason,
+  };
 }
 
 async function myApps(user: { id: string }) {
@@ -331,7 +340,7 @@ async function myApps(user: { id: string }) {
     }),
     rest('publisher_submissions', {
       query: queryString({
-        select: 'id,app_id,type,version,metadata,changelog,status,review_note,created_at,reviewed_at',
+        select: 'id,app_id,type,version,metadata,changelog,status,review_note,automated_review,created_at,reviewed_at',
         owner_id: `eq.${user.id}`,
         status: 'neq.withdrawn',
         order: 'created_at.desc',
@@ -351,7 +360,7 @@ async function reviewQueue(user: { email?: string }) {
   requireAdmin(user);
   const rows = await rest('publisher_submissions', {
     query: queryString({
-      select: 'id,owner_id,app_id,type,version,metadata,changelog,status,created_at,package_path,review_package_path',
+      select: 'id,owner_id,app_id,type,version,metadata,changelog,status,automated_review,created_at,package_path,review_package_path',
       status: 'in.(pending,changes_requested)',
       order: 'created_at.asc',
     }),
@@ -572,7 +581,7 @@ async function withdraw(user: { id: string }, body: Record<string, unknown>) {
   const id = requiredText(body.submissionId, 'Submission ID', 64);
   const submission = await getOne('publisher_submissions', 'id', id);
   if (!submission || submission.owner_id !== user.id) throw new PublisherError('Submission not found.', 404);
-  if (!['pending', 'changes_requested', 'rejected'].includes(submission.status)) {
+  if (!['pending', 'changes_requested', 'rejected', 'automated_rejected'].includes(submission.status)) {
     throw new PublisherError('This submission can no longer be withdrawn.');
   }
   await rest('publisher_submissions', {
@@ -631,6 +640,15 @@ Deno.serve(async request => {
       const reviewedBytes = new TextEncoder().encode(JSON.stringify(pkg));
       if (reviewedBytes.byteLength > MAX_PACKAGE_BYTES) {
         throw new PublisherError('The reviewed package with preserved screenshots exceeds the 25 MB limit.');
+      }
+      const automatedReview = runAutomatedReview(pkg, {
+        appId: submission.app_id,
+        version: submission.version,
+      });
+      if (!automatedReview.passed) {
+        throw new PublisherError(
+          `The reviewed package failed automated checks: ${automatedReview.errors.map(finding => finding.message).join(' ')}`,
+        );
       }
       const reviewPath = `${id}/reviewed.novaapp`;
       await storageRequest(SUBMISSION_BUCKET, reviewPath, {

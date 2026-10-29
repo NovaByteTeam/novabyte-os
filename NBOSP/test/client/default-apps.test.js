@@ -132,4 +132,30 @@ describe('DefaultApps', () => {
     expect(refusingService.setDefault('browser', 'com.nbosp.browser')).toBe(false);
     expect(refusingService.getDefault('browser')).toBeNull();
   });
+
+  it('clears category and file defaults for one app while preserving other defaults', () => {
+    const { DefaultApps, settings } = loadDefaultApps({
+      apps: {
+        'com.nbosp.browser': { name: 'Browser' },
+        'com.nbosp.textedit': { name: 'TextEdit' },
+        'com.test.web': {
+          name: 'Web Handler',
+          handles: { protocols: ['https'], extensions: ['.html'] },
+        },
+      },
+      defaults: {
+        defaultApps: {
+          browser: 'com.test.web',
+          'extension:.html': 'com.test.web',
+          texteditor: 'com.nbosp.textedit',
+        },
+      },
+    });
+
+    expect(DefaultApps.clearDefaultsForApp('com.test.web')).toBe(true);
+    expect(settings.defaultApps).toEqual({ texteditor: 'com.nbosp.textedit' });
+    expect(DefaultApps.resolveHandler({ protocol: 'https:' }, 'com.nbosp.browser'))
+      .toBe('com.nbosp.browser');
+    expect(DefaultApps.clearDefaultsForApp('com.nbosp.browser')).toBe(true);
+  });
 });

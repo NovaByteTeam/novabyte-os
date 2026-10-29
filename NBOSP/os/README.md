@@ -1,8 +1,27 @@
 # NBOSP OS boot image
 
+## Desktop applications and boot
+
+Desktop applications continue to use NovaByte's existing app sandbox and
+permission system. The optional Weston multi-window proof of concept and the
+SELinux boot integration have been removed; the image boots with Buildroot's
+standard BusyBox init and launches the kiosk in Cage. The newer per-app Linux
+UID supervisor, process launcher, and associated seccomp, cgroup, and firewall
+isolation are not part of this image.
+
+The image supplies an explicit BusyBox `/etc/inittab` and `rcS` script so init
+runs the standard `/etc/init.d/S*` service sequence instead of BusyBox's
+fallback actions when the inittab is absent. The post-build hook installs the
+startup files into cached target trees and normalizes their line endings; the
+inittab invokes the scripts through `/bin/sh` so startup does not depend on
+script executable bits or shebang handling. The BusyBox configuration
+explicitly installs its shell applet at `/bin/sh`. The ISO build recreates and
+checks the shell and startup files in the actual CPIO initramfs it boots.
+
 This milestone extends the working x86_64 Buildroot boot into a graphical
-VMware kiosk: Linux DRM/KMS with the VMware SVGA driver, Mesa, Wayland, Cage,
-and the Linux x64 NBOSP NW.js bundle launched fullscreen. On Linux, Files browses the host filesystem directly, can list ISO contents,
+VMware desktop: Linux DRM/KMS with the VMware SVGA driver, Mesa, Wayland,
+and Cage. The Linux x64 NBOSP NW.js bundle remains the main OS interface. On
+Linux, Files browses the host filesystem directly, can list ISO contents,
 and can launch executable files as the unprivileged kiosk user after
 confirmation. The shared filesystem API maps to the kiosk user's real home
 directory, app data and package blobs are stored under
@@ -135,6 +154,36 @@ matching Mesa source into the toolchain sysroot before compiling XWayland.
 In VMware, enable **Accelerate 3D graphics** for the VM. The image build checks
 for XWayland GLX/glamor, Mesa GBM, libepoxy, and the VMware SVGA driver; still
 confirm Chromium's actual renderer from its GPU log in the VM.
+
+### GL debug mode
+
+`S99nbosp` runs in GL debug mode by default (`NBOSP_GL_DEBUG=1`) while the
+XWayland glamor failure is being tracked down. Set `NBOSP_GL_DEBUG=0` in the
+init environment to turn it all off. It does not change which GL backend
+Chromium requests. It adds:
+
+- Cage logs at wlroots debug level. Release Cage hard-codes the error level,
+  so `patches/cage/0001-runtime-debug-logging.patch` makes it honour
+  `CAGE_DEBUG`. (Cage's `-d` flag is "no client-side decorations", not debug.)
+- By default the dump runs a second XWayland (`:7`) against the live cage with
+  `-verbose 10`, which should say why glamor falls back. Output:
+  `~nbosp/xwayland-probe.log`.
+- Optional, off by default (`NBOSP_GL_XWRAP=1`): launch cage's XWayland through
+  `/run/nbosp-debug-bin/Xwayland` (via `WLR_XWAYLAND`, with a `PATH` fallback).
+  It runs with `-verbose 10` and `LD_DEBUG=libs`, plus `strace -Z` if
+  `NBOSP_GL_STRACE=1`. In the first two debug boots this wrapper made XWayland
+  exit within 10-90ms, so it stays off until we know why.
+  Output: `~nbosp/xwayland-debug.log`, `xwayland-ld.<pid>`, `xwayland.strace`.
+- `EGL_LOG_LEVEL=debug`, `MESA_DEBUG=1`, and Chromium `--vmodule` logging for
+  the GL display/context/GPU-init code.
+- `mesa3d-demos` (`eglinfo`, `glxinfo`), `wayland-utils` (`wayland-info`) and
+  `strace` in the image.
+- About 30 seconds after boot (once XWayland has started) a dump of the
+  graphics state is written to `~nbosp/nbosp-gl-debug.log`, the serial
+  console and `nbosp-kiosk.log`: library and driver listing, glvnd vendor
+  files, the libraries cage and XWayland actually mapped, their environment,
+  `eglinfo`/`glxinfo`/`wayland-info`, and the filtered XWayland logs. Attach
+  the serial log, or that file, to a bug report.
 The image also includes ALSA HDA and Ensoniq ES1371 drivers and utilities.
 At kiosk startup, `amixer` attempts to unmute and set the common playback
 controls on the detected card; it logs a warning and the available controls
@@ -174,8 +223,9 @@ DejaVu Sans/Mono and Noto Color Emoji fonts and Fontconfig are included so
 Chromium and the UI can render text and emoji without downloading fonts at
 runtime. The emoji font is pinned to a Noto Emoji source revision and its OFL
 license is included in the image. The Whiteglass Xcursor theme is included,
-and Cage uses a software-rendered cursor to avoid invisible hardware cursors
-in VMware.
+and Cage uses the DRM hardware cursor plane. If the pointer is invisible in
+VMware, set `WLR_NO_HARDWARE_CURSORS=1` for Cage in `S99nbosp` to force a
+software cursor.
 The image build keeps Buildroot's cached kernel and graphics outputs. It
 clean-rebuilds Mesa, libglvnd, and XWayland only when the graphics configuration
 signature changes, and checks that `libGL.so.1`, Mesa's `vmwgfx_dri.so` SVGA

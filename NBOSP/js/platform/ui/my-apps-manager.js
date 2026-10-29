@@ -123,7 +123,9 @@ const MyAppsManager = (() => {
       } catch (err) {
         console.warn('[MyAppsManager] Failed to clear app data for', appId, err);
       }
-      return AppRegistry?.unregisterApp(appId) || false;
+      return AppRegistry?.uninstallApp
+        ? await AppRegistry.uninstallApp(appId)
+        : false;
     } catch (error) {
       console.error('[MyAppsManager] Failed to remove app:', error);
       if (typeof EventLog !== 'undefined') {
@@ -279,14 +281,17 @@ const MyAppsManager = (() => {
           <label style="color: #8b949e; display: block; margin-bottom: 8px;">
             Install from .novaapp file:
           </label>
-          <input type="file" id="installFileInput" accept=".novaapp,application/json" style="
-            background: var(--bg-sunken);
-            border: 1px solid var(--border-default);
-            border-radius: 6px;
-            padding: 8px 12px;
-            color: #e6edf3;
-            width: 100%;
-          ">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <button type="button" id="installFileBtn" style="
+              background: var(--bg-sunken);
+              border: 1px solid var(--border-default);
+              border-radius: 6px;
+              padding: 8px 12px;
+              color: #e6edf3;
+              cursor: pointer;
+            ">Choose file…</button>
+            <span id="installFileName" style="color: #8b949e; font-size: 13px;">No file selected</span>
+          </div>
         </div>
         
         <div style="margin-bottom: 20px;">
@@ -320,7 +325,19 @@ const MyAppsManager = (() => {
     container.innerHTML = html;
 
     const installBtn = container.querySelector('#installBtn');
-    const fileInput = container.querySelector('#installFileInput');
+    const fileBtn = container.querySelector('#installFileBtn');
+    const fileNameEl = container.querySelector('#installFileName');
+    let pickedPackage = null; // JSON text of the chosen .novaapp
+
+    fileBtn.addEventListener('click', async () => {
+      const picked = await SystemDialogs.open({
+        title: 'Choose .novaapp',
+        filter: (name, isDir) => isDir || /\.(novaapp|json)$/i.test(name),
+      });
+      if (!picked) return;
+      pickedPackage = typeof picked.content === 'string' ? picked.content : picked.content.toString('utf8');
+      fileNameEl.textContent = picked.name;
+    });
     const urlInput = container.querySelector('#installUrlInput');
     const statusDiv = container.querySelector('#installStatus');
 
@@ -330,8 +347,8 @@ const MyAppsManager = (() => {
       try {
         let result;
 
-        if (fileInput.files && fileInput.files[0]) {
-          result = await installFromFile(fileInput.files[0]);
+        if (pickedPackage) {
+          result = await installFromFile(pickedPackage);
         } else if (urlInput.value) {
           result = await installFromUrl(urlInput.value);
         } else {
@@ -345,7 +362,8 @@ const MyAppsManager = (() => {
         `;
 
         // Clear inputs
-        fileInput.value = '';
+        pickedPackage = null;
+        fileNameEl.textContent = 'No file selected';
         urlInput.value = '';
       } catch (error) {
         statusDiv.innerHTML = `

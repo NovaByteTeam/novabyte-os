@@ -21,7 +21,6 @@ if (trayWifi) {
       document.getElementById('wifi-popup')?.remove();
     }, { once: true });
 
-    const online = navigator.onLine;
     const rect = trayWifi.getBoundingClientRect();
     popup.style.left = Math.max(0, rect.left - 80) + 'px';
 
@@ -32,13 +31,39 @@ if (trayWifi) {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;';
     const dot = document.createElement('span');
-    dot.style.color = online ? 'var(--text-success)' : 'var(--text-danger)';
-    dot.textContent = '●';
     const statusText = document.createElement('span');
-    statusText.textContent = online ? 'Connected to network' : 'No internet connection';
+    // navigator.onLine only means "an interface is up", which is true with the
+    // virtual cable unplugged. Ask NetworkManager for real connectivity.
+    const setState = (color, text) => {
+      dot.style.color = color;
+      statusText.textContent = text;
+    };
+    setState('var(--text-muted)', 'Checking network…');
     row.append(dot, statusText);
 
     popup.append(header, row);
+
+    const nm = window.NovaConnectivity;
+    if (nm && typeof nm.getStatus === 'function') {
+      nm.getStatus().then((status) => {
+        if (!status || !status.supported) {
+          const up = navigator.onLine;
+          setState(up ? 'var(--text-success)' : 'var(--text-danger)', up ? 'Connected to network' : 'No internet connection');
+        } else if (status.connectivity === 'full') {
+          setState('var(--text-success)', 'Connected to the internet');
+        } else if (status.connectivity === 'limited' || status.connectivity === 'portal') {
+          setState('var(--text-warning, orange)', 'Connected, but no internet access');
+        } else if (status.connectivity === 'unknown' && /^connected/.test(status.networkState)) {
+          // NM has no connectivity-check URI configured; trust the link state.
+          setState('var(--text-success)', 'Connected to network');
+        } else {
+          setState('var(--text-danger)', status.networkState === 'disconnected' ? 'Not connected (check the network cable/adapter)' : 'No internet connection');
+        }
+      }).catch(() => setState('var(--text-danger)', 'Network status unavailable'));
+    } else {
+      const up = navigator.onLine;
+      setState(up ? 'var(--text-success)' : 'var(--text-danger)', up ? 'Connected to network' : 'No internet connection');
+    }
   });
 }
 

@@ -791,9 +791,8 @@ const COMMANDS = {
     const existing = nodeFromArg(tab, name);
     if (existing) {
       if (existing.type === 'folder') return `touch: cannot touch '${name}': Is a directory`;
-      // The VFS has a write channel, but it intentionally does not expose a
-      // separate mtime mutation operation. Rewriting the same contents through
-      // vfs:write is the supported persistence path for a touched file.
+      // The file API has no separate mtime mutation operation. Rewriting the
+      // same contents through FS is the supported persistence path for touch.
       await FS.writeFile(existing.id, existing.content || '');
     } else {
       const slash = name.lastIndexOf('/');
@@ -1410,44 +1409,92 @@ function initLinuxTerminal(content, state) {
   content.replaceChildren(root);
   content.style.cssText = 'padding:0;height:100%;overflow:hidden;';
 
-  const shell = spawn('/bin/sh', ['-i'], {
-    cwd: os.homedir(),
-    env: { ...process.env, PS1: '' },
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-  const append = chunk => {
-    output.textContent += chunk.toString();
+  const MAX_LOG_CHARS = 200000;
+  const prefix = `${os.userInfo().username}@novabyte:$`;
+  const logNode = document.createTextNode('');
+  output.replaceChildren(logNode);
+
+  // Chunks are queued and flushed once per frame. Appending per chunk made
+  // chatty commands (find /, yes) freeze the window.
+  let pending = '';
+  let flushQueued = false;
+  const flush = () => {
+    flushQueued = false;
+    logNode.appendData(pending);
+    pending = '';
+    const excess = logNode.length - MAX_LOG_CHARS;
+    if (excess > 0) logNode.deleteData(0, excess);
     output.scrollTop = output.scrollHeight;
   };
-  shell.stdout.on('data', append);
-  shell.stderr.on('data', append);
-  shell.on('error', error => append(`\n[terminal error] ${error.message}\n`));
-  shell.on('close', code => append(`\n[Shell exited with status ${code ?? 'unknown'}]\n`));
-  output.textContent = [
-    `NovaByte Linux terminal — commands run as ${os.userInfo().username}.`,
-    'NBOSP is a Buildroot system: apt and sudo are not available in this guest.',
-    'Open VM Tools are already included. To add system packages, update the Buildroot configuration and rebuild the ISO.',
-    ''
-  ].join('\n');
+  const append = chunk => {
+    pending += chunk.toString();
+    if (!flushQueued) {
+      flushQueued = true;
+      requestAnimationFrame(flush);
+    }
+  };
+
+  let shell = null;
+  // detached puts the shell in its own process group so signals can reach
+  // whatever it is running. stdin is a pipe, not a tty, so writing \u0003
+  // to it never produced a SIGINT.
+  const startShell = () => {
+    const child = spawn('/bin/sh', ['-i'], {
+      cwd: os.homedir(),
+      env: { ...process.env, PS1: '' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true
+    });
+    child.stdout.on('data', append);
+    child.stderr.on('data', append);
+    // Writing to a dead shell raises EPIPE on stdin; swallow it, the exit
+    // handler already told the user.
+    child.stdin.on('error', () => {});
+    child.on('error', error => append(`\n[terminal error] ${error.message}\n`));
+    child.on('close', code => {
+      if (shell === child) shell = null;
+      append(`\n[Shell exited with status ${code ?? 'unknown'}. Press Enter to start a new one.]\n`);
+    });
+    shell = child;
+  };
+  const signalGroup = signal => {
+    if (!shell || !shell.pid) return;
+    try {
+      process.kill(-shell.pid, signal);
+    } catch {
+      // group already gone
+    }
+  };
+
+  startShell();
   input.addEventListener('keydown', event => {
     if (event.key === 'Enter') {
       const command = input.value;
-      if (!command.trim()) return;
-      append(`\n${os.userInfo().username}@novabyte:$ ${command}\n`);
+      if (!shell) {
+        startShell();
+        input.value = '';
+        if (!command.trim()) return;
+      } else if (!command.trim()) {
+        return;
+      }
+      append(`\n${prefix} ${command}\n`);
       shell.stdin.write(`${command}\n`);
       input.value = '';
     } else if (event.key === 'c' && event.ctrlKey) {
-      shell.stdin.write('\u0003');
+      event.preventDefault();
+      signalGroup('SIGINT');
       append('^C\n');
     } else if (event.ctrlKey && event.key.toLowerCase() === 'l') {
       event.preventDefault();
-      output.textContent = '';
+      logNode.data = '';
+      pending = '';
     }
   }, { signal: controller.signal });
   state.cleanups = Array.isArray(state.cleanups) ? state.cleanups : [];
   state.cleanups.push(() => {
     controller.abort();
-    shell.kill('SIGTERM');
+    // Interactive sh ignores SIGTERM, so SIGTERM leaked a shell per window.
+    signalGroup('SIGKILL');
   });
   requestAnimationFrame(() => input.focus());
 }

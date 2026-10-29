@@ -36,7 +36,6 @@ registerApp({
       { id: 'connectivity',    name: 'Connectivity',     icon: 'globe'         },
       { id: 'storage',         name: 'Storage',          icon: 'database'      },
       { id: 'privacy',         name: 'Privacy',          icon: 'lock'          },
-      { id: 'apps',            name: 'Apps',             icon: 'package'       },
       { id: 'root',            name: 'Root Access',      icon: 'shield'        },
       { id: 'default-apps',    name: 'Default Apps',     icon: 'default-apps'  },
       { id: 'about',           name: 'About',            icon: 'info'          }
@@ -102,7 +101,8 @@ registerApp({
     ];
 
     const PERM_LABELS = {
-      'vfs:access': 'Read and edit shared files', 'vfs:read': 'Read files', 'vfs:write': 'Write app data', 'vfs:delete': 'Delete files', 'vfs:metadata': 'File metadata',
+      'fs:access': 'Manage all files (special access)', 'fs:metadata': 'Read shared file metadata',
+      'fs:read:images': 'Read shared images', 'fs:read:video': 'Read shared videos', 'fs:read:audio': 'Read shared audio',
       'net:internal': 'Internal network', 'net:external': 'Public internet', 'net:websocket': 'Public WebSocket',
       'clipboard:read': 'Read clipboard', 'clipboard:write': 'Write clipboard',
       'mail:read': 'Read emails', 'mail:write': 'Compose emails', 'mail:send': 'Send emails', 'mail:delete': 'Delete emails',
@@ -111,6 +111,7 @@ registerApp({
       'device:camera': 'Camera', 'device:microphone': 'Microphone',
       'device:geolocation': 'Location', 'device:notifications': 'Notifications',
       'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps', 'system:app-launch': 'Launch apps',
+      'apps:communicate': 'Communicate with other apps',
       'system:background': 'Background tasks', 'system:background:live': 'Keep running in background', 'system:autostart': 'Start at launch',
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
@@ -594,7 +595,6 @@ registerApp({
         case 'storage':           renderStorage();         break;
         case 'shortcuts':         renderShortcuts();       break;
         case 'privacy':           renderPrivacy();         break;
-        case 'apps':              renderApps();            break;
         case 'root':              renderRootAccess();      break;
         case 'default-apps':      renderDefaultApps();     break;
         case 'desktop':           renderDesktop();         break;
@@ -816,7 +816,7 @@ registerApp({
       recoveryBtn.addEventListener('click', async () => {
         const confirmed = await showModal(
           'Boot to Recovery Environment',
-          'This will restart and show the recovery options screen.',
+          'This will restart the machine into the Linux recovery environment, where you can start in safe mode, clear caches, back up or restore data, or reset the system.',
           [{ label: 'Cancel' }, { label: 'Boot to Recovery', value: 'confirm', primary: true }]
         );
         if (!isAlive()) return;
@@ -1511,8 +1511,7 @@ registerApp({
           OS.settings.set('wallpaperId', wp.id);
           OS.settings.set('customWallpaper', null);
           window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
-          wallpaperInput.value = '';
-          for (let i = 0; i < wpCards.length; i++) {
+            for (let i = 0; i < wpCards.length; i++) {
             const on = i === idx;
             wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
             wpCards[i].style.boxShadow   = on ? '0 0 0 2px var(--window-bg), 0 0 8px var(--accent)' : 'none';
@@ -1540,39 +1539,35 @@ registerApp({
       const wallpaperRow = createEl('div', { className: 'nook-row', style: 'margin-top:16px;' });
       wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
 
-      const wallpaperInput = createEl('input', {
-        id: 'wallpaper-upload', name: 'wallpaper-upload', type: 'file', accept: 'image/*', style: { width: '200px' }
-      });
-      wallpaperInput.addEventListener('change', () => {
-        const file = wallpaperInput.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (!isAlive()) return;
-          const dataUrl = reader.result;
-          const desktop = document.getElementById('desktop');
-          if (desktop) {
-            desktop.style.backgroundImage    = 'url(' + dataUrl + ')';
-            desktop.style.backgroundSize     = 'cover';
-            desktop.style.backgroundPosition = 'center';
-            desktop.style.backgroundRepeat   = 'no-repeat';
-          }
-          OS.settings.set('customWallpaper', dataUrl);
-          OS.settings.set('wallpaperId', null);
-          window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
-          Notify.show({ title: 'Wallpaper Changed', body: 'Custom wallpaper applied', type: 'success', appName: 'Settings' });
-        };
-        reader.onerror = () => { devLog('FileReader error during wallpaper upload'); };
-        reader.readAsDataURL(file);
+      const wallpaperBtn = createEl('button', { className: 'btn btn-sm', id: 'wallpaper-upload', textContent: 'Choose Image…' });
+      wallpaperBtn.addEventListener('click', async () => {
+        const file = await SystemDialogs.open({
+          title: 'Choose Wallpaper',
+          filter: (name, isDir) => isDir || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name),
+        });
+        if (!file || !isAlive()) return;
+        const bytes = typeof file.content === 'string' ? Buffer.from(file.content, 'utf8') : Buffer.from(file.content);
+        const mime = file.mimeType && file.mimeType.startsWith('image/') ? file.mimeType : 'image/png';
+        const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
+        const desktop = document.getElementById('desktop');
+        if (desktop) {
+          desktop.style.backgroundImage    = 'url(' + dataUrl + ')';
+          desktop.style.backgroundSize     = 'cover';
+          desktop.style.backgroundPosition = 'center';
+          desktop.style.backgroundRepeat   = 'no-repeat';
+        }
+        OS.settings.set('customWallpaper', dataUrl);
+        OS.settings.set('wallpaperId', null);
+        window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
+        Notify.show({ title: 'Wallpaper Changed', body: 'Custom wallpaper applied', type: 'success', appName: 'Settings' });
       }, { signal: lifecycle.signal });
-      wallpaperRow.appendChild(wallpaperInput);
+      wallpaperRow.appendChild(wallpaperBtn);
 
       const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset to Default', style: { marginLeft: '8px' } });
       resetBtn.addEventListener('click', () => {
         OS.settings.set('customWallpaper', null);
         OS.settings.set('wallpaperId', 'stock-blue');
         window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
-        wallpaperInput.value = '';
         for (let i = 0; i < wpCards.length; i++) {
           const on = i === 0;
           wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -1949,6 +1944,12 @@ registerApp({
             const labelEl = createEl('div');
             labelEl.appendChild(createEl('div', { textContent: label, style: 'font-size:13px;color:var(--text-primary);font-weight:500;' }));
             labelEl.appendChild(createEl('div', { textContent: perm,  style: 'font-size:10px;color:var(--text-muted);font-family:monospace;' }));
+            if (cat?.specialAccess) {
+              labelEl.appendChild(createEl('div', {
+                textContent: 'Special access: enable or revoke here; apps cannot prompt for it.',
+                style: 'font-size:10px;color:var(--text-muted);margin-top:2px;',
+              }));
+            }
             left.append(riskBadge, labelEl);
             row.appendChild(left);
 
@@ -2334,72 +2335,70 @@ registerApp({
       exportActions.appendChild(exportBtn);
 
       const importBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Import Data' });
-      importBtn.addEventListener('click', () => {
-        const input = createEl('input', { type: 'file', accept: '.json', id: 'settings-import-input', name: 'settings-import', style: 'display:none' });
-        document.body.appendChild(input);
-        input.addEventListener('change', async () => {
-          const file = input.files[0];
-          input.remove();
-          if (!file) return;
-          try {
-            const text = await file.text();
-            const data = JSON.parse(text);
+      importBtn.addEventListener('click', async () => {
+        try {
+          const picked = await SystemDialogs.open({
+            title: 'Import Data',
+            startPath: (typeof os !== 'undefined' ? os.homedir() : null) || '/home/nbosp',
+            filter: (name, isDir) => isDir || name.endsWith('.json'),
+          });
+          if (!picked) return;
+          const text = typeof picked.content === 'string' ? picked.content : picked.content.toString('utf8');
+          const data = JSON.parse(text);
 
-            const writes = [];
-            const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
-            if (data.settings && typeof data.settings === 'object') {
-              for (const [k, v] of Object.entries(data.settings)) {
-                if (IMPORT_PROTECTED_SETTINGS.has(k)) {
-                  devLog('Skipping protected setting during import:', k);
-                  continue;
-                }
-                if (isLinux) {
-                  OS.settings.set(k, v);
-                } else {
-                  OS.settings._cache[k] = v;
-                  writes.push(OS.workers.fs.call('putSetting', k, v));
-                }
+          const writes = [];
+          const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
+          if (data.settings && typeof data.settings === 'object') {
+            for (const [k, v] of Object.entries(data.settings)) {
+              if (IMPORT_PROTECTED_SETTINGS.has(k)) {
+                devLog('Skipping protected setting during import:', k);
+                continue;
+              }
+              if (isLinux) {
+                OS.settings.set(k, v);
+              } else {
+                OS.settings._cache[k] = v;
+                writes.push(OS.workers.fs.call('putSetting', k, v));
               }
             }
-            if (Array.isArray(data.files) && data.files.length) {
-              writes.push(isLinux
-                ? FS.importNodes(data.files)
-                : OS.workers.fs.call('putFiles', data.files));
-            }
-
-            // Wait for every fs-backed write to actually land before reporting success
-            const results = await Promise.allSettled(writes);
-            if (!isAlive()) return;
-            const failed = results.some(r => r.status === 'rejected');
-
-            if (data.localStorage && typeof data.localStorage === 'object') {
-              for (const [k, v] of Object.entries(data.localStorage)) {
-                // Skip machine/session-specific keys that must never be
-                // restored from an untrusted file
-                if (IMPORT_PROTECTED_KEYS.has(k)) {
-                  devLog('Skipping protected key during import:', k);
-                  continue;
-                }
-                try { localStorage.setItem(k, v); } catch (err) { devLog('localStorage.setItem failed for', k, err); }
-              }
-            }
-
-            if (data.settings && typeof data.settings === 'object') {
-              OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
-            }
-
-            if (!isAlive()) return;
-            if (failed) {
-              Notify.show({ title: 'Import Incomplete', body: 'Some data could not be saved. Try again.', type: 'error', appName: 'Nook' });
-            } else {
-              Notify.show({ title: 'Data Imported', body: 'All data has been imported. Restart to apply fully.', type: 'success', appName: 'Nook' });
-            }
-          } catch (err) {
-            devLog('Import failed:', err);
-            Notify.show({ title: 'Import Failed', body: 'Invalid JSON file', type: 'error', appName: 'Nook' });
           }
-        }, { signal: lifecycle.signal });
-        input.click();
+          if (Array.isArray(data.files) && data.files.length) {
+            writes.push(isLinux
+              ? FS.importNodes(data.files)
+              : OS.workers.fs.call('putFiles', data.files));
+          }
+
+          // Wait for every fs-backed write to actually land before reporting success
+          const results = await Promise.allSettled(writes);
+          if (!isAlive()) return;
+          const failed = results.some(r => r.status === 'rejected');
+
+          if (data.localStorage && typeof data.localStorage === 'object') {
+            for (const [k, v] of Object.entries(data.localStorage)) {
+              // Skip machine/session-specific keys that must never be
+              // restored from an untrusted file
+              if (IMPORT_PROTECTED_KEYS.has(k)) {
+                devLog('Skipping protected key during import:', k);
+                continue;
+              }
+              try { localStorage.setItem(k, v); } catch (err) { devLog('localStorage.setItem failed for', k, err); }
+            }
+          }
+
+          if (data.settings && typeof data.settings === 'object') {
+            OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
+          }
+
+          if (!isAlive()) return;
+          if (failed) {
+            Notify.show({ title: 'Import Incomplete', body: 'Some data could not be saved. Try again.', type: 'error', appName: 'Nook' });
+          } else {
+            Notify.show({ title: 'Data Imported', body: 'All data has been imported. Restart to apply fully.', type: 'success', appName: 'Nook' });
+          }
+        } catch (err) {
+          devLog('Import failed:', err);
+          Notify.show({ title: 'Import Failed', body: 'Invalid JSON file', type: 'error', appName: 'Nook' });
+        }
       }, { signal: lifecycle.signal });
       exportActions.appendChild(importBtn);
       exportSection.appendChild(exportActions);

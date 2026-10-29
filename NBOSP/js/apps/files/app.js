@@ -107,6 +107,10 @@
     return EXT_TO_MIME[ext] || 'application/octet-stream';
   }
 
+  function isNovaPackage(name) {
+    return typeof name === 'string' && name.toLowerCase().endsWith('.novaapp');
+  }
+
   // HTML detection is case-insensitive so ".HTML" / ".Htm" also match.
   function isHtmlFile(node) {
     if (node?.type === 'folder') return false;
@@ -874,12 +878,9 @@
     // NW.js's native dialogs + Node's fs module directly instead of going
     // through the nova:download IPC bridge that sandboxed apps need.
     //
-    // Single file: a `nwsaveas` dialog, same as before — lets the user
-    // rename on the way out. nwsaveas delegates to the OS's own native
-    // save dialog, and every major desktop OS's native picker warns before
-    // overwriting an existing file by default — but that's the OS's
-    // behavior, not something this code verifies or controls.
-    // Multiple files: a single `nwdirectory` dialog picks one destination
+    // Single file: SystemDialogs' Save As — lets the user
+    // rename on the way out; we confirm before overwriting.
+    // Multiple files: a single SystemDialogs folder chooser picks one destination
     // folder, then every file is written into it. Before writing, the
     // destination folder is listed once (fs.readdir) so a name that
     // already exists there — or that collides with another file in this
@@ -954,66 +955,48 @@
       });
     }
 
-    // Shows NW.js's native folder-choose dialog (nwdirectory — distinct
-    // from nwsaveas). Resolves the chosen absolute path, or null if the
-    // user cancelled.
-    pickHostDirectory() {
-      return new Promise((resolve) => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.setAttribute('nwdirectory', '');
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        const finish = (path) => { input.remove(); resolve(path); };
-
-        input.addEventListener('change', () => finish(input.value || null), { once: true });
-        input.addEventListener('cancel', () => finish(null), { once: true });
-
-        input.click();
-      });
+    // Folder chooser via the in-shell SystemDialogs (no native OS dialog).
+    // Resolves the chosen absolute path, or null if the user cancelled.
+    async pickHostDirectory() {
+      const picked = await SystemDialogs.open({ title: 'Choose Destination Folder', directory: true });
+      return picked ? picked.path : null;
     }
 
-    // Exports a single file node via a native Save As dialog, resolving
+    // Exports a single file node through SystemDialogs' Save As, resolving
     // true on success, false on cancel/error. node.content is either a
     // string (text files) or a Uint8Array (binary files dropped in from
-    // the host) — Buffer.from handles both.
-    exportOneToHost(node) {
-      return new Promise((resolve) => {
-        let buffer;
-        try {
-          buffer = Buffer.from(node.content ?? '');
-        } catch (err) {
-          notifyError('Export failed', err);
-          resolve(false);
-          return;
-        }
+    // the host) — Buffer.from handles both. SystemDialogs doesn't prompt on
+    // overwrite, so the check lives here.
+    async exportOneToHost(node) {
+      let buffer;
+      try {
+        buffer = Buffer.from(node.content ?? '');
+      } catch (err) {
+        notifyError('Export failed', err);
+        return false;
+      }
 
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.setAttribute('nwsaveas', node.name || 'export');
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        const finish = (ok) => { input.remove(); resolve(ok); };
-
-        input.addEventListener('change', () => {
-          const savePath = input.value;
-          if (!savePath) { finish(false); return; }
-          require('fs').writeFile(savePath, buffer, (err) => {
-            if (err) {
-              notifyError('Export failed', err);
-              finish(false);
-            } else {
-              finish(true);
-            }
-          });
-        }, { once: true });
-
-        input.addEventListener('cancel', () => finish(false), { once: true });
-
-        input.click();
+      const dest = await SystemDialogs.save({
+        title: 'Export File',
+        suggestedName: node.name || 'export',
       });
+      if (!dest) return false;
+
+      const fs = require('fs');
+      if (fs.existsSync(dest.path)) {
+        const ok = await showModal('Replace file?', `${dest.name} already exists. Replace it?`, [
+          { label: 'Cancel', value: false },
+          { label: 'Replace', value: true, primary: true },
+        ]);
+        if (!ok) return false;
+      }
+      try {
+        await fs.promises.writeFile(dest.path, buffer);
+        return true;
+      } catch (err) {
+        notifyError('Export failed', err);
+        return false;
+      }
     }
 
     // Restore from trash: persist first, then update the UI. If persistence
@@ -1412,16 +1395,24 @@
           .filter(entry => !query || entry.name.toLocaleLowerCase().includes(query))
           .map(async entry => {
             const fullPath = this.path.join(this.currentPath, entry.name);
-            const stat = await this.fs.lstat(fullPath);
+            // A dead FUSE mount (/mnt/hgfs with shared folders off) lists fine
+            // but lstat()s with EIO. Keep the row instead of failing the folder.
+            let stat = null;
+            try {
+              stat = await this.fs.lstat(fullPath);
+            } catch (error) {
+              if (error.code !== 'EIO' && error.code !== 'ENOTCONN') throw error;
+            }
             return {
               name: entry.name,
               path: fullPath,
               isDirectory: entry.isDirectory(),
               isFile: entry.isFile(),
               isSymlink: entry.isSymbolicLink(),
-              executable: entry.isFile() && (stat.mode & 0o111) !== 0,
-              size: stat.size,
-              modified: stat.mtime.toLocaleString()
+              unavailable: stat === null,
+              executable: stat !== null && entry.isFile() && (stat.mode & 0o111) !== 0,
+              size: stat?.size ?? 0,
+              modified: stat ? stat.mtime.toLocaleString() : 'Unavailable'
             };
           }));
         if (version !== this.renderVersion) return;
@@ -1437,8 +1428,8 @@
           });
           row._entry = entry;
           row.append(
-            createEl('span', { textContent: `${entry.isDirectory ? '📁' : entry.executable ? '⚙' : '📄'}  ${entry.name}` }),
-            createEl('span', { textContent: entry.isDirectory ? 'Folder' : entry.executable ? 'Executable' : 'File', style: 'color:var(--text-secondary);' }),
+            createEl('span', { textContent: `${entry.isDirectory ? '📁' : isNovaPackage(entry.name) ? '📦' : entry.executable ? '⚙' : '📄'}  ${entry.name}` }),
+            createEl('span', { textContent: entry.isDirectory ? 'Folder' : isNovaPackage(entry.name) ? 'NovaByte Package' : entry.executable ? 'Executable' : 'File', style: 'color:var(--text-secondary);' }),
             createEl('span', { textContent: entry.modified, style: 'color:var(--text-muted);font-size:11px;' })
           );
           fragment.appendChild(row);
@@ -1462,6 +1453,10 @@
     openEntry(entry) {
       if (entry.isDirectory) {
         this.navigate(entry.path);
+      } else if (isNovaPackage(entry.name)) {
+        // Checked before the executable branch: these files often carry the
+        // exec bit, and double-clicking one must never spawn it as a program.
+        this.installPackage(entry.path);
       } else if (entry.name.toLowerCase().endsWith('.iso')) {
         this.browseIso(entry.path);
       } else if (/\.(?:txt|md|json|js|mjs|c|h|css|html|htm|log|conf|ini|sh)$/i.test(entry.name)) {
@@ -1477,6 +1472,8 @@
       const items = [];
       if (entry.isDirectory) {
         items.push({ label: 'Open folder', action: () => this.navigate(entry.path) });
+      } else if (isNovaPackage(entry.name)) {
+        items.push({ label: 'Install', disabled: entry.unavailable, action: () => this.installPackage(entry.path) });
       } else {
         items.push({ label: 'Open', action: () => this.openEntry(entry) });
         if (entry.name.toLowerCase().endsWith('.iso')) {
@@ -1488,6 +1485,14 @@
           action: () => this.runExecutable(entry.path)
         });
       }
+      if (!entry.isDirectory && /\.zip$/i.test(entry.name)) {
+        items.push({ label: 'Extract', disabled: entry.unavailable, action: () => this.extractZip(entry.path) });
+      }
+      items.push({ separator: true });
+      items.push(
+        { label: 'Copy as path', action: () => this.copyAsPath(entry) },
+        { label: 'Compress to zip', disabled: entry.unavailable, action: () => this.compressToZip(entry) }
+      );
       items.push({ separator: true });
       items.push(
         { label: 'Rename', action: () => this.renameEntry(entry) },
@@ -1518,6 +1523,130 @@
         await showModal(this.path.basename(filePath), data.toString('utf8'), [{ label: 'Close', primary: true }]);
       } catch (error) {
         Notify.show({ title: 'Cannot preview file', body: error.message, type: 'warning', appName: 'Files' });
+      }
+    }
+
+    async installPackage(filePath) {
+      const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
+      const appManagerId = 'com.nbosp.appmanager';
+      try {
+        const stat = await this.fs.stat(filePath);
+        if (!stat.isFile()) throw new Error('Only regular files can be installed.');
+        if (stat.size > MAX_PACKAGE_BYTES) throw new Error('This package is larger than 32 MiB.');
+        const data = await this.fs.readFile(filePath);
+        // App Manager only accepts a lowercase ".novaapp" suffix.
+        const name = this.path.basename(filePath).replace(/\.novaapp$/i, '.novaapp');
+        const file = new File([data], name, { type: 'application/octet-stream' });
+
+        // Same gate the window manager applies to a dropped file.
+        if (window.Scanner) {
+          const verdict = await window.Scanner.scan(file);
+          if (!verdict.safe) {
+            Notify.show({ title: 'File Blocked', body: verdict.reason, type: 'error', appName: 'Security' });
+            return;
+          }
+        }
+
+        // Hand off to App Manager so scanning, integrity and trust checks run
+        // exactly as they do for a drop. Reuse its window if one is open.
+        let managerWindow = [...(window.OS?.windows?.values() ?? [])].find(w => w.appId === appManagerId);
+        managerWindow ??= WM.createWindow(appManagerId);
+        if (!managerWindow) throw new Error('App Manager is not available.');
+
+        // App Manager's init() is async and only then exposes its install hook.
+        const deadline = Date.now() + 8000;
+        while (typeof managerWindow.content._novaAppProcessFile !== 'function') {
+          if (Date.now() > deadline) throw new Error('App Manager took too long to open.');
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        await managerWindow.content._novaAppProcessFile(file);
+      } catch (error) {
+        console.error('[Files] package install failed:', error);
+        Notify.show({ title: 'Cannot install package', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    // Right-clicking inside a multi-selection acts on the whole selection.
+    actionTargets(entry) {
+      return this.selectedPaths.has(entry.path) && this.selectedPaths.size > 1
+        ? [...this.selectedPaths]
+        : [entry.path];
+    }
+
+    async copyAsPath(entry) {
+      const paths = this.actionTargets(entry);
+      try {
+        await navigator.clipboard.writeText(paths.join('\n'));
+        Notify.show({
+          title: 'Copied as path',
+          body: paths.length === 1 ? paths[0] : `${paths.length} paths`,
+          type: 'info',
+          appName: 'Files'
+        });
+      } catch (error) {
+        Notify.show({ title: 'Could not copy path', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    // First free name next to the originals: "a.zip", "a (2).zip", ...
+    async uniquePath(dir, stem, ext) {
+      for (let n = 1; n < 1000; n++) {
+        const candidate = this.path.join(dir, n === 1 ? `${stem}${ext}` : `${stem} (${n})${ext}`);
+        try {
+          await this.fs.lstat(candidate);
+        } catch (error) {
+          if (error.code === 'ENOENT') return candidate;
+          throw error;
+        }
+      }
+      throw new Error(`Too many items named "${stem}" already exist here.`);
+    }
+
+    runBsdtar(args) {
+      return new Promise((resolve, reject) => {
+        this.childProcess.execFile('/usr/bin/bsdtar', args, {
+          timeout: 10 * 60 * 1000,
+          maxBuffer: 2 * 1024 * 1024
+        }, (error, stdout, stderr) => {
+          if (error) reject(new Error(String(stderr || '').trim() || error.message));
+          else resolve();
+        });
+      });
+    }
+
+    async compressToZip(entry) {
+      const paths = this.actionTargets(entry);
+      const dir = this.path.dirname(paths[0]);
+      const names = paths.map(p => this.path.basename(p));
+      let target = null;
+      try {
+        target = await this.uniquePath(dir, names.length === 1 ? names[0] : 'Archive', '.zip');
+        // "./" keeps a name that starts with "-" from being read as an option.
+        await this.runBsdtar(['--format', 'zip', '-cf', target, '-C', dir, ...names.map(name => `./${name}`)]);
+        await this.render();
+        Notify.show({ title: 'Compressed', body: this.path.basename(target), type: 'success', appName: 'Files' });
+      } catch (error) {
+        if (target) await this.fs.rm(target, { force: true }).catch(() => {});
+        console.error('[Files] compress failed:', error);
+        Notify.show({ title: 'Compress failed', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
+    async extractZip(zipPath) {
+      const dir = this.path.dirname(zipPath);
+      let dest = null;
+      try {
+        // Always into a new folder, never straight into the current one.
+        dest = await this.uniquePath(dir, this.path.basename(zipPath).replace(/\.zip$/i, ''), '');
+        await this.fs.mkdir(dest);
+        await this.runBsdtar(['-xf', zipPath, '-C', dest]);
+        await this.render();
+        Notify.show({ title: 'Extracted', body: this.path.basename(dest), type: 'success', appName: 'Files' });
+      } catch (error) {
+        // dest was created by this call, so it only ever holds a partial extract.
+        if (dest) await this.fs.rm(dest, { recursive: true, force: true }).catch(() => {});
+        console.error('[Files] extract failed:', error);
+        Notify.show({ title: 'Extract failed', body: error.message, type: 'error', appName: 'Files' });
       }
     }
 

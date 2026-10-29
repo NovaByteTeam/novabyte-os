@@ -295,19 +295,16 @@ registerApp({
       addFileBtn.addEventListener('click', () => addFileRow('', ''), { signal: ac.signal });
       fileBtnRow.appendChild(addFileBtn);
 
-      // Multi-file import — reads real files from disk via <input type=file
-      // multiple>, so a dev packaging more than one or two files doesn't
-      // have to hand-create a row and paste content for each. Uses
-      // webkitRelativePath when present (folder picker) to preserve
-      // subfolder structure, falling back to file.name for a flat
-      // multi-select. Text files only, matching what the file-row
-      // textareas can hold; binary files aren't representable here.
-      const importInput = createEl('input', { type: 'file', multiple: true, style: 'display:none;' });
+      // Multi-file import — reads real files from disk via SystemDialogs
+      // (multiple: true), so a dev packaging more than one or two files
+      // doesn't have to hand-create a row and paste content for each.
+      // Flat multi-select, file.name as the path. Text files only,
+      // matching what the file-row textareas can hold; binary files
+      // aren't representable here.
       const importBtn = createEl('button', { textContent: '📁 Import Files…', style: 'padding:5px 12px;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);border-radius:4px;cursor:pointer;font-size:11px;' });
-      importBtn.addEventListener('click', () => importInput.click(), { signal: ac.signal });
-      importInput.addEventListener('change', async () => {
-        const fileList = [...importInput.files];
-        if (!fileList.length) return;
+      importBtn.addEventListener('click', async () => {
+        const fileList = await SystemDialogs.open({ title: 'Import Files', multiple: true });
+        if (!fileList?.length) return;
         // Clear the single default placeholder row ('index.html') only if
         // it's still untouched, so importing doesn't silently discard a
         // file a dev already started editing by hand.
@@ -319,17 +316,14 @@ registerApp({
         }
         for (const file of fileList) {
           try {
-            const text = await file.text();
-            const relPath = file.webkitRelativePath || file.name;
-            addFileRow(relPath, text);
+            if (typeof file.content !== 'string') throw new Error('binary file — text only');
+            addFileRow(file.name, file.content);
           } catch (e) {
             addFileRow(file.name, `/* Could not read file: ${e.message} */`);
           }
         }
-        importInput.value = '';
       }, { signal: ac.signal });
       fileBtnRow.appendChild(importBtn);
-      fileBtnRow.appendChild(importInput);
       panel.appendChild(fileBtnRow);
 
       const signBtn = createEl('button', { textContent: 'Create & Sign Package', style: 'padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;' });

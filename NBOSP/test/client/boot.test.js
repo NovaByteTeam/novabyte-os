@@ -21,6 +21,23 @@ describe('Boot (js/core/core/boot.js)', () => {
     expect(window.Boot._dom.desktop).toBeDefined();
   });
 
+  it('marks the host runtime ready without relying on the sandboxed shell service', () => {
+    if (!window.Boot) { expect(true).toBe(true); return; }
+    const previousRuntime = window.__NB_RUNTIME;
+    try {
+      delete window.__NB_RUNTIME;
+      window.Boot._markRuntimeReady();
+      expect(window.__NB_RUNTIME).toEqual({ os: 'NovaByte', layer: 'nbosp', ready: true });
+
+      window.__NB_RUNTIME = { os: 'Test OS', ready: false };
+      window.Boot._markRuntimeReady();
+      expect(window.__NB_RUNTIME).toEqual({ os: 'Test OS', ready: true });
+    } finally {
+      if (previousRuntime === undefined) delete window.__NB_RUNTIME;
+      else window.__NB_RUNTIME = previousRuntime;
+    }
+  });
+
   it('_setupWatchdog returns an object with complete() that clears the timeout', () => {
     if (!window.Boot) { expect(true).toBe(true); return; }
     vi.useFakeTimers();

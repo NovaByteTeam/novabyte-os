@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ensureCerts } from '../../scripts/certs.js';
+import { seedCerts } from './helpers/seed-certs.js';
 
 describe('scripts/certs.js — kiosk localhost certificate handling', () => {
   let appDir;
@@ -18,9 +19,8 @@ describe('scripts/certs.js — kiosk localhost certificate handling', () => {
   it('preserves the localhost-only certificate exception while removing broad bypass flags', async () => {
     appDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nbosp-certs-'));
 
-    for (const file of ['ca.key', 'ca.crt', 'cert.key', 'cert.crt', 'ca.trusted']) {
-      await fs.writeFile(path.join(appDir, file), 'test');
-    }
+    await seedCerts(appDir);
+    await fs.writeFile(path.join(appDir, 'ca.trusted'), 'test');
 
     const manifestPath = path.join(appDir, 'package.json');
     await fs.writeFile(manifestPath, JSON.stringify({
@@ -44,5 +44,41 @@ describe('scripts/certs.js — kiosk localhost certificate handling', () => {
     expect(manifest.window['chromium-args']).toContain('--allow-insecure-localhost');
     expect(manifest.window['chromium-args']).not.toContain('--ignore-certificate-errors');
     expect(manifest.window['chromium-args']).not.toContain('--ignore-certificate-errors-spki-list');
+  });
+
+  // Regression: an interrupted write left empty/truncated PEMs that passed the
+  // old exists-and-recent check, so ssl.js crashed on every boot after.
+  it.each([
+    ['an empty cert.crt',          'cert.crt', ''],
+    ['a truncated cert.key',       'cert.key', '-----BEGIN PRIVATE KEY-----\nMIIE'],
+    ['a cert.crt with no PEM',     'cert.crt', 'test'],
+  ])('regenerates instead of reusing %s', async (_label, file, content) => {
+    appDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nbosp-certs-'));
+    await fs.writeFile(path.join(appDir, 'package.json'), JSON.stringify({ window: {} }));
+    await seedCerts(appDir);
+    await fs.writeFile(path.join(appDir, file), content);
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await ensureCerts(appDir, () => true);
+      expect(log).toHaveBeenCalledWith('[NovaByte] Generating CA and server certificate...');
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('keeps valid certs without regenerating', async () => {
+    appDir = await fs.mkdtemp(path.join(os.tmpdir(), 'nbosp-certs-'));
+    await fs.writeFile(path.join(appDir, 'package.json'), JSON.stringify({ window: {} }));
+    await seedCerts(appDir);
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await expect(ensureCerts(appDir, () => true)).resolves.toBe(true);
+      expect(log).not.toHaveBeenCalledWith('[NovaByte] Generating CA and server certificate...');
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

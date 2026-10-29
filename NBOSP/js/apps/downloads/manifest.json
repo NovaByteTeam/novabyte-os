@@ -5,7 +5,7 @@
   "author": "DirazCoder",
   "description": "View and manage files downloaded through NovaByte OS.",
   "entry": "index.html",
-  "unrestrictedEntry": "app.js",
+  "guestEntry": "app.js",
   "icon": "download",
   "type": "blank",
   "defaultSize": [

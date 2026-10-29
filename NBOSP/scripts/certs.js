@@ -29,16 +29,49 @@ function randomSerial() {
   return crypto.randomBytes(8).toString('hex');
 }
 
+// A hard reset mid-write leaves empty or truncated files that still "exist",
+// and ssl.js then dies with "PEM routines: no start line" on every boot.
+// Parse everything and check the pieces belong together.
+async function certFilesAreValid(paths) {
+  try {
+    const [caKeyPem, caCrtPem, keyPem, crtPem] = await Promise.all(
+      [paths.CA_KEY, paths.CA_CRT, paths.CERT_KEY, paths.CERT_CRT]
+        .map(f => fs.promises.readFile(f, 'utf8'))
+    );
+    const caCert     = new crypto.X509Certificate(caCrtPem);
+    const serverCert = new crypto.X509Certificate(crtPem);
+    return caCert.checkPrivateKey(crypto.createPrivateKey(caKeyPem))
+      && serverCert.checkPrivateKey(crypto.createPrivateKey(keyPem))
+      && serverCert.verify(caCert.publicKey);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function certsAreFresh(paths) {
   try {
     await Promise.all(
       [paths.CA_KEY, paths.CA_CRT, paths.CERT_KEY, paths.CERT_CRT].map(f => fs.promises.access(f))
     );
     const stat = await fs.promises.stat(paths.CERT_CRT);
-    return (Date.now() - stat.mtimeMs) < CERT_MAX_AGE_MS;
+    if ((Date.now() - stat.mtimeMs) >= CERT_MAX_AGE_MS) return false;
+    return await certFilesAreValid(paths);
   } catch (_) {
     return false;
   }
+}
+
+// temp file + rename, so a reset leaves the old file or the new one, never half of it
+async function writeFileAtomic(file, data, mode) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  const handle = await fs.promises.open(tmp, 'w', mode);
+  try {
+    await handle.writeFile(data, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await fs.promises.rename(tmp, file);
 }
 
 async function generateCerts() {
@@ -154,10 +187,10 @@ async function ensureCerts(appDir, trustInstaller = installCaTrust) {
       const { caCertPem, caKeyPem, serverCertPem, serverKeyPem } = await generateCerts();
 
       await Promise.all([
-        fs.promises.writeFile(paths.CA_CRT,   caCertPem,     { encoding: 'utf8', mode: 0o644 }),
-        fs.promises.writeFile(paths.CA_KEY,   caKeyPem,      { encoding: 'utf8', mode: 0o600 }),
-        fs.promises.writeFile(paths.CERT_CRT, serverCertPem, { encoding: 'utf8', mode: 0o644 }),
-        fs.promises.writeFile(paths.CERT_KEY, serverKeyPem,  { encoding: 'utf8', mode: 0o600 }),
+        writeFileAtomic(paths.CA_CRT,   caCertPem,     0o644),
+        writeFileAtomic(paths.CA_KEY,   caKeyPem,      0o600),
+        writeFileAtomic(paths.CERT_CRT, serverCertPem, 0o644),
+        writeFileAtomic(paths.CERT_KEY, serverKeyPem,  0o600),
       ]);
 
       try {

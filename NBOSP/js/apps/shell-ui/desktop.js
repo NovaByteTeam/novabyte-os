@@ -1219,7 +1219,7 @@ const AppDirs = {
         booted: new Date().toISOString()
       }, null, 2));
 
-      this.vfsFolders = {};
+      this.fsFolders = {};
 
       for (const pkg of Object.values(this.PACKAGES)) {
         const appNode     = await mkVDir(dataNode.id, pkg);
@@ -1228,7 +1228,7 @@ const AppDirs = {
         const dbNode      = await mkVDir(appNode.id, 'databases');
         const prefsNode   = await mkVDir(appNode.id, 'shared_prefs');
 
-        this.vfsFolders[pkg] = {
+        this.fsFolders[pkg] = {
           root: appNode.id, files: filesNode.id,
           cache: cacheNode.id, databases: dbNode.id, shared_prefs: prefsNode.id
         };
@@ -1247,7 +1247,7 @@ const AppDirs = {
       ]) {
         const legacyDir = FS.listDir(dataNode.id).find(node =>
           node.name === legacyPkg && node.type === 'folder');
-        const currentDirId = this.vfsFolders[currentPkg]?.root;
+        const currentDirId = this.fsFolders[currentPkg]?.root;
         if (legacyDir && currentDirId) {
           await mergeVDir(legacyDir.id, currentDirId);
           await FS.permanentDelete(legacyDir.id);
@@ -1275,7 +1275,7 @@ const AppDirs = {
       }
 
       // ── Migrate existing notes from Documents → com.nbosp.textedit/files/ ──
-      const textEditFilesId = this.vfsFolders['com.nbosp.textedit']?.files;
+      const textEditFilesId = this.fsFolders['com.nbosp.textedit']?.files;
       if (textEditFilesId && FS.specialFolders.documents) {
         const docsFiles = FS.listDir(FS.specialFolders.documents);
         for (const f of docsFiles) {
@@ -1289,10 +1289,10 @@ const AppDirs = {
       }
 
       // ── Sync real localStorage data into virtual FS databases/ ──
-      await this._syncAllToVFS(updateVFile);
+      await this._syncAllToFS(updateVFile);
 
       // ── Sync real settings into com.nbosp.settings/shared_prefs/prefs.json ──
-      const settingsPrefsId = this.vfsFolders['com.nbosp.settings']?.shared_prefs;
+      const settingsPrefsId = this.fsFolders['com.nbosp.settings']?.shared_prefs;
       if (settingsPrefsId) {
         await updateVFile(settingsPrefsId, 'prefs.json',
           JSON.stringify(OS.settings._cache, null, 2));
@@ -1312,7 +1312,7 @@ const AppDirs = {
     return created ? created.id : null;
   },
 
-  async _ensureVFSChild(parentId, name, type) {
+  async _ensureFSChild(parentId, name, type) {
     const existing = FS.listDir(parentId).find(f => f.name === name && f.type === type);
     if (existing) return existing;
     if (type === 'folder') return await FS.createFolder(parentId, name);
@@ -1350,13 +1350,13 @@ const AppDirs = {
 
     try {
       const dataNodeId = FS.specialFolders?.data || (await this._ensureDataNode());
-      const appNode = await this._ensureVFSChild(dataNodeId, pkg, 'folder');
-      const filesNode = await this._ensureVFSChild(appNode.id, 'files', 'folder');
-      const cacheNode = await this._ensureVFSChild(appNode.id, 'cache', 'folder');
-      const dbNode = await this._ensureVFSChild(appNode.id, 'databases', 'folder');
-      const prefsNode = await this._ensureVFSChild(appNode.id, 'shared_prefs', 'folder');
-      if (!this.vfsFolders) this.vfsFolders = {};
-      this.vfsFolders[pkg] = {
+      const appNode = await this._ensureFSChild(dataNodeId, pkg, 'folder');
+      const filesNode = await this._ensureFSChild(appNode.id, 'files', 'folder');
+      const cacheNode = await this._ensureFSChild(appNode.id, 'cache', 'folder');
+      const dbNode = await this._ensureFSChild(appNode.id, 'databases', 'folder');
+      const prefsNode = await this._ensureFSChild(appNode.id, 'shared_prefs', 'folder');
+      if (!this.fsFolders) this.fsFolders = {};
+      this.fsFolders[pkg] = {
         root: appNode.id,
         files: filesNode?.id,
         cache: cacheNode?.id,
@@ -1364,7 +1364,7 @@ const AppDirs = {
         shared_prefs: prefsNode?.id,
       };
     } catch (e) {
-      console.warn('[AppDirs] VFS ensure failed for', pkg, e);
+      console.warn('[AppDirs] filesystem ensure failed for', pkg, e);
     }
 
     return this._handles[pkg] || null;
@@ -1444,7 +1444,7 @@ const AppDirs = {
   },
 
   // Single source of truth for uninstall-time app data cleanup — deletes
-  // the app's /data/<appId> VFS folder (resolved via FS.getByPath, since
+  // the app's /data/<appId> filesystem folder (resolved via FS.getByPath, since
   // FS.specialFolders never has a 'data' entry — only desktop/documents/
   // downloads/music/pictures/videos/trash are registered there) plus the
   // OPFS-backed folder and any cached handles. All uninstall call sites
@@ -1457,14 +1457,14 @@ const AppDirs = {
       const fs = require('fs');
       fs.rmSync(this._linuxAppPath(this.PACKAGES[appId] || appId), { recursive: true, force: true });
       delete this._handles?.[this.PACKAGES[appId] || appId];
-      delete this.vfsFolders?.[this.PACKAGES[appId] || appId];
+      delete this.fsFolders?.[this.PACKAGES[appId] || appId];
       return;
     }
     if (typeof OPFS !== 'undefined' && OPFS.available && OPFS.root) {
       try { await OPFS.deletePath('data/' + appId, true); } catch { /* ignore */ }
     }
     delete this._handles?.[appId];
-    delete this.vfsFolders?.[appId];
+    delete this.fsFolders?.[appId];
     if (typeof FS === 'undefined') return;
     try {
       const dataNode = FS.getByPath('/data');
@@ -1552,11 +1552,11 @@ const AppDirs = {
     if (typeof process !== 'undefined' && process.platform === 'linux') {
       return this._linuxAppPath(pkg, subdir || '');
     }
-    if (this.vfsFolders?.[pkg]) return this.vfsFolders[pkg][subdir] ?? null;
+    if (this.fsFolders?.[pkg]) return this.fsFolders[pkg][subdir] ?? null;
     void this.ensureAppDataFolder(pkg);
     return null;
   },
-  getVFSDir(appIdOrPkg, subdir) {
+  getFSDir(appIdOrPkg, subdir) {
     return this.getAppDataPath(appIdOrPkg, subdir);
   },
 
@@ -1566,8 +1566,8 @@ const AppDirs = {
       this._writeNativeStorageKey(lsKey, value);
       return;
     }
-    if (!mapping || !this.vfsFolders) return;
-    const folderId = this.getVFSDir(mapping.pkg, mapping.subdir);
+    if (!mapping || !this.fsFolders) return;
+    const folderId = this.getFSDir(mapping.pkg, mapping.subdir);
     if (!folderId) return;
     const content = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
     try {
@@ -1577,11 +1577,11 @@ const AppDirs = {
     } catch { /* silent */ }
   },
 
-  async _syncAllToVFS(updateVFile) {
+  async _syncAllToFS(updateVFile) {
     for (const [lsKey, mapping] of Object.entries(this.LS_MAP)) {
       const raw = localStorage.getItem(lsKey);
       if (!raw) continue;
-      const folderId = this.getVFSDir(mapping.pkg, mapping.subdir);
+      const folderId = this.getFSDir(mapping.pkg, mapping.subdir);
       if (!folderId) continue;
       try {
         let content = raw;
@@ -1610,7 +1610,7 @@ const AppDirs = {
         await legacyData.removeEntry(pkg, { recursive: true });
       } catch { /* ignore */ }
       delete this._handles[pkg];
-      delete this.vfsFolders?.[pkg];
+      delete this.fsFolders?.[pkg];
       const appDir = await data.getDirectoryHandle(pkg, { create: true });
       const mkd = async (p, n) => { try { await p.getDirectoryHandle(n, { create: true }); } catch {} };
       await mkd(appDir, 'files');
@@ -1620,20 +1620,20 @@ const AppDirs = {
       this._handles[pkg] = appDir;
       try {
         const dataNodeId = FS.specialFolders?.data || (await this._ensureDataNode());
-        const appNode = await this._ensureVFSChild(dataNodeId, pkg, 'folder');
-        const filesNode = await this._ensureVFSChild(appNode.id, 'files', 'folder');
-        const cacheNode = await this._ensureVFSChild(appNode.id, 'cache', 'folder');
-        const dbNode = await this._ensureVFSChild(appNode.id, 'databases', 'folder');
-        const prefsNode = await this._ensureVFSChild(appNode.id, 'shared_prefs', 'folder');
-        if (!this.vfsFolders) this.vfsFolders = {};
-        this.vfsFolders[pkg] = {
+        const appNode = await this._ensureFSChild(dataNodeId, pkg, 'folder');
+        const filesNode = await this._ensureFSChild(appNode.id, 'files', 'folder');
+        const cacheNode = await this._ensureFSChild(appNode.id, 'cache', 'folder');
+        const dbNode = await this._ensureFSChild(appNode.id, 'databases', 'folder');
+        const prefsNode = await this._ensureFSChild(appNode.id, 'shared_prefs', 'folder');
+        if (!this.fsFolders) this.fsFolders = {};
+        this.fsFolders[pkg] = {
           root: appNode.id,
           files: filesNode?.id,
           cache: cacheNode?.id,
           databases: dbNode?.id,
           shared_prefs: prefsNode?.id,
         };
-      } catch { /* ignore VFS clear errors */ }
+      } catch { /* ignore filesystem clear errors */ }
       return true;
     } catch {
       return false;

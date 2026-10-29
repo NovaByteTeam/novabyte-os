@@ -382,17 +382,17 @@ async function boot() {
   const isManualRecovery = Storage.checkFlag(KEYS.MANUAL_REC) || Storage.checkFlag(KEYS.SHOW_REC);
   if (isManualRecovery || forceRecovery) {
     Storage.removeAll(KEYS.MANUAL_REC, KEYS.SHOW_REC, KEYS.FORCE);
-    showRecoveryScreen(forceRecovery ? Storage.get(KEYS.ATTEMPTS, []) : [], isManualRecovery && !forceRecovery);
+    requestSystemRecovery(forceRecovery ? 'boot_failure' : 'manual');
     watchdog.complete();
     return;
   }
 
   // 3. Attempt Tracking ────────────────────────────────────────────
   const priorAttempts = Storage.get(KEYS.ATTEMPTS, []);
-  const isSafeMode    = Storage.checkFlag(KEYS.SAFE_MODE);
+  const isSafeMode    = Storage.checkFlag(KEYS.SAFE_MODE) || consumeSafeModeFile();
 
   if (priorAttempts.length >= BOOT_THRESHOLD && !isSafeMode) {
-    showRecoveryScreen(priorAttempts, false);
+    requestSystemRecovery('repeated_boot_failure');
     watchdog.complete();
     return;
   }
@@ -407,7 +407,6 @@ async function boot() {
     Storage.removeAll(KEYS.ATTEMPTS, KEYS.FORCE);
     watchdog.complete();
     document.body.classList.add('os-booted');
-    document.getElementById('recovery-screen')?.classList.remove('active');
   }
 
   // 4. Safe Mode ───────────────────────────────────────────────────
@@ -461,7 +460,7 @@ async function boot() {
   for (const legacyId of ['com.nbosp.quill', 'com.nbosp.shell', 'com.nbosp.vault']) {
     try {
       if (typeof AppRegistry !== 'undefined' && AppRegistry.getApp?.(legacyId)) {
-        AppRegistry.unregisterApp(legacyId);
+        await AppRegistry.uninstallApp(legacyId, { force: true });
       }
     } catch (error) {
       console.warn('[BOOT] Failed to remove stale legacy app registration', legacyId, error);
@@ -576,11 +575,37 @@ async function startBundledLauncher() {
   window.updateTaskbar();
 }
 
+// A non-bundled Home app that hangs or crashes the page never lets boot reach
+// os-booted, and init.js answers that by restarting the machine into recovery.
+// Because the choice is persisted, it would do the same on every boot. So the
+// attempt is marked before launch and cleared after; a marker found at startup
+// means the last attempt never finished, and the default is reset.
+const HOME_PENDING_KEY = 'nova_home_launch_pending';
+const HOME_START_TIMEOUT_MS = 5000; // well under the 15s boot watchdog
+
+function launchWithTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} did not start within ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function startConfiguredHomeApp() {
   const bundledLauncherId = 'com.nbosp.launcher';
-  const selectedId = DefaultApps?.getDefault?.('home') || bundledLauncherId;
+  let selectedId = DefaultApps?.getDefault?.('home') || bundledLauncherId;
   const root = document.getElementById('launcher-root');
   if (!root) throw new Error('Launcher root is missing from the OS page');
+
+  const interruptedId = localStorage.getItem(HOME_PENDING_KEY);
+  if (interruptedId) {
+    console.error(`[BOOT] Home app "${interruptedId}" never finished starting last time; reverting to ${bundledLauncherId}`);
+    localStorage.removeItem(HOME_PENDING_KEY);
+    if (selectedId !== bundledLauncherId) {
+      DefaultApps.setDefault?.('home', null);
+      selectedId = bundledLauncherId;
+    }
+  }
 
   if (selectedId === bundledLauncherId) {
     window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
@@ -606,11 +631,19 @@ async function startConfiguredHomeApp() {
     } else {
       window.__NOVA_ACTIVE_HOME_APP_ID__ = selectedId;
       root.replaceChildren();
+      localStorage.setItem(HOME_PENDING_KEY, selectedId);
       try {
-        await AppSandbox.launchHome(app, root);
+        // launchRootApp resolves null on failure (after scheduling its own
+        // reload), so a falsy result has to count as a failed start.
+        const launched = await launchWithTimeout(AppSandbox.launchHome(app, root), HOME_START_TIMEOUT_MS, `Home app ${selectedId}`);
+        if (!launched) throw new Error('launchHome returned no surface');
+        localStorage.removeItem(HOME_PENDING_KEY);
       } catch (error) {
         console.error(`[BOOT] Failed to start selected Home app "${selectedId}"; falling back to ${bundledLauncherId}:`, error);
+        localStorage.removeItem(HOME_PENDING_KEY);
+        DefaultApps.setDefault?.('home', null);
         window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
+        root.replaceChildren();
         await startBundledLauncher();
       }
     }
@@ -652,8 +685,15 @@ async function startConfiguredHomeApp() {
       const isBundledSystem = stored.system === true && (stored.signer === 'NovaByte System' || stored.source === 'system-bundle' || stored.manifest?.system === true);
       if (!isBundledSystem) return;
       console.warn(`[BOOT] Removing stale bundled system app (${reason}):`, id);
-      try { if (store.removeApp) await store.removeApp(id, { force: true }); } catch (e) { console.warn('[BOOT] Failed removing stored package', id, e); }
-      try { if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) AppRegistry.unregisterApp(id); } catch (e) { console.warn('[BOOT] Failed unregistering', id, e); }
+      try {
+        if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+          await AppRegistry.uninstallApp(id, { force: true });
+        } else if (store.removeApp) {
+          await store.removeApp(id, { force: true });
+        }
+      } catch (e) {
+        console.warn('[BOOT] Failed removing stored package', id, e);
+      }
       registry = registry.filter(a => a.id !== id);
       store.saveRegistry(registry);
     };
@@ -1057,8 +1097,8 @@ async function startConfiguredHomeApp() {
       delete OS.apps[appId];
       const ri = APP_REGISTRY.findIndex(a => a.id === appId);
       if (ri > -1) APP_REGISTRY.splice(ri, 1);
-      if (typeof AppRegistry !== 'undefined' && AppRegistry.unregisterApp) {
-        AppRegistry.unregisterApp(appId);
+      if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+        await AppRegistry.uninstallApp(appId, { force: true });
       }
       if (window.NovaAppPackageStore?.removeApp) {
         await NovaAppPackageStore.removeApp(appId);
@@ -1200,7 +1240,7 @@ function triggerRecovery(reason) {
   });
 
   if (attempts.length >= 2) {
-    showRecoveryScreen(attempts, false);
+    requestSystemRecovery(reason);
     return true;
   }
   return false;
@@ -1224,291 +1264,28 @@ window.addEventListener('error', (e) => {
   triggerRecovery('syntax_error: ' + msg.slice(0, 100));
 });
 
-function showRecoveryScreen(priorAttempts, isManual) {
-  const bootScreen = document.getElementById('boot-screen');
-  if (bootScreen) bootScreen.style.display = 'none';
+// Recovery is the Linux environment (/usr/sbin/nbosp-recovery). init.js owns
+// the handoff (NovaRecovery.request) because it has to work even when this
+// file is the one that failed to parse; boot() only decides when to call it.
+const SAFE_MODE_FILE = '/home/nbosp/.config/novabyte/safe-mode';
 
-  const anim = document.createElement('div');
-  anim.id = 'recovery-boot-anim';
-  anim.innerHTML = `
-    <div class="rba-scanlines"></div>
-    <div class="rba-glow"></div>
-    <div class="rba-content">
-      <div class="rba-logo-wrap">
-        <div class="rba-logo-ring"></div>
-        <div class="rba-logo-ring-2"></div>
-        <div class="rba-logo-hex">
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-            <polygon points="18,3 33,10.5 33,25.5 18,33 3,25.5 3,10.5"
-              fill="none" stroke="#ff6b35" stroke-width="1.5" opacity="0.8"/>
-            <text x="18" y="23" text-anchor="middle" font-size="13"
-              font-weight="700" fill="#ffd700" font-family="monospace">NB</text>
-          </svg>
-        </div>
-      </div>
-      <div class="rba-title">NovaByte</div>
-      <div class="rba-subtitle">⚠ Recovery Mode</div>
-      <div class="rba-log" id="rba-log"></div>
-      <div class="rba-bar-wrap"><div class="rba-bar" id="rba-bar"></div></div>
-      <div class="rba-status" id="rba-status">Initializing recovery environment…</div>
-    </div>`;
-  document.body.appendChild(anim);
-
-  const rbaLog = document.getElementById('rba-log');
-  const rbaBar = document.getElementById('rba-bar');
-  const rbaStatus = document.getElementById('rba-status');
-  let step = 0;
-
-  const steps = isManual ? [
-    { msg: '[ RECOVERY MODE ]',                            cls: 'info', pct: 8,   label: 'Loading recovery kernel…'   },
-    { msg: '✓ Recovery environment loaded',                cls: 'ok',   pct: 22,  label: 'Mounting storage…'          },
-    { msg: '✓ localStorage integrity check…',              cls: 'ok',   pct: 38,  label: 'Checking data…'             },
-    { msg: 'Entering recovery — requested manually',       cls: 'info', pct: 60,  label: 'Preparing interface…'       },
-    { msg: '✓ Recovery UI ready',                          cls: 'ok',   pct: 88,  label: 'Almost ready…'              },
-    { msg: '✓ Handoff to Recovery Environment',            cls: 'info', pct: 100, label: 'Done.'                      },
-  ] : [
-    { msg: '[ RECOVERY MODE TRIGGERED ]',                 cls: 'warn', pct: 8,   label: 'Loading recovery kernel…'   },
-    { msg: '✓ Recovery environment loaded',                cls: 'ok',   pct: 22,  label: 'Mounting storage…'          },
-    { msg: '✓ localStorage integrity check…',              cls: 'ok',   pct: 38,  label: 'Checking data…'             },
-    { msg: '⚠ Boot failure detected — entering recovery',  cls: 'warn', pct: 60,  label: 'Preparing interface…'       },
-    { msg: '✓ Recovery UI ready',                          cls: 'ok',   pct: 88,  label: 'Almost ready…'              },
-    { msg: '✓ Handoff to Recovery Environment',            cls: 'info', pct: 100, label: 'Done.'                      },
-  ];
-
-  function runStep() {
-    if (step >= steps.length) {
-      setTimeout(() => {
-        anim.classList.add('fade-out');
-        setTimeout(() => { anim.remove(); }, 650);
-        _doShowRecoveryScreen(priorAttempts, isManual);
-      }, 300);
-      return;
-    }
-    const s = steps[step++];
-    rbaBar.style.width = s.pct + '%';
-    rbaStatus.textContent = s.label;
-    const line = document.createElement('div');
-    line.className = 'rba-log-line ' + (s.cls || '');
-    line.textContent = s.msg;
-    rbaLog.appendChild(line);
-    rbaLog.scrollTop = rbaLog.scrollHeight;
-    setTimeout(runStep, step === 1 ? 250 : 320);
+function requestSystemRecovery(reason) {
+  Storage.removeAll(KEYS.MANUAL_REC, KEYS.SHOW_REC, KEYS.FORCE, KEYS.ATTEMPTS);
+  if (!window.NovaRecovery) {
+    console.error('[BOOT] NovaRecovery missing; init.js did not load');
+    return;
   }
-  setTimeout(runStep, 180);
+  window.NovaRecovery.request(reason);
 }
 
-function _doShowRecoveryScreen(priorAttempts, isManual) {
-  const recoveryScreenEl = document.getElementById('recovery-screen');
-  if (!recoveryScreenEl) return;
-  recoveryScreenEl.classList.add('active');
-
-  // isManual is passed in explicitly from showRecoveryScreen() because boot.js
-  // has already cleared nova_manual_recovery / nova_show_recovery by the time
-  // this runs — re-reading those flags here always returned false, so the
-  // manual-recovery banner never actually applied.
-  isManual = !!isManual;
-
-  const attemptCountEl = document.getElementById('rec-attempt-count');
-  const attemptAlertEl = document.querySelector('.recovery-alert');
-  if (isManual && attemptAlertEl) {
-    attemptAlertEl.style.display = 'none';
-    if (attemptCountEl) attemptCountEl.textContent = '0';
-  } else if (attemptCountEl) {
-    attemptCountEl.textContent = String(priorAttempts.length);
-  }
-
-  const now = new Date();
-  const tsEl = document.getElementById('rec-timestamp');
-  if (tsEl) tsEl.textContent = now.toLocaleString();
-  const footerTimeEl = document.getElementById('rec-footer-time');
-  if (footerTimeEl) footerTimeEl.textContent = now.toLocaleTimeString();
-
-  // Cancel any leaked clock timer from a prior call before starting a new one.
-  if (_recoveryClockId) clearInterval(_recoveryClockId);
-  _recoveryClockId = setInterval(() => {
-    const el = document.getElementById('rec-footer-time');
-    if (!el) return;
-    el.textContent = new Date().toLocaleTimeString();
-  }, 1000);
-
-  // Diagnostics log.
-  const diagEl = document.getElementById('rec-diag-lines');
-  const log = (msg, cls = '') => {
-    if (!diagEl) return;
-    const line = document.createElement('div');
-    line.className = 'recovery-log-line' + (cls ? ' ' + cls : '');
-    line.textContent = msg;
-    diagEl.appendChild(line);
-  };
-
-  log('[ NovaByte Recovery Environment ]', 'info');
-  log('');
-  if (!isManual) {
-    log('Boot failure analysis:', 'warn');
-    priorAttempts.slice(-5).forEach((a, i) => {
-      log(`  Attempt ${i + 1}: ${new Date(a.ts).toLocaleTimeString()}`, 'err');
-    });
-    log('');
-  } else {
-    log('Recovery mode initialized (Manual boot)', 'info');
-    log('');
-  }
-
-  log('Scanning storage...', 'info');
-  try {
-    const lsKeys = Object.keys(localStorage);
-    log(`  localStorage: ${lsKeys.length} key(s) · ${new Blob([JSON.stringify(localStorage)]).size} bytes`, 'ok');
-    ['nova_settings', 'nova_boot_attempts'].forEach(k => {
-      const val = localStorage.getItem(k);
-      log(val ? `  ✓ ${k}: ${val.length} chars` : `  ✗ ${k}: not found`, val ? 'ok' : 'warn');
-    });
-  } catch (err) {
-    log('  ! localStorage read error: ' + err?.message, 'err');
-  }
-
-  log('');
-  const hasSettings = !!localStorage.getItem('nova_settings');
-  log(`  Settings key present: ${hasSettings ? 'YES' : 'NO'}`, hasSettings ? 'ok' : 'warn');
-  log('');
-  if (!isManual) {
-    log('Recommendation: Try "Continue" first.', 'info');
-    log('If it fails again, use Safe Mode or', 'info');
-    log('"Reset Settings" to restore stability.', 'info');
-  } else {
-    log('Select any recovery option as needed.', 'info');
-  }
-
-  // Countdown auto-boot.
-  let countdown = 15;
-  let countdownStopped = false;
-  const countdownEvents = ['click', 'keydown', 'pointerdown', 'mousemove'];
-  const cdownNum = document.getElementById('rec-cdown-num');
-  const cdownBar = document.getElementById('rec-cdown-bar');
-  const cdownBlock = document.getElementById('rec-countdown-block');
-
-  function stopCountdown(showCancelled = true) {
-    if (countdownStopped) return;
-    countdownStopped = true;
-    if (_recoveryCountdownId) {
-      clearInterval(_recoveryCountdownId);
-      _recoveryCountdownId = 0;
-    }
-    for (const eventName of countdownEvents) {
-      document.removeEventListener(eventName, stopCountdown, true);
-    }
-    if (window._cancelRecoveryAutoBoot === stopCountdown) {
-      delete window._cancelRecoveryAutoBoot;
-    }
-    if (cdownBlock) {
-      cdownBlock.style.opacity = '0.4';
-      if (showCancelled) {
-        const ctext = cdownBlock.querySelector('.recovery-countdown-text');
-        if (ctext) ctext.textContent = 'Auto-boot cancelled';
-      }
-    }
-    if (cdownBar) { cdownBar.style.transition = 'none'; cdownBar.style.width = '0%'; }
-  }
-
-  window._cancelRecoveryAutoBoot = stopCountdown;
-  wireRecoveryControls(recoveryScreenEl);
-  if (typeof initRecoveryUI === 'function') initRecoveryUI();
-
-  if (isManual) {
-    stopCountdown();
-  } else {
-    // Track at module scope so a second call to _doShowRecoveryScreen can't
-    // leave the previous countdown running.
-    if (_recoveryCountdownId) clearInterval(_recoveryCountdownId);
-    _recoveryCountdownId = setInterval(() => {
-      if (countdownStopped) { clearInterval(_recoveryCountdownId); _recoveryCountdownId = 0; return; }
-      countdown--;
-      if (cdownNum) cdownNum.textContent = String(countdown);
-      if (cdownBar) cdownBar.style.width = ((countdown / 15) * 100) + '%';
-      if (countdown <= 0) {
-        stopCountdown(false);
-        if (typeof recoveryAction === 'function') recoveryAction('continue');
-      }
-    }, 1000);
-
-    for (const eventName of countdownEvents) {
-      document.addEventListener(eventName, stopCountdown, true);
-    }
-  }
-}
-
-// Wires up click handling for the recovery screen. Accepts the screen element
-// explicitly — the original code used the bare identifier `screen` which
-// JavaScript resolved to window.screen (a Screen object, not a DOM element),
-// so screen.dataset was always undefined and screen.querySelectorAll threw.
-function wireRecoveryControls(screenEl) {
-  if (!screenEl || screenEl.dataset.recoveryWired === '1') return;
-  screenEl.dataset.recoveryWired = '1';
-
-  const ACTION_MAP = {
-    'continue': 'continue', 'boot': 'boot', 'boot normal': 'boot-normal',
-    'normal boot': 'boot-normal', 'safe mode': 'safemode', 'boot safe': 'boot-safe',
-    'boot to safe mode': 'boot-safe', 'minimal mode': 'boot-minimal',
-    'boot minimal': 'boot-minimal', 'boot recovery': 'boot-recovery',
-    'boot to recovery': 'boot-recovery', 'reset settings': 'reset-settings',
-    'clear cache': 'clear-cache', 'clear data': 'wipe-user-data',
-    'factory reset': 'factory', 'console': 'console', 'terminal': 'console',
-    'file manager': 'file-manager', 'settings editor': 'settings-editor',
-    'storage analyzer': 'storage-analyzer', 'event log': 'event-log', 'back': 'back'
-  };
-
-  // Functions that recovery buttons can invoke directly via data-action. Kept
-  // explicit so a stray data-action attribute can never reach eval, Function,
-  // or other dangerous globals — defense in depth even though the recovery
-  // UI HTML itself is trusted.
-  const GLOBAL_FN_ALLOWLIST = new Set([
-    'recoveryAction', 'recNav', 'recGoBack', 'initRecoveryUI',
-  ]);
-
-  function switchRecoveryTab(tabName) {
-    const tab = String(tabName || '').trim().toLowerCase();
-    if (!tab) return false;
-    screenEl.querySelectorAll('.recovery-tab').forEach(btn => {
-      const btnTab = (btn.dataset.tab || btn.dataset.switchtab || '').trim().toLowerCase();
-      btn.classList.toggle('active', btnTab === tab);
-      btn.setAttribute('aria-selected', String(btnTab === tab));
-    });
-    screenEl.querySelectorAll('.recovery-tab-panel').forEach(panel => {
-      const panelId = (panel.id || '').replace(/^tab-/, '').trim().toLowerCase();
-      panel.classList.toggle('active', panelId === tab);
-    });
-    return true;
-  }
-
-  screenEl.addEventListener('click', (e) => {
-    const t = e.target.closest(
-      'button,[role="button"],[data-fn],[data-action],[data-recovery-action],' +
-      '.recovery-tab,.recovery-option,.rec-btn,.rec-breadcrumb-item'
-    );
-    if (!t || !screenEl.contains(t)) return;
-
-    const dataAction = (t.dataset.recoveryAction || t.dataset.action || t.dataset.fn || '').trim();
-    const label = (t.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    const action = dataAction || ACTION_MAP[label] || ACTION_MAP[label.replace(/\s*\(.*?\)\s*$/g, '')];
-    const tabName = (t.dataset.tab || t.dataset.switchtab || '').trim().toLowerCase();
-
-    if (t.classList.contains('recovery-tab') && tabName) {
-      e.preventDefault(); e.stopPropagation(); switchRecoveryTab(tabName); return;
-    }
-    if (t.dataset.page && typeof recNav === 'function') {
-      e.preventDefault(); e.stopPropagation(); recNav(t.dataset.page); return;
-    }
-    if (dataAction && GLOBAL_FN_ALLOWLIST.has(dataAction) && typeof window[dataAction] === 'function') {
-      e.preventDefault(); e.stopPropagation();
-      window[dataAction](t.dataset.arg || t.dataset.value || t.dataset.page); return;
-    }
-    if (action === 'back' && typeof recGoBack === 'function') {
-      e.preventDefault(); e.stopPropagation(); recGoBack(); return;
-    }
-    if (action) {
-      e.preventDefault(); e.stopPropagation();
-      if (typeof recoveryAction === 'function') recoveryAction(action);
-    }
-  }, true);
+// recovery's "Start in safe mode" runs before the desktop exists, so all it
+// can do is leave a file behind. Fold it into the normal safe-mode flag here.
+function consumeSafeModeFile() {
+  if (!window.NovaRecovery?.isAvailable()) return false;
+  const fs = require('fs');
+  if (!fs.existsSync(SAFE_MODE_FILE)) return false;
+  try { fs.unlinkSync(SAFE_MODE_FILE); } catch { /* read-only profile: still honour it this boot */ }
+  return true;
 }
 
 // ── Global Exports ─────────────────────────────────────────────────

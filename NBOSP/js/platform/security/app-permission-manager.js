@@ -13,9 +13,11 @@ const AppPermissionManager = (() => {
   // Permission catalogue
 
   const PERMISSION_TYPES = Object.freeze({
-    FS_READ           : 'vfs:read',       FS_WRITE          : 'vfs:write',
-    FS_ACCESS         : 'vfs:access',
-    FS_DELETE         : 'vfs:delete',     FS_METADATA       : 'vfs:metadata',
+    FS_ACCESS         : 'fs:access',
+    FS_METADATA       : 'fs:metadata',
+    FS_READ_IMAGES    : 'fs:read:images',
+    FS_READ_VIDEO     : 'fs:read:video',
+    FS_READ_AUDIO     : 'fs:read:audio',
     NET_INTERNAL      : 'net:internal',   NET_EXTERNAL      : 'net:external',
     NET_WEBSOCKET     : 'net:websocket',
     MAIL_READ         : 'mail:read',      MAIL_WRITE        : 'mail:write',
@@ -28,15 +30,11 @@ const AppPermissionManager = (() => {
     DEVICE_GEOLOCATION: 'device:geolocation',
     DEVICE_CAMERA     : 'device:camera',
     DEVICE_MICROPHONE : 'device:microphone',
-    // Split from FS_READ (vfs:read) — clipboard is a shared, ambient,
-    // cross-app channel, not a file. See handleClipboardRead/Write in
-    // app-sandbox.js for the full rationale. vfs:read is kept as a fallback
-    // there for apps already granted it before this split, so an app can
-    // still function on either grant during the transition; new/re-consented
-    // apps should be prompted for these instead.
+    // Clipboard is a shared, ambient, cross-app channel, not a file.
     CLIPBOARD_READ    : 'clipboard:read',  CLIPBOARD_WRITE   : 'clipboard:write',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
     SYSTEM_APPS       : 'system:apps',    SYSTEM_APP_LAUNCH : 'system:app-launch',
+    APPS_COMMUNICATE  : 'apps:communicate',
     SYSTEM_ROOT       : 'system:root',
     SYSTEM_EVENTS     : 'system:events',
     // Background execution is split into two independent grants on purpose:
@@ -83,19 +81,12 @@ const AppPermissionManager = (() => {
   });
 
   const PERMISSION_CATEGORIES = Object.freeze({
-    // Renamed from fs:* — this is NovaByte's own OS-managed virtual
-    // filesystem (the Files app / vault, worker+IndexedDB-backed), never
-    // real Node fs/real host disk. "fs:*" read as raw Node fs access to
-    // anyone coming in fresh, which it never was; "vfs:*" says what it
-    // actually is. Real host-disk access, if built, is reserved for a
-    // future picker-mediated fs:* (single user-chosen file via native
-    // dialog, not free-roam path access) — a categorically different,
-    // much higher-risk capability that deliberately isn't this.
-    'vfs:access'        : { category: 'filesystem', risk: 'high',     label: 'Read and edit shared files' },
-    'vfs:read'          : { category: 'filesystem', risk: 'medium',   label: 'Read files' },
-    'vfs:write'         : { category: 'filesystem', risk: 'high',     label: 'Write files' },
-    'vfs:delete'        : { category: 'filesystem', risk: 'critical', label: 'Delete files' },
-    'vfs:metadata'      : { category: 'filesystem', risk: 'low',      label: 'File metadata' },
+    'fs:access'         : { category: 'filesystem', risk: 'critical', label: 'Manage all files', specialAccess: true },
+    'fs:metadata'       : { category: 'filesystem', risk: 'medium',   label: 'Read shared file metadata' },
+    'fs:read:images'    : { category: 'filesystem', risk: 'medium',   label: 'Read shared images' },
+    'fs:read:video'     : { category: 'filesystem', risk: 'medium',   label: 'Read shared videos' },
+    'fs:read:audio'     : { category: 'filesystem', risk: 'medium',   label: 'Read shared audio' },
+    'apps:communicate'  : { category: 'apps',       risk: 'high',     label: 'Communicate with other apps' },
     'net:internal'      : { category: 'network',    risk: 'high',     label: 'Internal network' },
     'net:external'      : { category: 'network',    risk: 'low',      label: 'Public internet access' },
     'net:websocket'     : { category: 'network',    risk: 'low',      label: 'Public WebSocket connections' },
@@ -113,12 +104,11 @@ const AppPermissionManager = (() => {
     'device:geolocation': { category: 'device',     risk: 'high',     label: 'Access location' },
     'device:camera'     : { category: 'device',     risk: 'critical', label: 'Access camera' },
     'device:microphone' : { category: 'device',     risk: 'critical', label: 'Access microphone' },
-    // 'high', matching mail:read/device:geolocation rather than vfs:read's
+    // 'high', matching mail:read/device:geolocation rather than filesystem
     // 'medium' — the clipboard is a shared, ambient, cross-app channel that
     // can contain whatever any other app (or the user) copied moments ago,
     // not scoped to this app's own data the way most 'medium' grants are.
-    // Split out from vfs:read; see handleClipboardRead/Write in
-    // app-sandbox.js for the full rationale.
+    // See handleClipboardRead/Write in app-sandbox.js for the full rationale.
     'clipboard:read'    : { category: 'device',     risk: 'high',     label: 'Read clipboard' },
     'clipboard:write'   : { category: 'device',     risk: 'low',      label: 'Write clipboard' },
     // 'medium', not 'low' — this gates both nova:system:info (OS version,
@@ -126,8 +116,8 @@ const AppPermissionManager = (() => {
     // SETTINGS_READABLE_KEYS allowlist (username, region, timezone,
     // devMode, browserPartitionId, and 24 other real settings values — see
     // app-sandbox.js). That's substantive personal/system data, not just
-    // inert metadata; closer in shape to vfs:read or calendar:read (both
-    // 'medium') than to vfs:metadata or device:notifications (both 'low',
+    // inert metadata; closer in shape to filesystem read or calendar:read (both
+    // 'medium') than to device:notifications (both 'low',
     // and genuinely lower-stakes: filenames only, or send-only with no
     // data exposure).
     'system:info'       : { category: 'system',     risk: 'medium',   label: 'System information' },
@@ -403,7 +393,7 @@ const AppPermissionManager = (() => {
   // the gate's own nova:system:* calls: a Settings app that manages every
   // other app's permissions "asking permission" to be a settings app is
   // incoherent. Every host-side isGranted() check (notifications, storage,
-  // events, vfs, system:info, system:apps, and the rest) passes for it, so
+  // events, filesystem, system:info, system:apps, and the rest) passes for it, so
   // it ships with an empty permissions array and never prompts at all.
   // Identity is re-checked live on every call - a revoked or tampered
   // package loses this immediately, exactly like the gate's call-time
@@ -508,6 +498,7 @@ const AppPermissionManager = (() => {
 
   async function requestPermission(permission, appId, options = {}) {
     assertValidAppId(appId);
+    if (PERMISSION_CATEGORIES[permission]?.specialAccess) return false;
     if (permission === PERMISSION_TYPES.SYSTEM_ROOT && !isRootModeEnabled()) return false;
     if (isGranted(permission, appId)) return true;
 
@@ -567,7 +558,9 @@ const AppPermissionManager = (() => {
 
     // Only skip permissions already granted — previously denied ones still
     // get a live re-prompt via requestPermission() below.
-    const pending = permissions.filter(p => !isGranted(p, appId));
+    const pending = permissions.filter(p =>
+      !PERMISSION_CATEGORIES[p]?.specialAccess && !isGranted(p, appId)
+    );
     if (!pending.length) return true;
 
     const resolvedName = appName
@@ -841,6 +834,10 @@ const AppPermissionManager = (() => {
   }
 
   function showPermissionDialog(opts) {
+    if (typeof document === 'undefined' || !document.body) {
+      console.warn(`[AppPermissionManager] Permission dialog unavailable for ${opts?.permission}; denying request`);
+      return Promise.resolve(false);
+    }
     return new Promise((resolve) => {
       const { permission, appName, riskLevel, reason, current, total } = opts;
       const riskColor = RISK_COLORS[riskLevel] ?? RISK_COLORS.low;

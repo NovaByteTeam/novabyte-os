@@ -1299,10 +1299,26 @@ registerApp({
         const installed = PackageStore?.hydrateApps ? await PackageStore.hydrateApps(list) : list;
         const services = window.SystemServiceLoader?.listLoadedServices?.() || [];
         const serviceIds = new Set(services.map(service => service.id));
-        return [
+        const apps = [
           ...installed.filter(app => !serviceIds.has(app.id) && !isManagedSystemPackage(app)),
           ...services,
         ];
+        const knownIds = new Set(apps.map(app => app.id));
+        for (const [id, entry] of Object.entries(OS.apps || {})) {
+          if (knownIds.has(id) || id.startsWith('wa_') || id.startsWith('webapp_') ||
+              entry?.headlessSystemService || entry?.manifest?.systemService === true) continue;
+          apps.push({
+            ...entry,
+            id,
+            source: 'system',
+            system: true,
+            builtin: true,
+            version: entry.version || entry.manifest?.version || 'System',
+            permissions: entry.permissions || entry.manifest?.permissions || [],
+            optionalPermissions: entry.optionalPermissions || entry.manifest?.optionalPermissions || [],
+          });
+        }
+        return apps;
       } catch (e) {
         console.warn('[AppManager] Failed to load installed packages:', e);
         return [];
@@ -1312,9 +1328,9 @@ registerApp({
     function saveStoredApps(list) {
       try {
         if (PackageStore?.saveRegistry) {
-          PackageStore.saveRegistry(list.filter(app => !isManagedSystemPackage(app)));
+          PackageStore.saveRegistry(list.filter(app => !app.builtin && !isManagedSystemPackage(app)));
         } else {
-          localStorage.setItem(APPS_KEY, JSON.stringify(list.filter(app => !isManagedSystemPackage(app))));
+          localStorage.setItem(APPS_KEY, JSON.stringify(list.filter(app => !app.builtin && !isManagedSystemPackage(app))));
         }
       } catch (e) {
         if (e.name === 'QuotaExceededError' || e.code === 22) {
@@ -1422,7 +1438,7 @@ registerApp({
 
     let installedApps = await getStoredApps();
     installedApps
-      .filter(app => !isManagedSystemPackage(app))
+      .filter(app => !app.builtin && !isManagedSystemPackage(app))
       .forEach(registerNovaApp);
 
     let lastInstalledSignature = computeInstalledSignature();
@@ -1453,7 +1469,7 @@ registerApp({
       const newById = new Map(fresh.map(a => [a.id, a]));
 
       for (const app of fresh) {
-        if (isManagedSystemPackage(app)) continue;
+        if (app.builtin || isManagedSystemPackage(app)) continue;
         const prev = oldById.get(app.id);
         if (!prev || prev.version !== app.version) {
           registerNovaApp(app);
@@ -1487,7 +1503,7 @@ registerApp({
     });
 
     const TABS = [
-      { id: 'packages', label: 'Packages', icon: 'package' },
+      { id: 'packages', label: 'Apps', icon: 'package' },
       { id: 'webapps', label: 'Web Apps', icon: 'globe' }
     ];
     const tabBtns = {};
@@ -1555,19 +1571,19 @@ registerApp({
       // ── Detail panel ───────────────────────────────────────────
       const detail = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
 
-      // Hidden file input
-      const fileInput = createEl('input', {
-        type: 'file', accept: '.novaapp', id: 'app-install-input', name: 'app-install', style: 'display:none;'
-      });
-      fileInput.multiple = true;
-      fileInput.addEventListener('change', async e => {
-        const files = Array.from(e.target.files || []);
-        fileInput.value = '';
+      // Package picker — SystemDialogs (multi-select), results wrapped as File
+      // objects so processFile/processFiles don't care where they came from.
+      installBtn.addEventListener('click', async () => {
+        const picked = await SystemDialogs.open({
+          title: 'Install .novaapp',
+          multiple: true,
+          filter: (name, isDir) => isDir || name.endsWith('.novaapp'),
+        });
+        if (!picked?.length) return;
+        const files = picked.map(f => new File([f.content], f.name, { type: f.mimeType }));
         if (files.length > 1) await processFiles(files);
-        else if (files.length === 1) await processFile(files[0]);
+        else await processFile(files[0]);
       }, listenerOpts);
-      root.appendChild(fileInput);
-      installBtn.addEventListener('click', () => fileInput.click(), listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
       // Developer tools, the built-in launcher, and headless services are
@@ -1820,6 +1836,257 @@ registerApp({
           return btn;
         }
 
+        function makeDetailDialog(title, description) {
+          const overlay = createEl('div', {
+            role: 'presentation',
+            style: 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.62);display:flex;align-items:center;justify-content:center;padding:24px;'
+          });
+          const dialog = createEl('section', {
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': title,
+            style: 'display:flex;flex-direction:column;width:min(620px,100%);max-height:85vh;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:14px;box-shadow:0 16px 56px rgba(0,0,0,0.55);overflow:hidden;'
+          });
+          const header = createEl('div', { style: 'display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 18px;border-bottom:1px solid var(--border-subtle);' });
+          const titleWrap = createEl('div');
+          titleWrap.appendChild(createEl('div', { textContent: title, style: 'font-size:16px;font-weight:700;color:var(--text-primary);' }));
+          if (description) {
+            titleWrap.appendChild(createEl('div', { textContent: description, style: 'font-size:12px;color:var(--text-muted);margin-top:4px;' }));
+          }
+          const closeBtn = createEl('button', {
+            type: 'button',
+            textContent: 'Close',
+            style: 'padding:5px 10px;background:transparent;border:1px solid var(--border-default);border-radius:7px;color:var(--text-secondary);cursor:pointer;font-size:12px;'
+          });
+          const close = () => overlay.remove();
+          closeBtn.addEventListener('click', close, listenerOpts);
+          overlay.addEventListener('click', event => { if (event.target === overlay) close(); }, listenerOpts);
+          header.append(titleWrap, closeBtn);
+          dialog.appendChild(header);
+          const dialogBody = createEl('div', { style: 'padding:16px 18px;overflow:auto;' });
+          dialog.appendChild(dialogBody);
+          overlay.appendChild(dialog);
+          detail.appendChild(overlay);
+          closeBtn.focus();
+          return { overlay, body: dialogBody };
+        }
+
+        function getEffectivePermissions() {
+          const manager = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
+          const permissionMap = window.AppPermissionsMap?.[app.id] || {};
+          const registered = OS.apps?.[app.id] || {};
+          const declarations = [
+            ...(Array.isArray(app.permissions) ? app.permissions : []),
+            ...(Array.isArray(app.optionalPermissions) ? app.optionalPermissions : []),
+            ...(Array.isArray(app.manifest?.permissions) ? app.manifest.permissions : []),
+            ...(Array.isArray(app.manifest?.optionalPermissions) ? app.manifest.optionalPermissions : []),
+            ...(Array.isArray(registered.permissions) ? registered.permissions : []),
+            ...(Array.isArray(registered.manifest?.permissions) ? registered.manifest.permissions : []),
+            ...(Array.isArray(permissionMap.normal) ? permissionMap.normal : []),
+            ...(Array.isArray(permissionMap.dangerous) ? permissionMap.dangerous : []),
+            ...(manager?.getAppPermissions(app.id) || []).map(grant => grant.permission),
+          ];
+          return [...new Set(declarations.filter(permission => typeof permission === 'string'))].sort();
+        }
+
+        function openPermissionsDialog() {
+          const manager = typeof AppPermissionManager !== 'undefined' ? AppPermissionManager : null;
+          const permissions = getEffectivePermissions();
+          const { body: dialogBody } = makeDetailDialog('Permissions', `Manage permissions for ${app.name}.`);
+          if (!manager) {
+            dialogBody.appendChild(createEl('div', {
+              textContent: 'The permission manager is unavailable.',
+              style: 'color:var(--text-warning);font-size:13px;'
+            }));
+            return;
+          }
+          if (!permissions.length) {
+            dialogBody.appendChild(createEl('div', {
+              textContent: 'This app has no declared or recorded permissions.',
+              style: 'color:var(--text-muted);font-size:13px;'
+            }));
+            return;
+          }
+
+          const rows = new Map();
+          const list = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;' });
+          function refreshPermission(permission) {
+            const row = rows.get(permission);
+            if (!row) return;
+            const granted = manager.isGranted(permission, app.id);
+            const denied = manager.isDenied(permission, app.id);
+            row.input.checked = granted;
+            row.input.setAttribute('aria-label', `${manager.PERMISSION_CATEGORIES[permission]?.label || permission} for ${app.name}`);
+            row.slider.style.background = granted ? 'var(--accent)' : denied ? 'rgba(248,81,73,0.3)' : 'var(--bg-sunken)';
+            row.knob.style.left = granted ? '20px' : '2px';
+          }
+
+          for (const permission of permissions) {
+            const metadata = manager.PERMISSION_CATEGORIES[permission];
+            const label = metadata?.label || permission;
+            const row = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 10px;background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:9px;' });
+            const text = createEl('div', { style: 'min-width:0;' });
+            text.appendChild(createEl('div', { textContent: label, style: 'font-size:12px;font-weight:600;color:var(--text-primary);' }));
+            text.appendChild(createEl('div', { textContent: permission, style: 'font-size:10px;color:var(--text-muted);font-family:monospace;margin-top:3px;overflow-wrap:anywhere;' }));
+            const toggle = createEl('label', { style: 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;' });
+            const input = createEl('input', { type: 'checkbox', style: 'opacity:0;position:absolute;inset:0;width:100%;height:100%;cursor:pointer;z-index:2;' });
+            const slider = createEl('span', { style: 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:var(--bg-sunken);border:1px solid var(--border-subtle);' });
+            const knob = createEl('span', { style: 'position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);' });
+            slider.appendChild(knob);
+            toggle.append(input, slider);
+            rows.set(permission, { input, slider, knob });
+            refreshPermission(permission);
+            input.addEventListener('change', async () => {
+              input.disabled = true;
+              try {
+                if (input.checked) {
+                  if (manager.isDenied(permission, app.id)) await manager.resetPermission(permission, app.id);
+                  if (permission === manager.PERMISSION_TYPES.SYSTEM_ROOT) {
+                    await manager.requestPermission(permission, app.id, {
+                      appName: app.name,
+                      reason: 'Allow this app to use NovaByte root-level capabilities.',
+                    });
+                  } else {
+                    await manager.grantPermission(permission, app.id, {
+                      permanent: true,
+                      reason: 'Manually granted via App Manager',
+                      grantedBy: 'user',
+                    });
+                  }
+                } else {
+                  await manager.revokePermission(permission, app.id);
+                }
+                refreshPermission(permission);
+              } catch (error) {
+                refreshPermission(permission);
+                Notify.show({ title: 'Permission Not Changed', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+              } finally {
+                input.disabled = false;
+              }
+            }, listenerOpts);
+            row.append(text, toggle);
+            list.appendChild(row);
+          }
+          dialogBody.appendChild(list);
+          const resetBtn = createEl('button', {
+            type: 'button',
+            textContent: 'Reset All Permissions',
+            style: 'margin-top:14px;padding:7px 12px;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;color:var(--text-secondary);cursor:pointer;font-size:12px;font-weight:600;'
+          });
+          resetBtn.addEventListener('click', async () => {
+            resetBtn.disabled = true;
+            try {
+              await Promise.all(permissions.map(permission => manager.resetPermission(permission, app.id)));
+              permissions.forEach(refreshPermission);
+              Notify.show({ title: 'Permissions Reset', body: `${app.name} will be asked again next launch.`, type: 'info', appName: 'App Manager' });
+            } catch (error) {
+              Notify.show({ title: 'Permissions Not Reset', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+            } finally {
+              resetBtn.disabled = false;
+            }
+          }, listenerOpts);
+          dialogBody.appendChild(resetBtn);
+        }
+
+        function openAppInfoDialog() {
+          const { body: dialogBody } = makeDetailDialog('App Info', app.name);
+          const files = app.files || app._files;
+          let packageBytes = 0;
+          if (files && typeof files === 'object') {
+            for (const value of Object.values(files)) {
+              if (typeof value !== 'string') continue;
+              const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+              packageBytes += Math.max(0, Math.floor(value.length * 3 / 4) - padding);
+            }
+          }
+          const formatBytes = bytes => {
+            if (!bytes) return app.size || 'Not available';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let amount = bytes;
+            let unit = 0;
+            while (amount >= 1024 && unit < units.length - 1) {
+              amount /= 1024;
+              unit++;
+            }
+            return `${amount.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+          };
+          const formatTime = value => {
+            if (!value) return 'Not available';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+          };
+          const sourceName = value => ({
+            store: 'App Store',
+            file: 'App Manager',
+            'app-manager': 'App Manager',
+            local: 'App Manager',
+            system: 'System',
+          }[value] || (typeof value === 'string' && value ? value : 'Not available'));
+          const details = [
+            ['App name', app.name || 'Not available'],
+            ['App version', app.version || 'Not available'],
+            ['Package ID', app.id],
+            ['Size', formatBytes(packageBytes)],
+            ['Installation source', sourceName(app.source || (app.system ? 'system' : null))],
+            ['Installed', formatTime(app.installedAt)],
+            ['Last update source', sourceName(app.lastUpdateSource)],
+            ['Last updated', formatTime(app.lastUpdatedAt)],
+            ['Developer', app.author || 'Not available'],
+            ['Description', app.description || 'Not available'],
+          ];
+          const list = createEl('dl', { style: 'display:grid;grid-template-columns:minmax(120px,0.8fr) minmax(0,1.5fr);gap:10px 16px;margin:0;' });
+          for (const [label, value] of details) {
+            list.append(
+              createEl('dt', { textContent: label, style: 'font-size:12px;color:var(--text-muted);' }),
+              createEl('dd', { textContent: String(value), style: 'font-size:12px;color:var(--text-primary);margin:0;overflow-wrap:anywhere;' })
+            );
+          }
+          dialogBody.appendChild(list);
+        }
+
+        async function forceStopApp({ notifyUser = true } = {}) {
+          if (app.id === APP_MANAGER_ID) return;
+          const windowIds = [...OS.windows.entries()]
+            .filter(([, state]) => state.appId === app.id)
+            .map(([windowId]) => windowId);
+          await Promise.all(windowIds.map(windowId => WM.closeWindow(windowId, { forceKill: true })));
+          const remainingSandboxes = window.AppSandbox?.getAllSandboxes?.()
+            .filter(sandbox => sandbox.appId === app.id) || [];
+          for (const sandbox of remainingSandboxes) {
+            window.AppSandbox.terminateBackground(sandbox.sandboxId);
+          }
+          if (notifyUser) {
+            Notify.show({ title: 'App Stopped', body: `${app.name} was force-stopped.`, type: 'success', appName: 'App Manager' });
+          }
+        }
+
+        async function clearAppData() {
+          if (app.id === APP_MANAGER_ID) return;
+          const result = await showModal(
+            'Clear App Data',
+            `This will permanently delete ${app.name}'s files, settings, and stored app data. The app will remain installed.`,
+            [{ label: 'Cancel' }, { label: 'Clear App Data', value: 'confirm', primary: true }]
+          );
+          if (result !== 'confirm') return;
+          await forceStopApp({ notifyUser: false });
+          if (!window.AppSandbox?.clearAppPartition || !window.AppSandbox?.storageClear) {
+            throw new Error('The app storage service is unavailable.');
+          }
+          await window.AppSandbox.clearAppPartition(app.id);
+          await window.AppSandbox.storageClear(app.id);
+          if (window.AppDirs?.clearAppData) {
+            const cleared = await window.AppDirs.clearAppData(app.id);
+            if (!cleared) throw new Error('The app files could not be cleared.');
+          } else if (window.AppDirs?.removeAppData) {
+            await window.AppDirs.removeAppData(app.id);
+            await window.AppDirs.ensureAppDataFolder?.(app.id);
+          }
+          for (const [storageKey, metadata] of Object.entries(window.AppDirs?.LS_MAP || {})) {
+            if (metadata.pkg === app.id) localStorage.removeItem(storageKey);
+          }
+          Notify.show({ title: 'App Data Cleared', body: `${app.name}'s data has been removed.`, type: 'success', appName: 'App Manager' });
+        }
+
         const managedService = isManagedSystemPackage(app);
         const launchBtn = makeActionBtn(
           managedService
@@ -1882,6 +2149,71 @@ registerApp({
             : 'background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);color:#f85149;',
           () => doUninstall(app.id)
         );
+        uninstBtn.disabled = app.system === true;
+        if (uninstBtn.disabled) uninstBtn.title = 'System apps cannot be uninstalled.';
+
+        const permissionsBtn = makeActionBtn(
+          'Permissions',
+          'shield',
+          'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
+          openPermissionsDialog
+        );
+        const appInfoBtn = makeActionBtn(
+          'App Info',
+          'info',
+          'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
+          openAppInfoDialog
+        );
+        const clearDataBtn = makeActionBtn(
+          'Clear App Data',
+          'trash',
+          'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:var(--text-warning);',
+          async () => {
+            try {
+              await clearAppData();
+            } catch (error) {
+              Notify.show({ title: 'Could Not Clear App Data', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+            }
+          }
+        );
+        const clearDefaultsBtn = makeActionBtn(
+          'Clear Defaults',
+          'refresh',
+          'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-secondary);',
+          () => {
+            if (typeof DefaultApps === 'undefined' || !DefaultApps.clearDefaultsForApp(app.id)) {
+              Notify.show({ title: 'Defaults Not Cleared', body: 'The default app settings could not be updated.', type: 'error', appName: 'App Manager' });
+              return;
+            }
+            Notify.show({ title: 'Defaults Cleared', body: `${app.name} is no longer a selected default app.`, type: 'success', appName: 'App Manager' });
+          }
+        );
+        const forceStopBtn = makeActionBtn(
+          'Force Stop',
+          'no-entry',
+          'background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);color:#f85149;',
+          async () => {
+            try {
+              await forceStopApp();
+            } catch (error) {
+              Notify.show({ title: 'Could Not Stop App', body: error?.message || String(error), type: 'error', appName: 'App Manager' });
+            }
+          }
+        );
+        if (app.id === APP_MANAGER_ID || managedService) {
+          clearDataBtn.disabled = true;
+          clearDataBtn.style.opacity = '0.5';
+          clearDataBtn.title = managedService
+            ? 'System-managed services do not have user app data.'
+            : 'App Manager cannot clear its own installation data.';
+        }
+        if (app.id === APP_MANAGER_ID || managedService) {
+          forceStopBtn.disabled = true;
+          forceStopBtn.style.opacity = '0.5';
+          forceStopBtn.title = managedService
+            ? 'System-managed services cannot be force-stopped here.'
+            : 'App Manager cannot force-stop itself.';
+        }
 
         const bootBtn = makeActionBtn(
           isBoot ? 'Starts at Boot' : 'Start at Boot',
@@ -1931,7 +2263,12 @@ registerApp({
 
         actionBar.append(
           launchBtn,
-          ...(managedService || app.id === 'com.nbosp.launcher' ? [] : [toggleBtn]),
+          permissionsBtn,
+          appInfoBtn,
+          clearDataBtn,
+          clearDefaultsBtn,
+          forceStopBtn,
+          ...(managedService || app.builtin || app.id === 'com.nbosp.launcher' ? [] : [toggleBtn]),
           ...(declaresAutostart ? [bootBtn] : []),
           uninstBtn
         );
@@ -1964,10 +2301,10 @@ registerApp({
           const row = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;' });
 
           function permStyle(p) {
-            if (['vfs:delete', 'admin:system'].includes(p)) {
+            if (['fs:access', 'admin:system'].includes(p)) {
               return 'background:rgba(248,81,73,0.12);border:1px solid rgba(248,81,73,0.35);color:#f85149;';
             }
-            if (['vfs:write', 'device:geolocation', 'system:settings'].includes(p)) {
+            if (['device:geolocation', 'system:settings'].includes(p)) {
               return 'background:rgba(210,153,34,0.12);border:1px solid rgba(210,153,34,0.35);color:#d29922;';
             }
             return 'background:var(--accent-muted);border:1px solid rgba(88,166,255,0.3);color:var(--accent);';
@@ -2141,6 +2478,10 @@ registerApp({
 
             // ── Handle replacement of existing install ──
             const idx = installedApps.findIndex(a => a.id === pkg.manifest.id);
+            const previousInstall = idx > -1 ? installedApps[idx] : null;
+            if (previousInstall?.builtin) {
+              throw new Error('System apps cannot be replaced by package installs.');
+            }
             if (idx > -1) {
               const replaceResult = await showModal(
                 'App Already Installed',
@@ -2177,8 +2518,10 @@ registerApp({
               verified,
               signer,
               system,
-              source: 'file',
-              installedAt: Date.now(),
+              source: previousInstall?.source || 'file',
+              installedAt: previousInstall?.installedAt || Date.now(),
+              lastUpdateSource: previousInstall ? 'file' : null,
+              lastUpdatedAt: previousInstall ? Date.now() : previousInstall?.lastUpdatedAt || null,
               revoked: result?.revoked || false,
               tampered: integrityFailed
             };
@@ -2529,10 +2872,6 @@ registerApp({
           });
           iconPreview.innerHTML = svgIcon('globe', 16);
 
-          const iconFileInp = createEl('input', {
-            type: 'file', accept: 'image/*', id: 'web-app-icon-input', name: 'web-app-icon',
-            style: 'display:none;'
-          });
           const iconPickBtn = createEl('button', {
             style: 'padding:7px 10px;background:var(--bg-sunken);border:1px solid var(--border-default);border-radius:8px;color:var(--text-primary);cursor:pointer;font-size:12px;'
           });
@@ -2591,20 +2930,22 @@ registerApp({
             img.src = objectUrl;
           }
 
-          iconPickBtn.addEventListener('click', () => iconFileInp.click(), listenerOpts);
-          iconFileInp.addEventListener('change', () => {
-            const file = iconFileInp.files && iconFileInp.files[0];
-            if (file) processIconFile(file);
+          iconPickBtn.addEventListener('click', async () => {
+            const picked = await SystemDialogs.open({
+              title: 'Choose Icon',
+              filter: (name, isDir) => isDir || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name),
+            });
+            if (!picked) return;
+            processIconFile(new File([picked.content], picked.name, { type: picked.mimeType }));
           }, listenerOpts);
           iconClearBtn.addEventListener('click', () => {
             customIconDataUrl = null;
-            iconFileInp.value = '';
             iconErrEl.textContent = '';
             iconPreview.innerHTML = svgIcon('globe', 16);
             iconClearBtn.style.display = 'none';
           }, listenerOpts);
 
-          iconRow.append(iconPreview, iconPickBtn, iconClearBtn, iconFileInp);
+          iconRow.append(iconPreview, iconPickBtn, iconClearBtn);
           wIcon.append(iconLabel, iconRow, iconErrEl);
 
           const errEl = createEl('div', { style: 'font-size:11px;color:var(--text-danger);min-height:14px;' });

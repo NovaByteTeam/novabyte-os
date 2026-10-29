@@ -28,9 +28,8 @@
  *
  *   NovaByte System
  *
- * The package signing payload is first hashed with SHA-512 using
- * Node's built-in crypto implementation, then the resulting digest
- * is signed using Ed25519.
+ * The package signing payload is signed using Ed25519, matching the
+ * runtime package verifier.
  *
  * IMPORTANT:
  *
@@ -255,33 +254,14 @@ function createSigningPayload(pkg) {
 }
 
 /**
- * SHA-512 hash of the canonical signing payload.
- */
-function hashSigningPayload(payload) {
-  return createHash('sha512')
-    .update(payload, 'utf8')
-    .digest();
-}
-
-/**
- * Signs the SHA-512 digest using Ed25519.
+ * Signs the canonical payload using Ed25519.
  */
 function signPackage(pkg, privateKey) {
   const payload = createSigningPayload(pkg);
-
-  const digest = hashSigningPayload(
-    payload
-  );
-
-  const signature = sign(
-    null,
-    digest,
-    privateKey
-  );
+  const signature = sign(null, Buffer.from(payload, 'utf8'), privateKey);
 
   return {
-    method: 'Ed25519',
-    hash: 'SHA-512',
+    method: 'ed25519',
     signer: DEFAULT_SIGNER,
     signature: signature.toString('hex'),
   };
@@ -319,12 +299,22 @@ async function updatePackageCacheKeys(builtPackages) {
   }
 
   let changed = false;
+  const manifestIds = new Set(manifest.map(bundle => bundle?.id));
   for (const bundle of manifest) {
     const cacheKey = builtPackages.get(bundle?.id);
     if (cacheKey && bundle.cacheKey !== cacheKey) {
       bundle.cacheKey = cacheKey;
       changed = true;
     }
+  }
+  for (const [id, cacheKey] of builtPackages) {
+    if (manifestIds.has(id)) continue;
+    manifest.push({
+      id,
+      file: `js/apps/${id}.novaapp`,
+      cacheKey,
+    });
+    changed = true;
   }
   if (changed) {
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -427,6 +417,7 @@ async function buildOne(
     return null;
   }
 
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const pkg = await packageApp(
     appDir
   );
@@ -445,6 +436,7 @@ async function buildOne(
     pkg,
     privateKey
   );
+  pkg.signature = pkg.signing.signature;
   pkg.integrity = computePackageIntegrity(pkg);
   const cacheKey = computePackageCacheKey(pkg);
 
@@ -519,7 +511,7 @@ async function main() {
   );
 
   console.log(
-    'Hash: SHA-512'
+    'Signature: Ed25519'
   );
 
   console.log(

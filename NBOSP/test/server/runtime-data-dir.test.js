@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { ensureEnv } from '../../scripts/env.js';
 import { ensureCerts } from '../../scripts/certs.js';
+import { seedCerts } from './helpers/seed-certs.js';
 
 describe('Linux runtime data directory', () => {
   let tempDir;
@@ -55,9 +56,8 @@ describe('Linux runtime data directory', () => {
     await fs.mkdir(appDir);
     await fs.mkdir(dataDir);
     await fs.writeFile(path.join(appDir, 'package.json'), JSON.stringify({ window: {} }));
-    for (const file of ['ca.key', 'ca.crt', 'cert.key', 'cert.crt', 'ca.trusted']) {
-      await fs.writeFile(path.join(dataDir, file), 'test');
-    }
+    await seedCerts(dataDir);
+    await fs.writeFile(path.join(dataDir, 'ca.trusted'), 'test');
     process.env.NBOSP_DATA_DIR = dataDir;
 
     await expect(ensureCerts(appDir, () => true)).resolves.toBe(true);

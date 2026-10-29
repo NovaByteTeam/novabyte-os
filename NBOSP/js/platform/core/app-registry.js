@@ -30,7 +30,8 @@ const AppRegistry = (() => {
   const _onUninstalled = [];
 
   const KNOWN_PERMISSIONS = new Set([
-    'vfs:access', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata',
+    'fs:access', 'fs:metadata', 'fs:read:images', 'fs:read:video', 'fs:read:audio',
+    'apps:communicate',
     'clipboard:read', 'clipboard:write',
     'net:internal', 'net:external', 'net:websocket',
     'mail:read', 'mail:write', 'mail:send', 'mail:delete',
@@ -378,6 +379,21 @@ const AppRegistry = (() => {
     return true;
   }
 
+  async function uninstallApp(appId, options = {}) {
+    const app = installedApps.get(appId);
+    if (!app) return false;
+    if (app.system === true && options.force !== true) {
+      throw new Error(`System app ${appId} cannot be uninstalled`);
+    }
+    if (typeof window.NovaAppPackageStore?.removeApp === 'function') {
+      const removed = await window.NovaAppPackageStore.removeApp(app, {
+        force: options.force === true,
+      });
+      if (!removed) throw new Error(`Package storage refused to remove ${appId}`);
+    }
+    return unregisterApp(appId);
+  }
+
   // ── Launch ─────────────────────────────────────────────────────────────────
 
   /**
@@ -421,7 +437,11 @@ const AppRegistry = (() => {
       && OS.settings.get('rootAccessEnabled') === true;
     if (mgr && declaredPermissions.length > 0) {
       if (app.autoGrant) {
-        const missing = requiredPermissions.filter(p => p !== 'system:root' && !mgr.isGranted(p, appId));
+        const missing = requiredPermissions.filter(p =>
+          p !== 'system:root'
+          && !mgr.PERMISSION_CATEGORIES?.[p]?.specialAccess
+          && !mgr.isGranted(p, appId)
+        );
         for (const p of missing) {
           await mgr.grantPermission(p, appId, { permanent: true, reason: 'Auto-granted for developer tool', grantedBy: 'system' });
         }
@@ -435,6 +455,7 @@ const AppRegistry = (() => {
 
         const requiredSensitive = requiredPermissions.filter(permission =>
           mgr.PERMISSION_CATEGORIES?.[permission]?.risk !== 'low'
+          && !mgr.PERMISSION_CATEGORIES?.[permission]?.specialAccess
           && (permission !== 'system:root' || rootModeAvailable)
         );
         const missing = requiredSensitive.filter(permission =>
@@ -540,7 +561,7 @@ const AppRegistry = (() => {
   function onUninstall(cb) { if (typeof cb === 'function') _onUninstalled.push(cb); }
 
   return {
-    initialize, registerApp, unregisterApp, launchApp, updateApp,
+    initialize, registerApp, unregisterApp, uninstallApp, launchApp, updateApp,
     getApp, getAllApps, getAppsByCategory, checkPermissions,
     onInstall, onUninstall, getStats,
   };

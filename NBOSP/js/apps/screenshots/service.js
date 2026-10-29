@@ -1,7 +1,7 @@
 'use strict';
 
 // Strips the `data:<mime>;base64,` wrapper so only the raw base64 payload is
-// stored — matches the VFS convention used for dropped/uploaded binary files
+// stored — matches the convention used for dropped/uploaded binary files
 // (see extractBase64FromDataUrl in the desktop drop handler) and what apps
 // like Gallery expect to decode.
 function _dataUrlToBase64(dataUrl) {

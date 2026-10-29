@@ -349,7 +349,7 @@ describe('SystemServiceLoader', () => {
     });
   });
 
-  it('routes to built-in recovery instead of booting after a required package fails', async () => {
+  it('routes to recovery instead of booting after a required package fails', async () => {
     const { context, started, boot } = createLoaderContext({
       missingPackage: 'com.example.first',
       services: [

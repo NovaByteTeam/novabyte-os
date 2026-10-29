@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import AppSandbox from '../../js/platform/security/app-sandbox.js';
 
 describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
-  it('preserves Unicode in host-to-app VFS responses', () => {
+  it('preserves Unicode in host-to-app filesystem responses', () => {
     const guestWindow = {};
     const webview = {
       executeScript: ({ code }, callback) => {
@@ -73,6 +73,119 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         expect.objectContaining({ homeSurface: true }),
         { homeSurface: true }
       );
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+
+  it('runs a trusted system Home app in the host after the unrestricted gate approves it', async () => {
+    AppSandbox._internal._resetState();
+    const init = vi.fn();
+    const app = {
+      id: 'com.nbosp.trusted-home',
+      name: 'Trusted Home',
+      system: true,
+      verified: true,
+      signer: 'NovaByte System',
+      source: 'system-bundle',
+      integrity: { method: 'sha256', payloadHash: 'verified-integrity' },
+      manifest: { id: 'com.nbosp.trusted-home', system: true },
+      unrestrictedEntry: 'home.js',
+      entry: 'index.html',
+      files: {
+        'home.js': Buffer.from('// trusted Home entry').toString('base64'),
+        'index.html': Buffer.from('<!doctype html><body>Home</body>').toString('base64'),
+      },
+    };
+    const container = { innerHTML: '', style: {}, replaceChildren: vi.fn(), appendChild: vi.fn() };
+    const appendedScripts = [];
+    vi.stubGlobal('DefaultApps', {
+      getAppsForCategory: () => [{ id: app.id }],
+    });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('UnrestrictedGate', {
+      checkUnrestrictedApp: vi.fn(async () => ({ allowed: true })),
+    });
+    vi.stubGlobal('OS', {
+      apps: { [app.id]: { init } },
+      settings: { get: () => false },
+    });
+    vi.stubGlobal('document', {
+      createElement: () => ({ dataset: {}, textContent: '', type: '' }),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { appendChild: script => appendedScripts.push(script) },
+    });
+
+    try {
+      const result = await AppSandbox.launchHome(app, container);
+
+      expect(result).toMatchObject({
+        success: true,
+        unrestricted: true,
+        hostRendered: true,
+        appId: app.id,
+      });
+      expect(result.webview).toBeNull();
+      expect(UnrestrictedGate.checkUnrestrictedApp).toHaveBeenCalledWith(app);
+      expect(appendedScripts).toHaveLength(1);
+      expect(init).toHaveBeenCalledWith(
+        container,
+        expect.objectContaining({ homeSurface: true }),
+        { homeSurface: true }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+
+  it('runs an approved first-party system package in the host launch path', async () => {
+    AppSandbox._internal._resetState();
+    const init = vi.fn();
+    const app = {
+      id: 'com.nbosp.trusted-package',
+      name: 'Trusted Package',
+      system: true,
+      verified: true,
+      signer: 'NovaByte System',
+      source: 'system-bundle',
+      integrity: { method: 'sha256', payloadHash: 'verified-integrity' },
+      manifest: { id: 'com.nbosp.trusted-package', system: true },
+      unrestrictedEntry: 'app.js',
+      files: { 'app.js': Buffer.from('// trusted app entry').toString('base64') },
+    };
+    const container = { innerHTML: '', style: {} };
+    const appendedScripts = [];
+    vi.stubGlobal('OS', {
+      apps: { [app.id]: { init } },
+      settings: { get: () => false },
+    });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('UnrestrictedGate', {
+      checkUnrestrictedApp: vi.fn(async () => ({ allowed: true })),
+    });
+    vi.stubGlobal('document', {
+      createElement: () => ({ dataset: {}, textContent: '', type: '' }),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { appendChild: script => appendedScripts.push(script) },
+    });
+
+    try {
+      const result = await AppSandbox.launch(app, container, {}, {});
+
+      expect(result).toMatchObject({
+        success: true,
+        unrestricted: true,
+        hostRendered: true,
+        appId: app.id,
+      });
+      expect(result.webview).toBeNull();
+      expect(UnrestrictedGate.checkUnrestrictedApp).toHaveBeenCalledWith(app);
+      expect(appendedScripts).toHaveLength(1);
+      expect(init).toHaveBeenCalledWith(container, {}, {});
     } finally {
       vi.unstubAllGlobals();
       AppSandbox._internal._resetState();
@@ -224,6 +337,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
   it('limits Home app listing to Settings and App Manager without system:apps', async () => {
     const responses = [];
     vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('window', { confirm: vi.fn(() => true) });
     vi.stubGlobal('APP_REGISTRY', [
       { id: 'com.nbosp.settings', name: 'Settings', icon: 'settings' },
       { id: 'com.nbosp.appmanager', name: 'App Manager', icon: 'apps' },
@@ -366,15 +480,15 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       const webview = { __directResponder: message => responses.push(message) };
       const sandbox = { openFile: { id: selected.id, node: selected } };
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:read', { id: selected.id }, 'selected-read',
+        'nova:fs:read', { id: selected.id }, 'selected-read',
         { id: 'com.example.editor' }, webview, sandbox
       );
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:write', { id: selected.id, content: 'updated' }, 'selected-write',
+        'nova:fs:write', { id: selected.id, content: 'updated' }, 'selected-write',
         { id: 'com.example.editor' }, webview, sandbox
       );
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:read', { id: other.id }, 'other-read',
+        'nova:fs:read', { id: other.id }, 'other-read',
         { id: 'com.example.editor' }, webview, sandbox
       );
     } finally {
@@ -412,6 +526,194 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
 
     expect(createWindow).toHaveBeenCalledWith('com.example.viewer', {});
     expect(responses[0].result.success).toBe(true);
+  });
+
+  it('brokers declared service and content-provider calls between active, authorized apps', async () => {
+    const callerResponses = [];
+    const targetResponses = [];
+    const endpoint = 'provider:com.example.contacts.lookup';
+    const targetSandboxId = 'ipc-target-sandbox';
+    const targetWebview = {
+      dataset: { sandboxId: targetSandboxId },
+      __directResponder: message => targetResponses.push(message),
+    };
+    const targetSandbox = {
+      appId: 'com.example.contacts',
+      webview: targetWebview,
+      appIpcEndpoints: new Set([endpoint]),
+    };
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: (permission, appId) =>
+        permission === 'apps:communicate'
+        && ['com.example.client', 'com.example.contacts'].includes(appId),
+    });
+    vi.stubGlobal('OS', {
+      apps: {
+        'com.example.contacts': {
+          manifest: { ipc: { exports: [endpoint] } },
+        },
+      },
+    });
+    AppSandbox._internal._activeSandboxes.set(targetSandboxId, targetSandbox);
+
+    try {
+      const invoke = AppSandbox._internal.handleAPICall(
+        'nova:ipc:invoke',
+        {
+          targetAppId: 'com.example.contacts',
+          endpoint,
+          data: { query: 'Ada' },
+        },
+        'provider-call',
+        { id: 'com.example.client' },
+        {
+          dataset: { sandboxId: 'ipc-caller-sandbox' },
+          __directResponder: message => callerResponses.push(message),
+        },
+        {}
+      );
+
+      expect(targetResponses[0]).toMatchObject({
+        type: 'nova:ipc:request:response',
+        result: {
+          endpoint,
+          sourceAppId: 'com.example.client',
+          data: { query: 'Ada' },
+        },
+      });
+
+      await AppSandbox._internal.handleAPICall(
+        'nova:ipc:reply',
+        { callId: targetResponses[0].requestId, result: { id: 'contact-1' } },
+        'provider-reply',
+        { id: 'com.example.contacts' },
+        targetWebview,
+        targetSandbox
+      );
+      await invoke;
+    } finally {
+      AppSandbox._internal._activeSandboxes.delete(targetSandboxId);
+      vi.unstubAllGlobals();
+    }
+
+    expect(callerResponses[0].result).toEqual({ result: { id: 'contact-1' } });
+  });
+
+  it('requires exported endpoints and receiver actions to be declared before registration', async () => {
+    const responses = [];
+    const sandboxId = 'ipc-manifest-sandbox';
+    const sandbox = {
+      appId: 'com.example.provider',
+      webview: { dataset: { sandboxId } },
+      appIpcEndpoints: new Set(),
+      ipcBroadcastActions: new Set(),
+    };
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => true });
+    vi.stubGlobal('OS', {
+      apps: {
+        'com.example.provider': {
+          manifest: {
+            ipc: {
+              exports: ['service:com.example.provider.status'],
+              receives: ['com.example.provider.refresh'],
+            },
+          },
+        },
+      },
+    });
+    AppSandbox._internal._activeSandboxes.set(sandboxId, sandbox);
+
+    try {
+      const webview = {
+        dataset: { sandboxId },
+        __directResponder: message => responses.push(message),
+      };
+      await AppSandbox._internal.handleAPICall(
+        'nova:ipc:register',
+        { endpoint: 'service:com.example.provider.status' },
+        'register-declared-endpoint',
+        { id: sandbox.appId },
+        webview,
+        sandbox
+      );
+      await AppSandbox._internal.handleAPICall(
+        'nova:ipc:register',
+        { endpoint: 'service:com.example.provider.admin' },
+        'register-undeclared-endpoint',
+        { id: sandbox.appId },
+        webview,
+        sandbox
+      );
+      await AppSandbox._internal.handleAPICall(
+        'nova:ipc:broadcast:subscribe',
+        { action: 'com.example.provider.refresh' },
+        'subscribe-declared-action',
+        { id: sandbox.appId },
+        webview,
+        sandbox
+      );
+      await AppSandbox._internal.handleAPICall(
+        'nova:ipc:broadcast:subscribe',
+        { action: 'com.example.provider.delete-all' },
+        'subscribe-undeclared-action',
+        { id: sandbox.appId },
+        webview,
+        sandbox
+      );
+    } finally {
+      AppSandbox._internal._activeSandboxes.delete(sandboxId);
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.success).toBe(true);
+    expect(responses[1].error.code).toBe('PERMISSION_DENIED');
+    expect(responses[2].result.success).toBe(true);
+    expect(responses[3].error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('delivers app broadcasts only to declared, subscribed, authorized sandboxes', async () => {
+    const senderResponses = [];
+    const recipientResponses = [];
+    const action = 'com.example.notes.changed';
+    const recipientSandboxId = 'broadcast-recipient-sandbox';
+    const recipientSandbox = {
+      appId: 'com.example.notes',
+      webview: {
+        dataset: { sandboxId: recipientSandboxId },
+        __directResponder: message => recipientResponses.push(message),
+      },
+      ipcBroadcastActions: new Set([action]),
+    };
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: (permission, appId) =>
+        permission === 'apps:communicate'
+        && ['com.example.editor', 'com.example.notes'].includes(appId),
+    });
+    AppSandbox._internal._activeSandboxes.set(recipientSandboxId, recipientSandbox);
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:ipc:broadcast',
+        { action, data: { noteId: 'note-1' } },
+        'broadcast',
+        { id: 'com.example.editor' },
+        { __directResponder: message => senderResponses.push(message) },
+        {}
+      );
+    } finally {
+      AppSandbox._internal._activeSandboxes.delete(recipientSandboxId);
+      vi.unstubAllGlobals();
+    }
+
+    expect(recipientResponses[0]).toMatchObject({
+      type: 'nova:ipc:broadcast:response',
+      result: {
+        action,
+        sourceAppId: 'com.example.editor',
+        data: { noteId: 'note-1' },
+      },
+    });
+    expect(senderResponses[0].result.delivered).toBe(1);
   });
 
   it('opens the host Open with chooser only for files in the calling app scope', async () => {
@@ -458,9 +760,10 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     const privateFile = { id: 'private', name: 'secret.txt', type: 'file', mimeType: 'text/plain' };
     const choose = vi.fn(async node => ({ cancelled: false, success: true, appId: 'com.example.viewer', receivedId: node.id }));
     vi.stubGlobal('FS', {
+      rootId: 'root',
       files: new Map([[selected.id, selected], [privateFile.id, privateFile]]),
       specialFolders: { trash: 'trash' },
-      getPath: id => id === selected.id ? '/data/another.app/note.txt' : '/data/other.app/secret.txt',
+      getPath: id => id === 'root' ? '/' : id === selected.id ? '/data/another.app/note.txt' : '/data/other.app/secret.txt',
     });
     vi.stubGlobal('window', { showOpenWithDialog: choose });
 
@@ -698,7 +1001,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(responses.at(-1).result).toEqual({ activeMatchOrdinal: 1, numberOfMatches: 3 });
   });
 
-  it('opens a user-picked VFS file without requiring broad VFS read permission', async () => {
+  it('opens a user-picked file without a filesystem permission and grants scoped access', async () => {
     const responses = [];
     const pickedNode = {
       id: 'picked-file',
@@ -722,6 +1025,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         open,
       },
     });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
     vi.stubGlobal('FS', {
       rootId: 'root',
       files: new Map([
@@ -731,6 +1035,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       getPath: vi.fn(id => paths.get(id)),
     });
 
+    const sandbox = {};
     try {
       await AppSandbox._internal.handleAPICall(
         'nova:files:open',
@@ -738,7 +1043,15 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         'scoped-file-open',
         { id: 'com.example.app' },
         { __directResponder: message => responses.push(message) },
-        {}
+        sandbox
+      );
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:read',
+        { id: 'picked-file' },
+        'picked-file-read',
+        { id: 'com.example.app' },
+        { __directResponder: message => responses.push(message) },
+        sandbox
       );
     } finally {
       vi.unstubAllGlobals();
@@ -749,11 +1062,13 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       path: '/Documents/notes.txt',
       content: 'selected text',
       size: 'selected text'.length,
+      id: 'picked-file',
     });
+    expect(responses[1].result.data).toBe('selected text');
     expect(open).toHaveBeenCalledOnce();
   });
 
-  it('saves content only to the destination chosen in the VFS picker', async () => {
+  it('saves content only to the destination chosen in the filesystem picker', async () => {
     const responses = [];
     const writeFile = vi.fn(async () => ({
       id: 'existing-file',
@@ -761,10 +1076,12 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       mimeType: 'text/plain',
     }));
     vi.stubGlobal('window', {
+      confirm: vi.fn(() => true),
       SystemDialogs: {
         save: vi.fn(async () => ({ folderId: 'documents', name: 'notes.txt' })),
       },
     });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
     vi.stubGlobal('FS', {
       files: new Map([
         ['documents', { id: 'documents', type: 'folder' }],
@@ -797,7 +1114,132 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     });
   });
 
-  it('lets vfs:access edit shared VFS files but not another app private data', async () => {
+  it('allows permission-free access to app-owned files', async () => {
+    const responses = [];
+    const ownFile = { id: 'own-note', name: 'note.txt', type: 'file', content: 'before' };
+    const pathMap = new Map([
+      ['root', '/home/user'],
+      ['own-note', '/home/user/data/editor_app/note.txt'],
+    ]);
+    const writeFile = vi.fn(async (id, content) => {
+      ownFile.content = content;
+      return ownFile;
+    });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['own-note', ownFile]]),
+      getPath: id => pathMap.get(id),
+      getByPath: path => path === '/data/editor_app/note.txt' ? ownFile : null,
+      writeFile,
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:read',
+        { id: 'own-note' },
+        'own-file-read',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:write',
+        { path: '/data/note.txt', content: 'after' },
+        'own-file-write',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.data).toBe('before');
+    expect(responses[1].result.success).toBe(true);
+    expect(writeFile).toHaveBeenCalledWith('own-note', 'after');
+  });
+
+  it('limits shared-media reads to the matching media permission', async () => {
+    const responses = [];
+    const image = { id: 'image', name: 'photo.png', type: 'file', content: 'image', mimeType: 'image/png' };
+    const audio = { id: 'audio', name: 'song.mp3', type: 'file', content: 'audio', mimeType: 'audio/mpeg' };
+    const document = { id: 'document', name: 'report.pdf', type: 'file', content: 'document', mimeType: 'application/pdf' };
+    const pathMap = new Map([
+      ['root', '/'],
+      ['image', '/Pictures/photo.png'],
+      ['audio', '/Music/song.mp3'],
+      ['document', '/Documents/report.pdf'],
+    ]);
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'fs:read:images',
+    });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['image', image], ['audio', audio], ['document', document]]),
+      getPath: id => pathMap.get(id),
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      for (const id of ['image', 'audio', 'document']) {
+        await AppSandbox._internal.handleAPICall(
+          'nova:fs:read',
+          { id },
+          `read-${id}`,
+          { id: 'media_app' },
+          webview,
+          {}
+        );
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.data).toBe('image');
+    expect(responses[1].error.code).toBe('PERMISSION_DENIED');
+    expect(responses[2].error.code).toBe('PERMISSION_DENIED');
+  });
+
+  it('requires user confirmation before deleting a picker-selected shared file', async () => {
+    const responses = [];
+    const selected = { id: 'shared-note', name: 'note.txt', type: 'file' };
+    const deleteToTrash = vi.fn();
+    const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('window', { confirm });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      specialFolders: { trash: 'trash' },
+      files: new Map([['shared-note', selected]]),
+      getPath: id => id === 'root' ? '/' : '/Documents/note.txt',
+      deleteToTrash,
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      const sandbox = { pickedFileIds: new Set(['shared-note']) };
+      for (let i = 0; i < 2; i++) {
+        await AppSandbox._internal.handleAPICall(
+          'nova:fs:delete',
+          { id: 'shared-note' },
+          `delete-shared-${i}`,
+          { id: 'reader_app', name: 'Reader' },
+          webview,
+          sandbox
+        );
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.cancelled).toBe(true);
+    expect(responses[1].result.success).toBe(true);
+    expect(deleteToTrash).toHaveBeenCalledOnce();
+  });
+
+  it('lets fs:access edit shared files but not another app private data', async () => {
     const responses = [];
     const sharedFile = { id: 'shared-note', name: 'note.txt', type: 'file', content: 'before' };
     const privateFile = { id: 'private-note', name: 'private.txt', type: 'file', content: 'private' };
@@ -825,7 +1267,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     ]);
     const files = new Map([[sharedFile.id, sharedFile], [privateFile.id, privateFile]]);
     const writeFile = vi.fn(async (_id, content) => { sharedFile.content = content; });
-    vi.stubGlobal('AppPermissionManager', { isGranted: permission => permission === 'vfs:access' });
+    vi.stubGlobal('AppPermissionManager', { isGranted: permission => permission === 'fs:access' });
     vi.stubGlobal('FS', {
       files,
       specialFolders: { trash: 'trash' },
@@ -843,7 +1285,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     try {
       const webview = { __directResponder: message => responses.push(message) };
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:write',
+        'nova:fs:write',
         { path: '/Documents/note.txt', content: 'edited' },
         'shared-file-edit',
         { id: 'editor.app' },
@@ -851,7 +1293,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         {}
       );
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:read',
+        'nova:fs:read',
         { id: 'private-note' },
         'private-file-read',
         { id: 'editor.app' },
@@ -859,7 +1301,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         {}
       );
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:read',
+        'nova:fs:read',
         { id: 'trashed-private-note' },
         'trashed-private-file-read',
         { id: 'editor.app' },
@@ -867,7 +1309,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         {}
       );
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:read',
+        'nova:fs:read',
         { id: 'trashed-own-note' },
         'trashed-own-file-read',
         { id: 'editor.app' },
@@ -875,7 +1317,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         {}
       );
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:read',
+        'nova:fs:read',
         { id: 'legacy-trashed-note' },
         'legacy-trashed-file-read',
         { id: 'editor.app' },
@@ -894,10 +1336,10 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(responses[4].error.code).toBe('NOT_FOUND');
   });
 
-  it('prevents apps with vfs:delete from deleting filesystem roots', async () => {
+  it('prevents permissionless apps from deleting filesystem roots', async () => {
     const responses = [];
     const deleteToTrash = vi.fn();
-    vi.stubGlobal('AppPermissionManager', { isGranted: permission => permission === 'vfs:delete' });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
     vi.stubGlobal('FS', {
       rootId: 'root',
       specialFolders: { trash: 'trash' },
@@ -909,7 +1351,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
 
     try {
       await AppSandbox._internal.handleAPICall(
-        'nova:vfs:delete',
+        'nova:fs:delete',
         { id: 'root' },
         'delete-root',
         { id: 'editor.app' },
@@ -924,7 +1366,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(responses[0].error.code).toBe('PROTECTED_LOCATION');
   });
 
-  it('keeps shared folders out of a vfs:write-only save picker', async () => {
+  it('allows user-picked shared save folders without a broad filesystem grant', async () => {
     const responses = [];
     const sharedFolder = { id: 'documents', name: 'Documents', type: 'folder' };
     const ownFolder = { id: 'own-data', name: 'editor_app', type: 'folder' };
@@ -937,15 +1379,13 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       ['data', '/data'],
     ]);
     const save = vi.fn(async options => {
-      expect(options.canAccess(sharedFolder)).toBe(false);
+      expect(options.canAccess(sharedFolder)).toBe(true);
       expect(options.canAccess(ownFolder)).toBe(true);
       expect(options.canAccess(foreignFolder)).toBe(false);
       return { folderId: 'documents', name: 'notes.txt' };
     });
-    const createFile = vi.fn();
-    vi.stubGlobal('AppPermissionManager', {
-      isGranted: permission => permission === 'vfs:write',
-    });
+    const createFile = vi.fn(async () => ({ id: 'saved-note', name: 'notes.txt' }));
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
     vi.stubGlobal('window', { SystemDialogs: { save } });
     vi.stubGlobal('FS', {
       rootId: 'root',
@@ -966,7 +1406,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       await AppSandbox._internal.handleAPICall(
         'nova:sysdialog:save',
         { suggestedName: 'notes.txt', content: 'hello' },
-        'write-only-save-shared-denied',
+        'picked-shared-save',
         { id: 'editor.app' },
         { __directResponder: message => responses.push(message) },
         {}
@@ -975,8 +1415,8 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       vi.unstubAllGlobals();
     }
 
-    expect(createFile).not.toHaveBeenCalled();
-    expect(responses[0].error.code).toBe('PERMISSION_DENIED');
+    expect(createFile).toHaveBeenCalledWith('documents', 'notes.txt', 'hello', 'text/plain');
+    expect(responses[0].result.success).toBe(true);
   });
 
   it('allows validated appearance changes without system:settings', async () => {
@@ -1604,10 +2044,15 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     });
     vi.stubGlobal('FS', {
       rootId: 'root',
+      files: new Map([
+        ['root', { id: 'root', type: 'folder' }],
+        ['documents', { id: 'documents', type: 'folder' }],
+        [existing.id, existing],
+      ]),
       listDir: () => [existing],
       writeFile,
       createFile,
-      getPath: () => '/Documents/notes.txt',
+      getPath: id => id === 'root' ? '/' : id === 'documents' ? '/Documents' : '/Documents/notes.txt',
     });
 
     try {
@@ -1627,7 +2072,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(responses[0].result.file.path).toBe('/Documents/notes.txt');
   });
 
-  it('saves Base64 image data URLs as VFS binary content with the right MIME type', async () => {
+  it('saves Base64 image data URLs as filesystem binary content with the right MIME type', async () => {
     const responses = [];
     const folder = { id: 'app-data', type: 'folder' };
     const createFile = vi.fn(async (folderId, name, content, mimeType) => ({
@@ -1637,7 +2082,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       mimeType,
     }));
     vi.stubGlobal('AppPermissionManager', {
-      isGranted: permission => permission === 'vfs:write',
+      isGranted: () => false,
     });
     vi.stubGlobal('window', {
       SystemDialogs: { save: async () => ({ folderId: folder.id, name: 'wallhaven.jpg' }) },
@@ -1672,7 +2117,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
   });
 
   it('infers image MIME types from file extensions for raw Base64 content', () => {
-    expect(AppSandbox._internal.normalizeVfsSavePayload({
+    expect(AppSandbox._internal.normalizeFsSavePayload({
       content: '/9j/2Q==',
     }, 'wallhaven.jpg')).toEqual({
       content: '/9j/2Q==',

@@ -5,7 +5,7 @@
   "author": "DirazCoder",
   "description": "Keep time, set alarms, and use the timer and stopwatch.",
   "entry": "index.html",
-  "unrestrictedEntry": "app.js",
+  "guestEntry": "app.js",
   "icon": "alarm-clock",
   "type": "blank",
   "defaultSize": [

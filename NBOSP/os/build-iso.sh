@@ -22,11 +22,39 @@ if [[ ! -d "$BUILDROOT_DIR" ]]; then
   tar -xJf "$ARCHIVE" --strip-components=1 -C "$BUILDROOT_DIR"
 fi
 
+# Buildroot 2025.02 ships Xwayland 23.2.4, whose glamor GBM backend refuses to
+# start unless the compositor offers wl_drm. wlroots 0.18 (cage) does not, so
+# glamor, GLX and Chromium's GPU process all fail. These are Buildroot's own
+# 2025.05 package files (Xwayland 24.1.6); copy them in on every run because the
+# extracted Buildroot tree is cached.
+XWAYLAND_OVERRIDE_DIR="$OS_DIR/overrides/xwayland"
+cp "$XWAYLAND_OVERRIDE_DIR/xwayland.mk" "$XWAYLAND_OVERRIDE_DIR/xwayland.hash" \
+  "$BUILDROOT_DIR/package/x11r7/xwayland/"
+
+# Buildroot 2025.02 ships open-vm-tools 11.3.5 built --without-x, which drops the
+# drag and drop and clipboard plugins, and whose configure needs libfuse2 for
+# vmhgfs-fuse (this image only has libfuse3). The override is the 13.1.0 recipe
+# from Buildroot master plus a DESKTOP option. Its patches replace the old
+# ones; leftover 11.3.5 patches would fail to apply, so they are removed first.
+OPENVMTOOLS_OVERRIDE_DIR="$OS_DIR/overrides/openvmtools"
+OPENVMTOOLS_PKG_DIR="$BUILDROOT_DIR/package/openvmtools"
+rm -f "$OPENVMTOOLS_PKG_DIR"/*.patch
+cp "$OPENVMTOOLS_OVERRIDE_DIR"/patches/*.patch "$OPENVMTOOLS_PKG_DIR/"
+cp "$OPENVMTOOLS_OVERRIDE_DIR/Config.in" "$OPENVMTOOLS_OVERRIDE_DIR/openvmtools.mk" \
+  "$OPENVMTOOLS_OVERRIDE_DIR/openvmtools.hash" "$OPENVMTOOLS_OVERRIDE_DIR/S10vmtoolsd" \
+  "$OPENVMTOOLS_OVERRIDE_DIR/shutdown" "$OPENVMTOOLS_OVERRIDE_DIR/vmtoolsd.service" \
+  "$OPENVMTOOLS_PKG_DIR/"
+
 if [[ ! -x "$NWJS_APP_DIR/NovaByte" || ! -f "$NWJS_APP_DIR/package.nw/package.json" ]]; then
   echo "Linux NW.js kiosk bundle missing. Run the workflow app build/staging steps first." >&2
   exit 1
 fi
 
+if [[ -f "$OUTPUT_DIR/.config" ]] \
+  && grep -Eq '^BR2_PACKAGE_(REFPOLICY|WESTON)=y$' "$OUTPUT_DIR/.config"; then
+  echo "Removing cached output from the retired SELinux and Weston sandbox experiments." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" clean
+fi
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" nbosp_x86_64_defconfig
 for option in \
   BR2_TOOLCHAIN_BUILDROOT \
@@ -39,6 +67,7 @@ for option in \
   BR2_PACKAGE_EUDEV \
   BR2_PACKAGE_LIBGTK3 \
   BR2_PACKAGE_LIBGTK3_WAYLAND \
+  BR2_PACKAGE_LIBGTK3_X11 \
   BR2_PACKAGE_LIBNSS \
   BR2_PACKAGE_LIBNSPR \
   BR2_PACKAGE_CA_CERTIFICATES \
@@ -82,6 +111,7 @@ for option in \
   BR2_PACKAGE_UTIL_LINUX_LIBUUID \
   BR2_PACKAGE_OPENVMTOOLS \
   BR2_PACKAGE_OPENVMTOOLS_RESOLUTIONKMS \
+  BR2_PACKAGE_OPENVMTOOLS_DESKTOP \
   BR2_PACKAGE_MESA3D_OPENGL_EGL \
   BR2_PACKAGE_MESA3D_OPENGL_ES \
   BR2_PACKAGE_MESA3D_OPENGL_GLX \
@@ -119,8 +149,11 @@ fi
 GRAPHICS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-graphics-signature"
 GRAPHICS_SIGNATURE="$(
   {
-    printf '%s\n' 'nbosp-graphics-stack-v3'
-    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBDRM|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config"
+    printf '%s\n' 'nbosp-graphics-stack-v4'
+    cat "$XWAYLAND_OVERRIDE_DIR/xwayland.mk" "$XWAYLAND_OVERRIDE_DIR/xwayland.hash"
+    # mesa3d-demos only adds debug tools; it must not force a Mesa/XWayland rebuild.
+    grep -E '^BR2_PACKAGE_(CAGE|WLROOTS_XWAYLAND|XWAYLAND|XORGPROTO|LIBDRM|LIBGLVND|LIBEPOXY|MESA3D)(_|=)' "$OUTPUT_DIR/.config" \
+      | grep -v '^BR2_PACKAGE_MESA3D_DEMOS='
   } | sha256sum | cut -d ' ' -f 1
 )"
 XWAYLAND_SOURCE_DIR_EARLY="$(find "$OUTPUT_DIR/build" -maxdepth 1 -type d -name 'xwayland-*' -print -quit 2>/dev/null || true)"
@@ -143,8 +176,34 @@ if [[ ! -f "$GRAPHICS_SIGNATURE_FILE" ]] \
   printf '%s\n' "$GRAPHICS_SIGNATURE" > "$GRAPHICS_SIGNATURE_FILE"
 fi
 
+# gdk's X11 backend includes <epoxy/glx.h>, which libepoxy only installs when
+# it was configured with GLX (X11 + libgl present at build time). A cached
+# libepoxy from before XORG7/LIBGLVND were enabled lacks it, and libgtk3 then
+# dies in gdkdisplay-x11.c. Rebuild libepoxy first, then gtk3 on top of it.
+EPOXY_GLX_H="$OUTPUT_DIR/host/x86_64-buildroot-linux-gnu/sysroot/usr/include/epoxy/glx.h"
+if grep -qx "BR2_PACKAGE_LIBEPOXY=y" "$OUTPUT_DIR/.config" \
+  && grep -qx "BR2_PACKAGE_XORG7=y" "$OUTPUT_DIR/.config" \
+  && [[ ! -f "$EPOXY_GLX_H" ]]; then
+  echo "Cached libepoxy lacks GLX support; rebuilding libepoxy, libgtk3, gtkmm3 and openvmtools." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    openvmtools-dirclean gtkmm3-dirclean libgtk3-dirclean libepoxy-dirclean
+fi
+
+# openvmtools' desktop plugins need gtk3 with the X11 backend, and gtkmm3 is
+# configured with -Dbuild-x11-api=true to match. Buildroot never rebuilds a
+# package when its config changes, so a cached gtk3 from before that option
+# was enabled stays Wayland-only and gtkmm3 fails at configure time with
+# "Requested X11 backend not supported by installed gdk".
+GDK_X11_PC="$OUTPUT_DIR/host/x86_64-buildroot-linux-gnu/sysroot/usr/lib/pkgconfig/gdk-x11-3.0.pc"
+if grep -qx "BR2_PACKAGE_LIBGTK3_X11=y" "$OUTPUT_DIR/.config" && [[ ! -f "$GDK_X11_PC" ]]; then
+  echo "Cached gtk3 lacks the X11 backend; rebuilding libgtk3, gtkmm3 and openvmtools." >&2
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    openvmtools-dirclean gtkmm3-dirclean libgtk3-dirclean
+fi
+
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
-  alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean
+  alsa-utils-dirclean nbosp-kiosk-dirclean nbosp-install-dirclean nbosp-power-dirclean \
+  wlroots-dirclean cage-dirclean
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" toolchain
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" mesa3d-extract
 MESA3D_VERSION="$(sed -n 's/^MESA3D_VERSION = //p' "$BUILDROOT_DIR/package/mesa3d/mesa3d.mk")"
@@ -167,8 +226,35 @@ if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
   make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
     util-linux-dirclean
 fi
+# The ISO boots from the initramfs, so don't trust a cached filesystem image.
+rm -f "$OUTPUT_DIR/images/rootfs.cpio" \
+  "$OUTPUT_DIR/images/rootfs.cpio.gz" \
+  "$OUTPUT_DIR/images/rootfs.tar"
 make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
 
+SYSTEM_INIT_APPLET="$OUTPUT_DIR/target/sbin/init"
+SYSTEM_INIT="$OUTPUT_DIR/target/etc/init.d/rcS"
+SYSTEM_SHELL="$OUTPUT_DIR/target/bin/sh"
+
+for executable in "$SYSTEM_INIT_APPLET" "$SYSTEM_INIT"; do
+  if [[ ! -x "$executable" ]]; then
+    echo "Required NBOSP boot executable is missing or not executable: $executable" >&2
+    exit 1
+  fi
+done
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./sbin/init >/dev/null 2>&1; then
+  echo "Buildroot's original init applet is missing from the generated rootfs." >&2
+  exit 1
+fi
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
+  ./etc/inittab ./etc/init.d/rcS >/dev/null 2>&1; then
+  echo "BusyBox init configuration or system startup script is missing from the generated rootfs." >&2
+  exit 1
+fi
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./bin/sh >/dev/null 2>&1; then
+  echo "BusyBox /bin/sh is missing from the generated rootfs." >&2
+  exit 1
+fi
 KERNEL_CONFIG="$(find "$OUTPUT_DIR/build" -maxdepth 2 -type f -path '*/linux-*/.config' -print -quit)"
 if [[ -z "$KERNEL_CONFIG" ]]; then
   echo "The built Linux kernel configuration is missing." >&2
@@ -182,13 +268,17 @@ for option in \
   CONFIG_SND_ENS1371
 do
   if ! grep -qx "$option=y" "$KERNEL_CONFIG"; then
-    echo "Required VMware graphics/audio kernel option is missing: $option" >&2
+    echo "Required kernel security, graphics, or audio option is missing: $option" >&2
     exit 1
   fi
 done
 
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/cage" ]]; then
   echo "Cage compositor is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$OUTPUT_DIR/target/usr/bin/Xwayland" ]]; then
+  echo "XWayland is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/usr/bin/amixer" \
@@ -356,9 +446,38 @@ if [[ ! -x "$OUTPUT_DIR/target/usr/bin/bsdtar" ]]; then
   echo "BSD tar is required to browse ISO files but is missing from the target image." >&2
   exit 1
 fi
-if [[ ! -x "$OUTPUT_DIR/target/bin/tar" || ! -x "$OUTPUT_DIR/target/bin/gzip" ]]; then
-  echo "BusyBox tar with gzip support is required by the disk installer." >&2
-  exit 1
+target_has_command() {
+  [[ -x "$OUTPUT_DIR/target/bin/$1" || -x "$OUTPUT_DIR/target/usr/bin/$1" ]]
+}
+remove_stale_busybox_applet() {
+  local path target
+  for path in "$OUTPUT_DIR/target/bin/$1" "$OUTPUT_DIR/target/usr/bin/$1"; do
+    if [[ -L "$path" && ! -e "$path" ]]; then
+      target="$(readlink "$path")"
+      if [[ "$target" == "busybox" || "$target" == "/bin/busybox" \
+        || "$target" == "/usr/bin/busybox" ]]; then
+        rm -f -- "$path"
+      fi
+    fi
+  done
+}
+if ! target_has_command tar || ! target_has_command gzip; then
+  echo "Cached BusyBox output has missing tar or gzip applets; rebuilding BusyBox." >&2
+  remove_stale_busybox_applet tar
+  remove_stale_busybox_applet gzip
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" \
+    busybox-dirclean
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" busybox
+  rm -f "$OUTPUT_DIR/images/rootfs.cpio" \
+    "$OUTPUT_DIR/images/rootfs.cpio.gz" \
+    "$OUTPUT_DIR/images/rootfs.tar"
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" -j"$JOBS"
+  if ! target_has_command tar || ! target_has_command gzip; then
+    echo "BusyBox tar or gzip is still missing after rebuilding BusyBox." >&2
+    find "$OUTPUT_DIR/target/bin" "$OUTPUT_DIR/target/usr/bin" \
+      -maxdepth 1 \( -name tar -o -name gzip -o -name busybox \) -ls >&2
+    exit 1
+  fi
 fi
 if [[ ! -u "$OUTPUT_DIR/target/usr/bin/nbosp-power" ]]; then
   echo "Restricted power helper is missing its setuid permission." >&2
@@ -376,6 +495,10 @@ if [[ ! -x "$OUTPUT_DIR/target/sbin/grub-install" \
   && ! -x "$OUTPUT_DIR/target/usr/bin/grub-install" \
   && ! -x "$OUTPUT_DIR/target/usr/sbin/grub-install" ]]; then
   echo "grub-install is missing from the target image." >&2
+  exit 1
+fi
+if [[ ! -x "$SYSTEM_SHELL" ]]; then
+  echo "BusyBox /bin/sh applet is missing from the target image." >&2
   exit 1
 fi
 if [[ ! -x "$OUTPUT_DIR/target/bin/lsblk" \
@@ -422,6 +545,11 @@ if [[ ! -d "$OUTPUT_DIR/target/lib/grub/i386-pc" \
 fi
 if [[ ! -f "$OUTPUT_DIR/images/rootfs.tar" ]]; then
   echo "Buildroot did not produce the root filesystem archive for disk installation." >&2
+  exit 1
+fi
+if ! gzip -dc "$OUTPUT_DIR/images/rootfs.cpio.gz" | cpio -it 2>/dev/null \
+  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "etc/init.d/rcK") rcK = 1; if ($0 == "bin/sh") shell = 1 } END { exit !(inittab && rcS && rcK && shell) }'; then
+  echo "BusyBox init configuration, startup scripts, or shell is missing from the boot initramfs." >&2
   exit 1
 fi
 

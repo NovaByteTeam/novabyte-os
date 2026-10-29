@@ -8,6 +8,22 @@ import vm from 'node:vm';
 const nodeRequire = createRequire(import.meta.url);
 
 describe('NBOSP VMware kiosk device configuration', () => {
+  it('mounts procfs and sysfs before device discovery and desktop startup', () => {
+    const mounts = readFileSync(
+      new URL('../os/board/nbosp/rootfs-overlay/etc/init.d/S01mounts', import.meta.url),
+      'utf8',
+    );
+    const procMount = 'mounted /proc || mount -t proc proc /proc';
+    const sysfsMount = 'mounted /sys || mount -t sysfs sysfs /sys';
+    const deviceMount = 'mounted /dev/pts || mount -t devpts';
+
+    expect(mounts).toContain('mkdir -p /proc /sys /dev/pts /dev/shm /tmp');
+    expect(mounts.indexOf(procMount)).toBeGreaterThanOrEqual(0);
+    expect(mounts.indexOf(procMount)).toBeLessThan(mounts.indexOf(sysfsMount));
+    expect(mounts.indexOf(sysfsMount)).toBeGreaterThanOrEqual(0);
+    expect(mounts.indexOf(sysfsMount)).toBeLessThan(mounts.indexOf(deviceMount));
+  });
+
   it('keeps XWayland GLX GPU acceleration and checks render-node access', () => {
     const defconfig = readFileSync(new URL('../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
     const kernel = readFileSync(new URL('../os/board/nbosp/linux.fragment', import.meta.url), 'utf8');
@@ -158,10 +174,49 @@ describe('NBOSP VMware kiosk device configuration', () => {
     }
   });
 
-  it('explains that guest Terminal is Buildroot, not an apt-managed distro', () => {
-    const terminal = readFileSync(new URL('../js/apps/terminal/app.js', import.meta.url), 'utf8');
+  it('ships GL bring-up debugging that can be switched off', () => {
+    const defconfig = readFileSync(new URL('../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
+    const startup = readFileSync(new URL('../os/board/nbosp/S99nbosp', import.meta.url), 'utf8');
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
+    const cagePatch = readFileSync(
+      new URL('../os/patches/cage/0001-runtime-debug-logging.patch', import.meta.url),
+      'utf8',
+    );
 
-    expect(terminal).toContain('apt and sudo are not available in this guest.');
-    expect(terminal).toContain('Open VM Tools are already included.');
+    for (const option of [
+      'BR2_PACKAGE_MESA3D_DEMOS=y',
+      'BR2_PACKAGE_WAYLAND_UTILS=y',
+      'BR2_PACKAGE_STRACE=y',
+    ]) {
+      expect(defconfig).toContain(option);
+    }
+    expect(defconfig).toContain('BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_NBOSP_PATH)/patches"');
+    expect(cagePatch).toContain('getenv("CAGE_DEBUG")');
+    expect(startup).toContain('NBOSP_GL_DEBUG="${NBOSP_GL_DEBUG:-1}"');
+    expect(startup).toContain('WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland');
+    expect(startup).toContain('-verbose 10');
+    expect(startup).toContain('/home/nbosp/nbosp-gl-debug.log');
+    expect(startup).toContain('$chromium_gl_debug');
+    expect(startup).toContain("'\"$gl_debug_env\"'");
+    // Debug mode must not change which GL backend Chromium asks for, and
+    // cage's -d means "no client-side decorations", not debug.
+    expect(startup).toContain('--use-angle=gl');
+    expect(startup).not.toMatch(/\/usr\/bin\/cage -d/);
+    expect(build).toContain("grep -v '^BR2_PACKAGE_MESA3D_DEMOS='");
+    expect(build).toContain('cage-dirclean');
+  });
+
+  it('overrides Buildroot Xwayland with a build that works without wl_drm', () => {
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
+    const mk = readFileSync(new URL('../os/overrides/xwayland/xwayland.mk', import.meta.url), 'utf8');
+    const hash = readFileSync(new URL('../os/overrides/xwayland/xwayland.hash', import.meta.url), 'utf8');
+
+    // 23.2.4 requires wl_drm, which wlroots 0.18 (cage) does not advertise.
+    expect(mk).toMatch(/^XWAYLAND_VERSION = 24\.1\./m);
+    expect(mk).not.toContain('xwayland_eglstream');
+    expect(hash).toMatch(/sha256\s+[0-9a-f]{64}\s+xwayland-24\.1\./);
+    expect(build).toContain('overrides/xwayland');
+    expect(build).toContain('"$BUILDROOT_DIR/package/x11r7/xwayland/"');
+    expect(build).toContain('"$XWAYLAND_OVERRIDE_DIR/xwayland.mk"');
   });
 });

@@ -155,15 +155,38 @@ mounted_efi=1
 
 echo "Copying the NBOSP system files"
 gzip -dc "$ARCHIVE" | tar -xf - -C "$ROOT"
+
+echo "Removing installer from installed system"
+NOVAAPP="$ROOT/opt/nbosp/package.nw/js/apps/com.nbosp.install.novaapp"
+MANIFEST="$ROOT/opt/nbosp/package.nw/js/apps/novaapp-manifest.json"
+rm -f "$NOVAAPP"
+if [ -f "$MANIFEST" ]; then
+  # Remove the 5-line entry block for com.nbosp.install from the manifest.
+  # Format is consistent: {, "id", "file", "cacheKey", } — use grep to
+  # strip all lines that reference this app id or its .novaapp file.
+  grep -v '"com\.nbosp\.install"' "$MANIFEST" \
+    | grep -v '"js/apps/com\.nbosp\.install\.novaapp"' \
+    | grep -v '"cacheKey".*3358478e' \
+    > "$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST" || rm -f "$MANIFEST.tmp"
+fi
+
 mkdir -p "$ROOT/boot/grub"
 cp "$MEDIA/boot/vmlinuz" "$ROOT/boot/vmlinuz"
 cat > "$ROOT/boot/grub/grub.cfg" <<GRUB
-set timeout=3
+set timeout=5
 set default=0
 search --no-floppy --fs-uuid --set=root $ROOT_UUID
 
 menuentry "NovaByte OS" {
+	linux /boot/vmlinuz root=PARTUUID=$ROOT_PARTUUID rootwait console=tty0 console=ttyS0,115200n8 spec_rstack_overflow=safe-ret quiet splash
+}
+
+menuentry "NovaByte OS (Debug)" {
 	linux /boot/vmlinuz root=PARTUUID=$ROOT_PARTUUID rootwait console=tty0 console=ttyS0,115200n8 spec_rstack_overflow=safe-ret
+}
+
+menuentry "NovaByte OS (Recovery)" {
+	linux /boot/vmlinuz root=PARTUUID=$ROOT_PARTUUID rootwait console=tty0 console=ttyS0,115200n8 spec_rstack_overflow=safe-ret nbosp.recovery=1
 }
 GRUB
 

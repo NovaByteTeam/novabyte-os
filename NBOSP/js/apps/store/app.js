@@ -590,8 +590,10 @@
         verified,
         signer,
         system,
-        source: 'store',
+        source: existingApp?.source || 'store',
         installedAt: existingApp?.installedAt || Date.now(),
+        lastUpdateSource: updating ? 'store' : existingApp?.lastUpdateSource || null,
+        lastUpdatedAt: updating ? Date.now() : existingApp?.lastUpdatedAt || null,
         revoked: false,
         tampered: false,
       };

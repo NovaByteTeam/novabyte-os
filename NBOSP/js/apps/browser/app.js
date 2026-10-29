@@ -87,7 +87,6 @@ registerApp({
     const ZOOM_STEP           = 0.1;
     const OMNI_DEBOUNCE_MS    = 120;
     const OMNI_BLUR_CLOSE_MS  = 150;
-    const DOWNLOAD_MAX_BYTES  = 512 * 1024 * 1024;
     const MAX_DL_NAME_LEN     = 128;
 
     const SEARCH_ENGINES = Object.freeze({
@@ -1961,6 +1960,181 @@ registerApp({
       return name.replace(/(\.\w+)?$/, ' (' + prefixCount + ')$1');
     }
 
+    // Streams a URL to disk with Node's http(s), so there's no CORS and no
+    // whole-file buffer in memory. Follows up to 5 redirects and only renames
+    // the .part file once it's complete. Runs outside the webview session, so
+    // cookies aren't sent.
+    function streamUrlToFile(url, destPath, redirectsLeft = 5) {
+      return new Promise((resolve, reject) => {
+        const fs = require('fs');
+        const client = /^https:/i.test(url) ? require('https') : require('http');
+        const req = client.get(url, res => {
+          const { statusCode, headers } = res;
+          if (statusCode >= 300 && statusCode < 400 && headers.location) {
+            res.resume();
+            if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
+            const next = new URL(headers.location, url).href;
+            if (!/^https?:/i.test(next)) return reject(new Error('Unsupported redirect'));
+            return streamUrlToFile(next, destPath, redirectsLeft - 1).then(resolve, reject);
+          }
+          if (statusCode !== 200) {
+            res.resume();
+            return reject(new Error('HTTP ' + statusCode));
+          }
+          const partPath = destPath + '.part';
+          const out = fs.createWriteStream(partPath);
+          let received = 0;
+          let failed = false;
+          const fail = err => {
+            if (failed) return;
+            failed = true;
+            out.destroy();
+            req.destroy();
+            fs.rm(partPath, { force: true }, () => reject(err));
+          };
+          res.on('data', chunk => { received += chunk.length; });
+          res.on('error', fail);
+          out.on('error', fail);
+          out.on('finish', () => {
+            if (failed) return;
+            fs.rename(partPath, destPath, err => (err ? fail(err) : resolve(received)));
+          });
+          res.pipe(out);
+        });
+        req.on('error', reject);
+        req.setTimeout(30000, () => req.destroy(new Error('Connection timed out')));
+      });
+    }
+
+    // Chromium's own download would open the host's native chooser, so the
+    // permission handler denies it and routes the URL here for the OS Save As.
+    async function saveDownloadViaDialog(url) {
+      if (!url || !/^https?:\/\//i.test(url)) return;
+      const rawName = sanitizeDownloadName(url);
+      const suggestedName = rawName.includes('.') ? rawName : rawName + '.bin';
+      const picked = await SystemDialogs.save({ title: 'Save As', suggestedName });
+      if (!picked) return;
+      if (!picked.path) {
+        Notify.show({ title: 'Download failed', body: 'Save As did not return a file path.', type: 'error', appName: 'Downloads' });
+        return;
+      }
+      const entry = window.Downloads?.add(picked.name, url, 0, '');
+      if (entry) window.Downloads.setStatus(entry.id, 'downloading');
+      try {
+        const bytes = await streamUrlToFile(url, picked.path);
+        if (entry) window.Downloads.setStatus(entry.id, 'done', bytes);
+        Notify.show({ title: 'Download complete', body: picked.name, type: 'success', appName: 'Downloads' });
+      } catch (err) {
+        if (entry) window.Downloads.setStatus(entry.id, 'failed');
+        Notify.show({ title: 'Download failed', body: String(err?.message || err), type: 'error', appName: 'Downloads' });
+      }
+    }
+
+    // There is no native file chooser in this OS, so the guest cancels clicks
+    // on <input type="file"> and reports them here, and the host answers with
+    // SystemDialogs. The page only ever sees the result: a File set on the
+    // input, then 'input' and 'change' events, same as a native pick.
+    const FILE_PICK_MARKER = '__NBOSP_FILEPICK__:';
+    const FILE_CHUNK_BYTES = 2 * 1024 * 1024;
+
+    // Runs in the guest's isolated world, so it can cancel the click but
+    // can't patch window.showOpenFilePicker for the page's own scripts. The
+    // nonce stops a page's console.log from faking a request. Files arrive
+    // in chunks and are appended to a Blob, which Chromium keeps out of the
+    // JS heap.
+    function buildGuestFileScript(nonce) {
+      return `
+        (function () {
+          if (window.__nbosp_file) return;
+          var pending = {};
+          var seq = 0;
+          document.addEventListener('click', function (e) {
+            var el = e.composedPath ? e.composedPath()[0] : e.target;
+            if (!el || el.tagName !== 'INPUT' || el.type !== 'file' || el.disabled) return;
+            e.preventDefault();
+            var id = 'f' + (++seq);
+            pending[id] = { input: el, files: [], cur: null };
+            try {
+              console.log('${FILE_PICK_MARKER}${nonce}:' + JSON.stringify({
+                id: id, multiple: !!el.multiple, accept: el.accept || '', directory: !!el.webkitdirectory
+              }));
+            } catch (_e) {}
+          }, true);
+          window.__nbosp_file = {
+            begin: function (id, name, type) {
+              var p = pending[id];
+              if (!p) return false;
+              p.cur = { name: name, type: type, blob: new Blob([]) };
+              return true;
+            },
+            chunk: function (id, b64) {
+              var p = pending[id];
+              if (!p || !p.cur) return false;
+              var bin = atob(b64);
+              var bytes = new Uint8Array(bin.length);
+              for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              p.cur.blob = new Blob([p.cur.blob, bytes]);
+              return true;
+            },
+            endFile: function (id) {
+              var p = pending[id];
+              if (!p || !p.cur) return false;
+              p.files.push(new File([p.cur.blob], p.cur.name, { type: p.cur.type }));
+              p.cur = null;
+              return true;
+            },
+            finish: function (id) {
+              var p = pending[id];
+              if (!p) return false;
+              delete pending[id];
+              try {
+                var dt = new DataTransfer();
+                p.files.forEach(function (f) { dt.items.add(f); });
+                p.input.files = dt.files;
+                p.input.dispatchEvent(new Event('input', { bubbles: true }));
+                p.input.dispatchEvent(new Event('change', { bubbles: true }));
+                return true;
+              } catch (_e) { return false; }
+            },
+            cancel: function (id) {
+              var p = pending[id];
+              if (!p) return false;
+              delete pending[id];
+              p.input.dispatchEvent(new Event('cancel', { bubbles: true }));
+              return true;
+            }
+          };
+        })();
+      `;
+    }
+
+    function guestFileCall(method, ...args) {
+      return '(window.__nbosp_file && window.__nbosp_file.' + method + '(' + args.map(a => JSON.stringify(a)).join(',') + '))';
+    }
+
+    // Reads a picked file from disk and feeds it to the guest chunk by chunk.
+    async function sendFileToGuest(runInGuest, id, picked) {
+      const fs = require('fs');
+      const expectTrue = async call => {
+        if ((await runInGuest(call)) !== true) throw new Error('The page stopped waiting for ' + picked.name);
+      };
+      await expectTrue(guestFileCall('begin', id, picked.name, picked.mimeType || ''));
+      const handle = await fs.promises.open(picked.path, 'r');
+      try {
+        const buf = Buffer.alloc(FILE_CHUNK_BYTES);
+        let position = 0;
+        for (;;) {
+          const { bytesRead } = await handle.read(buf, 0, buf.length, position);
+          if (bytesRead === 0) break;
+          position += bytesRead;
+          await expectTrue(guestFileCall('chunk', id, buf.toString('base64', 0, bytesRead)));
+        }
+      } finally {
+        await handle.close();
+      }
+      await expectTrue(guestFileCall('endFile', id));
+    }
+
     // Webview factory — creates or returns the <webview> element for a tab.
     // Attaches all event listeners (load, error, fullscreen, permission,
     // download, new-window, context-menu) exactly once per webview.
@@ -3025,6 +3199,13 @@ registerApp({
           askSite('media');
         } else if (e.permission === 'pointerLock') {
           decide(true);
+        } else if (e.permission === 'download') {
+          // Deny Chromium's own download (it opens the host's native
+          // chooser) and save through the OS Save As dialog instead.
+          decide(false);
+          saveDownloadViaDialog(e.request.url || e.url).catch(err => {
+            console.warn('[NB Browser] Download failed to start:', err);
+          });
         } else {
           decide(false);
         }
@@ -3268,6 +3449,64 @@ registerApp({
         try { wv.executeScript({ code: _GUEST_CTX_SCRIPT }); } catch { /* ignore */ }
       });
 
+      // File inputs: answer the guest's cancelled click with the OS Open dialog.
+      const fileNonce = crypto.randomUUID();
+      const fileRequestPrefix = FILE_PICK_MARKER + fileNonce + ':';
+      const guestFileScript = buildGuestFileScript(fileNonce);
+      let filePickOpen = false;
+
+      const runInGuest = code => new Promise((resolve, reject) => {
+        wv.executeScript({ code }, result => {
+          const lastError = chrome.runtime?.lastError;
+          if (lastError) reject(new Error(lastError.message));
+          else resolve(result?.[0]);
+        });
+      });
+
+      async function answerGuestFilePick(request) {
+        const id = String(request.id);
+        if (filePickOpen || request.directory) {
+          if (request.directory) {
+            Notify.show({ title: 'Folder upload unavailable', body: "Browser can't upload whole folders yet.", type: 'info', appName: 'Browser' });
+          }
+          await runInGuest(guestFileCall('cancel', id));
+          return;
+        }
+        filePickOpen = true;
+        try {
+          const result = await SystemDialogs.open({
+            title: request.multiple ? 'Choose Files to Upload' : 'Choose File to Upload',
+            multiple: request.multiple === true,
+            accept: request.accept,
+            pathOnly: true,
+          });
+          const picks = result ? [].concat(result) : [];
+          if (!picks.length) {
+            await runInGuest(guestFileCall('cancel', id));
+            return;
+          }
+          for (const picked of picks) await sendFileToGuest(runInGuest, id, picked);
+          if ((await runInGuest(guestFileCall('finish', id))) !== true) throw new Error('The page did not accept the file');
+        } catch (err) {
+          Notify.show({ title: 'Upload failed', body: String(err?.message || err), type: 'error', appName: 'Browser' });
+          await runInGuest(guestFileCall('cancel', id)).catch(() => {});
+        } finally {
+          filePickOpen = false;
+        }
+      }
+
+      wv.addEventListener('consolemessage', e => {
+        const msg = e?.message;
+        if (typeof msg !== 'string' || !msg.startsWith(fileRequestPrefix)) return;
+        let request;
+        try { request = JSON.parse(msg.slice(fileRequestPrefix.length)); } catch { return; }
+        answerGuestFilePick(request).catch(err => console.warn('[NB Browser] File picker bridge failed:', err));
+      });
+
+      wv.addEventListener('loadstop', () => {
+        try { wv.executeScript({ code: guestFileScript }); } catch { /* ignore */ }
+      });
+
       // Open a URL in a new tab (inherits incognito state from the source tab).
       function _ctxOpenInNewTab(url) {
         const _ctxTabId = wv._nbTabId;
@@ -3364,44 +3603,31 @@ registerApp({
         }
         baseName = baseName.slice(0, MAX_DL_NAME_LEN) || 'page';
         const filename = /\.html?$/i.test(baseName) ? baseName : baseName + '.html';
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.setAttribute('nwsaveas', filename);
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        let settled = false;
-        const finish = (message, type) => {
-          if (settled) return;
-          settled = true;
-          input.remove();
+        const notifyResult = (message, type) => {
           if (message) {
             Notify.show({ title: type === 'success' ? 'Page saved' : 'Save page failed', body: message, type, appName: 'Browser' });
           }
         };
 
-        input.addEventListener('change', () => {
-          const savePath = input.value;
-          if (!savePath) {
-            finish();
-            return;
-          }
+        SystemDialogs.save({ title: 'Save Page As', suggestedName: filename }).then(picked => {
+          if (!picked) return;
+          const savePath = picked.path;
           try {
             webview.executeScript({
               code: 'document.documentElement ? document.documentElement.outerHTML : null'
             }, results => {
               if (chrome.runtime?.lastError) {
-                finish('Could not read the page content: ' + chrome.runtime.lastError.message, 'error');
+                notifyResult('Could not read the page content: ' + chrome.runtime.lastError.message, 'error');
                 return;
               }
               const html = Array.isArray(results) ? results[0] : null;
               if (typeof html !== 'string' || !html) {
-                finish('The page has no HTML content to save.', 'error');
+                notifyResult('The page has no HTML content to save.', 'error');
                 return;
               }
               let fs;
               try { fs = require('fs'); } catch (error) {
-                finish('Could not access the file system: ' + (error?.message || error), 'error');
+                notifyResult('Could not access the file system: ' + (error?.message || error), 'error');
                 return;
               }
               const content = html.startsWith('<!doctype') || html.startsWith('<!DOCTYPE')
@@ -3409,19 +3635,16 @@ registerApp({
                 : '<!doctype html>\n' + html;
               fs.writeFile(savePath, content, 'utf8', error => {
                 if (error) {
-                  finish('Could not write the file: ' + error.message, 'error');
+                  notifyResult('Could not write the file: ' + error.message, 'error');
                   return;
                 }
-                finish(filename + ' was saved.', 'success');
+                notifyResult(picked.name + ' was saved.', 'success');
               });
             });
           } catch (error) {
-            finish('Could not read the page content: ' + (error?.message || error), 'error');
+            notifyResult('Could not read the page content: ' + (error?.message || error), 'error');
           }
-        }, { once: true });
-
-        input.addEventListener('cancel', () => finish(), { once: true });
-        input.click();
+        }).catch(error => notifyResult('Save dialog failed: ' + (error?.message || error), 'error'));
       }
 
       function _buildWebviewMenu(ctx, pageUrl) {

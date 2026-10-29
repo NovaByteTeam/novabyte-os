@@ -40,6 +40,40 @@ function makeElement(tag, className, text) {
   return node;
 }
 
+function appendAutomatedReview(container, report, { includeManualChecks = false } = {}) {
+  if (!report || typeof report !== 'object') return;
+  const section = makeElement('section', 'publisher-automated-review');
+  section.appendChild(makeElement('h3', '', report.passed
+    ? 'Automated checks passed'
+    : 'Automated checks blocked this submission'));
+  if (report.checked_at) {
+    section.appendChild(makeElement('p', 'publisher-review-line',
+      `Checked ${new Date(report.checked_at).toLocaleString()}`));
+  }
+  for (const [label, findings] of [
+    ['Blocking findings', report.errors],
+    ['Review warnings', report.warnings],
+  ]) {
+    if (!Array.isArray(findings) || !findings.length) continue;
+    section.appendChild(makeElement('strong', '', label));
+    const list = makeElement('ul', 'publisher-automated-findings');
+    for (const finding of findings) {
+      const location = finding.file
+        ? ` (${finding.file}${finding.line ? `:${finding.line}` : ''})`
+        : '';
+      list.appendChild(makeElement('li', '', `${finding.message || 'Finding'}${location}`));
+    }
+    section.appendChild(list);
+  }
+  if (includeManualChecks && Array.isArray(report.manual_checks) && report.manual_checks.length) {
+    section.appendChild(makeElement('strong', '', 'Human review checklist'));
+    const list = makeElement('ul', 'publisher-automated-findings');
+    for (const item of report.manual_checks) list.appendChild(makeElement('li', '', item));
+    section.appendChild(list);
+  }
+  container.appendChild(section);
+}
+
 function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -654,18 +688,13 @@ class PublisherPortal {
 
   makeAppForm({ type, app } = {}) {
     const update = type === 'update';
-    const publishImmediately = this.user?.email?.trim().toLowerCase() === this.adminEmail;
     this.setPage(update ? `Update ${app.name}` : 'Publish an app', update
-      ? publishImmediately
-        ? 'Upload a newer package version to publish it immediately.'
-        : 'Submit a new .novaapp package and tell reviewers what changed in this version.'
-      : publishImmediately
-        ? 'Complete the listing details and publish your .novaapp package immediately.'
-        : 'Complete the listing details and submit your .novaapp package for review. It will not appear publicly until approved.');
+      ? 'Upload a newer package version. It must pass automated checks and human review before publication.'
+      : 'Complete the listing details. Your .novaapp must pass automated checks and human review before publication.');
     const form = makeElement('form', 'publisher-card publisher-app-form');
     const status = makeElement('p', 'publisher-form-intro', update
-      ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version.${publishImmediately ? ' Your account is authorized to publish without a separate review.' : ''}`
-      : `All listing details are required. The package manifest ID and version must match the details below.${publishImmediately ? ' Your account is authorized to publish without a separate review.' : ''}`);
+      ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version and pass automated and human review.`
+      : 'All listing details are required. The package must pass automated checks and human review before it can be published.');
     form.appendChild(status);
 
     if (!update) {
@@ -721,8 +750,8 @@ class PublisherPortal {
           heading: 'Data handling',
           items: [
             'Apps must not persist or transmit user data beyond what is needed for their stated purpose.',
-            'Data written to VFS must be scoped to the app\'s own directory.',
-            'Apps must not store credentials — passwords, tokens, keys — in plaintext anywhere in VFS.',
+            'Data written directly by an app must be scoped to its own directory.',
+            'Apps must not store credentials — passwords, tokens, keys — in plaintext in app files.',
           ],
         },
         {
@@ -942,8 +971,7 @@ class PublisherPortal {
     }
 
     const submit = makeElement('button', 'publisher-submit',
-      update ? (publishImmediately ? 'Publish update' : 'Submit update for review')
-        : (publishImmediately ? 'Publish app' : 'Submit app for review'));
+      update ? 'Submit update for review' : 'Submit app for review');
     submit.type = 'submit';
     const cancel = this.makeAction('Cancel', () => this.open('my-apps'), 'publisher-cancel');
     form.append(submit, cancel);
@@ -1029,7 +1057,7 @@ class PublisherPortal {
             'x-upsert': 'true',
           },
         });
-        submit.textContent = publishImmediately ? 'Publishing…' : 'Sending for review…';
+        submit.textContent = 'Running automated checks…';
         const metadata = update ? {
           type: 'update',
           appId: app.id,
@@ -1057,19 +1085,23 @@ class PublisherPortal {
         };
         const result = await this.call('submit', { submissionId, submission: metadata });
         await this.open('my-apps');
-        if (result.published) {
-          this.setNotice(`${update ? 'Update' : 'App'} published and signed successfully. It is now available in the public catalog.`, 'success');
+        if (result.automatedReview?.passed === false) {
+          this.setNotice(
+            result.notificationSent === false
+              ? `Automated checks found blocking issues. See My Apps for details. ${emailFailureNotice(result.notificationError)}`
+              : 'Automated checks found blocking issues. See My Apps for details, fix them, and submit again.',
+            'error',
+          );
         } else {
           this.setNotice(result.notificationSent === false
-            ? `Submission queued and visible in the review queue. ${emailFailureNotice(result.notificationError)}`
-            : 'Submission sent for review. You will receive an email when its status changes.', result.notificationSent === false ? 'warning' : 'success');
+            ? `Automated checks passed; the package is waiting for human review. ${emailFailureNotice(result.notificationError)}`
+            : 'Automated checks passed. Your submission is waiting for human review.', result.notificationSent === false ? 'warning' : 'success');
         }
       } catch (error) {
         this.setNotice(error.message || String(error), 'error');
       } finally {
         submit.disabled = false;
-        submit.textContent = update ? (publishImmediately ? 'Publish update' : 'Submit update for review')
-          : (publishImmediately ? 'Publish app' : 'Submit app for review');
+        submit.textContent = update ? 'Submit update for review' : 'Submit app for review';
       }
     });
     this.nodes.content.appendChild(form);
@@ -1154,7 +1186,10 @@ class PublisherPortal {
       makeElement('p', 'publisher-app-description', submission.review_note || submission.changelog || 'Waiting for review.')
     );
     card.appendChild(details);
-    if (['pending', 'changes_requested', 'rejected'].includes(submission.status)) {
+    if (submission.automated_review) {
+      appendAutomatedReview(card, submission.automated_review);
+    }
+    if (['pending', 'changes_requested', 'rejected', 'automated_rejected'].includes(submission.status)) {
       const withdraw = this.makeAction('Withdraw submission', async () => {
         if (!window.confirm('Withdraw this submission?')) return;
         try {
@@ -1181,7 +1216,7 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Review Apps', 'Inspect each submitted package, download it for review, then upload the reviewed .novaapp. Approval signs that reviewed package with NovaByte\'s trusted key and publishes it.');
+    this.setPage('Review Apps', 'Automated checks run first. Inspect the package and report, upload the reviewed .novaapp, then explicitly approve or reject it. Passing automation never publishes by itself.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
@@ -1209,6 +1244,7 @@ class PublisherPortal {
             makeElement('p', 'publisher-app-description', info.description || ''),
             makeElement('p', 'publisher-review-changelog', submission.changelog || 'No changelog supplied.')
           );
+          appendAutomatedReview(item, submission.automated_review);
           if (submission.download_url) {
             const download = makeElement('a', 'publisher-download', 'Download package for review');
             download.href = packageDownloadUrl(
@@ -1271,6 +1307,7 @@ class PublisherPortal {
       `Changelog: ${submission.changelog || '—'}`,
     ];
     for (const line of lines) card.appendChild(makeElement('p', 'publisher-review-line', line));
+    appendAutomatedReview(card, submission.automated_review, { includeManualChecks: true });
     if (submission.download_url) {
       const download = makeElement('a', 'publisher-download', 'Download package for review');
       download.href = packageDownloadUrl(
