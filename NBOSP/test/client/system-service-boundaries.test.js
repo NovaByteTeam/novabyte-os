@@ -9,7 +9,7 @@ const readWorkspaceFile = path => readFileSync(
 );
 
 describe('built-in service boundaries', () => {
-  it('includes system-service packages in the NovaApp package manifest', () => {
+  it('lists each extracted service in both runtime manifests', () => {
     const serviceIds = [
       'com.nbosp.service.app-loader-optimiser',
       'com.nbosp.service.wallpaper',
@@ -26,12 +26,13 @@ describe('built-in service boundaries', () => {
     const systemEventsIndex = runtimeServices.findIndex(service => service.id === 'com.nbosp.service.system-events');
 
     for (const id of serviceIds) {
-      expect(runtimeServices).toContainEqual(expect.objectContaining({ id, entry: 'service.js' }));
+      expect(runtimeServices).toContainEqual({ id, entry: 'service.js' });
       expect(runtimeServices.findIndex(service => service.id === id)).toBeLessThan(systemEventsIndex);
-      expect(packageManifest.some(bundle => bundle.id === id)).toBe(true);
-    }
-    for (const service of runtimeServices) {
-      expect(packageManifest.some(bundle => bundle.id === service.id)).toBe(true);
+      expect(packageManifest).toContainEqual(expect.objectContaining({
+        id,
+        file: `js/apps/${id}.novaapp`,
+        systemService: true,
+      }));
     }
     expect(packageManifest.every(bundle => /^[a-f0-9]{64}$/.test(bundle.cacheKey || ''))).toBe(true);
   });

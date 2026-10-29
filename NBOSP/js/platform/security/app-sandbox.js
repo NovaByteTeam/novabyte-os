@@ -253,6 +253,13 @@ const AppSandbox = (() => {
   // appId -> array of timestamps (ms) within the current window.
   const notifRateLimitLog = new Map();
 
+  // Only an app which passes UnrestrictedGate may execute in the host
+  // document. Any package that falls back to a sandbox gets the same
+  // permission-gated capabilities as every other sandboxed app.
+  function isFullyUnrestricted(app) {
+    return app?.__unrestrictedSandbox === true;
+  }
+
   // Shared TextEncoder for the base64 helpers — cheap to construct, but no
   // reason to allocate a new one per call when IPC traffic is high-frequency.
   const sharedTextEncoder = new TextEncoder();
@@ -2624,7 +2631,7 @@ const AppSandbox = (() => {
     const canListAll = AppPermissionManager.isGranted('system:apps', app.id);
     const apps = APP_REGISTRY.filter(candidate =>
       (canListAll || HOME_ALWAYS_LAUNCHABLE_APP_IDS.has(candidate.id))
-      && ((typeof OS !== 'undefined' && OS.settings?.get?.('devMode')) || candidate.devOnly !== true)
+      && (OS?.settings?.get?.('devMode') || candidate.devOnly !== true)
     ).map(getHomeAppListEntry);
     return respond(webview, 'nova:home:apps:list', requestId, {
       success: true,
@@ -6070,499 +6077,6 @@ const AppSandbox = (() => {
     'nova:contacts:read', 'nova:contacts:write', 'nova:contacts:delete',
   ]);
 
-  const verifiedSystemPackageCache = new Map();
-  const frameworkNotificationToasts = new Set();
-  let frameworkNotificationsLoaded = false;
-
-  function frameworkNotifications() {
-    if (typeof OS === 'undefined') throw new Error('OS state is unavailable');
-    if (!Array.isArray(OS.notifications)) OS.notifications = [];
-    return OS.notifications;
-  }
-
-  function persistFrameworkNotifications() {
-    try {
-      localStorage.setItem('novaOS_notifications', JSON.stringify(frameworkNotifications().slice(0, 100)));
-    } catch (error) {
-      log('warn', 'Could not persist system notifications', error);
-    }
-  }
-
-  function updateFrameworkNotificationBadge() {
-    const badge = document.getElementById('notif-badge');
-    if (!badge) return;
-    const unread = Number(OS.notifUnread) || 0;
-    badge.textContent = unread > 99 ? '99+' : String(unread);
-    badge.classList.toggle('hidden', unread === 0);
-  }
-
-  function renderFrameworkNotificationPanel() {
-    const list = document.getElementById('notif-list');
-    if (!list) return;
-    const notifications = frameworkNotifications();
-    if (!notifications.length) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-state';
-      empty.textContent = 'No notifications';
-      list.replaceChildren(empty);
-      return;
-    }
-    const fragment = document.createDocumentFragment();
-    for (const notification of notifications.slice(0, 50)) {
-      const item = document.createElement('div');
-      item.className = `notif-item${notification.read ? ' read' : ''}${notification.pinned ? ' notif-item-pinned' : ''}`;
-      item.setAttribute('role', 'listitem');
-      const content = document.createElement('div');
-      content.className = 'notif-item-content';
-      for (const [className, text] of [
-        ['notif-item-title', notification.title],
-        ['notif-item-body', notification.body],
-        ['notif-item-time', notification.timestamp ? new Date(notification.timestamp).toLocaleString() : ''],
-      ]) {
-        const line = document.createElement('div');
-        line.className = className;
-        line.textContent = String(text || '');
-        content.appendChild(line);
-      }
-      item.appendChild(content);
-      if (!notification.read) {
-        const markRead = document.createElement('button');
-        markRead.className = 'notif-item-action';
-        markRead.textContent = 'Mark read';
-        markRead.addEventListener('click', () => {
-          notification.read = true;
-          OS.notifUnread = notifications.filter(entry => !entry.read).length;
-          persistFrameworkNotifications();
-          updateFrameworkNotificationBadge();
-          renderFrameworkNotificationPanel();
-        });
-        item.appendChild(markRead);
-      }
-      if (!notification.pinned) {
-        const dismiss = document.createElement('button');
-        dismiss.className = 'notif-item-dismiss';
-        dismiss.type = 'button';
-        dismiss.setAttribute('aria-label', 'Dismiss notification');
-        dismiss.textContent = '×';
-        dismiss.addEventListener('click', () => {
-          OS.notifications = frameworkNotifications().filter(entry => entry.id !== notification.id);
-          OS.notifUnread = OS.notifications.filter(entry => !entry.read).length;
-          persistFrameworkNotifications();
-          updateFrameworkNotificationBadge();
-          renderFrameworkNotificationPanel();
-        });
-        item.appendChild(dismiss);
-      }
-      fragment.appendChild(item);
-    }
-    list.replaceChildren(fragment);
-  }
-
-  function loadFrameworkNotifications() {
-    const notifications = frameworkNotifications();
-    if (frameworkNotificationsLoaded) return;
-    frameworkNotificationsLoaded = true;
-    try {
-      const saved = JSON.parse(localStorage.getItem('novaOS_notifications') || '[]');
-      if (Array.isArray(saved)) OS.notifications = saved.slice(0, 100);
-    } catch (error) {
-      log('warn', 'Could not load persisted system notifications', error);
-    }
-    OS.notifUnread = OS.notifications.filter(notification => !notification.read).length;
-  }
-
-  function showFrameworkNotification(args) {
-    loadFrameworkNotifications();
-    const notifications = frameworkNotifications();
-    const notification = {
-      id: generateId(),
-      title: String(args.title || '').slice(0, 256),
-      body: String(args.body || '').slice(0, 4000),
-      type: String(args.type || 'info').slice(0, 32),
-      appName: String(args.appName || 'System').slice(0, 128),
-      appId: typeof args.appId === 'string' ? args.appId : null,
-      category: typeof args.category === 'string' ? args.category : 'system',
-      timestamp: Date.now(),
-      read: false,
-      pinned: args.pinned === true,
-      pinId: args.pinned === true && typeof args.pinId === 'string' ? args.pinId : null,
-    };
-    notifications.unshift(notification);
-    if (notifications.length > 100) {
-      const trimIndex = notifications.findLastIndex(entry => !entry.pinned);
-      if (trimIndex >= 0) notifications.splice(trimIndex, 1);
-    }
-    OS.notifUnread = notifications.filter(entry => !entry.read).length;
-    persistFrameworkNotifications();
-    updateFrameworkNotificationBadge();
-    renderFrameworkNotificationPanel();
-    if (!OS.dnd) {
-      const toast = document.createElement('aside');
-      toast.setAttribute('role', 'status');
-      toast.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483646;max-width:360px;padding:14px 18px;border:1px solid #ffffff24;border-radius:10px;background:#171b26;color:#f3f4f6;font:13px system-ui,sans-serif;box-shadow:0 8px 30px #0008';
-      const title = document.createElement('strong');
-      title.textContent = notification.title || notification.appName;
-      const body = document.createElement('div');
-      body.textContent = notification.body;
-      toast.append(title, body);
-      document.body.appendChild(toast);
-      frameworkNotificationToasts.add(toast);
-      setTimeout(() => {
-        toast.remove();
-        frameworkNotificationToasts.delete(toast);
-      }, Math.min(Math.max(Number(args.duration) || 5000, 1000), 30000));
-    }
-    return true;
-  }
-
-  function handleFrameworkNotificationOperation(method, args) {
-    if (typeof Notify !== 'undefined' && typeof Notify[method] === 'function') {
-      return Notify[method](args);
-    }
-    loadFrameworkNotifications();
-    const notifications = frameworkNotifications();
-    switch (method) {
-      case 'loadPersisted':
-        return true;
-      case 'renderPanel':
-        renderFrameworkNotificationPanel();
-        return true;
-      case 'updateBadge':
-        updateFrameworkNotificationBadge();
-        return true;
-      case 'markAllRead':
-        for (const notification of notifications) notification.read = true;
-        OS.notifUnread = 0;
-        persistFrameworkNotifications();
-        updateFrameworkNotificationBadge();
-        renderFrameworkNotificationPanel();
-        return true;
-      case 'clearAll':
-        OS.notifications = notifications.filter(notification => notification.pinned);
-        OS.notifUnread = OS.notifications.filter(notification => !notification.read).length;
-        persistFrameworkNotifications();
-        updateFrameworkNotificationBadge();
-        renderFrameworkNotificationPanel();
-        return true;
-      case 'togglePanel': {
-        const panel = document.getElementById('notification-panel');
-        if (!panel) throw new Error('Notification panel is unavailable');
-        const opening = !panel.classList.contains('active');
-        panel.classList.toggle('active');
-        if (opening) {
-          for (const notification of notifications) notification.read = true;
-          OS.notifUnread = 0;
-          persistFrameworkNotifications();
-          updateFrameworkNotificationBadge();
-          renderFrameworkNotificationPanel();
-        }
-        return true;
-      }
-      default:
-        throw new Error(`Unsupported notification operation: ${method}`);
-    }
-  }
-
-  async function verifySystemPackage(app) {
-    if (!isVerifiedSystemPackage(app) || typeof app.signature !== 'string' ||
-        typeof AppPackage === 'undefined' ||
-        typeof AppPackage.verifyAgainstTrustStore !== 'function' ||
-        typeof TrustStore === 'undefined' ||
-        typeof TrustStore.list !== 'function') {
-      return false;
-    }
-    if (typeof TrustStore.isRevoked === 'function' && await TrustStore.isRevoked(app.signature)) {
-      return false;
-    }
-    const cacheKey = `${app.id}:${app.signature}:${JSON.stringify(TrustStore.list())}`;
-    if (!verifiedSystemPackageCache.has(cacheKey)) {
-      const verification = Promise.resolve(AppPackage.verifyAgainstTrustStore(
-        app,
-        TrustStore.list(),
-        typeof TrustStore.isRevoked === 'function'
-          ? signature => TrustStore.isRevoked(signature)
-          : undefined
-      )).then(result =>
-        result?.trusted === true && result.signer === 'NovaByte System'
-      );
-      verifiedSystemPackageCache.set(cacheKey, verification);
-    }
-    return verifiedSystemPackageCache.get(cacheKey);
-  }
-
-  async function handleHiddenFrameworkApi({ payload, requestId, app, webview, sandbox }) {
-    if (!(await verifySystemPackage(app))) {
-      return respondError(webview, 'nova:framework:hidden', requestId, 'PERMISSION_DENIED', 'Verified NovaByte System signature required');
-    }
-    const method = payload?.method;
-    const args = payload?.payload || {};
-    let value;
-    switch (method) {
-      case 'settings.set':
-        if (typeof args.key !== 'string' || typeof OS === 'undefined' ||
-            typeof OS.settings?.set !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'A settings key and value are required');
-        }
-        OS.settings.set(args.key, args.value);
-        value = true;
-        break;
-      case 'window.create': {
-        if (typeof args.appId !== 'string' || !args.appId) {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'An app ID is required');
-        }
-        if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Window manager is unavailable');
-        }
-        const state = await WM.createWindow(args.appId, args.options || {});
-        if (!state) {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'NOT_FOUND', `App could not be opened: ${args.appId}`);
-        }
-        value = { id: state.id, appId: state.appId };
-        break;
-      }
-      case 'window.close':
-      case 'window.minimize':
-      case 'window.maximize':
-      case 'window.focus': {
-        const windowId = args.windowId || sandbox?.windowId;
-        if (typeof windowId !== 'string') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'A window ID is required');
-        }
-        const operation = {
-          'window.close': 'closeWindow',
-          'window.minimize': 'minimizeWindow',
-          'window.maximize': 'toggleMaximize',
-          'window.focus': 'focusWindow',
-        }[method];
-        if (typeof WM === 'undefined' || typeof WM[operation] !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Window manager is unavailable');
-        }
-        if (!(await WM[operation](windowId))) {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'NOT_FOUND', `Window not found: ${windowId}`);
-        }
-        value = true;
-        break;
-      }
-      case 'window.bounds.set': {
-        const { windowId, x, y, width, height } = args;
-        if (typeof windowId !== 'string' ||
-            ![x, y, width, height].every(Number.isFinite) ||
-            width <= 0 || height <= 0) {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'A window ID and finite positive bounds are required');
-        }
-        if (typeof WM === 'undefined' || typeof WM.setWindowBounds !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Window bounds API is unavailable');
-        }
-        if (!WM.setWindowBounds(windowId, { x, y, width, height })) {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'NOT_FOUND', `Window not found: ${windowId}`);
-        }
-        value = true;
-        break;
-      }
-      case 'window.list':
-        if (typeof WM === 'undefined' || typeof WM.getWindows !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Window manager is unavailable');
-        }
-        value = WM.getWindows();
-        break;
-      case 'notifications.show':
-        if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
-          value = Notify.show(args);
-        } else {
-          value = showFrameworkNotification(args);
-        }
-        break;
-      case 'notifications.operation': {
-        const allowedMethods = new Set([
-          'loadPersisted', 'renderPanel', 'updateBadge',
-          'markAllRead', 'clearAll', 'togglePanel',
-        ]);
-        if (!allowedMethods.has(args.method)) {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'Unsupported notification operation');
-        }
-        value = handleFrameworkNotificationOperation(args.method, args);
-        break;
-      }
-      case 'notifications.clear':
-        if (typeof Notify !== 'undefined') Notify.clear?.();
-        for (const toast of frameworkNotificationToasts) toast.remove();
-        frameworkNotificationToasts.clear();
-        value = true;
-        break;
-      case 'filesystem.mutate': {
-        const allowedMethods = new Set([
-          'createFile', 'createFolder', 'writeFile', 'rename', 'move',
-          'deleteToTrash', 'permanentDelete', 'pasteInto', 'importNodes',
-        ]);
-        if (!allowedMethods.has(args.method) || !Array.isArray(args.args) ||
-            typeof FS === 'undefined' || typeof FS[args.method] !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'Unsupported filesystem operation');
-        }
-        const result = await FS[args.method](...args.args);
-        const nodes = typeof FS.exportNodes === 'function'
-          ? await FS.exportNodes()
-          : [...FS.files.values()];
-        value = { nodes, result: result ?? null };
-        break;
-      }
-      case 'filesystem.export':
-        if (typeof FS === 'undefined' || typeof FS.exportNodes !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Filesystem export is unavailable');
-        }
-        value = { nodes: await FS.exportNodes() };
-        break;
-      case 'filesystem.worker': {
-        const allowedMethods = new Set([
-          'getAllFiles', 'getAllSettings', 'putFiles', 'putSetting', 'deleteFile',
-        ]);
-        if (!allowedMethods.has(args.method) || !Array.isArray(args.args) ||
-            typeof OS === 'undefined') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'Unsupported filesystem worker operation');
-        }
-        if (args.method === 'getAllFiles' && typeof OS.workers?.fs?.call === 'function') {
-          value = await OS.workers.fs.call(args.method, ...args.args);
-          if (typeof FS !== 'undefined' && Array.isArray(value)) {
-            FS.files.clear();
-            FS._childrenByParent.clear();
-            for (const record of value) {
-              FS.files.set(record.id, record);
-              FS._indexFile(record);
-            }
-          }
-        } else if (args.method === 'getAllSettings' && typeof OS.workers?.fs?.call === 'function') {
-          value = await OS.workers.fs.call(args.method, ...args.args);
-        } else if (args.method === 'putSetting' && typeof OS.settings?.set === 'function') {
-          value = OS.settings.set(args.args[0], args.args[1]);
-        } else if (args.method === 'putFiles' && typeof FS !== 'undefined') {
-          const records = Array.isArray(args.args[0]) ? args.args[0] : [];
-          if (typeof OS.workers?.fs?.call !== 'function') {
-            return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Filesystem worker is unavailable');
-          }
-          value = await OS.workers.fs.call(args.method, records);
-          for (const record of records) {
-            if (!record?.id) continue;
-            const previous = FS.files.get(record.id);
-            if (previous) FS._unindexFile?.(record.id);
-            FS.files.set(record.id, record);
-            FS._indexFile?.(record);
-          }
-        } else if (args.method === 'deleteFile' && typeof FS !== 'undefined') {
-          if (typeof OS.workers?.fs?.call !== 'function') {
-            return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Filesystem worker is unavailable');
-          }
-          value = await OS.workers.fs.call(args.method, args.args[0]);
-          FS._unindexFile?.(args.args[0]);
-          FS.files.delete(args.args[0]);
-        } else {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Filesystem worker is unavailable');
-        }
-        break;
-      }
-      case 'workers.crypto': {
-        if (!['sha256', 'pbkdf2'].includes(args.method) || !Array.isArray(args.args) ||
-            typeof OS?.workers?.crypto?.call !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'Unsupported cryptography worker operation');
-        }
-        value = await OS.workers.crypto.call(args.method, ...args.args);
-        break;
-      }
-      case 'app-data.path':
-      case 'app-data.ensure':
-      case 'app-data.remove':
-      case 'app-data.clear': {
-        if (typeof args.appId !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/i.test(args.appId)) {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'App ID is required');
-        }
-        if (typeof FS === 'undefined') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'UNAVAILABLE', 'Filesystem is unavailable');
-        }
-        const appPath = `/data/${args.appId}`;
-        if (method === 'app-data.path') {
-          const subdir = args.subdir || 'files';
-          if (!['files', 'cache', 'databases', 'shared_prefs'].includes(subdir)) {
-            return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'Unsupported app data directory');
-          }
-          value = FS.getByPath(`${appPath}/${subdir}`)?.id || null;
-          break;
-        }
-        let dataRoot = FS.getByPath('/data');
-        if (!dataRoot && method === 'app-data.ensure') {
-          dataRoot = await FS.createFolder(FS.rootId, 'data');
-        }
-        if (dataRoot && dataRoot.type !== 'folder') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_STATE', 'App data root is not a folder');
-        }
-        let appRoot = dataRoot && FS.listDir(dataRoot.id).find(node =>
-          node.type === 'folder' && node.name === args.appId
-        );
-        if (!appRoot && method === 'app-data.ensure') {
-          appRoot = await FS.createFolder(dataRoot.id, args.appId);
-        }
-        if (!appRoot) {
-          value = method === 'app-data.remove' || method === 'app-data.clear' ? false : null;
-          break;
-        }
-        if (method === 'app-data.ensure') {
-          for (const name of ['files', 'cache', 'databases', 'shared_prefs']) {
-            if (!FS.listDir(appRoot.id).some(node => node.name === name && node.type === 'folder')) {
-              await FS.createFolder(appRoot.id, name);
-            }
-          }
-          const nodes = typeof FS.exportNodes === 'function'
-            ? await FS.exportNodes()
-            : [...FS.files.values()];
-          value = { folderId: FS.getByPath(`${appPath}/files`)?.id || null, nodes };
-        } else if (method === 'app-data.remove') {
-          await FS.permanentDelete(appRoot.id);
-          const nodes = typeof FS.exportNodes === 'function'
-            ? await FS.exportNodes()
-            : [...FS.files.values()];
-          value = { removed: true, nodes };
-        } else {
-          for (const child of FS.listDir(appRoot.id)) await FS.permanentDelete(child.id);
-          const nodes = typeof FS.exportNodes === 'function'
-            ? await FS.exportNodes()
-            : [...FS.files.values()];
-          value = { cleared: true, nodes };
-        }
-        break;
-      }
-      case 'events.subscribe': {
-        if (typeof args.name !== 'string' || !args.name || typeof OS?.events?.on !== 'function') {
-          return respondError(webview, 'nova:framework:hidden', requestId, 'INVALID_ARGS', 'Event name is required');
-        }
-        if (!sandbox.frameworkEventCleanups) sandbox.frameworkEventCleanups = new Map();
-        if (!sandbox.frameworkEventCleanups.has(args.name)) {
-          const listener = data => {
-            respond(webview, 'nova:framework:event', generateRequestId(), {
-              name: args.name,
-              value: data ?? null,
-            });
-          };
-          OS.events.on(args.name, listener);
-          const unsubscribe = () => OS.events.off?.(args.name, listener);
-          sandbox.frameworkEventCleanups.set(args.name, unsubscribe);
-        }
-        value = true;
-        break;
-      }
-      case 'events.unsubscribe': {
-        const unsubscribe = sandbox?.frameworkEventCleanups?.get(args.name);
-        if (unsubscribe) {
-          unsubscribe();
-          sandbox.frameworkEventCleanups.delete(args.name);
-        }
-        value = true;
-        break;
-      }
-      default:
-        return respondError(webview, 'nova:framework:hidden', requestId, 'UNKNOWN_API', `Unknown internal framework API: ${String(method)}`);
-    }
-    return respond(webview, 'nova:framework:hidden', requestId, { success: true, value });
-  }
-
-  API_HANDLERS['nova:framework:hidden'] = handleHiddenFrameworkApi;
-
   // Dispatch an incoming IPC message to its handler. Catches sync throws and
   // async rejections so a single misbehaving handler can't take down the
   // bridge. Unknown types get an UNKNOWN_API error response.
@@ -7365,12 +6879,6 @@ const AppSandbox = (() => {
   // other end of this port, so nothing else could be the source.
   function handleInboxMessage(msg) {
     if (!msg || typeof msg.type !== 'string') return;
-
-    if (msg.type === 'nova:framework:event:response' && msg.result?.name) {
-      try { window.__novaFrameworkEvent?.(msg.result.name, msg.result.value); }
-      catch (error) { console.error('Framework event handler failed:', error); }
-      return;
-    }
 
     if (msg.type === 'nova:appearance:changed:event:response' && msg.result) {
       for (const callback of appearanceListeners.slice()) {
@@ -9197,7 +8705,6 @@ const AppSandbox = (() => {
       ? resolveAndClassifyUrl(launchOptions.url).url
       : null;
     const shim = buildCapabilityShim(nestedWebviewOptedIn, initialUrl);
-    const compatibilityShim = buildLegacyCompatibilityShim(app, launchOptions);
     const cspMeta = buildRelaxedCspMeta(allowExternalFrames);
     // Add transparent document-root styling through the same unconditional
     // prefix path as the capability shim. This works for fragments or HTML
@@ -9220,211 +8727,9 @@ const AppSandbox = (() => {
     if (doctypeMatch) {
       const doctype = doctypeMatch[0];
       const rest = html.slice(doctype.length);
-      return doctype + '\n' + transparentStyle + launchOptionsShim + '\n' + shim + '\n' + compatibilityShim + '\n' + cspMeta + '\n' + rest;
+      return doctype + '\n' + transparentStyle + launchOptionsShim + '\n' + shim + '\n' + cspMeta + '\n' + rest;
     }
-    return transparentStyle + launchOptionsShim + '\n' + shim + '\n' + compatibilityShim + '\n' + cspMeta + '\n' + html;
-  }
-
-  const LEGACY_PUBLIC_SETTINGS = Object.freeze([
-    'accentColor', 'clockFormat', 'cursorSize', 'customWallpaper',
-    'desktopGridSpacing', 'desktopIconPositions', 'desktopIconSize',
-    'filesViewOnly', 'highContrast', 'pinnedApps', 'reduceMotion',
-    'region', 'removeTransparency', 'showDesktopIcons', 'showTaskbarClock',
-    'taskbarAutoHide', 'taskbarPosition', 'taskbarSize', 'theme',
-    'timezone', 'username', 'wallpaperId',
-  ]);
-
-  function isVerifiedSystemPackage(app) {
-    return !!(
-      app &&
-      app.system === true &&
-      app.verified === true &&
-      app.signer === 'NovaByte System' &&
-      app.manifest?.system === true
-    );
-  }
-
-  function buildLegacyCompatibilityShim(app, launchOptions = {}) {
-    if (!isVerifiedSystemPackage(app)) return '';
-
-    const settings = {};
-    const settingKeys = new Set(LEGACY_PUBLIC_SETTINGS);
-    for (const key of Object.keys(OS?.settings?._cache || {})) settingKeys.add(key);
-    for (const key of Object.keys(OS?.settings?.defaults || {})) settingKeys.add(key);
-    for (const key of settingKeys) {
-      try {
-        const value = OS?.settings?.get?.(key);
-        if (value !== undefined) settings[key] = value;
-      } catch (error) {
-        log('warn', `Could not snapshot public setting "${key}" for ${app.id}:`, error);
-      }
-    }
-    const registry = typeof APP_REGISTRY !== 'undefined' && Array.isArray(APP_REGISTRY)
-      ? APP_REGISTRY
-      : [];
-    const apps = registry.map(item => ({
-      id: item.id, name: item.name, icon: item.icon || '',
-      description: item.description || '', version: item.version || '1.0.0',
-      type: item.type || 'package', system: item.system === true,
-      devOnly: item.devOnly === true, handles: item.handles || undefined,
-    })).filter(item => typeof item.id === 'string' && typeof item.name === 'string');
-    const windows = typeof OS?.windows?.values === 'function'
-      ? [...OS.windows.values()].map(item => ({
-        id: item.id, appId: item.appId, x: item.x, y: item.y,
-        width: item.width, height: item.height, title: item.title,
-        minimized: !!item.minimized, maximized: !!item.maximized,
-      }))
-      : [];
-    const files = typeof FS !== 'undefined' && FS.files instanceof Map
-      ? [...FS.files.values()].map(node => ({ ...node }))
-      : [];
-    const snapshot = JSON.stringify({
-      appId: app.id, windowId: launchOptions.windowId || null,
-      settings, apps, windows, files,
-      rootId: typeof FS !== 'undefined' ? FS.rootId : null,
-      specialFolders: typeof FS !== 'undefined' ? FS.specialFolders : {},
-      username: OS?.username || '', version: OS?.version || '',
-      volume: Number.isFinite(OS?.volume) ? OS.volume : 80,
-      focusedWindowId: OS?.focusedWindowId || null,
-    }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
-      .replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-
-    return `<script>
-(function(){
-  'use strict';
-  var snapshot=${snapshot};
-  var invoke=function(method,payload){return window.nova.ipc('nova:framework:hidden',{method:method,payload:payload||{}}).then(function(result){if(result&&result.error)throw Object.assign(new Error(result.error.message||'Framework API failed'),result.error);if(result&&result.success===true)return result.value;if(result&&result.success===false)throw new Error(result.message||'Framework API failed');return result;});};
-  window.__novaFramework=Object.freeze({invoke:invoke,apiLevel:1});
-  var apps=Object.fromEntries(snapshot.apps.map(function(item){return [item.id,Object.freeze(item)];}));
-  var events=new Map();
-  function makeWindowState(item){
-    var state=Object.assign({},item);
-    var queued=false;
-    function scheduleBounds(){
-      if(queued)return;
-      queued=true;
-      Promise.resolve().then(function(){
-        queued=false;
-        invoke('window.bounds.set',{windowId:state.id,x:state.x,y:state.y,width:state.width,height:state.height}).catch(function(error){console.error('[NovaApp] Window bounds update failed:',error);});
-      });
-    }
-    for(const key of ['x','y','width','height']){
-      let current=Number(state[key])||0;
-      Object.defineProperty(state,key,{enumerable:true,configurable:true,get:function(){return current;},set:function(value){var next=Number(value);if(!Number.isFinite(next))return;current=next;scheduleBounds();}});
-    }
-    state.element={style:new Proxy({},{
-      set:function(_target,key,value){
-        var property={left:'x',top:'y',width:'width',height:'height'}[key];
-        if(property){var parsed=Number.parseFloat(value);if(Number.isFinite(parsed))state[property]=parsed;}
-        return true;
-      }
-    })};
-    return state;
-  }
-  function replaceWindowStates(items){return new Map((items||[]).map(function(item){return [item.id,makeWindowState(item)];}));}
-  var eventApi=Object.freeze({
-    on:function(name,fn){if(typeof fn!=='function')throw new TypeError('Event callback is required');var set=events.get(name)||new Set();if(!set.size)invoke('events.subscribe',{name:name}).catch(function(error){console.error('[NovaApp] Event subscription failed:',error);});set.add(fn);events.set(name,set);return function(){set.delete(fn);if(!set.size)invoke('events.unsubscribe',{name:name}).catch(function(error){console.error('[NovaApp] Event unsubscription failed:',error);});};},
-    off:function(name,fn){var set=events.get(name);if(!set)return;set.delete(fn);if(!set.size)invoke('events.unsubscribe',{name:name}).catch(function(error){console.error('[NovaApp] Event unsubscription failed:',error);});},
-    emit:function(name,value){for(var fn of events.get(name)||[]){try{fn(value);}catch(error){console.error('[NovaApp] Event callback failed:',error);}}}
-  });
-  window.__novaFrameworkEvent=function(name,value){if(name==='windows:changed'&&Array.isArray(value))os.windows=replaceWindowStates(value);eventApi.emit(name,value);};
-  invoke('events.subscribe',{name:'windows:changed'}).catch(function(error){console.error('[NovaApp] Window event subscription failed:',error);});
-  var settings=Object.assign({},snapshot.settings);
-  var os=window.OS=window.OS||{};
-  os.apps=apps;os.windows=replaceWindowStates(snapshot.windows);
-  os.settings=Object.freeze({
-    _cache:settings,
-    get:function(key){var value=settings[key];return value&&typeof value==='object'?structuredClone(value):value;},
-    set:function(key,value){settings[key]=value;invoke('settings.set',{key:key,value:value}).then(function(){eventApi.emit('settings:changed',{key:key,value:value});}).catch(function(error){console.error('[NovaApp] Setting update failed:',error);});return true;}
-  });
-  os.events=eventApi;os.username=snapshot.username;os.version=snapshot.version;
-  os.volume=snapshot.volume;os.focusedWindowId=snapshot.focusedWindowId;
-  os.notifications=[];os.notifUnread=0;
-  os.workers={
-    fs:{call:function(method){return invoke('filesystem.worker',{method:method,args:Array.prototype.slice.call(arguments,1)});}},
-    crypto:{call:function(method){return invoke('workers.crypto',{method:method,args:Array.prototype.slice.call(arguments,1)});}}
-  };
-  var windowApi=window.WM=window.WM||{};
-  windowApi.createWindow=function(appId,options){return invoke('window.create',{appId:appId,options:options||{}}).then(function(state){if(state?.id)os.windows.set(state.id,state);return state;});};
-  windowApi.closeWindow=function(id){var windowId=id||snapshot.windowId;return invoke('window.close',{windowId:windowId}).then(function(result){os.windows.delete(windowId);return result;});};
-  windowApi.minimizeWindow=function(id){var windowId=id||snapshot.windowId;return invoke('window.minimize',{windowId:windowId}).then(function(result){var state=os.windows.get(windowId);if(state)state.minimized=true;return result;});};
-  windowApi.toggleMaximize=function(id){var windowId=id||snapshot.windowId;return invoke('window.maximize',{windowId:windowId}).then(function(result){var state=os.windows.get(windowId);if(state)state.maximized=!state.maximized;return result;});};
-  windowApi.focusWindow=function(id){return invoke('window.focus',{windowId:id});};
-  windowApi.minimizeAll=function(){return Promise.all(Array.from(os.windows.keys(),function(id){return windowApi.minimizeWindow(id);}));};
-  windowApi.getWorkArea=function(){var root=document.getElementById('desktop')||document.body;var rect=root.getBoundingClientRect();var x=rect.left||0;var y=rect.top||0;return {x:x,y:y,left:x,top:y,width:rect.width||innerWidth,height:rect.height||innerHeight};};
-  windowApi.clampWindowRect=function(state,x,y,width,height){var area=windowApi.getWorkArea();var w=Math.min(Math.max(width,state.minWidth||300),state.maxWidth||area.width);var h=Math.min(Math.max(height,state.minHeight||200),state.maxHeight||area.height);var left=Math.max(area.x,Math.min(x,area.x+area.width-Math.min(w,80)));var top=Math.max(area.y,Math.min(y,area.y+area.height-36));return {x:left,y:top,w:w,h:h,width:w,height:h};};
-  windowApi.hideSnapPreview=function(){var preview=document.getElementById('snap-preview');if(preview)preview.hidden=true;};
-  windowApi.updateTaskbar=function(){return invoke('window.list').then(function(list){if(Array.isArray(list))os.windows=replaceWindowStates(list);eventApi.emit('taskbar:changed',{});return true;}).catch(function(error){console.error('[NovaApp] Window list refresh failed:',error);return false;});};
-  var nodes=new Map(snapshot.files.map(function(node){return [node.id,node];}));
-  var children=new Map();
-  nodes.forEach(function(node){if(node.parentId==null)return;var list=children.get(node.parentId)||[];list.push(node);children.set(node.parentId,list);});
-  var fs={
-    files:nodes,rootId:snapshot.rootId,specialFolders:Object.assign({},snapshot.specialFolders),
-    _childrenByParent:new Map(Array.from(children,function(entry){return [entry[0],new Map(entry[1].map(function(node){return [node.id,node];}))];})),
-    listDir:function(id){return (children.get(id)||[]).slice().sort(function(a,b){return a.type!==b.type?(a.type==='folder'?-1:1):a.name.localeCompare(b.name);});},
-    getByPath:function(path){var current=nodes.get(fs.rootId);for(var part of String(path||'').split('/').filter(Boolean)){current=fs.listDir(current?.id).find(function(node){return node.name===part;});if(!current)return null;}return current||null;},
-    getPath:function(id){var node=nodes.get(id);if(!node)return null;var path=[];while(node&&node.parentId!=null){path.unshift(node.name);node=nodes.get(node.parentId);}return '/'+path.join('/');},
-    uniqueName:function(parentId,name,excludeId){var names=new Set(fs.listDir(parentId).filter(function(node){return node.id!==excludeId;}).map(function(node){return node.name;}));if(!names.has(name))return name;var dot=name.lastIndexOf('.');var stem=dot>0?name.slice(0,dot):name;var ext=dot>0?name.slice(dot):'';var i=1;while(names.has(stem+' ('+i+')'+ext))i++;return stem+' ('+i+')'+ext;},
-    getMimeIcon:function(mime,name){return mime||name||'file';},
-    addEventListener:function(_type,fn){if(typeof fn==='function')events.set('fs:changed',new Set([...(events.get('fs:changed')||[]),fn]));},
-    removeEventListener:function(_type,fn){events.get('fs:changed')?.delete(fn);}
-  };
-  function replaceNodes(next){nodes.clear();children.clear();for(var node of next||[]){nodes.set(node.id,node);if(node.parentId!=null){var list=children.get(node.parentId)||[];list.push(node);children.set(node.parentId,list);}}fs.rootId=(next||[]).find(function(node){return node.parentId==null&&node.type==='folder';})?.id||fs.rootId;fs._childrenByParent=new Map(Array.from(children,function(entry){return [entry[0],new Map(entry[1].map(function(node){return [node.id,node];}))];}));}
-  function syncMutationResult(result){if(result&&Array.isArray(result.nodes))replaceNodes(result.nodes);eventApi.emit('fs:changed',{});return result?result.result:null;}
-  function mutate(method,args){return invoke('filesystem.mutate',{method:method,args:args}).then(syncMutationResult);}
-  fs.createFile=function(parent,name,content,mime){return mutate('createFile',[parent,name,content,mime]);};
-  fs.createFolder=function(parent,name){return mutate('createFolder',[parent,name]);};
-  fs.writeFile=function(id,content,mime){return mutate('writeFile',[id,content,mime]);};
-  fs.rename=function(id,name){return mutate('rename',[id,name]);};
-  fs.move=function(id,parent){return mutate('move',[id,parent]);};
-  fs.deleteToTrash=function(id){return mutate('deleteToTrash',[id]);};
-  fs.permanentDelete=function(id){return mutate('permanentDelete',[id]);};
-  fs.pasteInto=function(clip,parent){return mutate('pasteInto',[clip,parent]);};
-  fs.exportNodes=function(){return invoke('filesystem.export',{}).then(function(result){return result.nodes;});};
-  fs.importNodes=function(value){return mutate('importNodes',[value]);};
-  window.FS=fs;
-  var appDataPath=function(appId,subdir){return fs.getByPath('/data/'+String(appId)+'/'+String(subdir||'files'))?.id||null;};
-  window.AppDirs=Object.freeze({
-    LS_MAP:Object.freeze({}),
-    getFSDir:appDataPath,
-    getAppDataPath:appDataPath,
-    ensureAppDataFolder:function(appId){return invoke('app-data.ensure',{appId:appId}).then(function(result){if(result&&result.nodes)replaceNodes(result.nodes);return result&&result.folderId||null;});},
-    removeAppData:function(appId){return invoke('app-data.remove',{appId:appId}).then(function(result){if(result&&result.nodes)replaceNodes(result.nodes);return result&&result.removed;});},
-    clearAppData:function(appId){return invoke('app-data.clear',{appId:appId}).then(function(result){if(result&&result.nodes)replaceNodes(result.nodes);return result&&result.cleared;});}
-  });
-  window.Notify=Object.freeze({
-    show:function(options){return invoke('notifications.show',options||{});},
-    clear:function(){return invoke('notifications.clear',{});},
-    togglePanel:function(){return invoke('notifications.operation',{method:'togglePanel'});},
-    clearAll:function(){return invoke('notifications.operation',{method:'clearAll'});},
-    markAllRead:function(){return invoke('notifications.operation',{method:'markAllRead'});},
-    loadPersisted:function(){return invoke('notifications.operation',{method:'loadPersisted'});},
-    renderPanel:function(){return invoke('notifications.operation',{method:'renderPanel'});},
-    updateBadge:function(){return invoke('notifications.operation',{method:'updateBadge'});}
-  });
-  window.showModal=function(title,body,actions,inputType,defaultValue){
-    return new Promise(function(resolve){
-      var overlay=document.createElement('div');overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');
-      overlay.style.cssText='position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;background:#0009;padding:20px;box-sizing:border-box';
-      var dialog=document.createElement('section');dialog.style.cssText='width:min(520px,100%);max-height:90vh;overflow:auto;padding:22px;border:1px solid #ffffff24;border-radius:12px;background:#1b1f27;color:#f3f4f6;box-shadow:0 20px 60px #0008;font:14px system-ui,sans-serif';
-      if(title){var heading=document.createElement('h2');heading.textContent=String(title);heading.style.margin='0 0 12px';dialog.appendChild(heading);}
-      var bodyDiv=null;if(typeof body==='string'){bodyDiv=document.createElement('div');bodyDiv.textContent=body;}else if(body instanceof HTMLElement){bodyDiv=document.createElement('div');bodyDiv.appendChild(body);}if(bodyDiv){bodyDiv.style.marginBottom='16px';dialog.appendChild(bodyDiv);}
-      var input=null;if(inputType||defaultValue!==undefined){input=document.createElement('input');input.type=inputType||'text';input.value=defaultValue||'';input.setAttribute('aria-label',String(title||'Input'));input.style.cssText='box-sizing:border-box;width:100%;margin-bottom:16px;padding:9px';dialog.appendChild(input);}
-      var actionsDiv=document.createElement('div');actionsDiv.style.cssText='display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap';
-      for(var action of actions||[{label:'OK',primary:true,value:true}]){var button=document.createElement('button');button.type='button';button.textContent=String(action.label||'OK');button.style.cssText='padding:8px 14px;cursor:pointer';button.addEventListener('click',function(act){return function(){finish(input?(act.value!==undefined?input.value:null):(act.value!==undefined?act.value:act.label));};}(action));actionsDiv.appendChild(button);}
-      dialog.appendChild(actionsDiv);overlay.appendChild(dialog);document.body.appendChild(overlay);
-      function finish(value){overlay.remove();resolve(value);}
-      overlay.addEventListener('click',function(event){if(event.target===overlay)finish(null);});
-      overlay.addEventListener('keydown',function(event){if(event.key==='Escape'){event.preventDefault();finish(null);}else if(input&&event.key==='Enter'){event.preventDefault();finish(input.value);}});
-      (input||actionsDiv.querySelector('button'))?.focus();
-    });
-  };
-  window.showPrompt=function(title,defaultValue){return window.showModal(title,null,[{label:'Cancel'},{label:'OK',primary:true,value:true}],'text',defaultValue);};
-  window.createEl=function(tag,attrs,children){var el=document.createElement(tag);if(attrs)for(var key of Object.keys(attrs)){if(key==='textContent')el.textContent=String(attrs[key]);else if(key==='className')el.className=String(attrs[key]);else if(key==='style'&&typeof attrs[key]==='string')el.style.cssText=attrs[key];else if(key.startsWith('on')&&typeof attrs[key]==='function')el.addEventListener(key.slice(2).toLowerCase(),attrs[key]);else if(key!=='innerHTML'&&key in el)try{el[key]=attrs[key];}catch(_){}}if(children)el.append(...(Array.isArray(children)?children:[children]));return el;};
-  window.svgIcon=function(name){var icon=document.createElement('span');icon.className='nova-icon nova-icon-'+String(name||'').replace(/[^a-z0-9_-]/gi,'');icon.setAttribute('aria-hidden','true');return icon;};
-  window.registerApp=function(config){if(!config||typeof config.init!=='function')throw new TypeError('Invalid app registration');return config.init(document.body,window.__NOVA_APP_OPTIONS__?.state||{},Object.assign({appId:snapshot.appId,windowId:snapshot.windowId},window.__NOVA_APP_OPTIONS__||{}));};
-})();
-</script>`;
+    return transparentStyle + launchOptionsShim + '\n' + shim + '\n' + cspMeta + '\n' + html;
   }
 
   // App loading
@@ -9432,23 +8737,6 @@ const AppSandbox = (() => {
   // Load app content into a sandbox. For webapps (external URLs), validates
   // the protocol before assigning to webview.src — without this, a malicious
   // manifest could specify javascript: or file: URLs.
-  function attachPackagedGuestEntry(html, app) {
-    const entry = app.manifest?.guestEntry ?? app.manifest?.unrestrictedEntry;
-    if (entry === undefined) return html;
-    if (typeof entry !== 'string' ||
-        !/^[a-z0-9][a-z0-9._-]*\.js$/i.test(entry) ||
-        typeof app.files?.[entry] !== 'string') {
-      throw new Error(`Invalid packaged guest entry for ${app.id}`);
-    }
-
-    const appId = JSON.stringify(app.id).replace(/</g, '\\u003c');
-    const bootstrap = `<script>window.registerApp=function(config){if(!config||typeof config.init!=="function")throw new Error("Invalid app registration");config.init(document.body,undefined,{appId:${appId}})};</script><script src="${entry}"></script>`;
-    const closingBody = /<\/body\s*>/i;
-    return closingBody.test(html)
-      ? html.replace(closingBody, `${bootstrap}</body>`)
-      : `${html}\n${bootstrap}`;
-  }
-
   async function loadAppContent(webview, app, state, launchOptions = {}) {
     if (app.type === 'webapp' && app.url) {
       const classified = resolveAndClassifyUrl(app.url);
@@ -9464,30 +8752,15 @@ const AppSandbox = (() => {
       return;
     }
 
-    const injectedSystemServiceEntry =
-      launchOptions.systemService === true &&
-      app.manifest?.systemService === true &&
-      typeof launchOptions.entryHtml === 'string' &&
-      await verifySystemPackage(app)
-        ? launchOptions.entryHtml
-        : null;
-    if (app.entry && app.files &&
-        (app.files[app.entry] || injectedSystemServiceEntry !== null)) {
+    if (app.entry && app.files && app.files[app.entry]) {
       try {
         const sandboxId = webview.dataset.sandboxId;
         // Inject the capability shim into the entry HTML before registering.
         // Use UTF-8-safe base64 so non-ASCII content survives the round-trip.
         const shimmedFiles = Object.assign({}, app.files);
-        const rawHtml = injectedSystemServiceEntry ??
-          attachPackagedGuestEntry(decodeBase64Utf8(shimmedFiles[app.entry]), app);
+        const rawHtml = decodeBase64Utf8(shimmedFiles[app.entry]);
         const allowExternalFrames = isExternalFramesPermitted(app);
-        const capabilityOptions = { ...launchOptions, windowId: state?.id || null };
-        delete capabilityOptions.entryHtml;
-        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(
-          rawHtml,
-          app,
-          capabilityOptions
-        ));
+        shimmedFiles[app.entry] = encodeBase64Utf8(injectCapabilityShim(rawHtml, app, launchOptions));
 
         const regRes = await fetch('/api/apps/serve/register', {
           method: 'POST',
@@ -9676,9 +8949,10 @@ const AppSandbox = (() => {
   // becomes opaque and postMessage silently drops.
   //
   // Sandboxed apps must explicitly opt in via allowSameOrigin and hold the
-  // separate sandbox:same-origin grant. Every NovaApp package uses this
-  // policy regardless of signer identity or requested system capabilities.
-  function sanitizeSandboxAttr(sandboxConfig, appId) {
+  // separate sandbox:same-origin grant. Packages approved for unrestricted
+  // host execution return before this function is needed.
+  function sanitizeSandboxAttr(sandboxConfig, appId, fullyUnrestricted = false) {
+    if (fullyUnrestricted) return '';
     const isExplicitOptIn = sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowSameOrigin === true;
     const sameOriginPermitted = isExplicitOptIn
       && AppPermissionManager?.isGranted('sandbox:same-origin', appId);
@@ -9752,7 +9026,7 @@ const AppSandbox = (() => {
   // Create a sandboxed webview for app execution. The webview runs in a
   // separate renderer process — true process isolation. It cannot access
   // main page JS, DOM, or memory regardless of app content.
-  function createSandbox(app, container, state, launchOptions = {}) {
+  function createSandbox(app, container, state, launchOptions = {}, forceSandbox = false) {
     const webview = document.createElement('webview');
 
     // nodeintegration=false means the app cannot require() Node.js modules
@@ -9776,9 +9050,14 @@ const AppSandbox = (() => {
     const partitionId = `app_${app.id}`;
     webview.setAttribute('partition', `persist:${partitionId}`);
 
-    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id);
+    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app) && !forceSandbox);
     if (sandboxAttr) {
       webview.setAttribute('sandbox', sandboxAttr);
+    } else if (isFullyUnrestricted(app) && !forceSandbox) {
+      // Deliberately no sandbox attribute: this is the exact hand-off from
+      // UnrestrictedGate. Keep nodeintegration disabled and the isolated IPC
+      // transport intact, so "unsandboxed" does not mean "uncontrolled".
+      webview.removeAttribute('sandbox');
     }
 
     // Register the isolated-world IPC transport before any navigation
@@ -9959,10 +9238,6 @@ const AppSandbox = (() => {
     cancelAppIpcForSandbox(sandboxRecord.webview?.dataset?.sandboxId);
     sandboxRecord.appIpcEndpoints?.clear();
     sandboxRecord.ipcBroadcastActions?.clear();
-    for (const unsubscribe of sandboxRecord.frameworkEventCleanups?.values() || []) {
-      try { unsubscribe(); } catch (e) { log('debug', 'framework event cleanup step threw', e); }
-    }
-    sandboxRecord.frameworkEventCleanups?.clear();
     try { sandboxRecord.contextMenuCleanup?.(); } catch (e) { log('debug', 'context menu cleanup step threw', e); }
     sandboxRecord.contextMenuCleanup = null;
     try { sandboxRecord.overlayCleanup?.(); } catch (e) { log('debug', 'app overlay cleanup step threw', e); }
@@ -9985,63 +9260,70 @@ const AppSandbox = (() => {
     }
   }
 
+  // Run a trusted first-party app directly in the host document, matching the
+  // pre-NovaApp execution model used by legacy built-in apps. This is the
+  // actual "fully unrestricted" tier: there is no guest webview, so the app
+  // can see the same host APIs, DOM, WM, FS, Notify, ContextMenu, etc. that
+  // its original .js implementation saw. Eligibility is ONLY established by
+  // UnrestrictedGate immediately before this function is called.
   async function launchUnrestrictedHostApp(app, container, state, options = {}, reuseEntry = false) {
-    const entryName = app?.guestEntry
-      || app?.unrestrictedEntry
-      || app?.manifest?.guestEntry
-      || app?.manifest?.unrestrictedEntry;
-    if (typeof entryName !== 'string'
-      || !/^[a-z0-9][a-z0-9._/-]*\.js$/i.test(entryName)
-      || entryName.split('/').includes('..')) {
-      throw new Error(`Root app ${app?.id || 'unknown'} has no valid guestEntry JavaScript file`);
-    }
-
+    const entryName = app?.unrestrictedEntry || app?.manifest?.unrestrictedEntry;
     container.innerHTML = '';
     container.style.padding = '0';
     container.style.overflow = 'hidden';
 
     if (!reuseEntry) {
-      const encoded = app?.files?.[entryName];
-      if (typeof encoded !== 'string' || !encoded) {
-        throw new Error(`Root app ${app?.id || 'unknown'} is missing its declared entry ${entryName}`);
-      }
+      const encoded = entryName && app?.files?.[entryName];
+      if (!encoded) throw new Error(`Trusted app ${app?.id || 'unknown'} has no unrestricted entry ${entryName || '(none)'}`);
       const source = decodeBase64Utf8(encoded);
-      const safeAppId = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
-      document.querySelectorAll(`script[data-nova-unrestricted-app="${safeAppId}"]`)
-        .forEach(node => node.remove());
 
-      const styleMarker = `style[data-novaapp-style="${safeAppId}"]`;
-      if (!document.querySelector(styleMarker) && app.files?.['style.css']) {
-        try {
-          const styleNode = document.createElement('style');
-          styleNode.dataset.novaappStyle = safeAppId;
-          styleNode.textContent = decodeBase64Utf8(app.files['style.css']);
-          document.head.appendChild(styleNode);
-        } catch (error) {
-          log('debug', `Unable to install packaged stylesheet for root app ${app.id}`, { error: error?.message });
+      // Re-use a single marker so reopening an unrestricted app never leaves
+      // stale copies of its entry script in the document.
+      const scriptSelector = `script[data-nova-unrestricted-app=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
+      document.querySelectorAll(scriptSelector).forEach(node => node.remove());
+
+      // Install the package-local stylesheet in the host document once.
+      const styleMarker = `style[data-novaapp-style=\"${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}\"]`;
+      if (!document.querySelector(styleMarker)) {
+        const styleEncoded = app?.files?.['style.css'];
+        if (styleEncoded) {
+          try {
+            const styleNode = document.createElement('style');
+            styleNode.dataset.novaappStyle = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
+            styleNode.textContent = decodeBase64Utf8(styleEncoded);
+            document.head.appendChild(styleNode);
+          } catch (styleErr) {
+            log('debug', `Unable to install packaged stylesheet for ${app.id}`, { error: styleErr?.message });
+          }
         }
       }
 
       const script = document.createElement('script');
       script.type = 'text/javascript';
-      script.dataset.novaUnrestrictedApp = safeAppId;
-      script.textContent = `${source}\n//# sourceURL=novaapp:${safeAppId}/${entryName}\n`;
-      const previousPackage = window.__novaUnrestrictedPackage;
+      script.dataset.novaUnrestrictedApp = String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_');
+      script.textContent = source + `\n//# sourceURL=novaapp:${String(app.id).replace(/[^a-zA-Z0-9_.-]/g, '_')}/${String(entryName)}\n`;
+      const previousUnrestrictedPackage = window.__novaUnrestrictedPackage;
       window.__novaUnrestrictedPackage = app;
       try {
         (document.body || document.documentElement).appendChild(script);
       } finally {
-        if (previousPackage === undefined) delete window.__novaUnrestrictedPackage;
-        else window.__novaUnrestrictedPackage = previousPackage;
+        if (previousUnrestrictedPackage === undefined) {
+          delete window.__novaUnrestrictedPackage;
+        } else {
+          window.__novaUnrestrictedPackage = previousUnrestrictedPackage;
+        }
       }
     }
 
-    const registered = (typeof OS !== 'undefined' && OS.apps?.[app.id])
-      || (typeof AppRegistry !== 'undefined' && AppRegistry?.getApp?.(app.id));
+    const registered = (typeof OS !== 'undefined' && OS?.apps?.[app.id]) ||
+      (typeof AppRegistry !== 'undefined' && AppRegistry?.getApp?.(app.id)) || null;
     if (!registered || typeof registered.init !== 'function') {
-      throw new Error(`Root app ${app.id} did not register an init() function`);
+      throw new Error(`Unrestricted app ${app.id} did not register an init() function`);
     }
 
+    // Preserve the signed package identity/lifecycle metadata on the live
+    // registered object. The legacy script predates .novaapp metadata and its
+    // registerApp() config does not carry these fields.
     Object.assign(registered, {
       icon: app.icon || registered.icon,
       source: app.source,
@@ -10058,12 +9340,16 @@ const AppSandbox = (() => {
       compiled_at: app.compiled_at,
       permissions: Array.isArray(app.permissions) ? app.permissions.slice() : (registered.permissions || []),
       optionalPermissions: Array.isArray(app.optionalPermissions) ? app.optionalPermissions.slice() : (registered.optionalPermissions || []),
-      guestEntry: entryName,
+      unrestrictedEntry: entryName,
       transparent: app.transparent === true,
       allowNestedWebview: app.allowNestedWebview === true,
     });
+
     await registered.init.call(registered, container, state, options);
 
+    // Host-rendered apps have no webview or sandbox to tear down. The app's
+    // own onClose()/state cleanup remains the authoritative lifecycle hook,
+    // exactly as it was for the legacy .js app.
     return {
       success: true,
       unrestricted: true,
@@ -10076,14 +9362,11 @@ const AppSandbox = (() => {
     };
   }
 
+  // Public lifecycle
+
   function hasRootExecutionGrant(app) {
-    const declaredPermissions = [
-      ...(Array.isArray(app?.permissions) ? app.permissions : []),
-      ...(Array.isArray(app?.manifest?.permissions) ? app.manifest.permissions : []),
-    ];
     return !rootRevocationReloadScheduled
-      && typeof app?.id === 'string'
-      && declaredPermissions.includes('system:root')
+      && (app?.permissions || []).includes('system:root')
       && typeof AppPermissionManager !== 'undefined'
       && AppPermissionManager.isGranted('system:root', app.id) === true
       && typeof OS !== 'undefined'
@@ -10091,16 +9374,12 @@ const AppSandbox = (() => {
       && OS.settings?.get?.('rootAccessEnabled') === true;
   }
 
-  async function launchRootApp(app, container, state, options = {}) {
-    const entryName = app?.guestEntry
-      || app?.unrestrictedEntry
-      || app?.manifest?.guestEntry
-      || app?.manifest?.unrestrictedEntry;
-    if (typeof entryName !== 'string' || typeof app.files?.[entryName] !== 'string') {
-      const message = `Root launch blocked for ${app.id}: packaged guestEntry is missing`;
+  async function launchRootApp(app, container, state, options) {
+    const entryName = app.unrestrictedEntry || app.manifest?.unrestrictedEntry;
+    if (typeof entryName !== 'string' || !app.files?.[entryName]) {
       if (typeof Notify !== 'undefined') Notify.show?.({
         title: 'Root app could not start',
-        body: message,
+        body: 'The package does not contain its declared unrestrictedEntry JavaScript file.',
         type: 'error',
         appName: app.name || 'System',
       });
@@ -10109,13 +9388,12 @@ const AppSandbox = (() => {
           app: 'AppSandbox',
           category: 'security',
           severity: 'error',
-          message,
+          message: `Root launch blocked for ${app.id}: unrestricted entry missing`,
           data: { appId: app.id, permission: 'system:root', action: 'root-launch-blocked' },
         });
       }
       return null;
     }
-
     const reuseEntry = installRootApiAudit(app);
     recordRootAudit(app, 'Root execution started');
     app.__rootAccessActive = true;
@@ -10137,8 +9415,6 @@ const AppSandbox = (() => {
     }
   }
 
-  // Public lifecycle
-
   async function launchHome(app, container) {
     if (!container) throw new Error('Home surface container is required');
     await ensureExecutionPartitionClean(app?.id);
@@ -10157,12 +9433,29 @@ const AppSandbox = (() => {
     if (hasRootExecutionGrant(app)) {
       return launchRootApp(app, container, state, launchOptions);
     }
+    if (typeof UnrestrictedGate !== 'undefined' &&
+        typeof UnrestrictedGate.checkUnrestrictedApp === 'function') {
+      try {
+        const verdict = await UnrestrictedGate.checkUnrestrictedApp(app);
+        if (verdict.allowed) {
+          app.__unrestrictedSandbox = true;
+          log('debug', `Unrestricted Home execution granted for ${app.id}`);
+          return await launchUnrestrictedHostApp(app, container, state, launchOptions);
+        }
+        log('debug', `Sandbox retained for Home app ${app.id}: ${verdict.reason}`);
+      } catch (error) {
+        app.__unrestrictedSandbox = false;
+        log('warn', `Unrestricted Home check failed for ${app.id}; retaining sandbox`, {
+          error: error?.message,
+        });
+      }
+    }
     if (typeof app.entry !== 'string' || typeof app.files?.[app.entry] !== 'string') {
       throw new Error(`Home app ${app.id} is missing its packaged entry "${app.entry}"`);
     }
 
     container.replaceChildren();
-    const webview = createSandbox(app, container, state, launchOptions);
+    const webview = createSandbox(app, container, state, launchOptions, true);
     webview.style.cssText += 'position:fixed;inset:0;width:100vw;height:100vh;z-index:10;';
     webview.setAttribute('aria-label', `${app.name || app.id} Home`);
     container.appendChild(webview);
@@ -10190,20 +9483,34 @@ const AppSandbox = (() => {
     };
   }
 
-  // system:root is a separate, explicit privilege escalation. All other
-  // packages, including system-signed packages, execute in AppSandbox.
+  // Launch an app in a sandboxed environment unless root access is active.
   async function launch(app, container, state, options = {}) {
     if (!container) {
       throw new Error('Container element is required');
     }
 
-    if (hasRootExecutionGrant(app)) {
-      return launchRootApp(app, container, state, options);
-    }
-
+    if (hasRootExecutionGrant(app)) return launchRootApp(app, container, state, options);
     await ensureExecutionPartitionClean(app.id);
 
+    // Re-run the package-level security gate at every launch. Never trust a
+    // cached boolean supplied by the caller: the gate re-checks bundle
+    // provenance, first-party membership, integrity, and required grants.
     app.__unrestrictedSandbox = false;
+    if (typeof UnrestrictedGate !== 'undefined' && typeof UnrestrictedGate.checkUnrestrictedApp === 'function') {
+      try {
+        const verdict = await UnrestrictedGate.checkUnrestrictedApp(app);
+        if (verdict.allowed) {
+          app.__unrestrictedSandbox = true;
+          log('debug', `Unrestricted execution granted for ${app.id}`);
+          return await launchUnrestrictedHostApp(app, container, state, options);
+        } else {
+          log('debug', `Sandbox retained for ${app.id}: ${verdict.reason}`);
+        }
+      } catch (err) {
+        app.__unrestrictedSandbox = false;
+        log('warn', `Unrestricted sandbox check failed for ${app.id}; retaining sandbox`, { error: err?.message });
+      }
+    }
 
     // Trusted transparent system apps used to launch through a bespoke
     // sandboxed <iframe> path (launchTrustedTransparentSystemApp, removed)
@@ -10271,260 +9578,6 @@ const AppSandbox = (() => {
       cleanup: () => destroy(sandboxId),
     };
   }
-
-  function installFrameworkWindowManager() {
-    if (typeof window === 'undefined' || window.WM) return window?.WM;
-    const windows = new Map();
-    let container = null;
-    let zIndex = 100;
-
-    const emitWindowsChanged = () => {
-      if (typeof OS !== 'undefined' && typeof OS.events?.emit === 'function') {
-        OS.events.emit('windows:changed', [...windows.values()].map(state => ({
-          id: state.id, appId: state.appId, title: state.title,
-          x: state.x, y: state.y, width: state.width, height: state.height,
-          minimized: state.minimized, maximized: state.maximized,
-        })));
-      }
-    };
-    const workArea = () => {
-      const rect = container?.getBoundingClientRect?.();
-      return {
-        x: rect?.left || 0,
-        y: rect?.top || 0,
-        left: rect?.left || 0,
-        top: rect?.top || 0,
-        width: rect?.width || window.innerWidth,
-        height: rect?.height || window.innerHeight,
-      };
-    };
-    const clampRect = (state, x, y, width, height) => {
-      const area = workArea();
-      const w = Math.min(Math.max(width, state.minWidth || 300), state.maxWidth || area.width);
-      const h = Math.min(Math.max(height, state.minHeight || 200), state.maxHeight || area.height);
-      return {
-        x: Math.max(area.x, Math.min(x, area.x + area.width - Math.min(w, 80))),
-        y: Math.max(area.y, Math.min(y, area.y + area.height - 36)),
-        w, h,
-      };
-    };
-    const applyRect = state => {
-      state.element.style.left = `${state.x}px`;
-      state.element.style.top = `${state.y}px`;
-      state.element.style.width = `${state.width}px`;
-      state.element.style.height = `${state.height}px`;
-    };
-    const focusWindow = id => {
-      const state = windows.get(id);
-      if (!state) return false;
-      for (const other of windows.values()) other.element.classList.toggle('focused', other === state);
-      state.minimized = false;
-      state.element.style.display = 'flex';
-      state.element.style.zIndex = String(++zIndex);
-      if (typeof OS !== 'undefined') {
-        OS.focusedWindowId = id;
-        OS.windowZCounter = zIndex;
-      }
-      emitWindowsChanged();
-      return true;
-    };
-    const manager = {
-      container: null,
-      init() {
-        container = document.getElementById('windows');
-        if (!container) {
-          container = document.createElement('div');
-          container.id = 'windows';
-          container.setAttribute('aria-label', 'Application windows');
-          document.body.appendChild(container);
-        }
-        manager.container = container;
-        if (typeof OS !== 'undefined') {
-          if (!(OS.windows instanceof Map)) OS.windows = new Map();
-          OS.windowZCounter = Math.max(Number(OS.windowZCounter) || 0, zIndex);
-        }
-        return manager;
-      },
-      getWorkArea: workArea,
-      setWindowBounds(id, bounds) {
-        const state = windows.get(id);
-        if (!state) return false;
-        const rect = clampRect(state, bounds.x, bounds.y, bounds.width, bounds.height);
-        Object.assign(state, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
-        applyRect(state);
-        emitWindowsChanged();
-        return true;
-      },
-      getWindows() {
-        return [...windows.values()].map(state => ({
-          id: state.id, appId: state.appId, title: state.title,
-          minimized: state.minimized, maximized: state.maximized,
-        }));
-      },
-      clampWindowRect: clampRect,
-      createWindow(appId, options = {}) {
-        if (appId === 'launchpad') return null;
-        appId = window.NovaAppIdAliases?.canonicalize?.(appId) || appId;
-        const app = typeof OS !== 'undefined' ? OS.apps?.[appId] : null;
-        if (!app || (!OS.settings?.get?.('devMode') && app.devOnly)) return null;
-        if (!container) manager.init();
-
-        const id = generateId();
-        const [defaultWidth = 700, defaultHeight = 500] = app.defaultSize || [];
-        const state = {
-          id, appId, app, options, title: app.name || appId,
-          element: document.createElement('section'),
-          content: document.createElement('div'),
-          minimized: false, maximized: false, preMaxState: null,
-          x: Number(options.x) || 80 + Math.random() * 200,
-          y: Number(options.y) || 40 + Math.random() * 100,
-          width: Number(options.width) || defaultWidth,
-          height: Number(options.height) || defaultHeight,
-          minWidth: app.minSize?.[0] || 300,
-          minHeight: app.minSize?.[1] || 200,
-          maxWidth: app.maxSize?.[0] || null,
-          maxHeight: app.maxSize?.[1] || null,
-          cleanups: [],
-        };
-        state.element.className = 'app-window opening focused';
-        state.element.dataset.windowId = id;
-        state.element.dataset.appId = appId;
-        state.element.setAttribute('role', 'dialog');
-        state.element.setAttribute('aria-label', `${state.title} window`);
-
-        const titlebar = document.createElement('header');
-        titlebar.className = 'window-titlebar';
-        const titleText = document.createElement('span');
-        titleText.className = 'window-titlebar-text';
-        titleText.textContent = state.title;
-        const controls = document.createElement('div');
-        controls.className = 'window-controls';
-        const buttons = [
-          ['close', 'Close window', () => manager.closeWindow(id)],
-          ['minimize', 'Minimize window', () => manager.minimizeWindow(id)],
-          ['maximize', 'Maximize window', () => manager.toggleMaximize(id)],
-        ];
-        for (const [kind, label, action] of buttons) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = `window-control-btn ${kind}`;
-          button.setAttribute('aria-label', label);
-          button.addEventListener('click', action);
-          controls.appendChild(button);
-          state.cleanups.push(() => button.removeEventListener('click', action));
-        }
-        titlebar.append(titleText, controls);
-        state.titlebar = titlebar;
-        state.titleText = titleText;
-        state.content.className = 'window-content';
-        state.content.tabIndex = -1;
-        state.element.append(titlebar, state.content);
-        state.element.addEventListener('pointerdown', () => focusWindow(id));
-        const startDrag = event => {
-          if (event.button !== 0 || event.target.closest('button')) return;
-          const startX = event.clientX;
-          const startY = event.clientY;
-          const originX = state.x;
-          const originY = state.y;
-          const move = moveEvent => {
-            const rect = clampRect(state, originX + moveEvent.clientX - startX,
-              originY + moveEvent.clientY - startY, state.width, state.height);
-            state.x = rect.x;
-            state.y = rect.y;
-            applyRect(state);
-          };
-          const finish = () => {
-            document.removeEventListener('pointermove', move);
-            document.removeEventListener('pointerup', finish);
-          };
-          document.addEventListener('pointermove', move);
-          document.addEventListener('pointerup', finish, { once: true });
-        };
-        titlebar.addEventListener('pointerdown', startDrag);
-        state.cleanups.push(() => titlebar.removeEventListener('pointerdown', startDrag));
-        state.element.addEventListener('animationend', () => state.element.classList.remove('opening'), { once: true });
-
-        const rect = clampRect(state, state.x, state.y, state.width, state.height);
-        Object.assign(state, { x: rect.x, y: rect.y, width: rect.w, height: rect.h });
-        applyRect(state);
-        container.appendChild(state.element);
-        windows.set(id, state);
-        if (typeof OS !== 'undefined') OS.windows.set(id, state);
-        focusWindow(id);
-
-        launch(app, state.content, state, options).then(result => {
-          state.sandboxId = result.sandboxId;
-          if (state.closeRequested) destroy(state.sandboxId);
-        }).catch(error => {
-          log('error', `Failed to launch ${appId} in its sandbox`, error);
-          state.content.textContent = `Unable to open ${state.title}: ${error.message || error}`;
-        });
-        emitWindowsChanged();
-        return state;
-      },
-      async closeWindow(id) {
-        const state = windows.get(id);
-        if (!state) return false;
-        state.closeRequested = true;
-        if (state.sandboxId) destroy(state.sandboxId);
-        for (const cleanup of state.cleanups) cleanup();
-        state.element.remove();
-        windows.delete(id);
-        if (typeof OS !== 'undefined') {
-          OS.windows?.delete(id);
-          if (OS.focusedWindowId === id) {
-            const next = [...windows.values()].filter(item => !item.minimized).at(-1);
-            if (next) focusWindow(next.id);
-            else OS.focusedWindowId = null;
-          }
-        }
-        manager.updateTaskbar();
-        emitWindowsChanged();
-        return true;
-      },
-      minimizeWindow(id) {
-        const state = windows.get(id);
-        if (!state) return false;
-        state.minimized = true;
-        state.element.style.display = 'none';
-        if (typeof OS !== 'undefined' && OS.focusedWindowId === id) {
-          const next = [...windows.values()].filter(item => item.id !== id && !item.minimized).at(-1);
-          if (next) focusWindow(next.id);
-          else OS.focusedWindowId = null;
-        }
-        emitWindowsChanged();
-        return true;
-      },
-      restoreWindow(id) { return focusWindow(id); },
-      toggleMaximize(id) {
-        const state = windows.get(id);
-        if (!state) return false;
-        if (!state.maximized) {
-          state.preMaxState = { x: state.x, y: state.y, width: state.width, height: state.height };
-          const area = workArea();
-          Object.assign(state, { x: area.x, y: area.y, width: area.width, height: area.height, maximized: true });
-        } else {
-          Object.assign(state, state.preMaxState || {}, { maximized: false });
-        }
-        state.element.classList.toggle('maximized', state.maximized);
-        applyRect(state);
-        emitWindowsChanged();
-        return true;
-      },
-      focusWindow,
-      minimizeAll() { for (const id of windows.keys()) manager.minimizeWindow(id); },
-      showWindowPreview() {},
-      hideSnapPreview() {},
-      applyWindowFlags() {},
-      attachTaskbar() {},
-      updateTaskbar() { emitWindowsChanged(); },
-    };
-
-    window.WM = manager;
-    return manager;
-  }
-
-  if (typeof window !== 'undefined' && !window.WM) installFrameworkWindowManager();
 
   function queueExecutionPartitionCleanup(appId) {
     if (!appId) return Promise.resolve();
@@ -10954,9 +10007,6 @@ const AppSandbox = (() => {
       escapeHtml,
       sanitizeSandboxAttr,
       injectCapabilityShim,
-      attachPackagedGuestEntry,
-      buildLegacyCompatibilityShim,
-      installFrameworkWindowManager,
       encodeBase64Utf8,
       decodeBase64Utf8,
       generateRequestId,
@@ -10972,7 +10022,6 @@ const AppSandbox = (() => {
       parsePositiveInt,
       validateStorageKey,
       handleAPICall,
-      loadAppContent,
       dispatchIsolatedProcessRequest,
       respond,
       normalizeFsSavePayload,
@@ -10984,8 +10033,6 @@ const AppSandbox = (() => {
       buildIsolatedTransportScript,
       isNestedWebviewOptedIn,
       isNestedWebviewPermitted,
-      hasRootExecutionGrant,
-      launchRootApp,
       RELAXED_CSP_META,
       // Test-only helpers for resetting module state between tests.
       _resetState() {

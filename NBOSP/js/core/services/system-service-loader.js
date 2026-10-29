@@ -1,5 +1,6 @@
 /**
- * Loads trusted system-service NovaApps before the OS boot sequence.
+ * Loads trusted system-service NovaApps into the OS page before the
+ * OS boot sequence.
  */
 (() => {
   'use strict';
@@ -7,7 +8,6 @@
   let loadPromise = null;
   const loadedServices = [];
   const APP_LOADER_OPTIMIZER_ID = 'com.nbosp.service.app-loader-optimiser';
-  const SERVICE_START_TIMEOUT_MS = 10000;
 
   function persistentPackageRequest(bundle, mode, callback) {
     return new Promise((resolve, reject) => {
@@ -88,131 +88,67 @@
     }
   }
 
-  function waitForServiceGuest(webview, serviceId) {
-    if (!webview?.addEventListener || !webview?.executeScript) {
-      throw new Error(`Sandbox surface is unavailable for ${serviceId}`);
-    }
-
-    return new Promise((resolve, reject) => {
-      let timeout;
-      const finish = error => {
-        clearTimeout(timeout);
-        webview.removeEventListener('loadstop', onLoadStop);
-        webview.removeEventListener('loadabort', onLoadAbort);
-        if (error) reject(error);
-        else resolve();
-      };
-      const onLoadAbort = event =>
-        finish(new Error(`Sandbox navigation failed for ${serviceId}: ${event.reason || 'unknown reason'}`));
-      const onLoadStop = () => {
-        webview.executeScript(
-          { code: 'window.__novaServiceStartupError || null' },
-          results => {
-            const startupError = results?.[0];
-            if (startupError) {
-              finish(new Error(`System service ${serviceId} failed in its sandbox: ${startupError}`));
-            } else {
-              finish();
-            }
-          }
-        );
-      };
-      timeout = setTimeout(
-        () => finish(new Error(`Sandbox startup timed out for ${serviceId}`)),
-        SERVICE_START_TIMEOUT_MS
-      );
-      webview.addEventListener('loadstop', onLoadStop);
-      webview.addEventListener('loadabort', onLoadAbort);
-    });
+  function decodePackageFile(encoded) {
+    const binary = atob(encoded);
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
   }
 
   async function loadService(service, bundle) {
     if (!service || typeof service.id !== 'string' ||
-        !bundle || bundle.id !== service.id || typeof bundle.file !== 'string') {
+        !bundle || bundle.id !== service.id || bundle.systemService !== true ||
+        typeof bundle.file !== 'string') {
       throw new Error('Invalid entry in system-service manifest');
     }
 
     const pkg = await getPackage(bundle, service.id);
     const manifest = pkg?.manifest;
-    const entry = manifest?.guestEntry ?? manifest?.unrestrictedEntry;
+    const entry = manifest?.unrestrictedEntry;
+
     const scriptEntries = service.scripts ?? [entry];
     if (manifest?.id !== service.id || manifest?.system !== true ||
         manifest?.systemService !== true || entry !== service.entry ||
         !Array.isArray(scriptEntries) || scriptEntries.length === 0 ||
         scriptEntries[0] !== entry ||
         scriptEntries.some(scriptEntry =>
-          typeof scriptEntry !== 'string' ||
-          !/^[a-z0-9][a-z0-9._-]*\.js$/.test(scriptEntry) ||
-          typeof pkg.files?.[scriptEntry] !== 'string'
+          typeof scriptEntry !== 'string' || typeof pkg.files?.[scriptEntry] !== 'string'
         )) {
       throw new Error(`Invalid system-service package: ${service.id}`);
-    }
-
-    if (typeof window.AppPackage?.verifyAgainstTrustStore !== 'function' ||
-        typeof window.TrustStore?.list !== 'function') {
-      throw new Error(`Cannot verify system signature for ${service.id}: trust services unavailable`);
-    }
-    const trust = await window.AppPackage.verifyAgainstTrustStore(
-      pkg,
-      window.TrustStore.list(),
-      typeof window.TrustStore.isRevoked === 'function'
-        ? signature => window.TrustStore.isRevoked(signature)
-        : undefined
-    );
-    if (trust?.trusted !== true || trust.signer !== 'NovaByte System') {
-      throw new Error(`System service ${service.id} does not have a valid NovaByte System signature`);
-    }
-    if (pkg.integrity && typeof window.AppPackage.verifyIntegrity === 'function' &&
-        !(await window.AppPackage.verifyIntegrity(pkg))) {
-      throw new Error(`System service ${service.id} failed package integrity verification`);
     }
 
     const runtimeApp = {
       ...pkg,
       id: manifest.id,
-      name: manifest.name || service.id,
-      entry: '__nova_service_bootstrap.html',
-      type: 'blank',
-      permissions: manifest.permissions || [],
-      optionalPermissions: manifest.optionalPermissions || [],
       system: true,
       verified: true,
-      signer: trust.signer,
+      signer: 'NovaByte System',
       source: 'system-bundle',
     };
-    const scripts = scriptEntries
-      .map(scriptEntry => `<script src="${scriptEntry}"></script>`)
-      .join('\n');
-    const bootstrapHtml =
-      `<!doctype html><html><head><meta charset="utf-8"><script>window.__novaServiceStartupError=null;window.addEventListener("error",event=>{window.__novaServiceStartupError=event.message||"uncaught service error"});window.addEventListener("unhandledrejection",event=>{window.__novaServiceStartupError=String(event.reason||"unhandled service rejection")});</script></head><body>${scripts}</body></html>`;
-
-    if (typeof window.AppSandbox?.launch !== 'function') {
-      throw new Error(`Cannot start ${service.id}: AppSandbox is unavailable`);
+    const result = await UnrestrictedGate.checkUnrestrictedApp(runtimeApp);
+    if (!result.allowed) {
+      throw new Error(`Trusted execution denied for ${service.id}: ${result.reason}`);
     }
 
-    const container = document.createElement('div');
-    container.dataset.novaSystemService = service.id;
-    container.setAttribute('aria-hidden', 'true');
-    container.style.cssText = 'position:fixed;left:-2px;top:-2px;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none';
-    document.body.appendChild(container);
-    const launchResult = await window.AppSandbox.launch(
-      runtimeApp,
-      container,
-      { id: `system-service-${service.id}`, appId: service.id },
-      { systemService: true, entryHtml: bootstrapHtml }
-    );
-    if (!launchResult?.success) {
-      container.remove();
-      throw new Error(`Sandbox launch failed for system service ${service.id}`);
+    for (const scriptEntry of scriptEntries) {
+      const script = document.createElement('script');
+      script.dataset.novaSystemService = service.id;
+      script.dataset.novaSystemServiceEntry = scriptEntry;
+      script.textContent = decodePackageFile(pkg.files[scriptEntry]);
+      let runtimeError = null;
+      const onScriptError = event => {
+        runtimeError = event.error || new Error(event.message || 'Unknown script error');
+      };
+      window.addEventListener('error', onScriptError, true);
+      try {
+        document.head.appendChild(script);
+      } finally {
+        window.removeEventListener('error', onScriptError, true);
+        script.remove();
+      }
+      if (runtimeError) {
+        throw new Error(`System service ${service.id} entry ${scriptEntry} failed during startup: ${runtimeError.message || runtimeError}`);
+      }
     }
-    try {
-      await waitForServiceGuest(launchResult.webview, service.id);
-    } catch (error) {
-      launchResult.cleanup?.();
-      container.remove();
-      throw error;
-    }
-
     loadedServices.push({
       id: manifest.id,
       name: manifest.name,
@@ -228,7 +164,6 @@
       signer: 'NovaByte System',
       source: 'system-bundle',
       headlessSystemService: manifest.headless !== false,
-      sandboxId: launchResult.sandboxId,
     });
     console.info(`[SystemServiceLoader] Started ${service.id}`);
   }

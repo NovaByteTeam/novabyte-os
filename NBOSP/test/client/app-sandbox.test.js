@@ -1,390 +1,7 @@
-import { readFile } from 'node:fs/promises';
 import { describe, it, expect, vi } from 'vitest';
 import AppSandbox from '../../js/platform/security/app-sandbox.js';
 
 describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
-  it('installs the internal host window manager used by boot and sandbox launches', () => {
-    expect(window.WM.init).toBeTypeOf('function');
-    expect(window.WM.createWindow).toBeTypeOf('function');
-    expect(window.WM.closeWindow).toBeTypeOf('function');
-    expect(window.WM.getWorkArea).toBeTypeOf('function');
-  });
-
-  it('keeps system packages sandboxed while preserving the separate root execution path', async () => {
-    const source = await readFile(
-      new URL('../../js/platform/security/app-sandbox.js', import.meta.url),
-      'utf8'
-    );
-
-    expect(source).toContain('launchUnrestrictedHostApp');
-    expect(source).toContain('launchRootApp');
-    expect(source).not.toContain('UnrestrictedGate.checkUnrestrictedApp');
-  });
-
-  it('requires an app-scoped root grant and both root-mode settings, independent of system signing', () => {
-    vi.stubGlobal('OS', {
-      settings: { get: key => key === 'devMode' || key === 'rootAccessEnabled' },
-    });
-    vi.stubGlobal('AppPermissionManager', {
-      isGranted: vi.fn((permission, appId) => permission === 'system:root' && appId === 'com.example.root'),
-    });
-    try {
-      expect(AppSandbox._internal.hasRootExecutionGrant({
-        id: 'com.example.root',
-        system: false,
-        verified: false,
-        permissions: ['system:root'],
-      })).toBe(true);
-      expect(AppSandbox._internal.hasRootExecutionGrant({
-        id: 'com.example.ungranted',
-        permissions: ['system:root'],
-      })).toBe(false);
-      expect(AppSandbox._internal.hasRootExecutionGrant({
-        id: 'com.example.no-root',
-        permissions: [],
-      })).toBe(false);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('attaches a manifest-declared package script to the guest document', () => {
-    const app = {
-      id: 'com.example.packaged',
-      manifest: { guestEntry: 'app.js' },
-      files: { 'app.js': 'YXBw' },
-    };
-
-    const html = AppSandbox._internal.attachPackagedGuestEntry(
-      '<!doctype html><body><main>App</main></body>',
-      app
-    );
-
-    expect(html).toContain('window.registerApp=function');
-    expect(html).toContain('<script src="app.js"></script></body>');
-    expect(() => AppSandbox._internal.attachPackagedGuestEntry('<body></body>', {
-      ...app,
-      manifest: { guestEntry: '../host.js' },
-    })).toThrow(/Invalid packaged guest entry/);
-  });
-
-  it('only injects undocumented framework APIs for system-signed package identities', () => {
-    const source = AppSandbox._internal.buildLegacyCompatibilityShim;
-    expect(source({
-      id: 'com.example.untrusted',
-      system: false,
-      verified: false,
-      manifest: { guestEntry: 'app.js' },
-    })).toBe('');
-
-    vi.stubGlobal('OS', { settings: { get: () => 'dark' }, windows: new Map() });
-    vi.stubGlobal('APP_REGISTRY', []);
-    vi.stubGlobal('FS', { files: new Map(), specialFolders: {} });
-    try {
-      const shim = source({
-        id: 'com.nbosp.settings',
-        system: true,
-        verified: true,
-        signer: 'NovaByte System',
-        manifest: { system: true },
-      });
-      expect(shim).toContain('window.__novaFramework=Object.freeze');
-      expect(shim).toContain('nova:framework:hidden');
-      expect(shim).toContain('window.FS=fs');
-      expect(shim).toContain("method:'clearAll'");
-      expect(shim).toContain("method:'markAllRead'");
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('requires a valid system signature for undocumented framework IPC', async () => {
-    const settingsSet = vi.fn();
-    const verifyAgainstTrustStore = vi.fn(async app => ({
-      trusted: app.signature === 'signed-system-app',
-      signer: app.signature === 'signed-system-app' ? 'NovaByte System' : null,
-    }));
-    vi.stubGlobal('AppPackage', { verifyAgainstTrustStore });
-    vi.stubGlobal('TrustStore', { list: () => [], isRevoked: () => false });
-    vi.stubGlobal('OS', { settings: { set: settingsSet } });
-    try {
-      const responses = [];
-      const webview = { __directResponder: message => responses.push(message) };
-      await AppSandbox._internal.handleAPICall(
-        'nova:framework:hidden',
-        { method: 'settings.set', payload: { key: 'theme', value: 'dark' } },
-        'untrusted-request',
-        {
-          id: 'com.example.untrusted', system: false, verified: false,
-          signer: null, manifest: {}, signature: 'invalid',
-        },
-        webview,
-        {}
-      );
-      expect(settingsSet).not.toHaveBeenCalled();
-      expect(responses[0].error.code).toBe('PERMISSION_DENIED');
-
-      const trustedApp = {
-        id: 'com.nbosp.settings', system: true, verified: true,
-        signer: 'NovaByte System', manifest: { system: true },
-        signature: 'signed-system-app',
-      };
-      await AppSandbox._internal.handleAPICall(
-        'nova:framework:hidden',
-        { method: 'settings.set', payload: { key: 'theme', value: 'dark' } },
-        'trusted-request',
-        trustedApp,
-        webview,
-        {}
-      );
-      expect(verifyAgainstTrustStore).toHaveBeenCalledWith(
-        trustedApp,
-        [],
-        expect.any(Function)
-      );
-      expect(settingsSet).toHaveBeenCalledWith('theme', 'dark');
-      expect(responses[1].result).toMatchObject({ success: true, value: true });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('loads signed system-service bootstrap HTML without modifying the signed package files', async () => {
-    const files = { 'service.js': Buffer.from('window.serviceStarted = true;', 'utf8').toString('base64') };
-    const app = {
-      id: 'com.nbosp.service.test',
-      entry: '__nova_service_bootstrap.html',
-      files,
-      manifest: {
-        id: 'com.nbosp.service.test',
-        guestEntry: 'service.js',
-        system: true,
-        systemService: true,
-      },
-      signature: 'signed-system-service',
-      system: true,
-      verified: true,
-      signer: 'NovaByte System',
-    };
-    const entryHtml = '<!doctype html><body><script src="service.js"></script></body>';
-    const previousLocation = window.location;
-    const fetchMock = vi.fn(async (_url, options) => ({
-      ok: true,
-      json: async () => ({ baseUrl: '/api/apps/serve/sandbox-test' }),
-      body: JSON.parse(options.body),
-    }));
-    vi.stubGlobal('AppPackage', {
-      verifyAgainstTrustStore: vi.fn(async () => ({
-        trusted: true,
-        signer: 'NovaByte System',
-      })),
-    });
-    vi.stubGlobal('TrustStore', { list: () => [], isRevoked: () => false });
-    vi.stubGlobal('OS', { settings: { get: () => undefined }, windows: new Map() });
-    vi.stubGlobal('APP_REGISTRY', []);
-    vi.stubGlobal('FS', { files: new Map(), specialFolders: {} });
-    vi.stubGlobal('fetch', fetchMock);
-    window.location = { origin: 'https://localhost' };
-    try {
-      await AppSandbox._internal.loadAppContent(
-        { dataset: { sandboxId: 'sandbox-test' } },
-        app,
-        {},
-        { systemService: true, entryHtml }
-      );
-
-      expect(app.files).toBe(files);
-      expect(app.files).not.toHaveProperty('__nova_service_bootstrap.html');
-      const registration = await fetchMock.mock.results[0].value;
-      const registeredHtml = Buffer.from(
-        registration.body.files['__nova_service_bootstrap.html'],
-        'base64'
-      ).toString('utf8');
-      expect(registeredHtml).toContain('<script src="service.js" defer></script>');
-      expect(AppPackage.verifyAgainstTrustStore).toHaveBeenCalledWith(
-        app,
-        [],
-        expect.any(Function)
-      );
-    } finally {
-      window.location = previousLocation;
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('bridges hidden cryptography worker calls only for verified system packages', async () => {
-    const cryptoCall = vi.fn(async (method, ...args) => `${method}:${args.join(':')}`);
-    vi.stubGlobal('AppPackage', {
-      verifyAgainstTrustStore: vi.fn(async () => ({
-        trusted: true,
-        signer: 'NovaByte System',
-      })),
-    });
-    vi.stubGlobal('TrustStore', { list: () => [], isRevoked: () => false });
-    vi.stubGlobal('OS', { workers: { crypto: { call: cryptoCall } } });
-    try {
-      const responses = [];
-      const app = {
-        id: 'com.nbosp.settings.crypto-test',
-        system: true,
-        verified: true,
-        signer: 'NovaByte System',
-        manifest: { system: true },
-        signature: 'signed-crypto-system-app',
-      };
-
-      await AppSandbox._internal.handleAPICall(
-        'nova:framework:hidden',
-        { method: 'workers.crypto', payload: { method: 'pbkdf2', args: ['1234', 'salt'] } },
-        'crypto-request',
-        app,
-        { __directResponder: message => responses.push(message) },
-        {}
-      );
-
-      expect(cryptoCall).toHaveBeenCalledWith('pbkdf2', '1234', 'salt');
-      expect(responses[0].result).toEqual({ success: true, value: 'pbkdf2:1234:salt' });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('applies signed system-service window bounds through the host window manager', async () => {
-    const setWindowBounds = vi.fn(() => true);
-    vi.stubGlobal('AppPackage', {
-      verifyAgainstTrustStore: vi.fn(async () => ({
-        trusted: true,
-        signer: 'NovaByte System',
-      })),
-    });
-    vi.stubGlobal('TrustStore', { list: () => [], isRevoked: () => false });
-    vi.stubGlobal('WM', { setWindowBounds });
-    try {
-      const responses = [];
-      await AppSandbox._internal.handleAPICall(
-        'nova:framework:hidden',
-        {
-          method: 'window.bounds.set',
-          payload: { windowId: 'window-1', x: 12, y: 24, width: 640, height: 480 },
-        },
-        'window-bounds',
-        {
-          id: 'com.nbosp.service.system-events',
-          system: true,
-          verified: true,
-          signer: 'NovaByte System',
-          manifest: { system: true },
-          signature: 'signed-system-service',
-        },
-        { __directResponder: message => responses.push(message) },
-        {}
-      );
-
-      expect(setWindowBounds).toHaveBeenCalledWith('window-1', { x: 12, y: 24, width: 640, height: 480 });
-      expect(responses[0].result).toEqual({ success: true, value: true });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('bridges notification panel operations and preserves pinned entries when clearing all', async () => {
-    const saved = [
-      { id: 'pinned', title: 'Background app', pinned: true, read: false },
-      { id: 'regular', title: 'Finished task', pinned: false, read: false },
-    ];
-    vi.stubGlobal('AppPackage', {
-      verifyAgainstTrustStore: vi.fn(async () => ({
-        trusted: true,
-        signer: 'NovaByte System',
-      })),
-    });
-    vi.stubGlobal('TrustStore', { list: () => [], isRevoked: () => false });
-    vi.stubGlobal('OS', { notifications: [], notifUnread: 0 });
-    vi.stubGlobal('localStorage', {
-      getItem: () => JSON.stringify(saved),
-      setItem: vi.fn(),
-    });
-    vi.stubGlobal('document', { getElementById: () => null });
-    try {
-      const responses = [];
-      await AppSandbox._internal.handleAPICall(
-        'nova:framework:hidden',
-        { method: 'notifications.operation', payload: { method: 'clearAll' } },
-        'notification-clear-all',
-        {
-          id: 'com.nbosp.service.system-events',
-          system: true,
-          verified: true,
-          signer: 'NovaByte System',
-          manifest: { system: true },
-          signature: 'signed-system-service',
-        },
-        { __directResponder: message => responses.push(message) },
-        {}
-      );
-
-      expect(OS.notifications.map(notification => notification.id)).toEqual(['pinned']);
-      expect(OS.notifUnread).toBe(1);
-      expect(responses[0].result).toEqual({ success: true, value: true });
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('forwards host framework events into the signed guest and unsubscribes on teardown', async () => {
-    const listeners = new Map();
-    const off = vi.fn((name, listener) => {
-      if (listeners.get(name) === listener) listeners.delete(name);
-    });
-    vi.stubGlobal('AppPackage', {
-      verifyAgainstTrustStore: vi.fn(async () => ({
-        trusted: true,
-        signer: 'NovaByte System',
-      })),
-    });
-    vi.stubGlobal('TrustStore', { list: () => [], isRevoked: () => false });
-    vi.stubGlobal('OS', {
-      events: {
-        on: vi.fn((name, listener) => { listeners.set(name, listener); }),
-        off,
-      },
-    });
-    try {
-      const responses = [];
-      const sandbox = { webview: { __directResponder: message => responses.push(message) } };
-      await AppSandbox._internal.handleAPICall(
-        'nova:framework:hidden',
-        { method: 'events.subscribe', payload: { name: 'windows:changed' } },
-        'event-subscribe',
-        {
-          id: 'com.nbosp.settings.events-test',
-          system: true,
-          verified: true,
-          signer: 'NovaByte System',
-          manifest: { system: true },
-          signature: 'signed-event-system-app',
-        },
-        sandbox.webview,
-        sandbox
-      );
-
-      listeners.get('windows:changed')([{ id: 'window-1', appId: 'com.nbosp.files' }]);
-      expect(responses[1]).toMatchObject({
-        type: 'nova:framework:event:response',
-        result: {
-          name: 'windows:changed',
-          value: [{ id: 'window-1', appId: 'com.nbosp.files' }],
-        },
-      });
-
-      AppSandbox._internal.cleanupSandboxRecord(sandbox);
-      expect(off).toHaveBeenCalledWith('windows:changed', expect.any(Function));
-      expect(listeners.has('windows:changed')).toBe(false);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
   it('preserves Unicode in host-to-app filesystem responses', () => {
     const guestWindow = {};
     const webview = {
@@ -405,6 +22,174 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       requestId: 'unicode-file-open',
       result: { file: { content } },
     });
+  });
+
+  it('runs a root-enabled Home app in the host instead of forcing it into a sandbox', async () => {
+    AppSandbox._internal._resetState();
+    const init = vi.fn();
+    const app = {
+      id: 'com.example.root-home',
+      name: 'Root Home',
+      permissions: ['system:root'],
+      unrestrictedEntry: 'root.js',
+      files: { 'root.js': Buffer.from('// root Home entry').toString('base64') },
+      handles: { roles: ['home'] },
+    };
+    const container = { innerHTML: '', style: {} };
+    const appendedScripts = [];
+    vi.stubGlobal('DefaultApps', {
+      getAppsForCategory: () => [{ id: app.id }],
+    });
+    vi.stubGlobal('AppPermissionManager', {
+      isGranted: permission => permission === 'system:root',
+    });
+    vi.stubGlobal('OS', {
+      apps: { [app.id]: { init } },
+      settings: {
+        get: key => key === 'devMode' || key === 'rootAccessEnabled',
+      },
+    });
+    vi.stubGlobal('document', {
+      createElement: () => ({ dataset: {}, textContent: '', type: '' }),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { appendChild: script => appendedScripts.push(script) },
+    });
+
+    try {
+      const result = await AppSandbox.launchHome(app, container);
+
+      expect(result).toMatchObject({
+        success: true,
+        unrestricted: true,
+        hostRendered: true,
+        appId: app.id,
+      });
+      expect(result.webview).toBeNull();
+      expect(appendedScripts).toHaveLength(1);
+      expect(appendedScripts[0].dataset.novaUnrestrictedApp).toBe(app.id);
+      expect(init).toHaveBeenCalledWith(
+        container,
+        expect.objectContaining({ homeSurface: true }),
+        { homeSurface: true }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+
+  it('runs a trusted system Home app in the host after the unrestricted gate approves it', async () => {
+    AppSandbox._internal._resetState();
+    const init = vi.fn();
+    const app = {
+      id: 'com.nbosp.trusted-home',
+      name: 'Trusted Home',
+      system: true,
+      verified: true,
+      signer: 'NovaByte System',
+      source: 'system-bundle',
+      integrity: { method: 'sha256', payloadHash: 'verified-integrity' },
+      manifest: { id: 'com.nbosp.trusted-home', system: true },
+      unrestrictedEntry: 'home.js',
+      entry: 'index.html',
+      files: {
+        'home.js': Buffer.from('// trusted Home entry').toString('base64'),
+        'index.html': Buffer.from('<!doctype html><body>Home</body>').toString('base64'),
+      },
+    };
+    const container = { innerHTML: '', style: {}, replaceChildren: vi.fn(), appendChild: vi.fn() };
+    const appendedScripts = [];
+    vi.stubGlobal('DefaultApps', {
+      getAppsForCategory: () => [{ id: app.id }],
+    });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('UnrestrictedGate', {
+      checkUnrestrictedApp: vi.fn(async () => ({ allowed: true })),
+    });
+    vi.stubGlobal('OS', {
+      apps: { [app.id]: { init } },
+      settings: { get: () => false },
+    });
+    vi.stubGlobal('document', {
+      createElement: () => ({ dataset: {}, textContent: '', type: '' }),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { appendChild: script => appendedScripts.push(script) },
+    });
+
+    try {
+      const result = await AppSandbox.launchHome(app, container);
+
+      expect(result).toMatchObject({
+        success: true,
+        unrestricted: true,
+        hostRendered: true,
+        appId: app.id,
+      });
+      expect(result.webview).toBeNull();
+      expect(UnrestrictedGate.checkUnrestrictedApp).toHaveBeenCalledWith(app);
+      expect(appendedScripts).toHaveLength(1);
+      expect(init).toHaveBeenCalledWith(
+        container,
+        expect.objectContaining({ homeSurface: true }),
+        { homeSurface: true }
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+
+  it('runs an approved first-party system package in the host launch path', async () => {
+    AppSandbox._internal._resetState();
+    const init = vi.fn();
+    const app = {
+      id: 'com.nbosp.trusted-package',
+      name: 'Trusted Package',
+      system: true,
+      verified: true,
+      signer: 'NovaByte System',
+      source: 'system-bundle',
+      integrity: { method: 'sha256', payloadHash: 'verified-integrity' },
+      manifest: { id: 'com.nbosp.trusted-package', system: true },
+      unrestrictedEntry: 'app.js',
+      files: { 'app.js': Buffer.from('// trusted app entry').toString('base64') },
+    };
+    const container = { innerHTML: '', style: {} };
+    const appendedScripts = [];
+    vi.stubGlobal('OS', {
+      apps: { [app.id]: { init } },
+      settings: { get: () => false },
+    });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('UnrestrictedGate', {
+      checkUnrestrictedApp: vi.fn(async () => ({ allowed: true })),
+    });
+    vi.stubGlobal('document', {
+      createElement: () => ({ dataset: {}, textContent: '', type: '' }),
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      body: { appendChild: script => appendedScripts.push(script) },
+    });
+
+    try {
+      const result = await AppSandbox.launch(app, container, {}, {});
+
+      expect(result).toMatchObject({
+        success: true,
+        unrestricted: true,
+        hostRendered: true,
+        appId: app.id,
+      });
+      expect(result.webview).toBeNull();
+      expect(UnrestrictedGate.checkUnrestrictedApp).toHaveBeenCalledWith(app);
+      expect(appendedScripts).toHaveLength(1);
+      expect(init).toHaveBeenCalledWith(container, {}, {});
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
   });
 
   it('exposes additive novaOS API v2 storage with normalized results', async () => {
@@ -1697,7 +1482,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
           ],
         },
         'context-menu-select',
-        { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
+        { id: 'third-party.app' },
         {
           getBoundingClientRect: () => ({ left: 100, top: 50 }),
           __directResponder: message => responses.push(message),
@@ -1801,7 +1586,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       'nova:context-menu:show',
       { x: 1, y: 2, items: [{ label: 'Open' }] },
       'context-menu-cancel',
-      { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
+      { id: 'third-party.app' },
       { getBoundingClientRect: () => ({ left: 0, top: 0 }), __directResponder: vi.fn() },
       sandbox
     );
@@ -2065,7 +1850,6 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
             if (name === 'partition') partitions.push(value);
           },
           addEventListener: (name, callback) => listeners.set(name, callback),
-          removeEventListener: name => listeners.delete(name),
           remove: vi.fn(),
           clearData: vi.fn((_options, _types, callback) => callback()),
           set src(value) {
@@ -2141,7 +1925,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         'nova:wallpaper:set',
         { key: 'wallpaperId', value: 'stock-blue' },
         'wallpaper-test',
-        { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
+        { id: 'third-party.app' },
         { __directResponder: message => responses.push(message) }
       );
     } finally {
@@ -2223,8 +2007,6 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     const responses = [];
     const binaryBody = 'iVBORw0KGgo=';
     vi.stubGlobal('AppPermissionManager', { isGranted: () => true });
-    vi.stubGlobal('window', { location: { origin: 'https://novabyte.test' } });
-    vi.stubGlobal('document', { querySelector: () => null });
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       status: 200,
       statusText: 'OK',

@@ -475,10 +475,10 @@ const AppPackage = (() => {
         pkg.files[path] = btoa(binary);
       }
     }
-    const rootEntry = manifest.guestEntry ?? manifest.unrestrictedEntry;
-    if (manifest.permissions?.includes('system:root') && !pkg.files[rootEntry]) {
-      throw new Error(`Root package is missing guestEntry file "${rootEntry}"`);
+    if (manifest.permissions?.includes('system:root') && !pkg.files[manifest.unrestrictedEntry]) {
+      throw new Error(`Root package is missing unrestrictedEntry file "${manifest.unrestrictedEntry}"`);
     }
+
     if (options.signingKey) {
       const method = options.signingMethod || DEFAULT_SIGNING_METHOD;
       pkg.signing = { method };
@@ -541,10 +541,21 @@ const AppPackage = (() => {
       }
       throw new Error(msg);
     }
-    const rootEntry = pkg.manifest.guestEntry ?? pkg.manifest.unrestrictedEntry;
-    if (pkg.manifest.permissions?.includes('system:root') && !pkg.files?.[rootEntry]) {
-      throw new Error(`Root package is missing guestEntry file "${rootEntry}"`);
+    if (pkg.manifest.permissions?.includes('system:root')
+      && typeof pkg.files?.[pkg.manifest.unrestrictedEntry] !== 'string') {
+      const msg = `Root package is missing unrestrictedEntry file "${pkg.manifest.unrestrictedEntry}"`;
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({
+          app: 'Packages',
+          category: 'security',
+          severity: 'error',
+          message: `Install failed for ${pkg.manifest.id}: ${msg}`,
+          data: { appId: pkg.manifest.id, permission: 'system:root', action: 'root-package-invalid' },
+        });
+      }
+      throw new Error(msg);
     }
+
     const existing = (typeof AppRegistry !== 'undefined') && AppRegistry?.getApp(pkg.manifest.id);
     if (existing && !options.force) {
       const msg = `App ${pkg.manifest.id} is already installed. Use force option to overwrite.`;
@@ -788,17 +799,14 @@ const AppPackage = (() => {
         if (valid.length > 0 && !valid.includes(p)) warnings.push(`Unknown permission: ${p}`);
       });
     }
-    const rootEntry = manifest.guestEntry ?? manifest.unrestrictedEntry;
+    const requestsRoot = Array.isArray(manifest.permissions) && manifest.permissions.includes('system:root');
+    const rootEntry = manifest.unrestrictedEntry;
     if (rootEntry !== undefined && (typeof rootEntry !== 'string'
       || !/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[a-z0-9_./-]+\.js$/i.test(rootEntry))) {
-      errors.push('guestEntry must name a packaged JavaScript file without parent-directory segments');
+      errors.push('unrestrictedEntry must name a packaged JavaScript file without parent-directory segments');
     }
-    if (manifest.guestEntry !== undefined && manifest.unrestrictedEntry !== undefined
-      && manifest.guestEntry !== manifest.unrestrictedEntry) {
-      errors.push('guestEntry and legacy unrestrictedEntry cannot name different files');
-    }
-    if (manifest.permissions?.includes('system:root') && rootEntry === undefined) {
-      errors.push('system:root requires a packaged guestEntry JavaScript file');
+    if (requestsRoot && typeof rootEntry !== 'string') {
+      errors.push('system:root requires unrestrictedEntry to name a packaged JavaScript file');
     }
     if (Array.isArray(manifest.optionalPermissions) && manifest.optionalPermissions.includes('system:root')) {
       errors.push('system:root must be declared as a required permission, not optionalPermissions');

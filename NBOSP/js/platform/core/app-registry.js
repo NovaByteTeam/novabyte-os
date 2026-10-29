@@ -505,7 +505,9 @@ const AppRegistry = (() => {
     if (typeof AppSandbox !== 'undefined') {
       return AppSandbox.launch(app, content, state, options);
     }
-    throw new Error(`[AppRegistry] Cannot launch ${appId}: AppSandbox is unavailable`);
+    // Fallback if sandbox not loaded
+    if (typeof app.init === 'function') return app.init(content, state, options);
+    return null;
   }
 
   // ── Permissions ────────────────────────────────────────────────────────────
