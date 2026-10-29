@@ -35,6 +35,8 @@ The migration creates:
   service role can write published packages.
 
 Do not weaken the RLS policies or expose the private submission bucket.
+The follow-up migration adds server-generated automated review reports and an
+`automated_rejected` status for packages that fail blocking checks.
 
 ## 3. Configure account verification
 
@@ -82,12 +84,22 @@ only exist in the function environment.
 ## 5. Publish and review behavior
 
 - Publishers sign up with email/password, verify their address, then submit
-  listing details and a `.novaapp` package. New releases and updates remain
-  private while pending review.
+  listing details and a `.novaapp` package. The Edge Function runs automated
+  package checks before creating a human-review queue item. Blocking findings
+  are saved to the publisher's submission history as `automated_rejected`;
+  passing packages remain private and enter the human-review queue.
 - The authorized reviewer can download each pending package, inspect it,
   upload the reviewed `.novaapp`, and then approve, request changes, or reject.
   Approval is disabled until the reviewed package has been uploaded; the Edge
   Function signs that uploaded package with the trusted key during publication.
+- Automated checks block malformed/unsafe package paths, missing manifest
+  requirements or entry files, mismatched app identity/version, binary assets,
+  dynamic code execution, and remote script loading. They also report network
+  references, possible minification/obfuscation, and privileged permissions.
+  Semantic requirements (such as whether data handling is appropriate) remain
+  on the human-review checklist; a clean automated report is not an approval.
+- Every submission, including submissions from the reviewer account, must pass
+  automated checks and receive explicit human approval before publication.
 - The reviewer inbox is available only to the verified
   `dirazmuhammad400@gmail.com` account. Other users cannot list, download, or
   change submissions, even if they manually call the Edge Function.
