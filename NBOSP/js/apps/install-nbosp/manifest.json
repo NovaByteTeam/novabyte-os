@@ -5,7 +5,7 @@
   "author": "DirazCoder",
   "description": "Install NovaByte OS to a selected disk.",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "hard-drive",
   "type": "blank",
   "defaultSize": [

@@ -5,7 +5,7 @@
   "description": "Run commands and interact with NovaByte OS through the terminal.",
   "author": "DirazCoder",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "terminal",
   "type": "blank",
   "defaultSize": [700, 460],

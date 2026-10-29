@@ -5,7 +5,7 @@
   "description": "Configure NovaByte OS preferences, features, and system behavior.",
   "author": "DirazCoder",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "settings",
   "type": "blank",
   "defaultSize": [

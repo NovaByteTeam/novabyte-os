@@ -5,7 +5,7 @@
   "description": "Install and manage NovaByte apps, including .novaapp packages and web apps.",
   "author": "DirazCoder",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "package",
   "type": "blank",
   "permissions": [],
