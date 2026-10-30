@@ -96,6 +96,7 @@
   },
   {
     "id": "com.nbosp.service.system-events",
-    "entry": "service.js"
+    "entry": "service.js",
+    "required": true
   }
 ]

@@ -92,6 +92,16 @@ describe('built-in service boundaries', () => {
     expect(launcherSource).not.toContain("execFile('/usr/bin/nbosp-power'");
   });
 
+  it('loads system event handlers before boot uses the notification badge initializer', () => {
+    const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
+
+    expect(runtimeServices).toContainEqual({
+      id: 'com.nbosp.service.system-events',
+      entry: 'service.js',
+      required: true,
+    });
+  });
+
   it('packages the Snake Easter egg as a trusted overlay service', () => {
     const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
     const packageManifest = JSON.parse(readWorkspaceFile('../../js/apps/novaapp-manifest.json'));
