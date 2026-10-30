@@ -2785,7 +2785,7 @@ registerApp({
         if (clickCount >= 7) {
           clickCount = 0;
           if (clickTimeout) { clearTimeout(clickTimeout); clickTimeout = null; }
-          WM.createWindow('com.nbosp.easter-egg');
+          window.NovaByteEasterEgg.launch();
           return;
         }
         if (clickTimeout) clearTimeout(clickTimeout);

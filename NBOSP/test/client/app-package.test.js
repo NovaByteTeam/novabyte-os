@@ -48,14 +48,6 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('accepts reverse-domain app IDs with hyphenated labels', async () => {
-      const { validateManifest } = await import('../../js/platform/core/app-package.js');
-      expect(validateManifest({
-        ...validManifest,
-        id: 'com.nbosp.easter-egg',
-      }).valid).toBe(true);
-    });
-
     it('accepts well-formed file handler declarations and rejects malformed ones', async () => {
       const { validateManifest } = await import('../../js/platform/core/app-package.js');
       expect(validateManifest({

@@ -102,7 +102,7 @@
   {
     "id": "com.nbosp.settings",
     "file": "js/apps/com.nbosp.settings.novaapp",
-    "cacheKey": "d3ad92dbe9e5b2488925465a6b256fe43d34dbeed4ee422208c1038252c82756"
+    "cacheKey": "0f07c8a8fad23c2cefe522515be7cd0a23483b7da1feb1f5b4c19764b5089946"
   },
   {
     "id": "com.nbosp.terminal",
@@ -240,13 +240,13 @@
     "cacheKey": "d5ee67d3eca9819d358aaebeb0ecc48f20056be38da4142f2f3a4f8ba5b274b1"
   },
   {
-    "id": "com.nbosp.easter-egg",
-    "file": "js/apps/com.nbosp.easter-egg.novaapp",
-    "cacheKey": "7845535b9c349a0465cc997b5e6acb04a10a5523cf1bfa08e6be7b766d72197e"
-  },
-  {
     "id": "com.nbosp.service.novabyte-system",
     "file": "js/apps/com.nbosp.service.novabyte-system.novaapp",
     "cacheKey": "b6f20a0945aced65656d68929d932935e0ec248bfdc41dde2029d90ac1ea986a"
+  },
+  {
+    "id": "com.nbosp.service.easteregg",
+    "file": "js/apps/com.nbosp.service.easteregg.novaapp",
+    "cacheKey": "495807a5b63ada070225ffe76d2efe36f7bfb5d4f87079798d33289420fb8c97"
   }
 ]
