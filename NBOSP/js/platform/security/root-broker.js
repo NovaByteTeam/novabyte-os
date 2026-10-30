@@ -130,15 +130,26 @@
     return null;
   }
 
+  function focusedRootAppId() {
+    if (typeof OS === 'undefined' || typeof OS.windows?.get !== 'function') return null;
+    const appId = OS.windows.get(OS.focusedWindowId)?.appId;
+    if (typeof appId !== 'string'
+      || !callerHasRootGrant(appId)
+      || typeof AppSandbox?.isRootExecutionApp !== 'function'
+      || AppSandbox.isRootExecutionApp(appId) !== true) {
+      return null;
+    }
+    return appId;
+  }
+
   function resolveCallerId(explicit) {
     const stackId = stackAppId();
     if (explicit) {
-      // An explicit id is only honored if the calling stack backs it up —
-      // an app cannot claim another app's identity.
-      if (!stackId || stackId === explicit) return explicit;
-      return null;
+      if (stackId) return stackId === explicit ? explicit : null;
+      const activeId = globalAppId() || focusedRootAppId();
+      return activeId === explicit ? explicit : null;
     }
-    return stackId || globalAppId();
+    return stackId || globalAppId() || focusedRootAppId();
   }
 
   function rootModeEnabled() {
@@ -427,7 +438,7 @@
     return {
       available: !!resolveSudo(),
       rootMode: rootModeEnabled(),
-      appId: stackAppId() || globalAppId(),
+      appId: resolveCallerId(),
       sessionActive: sessionActive(),
       sessionUntil: lastAuthAt ? new Date(lastAuthAt + SESSION_SOFT_TTL_MS).toISOString() : null
     };
