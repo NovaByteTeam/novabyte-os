@@ -67,7 +67,7 @@
     sudoChecked = true;
     for (const candidate of SUDO_CANDIDATES) {
       try {
-        cp.execFileSync(candidate, ['--version'], { stdio: 'ignore', timeout: 5000 });
+        cpMod.execFileSync(candidate, ['--version'], { stdio: 'ignore', timeout: 5000 });
         sudoBin = candidate;
         return sudoBin;
       } catch (e) { /* try next */ }
