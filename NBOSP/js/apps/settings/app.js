@@ -2384,7 +2384,7 @@ registerApp({
     function renderRootAccess() {
       mainContent.appendChild(createEl('h2', { textContent: 'Root Access', style: { marginBottom: '8px' } }));
       mainContent.appendChild(createEl('p', {
-        textContent: 'Root apps run directly in the OS page with unrestricted access. This is not a sandbox or a normal app permission.',
+        textContent: 'Root apps run directly in the OS page with unrestricted access and can perform real administrator (root) operations. Every root app first asks for your user password inside a NovaByte prompt — never inside the app — and every privileged operation is written to the security log. This is not a sandbox or a normal app permission.',
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', lineHeight: '1.55', marginBottom: '18px' }
       }));
 
@@ -2430,6 +2430,42 @@ registerApp({
         masterGroup.appendChild(masterRow);
       }
       mainContent.appendChild(masterGroup);
+
+      // Active root session (NovaRoot broker) — polkit-style session indicator.
+      try {
+        const ns = window.NovaRoot;
+        if (ns && typeof ns.status === 'function') {
+          const st = ns.status();
+          const sessGroup = createEl('div', { className: 'nook-group' });
+          sessGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Root session' }));
+          const sessRow = createEl('div', { className: 'nook-toggle-row' });
+          sessRow.appendChild(createEl('span', {
+            textContent: st.sessionActive
+              ? 'Active — privileged operations are authorized until the session expires.'
+              : 'No active root session. Root apps request authorization (with your password) when they need it.'
+          }));
+          if (st.sessionActive) {
+            const endBtn = createEl('button', { className: 'btn btn-sm btn-danger', textContent: 'End session' });
+            endBtn.addEventListener('click', async () => {
+              try { await window.NovaRoot.endSession(); } catch (error) {
+                console.warn('[Settings] Ending root session failed:', error);
+              }
+              Notify.show({
+                title: 'Root session ended',
+                body: 'Cached root authorization was invalidated. Apps will ask again.',
+                type: 'info',
+                appName: 'Settings'
+              });
+              renderContent();
+            }, { signal: lifecycle.signal });
+            sessRow.appendChild(endBtn);
+          }
+          sessGroup.appendChild(sessRow);
+          mainContent.appendChild(sessGroup);
+        }
+      } catch (error) {
+        console.warn('[Settings] NovaRoot status unavailable:', error);
+      }
 
       if (!devMode || !rootEnabled) {
         mainContent.appendChild(createEl('div', {

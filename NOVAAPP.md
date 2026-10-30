@@ -88,11 +88,13 @@ Set `transparent` to `true` when the app should let the desktop show through are
 
 Packages run inside an isolated app webview by default, including packages signed by NovaByte System. `system:root` is a separate, critical permission: when Developer Mode and Root Access are enabled and the user has explicitly granted it, that app's packaged `guestEntry` may execute in the OS page with unrestricted host access. This exception is based on the app-scoped root grant, not on whether the app is a system app or who signed it.
 
+Root-approved apps can additionally perform real administrator (root) operations through the OS's `NovaRoot` broker (`window.NovaRoot`, platform module `js/platform/security/root-broker.js`). The broker re-checks Developer Mode, Root Access and the app's live `system:root` grant on every call, then asks for the user's password in a NovaByte-owned prompt — never inside the requesting app — when the account has one (passwordless accounts get a confirm-only prompt). Validated operations run as `sudo -n -- <argv>` (argv arrays only, no shell); sudo's own credential cache authorizes the session until it expires, after which the next call re-prompts. The password is never stored, logged or exposed to the app, and every grant, denial and operation is written to the security log. `NovaRoot` is available to packages only; it is not part of the sandboxed app bridge.
+
 `guestEntry` names an optional JavaScript file included in the package. The runtime loads it inside the same sandbox as the manifest's HTML entry. Older packages may still contain `unrestrictedEntry`; it is accepted as a compatibility alias. A package declaring `system:root` must include its declared entry file.
 
 Verified NovaByte System packages receive additional undocumented framework compatibility APIs through the sandbox bridge. The OS checks the package signature against its trust store before servicing those calls. These internal APIs are not available to third-party packages, are not part of the public app API, and may change without notice. This signature-gated framework access is independent of `system:root`.
 
-`system:root` is granted per app through its explicit confirmation flow and is available only while Developer Mode and Root Access are enabled. It is not a system-app signature or a way for a package to claim system identity. Request it only when unrestricted OS-page execution is essential.
+`system:root` is granted per app through its explicit confirmation flow and is available only while Developer Mode and Root Access are enabled. It is not a system-app signature or a way for a package to claim system identity. Request it only when unrestricted OS-page execution is essential and when real privileged (root) operations are essential. The broker's privileged surface is a narrow argv-based API (`run`, `rm`, `cp`, `mkdirp`, `writeFile`, `readFile`); it is audited, expires with the sudo session, and can be revoked at any time from Settings → Root Access → End session.
 
 ### App ID format
 
@@ -587,7 +589,7 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `system:apps` | System | Medium | Launchers, app-store-style installers, dock/dashboard replacements |
 | `system:app-launch` | System | Low | Launching an installed app without access to app inventory or management |
 | `system:events` | System | Medium | Reacting to OS-level events (theme change, etc.) |
-| `system:root` | System | Critical | Unrestricted OS-page execution for a packaged app entry when Developer Mode and Root Access are enabled |
+| `system:root` | System | Critical | Unrestricted OS-page execution for a packaged app entry when Developer Mode and Root Access are enabled, plus real root operations via the NovaRoot broker after the user confirms with their password |
 | `system:background` | System | Medium | Periodic sync/checks while closed — reminders, cache refresh, polling (see below) |
 | `system:background:live` | System | High | Staying alive after the window closes — timers, active transfers, live connections (see below) |
 | `system:autostart` | System | High | Launching automatically at OS startup with no user action at all (see below) |
