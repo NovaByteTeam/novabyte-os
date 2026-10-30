@@ -66,6 +66,10 @@
     "entry": "service.js"
   },
   {
+    "id": "com.nbosp.service.system-webview",
+    "entry": "service.js"
+  },
+  {
     "id": "com.nbosp.service.tray",
     "entry": "service.js"
   },

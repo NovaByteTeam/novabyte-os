@@ -1,0 +1,11 @@
+{
+  "id": "com.nbosp.service.system-webview",
+  "name": "NovaByte System Webview",
+  "author": "DirazCoder",
+  "description": "Manages isolated webview guests embedded by sandboxed NovaByte apps.",
+  "version": "3.0.2",
+  "entry": "service.js",
+  "unrestrictedEntry": "service.js",
+  "system": true,
+  "systemService": true
+}

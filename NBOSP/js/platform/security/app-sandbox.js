@@ -1658,362 +1658,25 @@ const AppSandbox = (() => {
       || AppPermissionManager.isGranted('sandbox:nested-webview', app?.id) !== true) {
       return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'sandbox:nested-webview permission required');
     }
-    const id = payload?.id;
-    if (typeof id !== 'string' || !/^nvw_[a-zA-Z0-9_-]{1,80}$/.test(id)) {
-      return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid nested webview id');
+    const service = window.NovaSystemWebview;
+    if (typeof service?.handleRequest !== 'function') {
+      return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'NovaByte System Webview service is unavailable');
     }
-
-    const views = sandbox.nestedWebviews;
-    if (!(views instanceof Map)) {
-      return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'Nested webviews are unavailable');
-    }
-    const action = payload?.action;
-    let entry = views.get(id);
-
-    if (action === 'discard-popup') {
-      const pending = sandbox.pendingNewWindows?.get(payload.popupId);
-      if (!pending) return respondError(webview, 'nova:nested-webview', requestId, 'NOT_FOUND', 'Popup request has expired');
-      sandbox.pendingNewWindows.delete(payload.popupId);
-      pending.discard();
-      return respond(webview, 'nova:nested-webview', requestId, { success: true });
-    }
-    if (action === 'attach-popup') {
-      const pending = sandbox.pendingNewWindows?.get(payload.popupId);
-      if (!pending || !entry) return respondError(webview, 'nova:nested-webview', requestId, 'NOT_FOUND', 'Popup request or nested webview does not exist');
-      sandbox.pendingNewWindows.delete(payload.popupId);
-      pending.attach(entry.view);
-      return respond(webview, 'nova:nested-webview', requestId, { success: true });
-    }
-
-    if (action === 'create') {
-      if (entry) return respond(webview, 'nova:nested-webview', requestId, { success: true });
-      const parent = sandbox.state?.content;
-      if (!parent?.isConnected) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'App window is unavailable');
-      }
-
-      const attrs = payload.attributes && typeof payload.attributes === 'object' ? payload.attributes : {};
-      if (typeof attrs.src === 'string' && attrs.src && !canNestedWebviewNavigate(app, attrs.src)) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'The app needs the matching network permission to navigate this webview');
-      }
-      const child = document.createElement('webview');
-      child.setAttribute('nodeintegration', 'false');
-      child.setAttribute('nodeintegrationsubframes', 'false');
-      child.setAttribute('enableremotemodule', 'false');
-      // Keep remote-site state separate from the app's own webview partition:
-      // destroy() clears the latter on close for sandboxed apps, while this
-      // stable partition preserves website cookies across app-window closes.
-      child.setAttribute('partition', `persist:app_${app.id}_webcontent`);
-      // Do not copy the outer app webview's sandbox attribute. In particular,
-      // it omits allow-same-origin for app code; inheriting it here gives
-      // normal websites an opaque origin and prevents their cookies and
-      // persistent storage from working.
-      child.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;border:0;display:none;z-index:1;';
-      const contextMenuMarker = app.id === 'com.nbosp.browser'
-        ? `__NOVA_BROWSER_CONTEXT_MENU__:${generateRequestId()}:`
-        : null;
-      const contextMenuScript = `(() => {
-        if (window.__novaContextMenuBridgeInstalled) return;
-        window.__novaContextMenuBridgeInstalled = true;
-        const marker = ${JSON.stringify(contextMenuMarker)};
-        document.addEventListener('contextmenu', event => {
-          event.preventDefault();
-          const element = event.target;
-          const link = element?.closest?.('a');
-          const image = element?.tagName === 'IMG' ? element : element?.closest?.('img');
-          const selection = window.getSelection?.().toString().trim() || '';
-          const payload = {
-            clientX: event.clientX,
-            clientY: event.clientY,
-            viewportWidth: window.innerWidth,
-            viewportHeight: window.innerHeight,
-            linkUrl: link?.href || '',
-            linkText: (link?.textContent || '').trim().slice(0, 120),
-            imageUrl: image?.src || '',
-            imageAlt: image?.alt || '',
-            selectedText: selection.slice(0, 500),
-            pageUrl: location.href,
-            pageTitle: document.title,
-          };
-          try { console.log(marker + JSON.stringify(payload)); } catch (_) {}
-        }, true);
-      })();`;
-
-      // The Browser hides page scrollbars for a consistent viewport, but its
-      // old loadstop-only insertCSS ran after the first paint and let the
-      // site's native scrollbar flash during navigation. Install the same
-      // suppression at document_start for every Browser guest navigation;
-      // loadstop's insertCSS remains as a final cascade override and still
-      // applies the user's other page settings (zoom, inversion, font size).
-      if (app.id === 'com.nbosp.browser' && typeof child.addContentScripts === 'function') {
-        try {
-          child.addContentScripts([{
-            name: `nova-browser-scrollbar-guard-${id}`,
-            matches: ['<all_urls>'],
-            js: { code: `(() => {
-              const css = 'html,body,*{scrollbar-width:none!important;-ms-overflow-style:none!important}' +
-                '*::-webkit-scrollbar,*::-webkit-scrollbar-thumb,*::-webkit-scrollbar-track,*::-webkit-scrollbar-corner{' +
-                'display:none!important;width:0!important;height:0!important;min-width:0!important;min-height:0!important}';
-              const install = () => {
-                const root = document.documentElement;
-                if (!root) return false;
-                let style = root.querySelector('style[data-nbosp-scrollbar-guard]');
-                if (!style) {
-                  style = document.createElement('style');
-                  style.setAttribute('data-nbosp-scrollbar-guard', '');
-                  style.textContent = css;
-                  (root.head || root).appendChild(style);
-                }
-                return true;
-              };
-              if (!install()) {
-                const observer = new MutationObserver(() => {
-                  if (install()) observer.disconnect();
-                });
-                observer.observe(document, { childList: true, subtree: true });
-              }
-            })();` },
-            run_at: 'document_start',
-            all_frames: false,
-          }]);
-        } catch (error) {
-          log('warn', 'Browser early scrollbar guard registration failed:', error);
-        }
-      }
-
-      const cleanups = [];
-      const sendEvent = (name, event) => {
-        const result = { proxyId: id, eventName: name };
-        for (const key of ['url', 'isTopLevel', 'reason', 'errorCode', 'errorDescription', 'validatedURL', 'targetUrl', 'disposition', 'windowOpenDisposition', 'initialWidth', 'initialHeight', 'message', 'permission']) {
-          if (event?.[key] !== undefined) result[key] = event[key];
-        }
-        if (event?.request?.url) result.request = { url: event.request.url };
-        if (event?.__novaPopupId) result.popupId = event.__novaPopupId;
-        respond(webview, 'nova:nested-webview:event', id, result);
-      };
-      for (const name of ['loadstart', 'loadredirect', 'loadcommit', 'loadstop', 'contentload', 'loadabort', 'loaderror', 'close', 'crashed', 'exit', 'did-fail-load', 'enter-html-full-screen', 'leave-html-full-screen', 'unresponsive', 'responsive', 'permissionrequest', 'consolemessage']) {
-        const listener = event => {
-          if (name === 'loadstop' && contextMenuMarker) {
-            try {
-              child.executeScript({ code: contextMenuScript }, results => {
-                if (Array.isArray(results) && results[0] === false) {
-                  log('warn', `Could not install nested browser context menu bridge for ${app?.id || 'app'}`);
-                }
-              });
-            } catch (error) {
-              log('warn', 'Could not install nested browser context menu bridge', error);
-            }
-          }
-          if (name === 'consolemessage' && typeof event?.message === 'string' && event.message.startsWith(contextMenuMarker)) {
-            let context;
-            try { context = JSON.parse(event.message.slice(contextMenuMarker.length)); }
-            catch (error) {
-              log('warn', 'Ignored malformed nested browser context menu event', error);
-              return;
-            }
-            if (!Number.isFinite(context?.clientX) || !Number.isFinite(context?.clientY)
-              || !Number.isFinite(context?.viewportWidth) || !Number.isFinite(context?.viewportHeight)) return;
-            const bounded = value => typeof value === 'string' ? value.slice(0, 2000) : '';
-            sendEvent('contextmenu', {
-              clientX: context.clientX,
-              clientY: context.clientY,
-              viewportWidth: context.viewportWidth,
-              viewportHeight: context.viewportHeight,
-              linkUrl: bounded(context.linkUrl),
-              linkText: bounded(context.linkText),
-              imageUrl: bounded(context.imageUrl),
-              imageAlt: bounded(context.imageAlt),
-              selectedText: bounded(context.selectedText),
-              pageUrl: bounded(context.pageUrl),
-              pageTitle: bounded(context.pageTitle),
-            });
-            return;
-          }
-          sendEvent(name, event);
-        };
-        child.addEventListener(name, listener);
-        cleanups.push(() => child.removeEventListener(name, listener));
-      }
-      const newWindowListener = event => {
-        event.preventDefault();
-        const popupId = generateRequestId();
-        sandbox.pendingNewWindows.set(popupId, event.window);
-        event.__novaPopupId = popupId;
-        setTimeout(() => {
-          const pending = sandbox.pendingNewWindows.get(popupId);
-          if (!pending) return;
-          sandbox.pendingNewWindows.delete(popupId);
-          try { pending.discard(); } catch (error) { log('warn', 'Pending popup cleanup failed', error); }
-        }, 30000);
-        sendEvent('newwindow', event);
-      };
-      child.addEventListener('newwindow', newWindowListener);
-      cleanups.push(() => child.removeEventListener('newwindow', newWindowListener));
-      const navigationListener = event => {
-        if (event?.isTopLevel === false) return;
-        const destination = event?.url || event?.targetUrl || event?.validatedURL;
-        if (typeof destination === 'string' && !canNestedWebviewNavigate(app, destination)) {
-          event.preventDefault?.();
-          sendEvent('navigation-blocked', { url: destination, reason: 'Network permission required' });
-        }
-      };
-      child.addEventListener('will-navigate', navigationListener);
-      cleanups.push(() => child.removeEventListener('will-navigate', navigationListener));
-      cleanups.push(setupPermissionRequestGate(child, app));
-      parent.style.position ||= 'relative';
-      entry = { view: child, cleanups };
-      views.set(id, entry);
-      parent.appendChild(child);
-
-      for (const name of ['allowfullscreen', 'allowpopups']) {
-        if (typeof attrs[name] === 'string' && name !== 'src') child.setAttribute(name, attrs[name]);
-      }
-      if (typeof attrs.src === 'string' && attrs.src) child.src = attrs.src;
-      return respond(webview, 'nova:nested-webview', requestId, { success: true });
-    }
-
-    if (!entry) {
-      return respondError(webview, 'nova:nested-webview', requestId, 'NOT_FOUND', 'Nested webview does not exist');
-    }
-    const child = entry.view;
-
-    if (action === 'destroy') {
-      views.delete(id);
-      for (const cleanup of entry.cleanups) {
-        try { cleanup(); } catch (error) { log('warn', 'Nested webview cleanup failed', error); }
-      }
-      child.remove();
-      return respond(webview, 'nova:nested-webview', requestId, { success: true });
-    }
-
-    if (action === 'bounds') {
-      const bounds = payload.bounds || {};
-      const requested = [bounds.left, bounds.top, bounds.width, bounds.height].map(Number);
-      if (!requested.every(Number.isFinite) || requested[2] < 0 || requested[3] < 0) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid nested webview bounds');
-      }
-      const [requestedLeft, requestedTop, requestedWidth, requestedHeight] = requested;
-      const parent = sandbox.state?.content;
-      const maxWidth = Math.max(0, parent?.clientWidth || 0);
-      const maxHeight = Math.max(0, parent?.clientHeight || 0);
-      const left = Math.max(0, Math.min(maxWidth, requestedLeft));
-      const top = Math.max(0, Math.min(maxHeight, requestedTop));
-      const width = Math.min(requestedWidth, maxWidth - left);
-      const height = Math.min(requestedHeight, maxHeight - top);
-      const visible = bounds.visible === true && width > 0 && height > 0;
-      child.style.left = `${left}px`;
-      child.style.top = `${top}px`;
-      child.style.width = `${width}px`;
-      child.style.height = `${height}px`;
-      child.style.display = visible ? 'flex' : 'none';
-      child.style.visibility = bounds.visibility === 'hidden' ? 'hidden' : 'visible';
-      child.style.pointerEvents = bounds.pointerEvents === 'none' ? 'none' : 'auto';
-      child.style.zIndex = String(Math.max(0, Math.min(100, Number(bounds.zIndex) || 1)));
-      return respond(webview, 'nova:nested-webview', requestId, { success: true });
-    }
-
-    if (action === 'attribute') {
-      const name = payload.name;
-      if (!['allowfullscreen', 'allowpopups', 'src'].includes(name)) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'Attribute is not available on nested webviews');
-      }
-      if (name === 'src' && payload.remove !== true
-        && (typeof payload.value !== 'string' || !canNestedWebviewNavigate(app, payload.value))) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'PERMISSION_DENIED', 'The app needs the matching network permission to navigate this webview');
-      }
-      if (payload.remove === true) child.removeAttribute(name);
-      else if (typeof payload.value === 'string') child.setAttribute(name, payload.value);
-      if (name === 'src' && payload.remove !== true && typeof payload.value === 'string') child.src = payload.value;
-      return respond(webview, 'nova:nested-webview', requestId, { success: true });
-    }
-
-    if (action !== 'command') {
-      return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Unsupported nested webview operation');
-    }
-    const command = payload.command;
-    if (command === 'reload') child.reload();
-    else if (command === 'back') child.back();
-    else if (command === 'forward') child.forward();
-    else if (command === 'stop') child.stop();
-    else if (command === 'canGoBack' || command === 'canGoForward') {
-      const method = child[command];
-      if (typeof method !== 'function') {
-        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', `${command} is not supported by this webview`);
-      }
-      return respond(webview, 'nova:nested-webview', requestId, { value: Boolean(method.call(child)) });
-    }
-    else if (command === 'find') {
-      const query = payload.query;
-      const options = payload.options && typeof payload.options === 'object' ? payload.options : {};
-      if (typeof query !== 'string' || !query.trim() || query.length > 1000
-        || Object.keys(options).some(key => !['backward', 'matchCase', 'wordStart', 'medialCapitalAsWordStart'].includes(key))
-        || Object.values(options).some(value => typeof value !== 'boolean')) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid page-find query or options');
-      }
-      if (typeof child.find !== 'function') {
-        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'Page find is not supported by this webview');
-      }
-      const result = await new Promise((resolve, reject) => {
-        try { child.find(query, options, resolve); } catch (error) { reject(error); }
-      });
-      return respond(webview, 'nova:nested-webview', requestId, result);
-    }
-    else if (command === 'stopFinding') {
-      const action = payload.value || 'clear';
-      if (!['clear', 'keep', 'activate'].includes(action)) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid stop-finding action');
-      }
-      if (typeof child.stopFinding !== 'function') {
-        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'Page find is not supported by this webview');
-      }
-      child.stopFinding(action);
-    }
-    else if (command === 'setUserAgentOverride') {
-      const userAgent = payload.value;
-      if (typeof userAgent !== 'string' || userAgent.length > 512) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid user-agent string');
-      }
-      if (typeof child.setUserAgentOverride !== 'function') {
-        return respondError(webview, 'nova:nested-webview', requestId, 'UNAVAILABLE', 'User-agent overrides are not supported by this webview');
-      }
-      child.setUserAgentOverride(userAgent);
-    }
-    else if (command === 'setZoom') {
-      const zoom = Number(payload.value);
-      if (!Number.isFinite(zoom) || zoom < 0.25 || zoom > 5) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid zoom factor');
-      }
-      child.setZoom(zoom);
-    }
-    else if (command === 'setZoomMode') {
-      if (!['per-view', 'per-origin', 'automatic'].includes(payload.value)) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid zoom mode');
-      }
-      child.setZoomMode(payload.value);
-    }
-    else if (command === 'clearData') {
-      const types = Array.isArray(payload.types) ? payload.types.filter(type => typeof type === 'string') : [];
-      await new Promise((resolve, reject) => {
-        try { child.clearData({}, types, resolve); } catch (error) { reject(error); }
-      });
-      return respond(webview, 'nova:nested-webview', requestId, { success: true });
-    }
-    else if (command === 'executeScript' || command === 'insertCSS') {
-      const code = payload.details?.code;
-      if (typeof code !== 'string' || code.length > 1_000_000) {
-        return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Invalid webview script');
-      }
-      const method = command === 'executeScript' ? child.executeScript : child.insertCSS;
-      const result = await new Promise((resolve, reject) => {
-        try {
-          method.call(child, { code }, results => resolve(results));
-        } catch (error) { reject(error); }
-      });
-      return respond(webview, 'nova:nested-webview', requestId, result);
-    } else {
-      return respondError(webview, 'nova:nested-webview', requestId, 'INVALID_ARGS', 'Unsupported nested webview operation');
-    }
-    return respond(webview, 'nova:nested-webview', requestId, { success: true });
+    return service.handleRequest({
+      payload,
+      requestId,
+      app,
+      webview,
+      sandbox,
+      callbacks: {
+        respond,
+        respondError,
+        generateRequestId,
+        log,
+        canNavigate: url => canNestedWebviewNavigate(app, url),
+        setupPermissionRequestGate: child => setupPermissionRequestGate(child, app),
+      },
+    });
   }
 
   async function handleContextMenuShow({ payload, requestId, app, webview, sandbox }) {
@@ -6159,8 +5822,6 @@ const AppSandbox = (() => {
         state: null,
         windowId: null,
         wsConnections: new Map(),
-        nestedWebviews: new Map(),
-        pendingNewWindows: new Map(),
         appIpcEndpoints: new Set(),
         ipcBroadcastActions: new Set(),
         openFile: null,
@@ -9175,8 +8836,6 @@ const AppSandbox = (() => {
       state: state,
       windowId: state?.id,
       wsConnections: new Map(),
-      nestedWebviews: new Map(),
-      pendingNewWindows: new Map(),
       appIpcEndpoints: new Set(),
       ipcBroadcastActions: new Set(),
       nestedWebviewOptedIn,
@@ -9242,19 +8901,10 @@ const AppSandbox = (() => {
     sandboxRecord.contextMenuCleanup = null;
     try { sandboxRecord.overlayCleanup?.(); } catch (e) { log('debug', 'app overlay cleanup step threw', e); }
     sandboxRecord.overlayCleanup = null;
-    for (const entry of sandboxRecord.nestedWebviews?.values() || []) {
-      for (const cleanup of entry.cleanups || []) {
-        try { cleanup(); } catch (e) { log('debug', 'nested webview cleanup step threw', e); }
-      }
-      try { entry.view.remove(); } catch (e) { log('debug', 'nested webview removal failed', e); }
-    }
-    sandboxRecord.nestedWebviews?.clear();
+    try { window.NovaSystemWebview?.destroySandbox(sandboxRecord); }
+    catch (e) { log('warn', 'system webview cleanup failed', e); }
     try { sandboxRecord.appearanceSubscription?.(); } catch (e) { log('debug', 'appearance unsubscribe failed', e); }
     sandboxRecord.appearanceSubscription = null;
-    for (const pending of sandboxRecord.pendingNewWindows?.values() || []) {
-      try { pending.discard(); } catch (e) { log('debug', 'pending popup cleanup step threw', e); }
-    }
-    sandboxRecord.pendingNewWindows?.clear();
     for (const fn of teardownFns) {
       try { fn(); } catch (e) { log('debug', 'sandbox cleanup step threw', e); }
     }
@@ -9623,18 +9273,9 @@ const AppSandbox = (() => {
       for (const sandbox of activeSandboxes.values()) {
         if (sandbox.appId !== appId) continue;
         try { sandbox.overlayCleanup?.(); } catch (error) { log('warn', 'App overlay cleanup failed after permission revocation', error); }
-        for (const entry of sandbox.nestedWebviews?.values() || []) {
-          for (const cleanup of entry.cleanups || []) {
-            try { cleanup(); } catch (error) { log('warn', 'Nested webview cleanup failed after permission revocation', error); }
-          }
-          try { entry.view.remove(); } catch (error) { log('warn', 'Nested webview removal failed after permission revocation', error); }
-        }
-        sandbox.nestedWebviews?.clear();
-        for (const pending of sandbox.pendingNewWindows?.values() || []) {
-          try { pending.discard(); } catch (error) { log('warn', 'Pending popup cleanup failed after permission revocation', error); }
-        }
-        sandbox.pendingNewWindows?.clear();
       }
+      try { window.NovaSystemWebview?.revokeApp(appId); }
+      catch (error) { log('warn', 'System webview cleanup failed after permission revocation', error); }
       return true;
     }
     if (permission !== 'sandbox:same-origin') return false;
