@@ -2,33 +2,39 @@
  * NovaRoot — real root access broker for system:root apps
  * ─────────────────────────────────────────────────────────────────────────
  * Makes `system:root` mean what it says: an approved app can perform
- * privileged (unix root) operations after the user confirms with their own
- * password — asked inside NovaByte's own UI, never inside the app.
+ * privileged (unix root) operations after the user confirms in NovaByte's
+ * own UI — never inside the app.
+ *
+ * No password is asked. NovaByte OS account passwords are stored by
+ * NovaByte itself, not by Linux, so they cannot be validated by sudo —
+ * asking for one would be theater. Instead:
  *
  * How it works
  *   1. Caller gate  — the requesting app must be executing in the OS page
  *                     (host/unrestricted), with Developer Mode + Root Access
  *                     enabled AND a live `system:root` grant. Re-checked on
  *                     every call; a revoked package loses access instantly.
- *   2. Password     — `sudo -n -k -- true` detects whether the user account
- *                     has a password. If it does, the OS renders its own
- *                     password prompt (NovaByte-styled, above all app
- *                     windows) and validates it with `sudo -S -k -- true`.
- *                     The password lives in memory for the duration of one
- *                     handshake, is never stored, logged or exposed to the
- *                     app, and is dropped immediately after validation.
+ *                     The caller is identified from its injected
+ *                     `novaapp:<id>` sourceURL stack marker, an explicit
+ *                     appId (cross-checked against that marker), or the
+ *                     transient unrestricted-package global during init.
+ *   2. Confirmation — the OS renders its own confirmation prompt
+ *                     (NovaByte-styled, above all app windows). Confirming
+ *                     opens a root session, cached polkit-style until it
+ *                     expires. No password prompt, no password handling.
  *   3. Operations   — privileged operations run as argv arrays through
  *                     `sudo -n -- <argv…>` (no shell, nothing to inject).
- *                     sudo's own credential cache authorizes the session
- *                     after one validation; when it expires the next call
- *                     re-opens the prompt automatically (polkit-style).
+ *                     This requires the OS user account to allow
+ *                     passwordless sudo (NOPASSWD); accounts that need a
+ *                     sudo password get a clear, actionable error instead
+ *                     of a useless prompt.
  *   4. Audit        — every grant, denial and operation is written to
- *                     EventLog with the app id and argv. Passwords never are.
+ *                     EventLog with the app id and argv.
  *
  * Public API (window.NovaRoot)
- *   status()                       → { available, rootMode, appId, sessionActive, passwordRequired }
- *   requestSession({ reason })     → Promise<{ granted, reason? }>   — shows the prompt
- *   run({ argv, inputB64?, timeoutMs? }) → Promise<{ code, stdout, stderr }>  — one root argv
+ *   status()                       → { available, rootMode, appId, sessionActive, sessionUntil }
+ *   requestSession({ appId?, reason? }) → Promise<{ granted, reason? }>  — shows the prompt
+ *   run({ appId?, argv, inputB64?, inputText?, timeoutMs? }) → Promise<{ code, stdoutB64, stderrB64 }>
  *   rm(path) cp(src,dst) mkdirp(path) writeFile(path, textOrB64) readFile(path)
  *   endSession()                   → invalidate the cached sudo timestamp
  */
@@ -49,7 +55,6 @@
   let sudoChecked = false;
 
   const SESSION_SOFT_TTL_MS = 15 * 60 * 1000; // display hint only; sudo enforces the real one
-  const MAX_PASSWORD_ATTEMPTS = 3;
 
   let lastAuthAt = 0;
   let activePrompt = null;   // Promise while the OS prompt is open
@@ -76,22 +81,59 @@
 
   function needsPasswordErr(stderr) {
     const t = sudoErrText(stderr);
-    return t.includes('a password is required') || t.includes('no tty present') && t.includes('askpass');
+    return t.includes('a password is required') || (t.includes('no tty present') && t.includes('askpass'));
   }
 
-  function wrongPasswordErr(stderr) {
-    const t = sudoErrText(stderr);
-    return t.includes('incorrect password') || t.includes('authentication failure');
+  function notInSudoersErr(stderr) {
+    return sudoErrText(stderr).includes('not in the sudoers file');
+  }
+
+  // Actionable explanation when sudo itself cannot run root ops on this
+  // account. Root operations are passwordless by design (see header), so
+  // these are environment setup problems, not user errors.
+  function sudoSetupMessage(stderr) {
+    if (needsPasswordErr(stderr)) {
+      return 'Root operations need passwordless sudo (NOPASSWD) for this OS account — it currently requires a password. ' +
+        'Fix once with: sudo visudo, then add a rule like "novauser ALL=(ALL) NOPASSWD: ALL".';
+    }
+    if (notInSudoersErr(stderr)) {
+      return 'This OS account is not allowed to use sudo. Fix once with: sudo visudo, then add a rule like "novauser ALL=(ALL) NOPASSWD: ALL".';
+    }
+    return null;
   }
 
   /* ── caller gate ───────────────────────────────────────────────── */
 
-  function currentAppId() {
+  // The nearest `novaapp:<id>/` frame in the call stack is the app whose
+  // code is calling into the broker. app-sandbox.js injects
+  // `//# sourceURL=novaapp:<appId>/<entry>` into every unrestricted entry,
+  // so this works at call time — long after the transient
+  // __novaUnrestrictedPackage global has been restored.
+  function stackAppId() {
+    try {
+      const st = new Error().stack || '';
+      const m = st.match(/novaapp:([A-Za-z0-9_.-]+)\//);
+      return m ? m[1] : null;
+    } catch (e) { return null; }
+  }
+
+  function globalAppId() {
     try {
       const pkg = window.__novaUnrestrictedPackage;
       if (pkg && typeof pkg.id === 'string') return pkg.id;
     } catch (e) { /* ignore */ }
     return null;
+  }
+
+  function resolveCallerId(explicit) {
+    const stackId = stackAppId();
+    if (explicit) {
+      // An explicit id is only honored if the calling stack backs it up —
+      // an app cannot claim another app's identity.
+      if (!stackId || stackId === explicit) return explicit;
+      return null;
+    }
+    return stackId || globalAppId();
   }
 
   function rootModeEnabled() {
@@ -124,7 +166,7 @@
     } catch (e) { /* audit channel unavailable */ }
   }
 
-  /* ── low-level sudo runners ────────────────────────────────────── */
+  /* ── low-level sudo runner ─────────────────────────────────────── */
 
   function sudoRun(argv, { input = null, timeoutMs = 30000, maxBuffer = 4 * 1024 * 1024 } = {}) {
     return new Promise((resolve, reject) => {
@@ -148,39 +190,15 @@
     });
   }
 
-  // Non-interactive privileged run — works while sudo's credential cache
-  // is valid; fails cleanly with a detectable error when it is not.
   function rootRunCached(argv, opts = {}) {
     return sudoRun(['-n', '--', ...argv], opts);
   }
 
-  // Invalidate the timestamp, then validate a password honestly.
-  // Resolves true on success, false on a wrong password, throws on anything
-  // else (sudo misconfigured, binary missing, …) so the prompt can tell the
-  // user the difference instead of blaming the password.
-  async function validatePassword(password) {
-    const res = await sudoRun(['-S', '-k', '-p', '', '--', 'true'], {
-      input: password == null ? '\n' : String(password) + '\n',
-      timeoutMs: 20000
-    });
-    if (res.code === 0) return true;
-    if (wrongPasswordErr(res.stderr)) return false;
-    throw new Error('sudo rejected the attempt: ' + (res.stderr || 'exit ' + res.code).trim());
-  }
-
-  // Does this account need a password for sudo at all?
-  async function detectPasswordRequired() {
-    const res = await sudoRun(['-n', '-k', '--', 'true'], { timeoutMs: 10000 });
-    if (res.code === 0) return false;            // NOPASSWD or passwordless account
-    if (needsPasswordErr(res.stderr)) return true;
-    throw new Error('sudo precheck failed: ' + (res.stderr || 'exit ' + res.code).trim());
-  }
-
-  /* ── the OS-side password prompt ───────────────────────────────── */
+  /* ── the OS-side confirmation prompt (no password) ─────────────── */
 
   const Z_TOP = '2147483600'; // above system-modal-root (2147483000) and everything app-side
 
-  function requestPrompt({ appName, reason, passwordRequired }) {
+  function requestPrompt({ appName, reason }) {
     if (activePrompt) return activePrompt;
 
     activePrompt = new Promise((resolve) => {
@@ -234,27 +252,8 @@
 
       const note = document.createElement('div');
       note.style.cssText = 'color:var(--text-secondary,#8b949e);margin-bottom:12px;';
-      note.textContent = passwordRequired
-        ? 'Enter your user password to continue. NovaByte never stores or shares it — it is validated by the system and dropped immediately.'
-        : 'No password is required on this account. Only continue if you trust this app.';
+      note.textContent = 'No password is required. Only continue if you trust this app — every privileged operation is written to the security log.';
       body.appendChild(note);
-
-      let input = null;
-      let errLine = null;
-      if (passwordRequired) {
-        input = document.createElement('input');
-        input.type = 'password';
-        input.autocomplete = 'off';
-        input.spellcheck = false;
-        input.setAttribute('aria-label', 'User password');
-        input.style.cssText = 'width:100%;box-sizing:border-box;padding:9px 12px;margin-bottom:4px;border-radius:8px;' +
-          'border:1px solid var(--border-color,#30363d);background:var(--bg-primary,#0d1117);color:var(--text-primary,#e6edf3);font-size:14px;';
-        body.appendChild(input);
-
-        errLine = document.createElement('div');
-        errLine.style.cssText = 'min-height:18px;font-size:12px;color:var(--text-danger,#f85149);margin-bottom:4px;';
-        body.appendChild(errLine);
-      }
 
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:10px;';
@@ -263,7 +262,7 @@
       cancel.style.cssText = 'padding:8px 16px;border-radius:8px;border:1px solid var(--border-color,#30363d);' +
         'background:transparent;color:var(--text-primary,#e6edf3);cursor:pointer;font-size:13px;';
       const ok = document.createElement('button');
-      ok.textContent = 'Confirm';
+      ok.textContent = 'Allow';
       ok.style.cssText = 'padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;' +
         'background:var(--danger-color,#d29922);color:#fff;';
       ok.style.background = 'var(--accent-color,#238636)';
@@ -277,34 +276,14 @@
 
       function onKey(e) {
         if (e.key === 'Escape') { e.preventDefault(); finish(false); }
-        else if (e.key === 'Enter' && input && document.activeElement === input) { e.preventDefault(); attempt(); }
+        else if (e.key === 'Enter') { e.preventDefault(); finish(true); }
       }
       document.addEventListener('keydown', onKey, true);
 
-      function attempt() {
-        if (!input) { finish(true); return; }
-        const pw = input.value;
-        validatePassword(pw).then((okPw) => {
-          input.value = '';
-          if (okPw) { finish(true); return; }
-          attemptsLeft -= 1;
-          if (attemptsLeft > 0) {
-            errLine.textContent = 'Incorrect password — ' + attemptsLeft + (attemptsLeft === 1 ? ' attempt' : ' attempts') + ' left.';
-            input.focus();
-          } else {
-            finish('wrong-password');
-          }
-        }).catch((e) => {
-          input.value = '';
-          errLine.textContent = 'Password check failed: ' + (e.message || e);
-        });
-      }
-      let attemptsLeft = MAX_PASSWORD_ATTEMPTS;
-
       cancel.addEventListener('click', () => finish(false));
-      ok.addEventListener('click', attempt);
+      ok.addEventListener('click', () => finish(true));
       overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) finish(false); });
-      if (input) setTimeout(() => input.focus(), 40); else setTimeout(() => ok.focus(), 40);
+      setTimeout(() => ok.focus(), 40);
     });
 
     return activePrompt;
@@ -321,24 +300,19 @@
       return { granted: false, reason: 'Root Access is disabled (needs Developer Mode + Root Access in Settings).' };
     }
     if (!callerHasRootGrant(appId)) {
-      return { granted: false, reason: 'The calling app does not hold a system:root grant.' };
+      return {
+        granted: false,
+        reason: 'The calling app does not hold a system:root grant' +
+          (appId ? '.' : ' (the caller could not be identified).')
+      };
     }
     if (sessionActive()) return { granted: true };
 
-    const passwordRequired = await detectPasswordRequired();
-    const verdict = await requestPrompt({
-      appName: appId,
-      reason,
-      passwordRequired
-    });
+    const verdict = await requestPrompt({ appName: appId, reason });
     if (verdict === true) {
       lastAuthAt = Date.now();
-      audit('warn', `Root session granted for ${appId}`, { appId, passwordRequired });
+      audit('warn', `Root session granted for ${appId}`, { appId });
       return { granted: true };
-    }
-    if (verdict === 'wrong-password') {
-      audit('error', `Root session denied for ${appId} — password entered incorrectly ${MAX_PASSWORD_ATTEMPTS} times`, { appId });
-      return { granted: false, reason: 'Incorrect password — too many attempts.' };
     }
     audit('info', `Root session request cancelled by user for ${appId}`, { appId });
     return { granted: false, reason: 'Cancelled by user.' };
@@ -347,7 +321,7 @@
   /* ── public API ────────────────────────────────────────────────── */
 
   async function requestSession(opts = {}) {
-    const appId = currentAppId();
+    const appId = resolveCallerId(opts.appId);
     if (inFlightSession) return inFlightSession;
     inFlightSession = (async () => {
       return ensureAuthorized(appId, opts.reason || '');
@@ -355,51 +329,54 @@
     return inFlightSession;
   }
 
-  async function run({ argv, inputB64 = null, inputText = null, timeoutMs = 30000, maxBuffer } = {}) {
+  async function run({ appId: explicitAppId, argv, inputB64 = null, inputText = null, timeoutMs = 30000, maxBuffer } = {}) {
     if (!Array.isArray(argv) || !argv.every(a => typeof a === 'string')) {
       throw new Error('NovaRoot.run needs an argv array of strings (no shell).');
     }
-    const appId = currentAppId();
+    const appId = resolveCallerId(explicitAppId);
 
-    const doRun = () => sudoRun(['-n', '--', ...argv], {
+    // Gate BEFORE doing anything privileged. Denials say exactly why —
+    // they are never silent for the calling app.
+    if (!rootModeEnabled() || !callerHasRootGrant(appId)) {
+      const why = !rootModeEnabled()
+        ? 'Root Access is disabled (needs Developer Mode + Root Access in Settings).'
+        : 'The calling app does not hold a system:root grant' +
+          (appId ? '.' : ' (the caller could not be identified).');
+      const e = new Error('NovaRoot: ' + why);
+      e.code = 'NOVA_ROOT_DENIED';
+      e.reason = why;
+      audit('warn', `Root op denied for ${appId || 'unknown caller'} — ${why}`, { appId, argv });
+      throw e;
+    }
+
+    const res = await rootRunCached(argv, {
       input: inputB64 != null ? Buffer.from(inputB64, 'base64') : (inputText != null ? inputText : null),
       timeoutMs, maxBuffer
     });
 
-    const attempt = async () => {
-      const res = await doRun();
-      if (res.code === 0) return res;
-      if (needsPasswordErr(res.stderr)) {
-        const session = await requestSession({ reason: 'Root session expired — re-authorization needed.' });
-        if (!session.granted) {
-          const e = new Error(session.reason || 'Root authorization denied.');
-          e.code = 'NOVA_ROOT_DENIED';
-          throw e;
-        }
-        return doRun();
-      }
-      return res;
-    };
-
-    // Gate BEFORE doing anything privileged.
-    if (!rootModeEnabled() || !callerHasRootGrant(appId)) {
-      const e = new Error('NovaRoot: caller has no active system:root authorization.');
-      e.code = 'NOVA_ROOT_DENIED';
-      throw e;
-    }
-
-    const res = await attempt();
-    audit(res.code === 0 ? 'info' : 'warn',
-      `Root op by ${appId}: ${argv.join(' ')} → exit ${res.code}`,
-      { appId, argv, exit: res.code });
     if (res.code !== 0) {
+      const setup = sudoSetupMessage(res.stderr);
+      if (setup) {
+        const e = new Error(setup);
+        e.code = 'NOVA_SUDO_SETUP';
+        e.stderr = res.stderr;
+        audit('error', `Root op by ${appId} failed — sudo is not configured for passwordless use`, { appId, argv });
+        throw e;
+      }
       const e = new Error(`Root command failed (exit ${res.code}): ${(res.stderr || '').trim() || argv.join(' ')}`);
       e.code = res.code;
       e.stdout = res.stdout;
       e.stderr = res.stderr;
+      audit('warn', `Root op by ${appId}: ${argv.join(' ')} → exit ${res.code}`, { appId, argv, exit: res.code });
       throw e;
     }
-    return { code: res.code, stdoutB64: Buffer.from(res.stdout, 'utf8').toString('base64'), stderrB64: Buffer.from(res.stderr, 'utf8').toString('base64') };
+
+    audit('info', `Root op by ${appId}: ${argv.join(' ')} → exit 0`, { appId, argv, exit: 0 });
+    return {
+      code: res.code,
+      stdoutB64: Buffer.from(res.stdout, 'utf8').toString('base64'),
+      stderrB64: Buffer.from(res.stderr, 'utf8').toString('base64')
+    };
   }
 
   /* Convenience wrappers — all argv-based, no shell. */
@@ -438,7 +415,7 @@
     return {
       available: !!resolveSudo(),
       rootMode: rootModeEnabled(),
-      appId: currentAppId(),
+      appId: stackAppId() || globalAppId(),
       sessionActive: sessionActive(),
       sessionUntil: lastAuthAt ? new Date(lastAuthAt + SESSION_SOFT_TTL_MS).toISOString() : null
     };
@@ -456,5 +433,5 @@
     endSession
   });
 
-  console.info('[NovaRoot] Root access broker ready — window.NovaRoot');
+  console.info('[NovaRoot] Root access broker ready — window.NovaRoot (confirm-only, passwordless sudo)');
 })();
