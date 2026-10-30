@@ -243,6 +243,18 @@ The VMware Open VM Tools guest daemon and its resolution-KMS plugin are
 included. The daemon waits for udev to expose the VMware DRM device before
 loading the plugin, which only probes for dynamic display support at startup.
 Installing a separate Tools ISO inside the guest is unnecessary.
+NovaByte System reports hardware visible to the Linux guest (CPU, memory,
+graphics, network, audio, and VMware guest tools) to Settings. Network and
+Bluetooth actions are delegated to the existing NetworkManager and BlueZ
+backend. Settings and the Shell UI use NovaByte System's validated settings
+API; the shell remains responsible for rendering visual changes. The system
+service coordinates guest-visible controls through their existing backends
+and routes confirmed restart and power-off requests through the NBOSP power
+helper. It does not replace drivers or control VMware's host-side CPU, memory,
+or device assignments; adjust those in VMware. Display resolution remains a
+guest display mode and is reported, not changed, by the inventory API. If the
+required NovaByte System service fails during startup, the core boot path
+routes to Recovery Mode without depending on that service.
 The guest Terminal runs as the unprivileged `nbosp` user. This Buildroot image
 does not provide `sudo` or Debian's `apt`; the `sudo apt` commands above are
 for installing build dependencies on the Ubuntu/WSL host, not for use inside

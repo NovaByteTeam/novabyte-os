@@ -150,6 +150,7 @@ globalThis.document = {
 
 globalThis.window = {
   innerHeight: 800, innerWidth: 1920,
+  NovaByteSystem: { settings: { get: vi.fn(() => null) } },
   scrollX: 0, scrollY: 0,
   scrollTo: vi.fn(),
   addEventListener: vi.fn(),

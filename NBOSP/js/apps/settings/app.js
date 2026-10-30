@@ -11,6 +11,13 @@ registerApp({
   init(content, state, options) {
     'use strict';
 
+    const systemSettings = window.NovaByteSystem?.settings;
+    if (!systemSettings) {
+      console.error('[Settings] NovaByte System settings API is unavailable');
+      content.textContent = 'System settings are unavailable. Restart NovaByte OS and try again.';
+      return;
+    }
+
     // Runtime guard — this app needs NovaByte's filesystem services
     if ((typeof process === 'undefined' || process.platform !== 'linux')
         && !window.AppDirs?.getAppDataPath('com.nbosp.settings', 'files')) {
@@ -49,9 +56,9 @@ registerApp({
     const PRESET_WALLPAPERS = window.WallpaperService.getPresets();
 
     const TASKBAR_SIZES = [
-      { value: 'compact', label: 'Compact', height: '36px' },
-      { value: 'normal',  label: 'Normal',  height: '48px' },
-      { value: 'large',   label: 'Large',   height: '64px' }
+      { value: 'compact', label: 'Compact' },
+      { value: 'normal',  label: 'Normal' },
+      { value: 'large',   label: 'Large' }
     ];
 
     const ICON_SIZES = [
@@ -484,8 +491,6 @@ registerApp({
     const IMPORT_PROTECTED_KEYS = new Set([
       'nova_manual_recovery', 'nova_safe_mode', 'nova_boot_attempts', 'nova_force_recovery'
     ]);
-    const IMPORT_PROTECTED_SETTINGS = new Set(['devMode', 'rootAccessEnabled']);
-
     // i18next is optional — load it once at init, not on every render
     let i18n = null;
     try { i18n = require('i18next'); } catch { /* i18next not installed */ }
@@ -535,7 +540,7 @@ registerApp({
 
     // Small helper to log in dev mode only — replaces silent catch blocks
     const devLog = (...args) => {
-      try { if (typeof OS !== 'undefined' && OS.settings?.get('devMode')) console.warn('[Settings]', ...args); } catch { /* settings not ready */ }
+      try { if (typeof OS !== 'undefined' && systemSettings.get('devMode')) console.warn('[Settings]', ...args); } catch { /* settings not ready */ }
     };
 
     // DOM skeleton
@@ -608,9 +613,9 @@ registerApp({
     function renderAppearance() {
       mainContent.appendChild(createEl('h2', { textContent: 'Appearance', style: { marginBottom: '20px' } }));
 
-      const wallpaperLocked = OS.settings.get('prohibitWallpaperChange');
-      const currentTheme    = OS.settings.get('theme');
-      const currentAccent   = OS.settings.get('accentColor');
+      const wallpaperLocked = systemSettings.get('prohibitWallpaperChange');
+      const currentTheme    = systemSettings.get('theme');
+      const currentAccent   = systemSettings.get('accentColor');
 
       // Theme
       const themeGroup = createEl('div', { className: 'nook-group' });
@@ -626,16 +631,7 @@ registerApp({
           'aria-pressed': String(isActive)
         });
         btn.addEventListener('click', () => {
-          OS.settings.set('theme', t);
-          applyTheme(t);
-          // applyTheme resets --accent to the theme default, so re-apply
-          // the user's saved custom accent on top of it.
-          const savedAccent = OS.settings.get('accentColor');
-          if (savedAccent) {
-            document.documentElement.style.setProperty('--accent', savedAccent);
-            document.documentElement.style.setProperty('--accent-hover', savedAccent + 'dd');
-            document.documentElement.style.setProperty('--accent-muted', savedAccent + '26');
-          }
+          systemSettings.set('theme', t);
           renderContent();
         }, { signal: lifecycle.signal });
         row.appendChild(btn);
@@ -670,10 +666,7 @@ registerApp({
         });
         if (!wallpaperLocked) {
           btn.addEventListener('click', () => {
-            OS.settings.set('accentColor', c);
-            document.documentElement.style.setProperty('--accent', c);
-            document.documentElement.style.setProperty('--accent-hover', c + 'dd');
-            document.documentElement.style.setProperty('--accent-muted', c + '22');
+            systemSettings.set('accentColor', c);
             renderContent();
           }, { signal: lifecycle.signal });
         }
@@ -687,7 +680,7 @@ registerApp({
       clockGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Clock' }));
       const clockRow = createEl('div', { className: 'nook-row' });
       clockRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Time Format' }));
-      const is24h = OS.settings.get('clockFormat') === '24h';
+      const is24h = systemSettings.get('clockFormat') === '24h';
       const clockToggle = createEl('button', {
         className: 'toggle' + (is24h ? ' active' : ''),
         role: 'switch',
@@ -695,22 +688,10 @@ registerApp({
         'aria-label': 'Toggle 24-hour time'
       });
       clockToggle.addEventListener('click', () => {
-        const was24 = OS.settings.get('clockFormat') === '24h';
-        OS.settings.set('clockFormat', was24 ? '12h' : '24h');
+        const was24 = systemSettings.get('clockFormat') === '24h';
+        systemSettings.set('clockFormat', was24 ? '12h' : '24h');
         clockToggle.classList.toggle('active', !was24);
         clockToggle.setAttribute('aria-checked', String(!was24));
-        // Force the tray clock to update immediately instead of waiting for the next tick
-        const timeEl = document.getElementById('tray-time');
-        if (timeEl) {
-          const now = new Date();
-          const h = now.getHours(), m = now.getMinutes();
-          if (!was24) {
-            timeEl.textContent = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-          } else {
-            const h12 = h % 12 || 12;
-            timeEl.textContent = h12 + ':' + String(m).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM');
-          }
-        }
       }, { signal: lifecycle.signal });
       clockRow.appendChild(clockToggle);
       clockGroup.appendChild(clockRow);
@@ -732,8 +713,7 @@ registerApp({
         style: { width: '150px' }, value: OS.username
       });
       userInput.addEventListener('change', () => {
-        OS.username = userInput.value || 'user';
-        OS.settings.set('username', OS.username);
+        systemSettings.set('username', userInput.value || 'user');
       }, { signal: lifecycle.signal });
       userRow.appendChild(userInput);
       userGroup.appendChild(userRow);
@@ -781,8 +761,7 @@ registerApp({
         const wasSet  = !!OS.lockPin;
         const newHash = await OS.workers.crypto.call('pbkdf2', pin1, getPinSalt());
         if (!isAlive()) return;
-        OS.lockPin    = newHash;
-        OS.settings.set('lockPin', newHash);
+        window.NovaByteSystem.security.setLockPin(newHash);
         Notify.show({ title: wasSet ? 'PIN Updated' : 'PIN Set', body: wasSet ? 'Lock screen PIN has been updated' : 'Lock screen PIN has been set', type: 'success', appName: 'Settings' });
         renderContent();
       }, { signal: lifecycle.signal });
@@ -796,8 +775,7 @@ registerApp({
           ]);
           if (!isAlive()) return;
           if (result === 'confirm') {
-            OS.settings.set('lockPin', null);
-            OS.lockPin = null;
+            window.NovaByteSystem.security.setLockPin(null);
             Notify.show({ title: 'PIN Removed', body: 'PIN lock has been disabled', type: 'success', appName: 'Settings' });
             renderContent();
           }
@@ -837,7 +815,7 @@ registerApp({
       devGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Developer' }));
       const devRow = createEl('div', { className: 'nook-toggle-row' });
       devRow.appendChild(createEl('span', { textContent: 'Developer Mode' }));
-      const devOn = !!OS.settings.get('devMode');
+      const devOn = !!systemSettings.get('devMode');
       const devToggle = createEl('button', {
         className: 'toggle' + (devOn ? ' active' : ''),
         role: 'switch',
@@ -845,18 +823,15 @@ registerApp({
         'aria-label': 'Toggle developer mode'
       });
       devToggle.addEventListener('click', async () => {
-        const next = !OS.settings.get('devMode');
+        const next = !systemSettings.get('devMode');
         if (next) {
           const confirmed = await showDevModeWarning();
           if (!isAlive()) return;
           if (confirmed !== 'confirm') return;
         }
-        OS.settings.set('devMode', next);
+        window.NovaByteSystem.developer.setMode(next);
         devToggle.classList.toggle('active', next);
         devToggle.setAttribute('aria-checked', String(next));
-        if (window.DebugOverlay) {
-          next ? window.DebugOverlay.enable() : window.DebugOverlay.disable();
-        }
         Notify.show({
           title: next ? 'Developer Mode Enabled' : 'Developer Mode Disabled',
           body: next ? 'Press F3 to toggle debug overlay' : undefined,
@@ -946,11 +921,11 @@ registerApp({
     function renderDateAndRegion() {
       mainContent.appendChild(createEl('h2', { textContent: 'Date and Region', style: { marginBottom: '20px' } }));
 
-      const savedRegion = OS.settings.get('region') || navigator.language || 'en-US';
+      const savedRegion = systemSettings.get('region') || navigator.language || 'en-US';
       const currentRegion = REGIONS.some(r => r.code === savedRegion) ? savedRegion : 'en-US';
 
       const detectedTz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
-      const savedTimezone = OS.settings.get('timezone') || detectedTz;
+      const savedTimezone = systemSettings.get('timezone') || detectedTz;
       const currentTimezone = TIMEZONES.includes(savedTimezone) ? savedTimezone : detectedTz;
 
       // Region select
@@ -986,7 +961,7 @@ registerApp({
         timezoneSelect.appendChild(opt);
       }
       timezoneSelect.addEventListener('change', () => {
-        OS.settings.set('timezone', timezoneSelect.value);
+        systemSettings.set('timezone', timezoneSelect.value);
         renderContent();
       }, { signal: lifecycle.signal });
 
@@ -1001,10 +976,10 @@ registerApp({
 
       regionSelect.addEventListener('change', async () => {
         const selected = regionSelect.value;
-        OS.settings.set('region', selected);
+        systemSettings.set('region', selected);
         const mappedTz = REGION_TO_TIMEZONE[selected];
         if (mappedTz && TIMEZONES.includes(mappedTz)) {
-          OS.settings.set('timezone', mappedTz);
+          systemSettings.set('timezone', mappedTz);
           timezoneSelect.value = mappedTz;
         }
         if (i18n) {
@@ -1024,7 +999,7 @@ registerApp({
         kbSelect.className = 'input';
         kbSelect.id = 'keyboard-layout-select';
         kbSelect.setAttribute('aria-label', 'Keyboard layout');
-        const configuredLayout = OS.settings.get('keyboardLayout');
+        const configuredLayout = systemSettings.get('keyboardLayout');
         const savedLayout = KEYBOARD_LAYOUTS.some(layout => layout.code === configuredLayout)
           ? configuredLayout
           : 'us';
@@ -1044,15 +1019,7 @@ registerApp({
           const layout = KEYBOARD_LAYOUTS.find(item => item.code === kbSelect.value);
           if (!layout) return;
           try {
-            const fs = require('fs');
-            const path = require('path');
-            const configDir = path.join(require('os').homedir(), '.config', 'novabyte');
-            fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-            const target = path.join(configDir, 'keyboard-layout');
-            const temporary = `${target}.${process.pid}.tmp`;
-            fs.writeFileSync(temporary, `${layout.code}\n`, { mode: 0o600 });
-            fs.renameSync(temporary, target);
-            OS.settings.set('keyboardLayout', layout.code);
+            systemSettings.set('keyboardLayout', layout.code);
             Notify.show({
               title: 'Keyboard Layout Saved',
               body: `${layout.label} will be used after restarting NovaByte OS.`,
@@ -1067,7 +1034,7 @@ registerApp({
               type: 'error',
               appName: 'Settings'
             });
-            kbSelect.value = OS.settings.get('keyboardLayout') || 'us';
+            kbSelect.value = systemSettings.get('keyboardLayout') || 'us';
           }
         }, { signal: lifecycle.signal });
         kbRow.append(kbLabel, kbSelect);
@@ -1112,7 +1079,7 @@ registerApp({
 
       function getEffectiveLocale() {
         if (i18n && typeof i18n.language === 'string' && i18n.language) return i18n.language;
-        return OS.settings.get('region') || navigator.language || 'en-US';
+        return systemSettings.get('region') || navigator.language || 'en-US';
       }
 
       function updatePreview(region, timezone) {
@@ -1120,7 +1087,7 @@ registerApp({
         if (!previewEl || !isAlive()) return;
         const now = new Date();
         const locale = getEffectiveLocale();
-        const tz = timezone || OS.settings.get('timezone');
+        const tz = timezone || systemSettings.get('timezone');
         const opts = { dateStyle: 'full', timeStyle: 'long' };
         if (tz) opts.timeZone = tz;
         const dateStr = new Intl.DateTimeFormat(locale, opts).format(now);
@@ -1157,7 +1124,7 @@ registerApp({
         style: 'margin:0 0 20px;color:var(--text-muted);font-size:13px;'
       }));
 
-      const connectivity = window.NovaConnectivity;
+      const connectivity = window.NovaByteSystem.hardware.network;
       const statusText = createEl('div', {
         role: 'status',
         'aria-live': 'polite',
@@ -1489,7 +1456,7 @@ registerApp({
       presetRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Preset Wallpapers' }));
       const presetContainer = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;' });
 
-      const savedWallpaperId = OS.settings.get('wallpaperId');
+      const savedWallpaperId = systemSettings.get('wallpaperId');
       const currentWallpaperId = PRESET_WALLPAPERS.some(wp => wp.id === savedWallpaperId)
         ? savedWallpaperId : 'stock-blue';
 
@@ -1508,10 +1475,12 @@ registerApp({
         });
 
         function applyWallpaper() {
-          OS.settings.set('wallpaperId', wp.id);
-          OS.settings.set('customWallpaper', null);
-          window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
-            for (let i = 0; i < wpCards.length; i++) {
+          if (systemSettings.set('wallpaperId', wp.id) === false ||
+              systemSettings.set('customWallpaper', null) === false) {
+            Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
+            return;
+          }
+          for (let i = 0; i < wpCards.length; i++) {
             const on = i === idx;
             wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
             wpCards[i].style.boxShadow   = on ? '0 0 0 2px var(--window-bg), 0 0 8px var(--accent)' : 'none';
@@ -1533,9 +1502,6 @@ registerApp({
       presetRow.appendChild(presetContainer);
       wallpaperGroup.appendChild(presetRow);
 
-      // Apply current wallpaper on render
-      window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
-
       const wallpaperRow = createEl('div', { className: 'nook-row', style: 'margin-top:16px;' });
       wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
 
@@ -1549,25 +1515,27 @@ registerApp({
         const bytes = typeof file.content === 'string' ? Buffer.from(file.content, 'utf8') : Buffer.from(file.content);
         const mime = file.mimeType && file.mimeType.startsWith('image/') ? file.mimeType : 'image/png';
         const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
-        const desktop = document.getElementById('desktop');
-        if (desktop) {
-          desktop.style.backgroundImage    = 'url(' + dataUrl + ')';
-          desktop.style.backgroundSize     = 'cover';
-          desktop.style.backgroundPosition = 'center';
-          desktop.style.backgroundRepeat   = 'no-repeat';
+        try {
+          if (systemSettings.set('customWallpaper', dataUrl) === false ||
+              systemSettings.set('wallpaperId', null) === false) {
+            Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
+            return;
+          }
+        } catch (error) {
+          Notify.show({ title: 'Wallpaper Not Changed', body: error?.message || 'The selected image is not supported.', type: 'error', appName: 'Settings' });
+          return;
         }
-        OS.settings.set('customWallpaper', dataUrl);
-        OS.settings.set('wallpaperId', null);
-        window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
         Notify.show({ title: 'Wallpaper Changed', body: 'Custom wallpaper applied', type: 'success', appName: 'Settings' });
       }, { signal: lifecycle.signal });
       wallpaperRow.appendChild(wallpaperBtn);
 
       const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset to Default', style: { marginLeft: '8px' } });
       resetBtn.addEventListener('click', () => {
-        OS.settings.set('customWallpaper', null);
-        OS.settings.set('wallpaperId', 'stock-blue');
-        window.WallpaperService.apply(OS.settings.get.bind(OS.settings));
+        if (systemSettings.set('customWallpaper', null) === false ||
+            systemSettings.set('wallpaperId', 'stock-blue') === false) {
+          Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
+          return;
+        }
         for (let i = 0; i < wpCards.length; i++) {
           const on = i === 0;
           wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -1587,7 +1555,7 @@ registerApp({
 
       const tbClockRow = createEl('div', { className: 'nook-toggle-row' });
       tbClockRow.appendChild(createEl('span', { textContent: 'Show Clock in Taskbar' }));
-      const clockVisible = OS.settings.get('showTaskbarClock') !== false;
+      const clockVisible = systemSettings.get('showTaskbarClock') !== false;
       const clockToggle = createEl('button', {
         className: 'toggle' + (clockVisible ? ' active' : ''),
         role: 'switch',
@@ -1595,8 +1563,8 @@ registerApp({
         'aria-label': 'Toggle clock in taskbar'
       });
       clockToggle.addEventListener('click', () => {
-        const wasVisible = OS.settings.get('showTaskbarClock') !== false;
-        OS.settings.set('showTaskbarClock', !wasVisible);
+        const wasVisible = systemSettings.get('showTaskbarClock') !== false;
+        systemSettings.set('showTaskbarClock', !wasVisible);
         clockToggle.classList.toggle('active', !wasVisible);
         clockToggle.setAttribute('aria-checked', String(!wasVisible));
         const clockEl = document.getElementById('tray-clock');
@@ -1608,7 +1576,7 @@ registerApp({
       // Taskbar size
       const sizeRow = createEl('div', { className: 'nook-row' });
       sizeRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Size' }));
-      const currentSize = OS.settings.get('taskbarSize') || 'normal';
+      const currentSize = systemSettings.get('taskbarSize') || 'normal';
       for (const sz of TASKBAR_SIZES) {
         const active = currentSize === sz.value;
         const btn = createEl('button', {
@@ -1617,8 +1585,7 @@ registerApp({
           'aria-pressed': String(active)
         });
         btn.addEventListener('click', () => {
-          OS.settings.set('taskbarSize', sz.value);
-          document.documentElement.style.setProperty('--taskbar-height', sz.height);
+          systemSettings.set('taskbarSize', sz.value);
           renderContent();
         }, { signal: lifecycle.signal });
         sizeRow.appendChild(btn);
@@ -1637,7 +1604,7 @@ registerApp({
       motionGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Motion' }));
       const motionRow = createEl('div', { className: 'nook-toggle-row' });
       motionRow.appendChild(createEl('span', { textContent: 'Reduce Motion' }));
-      const motionOn = !!OS.settings.get('reduceMotion');
+      const motionOn = !!systemSettings.get('reduceMotion');
       const motionToggle = createEl('button', {
         className: 'toggle' + (motionOn ? ' active' : ''),
         role: 'switch',
@@ -1645,12 +1612,8 @@ registerApp({
         'aria-label': 'Toggle reduced motion'
       });
       motionToggle.addEventListener('click', () => {
-        const next = !OS.settings.get('reduceMotion');
-        OS.settings.set('reduceMotion', next);
-        document.documentElement.classList.toggle('reduce-motion', next);
-        document.documentElement.style.setProperty('--anim-speed', next ? '0.001' : '1');
-        const wallpaperEl = document.getElementById('wallpaper');
-        if (wallpaperEl) wallpaperEl.style.animation = next ? 'none' : '';
+        const next = !systemSettings.get('reduceMotion');
+        systemSettings.set('reduceMotion', next);
         motionToggle.classList.toggle('active', next);
         motionToggle.setAttribute('aria-checked', String(next));
       }, { signal: lifecycle.signal });
@@ -1663,7 +1626,7 @@ registerApp({
       transparencyGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Transparency' }));
       const transparencyRow = createEl('div', { className: 'nook-toggle-row' });
       transparencyRow.appendChild(createEl('span', { textContent: 'Remove Transparency' }));
-      const transOn = !!OS.settings.get('removeTransparency');
+      const transOn = !!systemSettings.get('removeTransparency');
       const transparencyToggle = createEl('button', {
         className: 'toggle' + (transOn ? ' active' : ''),
         role: 'switch',
@@ -1671,9 +1634,8 @@ registerApp({
         'aria-label': 'Toggle transparency removal'
       });
       transparencyToggle.addEventListener('click', () => {
-        const next = !OS.settings.get('removeTransparency');
-        OS.settings.set('removeTransparency', next);
-        document.documentElement.classList.toggle('no-transparency', next);
+        const next = !systemSettings.get('removeTransparency');
+        systemSettings.set('removeTransparency', next);
         transparencyToggle.classList.toggle('active', next);
         transparencyToggle.setAttribute('aria-checked', String(next));
       }, { signal: lifecycle.signal });
@@ -1688,7 +1650,7 @@ registerApp({
       // Icon Size
       const iconSizeGroup = createEl('div', { className: 'nook-group' });
       iconSizeGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Icon Size' }));
-      const currentIconSize = OS.settings.get('cursorSize') || 'normal';
+      const currentIconSize = systemSettings.get('cursorSize') || 'normal';
       for (const opt of ICON_SIZES) {
         const row = createEl('div', { className: 'nook-row' });
         row.appendChild(createEl('span', { textContent: opt.label }));
@@ -1699,7 +1661,7 @@ registerApp({
           'aria-pressed': String(active)
         });
         btn.addEventListener('click', () => {
-          OS.settings.set('cursorSize', opt.value);
+          systemSettings.set('cursorSize', opt.value);
           let cursorStyles = document.getElementById('cursor-custom-styles');
           if (!cursorStyles) {
             cursorStyles = document.createElement('style');
@@ -1754,7 +1716,7 @@ registerApp({
       const builtIns = [...appIds].filter(id => !id.startsWith('wa_') && !novaAppIds.has(id)).sort();
       const webApps  = [...appIds].filter(id =>  id.startsWith('wa_')).sort();
 
-      const devMode = !!OS.settings.get('devMode');
+      const devMode = !!systemSettings.get('devMode');
       const visibleBuiltIns = builtIns.filter(id => {
         if (devMode) return true;
         const entry = OS.apps?.[id];
@@ -2237,12 +2199,10 @@ registerApp({
         try {
           // Pull every real data domain, not just the in-memory settings cache.
           const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
-          const [settings, files] = isLinux
-            ? [OS.settings._cache || {}, await FS.exportNodes()]
-            : await Promise.all([
-              OS.workers.fs.call('getAllSettings').catch(() => ({ ...(OS.settings._cache || {}) })),
-              OS.workers.fs.call('getAllFiles').catch(() => [])
-            ]);
+          const settings = systemSettings.exportSnapshot();
+          const files = isLinux
+            ? await FS.exportNodes()
+            : await OS.workers.fs.call('getAllFiles');
           if (!isAlive()) return;
 
           // localStorage holds per-app data with no shared key prefix —
@@ -2292,20 +2252,11 @@ registerApp({
           const data = JSON.parse(text);
 
           const writes = [];
+          let skippedSettings = [];
           const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
           if (data.settings && typeof data.settings === 'object') {
-            for (const [k, v] of Object.entries(data.settings)) {
-              if (IMPORT_PROTECTED_SETTINGS.has(k)) {
-                devLog('Skipping protected setting during import:', k);
-                continue;
-              }
-              if (isLinux) {
-                OS.settings.set(k, v);
-              } else {
-                OS.settings._cache[k] = v;
-                writes.push(OS.workers.fs.call('putSetting', k, v));
-              }
-            }
+            const result = await systemSettings.import(data.settings);
+            skippedSettings = result.skipped;
           }
           if (Array.isArray(data.files) && data.files.length) {
             writes.push(isLinux
@@ -2330,19 +2281,18 @@ registerApp({
             }
           }
 
-          if (data.settings && typeof data.settings === 'object') {
-            OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
-          }
-
           if (!isAlive()) return;
-          if (failed) {
-            Notify.show({ title: 'Import Incomplete', body: 'Some data could not be saved. Try again.', type: 'error', appName: 'Nook' });
+          if (failed || skippedSettings.length) {
+            const details = [];
+            if (failed) details.push('Some data could not be saved.');
+            if (skippedSettings.length) details.push(`${skippedSettings.length} unsupported or protected setting(s) were skipped.`);
+            Notify.show({ title: 'Import Incomplete', body: details.join(' '), type: 'error', appName: 'Nook' });
           } else {
             Notify.show({ title: 'Data Imported', body: 'All data has been imported. Restart to apply fully.', type: 'success', appName: 'Nook' });
           }
         } catch (err) {
           devLog('Import failed:', err);
-          Notify.show({ title: 'Import Failed', body: 'Invalid JSON file', type: 'error', appName: 'Nook' });
+          Notify.show({ title: 'Import Failed', body: err?.message || 'Could not import the selected file', type: 'error', appName: 'Nook' });
         }
       }, { signal: lifecycle.signal });
       exportActions.appendChild(importBtn);
@@ -2438,8 +2388,8 @@ registerApp({
         style: { color: 'var(--text-secondary, #8b949e)', fontSize: '13px', lineHeight: '1.55', marginBottom: '18px' }
       }));
 
-      const devMode = OS.settings.get('devMode') === true;
-      const rootEnabled = OS.settings.get('rootAccessEnabled') === true;
+      const devMode = systemSettings.get('devMode') === true;
+      const rootEnabled = systemSettings.get('rootAccessEnabled') === true;
       const masterGroup = createEl('div', { className: 'nook-group' });
       masterGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Root mode' }));
 
@@ -2458,10 +2408,10 @@ registerApp({
           'aria-label': 'Enable Root Access'
         });
         masterToggle.addEventListener('click', async () => {
-          const enable = !OS.settings.get('rootAccessEnabled');
+          const enable = !systemSettings.get('rootAccessEnabled');
           if (enable && await showRootModeWarning() !== 'confirm') return;
           if (!isAlive()) return;
-          OS.settings.set('rootAccessEnabled', enable);
+          window.NovaByteSystem.developer.setRootAccess(enable);
           masterToggle.classList.toggle('active', enable);
           masterToggle.setAttribute('aria-checked', String(enable));
           Notify.show({
@@ -2835,7 +2785,7 @@ registerApp({
         if (clickCount >= 7) {
           clickCount = 0;
           if (clickTimeout) { clearTimeout(clickTimeout); clickTimeout = null; }
-          launchSnakeGame();
+          WM.createWindow('com.nbosp.easter-egg');
           return;
         }
         if (clickTimeout) clearTimeout(clickTimeout);
@@ -2861,12 +2811,23 @@ registerApp({
 
       // Hardware
       const { wrap: hwWrap, rows: hwRows } = mkSection('Hardware', '\uD83D\uDDA5\uFE0F');
+      const hardware = window.NovaByteSystem.hardware.getInventory();
+      const graphicsSummary = hardware.supported
+        ? hardware.graphics.map(device => [device.vendor, device.driver].filter(Boolean).join(' ')).filter(Boolean).join(', ') || 'No graphics device reported'
+        : 'Unavailable';
       [
-        ['Screen Resolution', screen.width + '\u00D7' + screen.height,                                               false],
+        ['Screen Resolution', hardware.display?.resolution
+          ? `${hardware.display.resolution.width}\u00D7${hardware.display.resolution.height}`
+          : screen.width + '\u00D7' + screen.height,                                                               false],
         ['Colour Depth',      screen.colorDepth + ' bit',                                                             false],
         ['Pixel Ratio',       window.devicePixelRatio + '\u00D7',                                                     false],
-        ['CPU Cores',         String(navigator.hardwareConcurrency || 'Unknown'),                                      false],
-        ['Device Memory',     navigator.deviceMemory ? navigator.deviceMemory + ' GB (approx.)' : 'Not reported',    false],
+        ['CPU Cores',         String(hardware.cpu?.logicalCores || navigator.hardwareConcurrency || 'Unknown'),      false],
+        ['Graphics Device',   graphicsSummary,                                                                        false],
+        ['Virtualization',    hardware.virtualization?.vendor || 'Not identified',                                   false],
+        ['VMware Tools',      hardware.vmwareTools?.running ? 'Running' : hardware.vmwareTools?.installed ? 'Installed, not running' : 'Not detected', false],
+        ['Device Memory',     hardware.memory?.totalBytes
+          ? `${(hardware.memory.totalBytes / (1024 ** 3)).toFixed(1)} GB`
+          : navigator.deviceMemory ? navigator.deviceMemory + ' GB (approx.)' : 'Not reported',                      false],
         ['Touch Points',      navigator.maxTouchPoints > 0 ? String(navigator.maxTouchPoints) + ' point(s)' : 'None', true]
       ].forEach(([lbl, val, last]) => hwRows.appendChild(mkRow(lbl, val, last)));
       body.appendChild(hwWrap);
@@ -2874,11 +2835,11 @@ registerApp({
       // Environment
       const { wrap: envWrap, rows: envRows } = mkSection('Environment', '\uD83C\uDF10');
       let tz = 'Unknown';
-      try { tz = OS.settings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
+      try { tz = systemSettings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
       [
         ['Browser',         detectBrowser(),                                                                          false],
         ['Platform',        navigator.platform,                                                                        false],
-        ['Region',          OS.settings.get('region') || navigator.language,                                          false],
+        ['Region',          systemSettings.get('region') || navigator.language,                                          false],
         ['Timezone',        tz,                                                                                        false],
         ['Do Not Track',    navigator.doNotTrack === '1' ? 'Enabled \u2713' : 'Not set',                             false],
         ['Cookies',         navigator.cookieEnabled ? 'Enabled \u2713' : 'Disabled',                                 false],
@@ -2896,7 +2857,7 @@ registerApp({
       const copyBtn = createEl('button', { className: 'btn btn-sm', textContent: '\uD83D\uDCCB Copy System Info' });
       copyBtn.addEventListener('click', () => {
         let tzCopy = 'Unknown';
-        try { tzCopy = OS.settings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
+        try { tzCopy = systemSettings.get('timezone') || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown'; } catch { /* sandboxed */ }
         const lines = [
           'NovaByte v' + OS.version,
           'Operating System: ' + linuxInfo.distribution,
@@ -2906,8 +2867,10 @@ registerApp({
           'Browser: '   + detectBrowser(),
           'Platform: '  + navigator.platform,
           'Screen: '    + screen.width + '\u00D7' + screen.height,
-          'CPU Cores: ' + (navigator.hardwareConcurrency || 'Unknown'),
-          'Region: '    + (OS.settings.get('region') || navigator.language),
+          'CPU Cores: ' + (hardware.cpu?.logicalCores || navigator.hardwareConcurrency || 'Unknown'),
+          'Graphics: '  + graphicsSummary,
+          'Virtualization: ' + (hardware.virtualization?.vendor || 'Not identified'),
+          'Region: '    + (systemSettings.get('region') || navigator.language),
           'Timezone: '  + tzCopy
         ];
         if (navigator.clipboard?.writeText) {

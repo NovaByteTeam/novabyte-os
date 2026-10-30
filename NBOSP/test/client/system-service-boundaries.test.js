@@ -36,6 +36,7 @@ describe('built-in service boundaries', () => {
   it('lists each extracted service in both runtime manifests', () => {
     const serviceIds = [
       'com.nbosp.service.app-loader-optimiser',
+      'com.nbosp.service.novabyte-system',
       'com.nbosp.service.wallpaper',
       'com.nbosp.service.lock-screen',
       'com.nbosp.service.tray',
@@ -51,7 +52,7 @@ describe('built-in service boundaries', () => {
     const systemEventsIndex = runtimeServices.findIndex(service => service.id === 'com.nbosp.service.system-events');
 
     for (const id of serviceIds) {
-      expect(runtimeServices).toContainEqual({ id, entry: 'service.js' });
+      expect(runtimeServices).toContainEqual(expect.objectContaining({ id, entry: 'service.js' }));
       expect(runtimeServices.findIndex(service => service.id === id)).toBeLessThan(systemEventsIndex);
       expect(packageManifest).toContainEqual(expect.objectContaining({
         id,
@@ -59,6 +60,58 @@ describe('built-in service boundaries', () => {
       }));
     }
     expect(packageManifest.every(bundle => /^[a-f0-9]{64}$/.test(bundle.cacheKey || ''))).toBe(true);
+  });
+
+  it('boots NovaByte System as the required owner of Settings preferences', () => {
+    const appId = 'com.nbosp.service.novabyte-system';
+    const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
+    const packageManifest = JSON.parse(readWorkspaceFile('../../js/apps/novaapp-manifest.json'));
+    const settingsSource = readWorkspaceFile('../../js/apps/settings/app.js');
+    const shellDesktopSource = readWorkspaceFile('../../js/apps/shell-ui/desktop.js');
+    const shellWindowManagerSource = readWorkspaceFile('../../js/apps/shell-ui/wm.js');
+    const launcherSource = readWorkspaceFile('../../js/apps/launcher/app.js');
+    const sourceManifest = JSON.parse(readWorkspaceFile('../../js/apps/novabyte-system/manifest.json'));
+
+    expect(runtimeServices).toContainEqual({ id: appId, entry: 'service.js', required: true });
+    expect(packageManifest).toContainEqual(expect.objectContaining({
+      id: appId,
+      file: `js/apps/${appId}.novaapp`,
+    }));
+    expect(sourceManifest.name).toBe('NovaByte System');
+    expect(sourceManifest.systemService).toBe(true);
+    expect(settingsSource).toContain('window.NovaByteSystem?.settings');
+    expect(settingsSource).not.toMatch(/OS\.settings\.(?:get|set)\(/);
+    expect(shellDesktopSource).toContain('window.NovaByteSystem?.settings');
+    expect(shellDesktopSource).not.toMatch(/OS\.settings(?:\.get|\._cache)/);
+    expect(shellWindowManagerSource).toContain('window.NovaByteSystem?.settings');
+    expect(shellWindowManagerSource).not.toContain('OS.settings.get(');
+    expect(launcherSource).toContain('window.NovaByteSystem?.hardware?.power');
+    expect(launcherSource).toContain('window.NovaByteSystem?.developer?.setRootAccess');
+    expect(launcherSource).not.toMatch(/OS\.settings\.(?:get|set)\(['"](?:devMode|rootAccessEnabled)['"]/);
+    expect(launcherSource).not.toContain("execFile('/usr/bin/nbosp-power'");
+  });
+
+  it('packages the Easter egg separately and launches it from the Settings trigger', () => {
+    const appId = 'com.nbosp.easter-egg';
+    const sourceManifest = JSON.parse(readWorkspaceFile('../../js/apps/easter-egg/manifest.json'));
+    const appPackage = JSON.parse(readWorkspaceFile(`../../js/apps/${appId}.novaapp`));
+    const packageManifest = JSON.parse(readWorkspaceFile('../../js/apps/novaapp-manifest.json'));
+    const settingsSource = readWorkspaceFile('../../js/apps/settings/app.js');
+    const systemEventsSource = readWorkspaceFile('../../js/apps/system-events/service.js');
+    const sandboxSource = readWorkspaceFile('../../js/platform/security/app-sandbox.js');
+
+    expect(sourceManifest.name).toBe('NovaByte Easter Egg');
+    expect(sourceManifest.system).toBe(true);
+    expect(sourceManifest.unrestrictedEntry).toBe('app.js');
+    expect(appPackage.manifest).toEqual(sourceManifest);
+    expect(appPackage.signing.signer).toBe('NovaByte System');
+    expect(packageManifest).toContainEqual(expect.objectContaining({
+      id: appId,
+      file: `js/apps/${appId}.novaapp`,
+    }));
+    expect(settingsSource).toContain(`WM.createWindow('${appId}')`);
+    expect(systemEventsSource).not.toContain('launchSnakeGame');
+    expect(sandboxSource).not.toContain('nova:system:launch-snake');
   });
 
   it('applies preset and custom wallpapers through the wallpaper service', () => {
@@ -111,8 +164,14 @@ describe('built-in service boundaries', () => {
       },
       OS: {
         windows: new Map(),
-        settings: { get: () => null },
+        settings: { _cache: {}, defaults: {}, get: () => null, set() {} },
         events: { on() {}, emit() {} },
+      },
+      require: moduleName => {
+        if (moduleName === 'fs') return {};
+        if (moduleName === 'os') return {};
+        if (moduleName === 'path') return { basename: value => value.split('/').pop() };
+        throw new Error(`Unexpected module request: ${moduleName}`);
       },
       Notify: {
         loadPersisted() {},
@@ -134,6 +193,7 @@ describe('built-in service boundaries', () => {
     };
     const servicePaths = [
       '../../js/apps/app-loader-optimiser/service.js',
+      '../../js/apps/novabyte-system/service.js',
       '../../js/apps/wallpaper/service.js',
       '../../js/apps/lock-screen/service.js',
       '../../js/apps/tray/service.js',

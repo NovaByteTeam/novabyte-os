@@ -2,6 +2,29 @@
   'use strict';
   const _reducedMotionMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
   let _debouncedLaunchpadSearch = null;
+  function getLauncherDeveloperMode() {
+    const settings = window.NovaByteSystem?.settings;
+    if (!settings || typeof settings.get !== 'function') {
+      throw new Error('NovaByte System settings API is unavailable');
+    }
+    return settings.get('devMode') === true;
+  }
+
+  function isLauncherRootAccessEnabled() {
+    const settings = window.NovaByteSystem?.settings;
+    if (!settings || typeof settings.get !== 'function') {
+      throw new Error('NovaByte System settings API is unavailable');
+    }
+    return settings.get('rootAccessEnabled') === true;
+  }
+
+  function disableLauncherRootAccess() {
+    const setRootAccess = window.NovaByteSystem?.developer?.setRootAccess;
+    if (typeof setRootAccess !== 'function') {
+      throw new Error('NovaByte System developer API is unavailable');
+    }
+    return setRootAccess(false);
+  }
 // Stable display order for the launchpad grid. Apps not listed here sort
 // alphabetically after the pinned entries. Built-in apps were previously
 // rendered in registration order, which followed module-load order and
@@ -105,14 +128,15 @@ async function requestSystemPowerAction(action) {
   );
   if (confirmed !== 'confirm') return;
   try {
-    require('child_process').execFile('/usr/bin/nbosp-power', [action], error => {
-      if (!error) return;
-      console.error('[Launcher] System power action failed:', error);
-      Notify.show({ title: 'Power action failed', body: error.message, type: 'error', appName: 'System' });
-    });
+    const power = window.NovaByteSystem?.hardware?.power;
+    const run = action === 'restart' ? power?.restart
+      : action === 'poweroff' ? power?.powerOff
+        : null;
+    if (typeof run !== 'function') throw new Error('NovaByte System power API is unavailable');
+    await run();
   } catch (error) {
-    console.error('[Launcher] Could not request system power action:', error);
-    Notify.show({ title: 'Power action unavailable', body: error.message, type: 'error', appName: 'System' });
+    console.error('[Launcher] System power action failed:', error);
+    Notify.show({ title: 'Power action failed', body: error.message, type: 'error', appName: 'System' });
   }
 }
 
@@ -155,7 +179,7 @@ function toggleLaunchpad() {
 function renderLaunchpad() {
   const grid = document.getElementById('launchpad-grid');
   if (!grid) return;
-  const devMode = OS.settings.get('devMode');
+  const devMode = getLauncherDeveloperMode();
   const apps = (devMode ? APP_REGISTRY : APP_REGISTRY.filter(app => !app.devOnly))
     .filter(app => app.id !== 'com.nbosp.launcher');
   // Stable sort: pinned order first, everything else alphabetical. This keeps
@@ -1447,7 +1471,7 @@ function renderDesktopIcons() {
 
     let targetApp = null;
     if (isShortcut && shortcutData) {
-      const devMode = OS.settings.get('devMode');
+      const devMode = getLauncherDeveloperMode();
       targetApp = OS.apps?.[shortcutData.target];
       if (!devMode && targetApp?.devOnly) return;
 
@@ -1740,7 +1764,7 @@ function updateTaskbar() {
       const container = document.getElementById('taskbar-apps');
       if (!container) return;
 
-      const devMode = OS.settings.get('devMode');
+      const devMode = getLauncherDeveloperMode();
       const pinnedApps = (OS.settings.get('pinnedApps') ?? []).filter(id => {
         if (devMode) return true;
         const app = OS.apps[id];
@@ -2198,11 +2222,9 @@ OS.events.on('settings:changed', ({ key }) => {
     }
     case 'devMode': {
 
-  const devMode = OS.settings.get('devMode');
+  const devMode = getLauncherDeveloperMode();
   if (!devMode) {
-    if (OS.settings.get('rootAccessEnabled') === true) {
-      OS.settings.set('rootAccessEnabled', false);
-    }
+    if (isLauncherRootAccessEnabled()) disableLauncherRootAccess();
     if (typeof AppSandbox !== 'undefined'
       && AppSandbox.reloadAfterRootRevocation?.('Developer Mode was disabled')) return;
   }
