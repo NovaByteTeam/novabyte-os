@@ -23,4 +23,14 @@ describe('NBOSP disk installer boot configuration', () => {
     expect(installer).toContain('root=PARTUUID=$ROOT_PARTUUID');
     expect(installer).not.toContain('root=UUID=$ROOT_UUID');
   });
+
+  it('boots the installed root filesystem read-write in every GRUB entry', () => {
+    const installer = readFileSync(installerPath, 'utf8');
+    const bootEntries = installer.match(/^\s*linux \/boot\/vmlinuz .*$/gm) || [];
+
+    expect(bootEntries).toHaveLength(3);
+    for (const entry of bootEntries) {
+      expect(entry).toMatch(/\brootwait rw\b/);
+    }
+  });
 });
