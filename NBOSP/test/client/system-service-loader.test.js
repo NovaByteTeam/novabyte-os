@@ -261,6 +261,39 @@ describe('SystemServiceLoader', () => {
     ]);
     expect(boot).toHaveBeenCalledOnce();
     expect(statusElements).toHaveLength(1);
+    expect(context.localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('boots after required services before starting optional services', async () => {
+    const services = [
+      { id: 'com.example.first', entry: 'service.js', required: true },
+      { id: 'com.example.second', entry: 'service.js' },
+    ];
+    const { context, boot, packages } = createLoaderContext({ services });
+    const events = [];
+    let optionalFetchStarted;
+    const optionalFetch = new Promise(resolve => { optionalFetchStarted = resolve; });
+    let finishOptionalFetch;
+    const delayedOptionalPackage = new Promise(resolve => { finishOptionalFetch = resolve; });
+    const originalFetch = context.fetch.getMockImplementation();
+    context.boot.mockImplementation(() => { events.push('boot'); });
+    context.fetch.mockImplementation(url => {
+      if (url === 'js/apps/com.example.second.novaapp') {
+        events.push('optional service fetch');
+        optionalFetchStarted();
+        return delayedOptionalPackage;
+      }
+      return originalFetch(url);
+    });
+    runInNewContext(loaderSource, context);
+
+    await optionalFetch;
+    expect(events.indexOf('boot')).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf('boot')).toBeLessThan(events.indexOf('optional service fetch'));
+
+    finishOptionalFetch(response(packages.get('js/apps/com.example.second.novaapp')));
+    await context.SystemServiceLoader.load();
+    expect(boot).toHaveBeenCalledOnce();
   });
 
   it('continues OS boot if an untrusted or tampered service is rejected', async () => {

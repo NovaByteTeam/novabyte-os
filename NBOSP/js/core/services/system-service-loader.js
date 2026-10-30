@@ -185,17 +185,45 @@
     document.body.appendChild(banner);
   }
 
+  async function loadServices(services, bundlesById, bundles, failures, required) {
+    let requiredServiceFailed = false;
+    for (const service of services) {
+      if ((service?.required === true) !== required) continue;
+      try {
+        await loadService(service, bundlesById.get(service?.id));
+        if (service.id === APP_LOADER_OPTIMIZER_ID &&
+            typeof window.AppLoaderOptimizer?.start === 'function') {
+          window.AppLoaderOptimizer.start(bundles)
+            .then(stats => console.info('[SystemServiceLoader] Package prefetch complete', stats))
+            .catch(error => console.error('[SystemServiceLoader] Package prefetch failed:', error));
+        }
+      } catch (error) {
+        const failure = { id: service?.id || '(invalid service entry)', error };
+        failures.push(failure);
+        console.error(`[SystemServiceLoader] Service unavailable: ${failure.id}`, error);
+        if (required) {
+          requiredServiceFailed = true;
+          break;
+        }
+      }
+    }
+    return requiredServiceFailed;
+  }
+
   async function load() {
     if (loadPromise) return loadPromise;
     loadPromise = (async () => {
       const failures = [];
       let requiredServiceFailed = false;
+      let services = [];
+      let bundles = [];
+      let bundlesById = new Map();
       try {
         const response = await fetch('js/apps/system-service-manifest.json', { cache: 'no-store' });
         if (!response.ok) {
           throw new Error(`Failed to fetch system-service manifest: HTTP ${response.status}`);
         }
-        const services = await response.json();
+        services = await response.json();
         if (!Array.isArray(services)) {
           throw new Error('System-service manifest must be an array');
         }
@@ -203,30 +231,12 @@
         if (!bundleResponse.ok) {
           throw new Error(`Failed to fetch first-party app manifest: HTTP ${bundleResponse.status}`);
         }
-        const bundles = await bundleResponse.json();
+        bundles = await bundleResponse.json();
         if (!Array.isArray(bundles)) {
           throw new Error('First-party app manifest must be an array');
         }
-        const bundlesById = new Map(bundles.map(bundle => [bundle?.id, bundle]));
-        for (const service of services) {
-          try {
-            await loadService(service, bundlesById.get(service?.id));
-            if (service.id === APP_LOADER_OPTIMIZER_ID &&
-                typeof window.AppLoaderOptimizer?.start === 'function') {
-              window.AppLoaderOptimizer.start(bundles)
-                .then(stats => console.info('[SystemServiceLoader] Package prefetch complete', stats))
-                .catch(error => console.error('[SystemServiceLoader] Package prefetch failed:', error));
-            }
-          } catch (error) {
-            const failure = { id: service?.id || '(invalid service entry)', error };
-            failures.push(failure);
-            console.error(`[SystemServiceLoader] Service unavailable: ${failure.id}`, error);
-            if (service?.required === true) {
-              requiredServiceFailed = true;
-              break;
-            }
-          }
-        }
+        bundlesById = new Map(bundles.map(bundle => [bundle?.id, bundle]));
+        requiredServiceFailed = await loadServices(services, bundlesById, bundles, failures, true);
       } catch (error) {
         failures.push({ id: 'system-service-manifest', error });
         console.error('[SystemServiceLoader] Could not load service manifests:', error);
@@ -234,7 +244,11 @@
       }
 
       if (requiredServiceFailed) {
-        localStorage.setItem('nova_force_recovery', '1');
+        try {
+          localStorage.setItem('nova_force_recovery', '1');
+        } catch (error) {
+          console.error('[SystemServiceLoader] Could not persist required-service recovery flag:', error);
+        }
       }
 
       try {
@@ -246,6 +260,10 @@
       } catch (error) {
         failures.push({ id: 'OS boot', error });
         console.error('[SystemServiceLoader] OS boot failed:', error);
+      }
+
+      if (!requiredServiceFailed && bundlesById.size > 0) {
+        await loadServices(services, bundlesById, bundles, failures, false);
       }
 
       showUnavailableServices(failures);
