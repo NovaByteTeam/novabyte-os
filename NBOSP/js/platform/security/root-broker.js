@@ -79,6 +79,11 @@
     return String(stderr || '').toLowerCase();
   }
 
+  function sudoUnavailableMessage() {
+    return 'Root operations are unavailable because sudo is missing from this NovaByte OS image. ' +
+      'Rebuild and install the OS image with BR2_PACKAGE_SUDO enabled.';
+  }
+
   function needsPasswordErr(stderr) {
     const t = sudoErrText(stderr);
     return t.includes('a password is required') || (t.includes('no tty present') && t.includes('askpass'));
@@ -171,7 +176,12 @@
   function sudoRun(argv, { input = null, timeoutMs = 30000, maxBuffer = 4 * 1024 * 1024 } = {}) {
     return new Promise((resolve, reject) => {
       const bin = resolveSudo();
-      if (!bin) { reject(new Error('sudo is not available on this system')); return; }
+      if (!bin) {
+        const error = new Error(sudoUnavailableMessage());
+        error.code = 'NOVA_SUDO_UNAVAILABLE';
+        reject(error);
+        return;
+      }
       let child;
       try {
         child = cpMod.execFile(bin, argv, {
@@ -306,6 +316,11 @@
           (appId ? '.' : ' (the caller could not be identified).')
       };
     }
+    if (!resolveSudo()) {
+      const unavailable = sudoUnavailableMessage();
+      audit('error', `Root session request for ${appId} failed — ${unavailable}`, { appId });
+      return { granted: false, reason: unavailable };
+    }
     if (sessionActive()) return { granted: true };
 
     const verdict = await requestPrompt({ appName: appId, reason });
@@ -334,18 +349,15 @@
       throw new Error('NovaRoot.run needs an argv array of strings (no shell).');
     }
     const appId = resolveCallerId(explicitAppId);
-
-    // Gate BEFORE doing anything privileged. Denials say exactly why —
-    // they are never silent for the calling app.
-    if (!rootModeEnabled() || !callerHasRootGrant(appId)) {
-      const why = !rootModeEnabled()
-        ? 'Root Access is disabled (needs Developer Mode + Root Access in Settings).'
-        : 'The calling app does not hold a system:root grant' +
-          (appId ? '.' : ' (the caller could not be identified).');
-      const e = new Error('NovaRoot: ' + why);
+    const authorization = await requestSession({
+      appId,
+      reason: 'An application requested a privileged system operation.'
+    });
+    if (!authorization.granted) {
+      const e = new Error('NovaRoot: ' + authorization.reason);
       e.code = 'NOVA_ROOT_DENIED';
-      e.reason = why;
-      audit('warn', `Root op denied for ${appId || 'unknown caller'} — ${why}`, { appId, argv });
+      e.reason = authorization.reason;
+      audit('warn', `Root op denied for ${appId || 'unknown caller'} — ${authorization.reason}`, { appId, argv });
       throw e;
     }
 

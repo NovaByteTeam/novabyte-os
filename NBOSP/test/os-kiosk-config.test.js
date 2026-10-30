@@ -18,6 +18,25 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(mounts.indexOf(sysfsMount)).toBeLessThan(mounts.indexOf(deviceMount));
   });
 
+  it('includes passwordless sudo in the booted root filesystem for NovaRoot', () => {
+    const defconfig = readFileSync(new URL('../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
+    const sudoers = readFileSync(
+      new URL('../os/board/nbosp/rootfs-overlay/etc/sudoers.d/nbosp', import.meta.url),
+      'utf8',
+    );
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
+
+    expect(defconfig).toContain('BR2_PACKAGE_SUDO=y');
+    expect(sudoers).toContain('nbosp ALL=(ALL) NOPASSWD: ALL');
+    expect(build).toContain('BR2_PACKAGE_SUDO \\');
+    expect(build).toContain('SUDO_BIN="$OUTPUT_DIR/target/usr/bin/sudo"');
+    expect(build).toContain('SUDOERS_FILE="$OUTPUT_DIR/target/etc/sudoers.d/nbosp"');
+    expect(build).toContain('tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx \'./usr/bin/sudo\'');
+    expect(build).toContain('tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx \'./etc/sudoers.d/nbosp\'');
+    expect(build).toContain('$0 == "usr/bin/sudo"');
+    expect(build).toContain('$0 == "etc/sudoers.d/nbosp"');
+  });
+
   it('keeps XWayland GLX GPU acceleration and checks render-node access', () => {
     const defconfig = readFileSync(new URL('../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
     const kernel = readFileSync(new URL('../os/board/nbosp/linux.fragment', import.meta.url), 'utf8');

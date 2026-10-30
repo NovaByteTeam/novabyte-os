@@ -69,7 +69,7 @@ Every app needs a `manifest.json` at the root of its directory.
 | `website` | string | — | Your site |
 | `icon` | string | `"box"` | Icon Lucide name, data URI, or URL |
 | `type` | string | `"blank"` | App type |
-| `guestEntry` | string | — | Optional packaged JavaScript entry loaded inside the app's sandbox |
+| `unrestrictedEntry` | string | — | Packaged JavaScript entry used by OS-managed unrestricted launch paths |
 | `permissions` | array | `[]` | Required capabilities; missing sensitive grants are requested at launch, but denial does not block the app |
 | `optionalPermissions` | array | `[]` | Optional permissions — app must handle denial gracefully |
 | `defaultSize` | array | `[800, 560]` | `[width, height]` in pixels |
@@ -86,15 +86,13 @@ Set `transparent` to `true` when the app should let the desktop show through are
 
 ### Sandboxed execution and system APIs
 
-Packages run inside an isolated app webview by default, including packages signed by NovaByte System. `system:root` is a separate, critical permission: when Developer Mode and Root Access are enabled and the user has explicitly granted it, that app's packaged `guestEntry` may execute in the OS page with unrestricted host access. This exception is based on the app-scoped root grant, not on whether the app is a system app or who signed it.
+Third-party packages run inside an isolated app webview. Trusted, bundled NovaByte System apps are different: after the OS verifies their signature, integrity, and first-party bundle identity, they can run directly in the OS page with unrestricted host access. They are not sandboxed, so this execution path is only for OS-controlled system code; a package cannot gain it just by setting `system: true` or claiming the NovaByte System signer.
 
-Root-approved apps can additionally perform real administrator (root) operations through the OS's `NovaRoot` broker (`window.NovaRoot`, platform module `js/platform/security/root-broker.js`). The broker re-checks Developer Mode, Root Access and the app's live `system:root` grant on every call, then asks for the user's confirmation in a NovaByte-owned prompt — never inside the requesting app. No password is asked: NovaByte OS account passwords are stored by NovaByte itself, not by Linux, so they cannot be validated by sudo. Confirming opens a root session cached polkit-style until it expires; operations run as `sudo -n -- <argv>` (argv arrays only, no shell), which requires the OS user account to allow passwordless sudo (NOPASSWD) — accounts that need a sudo password get an actionable setup error instead. Every grant, denial and operation is written to the security log. `NovaRoot` is available to packages only; it is not part of the sandboxed app bridge.
+`unrestrictedEntry` names the packaged JavaScript file used by OS-managed unrestricted launch paths. Ordinary app content is loaded from `entry`. A third-party package can request `system:root` to run its `unrestrictedEntry` directly in the OS page, but this is a separate, critical permission—not a system-app signature. It is available only when Developer Mode and Root Access are enabled, and requires the user's explicit grant and acknowledgement that the app runs outside its sandbox. Do not request it unless the app genuinely needs unrestricted OS-page access.
 
-`guestEntry` names an optional JavaScript file included in the package. The runtime loads it inside the same sandbox as the manifest's HTML entry. Older packages may still contain `unrestrictedEntry`; it is accepted as a compatibility alias. A package declaring `system:root` must include its declared entry file.
+The `system:root` grant gives the app unrestricted host-page access; it does not by itself make Linux commands run as the root user. For actual privileged OS operations, the app must call the OS `NovaRoot` broker (`window.NovaRoot`). The broker checks the live grant and settings, shows a NovaByte-owned confirmation prompt, and then runs argv-based commands through passwordless `sudo`. The prompt authorizes a temporary session (up to 15 minutes); the command's system changes may persist after that session ends. This requires `sudo` and the NBOSP passwordless sudoers rule to be present in the OS image. The broker audits its own root operations, but cannot audit arbitrary JavaScript or browser activity by an unrestricted app.
 
-Verified NovaByte System packages receive additional undocumented framework compatibility APIs through the sandbox bridge. The OS checks the package signature against its trust store before servicing those calls. These internal APIs are not available to third-party packages, are not part of the public app API, and may change without notice. This signature-gated framework access is independent of `system:root`.
-
-`system:root` is granted per app through its explicit confirmation flow and is available only while Developer Mode and Root Access are enabled. It is not a system-app signature or a way for a package to claim system identity. Request it only when unrestricted OS-page execution is essential and when real privileged (root) operations are essential. The broker's privileged surface is a narrow argv-based API (`run`, `rm`, `cp`, `mkdirp`, `writeFile`, `readFile`); it is audited, expires with the sudo session, and can be revoked at any time from Settings → Root Access → End session.
+Built-in headless system services also run in the OS page, not in isolated AppSandbox guests. Their startup is restricted to the verified first-party system bundle and declared service manifest.
 
 ### App ID format
 
@@ -175,9 +173,9 @@ When you hit Build in Studio, here's what happens under the hood:
 
 ### Headless system services
 
-NovaByte's built-in headless services are first-party `.novaapp` packages whose entry scripts run in dedicated AppSandbox guests. Their manifests use `system: true`, `systemService: true`, and a packaged `guestEntry`; they do not have a user-facing window. Verified system packages receive undocumented compatibility APIs through the signature-checked framework bridge, not direct OS-page access.
+NovaByte's built-in headless services are first-party `.novaapp` packages whose entry scripts run directly in the OS page with unrestricted host access. Their manifests use `system: true`, `systemService: true`, and a packaged `unrestrictedEntry`; they do not have a user-facing window. This is privileged OS code, not sandboxed third-party app execution.
 
-Startup order is declared in `js/apps/system-service-manifest.json`. The loader checks package identity, integrity, and the NovaByte System signature against the trust store before launching each service in AppSandbox. A manifest's `system` field alone is not authoritative. Framework/bootstrap pieces such as `boot.js`, `kernel.js`, `app-registry.js`, and trust/security initialization remain OS-page scripts because they are prerequisites for safely loading packages.
+Startup order is declared in `js/apps/system-service-manifest.json`. The loader checks package identity, integrity, and the NovaByte System signature against the trust store before launching each service. A manifest's `system` field alone is not authoritative. Framework/bootstrap pieces such as `boot.js`, `kernel.js`, `app-registry.js`, and trust/security initialization also run as OS-page scripts because they are prerequisites for safely loading packages.
 
 Rebuild the built-in services after changing their source with:
 
@@ -588,8 +586,8 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `system:settings` | System | Medium | Preference sync, theme/settings dashboards |
 | `system:apps` | System | Medium | Launchers, app-store-style installers, dock/dashboard replacements |
 | `system:app-launch` | System | Low | Launching an installed app without access to app inventory or management |
+| `system:root` | System | Critical | Runs the packaged `unrestrictedEntry` in the OS page after Developer Mode and Root Access are enabled and the user explicitly grants access; real root commands additionally require NovaRoot confirmation and working passwordless sudo |
 | `system:events` | System | Medium | Reacting to OS-level events (theme change, etc.) |
-| `system:root` | System | Critical | Unrestricted OS-page execution for a packaged app entry when Developer Mode and Root Access are enabled, plus real root operations via the NovaRoot broker after the user confirms in a NovaByte prompt (passwordless sudo required) |
 | `system:background` | System | Medium | Periodic sync/checks while closed — reminders, cache refresh, polling (see below) |
 | `system:background:live` | System | High | Staying alive after the window closes — timers, active transfers, live connections (see below) |
 | `system:autostart` | System | High | Launching automatically at OS startup with no user action at all (see below) |
