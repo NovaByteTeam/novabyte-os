@@ -5,14 +5,12 @@
   },
   {
     "id": "com.nbosp.service.novabyte-system",
-    "entry": "service.js",
-    "required": true
+    "entry": "service.js"
   },
   {
     "id": "com.nbosp.shell-ui",
     "entry": "wm.js",
-    "scripts": ["wm.js", "menu.js", "modals.js", "desktop.js"],
-    "required": true
+    "scripts": ["wm.js", "menu.js", "modals.js", "desktop.js"]
   },
   {
     "id": "com.nbosp.service.event-log",
@@ -32,8 +30,7 @@
   },
   {
     "id": "com.nbosp.service.notifications",
-    "entry": "service.js",
-    "required": true
+    "entry": "service.js"
   },
   {
     "id": "com.nbosp.service.store-updates",
@@ -89,8 +86,7 @@
   },
   {
     "id": "com.nbosp.service.lock-screen",
-    "entry": "service.js",
-    "required": true
+    "entry": "service.js"
   },
   {
     "id": "com.nbosp.service.debug-overlay",
@@ -98,7 +94,6 @@
   },
   {
     "id": "com.nbosp.service.system-events",
-    "entry": "service.js",
-    "required": true
+    "entry": "service.js"
   }
 ]

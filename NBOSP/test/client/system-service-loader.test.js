@@ -264,35 +264,27 @@ describe('SystemServiceLoader', () => {
     expect(context.localStorage.setItem).not.toHaveBeenCalled();
   });
 
-  it('boots after required services before starting optional services', async () => {
+  it('loads all services before boot', async () => {
     const services = [
-      { id: 'com.example.first', entry: 'service.js', required: true },
+      { id: 'com.example.first', entry: 'service.js' },
       { id: 'com.example.second', entry: 'service.js' },
     ];
-    const { context, boot, packages } = createLoaderContext({ services });
+    const { context, boot } = createLoaderContext({ services });
     const events = [];
-    let optionalFetchStarted;
-    const optionalFetch = new Promise(resolve => { optionalFetchStarted = resolve; });
-    let finishOptionalFetch;
-    const delayedOptionalPackage = new Promise(resolve => { finishOptionalFetch = resolve; });
     const originalFetch = context.fetch.getMockImplementation();
     context.boot.mockImplementation(() => { events.push('boot'); });
     context.fetch.mockImplementation(url => {
-      if (url === 'js/apps/com.example.second.novaapp') {
-        events.push('optional service fetch');
-        optionalFetchStarted();
-        return delayedOptionalPackage;
-      }
+      if (url.endsWith('.novaapp')) events.push(url);
       return originalFetch(url);
     });
     runInNewContext(loaderSource, context);
 
-    await optionalFetch;
-    expect(events.indexOf('boot')).toBeGreaterThanOrEqual(0);
-    expect(events.indexOf('boot')).toBeLessThan(events.indexOf('optional service fetch'));
-
-    finishOptionalFetch(response(packages.get('js/apps/com.example.second.novaapp')));
     await context.SystemServiceLoader.load();
+    expect(events).toEqual([
+      'js/apps/com.example.first.novaapp',
+      'js/apps/com.example.second.novaapp',
+      'boot',
+    ]);
     expect(boot).toHaveBeenCalledOnce();
   });
 
@@ -383,20 +375,23 @@ describe('SystemServiceLoader', () => {
     });
   });
 
-  it('routes to recovery instead of booting after a required package fails', async () => {
+  it('continues loading and boots when an individual service package fails', async () => {
     const { context, started, boot } = createLoaderContext({
       missingPackage: 'com.example.first',
       services: [
-        { id: 'com.example.first', entry: 'service.js', required: true },
+        { id: 'com.example.first', entry: 'service.js' },
         { id: 'com.example.second', entry: 'service.js' },
       ],
     });
     runInNewContext(loaderSource, context);
 
-    await context.SystemServiceLoader.load();
+    const result = await context.SystemServiceLoader.load();
 
-    expect(started).toEqual([]);
-    expect(context.localStorage.setItem).toHaveBeenCalledWith('nova_force_recovery', '1');
+    expect(started).toEqual([2]);
+    expect(result.failures).toEqual([
+      { id: 'com.example.first', message: 'Failed to fetch com.example.first: HTTP 404' },
+    ]);
     expect(boot).toHaveBeenCalledOnce();
+    expect(context.localStorage.setItem).not.toHaveBeenCalled();
   });
 });
