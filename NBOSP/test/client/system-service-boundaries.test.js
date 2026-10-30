@@ -92,14 +92,37 @@ describe('built-in service boundaries', () => {
     expect(launcherSource).not.toContain("execFile('/usr/bin/nbosp-power'");
   });
 
-  it('loads system event handlers before boot uses the notification badge initializer', () => {
+  it('loads required notification and system event services before boot', () => {
     const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
+    const bootSource = readWorkspaceFile('../../js/core/core/boot.js');
+    const notificationsIndex = runtimeServices.findIndex(service =>
+      service.id === 'com.nbosp.service.notifications'
+    );
+    const systemEventsIndex = runtimeServices.findIndex(service =>
+      service.id === 'com.nbosp.service.system-events'
+    );
+    const lockScreenIndex = runtimeServices.findIndex(service =>
+      service.id === 'com.nbosp.service.lock-screen'
+    );
 
-    expect(runtimeServices).toContainEqual({
+    expect(runtimeServices[notificationsIndex]).toEqual({
+      id: 'com.nbosp.service.notifications',
+      entry: 'service.js',
+      required: true,
+    });
+    expect(runtimeServices[systemEventsIndex]).toEqual({
       id: 'com.nbosp.service.system-events',
       entry: 'service.js',
       required: true,
     });
+    expect(notificationsIndex).toBeLessThan(systemEventsIndex);
+    expect(runtimeServices).toContainEqual({
+      id: 'com.nbosp.service.lock-screen',
+      entry: 'service.js',
+      required: true,
+    });
+    expect(lockScreenIndex).toBeLessThan(systemEventsIndex);
+    expect(bootSource).toContain('Boot.startServices()');
   });
 
   it('packages the Snake Easter egg as a trusted overlay service', () => {

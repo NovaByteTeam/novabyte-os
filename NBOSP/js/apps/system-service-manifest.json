@@ -32,7 +32,8 @@
   },
   {
     "id": "com.nbosp.service.notifications",
-    "entry": "service.js"
+    "entry": "service.js",
+    "required": true
   },
   {
     "id": "com.nbosp.service.store-updates",
@@ -88,7 +89,8 @@
   },
   {
     "id": "com.nbosp.service.lock-screen",
-    "entry": "service.js"
+    "entry": "service.js",
+    "required": true
   },
   {
     "id": "com.nbosp.service.debug-overlay",
