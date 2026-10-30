@@ -1,6 +1,6 @@
 {
   "id": "com.nbosp.service.notifications",
-  "name": "Notifications Service",
+  "name": "Notifications",
   "author": "DirazCoder",
   "description": "Provides the system notification service used by apps and OS components.",
   "version": "3.0.2",

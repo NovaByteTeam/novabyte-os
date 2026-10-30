@@ -1,6 +1,6 @@
 {
   "id": "com.nbosp.service.event-log",
-  "name": "Event Log Service",
+  "name": "Event Log",
   "author": "DirazCoder",
   "description": "Collects and records system events for diagnostics and the Events app.",
   "version": "3.0.2",

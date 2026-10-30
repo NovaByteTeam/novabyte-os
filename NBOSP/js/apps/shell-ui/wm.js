@@ -102,7 +102,11 @@ const WM = window.WM = (() => {
       const app = OS.apps[appId];
       if (!app) return null;
 
-      if (!OS.settings.get('devMode') && app.devOnly) return null;
+      const systemSettings = window.NovaByteSystem?.settings;
+      if (!systemSettings || typeof systemSettings.get !== 'function') {
+        throw new Error('NovaByte System settings API is unavailable');
+      }
+      if (!systemSettings.get('devMode') && app.devOnly) return null;
 
       const defaults = {
         width:     app.defaultSize?.[0] ?? 700,

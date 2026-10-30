@@ -3569,18 +3569,6 @@ const AppSandbox = (() => {
     }
   }
 
-  async function handleSystemLaunchSnake({ requestId, webview }) {
-    try {
-      if (typeof launchSnakeGame !== 'function') {
-        return respondError(webview, 'nova:system:launch-snake', requestId, 'UNAVAILABLE', 'Snake game service not available');
-      }
-      launchSnakeGame();
-      return respond(webview, 'nova:system:launch-snake', requestId, { success: true });
-    } catch (e) {
-      return respondError(webview, 'nova:system:launch-snake', requestId, 'ERROR', e?.message || 'Failed to launch Snake');
-    }
-  }
-
   async function handleSystemDefaultAppsSet({ payload, requestId, webview }) {
     try {
       const categoryId = typeof payload?.categoryId === 'string' ? payload.categoryId : '';
@@ -5616,7 +5604,7 @@ const AppSandbox = (() => {
     'nova:system:data:backup', 'nova:system:data:restore', 'nova:system:dialog',
     'nova:system:developer-mode:confirm', 'nova:system:boot-recovery', 'nova:system:data:clear',
     'nova:system:default-apps:get', 'nova:system:default-apps:choose', 'nova:system:default-apps:set',
-    'nova:system:launch-snake', 'nova:system:storage:estimate',
+    'nova:system:storage:estimate',
     'nova:system:admin-mode:get', 'nova:system:admin-mode:set',
     'nova:system:preferences:get', 'nova:system:preferences:set',
     'nova:clock:state:get', 'nova:clock:state:persist', 'nova:clock:alarms:get',

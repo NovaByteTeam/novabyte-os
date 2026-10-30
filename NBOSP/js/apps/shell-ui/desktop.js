@@ -2,6 +2,22 @@
    UTILITY FUNCTIONS
    ═══════════════════════════════════════════════════════════════ */
 
+function getShellSystemSetting(key) {
+  const settings = window.NovaByteSystem?.settings;
+  if (!settings || typeof settings.get !== 'function') {
+    throw new Error('NovaByte System settings API is unavailable');
+  }
+  return settings.get(key);
+}
+
+function getShellSystemSettingsSnapshot() {
+  const settings = window.NovaByteSystem?.settings;
+  if (!settings || typeof settings.exportSnapshot !== 'function') {
+    throw new Error('NovaByte System settings API is unavailable');
+  }
+  return settings.exportSnapshot();
+}
+
 // FIX: themes object hoisted to module-level constant — was re-allocated on every applyTheme() call
 const THEMES = {
   'nova-dark': {
@@ -1295,7 +1311,7 @@ const AppDirs = {
       const settingsPrefsId = this.fsFolders['com.nbosp.settings']?.shared_prefs;
       if (settingsPrefsId) {
         await updateVFile(settingsPrefsId, 'prefs.json',
-          JSON.stringify(OS.settings._cache, null, 2));
+          JSON.stringify(getShellSystemSettingsSnapshot(), null, 2));
       }
 
       this.fsFolders = { data: dataNode.id, system: systemNode.id };
@@ -1868,8 +1884,8 @@ OS.events.on('settings:changed', async ({ key }) => {
   try {
     switch (key) {
       case 'theme': {
-        applyTheme(OS.settings.get('theme') || 'nova-dark');
-        const accent = OS.settings.get('accentColor');
+        applyTheme(getShellSystemSetting('theme') || 'nova-dark');
+        const accent = getShellSystemSetting('accentColor');
         if (accent) {
           document.documentElement.style.setProperty('--accent', accent);
           document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
@@ -1878,7 +1894,7 @@ OS.events.on('settings:changed', async ({ key }) => {
         break;
       }
       case 'accentColor': {
-        const accent = OS.settings.get('accentColor');
+        const accent = getShellSystemSetting('accentColor');
         if (accent) {
           document.documentElement.style.setProperty('--accent', accent);
           document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
@@ -1887,28 +1903,25 @@ OS.events.on('settings:changed', async ({ key }) => {
         break;
       }
       case 'reduceMotion':
-        Boot?.applyAccessibility?.(OS.settings.get.bind(OS.settings));
+        Boot?.applyAccessibility?.(getShellSystemSetting);
         break;
       case 'removeTransparency':
       case 'highContrast':
-        Boot?.applyAccessibility?.(OS.settings.get.bind(OS.settings));
+        Boot?.applyAccessibility?.(getShellSystemSetting);
         break;
       case 'wallpaperId':
       case 'customWallpaper':
-        window.WallpaperService?.apply(OS.settings.get.bind(OS.settings));
+        window.WallpaperService?.apply(getShellSystemSetting);
         break;
       case 'cursorSize':
-        Boot?.applyCursorSize?.(OS.settings.get.bind(OS.settings));
+        Boot?.applyCursorSize?.(getShellSystemSetting);
         break;
       case 'username':
-        OS.username = OS.settings.get('username') || 'user';
+        OS.username = getShellSystemSetting('username') || 'user';
         document.getElementById('lock-username')?.replaceChildren(document.createTextNode(OS.username));
         break;
       case 'autoLock':
-        OS.idleTimeout = (parseInt(OS.settings.get('autoLock')) || 10) * 60000;
-        break;
-      case 'lockPin':
-        OS.lockPin = OS.settings.get('lockPin') || null;
+        OS.idleTimeout = (parseInt(getShellSystemSetting('autoLock')) || 10) * 60000;
         break;
       case 'devMode':
         break;
@@ -1919,7 +1932,7 @@ OS.events.on('settings:changed', async ({ key }) => {
     console.warn('[Desktop] immediate settings apply failed:', key, e);
   }
 
-  if (key === 'rootAccessEnabled' && OS.settings.get('rootAccessEnabled') !== true
+  if (key === 'rootAccessEnabled' && getShellSystemSetting('rootAccessEnabled') !== true
     && typeof AppSandbox !== 'undefined'
     && AppSandbox.reloadAfterRootRevocation?.('Root Access was disabled')) return;
 });

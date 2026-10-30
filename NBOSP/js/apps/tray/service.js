@@ -43,7 +43,7 @@ if (trayWifi) {
 
     popup.append(header, row);
 
-    const nm = window.NovaConnectivity;
+    const nm = window.NovaByteSystem?.hardware?.network;
     if (nm && typeof nm.getStatus === 'function') {
       nm.getStatus().then((status) => {
         if (!status || !status.supported) {

@@ -1,0 +1,17 @@
+{
+  "id": "com.nbosp.easter-egg",
+  "name": "NovaByte Easter Egg",
+  "version": "3.0.2",
+  "description": "A hidden NovaByte Snake game.",
+  "author": "DirazCoder",
+  "entry": "index.html",
+  "unrestrictedEntry": "app.js",
+  "icon": "star",
+  "type": "blank",
+  "defaultSize": [420, 470],
+  "minSize": [380, 420],
+  "resizable": true,
+  "frame": true,
+  "categories": ["utilities"],
+  "system": true
+}
