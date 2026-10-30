@@ -113,6 +113,10 @@ const AppSandbox = (() => {
     return null;
   }
 
+  function isRootExecutionApp(appId) {
+    return typeof appId === 'string' && rootExecutionApps.has(appId);
+  }
+
   function installRootApiAudit(app) {
     const existing = rootExecutionApps.get(app.id);
     rootExecutionApps.set(app.id, {
@@ -9738,6 +9742,7 @@ const AppSandbox = (() => {
     dispatchBackgroundWake,
     reattachFromBackground,
     getRootAuditLog: getRootAuditEntries,
+    isRootExecutionApp,
     subscribeRootAudit(callback) {
       if (typeof callback !== 'function') throw new TypeError('Root audit subscriber must be a function');
       rootAuditSubscribers.add(callback);
