@@ -364,16 +364,16 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('requires an entry for the separate system:root permission', async () => {
+    it('requires unrestrictedEntry for the separate system:root permission', async () => {
       const { validateManifest } = await import('../../js/platform/core/app-package.js');
       expect(validateManifest({
         ...validManifest,
         permissions: ['system:root'],
-      }).errors).toContain('system:root requires a packaged guestEntry JavaScript file');
+      }).errors).toContain('system:root requires unrestrictedEntry to name a packaged JavaScript file');
       expect(validateManifest({
         ...validManifest,
         permissions: ['system:root'],
-        guestEntry: 'root.js',
+        unrestrictedEntry: 'root.js',
       }).valid).toBe(true);
     });
 
@@ -430,10 +430,10 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       await expect(createPackage({
         ...validManifest,
         permissions: ['system:root'],
-        guestEntry: 'root.js',
+        unrestrictedEntry: 'root.js',
       }, {
         'index.html': '<p>root</p>',
-      })).rejects.toThrow('Root package is missing guestEntry file "root.js"');
+      })).rejects.toThrow('Root package is missing unrestrictedEntry file "root.js"');
     });
 
     it('embeds integrity hashes when integrityMethod is provided', async () => {

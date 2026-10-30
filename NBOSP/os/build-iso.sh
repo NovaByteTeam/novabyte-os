@@ -108,6 +108,7 @@ for option in \
   BR2_PACKAGE_XDATA_XCURSOR_THEMES \
   BR2_PACKAGE_LIBARCHIVE \
   BR2_PACKAGE_LIBARCHIVE_BSDTAR \
+  BR2_PACKAGE_SUDO \
   BR2_PACKAGE_UTIL_LINUX_LIBUUID \
   BR2_PACKAGE_OPENVMTOOLS \
   BR2_PACKAGE_OPENVMTOOLS_RESOLUTIONKMS \
@@ -269,6 +270,20 @@ if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" \
 fi
 if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./bin/sh >/dev/null 2>&1; then
   echo "BusyBox /bin/sh is missing from the generated rootfs." >&2
+  exit 1
+fi
+SUDO_BIN="$OUTPUT_DIR/target/usr/bin/sudo"
+SUDOERS_FILE="$OUTPUT_DIR/target/etc/sudoers.d/nbosp"
+if [[ ! -x "$SUDO_BIN" \
+  || ! -f "$SUDOERS_FILE" \
+  || "$(stat -c '%a' "$SUDOERS_FILE")" != "440" \
+  || ! grep -Fqx 'nbosp ALL=(ALL) NOPASSWD: ALL' "$SUDOERS_FILE" ]]; then
+  echo "The target image is missing sudo or its passwordless NBOSP sudoers rule." >&2
+  exit 1
+fi
+if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx './usr/bin/sudo' >/dev/null \
+  || ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx './etc/sudoers.d/nbosp' >/dev/null; then
+  echo "sudo or the NBOSP sudoers rule is missing from the generated rootfs archive." >&2
   exit 1
 fi
 KERNEL_CONFIG="$(find "$OUTPUT_DIR/build" -maxdepth 2 -type f -path '*/linux-*/.config' -print -quit)"
@@ -572,8 +587,8 @@ if [[ ! -f "$OUTPUT_DIR/images/rootfs.tar" ]]; then
   exit 1
 fi
 if ! gzip -dc "$OUTPUT_DIR/images/rootfs.cpio.gz" | cpio -it 2>/dev/null \
-  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "etc/init.d/rcK") rcK = 1; if ($0 == "bin/sh") shell = 1 } END { exit !(inittab && rcS && rcK && shell) }'; then
-  echo "BusyBox init configuration, startup scripts, or shell is missing from the boot initramfs." >&2
+  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "etc/init.d/rcK") rcK = 1; if ($0 == "bin/sh") shell = 1; if ($0 == "usr/bin/sudo") sudo = 1; if ($0 == "etc/sudoers.d/nbosp") sudoers = 1 } END { exit !(inittab && rcS && rcK && shell && sudo && sudoers) }'; then
+  echo "The boot initramfs is missing required init files, shell, sudo, or the NBOSP sudoers rule." >&2
   exit 1
 fi
 
