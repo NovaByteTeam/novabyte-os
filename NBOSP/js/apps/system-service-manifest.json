@@ -75,6 +75,10 @@
     "entry": "service.js"
   },
   {
+    "id": "com.nbosp.service.easteregg",
+    "entry": "service.js"
+  },
+  {
     "id": "com.nbosp.service.tray",
     "entry": "service.js"
   },

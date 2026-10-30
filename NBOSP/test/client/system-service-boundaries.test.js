@@ -44,6 +44,7 @@ describe('built-in service boundaries', () => {
       'com.nbosp.service.network-activity-log',
       'com.nbosp.service.debug-overlay',
       'com.nbosp.service.system-webview',
+      'com.nbosp.service.easteregg',
       'com.nbosp.service.search-index',
       'com.nbosp.service.downloads-history',
     ];
@@ -91,27 +92,29 @@ describe('built-in service boundaries', () => {
     expect(launcherSource).not.toContain("execFile('/usr/bin/nbosp-power'");
   });
 
-  it('packages the Easter egg separately and launches it from the Settings trigger', () => {
-    const appId = 'com.nbosp.easter-egg';
-    const sourceManifest = JSON.parse(readWorkspaceFile('../../js/apps/easter-egg/manifest.json'));
-    const appPackage = JSON.parse(readWorkspaceFile(`../../js/apps/${appId}.novaapp`));
+  it('packages the Snake Easter egg as a trusted overlay service', () => {
+    const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
     const packageManifest = JSON.parse(readWorkspaceFile('../../js/apps/novaapp-manifest.json'));
+    const sourceManifest = JSON.parse(readWorkspaceFile('../../js/apps/easter-egg/manifest.json'));
+    const serviceSource = readWorkspaceFile('../../js/apps/easter-egg/service.js');
     const settingsSource = readWorkspaceFile('../../js/apps/settings/app.js');
     const systemEventsSource = readWorkspaceFile('../../js/apps/system-events/service.js');
-    const sandboxSource = readWorkspaceFile('../../js/platform/security/app-sandbox.js');
 
-    expect(sourceManifest.name).toBe('NovaByte Easter Egg');
-    expect(sourceManifest.system).toBe(true);
-    expect(sourceManifest.unrestrictedEntry).toBe('app.js');
-    expect(appPackage.manifest).toEqual(sourceManifest);
-    expect(appPackage.signing.signer).toBe('NovaByte System');
+    expect(sourceManifest.id).toBe('com.nbosp.service.easteregg');
+    expect(sourceManifest.systemService).toBe(true);
+    expect(sourceManifest.headless).toBe(true);
+    expect(runtimeServices).toContainEqual({ id: sourceManifest.id, entry: 'service.js' });
     expect(packageManifest).toContainEqual(expect.objectContaining({
-      id: appId,
-      file: `js/apps/${appId}.novaapp`,
+      id: sourceManifest.id,
+      file: `js/apps/${sourceManifest.id}.novaapp`,
     }));
-    expect(settingsSource).toContain(`WM.createWindow('${appId}')`);
+    expect(packageManifest).not.toContainEqual(expect.objectContaining({ id: 'com.nbosp.easter-egg' }));
+    expect(settingsSource).toContain('window.NovaByteEasterEgg.launch();');
+    expect(settingsSource).not.toContain('WM.createWindow(\'com.nbosp.easter-egg\')');
+    expect(serviceSource).toContain('id: \'snake-game-overlay\'');
+    expect(serviceSource).toContain('window.NovaByteEasterEgg = Object.freeze({ launch: launchSnakeGame });');
+    expect(serviceSource).not.toContain('WM.createWindow');
     expect(systemEventsSource).not.toContain('launchSnakeGame');
-    expect(sandboxSource).not.toContain('nova:system:launch-snake');
   });
 
   it('applies preset and custom wallpapers through the wallpaper service', () => {
