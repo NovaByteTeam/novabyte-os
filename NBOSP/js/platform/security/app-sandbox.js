@@ -5315,38 +5315,80 @@ const AppSandbox = (() => {
     showFileDialog('save', webview, 'nova:dialog:save', requestId, app, payload, sandbox);
   }
 
-  // New, additional dialog pair: delegates to SystemDialogs — the same
-  // shared, Files-app-styled browser that first-party apps (TextEdit,
-  // etc.) use. Kept entirely separate from handleDialogOpen/handleDialogSave
-  // above (the native-styled dialog), so existing .novaapp callers of
-  // nova:dialog:open/save are completely unaffected. The picker choice
-  // itself grants access to the selected file for the sandbox.
+  // The trusted picker returns host paths; sandbox filesystem APIs use a
+  // separate virtual filesystem and cannot resolve those paths as nodes.
+  async function readPickedHostFile(picked) {
+    const path = require('path');
+    const filePath = typeof picked?.path === 'string' ? picked.path : '';
+    const name = typeof picked?.name === 'string' ? picked.name : '';
+    const resolvedPath = path.resolve(filePath);
+    if (!filePath || !path.isAbsolute(filePath) || !name ||
+        name !== path.basename(resolvedPath)) {
+      throw new Error('The system picker returned an invalid file');
+    }
+
+    const fileHandle = await require('fs').promises.open(resolvedPath, 'r');
+    try {
+      const stats = await fileHandle.stat();
+      if (!stats.isFile()) throw new Error('Select a regular file');
+      if (stats.size > 10_000_000) throw new Error('Selected files are limited to 10 MB');
+      const data = await fileHandle.readFile();
+      if (data.length > 10_000_000) throw new Error('Selected files are limited to 10 MB');
+
+      const mimeType = typeof picked.mimeType === 'string' ? picked.mimeType : 'application/octet-stream';
+      const isText = mimeType.startsWith('text/') ||
+        ['application/json', 'application/x-sh', 'application/xml'].includes(mimeType);
+      return {
+        name,
+        path: resolvedPath,
+        mimeType,
+        size: data.length,
+        content: isText ? data.toString('utf8') : data.toString('base64'),
+        ...(isText ? {} : { encoding: 'base64' }),
+      };
+    } finally {
+      await fileHandle.close();
+    }
+  }
+
+  // New dialog pair remains separate from the virtual-filesystem picker API.
   async function handleSysDialogOpen({ payload, requestId, app, webview, sandbox }) {
     if (typeof window.SystemDialogs === 'undefined') {
       return respondError(webview, 'nova:sysdialog:open', requestId, 'UNAVAILABLE', 'SystemDialogs not loaded');
     }
     try {
-      const node = await window.SystemDialogs.open({
-        title: payload?.title,
-        startFolderId: payload?.startFolderId || FS.rootId,
-        canAccess: node => canPickerAccess(node, app.id),
+      const picked = await window.SystemDialogs.open({
+        title: typeof payload?.title === 'string' ? payload.title.slice(0, 100) : undefined,
+        startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
+          ? payload.startPath
+          : undefined,
+        accept: typeof payload?.accept === 'string' && payload.accept.length <= 512
+          ? payload.accept
+          : undefined,
+        pathOnly: true,
       });
-      if (!node) return respond(webview, 'nova:sysdialog:open', requestId, { cancelled: true });
-      if (!resolveFile({ id: node.id }, app.id)) {
-        return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible files');
+      if (!picked) return respond(webview, 'nova:sysdialog:open', requestId, { cancelled: true });
+      let file;
+      if (typeof picked.path === 'string') {
+        file = await readPickedHostFile(picked);
+      } else {
+        if (!resolveFile({ id: picked.id }, app.id)) {
+          return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible files');
+        }
+        if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
+        sandbox.pickedFileIds.add(picked.id);
+        file = {
+          id: picked.id,
+          name: picked.name,
+          content: picked.content || '',
+          mimeType: picked.mimeType || 'text/plain',
+          size: picked.size || 0,
+          path: FS.getPath(picked.id),
+        };
       }
-      if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
-      sandbox.pickedFileIds.add(node.id);
       respond(webview, 'nova:sysdialog:open', requestId, {
         success: true,
-        file: {
-          id: node.id,
-          name: node.name,
-          content: node.content || '',
-          mimeType: node.mimeType || 'text/plain',
-          size: node.size || 0,
-          path: FS.getPath(node.id),
-        },
+        file,
       });
     } catch (e) {
       respondError(webview, 'nova:sysdialog:open', requestId, 'DIALOG_ERROR', e?.message || 'Dialog failed');
@@ -5403,7 +5445,60 @@ const AppSandbox = (() => {
       content = paddedBase64;
     }
 
-    return { content, mimeType };
+    const binary = base64Data || (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml');
+    return { content, mimeType, binary };
+  }
+
+  async function writePickedHostFile(picked, payload, app, broadAccess) {
+    const path = require('path');
+    const fs = require('fs');
+    const filePath = typeof picked?.path === 'string' ? picked.path : '';
+    const name = typeof picked?.name === 'string' ? picked.name : '';
+    const resolvedPath = path.resolve(filePath);
+    if (!filePath || !path.isAbsolute(filePath) || !name ||
+        name !== path.basename(resolvedPath)) {
+      throw new Error('The system picker returned an invalid save location');
+    }
+
+    const { content, mimeType, binary } = normalizeFsSavePayload(payload, name);
+    const output = binary ? Buffer.from(content, 'base64') : content;
+    const byteLength = Buffer.isBuffer(output) ? output.length : Buffer.byteLength(output, 'utf8');
+    if (byteLength > 10_000_000) throw new Error('Saved files are limited to 10 MB');
+
+    let existing = false;
+    try {
+      const stats = await fs.promises.lstat(resolvedPath);
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw new Error('The selected save target must be a regular file');
+      }
+      existing = true;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    if (existing && !broadAccess) {
+      if (typeof window?.confirm !== 'function') {
+        throw new Error('User confirmation is required to overwrite this file');
+      }
+      if (!window.confirm(`Allow ${app.name || app.id} to overwrite "${name}"?`)) return null;
+    }
+
+    const noFollow = fs.constants.O_NOFOLLOW || 0;
+    const flags = noFollow
+      ? (existing
+        ? fs.constants.O_WRONLY | noFollow
+        : fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow)
+      : existing ? 'r+' : 'wx';
+    const fileHandle = await fs.promises.open(resolvedPath, flags, 0o600);
+    try {
+      const stats = await fileHandle.stat();
+      if (!stats.isFile()) throw new Error('The selected save target must be a regular file');
+      await fileHandle.truncate(0);
+      await fileHandle.writeFile(output);
+      await fileHandle.sync();
+    } finally {
+      await fileHandle.close();
+    }
+    return { name, path: resolvedPath, size: byteLength, mimeType };
   }
 
   async function handleSysDialogSave({ payload, requestId, app, webview }) {
@@ -5413,37 +5508,48 @@ const AppSandbox = (() => {
     }
     try {
       const picked = await window.SystemDialogs.save({
-        title: payload?.title,
-        suggestedName: payload?.suggestedName || '',
-        startFolderId: payload?.startFolderId || FS.rootId,
-        canAccess: node => canPickerAccess(node, app.id, { writable: true, sharedWrite: true }),
+        title: typeof payload?.title === 'string' ? payload.title.slice(0, 100) : undefined,
+        suggestedName: typeof payload?.suggestedName === 'string'
+          ? payload.suggestedName.slice(0, 255)
+          : '',
+        startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
+          ? payload.startPath
+          : undefined,
       });
       if (!picked) return respond(webview, 'nova:sysdialog:save', requestId, { cancelled: true });
-      if (!resolveFile({ id: picked.folderId }, app.id, true, true)) {
-        return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected folder is outside the accessible files');
-      }
-      const { content, mimeType } = normalizeFsSavePayload(payload, picked.name);
-      const existing = FS.listDir(picked.folderId).find(node =>
-        node.type === 'file' && node.name === picked.name
-      );
-      if (existing && !resolveFile({ id: existing.id }, app.id, true, true)) {
-        return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected file is outside the accessible files');
-      }
-      if (existing && !isOwnedByApp(existing, app.id) && !broadAccess) {
-        if (typeof window?.confirm !== 'function') {
-          return respondError(webview, 'nova:sysdialog:save', requestId, 'UNAVAILABLE', 'User confirmation is required to overwrite a shared file');
+      if (typeof picked.path !== 'string') {
+        if (!resolveFile({ id: picked.folderId }, app.id, true, true)) {
+          return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected folder is outside the accessible files');
         }
-        if (!window.confirm(`Allow ${app.name || app.id} to overwrite "${existing.name}"?`)) {
-          return respond(webview, 'nova:sysdialog:save', requestId, { cancelled: true });
+        const { content, mimeType } = normalizeFsSavePayload(payload, picked.name);
+        const existing = FS.listDir(picked.folderId).find(node =>
+          node.type === 'file' && node.name === picked.name
+        );
+        if (existing && !resolveFile({ id: existing.id }, app.id, true, true)) {
+          return respondError(webview, 'nova:sysdialog:save', requestId, 'PERMISSION_DENIED', 'Selected file is outside the accessible files');
         }
+        if (existing && !isOwnedByApp(existing, app.id) && !broadAccess) {
+          if (typeof window?.confirm !== 'function') {
+            return respondError(webview, 'nova:sysdialog:save', requestId, 'UNAVAILABLE', 'User confirmation is required to overwrite a shared file');
+          }
+          if (!window.confirm(`Allow ${app.name || app.id} to overwrite "${existing.name}"?`)) {
+            return respond(webview, 'nova:sysdialog:save', requestId, { cancelled: true });
+          }
+        }
+        const newNode = existing
+          ? await FS.writeFile(existing.id, content, mimeType)
+          : await FS.createFile(picked.folderId, picked.name, content, mimeType);
+        if (!newNode) throw new Error('Unable to write the selected file');
+        return respond(webview, 'nova:sysdialog:save', requestId, {
+          success: true,
+          file: { id: newNode.id, name: newNode.name, path: FS.getPath(newNode.id) },
+        });
       }
-      const newNode = existing
-        ? await FS.writeFile(existing.id, content, mimeType)
-        : await FS.createFile(picked.folderId, picked.name, content, mimeType);
-      if (!newNode) throw new Error('Unable to write the selected file');
+      const file = await writePickedHostFile(picked, payload, app, broadAccess);
+      if (!file) return respond(webview, 'nova:sysdialog:save', requestId, { cancelled: true });
       respond(webview, 'nova:sysdialog:save', requestId, {
         success: true,
-        file: { id: newNode.id, name: newNode.name, path: FS.getPath(newNode.id) },
+        file,
       });
     } catch (e) {
       respondError(webview, 'nova:sysdialog:save', requestId, 'WRITE_ERROR', e?.message || 'Failed to write file');
@@ -5462,13 +5568,17 @@ const AppSandbox = (() => {
     try {
       const node = await window.SystemDialogs.open({
         title: typeof payload?.title === 'string' ? payload.title.slice(0, 100) : 'Choose a file',
-        startFolderId: payload?.startFolderId || FS.rootId,
-        canAccess: node => canPickerAccess(node, app.id),
-        filter: node => node.type === 'folder' || (node.type === 'file'
-          && (!accept?.length || accept.includes(node.mimeType)
-            || accept.some(type => type.endsWith('/*') && node.mimeType?.startsWith(type.slice(0, -1))))),
+        startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
+          ? payload.startPath
+          : undefined,
+        accept: accept?.join(','),
+        pathOnly: true,
       });
       if (!node) return respond(webview, 'nova:files:open', requestId, { cancelled: true });
+      if (typeof node.path === 'string') {
+        const file = await readPickedHostFile(node);
+        return respond(webview, 'nova:files:open', requestId, { cancelled: false, file });
+      }
       if (!resolveFile({ id: node.id }, app.id)) {
         return respondError(webview, 'nova:files:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible files');
       }
@@ -5520,10 +5630,16 @@ const AppSandbox = (() => {
       const picked = await window.SystemDialogs.save({
         title: typeof payload.title === 'string' ? payload.title.slice(0, 100) : 'Save file',
         suggestedName,
-        startFolderId: payload.startFolderId || FS.rootId,
-        canAccess: node => canPickerAccess(node, app.id, { writable: true, sharedWrite: true }),
+        startPath: typeof payload.startPath === 'string' && payload.startPath.length <= 4096
+          ? payload.startPath
+          : undefined,
       });
       if (!picked) return respond(webview, 'nova:files:save', requestId, { cancelled: true });
+      if (typeof picked.path === 'string') {
+        const file = await writePickedHostFile(picked, payload, app, hasFsAccess(app.id));
+        if (!file) return respond(webview, 'nova:files:save', requestId, { cancelled: true });
+        return respond(webview, 'nova:files:save', requestId, { cancelled: false, file });
+      }
       if (!canPickerAccess(FS.files.get(picked.folderId), app.id, {
         writable: true, sharedWrite: true, allowContainerNavigation: false,
       })) {

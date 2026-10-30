@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import AppSandbox from '../../js/platform/security/app-sandbox.js';
 
 const systemWebviewSource = readFileSync(
@@ -1051,8 +1053,8 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       ['private-file', '/data/another.app/private.txt'],
     ]);
     const open = vi.fn(async options => {
-      expect(options.canAccess(pickedNode)).toBe(true);
-      expect(options.canAccess(privateNode)).toBe(false);
+      expect(options.pathOnly).toBe(true);
+      expect(options.accept).toBe('text/plain');
       return pickedNode;
     });
     vi.stubGlobal('window', {
@@ -1101,6 +1103,122 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     });
     expect(responses[1].result.data).toBe('selected text');
     expect(open).toHaveBeenCalledOnce();
+  });
+
+  it('lets sandboxed apps open a user-selected host file outside the virtual filesystem', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'nbosp-picked-file-'));
+    const filePath = path.join(directory, 'notes.md');
+    writeFileSync(filePath, '# selected from host');
+    const responses = [];
+    const open = vi.fn(async options => {
+      expect(options.pathOnly).toBe(true);
+      return {
+        path: filePath,
+        name: 'notes.md',
+        mimeType: 'text/markdown',
+        size: 20,
+      };
+    });
+    vi.stubGlobal('window', { SystemDialogs: { open } });
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:sysdialog:open',
+        { startPath: directory },
+        'host-file-open',
+        { id: 'com.example.preview' },
+        { __directResponder: message => responses.push(message) },
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(directory, { recursive: true, force: true });
+    }
+
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({
+      startPath: directory,
+      pathOnly: true,
+    }));
+    expect(responses[0].result).toMatchObject({
+      success: true,
+      file: {
+        name: 'notes.md',
+        content: '# selected from host',
+        mimeType: 'text/markdown',
+        path: filePath,
+      },
+    });
+  });
+
+  it('lets the scoped file API open the same user-selected host paths', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'nbosp-scoped-open-'));
+    const filePath = path.join(directory, 'notes.txt');
+    writeFileSync(filePath, 'selected text');
+    const responses = [];
+    const open = vi.fn(async options => {
+      expect(options.accept).toBe('text/plain');
+      return {
+        path: filePath,
+        name: 'notes.txt',
+        mimeType: 'text/plain',
+        size: 13,
+      };
+    });
+    vi.stubGlobal('window', { SystemDialogs: { open } });
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:files:open',
+        { accept: ['text/plain'], startPath: directory },
+        'scoped-host-file-open',
+        { id: 'com.example.editor' },
+        { __directResponder: message => responses.push(message) },
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(directory, { recursive: true, force: true });
+    }
+
+    expect(responses[0].result).toMatchObject({
+      cancelled: false,
+      file: { name: 'notes.txt', content: 'selected text', path: filePath },
+    });
+  });
+
+  it('writes sandboxed sysdialog saves only to the host path selected by the user', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'nbosp-save-file-'));
+    const filePath = path.join(directory, 'export.txt');
+    const responses = [];
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('window', {
+      SystemDialogs: {
+        save: vi.fn(async options => {
+          expect(options.startPath).toBe(directory);
+          return { path: filePath, name: 'export.txt' };
+        }),
+      },
+    });
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:sysdialog:save',
+        { startPath: directory, suggestedName: 'export.txt', content: 'saved by user choice' },
+        'host-file-save',
+        { id: 'com.example.editor', name: 'Editor' },
+        { __directResponder: message => responses.push(message) },
+        {}
+      );
+
+      expect(readFileSync(filePath, 'utf8')).toBe('saved by user choice');
+      expect(responses[0].result.file).toMatchObject({
+        path: filePath,
+        name: 'export.txt',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('saves content only to the destination chosen in the filesystem picker', async () => {
@@ -1413,10 +1531,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       ['root', '/'],
       ['data', '/data'],
     ]);
-    const save = vi.fn(async options => {
-      expect(options.canAccess(sharedFolder)).toBe(true);
-      expect(options.canAccess(ownFolder)).toBe(true);
-      expect(options.canAccess(foreignFolder)).toBe(false);
+    const save = vi.fn(async () => {
       return { folderId: 'documents', name: 'notes.txt' };
     });
     const createFile = vi.fn(async () => ({ id: 'saved-note', name: 'notes.txt' }));
@@ -2157,6 +2272,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     }, 'wallhaven.jpg')).toEqual({
       content: '/9j/2Q==',
       mimeType: 'image/jpeg',
+      binary: true,
     });
   });
 

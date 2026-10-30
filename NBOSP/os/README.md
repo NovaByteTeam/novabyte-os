@@ -29,6 +29,13 @@ directory, app data and package blobs are stored under
 browser-origin state is mirrored to the native filesystem. First boot imports
 legacy VFS, OPFS, and IndexedDB data when available; the browser-backed
 filesystem remains only for non-Linux builds and that one-time migration.
+Sandboxed apps use the system file picker to browse the kiosk user's readable
+host filesystem, including hidden files and directories reached through
+symlinks. The user can enter a folder path directly. Apps receive only the
+file they explicitly select (up to 10 MB); saving writes only to the chosen
+destination and asks before overwriting an existing file. Normal Linux file
+permissions still apply, so root-only files remain unavailable to the kiosk
+user.
 
 ## Build on Linux or WSL2
 

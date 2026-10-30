@@ -725,7 +725,7 @@ const AppPackage = (() => {
       if (!manifest[f]) errors.push(`Missing required field: ${f}`);
     });
     if (manifest.id && !manifest.id.startsWith('webapp_')) {
-      if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+)+$/.test(manifest.id))
+      if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+$/.test(manifest.id))
         errors.push(`Invalid app ID "${manifest.id}". Must be reverse domain format.`);
     }
     if (manifest.version && !/^\d+\.\d+\.\d+$/.test(manifest.version))

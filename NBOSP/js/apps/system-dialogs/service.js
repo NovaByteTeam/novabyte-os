@@ -129,22 +129,29 @@ const SystemDialogs = (() => {
   }
 
   // ── Read a directory, sorted (folders first) ───────────────────────────
-  function readDir(dirPath) {
-    return new Promise((resolve) => {
-      fs.readdir(dirPath, { withFileTypes: true }, (err, entries) => {
-        if (err) { resolve([]); return; }
-        const dirs  = [];
-        const files = [];
-        for (const e of entries) {
-          if (e.name.startsWith('.')) continue; // hide dotfiles
-          if (e.isDirectory()) dirs.push({ name: e.name, isDir: true });
-          else if (e.isFile())  files.push({ name: e.name, isDir: false });
+  async function readDir(dirPath) {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    const dirs = [];
+    const files = [];
+    for (const entry of entries) {
+      let isDir = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const target = await fs.promises.stat(path.join(dirPath, entry.name));
+          isDir = target.isDirectory();
+          isFile = target.isFile();
+        } catch (error) {
+          if (error.code === 'ENOENT') continue;
+          isFile = true;
         }
-        dirs.sort((a, b)  => a.name.localeCompare(b.name));
-        files.sort((a, b) => a.name.localeCompare(b.name));
-        resolve([...dirs, ...files]);
-      });
-    });
+      }
+      if (isDir) dirs.push({ name: entry.name, isDir: true });
+      else if (isFile) files.push({ name: entry.name, isDir: false });
+    }
+    dirs.sort((a, b) => a.name.localeCompare(b.name));
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    return [...dirs, ...files];
   }
 
   // ── Core dialog ────────────────────────────────────────────────────────
@@ -229,7 +236,7 @@ const SystemDialogs = (() => {
       pathBar.className = 'system-file-dialog-path';
       pathBar.setAttribute('aria-label', 'Current folder');
       pathBar.spellcheck = false;
-      pathBar.readOnly = true;
+      pathBar.type = 'text';
 
       pathBarWrap.appendChild(pathBar);
       toolbar.append(backBtn, upBtn, pathBarWrap);
@@ -279,7 +286,18 @@ const SystemDialogs = (() => {
       }
 
       async function navigateTo(dirPath, { record = true } = {}) {
-        cwd = dirPath;
+        const nextPath = path.resolve(dirPath);
+        try {
+          const target = await fs.promises.stat(nextPath);
+          if (!target.isDirectory()) throw new Error('The selected path is not a folder');
+        } catch (error) {
+          pathBar.value = cwd;
+          if (typeof Notify !== 'undefined') {
+            Notify.show({ title: 'Folder unavailable', body: error.message, type: 'error' });
+          }
+          return;
+        }
+        cwd = nextPath;
         if (record) pushHistory(dirPath);
         selectedName = null;
         selectedSet.clear();
@@ -311,6 +329,13 @@ const SystemDialogs = (() => {
         if (parent !== cwd) navigateTo(parent);
       });
 
+      pathBar.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const target = pathBar.value.trim();
+        if (target) navigateTo(target);
+      });
+
       if (isSave) {
         nameInput.addEventListener('input', () => {
           confirmBtn.disabled = !nameInput.value.trim();
@@ -319,7 +344,19 @@ const SystemDialogs = (() => {
 
       async function renderGrid() {
         grid.innerHTML = '';
-        const entries = await readDir(cwd);
+        let entries;
+        try {
+          entries = await readDir(cwd);
+        } catch (error) {
+          const message = document.createElement('div');
+          message.style.cssText = 'grid-column:1/-1;padding:24px;text-align:center;color:var(--text-muted);font-size:12px;';
+          message.textContent = `Unable to read folder: ${error.message}`;
+          grid.appendChild(message);
+          if (typeof Notify !== 'undefined') {
+            Notify.show({ title: 'Folder unavailable', body: error.message, type: 'error' });
+          }
+          return;
+        }
         const visible = pickDir
           ? entries.filter(e => e.isDir)
           : entries.filter(e => e.isDir || filter(e.name, false));
@@ -441,6 +478,13 @@ const SystemDialogs = (() => {
         }
         const name = nameInput.value.trim();
         if (!name) return;
+        if (isSave && (name === '.' || name === '..' || name.includes('\0') ||
+            path.basename(name) !== name)) {
+          if (typeof Notify !== 'undefined') {
+            Notify.show({ title: 'Invalid file name', body: 'Enter a file name, not a path.', type: 'error' });
+          }
+          return;
+        }
         const fullPath = path.join(cwd, name);
 
         if (isSave) {
