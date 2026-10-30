@@ -276,8 +276,8 @@ SUDO_BIN="$OUTPUT_DIR/target/usr/bin/sudo"
 SUDOERS_FILE="$OUTPUT_DIR/target/etc/sudoers.d/nbosp"
 if [[ ! -x "$SUDO_BIN" \
   || ! -f "$SUDOERS_FILE" \
-  || "$(stat -c '%a' "$SUDOERS_FILE")" != "440" \
-  || ! grep -Fqx 'nbosp ALL=(ALL) NOPASSWD: ALL' "$SUDOERS_FILE" ]]; then
+  || "$(stat -c '%a' "$SUDOERS_FILE")" != "440" ]] \
+  || ! grep -Fqx 'nbosp ALL=(ALL) NOPASSWD: ALL' "$SUDOERS_FILE"; then
   echo "The target image is missing sudo or its passwordless NBOSP sudoers rule." >&2
   exit 1
 fi
