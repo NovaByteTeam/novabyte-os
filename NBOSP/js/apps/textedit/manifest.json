@@ -5,7 +5,7 @@
   "author": "DirazCoder",
   "description": "Edit plain-text files with line numbers, bracket matching, and word count.",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "pen-tool",
   "type": "blank",
   "defaultSize": [

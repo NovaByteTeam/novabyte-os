@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import os from 'node:os';
-import path from 'node:path';
-import vm from 'node:vm';
-
-const nodeRequire = createRequire(import.meta.url);
+import { readFileSync } from 'node:fs';
 
 describe('NBOSP VMware kiosk device configuration', () => {
   it('mounts procfs and sysfs before device discovery and desktop startup', () => {
@@ -121,57 +115,32 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(build).toContain('The default DHCP-enabled VMware Ethernet connection');
   });
 
-  it('restores the kiosk display scale from the scale used by the previous boot', () => {
+  it('keeps Chromium device scaling native in the XWayland kiosk', () => {
+    const startup = readFileSync(new URL('../os/board/nbosp/S99nbosp', import.meta.url), 'utf8');
+    const settings = readFileSync(new URL('../js/apps/settings/app.js', import.meta.url), 'utf8');
     const desktop = readFileSync(new URL('../js/apps/shell-ui/desktop.js', import.meta.url), 'utf8');
 
-    expect(desktop).toContain('fs.readFileSync(scalePath, \'utf8\')');
-    expect(desktop).toContain('OS.settings.set(\'displayScale\', scale)');
-    expect(desktop).toContain('persistDisplayScale(scale)');
-    expect(desktop.match(/persistDisplayScale\(\);/g)).toHaveLength(1);
+    expect(startup).not.toContain('--force-device-scale-factor');
+    expect(startup).not.toContain('display-scale');
+    expect(settings).not.toContain('Display Scale');
+    expect(desktop).not.toContain('displayScale');
   });
 
-  it('keeps the selected kiosk scale through repeated starts with stale settings', () => {
-    const desktop = readFileSync(new URL('../js/apps/shell-ui/desktop.js', import.meta.url), 'utf8');
-    const startupStart = desktop.indexOf('const DISPLAY_SCALES =');
-    const startupEnd = desktop.indexOf('\nOS.events.on(', startupStart);
-    expect(startupStart).toBeGreaterThanOrEqual(0);
-    expect(startupEnd).toBeGreaterThan(startupStart);
-    const startupCode = desktop.slice(startupStart, startupEnd);
-    const home = mkdtempSync(path.join(os.tmpdir(), 'nbosp-display-scale-'));
-    const configDir = path.join(home, '.config', 'novabyte');
-    const scalePath = path.join(configDir, 'display-scale');
+  it('waits for VMware DRM before starting the resolution-KMS daemon', () => {
+    const vmtools = readFileSync(new URL('../os/overrides/openvmtools/S10vmtoolsd', import.meta.url), 'utf8');
+    const recipe = readFileSync(new URL('../os/overrides/openvmtools/openvmtools.mk', import.meta.url), 'utf8');
+    const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
 
-    const startDesktop = initialScale => {
-      const settings = { displayScale: initialScale };
-      const context = vm.createContext({
-        OS: {
-          settings: {
-            get: key => settings[key],
-            set: (key, value) => { settings[key] = value; }
-          }
-        },
-        process: { platform: 'linux' },
-        require(moduleName) {
-          if (moduleName === 'os') return { homedir: () => home };
-          return nodeRequire(moduleName);
-        },
-        console: { warn() {}, error() {} },
-        Notify: { show() {} }
-      });
-      vm.runInContext(startupCode, context);
-      return settings.displayScale;
-    };
-
-    try {
-      mkdirSync(configDir, { recursive: true });
-      writeFileSync(scalePath, '1.5\n');
-
-      expect(startDesktop(1)).toBe(1.5);
-      expect(startDesktop(1)).toBe(1.5);
-      expect(readFileSync(scalePath, 'utf8')).toBe('1.5\n');
-    } finally {
-      rmSync(home, { recursive: true });
-    }
+    expect(vmtools).toContain('wait_for_vmware_drm');
+    expect(vmtools).toContain('udevadm settle --timeout=30');
+    expect(vmtools).toContain('/sys/class/drm/card[0-9]*');
+    expect(vmtools).toContain('= vmwgfx');
+    expect(vmtools.indexOf('wait_for_vmware_drm;')).toBeLessThan(vmtools.indexOf('start-stop-daemon -S'));
+    expect(recipe).toContain('--enable-resolutionkms');
+    expect(build).toContain('.nbosp-openvmtools-signature');
+    expect(build).toContain('openvmtools-dirclean');
+    expect(build).toContain('S10vmtoolsd');
+    expect(build).toContain('libresolutionKMS.so*');
   });
 
   it('ships GL bring-up debugging that can be switched off', () => {

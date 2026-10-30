@@ -338,18 +338,6 @@ case "$1" in
       echo "NBOSP kiosk: NW.js runtime library is missing: /opt/nbosp/lib/libffmpeg.so" >&2
       exit 1
     fi
-    display_scale=1
-    scale_file=/home/nbosp/.config/novabyte/display-scale
-    if [ -f "$scale_file" ]; then
-      display_scale="$(cat "$scale_file")"
-    fi
-    case "$display_scale" in
-      1|1.25|1.5|1.75|2) ;;
-      *)
-        echo "NBOSP kiosk: invalid saved display scale '$display_scale'; using 1" >&2
-        display_scale=1
-        ;;
-    esac
     keyboard_layout=us
     keyboard_layout_file=/home/nbosp/.config/novabyte/keyboard-layout
     if [ -f "$keyboard_layout_file" ]; then
@@ -371,7 +359,6 @@ exec /opt/nbosp/NovaByte --enable-features=UseOzonePlatform \
   --ozone-platform=x11 --use-gl=angle --use-angle=gl \
   --disable-features=Vulkan \
   $chromium_gl_debug \
-  --force-device-scale-factor="$display_scale" \
   --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy \
   --allow-insecure-localhost --enable-logging=stderr
 SESSION

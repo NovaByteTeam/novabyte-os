@@ -5,7 +5,7 @@
   "description": "Browse websites and manage your web browsing experience in NovaByte OS.",
   "author": "DirazCoder",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "globe",
   "type": "blank",
   "defaultSize": [900, 600],

@@ -5,7 +5,7 @@
   "description": "Provides the developer-mode diagnostics overlay and its runtime metrics.",
   "version": "3.0.2",
   "entry": "service.js",
-  "guestEntry": "service.js",
+  "unrestrictedEntry": "service.js",
   "system": true,
   "systemService": true
 }

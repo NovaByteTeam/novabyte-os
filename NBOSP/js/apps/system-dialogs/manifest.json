@@ -5,7 +5,7 @@
   "description": "Provides shared system dialogs and user prompts to OS components.",
   "version": "3.0.2",
   "entry": "service.js",
-  "guestEntry": "service.js",
+  "unrestrictedEntry": "service.js",
   "system": true,
   "systemService": true
 }

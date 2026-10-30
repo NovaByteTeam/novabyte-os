@@ -96,8 +96,8 @@ do_clear_cache() {
 }
 
 do_reset_settings() {
-  warn "This resets NovaByte settings, display scale and keyboard layout to"
-  warn "defaults. Your files and installed apps are kept."
+  warn "This resets NovaByte settings and keyboard layout to defaults."
+  warn "Your files and installed apps are kept."
   confirm_word RESET "Reset settings?" || { say "Cancelled."; pause; return; }
   rm -f "$PROFILE/settings.json" "$PROFILE/display-scale" "$PROFILE/keyboard-layout"
   ok "Settings reset."

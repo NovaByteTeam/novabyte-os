@@ -147,6 +147,7 @@ function createLoaderContext({
       dataset: {},
       style: {},
       append() {},
+      setAttribute() {},
       addEventListener() {},
       remove() {},
     }),

@@ -5,7 +5,7 @@
   "author": "DirazCoder",
   "description": "Save and organize your contacts in one place.",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "users",
   "type": "blank",
   "defaultSize": [

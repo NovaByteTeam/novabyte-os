@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 
@@ -9,6 +10,29 @@ const readWorkspaceFile = path => readFileSync(
 );
 
 describe('built-in service boundaries', () => {
+  it('declares a matching trusted entry for every bundled system service', () => {
+    const appDirectory = fileURLToPath(new URL('../../js/apps', import.meta.url));
+    const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
+    const sourceManifests = readdirSync(appDirectory, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .flatMap(entry => {
+        try {
+          return [JSON.parse(readFileSync(path.join(appDirectory, entry.name, 'manifest.json'), 'utf8'))];
+        } catch (error) {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        }
+      });
+
+    for (const service of runtimeServices) {
+      const manifest = sourceManifests.find(candidate => candidate.id === service.id);
+      expect(manifest, `${service.id} must have a source manifest`).toBeDefined();
+      expect(manifest.systemService, `${service.id} must declare systemService`).toBe(true);
+      expect(manifest.unrestrictedEntry, `${service.id} trusted entry`).toBe(service.entry);
+      expect(manifest.entry, `${service.id} app entry`).toBe(service.entry);
+    }
+  });
+
   it('lists each extracted service in both runtime manifests', () => {
     const serviceIds = [
       'com.nbosp.service.app-loader-optimiser',
@@ -31,7 +55,6 @@ describe('built-in service boundaries', () => {
       expect(packageManifest).toContainEqual(expect.objectContaining({
         id,
         file: `js/apps/${id}.novaapp`,
-        systemService: true,
       }));
     }
     expect(packageManifest.every(bundle => /^[a-f0-9]{64}$/.test(bundle.cacheKey || ''))).toBe(true);

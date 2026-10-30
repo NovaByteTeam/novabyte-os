@@ -5,7 +5,7 @@
   "author": "DirazCoder",
   "description": "Create and manage calendar events and schedules.",
   "entry": "index.html",
-  "guestEntry": "app.js",
+  "unrestrictedEntry": "app.js",
   "icon": "calendar",
   "type": "blank",
   "defaultSize": [
