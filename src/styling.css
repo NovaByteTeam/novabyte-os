@@ -2805,6 +2805,9 @@ body::before {
   margin: 12px 0 0;
 }
 
+/* display:flex above beats the UA's [hidden] rule, so the toggle did nothing */
+.vh-older-list[hidden] { display: none; }
+
 /* ── Publisher screenshot manager ──────────────────────────────────────────── */
 
 .publisher-screenshots-section {

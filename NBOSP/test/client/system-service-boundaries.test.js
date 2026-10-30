@@ -42,6 +42,7 @@ describe('built-in service boundaries', () => {
       'com.nbosp.service.screenshots',
       'com.nbosp.service.network-activity-log',
       'com.nbosp.service.debug-overlay',
+      'com.nbosp.service.system-webview',
       'com.nbosp.service.search-index',
       'com.nbosp.service.downloads-history',
     ];
@@ -141,6 +142,7 @@ describe('built-in service boundaries', () => {
       '../../js/apps/debug-overlay/service.js',
       '../../js/apps/search-index/service.js',
       '../../js/apps/downloads-history/service.js',
+      '../../js/apps/system-webview/service.js',
       '../../js/apps/system-events/service.js',
     ];
 
@@ -157,6 +159,7 @@ describe('built-in service boundaries', () => {
     expect(window.SearchIndex).toBeDefined();
     expect(window.Downloads).toBeDefined();
     expect(window.AppLoaderOptimizer).toBeDefined();
+    expect(window.NovaSystemWebview).toBeDefined();
   });
 
   it('keeps the network activity log bounded and observable outside the Browser app', () => {

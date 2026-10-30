@@ -1,5 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import AppSandbox from '../../js/platform/security/app-sandbox.js';
+
+const systemWebviewSource = readFileSync(
+  new URL('../../js/apps/system-webview/service.js', import.meta.url),
+  'utf8'
+);
+
+function installSystemWebview(windowObject = {}) {
+  vi.stubGlobal('window', windowObject);
+  new Function(systemWebviewSource)();
+  return windowObject.NovaSystemWebview;
+}
 
 describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
   it('preserves Unicode in host-to-app filesystem responses', () => {
@@ -834,25 +846,22 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
   });
 
   it('removes live nested views when their permission is revoked', () => {
-    const cleanup = vi.fn();
-    const remove = vi.fn();
-    const discard = vi.fn();
+    const revokeApp = vi.fn();
     const sandboxId = 'permission-revoke-test';
+    vi.stubGlobal('window', { NovaSystemWebview: { revokeApp } });
     AppSandbox._internal._activeSandboxes.set(sandboxId, {
       appId: 'com.novabrowser.app',
-      nestedWebviews: new Map([['view', { cleanups: [cleanup], view: { remove } }]]),
-      pendingNewWindows: new Map([['popup', { discard }]]),
     });
 
     try {
       expect(AppSandbox.handlePermissionRevoked('sandbox:nested-webview', 'com.novabrowser.app')).toBe(true);
     } finally {
       AppSandbox._internal._activeSandboxes.delete(sandboxId);
+      vi.unstubAllGlobals();
     }
 
-    expect(cleanup).toHaveBeenCalledOnce();
-    expect(remove).toHaveBeenCalledOnce();
-    expect(discard).toHaveBeenCalledOnce();
+    expect(revokeApp).toHaveBeenCalledOnce();
+    expect(revokeApp).toHaveBeenCalledWith('com.novabrowser.app');
   });
 
   it('gives nested sites a separate stable partition without inheriting the app sandbox', async () => {
@@ -869,6 +878,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       style: {},
       appendChild: vi.fn(),
     };
+    installSystemWebview();
     vi.stubGlobal('document', { createElement: vi.fn(() => child) });
     vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => true) });
 
@@ -882,7 +892,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
           getAttribute: vi.fn(() => 'allow-scripts allow-forms'),
           __directResponder: message => responses.push(message),
         },
-        { nestedWebviewOptedIn: true, nestedWebviews: new Map(), state: { content: parent } }
+        { nestedWebviewOptedIn: true, state: { content: parent } }
       );
     } finally {
       vi.unstubAllGlobals();
@@ -932,47 +942,72 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
 
   it('blocks direct nested-webview navigation unless the app has matching network permission', async () => {
     const responses = [];
-    const child = { setAttribute: vi.fn(), removeAttribute: vi.fn() };
-    vi.stubGlobal('window', { location: { origin: 'https://novabyte.test' } });
+    const child = { style: {}, setAttribute: vi.fn(), removeAttribute: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    const parent = { isConnected: true, style: {}, appendChild: vi.fn() };
+    let callsBeforeNavigation = 0;
+    installSystemWebview({ location: { origin: 'https://novabyte.test' } });
+    vi.stubGlobal('document', { createElement: vi.fn(() => child) });
     vi.stubGlobal('AppPermissionManager', {
       isGranted: vi.fn(permission => permission === 'sandbox:nested-webview'),
     });
 
     try {
+      const sandbox = { nestedWebviewOptedIn: true, state: { content: parent } };
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:nested-webview',
+        { action: 'create', id: 'nvw_network' },
+        'nested-network-create',
+        { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
+        webview,
+        sandbox
+      );
+      callsBeforeNavigation = child.setAttribute.mock.calls.length;
       await AppSandbox._internal.handleAPICall(
         'nova:nested-webview',
         { action: 'attribute', id: 'nvw_network', name: 'src', value: 'https://www.google.com/' },
         'nested-network-denied',
         { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
-        { __directResponder: message => responses.push(message) },
-        {
-          nestedWebviewOptedIn: true,
-          nestedWebviews: new Map([['nvw_network', { view: child }]]),
-        }
+        webview,
+        sandbox
       );
     } finally {
       vi.unstubAllGlobals();
     }
 
-    expect(child.setAttribute).not.toHaveBeenCalled();
-    expect(responses[0].error.code).toBe('PERMISSION_DENIED');
+    expect(child.setAttribute).toHaveBeenCalledTimes(callsBeforeNavigation);
+    expect(responses.at(-1).error.code).toBe('PERMISSION_DENIED');
   });
 
   it('exposes host-validated history and page-find operations for nested browsers', async () => {
     const responses = [];
     const child = {
+      style: {},
       canGoBack: vi.fn(() => true),
       canGoForward: vi.fn(() => false),
       find: vi.fn((_query, _options, callback) => callback({ activeMatchOrdinal: 1, numberOfMatches: 3 })),
+      setAttribute: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     };
     const webview = { __directResponder: message => responses.push(message) };
     const sandbox = {
       nestedWebviewOptedIn: true,
-      nestedWebviews: new Map([['nvw_api', { view: child }]]),
+      state: { content: { isConnected: true, style: {}, appendChild: vi.fn() } },
     };
+    installSystemWebview();
+    vi.stubGlobal('document', { createElement: vi.fn(() => child) });
     vi.stubGlobal('AppPermissionManager', { isGranted: vi.fn(() => true) });
 
     try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:nested-webview',
+        { action: 'create', id: 'nvw_api' },
+        'browser-create',
+        { id: 'com.example.browser' },
+        webview,
+        sandbox
+      );
       await AppSandbox._internal.handleAPICall(
         'nova:nested-webview',
         { action: 'command', id: 'nvw_api', command: 'canGoBack' },
@@ -1788,8 +1823,8 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       stop: vi.fn(),
     };
     const parent = { isConnected: true, style: {}, appendChild: vi.fn() };
+    installSystemWebview({ location: { origin: 'https://novabyte.test' } });
     vi.stubGlobal('document', { createElement: vi.fn(() => child) });
-    vi.stubGlobal('window', { location: { origin: 'https://novabyte.test' } });
     vi.stubGlobal('AppPermissionManager', {
       isGranted: vi.fn(permission => permission === 'sandbox:nested-webview'),
     });
@@ -1801,7 +1836,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
         'nested-navigation-create',
         { id: 'third-party.app' },
         { getAttribute: () => null, __directResponder: vi.fn() },
-        { nestedWebviewOptedIn: true, nestedWebviews: new Map(), state: { content: parent } }
+        { nestedWebviewOptedIn: true, state: { content: parent } }
       );
     } finally {
       vi.unstubAllGlobals();
@@ -2235,26 +2270,21 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
   });
 
   it('cleans nested views, popups, and subscriptions using the captured sandbox record', () => {
-    const removeNestedCleanup = vi.fn();
-    const removeView = vi.fn();
     const unsubscribeAppearance = vi.fn();
-    const discardPopup = vi.fn();
+    const destroySandbox = vi.fn();
+    vi.stubGlobal('window', { NovaSystemWebview: { destroySandbox } });
     const record = {
-      nestedWebviews: new Map([['nested-1', { cleanups: [removeNestedCleanup], view: { remove: removeView } }]]),
       appearanceSubscription: unsubscribeAppearance,
-      pendingNewWindows: new Map([['popup-1', { discard: discardPopup }]]),
     };
     const sandboxes = AppSandbox._internal._activeSandboxes;
     sandboxes.set('record-cleanup-test', record);
     sandboxes.delete('record-cleanup-test'); // destroy() deletes before running cleanup
     AppSandbox._internal.cleanupSandboxRecord(record, []);
+    vi.unstubAllGlobals();
 
-    expect(removeNestedCleanup).toHaveBeenCalledOnce();
-    expect(removeView).toHaveBeenCalledOnce();
+    expect(destroySandbox).toHaveBeenCalledOnce();
+    expect(destroySandbox).toHaveBeenCalledWith(record);
     expect(unsubscribeAppearance).toHaveBeenCalledOnce();
-    expect(discardPopup).toHaveBeenCalledOnce();
-    expect(record.nestedWebviews.size).toBe(0);
-    expect(record.pendingNewWindows.size).toBe(0);
   });
 
   it('closes sandbox WebSockets after the registry entry has already been removed', () => {

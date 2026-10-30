@@ -233,5 +233,10 @@
     "id": "com.nbosp.service.wallpaper",
     "file": "js/apps/com.nbosp.service.wallpaper.novaapp",
     "cacheKey": "fd8be6b9a481dc64324d95b550758b83a05fd0bf12500d2a1c9d30c864fd9857"
+  },
+  {
+    "id": "com.nbosp.service.system-webview",
+    "file": "js/apps/com.nbosp.service.system-webview.novaapp",
+    "cacheKey": "d5ee67d3eca9819d358aaebeb0ecc48f20056be38da4142f2f3a4f8ba5b274b1"
   }
 ]
