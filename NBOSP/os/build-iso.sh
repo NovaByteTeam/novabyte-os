@@ -274,6 +274,7 @@ if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" ./bin/sh >/dev/null 2>&1; then
 fi
 SUDO_BIN="$OUTPUT_DIR/target/usr/bin/sudo"
 SUDOERS_FILE="$OUTPUT_DIR/target/etc/sudoers.d/nbosp"
+MAIN_SUDOERS="$OUTPUT_DIR/target/etc/sudoers"
 if [[ ! -x "$SUDO_BIN" \
   || ! -f "$SUDOERS_FILE" \
   || "$(stat -c '%a' "$SUDOERS_FILE")" != "440" ]] \
@@ -281,9 +282,19 @@ if [[ ! -x "$SUDO_BIN" \
   echo "The target image is missing sudo or its passwordless NBOSP sudoers rule." >&2
   exit 1
 fi
+# The drop-in rule is only effective when the main sudoers file delegates to
+# /etc/sudoers.d. Buildroot's stock sudoers is not guaranteed to carry the
+# directive (the NBOSP overlay ships one that does — this is the guard).
+if [[ ! -f "$MAIN_SUDOERS" \
+  || "$(stat -c '%a' "$MAIN_SUDOERS")" != "440" ]] \
+  || ! grep -Eq '^[#@]includedir[[:space:]]+/etc/sudoers.d([[:space:]]|$)' "$MAIN_SUDOERS"; then
+  echo "The target image's /etc/sudoers is missing or does not include /etc/sudoers.d; the NBOSP drop-in rule would be ignored." >&2
+  exit 1
+fi
 if ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx './usr/bin/sudo' >/dev/null \
+  || ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx './etc/sudoers' >/dev/null \
   || ! tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx './etc/sudoers.d/nbosp' >/dev/null; then
-  echo "sudo or the NBOSP sudoers rule is missing from the generated rootfs archive." >&2
+  echo "sudo or the NBOSP sudoers rules are missing from the generated rootfs archive." >&2
   exit 1
 fi
 KERNEL_CONFIG="$(find "$OUTPUT_DIR/build" -maxdepth 2 -type f -path '*/linux-*/.config' -print -quit)"
@@ -587,8 +598,8 @@ if [[ ! -f "$OUTPUT_DIR/images/rootfs.tar" ]]; then
   exit 1
 fi
 if ! gzip -dc "$OUTPUT_DIR/images/rootfs.cpio.gz" | cpio -it 2>/dev/null \
-  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "etc/init.d/rcK") rcK = 1; if ($0 == "bin/sh") shell = 1; if ($0 == "usr/bin/sudo") sudo = 1; if ($0 == "etc/sudoers.d/nbosp") sudoers = 1 } END { exit !(inittab && rcS && rcK && shell && sudo && sudoers) }'; then
-  echo "The boot initramfs is missing required init files, shell, sudo, or the NBOSP sudoers rule." >&2
+  | awk '{ sub(/^\.\//, ""); if ($0 == "etc/inittab") inittab = 1; if ($0 == "etc/init.d/rcS") rcS = 1; if ($0 == "etc/init.d/rcK") rcK = 1; if ($0 == "bin/sh") shell = 1; if ($0 == "usr/bin/sudo") sudo = 1; if ($0 == "etc/sudoers") sudoers = 1; if ($0 == "etc/sudoers.d/nbosp") sudoersd = 1 } END { exit !(inittab && rcS && rcK && shell && sudo && sudoers && sudoersd) }'; then
+  echo "The boot initramfs is missing required init files, shell, sudo, or the NBOSP sudoers rules." >&2
   exit 1
 fi
 

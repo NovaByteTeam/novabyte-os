@@ -24,16 +24,30 @@ describe('NBOSP VMware kiosk device configuration', () => {
       new URL('../os/board/nbosp/rootfs-overlay/etc/sudoers.d/nbosp', import.meta.url),
       'utf8',
     );
+    const mainSudoers = readFileSync(
+      new URL('../os/board/nbosp/rootfs-overlay/etc/sudoers', import.meta.url),
+      'utf8',
+    );
+    const deviceTable = readFileSync(new URL('../os/board/nbosp/device_table.txt', import.meta.url), 'utf8');
     const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
 
     expect(defconfig).toContain('BR2_PACKAGE_SUDO=y');
     expect(sudoers).toContain('nbosp ALL=(ALL) NOPASSWD: ALL');
+    // The drop-in rule only takes effect when the main sudoers delegates to
+    // /etc/sudoers.d — Buildroot's stock sudoers is not guaranteed to do so.
+    expect(mainSudoers).toMatch(/^[#@]includedir\s+\/etc\/sudoers\.d\s*$/m);
+    expect(deviceTable).toContain('/etc/sudoers\tf\t440\t0\t0');
+    expect(deviceTable).toContain('/etc/sudoers.d/nbosp\tf\t440\t0\t0');
     expect(build).toContain('BR2_PACKAGE_SUDO \\');
     expect(build).toContain('SUDO_BIN="$OUTPUT_DIR/target/usr/bin/sudo"');
     expect(build).toContain('SUDOERS_FILE="$OUTPUT_DIR/target/etc/sudoers.d/nbosp"');
+    expect(build).toContain('MAIN_SUDOERS="$OUTPUT_DIR/target/etc/sudoers"');
+    expect(build).toContain("'^[#@]includedir[[:space:]]+/etc/sudoers.d");
     expect(build).toContain('tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx \'./usr/bin/sudo\'');
+    expect(build).toContain('tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx \'./etc/sudoers\'');
     expect(build).toContain('tar -tf "$OUTPUT_DIR/images/rootfs.tar" | grep -Fx \'./etc/sudoers.d/nbosp\'');
     expect(build).toContain('$0 == "usr/bin/sudo"');
+    expect(build).toContain('$0 == "etc/sudoers"');
     expect(build).toContain('$0 == "etc/sudoers.d/nbosp"');
   });
 
@@ -180,7 +194,10 @@ describe('NBOSP VMware kiosk device configuration', () => {
     }
     expect(defconfig).toContain('BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_NBOSP_PATH)/patches"');
     expect(cagePatch).toContain('getenv("CAGE_DEBUG")');
-    expect(startup).toContain('NBOSP_GL_DEBUG="${NBOSP_GL_DEBUG:-1}"');
+    // GL debug is runtime-controlled: env override > kernel cmdline > off.
+    expect(startup).toContain('if [ -z "$NBOSP_GL_DEBUG" ]; then');
+    expect(startup).toContain('*NBOSP_GL_DEBUG=1*) NBOSP_GL_DEBUG=1 ;;');
+    expect(startup).toContain('*)                  NBOSP_GL_DEBUG=0 ;;');
     expect(startup).toContain('WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland');
     expect(startup).toContain('-verbose 10');
     expect(startup).toContain('/home/nbosp/nbosp-gl-debug.log');
