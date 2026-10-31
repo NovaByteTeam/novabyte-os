@@ -91,6 +91,11 @@ const Boot = {
     };
   },
 
+  _markRuntimeReady() {
+    window.__NB_RUNTIME ||= { os: 'NovaByte', layer: 'nbosp' };
+    window.__NB_RUNTIME.ready = true;
+  },
+
   /**
    * @private
    * Set up the stuck-boot watchdog timer. //TODO: I might remove watchdog entirely or at least improve it; it doesn't work reliably, such as not even syntax error refreshes 2 times.
@@ -217,7 +222,7 @@ const Boot = {
       OS.workers.fs = null;
     }
 
-    window.__NB_RUNTIME.ready = true;
+    Boot._markRuntimeReady();
     Boot._patchSettingsSet();
   },
 
@@ -1233,7 +1238,7 @@ function triggerRecovery(reason) {
     localStorage.setItem(KEY, JSON.stringify(attempts));
   } catch { /* quota exceeded — keep going without persisting */ }
 
-  EventLog?.log?.({
+  window.EventLog?.log?.({
     app: 'System', category: 'system', severity: 'error',
     message: `Boot failure detected: ${reason || 'unknown'} (attempt ${attempts.length})`,
     data: { reason, attemptCount: attempts.length }

@@ -1,6 +1,7 @@
 'use strict';
 
 let POP3Client, PostalMime;
+let POP3ClientPromise;
 
 function missingDep(name) {
   return new Error(`Missing dependency: run "npm install ${name}"`);
@@ -35,11 +36,29 @@ function decodeEntities(str) {
 
 function setDependencies(deps) {
   POP3Client = deps.POP3Client;
+  POP3ClientPromise = POP3Client ? Promise.resolve(POP3Client) : null;
   PostalMime = deps.PostalMime;
 }
 
+async function getPOP3Client() {
+  if (POP3Client) return POP3Client;
+  if (!POP3ClientPromise) {
+    POP3ClientPromise = import('node-pop3').then(module => {
+      if (typeof module.default !== 'function') {
+        throw new TypeError('node-pop3 did not export a POP3 client constructor');
+      }
+      POP3Client = module.default;
+      return POP3Client;
+    }).catch(error => {
+      POP3ClientPromise = null;
+      throw new Error(`Could not load node-pop3: ${error.message}`, { cause: error });
+    });
+  }
+  return POP3ClientPromise;
+}
+
 async function pop3Messages(creds, limit, msgShape) {
-  if (!POP3Client) throw missingDep('node-pop3');
+  const Client = await getPOP3Client();
   if (!PostalMime) throw missingDep('postal-mime');
   if (!creds || !creds.host || !creds.user || !creds.pass) {
     throw new Error('POP3 connection requires host, user, and pass');
@@ -51,7 +70,7 @@ async function pop3Messages(creds, limit, msgShape) {
   }
 
   const port = parseInt(creds.port, 10) || 995;
-  const client = new POP3Client({
+  const client = new Client({
     host: creds.host,
     port,
     tls: true,
@@ -96,7 +115,7 @@ async function pop3Messages(creds, limit, msgShape) {
 }
 
 async function pop3Message(creds, uid, msgShape) {
-  if (!POP3Client) throw missingDep('node-pop3');
+  const Client = await getPOP3Client();
   if (!PostalMime) throw missingDep('postal-mime');
 
   const numericUid = parseInt(uid, 10);
@@ -105,7 +124,7 @@ async function pop3Message(creds, uid, msgShape) {
   }
 
   const port = parseInt(creds.port, 10) || (creds.ssl ? 995 : 110);
-  const client = new POP3Client({
+  const client = new Client({
     host: creds.host,
     port,
     tls: Boolean(creds.ssl),

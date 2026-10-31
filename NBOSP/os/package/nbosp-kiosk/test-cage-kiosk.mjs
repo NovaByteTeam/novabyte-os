@@ -18,6 +18,7 @@ describe('NBOSP Cage kiosk configuration', () => {
 
   it('starts the kiosk in Cage fullscreen mode only', () => {
     const init = read('../../board/nbosp/S99nbosp');
+    const mounts = read('../../board/nbosp/rootfs-overlay/etc/init.d/S01mounts');
     const prepare = read('prepare-kiosk.mjs');
     const packageMakefile = read('nbosp-kiosk.mk');
 
@@ -26,6 +27,10 @@ describe('NBOSP Cage kiosk configuration', () => {
     assert.match(prepare, /frame: false/);
     assert.match(prepare, /fullscreen: true/);
     assert.match(prepare, /kiosk: true/);
+    assert.match(mounts, /mkdir -p [^\n]*\/var\/lock\/subsys/);
+    assert.match(packageMakefile, /chmod 0755 \$\(TARGET_DIR\)\/opt\/nbosp\/package\.nw \\/);
+    assert.match(packageMakefile, /package\.nw\/js \\/);
+    assert.match(packageMakefile, /package\.nw\/js\/apps/);
     assert.match(packageMakefile, /chmod 0644 \$\(TARGET_DIR\)\/opt\/nbosp\/package\.nw\/js\/apps\/novaapp-manifest\.json/);
   });
 

@@ -11,9 +11,8 @@ const ewsClient = require('./protocols/ewsClient');
 const { msgShape, sanitizeEmailHtml } = require('./helpers');
 const ServerEventLog = require('../server/core/server-event-log');
 
-let nodemailer, ImapFlow, POP3Client, PostalMime, multer;
+let nodemailer, ImapFlow, PostalMime, multer;
 try { ({ ImapFlow } = require('imapflow')); } catch { ImapFlow = null; }
-try { POP3Client = require('node-pop3'); } catch { POP3Client = null; }
 try { PostalMime = require('postal-mime'); } catch { PostalMime = null; }
 try { nodemailer = require('nodemailer'); } catch { nodemailer = null; }
 try { multer = require('multer'); } catch { multer = null; }
@@ -35,7 +34,7 @@ const upload = multer
 const uploadAttachments = upload ? upload.array('attachments', 10) : (req, res, next) => next();
 
 imapClient.setDependencies({ ImapFlow, PostalMime });
-pop3Client.setDependencies({ POP3Client, PostalMime });
+pop3Client.setDependencies({ PostalMime });
 ewsClient.setDependencies({ PostalMime });
 
 // preview cache configuration and eviction
