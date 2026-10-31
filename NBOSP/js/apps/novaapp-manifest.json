@@ -12,7 +12,7 @@
   {
     "id": "com.nbosp.calculator",
     "file": "js/apps/com.nbosp.calculator.novaapp",
-    "cacheKey": "54b959b2f1272590fdda99027463362d7f4127dc8cffb935d82d78babb691061"
+    "cacheKey": "cc1e2cbc9239226301ef86767945d2707152e6e7c02d3d57dda99fe21f72802b"
   },
   {
     "id": "com.nbosp.calendar",
@@ -102,7 +102,7 @@
   {
     "id": "com.nbosp.settings",
     "file": "js/apps/com.nbosp.settings.novaapp",
-    "cacheKey": "0f07c8a8fad23c2cefe522515be7cd0a23483b7da1feb1f5b4c19764b5089946"
+    "cacheKey": "fc4cfe25926c3cfb0093fc7d0300ef37dc0b8db127f9b08c1c41ac00b0501802"
   },
   {
     "id": "com.nbosp.terminal",
@@ -167,7 +167,7 @@
   {
     "id": "com.nbosp.service.lock-screen",
     "file": "js/apps/com.nbosp.service.lock-screen.novaapp",
-    "cacheKey": "999b2b8411a4d9b9ab7076bb8f4cfef6f14b9689bcadd0148bee9fc4b4a9fb3d"
+    "cacheKey": "41fb9c1ebed36f7c41f1e69295162c39ba47c5867ba6a4629502105d5e991657"
   },
   {
     "id": "com.nbosp.service.network-activity-log",
