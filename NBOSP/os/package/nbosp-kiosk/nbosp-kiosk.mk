@@ -6,6 +6,7 @@ define NBOSP_KIOSK_INSTALL_TARGET_CMDS
 	rm -rf $(TARGET_DIR)/opt/nbosp
 	$(INSTALL) -d $(TARGET_DIR)/opt/nbosp
 	cp -a $(@D)/. $(TARGET_DIR)/opt/nbosp/
+	chmod 0644 $(TARGET_DIR)/opt/nbosp/package.nw/js/apps/novaapp-manifest.json
 	test -f $(TARGET_DIR)/opt/nbosp/lib/libffmpeg.so
 	$(INSTALL) -d $(TARGET_DIR)/usr/lib
 	ln -sf /opt/nbosp/lib/libffmpeg.so $(TARGET_DIR)/usr/lib/libffmpeg.so
