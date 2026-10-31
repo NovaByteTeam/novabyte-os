@@ -4548,6 +4548,12 @@ const AppSandbox = (() => {
   }
 
   function handleAppIpcUnregister({ payload, requestId, app, webview, sandbox }) {
+    // Gated for consistency with the rest of the nova:ipc:* family — an app
+    // without apps:communicate never legitimately registered an endpoint, so
+    // there is nothing it should be able to tear down over the bridge.
+    if (!AppPermissionManager.isGranted('apps:communicate', app.id)) {
+      return respondError(webview, 'nova:ipc:unregister', requestId, 'PERMISSION_DENIED', 'apps:communicate permission required');
+    }
     const endpoint = payload?.endpoint;
     if (typeof endpoint === 'string') sandbox?.appIpcEndpoints?.delete(endpoint);
     return respond(webview, 'nova:ipc:unregister', requestId, { success: true, endpoint });
@@ -4611,6 +4617,13 @@ const AppSandbox = (() => {
   }
 
   function handleAppIpcReply({ payload, requestId, app, webview, sandbox }) {
+    // Defense in depth: only an app holding apps:communicate may act as an
+    // IPC endpoint at all, so it is also the only thing that can complete a
+    // pending request. Without this gate a stripped app could still resolve
+    // an in-flight call (e.g. granted, then revoked mid-call).
+    if (!AppPermissionManager.isGranted('apps:communicate', app.id)) {
+      return respondError(webview, 'nova:ipc:reply', requestId, 'PERMISSION_DENIED', 'apps:communicate permission required');
+    }
     const callId = payload?.callId;
     const pending = typeof callId === 'string' ? pendingAppIpcCalls.get(callId) : null;
     const sandboxId = activeSandboxId(webview);
@@ -5147,9 +5160,18 @@ const AppSandbox = (() => {
     // '[object Object]' that String(value) would give, otherwise the quota
     // check is silently too lenient for any non-string value.
     const value = payload?.value ?? '';
-    const valueBytes = sharedTextEncoder.encode(
-      typeof value === 'string' ? value : JSON.stringify(value)
-    ).length;
+    // JSON.stringify can throw on a value the guest bridge would never carry
+    // anyway (cyclic structures, BigInt) — but handleAPICall's catch-all
+    // surfaces that as an opaque INTERNAL_ERROR. Validate it explicitly so
+    // the guest gets a precise INVALID_ARGS instead.
+    let valueJson;
+    try {
+      valueJson = typeof value === 'string' ? value : JSON.stringify(value);
+    } catch (e) {
+      return respondError(webview, 'nova:storage:set', requestId, 'INVALID_ARGS',
+        `Value is not JSON-serializable: ${e?.message || e}`);
+    }
+    const valueBytes = sharedTextEncoder.encode(valueJson).length;
     if (valueBytes > STORAGE_VALUE_MAX_BYTES) {
       return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', `Value exceeds ${STORAGE_VALUE_MAX_BYTES} byte limit`);
     }
