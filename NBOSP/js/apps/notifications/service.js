@@ -8,6 +8,203 @@ function safeIconKey(icon) {
   return KNOWN_ICONS.has(icon) ? icon : 'bell';
 }
 
+// ── Notification channels (v2) ───────────────────────────────────────────
+// Android-style channels: an app declares named categories ("Messages",
+// "Promos"), each with an importance the user can override. Importance is
+// locked once created (Android parity) — a later ensureChannel() with a
+// different importance is a no-op; only the user can change it, via
+// channelOverrides. All three stores are localStorage-persisted so channel
+// state survives shell reloads, and queued notification actions survive a
+// reload too (the app drains them via nova:notifications:consumeActions on
+// its next launch).
+const CHANNEL_IMPORTANCES = new Set(['none', 'low', 'default', 'high']);
+// How long a toast stays up per importance level. 'low' = 0 → panel-only,
+// silent (Android low = no sound/snap); 'high' = 8s, the closest thing to
+// heads-up this shell has.
+const IMPORTANCE_DWELL_MS = { low: 0, default: 4000, high: 8000 };
+const MAX_CHANNELS_PER_APP = 32;
+const MAX_ACTIONS_PER_NOTIF = 3;
+const MAX_PENDING_ACTIONS_PER_APP = 20;
+// Shared bound for channel ids and tags — both are app-supplied keys that
+// end up inside storage keys and IPC payloads.
+const MAX_NOTIF_KEY_LEN = 64;
+
+const CHANNELS_STORAGE_KEY = 'novaOS_notifChannels';
+const CHANNEL_OVERRIDES_STORAGE_KEY = 'novaOS_notifChannelOverrides';
+const PENDING_ACTIONS_STORAGE_KEY = 'novaOS_notifPendingActions';
+
+function loadJsonStore(key, fallback) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return parsed ?? fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function persistJsonStore(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    // Best-effort persistence — private-browsing mode or a full quota
+    // degrades to in-memory-only state, same as Notify.persist() below.
+  }
+}
+
+// Channel/action ids are app-supplied and end up in storage keys and IPC
+// round-trips, so they get the same slug treatment the sandbox applies.
+function slugOk(value, maxLen) {
+  return typeof value === 'string' && value.length >= 1 && value.length <= maxLen
+    && /^[a-zA-Z0-9_-]+$/.test(value);
+}
+
+const channelDefs = loadJsonStore(CHANNELS_STORAGE_KEY, {});
+const channelOverrides = loadJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, {});
+const pendingActionQueue = loadJsonStore(PENDING_ACTIONS_STORAGE_KEY, []);
+
+// Register (or update) a channel. Returns { created, channel } or null when
+// the definition is invalid or the per-app cap is hit.
+function ensureChannelForApp(appId, def, { declaredBy = 'runtime' } = {}) {
+  if (!appId || !def || !slugOk(def.id, MAX_NOTIF_KEY_LEN)) return null;
+  const name = typeof def.name === 'string' && def.name.trim()
+    ? def.name.trim().slice(0, 60)
+    : null;
+  if (!name) return null;
+  const description = typeof def.description === 'string' ? def.description.slice(0, 200) : '';
+  // 'none' at creation would be a channel that drops everything; the only
+  // path to 'none' is the user muting the channel, so map it to 'default'.
+  const importance = def.importance !== 'none' && CHANNEL_IMPORTANCES.has(def.importance)
+    ? def.importance
+    : 'default';
+  if (!channelDefs[appId]) channelDefs[appId] = {};
+  const existing = channelDefs[appId][def.id];
+  if (existing) {
+    // Android parity: name/description stay updatable, importance is locked.
+    existing.name = name;
+    existing.description = description;
+    persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+    return { created: false, channel: existing };
+  }
+  if (Object.keys(channelDefs[appId]).length >= MAX_CHANNELS_PER_APP) return null;
+  const channel = { id: def.id, name, description, importance, declaredBy, createdAt: Date.now() };
+  channelDefs[appId][def.id] = channel;
+  persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+  return { created: true, channel };
+}
+
+// Seed channels declared statically in the app manifest under
+// notifications.channels: [{ id, name, importance, description }]. Runs on
+// every post/createChannel — ensureChannelForApp is idempotent and cheap.
+function ensureDeclaredChannels(appId, manifest) {
+  const declared = manifest?.notifications?.channels;
+  if (!Array.isArray(declared)) return;
+  for (const def of declared.slice(0, MAX_CHANNELS_PER_APP)) {
+    if (def && typeof def === 'object') {
+      ensureChannelForApp(appId, def, { declaredBy: 'manifest' });
+    }
+  }
+}
+
+// Resolve a channel with the user's override applied. Returns null for
+// unknown channels; blocked:true when the user muted it (importance 'none'
+// or enabled:false) and the notification should be silently dropped.
+function getChannelForApp(appId, channelId) {
+  if (!appId || !slugOk(channelId, MAX_NOTIF_KEY_LEN)) return null;
+  const def = channelDefs[appId]?.[channelId];
+  if (!def) return null;
+  const override = channelOverrides[`${appId}|${channelId}`] || null;
+  const enabled = override ? override.enabled !== false : true;
+  const importance = override && CHANNEL_IMPORTANCES.has(override.importance)
+    ? override.importance
+    : (CHANNEL_IMPORTANCES.has(def.importance) ? def.importance : 'default');
+  return { ...def, enabled, importance, blocked: !enabled || importance === 'none' };
+}
+
+// Queue an action click for the app to consume. Android delivers action
+// taps to a live component; here the host opens the app window and the app
+// pulls the queued action on launch/resume — the same observable behavior
+// without requiring a live sandbox at click time.
+function queueActionForApp(notif, actionDef) {
+  if (!notif || !notif.appId || !actionDef || !slugOk(actionDef.id, 40)) return;
+  const entry = {
+    appId: notif.appId,
+    notifId: notif.id,
+    tag: notif.tag || null,
+    actionId: actionDef.id,
+    label: actionDef.label || '',
+    title: notif.title || '',
+    clickedAt: Date.now(),
+  };
+  const others = pendingActionQueue.filter(pa => pa.appId !== notif.appId);
+  const mine = pendingActionQueue.filter(pa => pa.appId === notif.appId);
+  mine.push(entry);
+  while (mine.length > MAX_PENDING_ACTIONS_PER_APP) mine.shift();
+  pendingActionQueue.length = 0;
+  pendingActionQueue.push(...others, ...mine);
+  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+}
+
+function consumeActionsForApp(appId) {
+  if (!appId) return [];
+  const mine = pendingActionQueue.filter(pa => pa && pa.appId === appId);
+  if (!mine.length) return [];
+  for (const pa of mine) {
+    const i = pendingActionQueue.indexOf(pa);
+    if (i > -1) pendingActionQueue.splice(i, 1);
+  }
+  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+  return mine;
+}
+
+// Uninstall cleanup: an app's channels, overrides, and queued actions die
+// with it (Android removes channels on uninstall too).
+function dropNotificationAppState(appId) {
+  if (!appId) return;
+  let changed = false;
+  if (channelDefs[appId]) { delete channelDefs[appId]; changed = true; }
+  for (const key of Object.keys(channelOverrides)) {
+    if (key.startsWith(`${appId}|`)) { delete channelOverrides[key]; changed = true; }
+  }
+  const kept = pendingActionQueue.filter(pa => pa.appId !== appId);
+  if (kept.length !== pendingActionQueue.length) {
+    pendingActionQueue.length = 0;
+    pendingActionQueue.push(...kept);
+    changed = true;
+  }
+  if (changed) {
+    persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+    persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
+    persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+  }
+}
+
+// Tap-through: clicking a notification (row body or toast body) opens the
+// app that posted it — the single most basic notification behavior on
+// Android, and the one thing the old toast/panel couldn't do at all.
+function openNotificationApp(notif) {
+  if (!notif || !notif.appId) return;
+  try {
+    if (typeof WM !== 'undefined' && typeof WM.createWindow === 'function') {
+      WM.createWindow(notif.appId);
+    }
+  } catch (e) {
+    // WM may be unavailable in headless contexts; a queued action (if any)
+    // still reaches the app whenever it next runs.
+  }
+}
+
+// Dispatch a clicked action button. Legacy actions (the old allowlist
+// strings) keep their open-Settings/open-Store routing; app-declared v2
+// actions open the app and queue {actionId} for the app to consume.
+function handleNotificationActionClick(notif, actionDef) {
+  if (actionDef && actionDef.legacy) {
+    Notify.runAction(notif);
+    return;
+  }
+  openNotificationApp(notif);
+  queueActionForApp(notif, actionDef);
+}
+
 // Shared inline styles for the two "action" buttons (toast + panel row).
 // Was duplicated as two near-identical cssText strings before.
 const ACTION_BUTTON_STYLE = 'padding:6px 14px;font-size:12px;font-weight:600;border-radius:6px;background:rgba(88,166,255,0.2);color:#58a6ff;border:1px solid rgba(88,166,255,0.4);cursor:pointer;transition:all 0.15s;';
@@ -145,10 +342,146 @@ const Notify = {
     Notify.renderPanel();
   },
 
+  // ── v2: channels, tag updates, cancel, action queue ──────────────────
+  // These delegate to the module-level helpers above; they exist on Notify
+  // so the sandbox handlers and the future Settings channel UI have one
+  // entry point each.
+
+  ensureChannel(appId, def, opts) {
+    return ensureChannelForApp(appId, def, opts);
+  },
+
+  ensureChannelsFromManifest(appId, manifest) {
+    ensureDeclaredChannels(appId, manifest);
+  },
+
+  getChannel(appId, channelId) {
+    return getChannelForApp(appId, channelId);
+  },
+
+  // Per-channel user overrides. The Settings wiring lands with the
+  // permission-model work; the store is live now so no migration is needed
+  // later. Pass null to clear an override.
+  setChannelOverride(appId, channelId, override) {
+    if (!appId || !slugOk(channelId, MAX_NOTIF_KEY_LEN) || !channelDefs[appId]?.[channelId]) return false;
+    const key = `${appId}|${channelId}`;
+    if (override === null) {
+      delete channelOverrides[key];
+    } else {
+      const clean = {};
+      if (override && typeof override === 'object') {
+        if (typeof override.enabled === 'boolean') clean.enabled = override.enabled;
+        if (typeof override.importance === 'string' && CHANNEL_IMPORTANCES.has(override.importance)) clean.importance = override.importance;
+      }
+      channelOverrides[key] = clean;
+    }
+    persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
+    return true;
+  },
+
+  listChannels(appId) {
+    if (!appId) return [];
+    return Object.keys(channelDefs[appId] || {})
+      .map(id => getChannelForApp(appId, id))
+      .filter(Boolean);
+  },
+
+  // Tag lookup for update-in-place — pinned entries are never tag targets
+  // (they belong to the background-app pin lifecycle, not to app posts).
+  findByTag(appId, tag) {
+    Notify.loadPersisted();
+    if (!appId || typeof tag !== 'string' || !tag) return null;
+    return OS.notifications.find(n => n && !n.pinned && n.appId === appId && n.tag === tag) || null;
+  },
+
+  cancelByTag(appId, tag) {
+    Notify.loadPersisted();
+    if (!appId || typeof tag !== 'string' || !tag) return false;
+    const before = OS.notifications.length;
+    OS.notifications = OS.notifications.filter(n => !(n && !n.pinned && n.appId === appId && n.tag === tag));
+    if (OS.notifications.length === before) return false;
+    OS.notifUnread = OS.notifications.filter(n => !n.read).length;
+    Notify.persist();
+    Notify.updateBadge();
+    updateNotificationBadge();
+    Notify.renderPanel();
+    return true;
+  },
+
+  cancelById(appId, notifId) {
+    Notify.loadPersisted();
+    if (!appId || typeof notifId !== 'string' || !notifId) return false;
+    const before = OS.notifications.length;
+    OS.notifications = OS.notifications.filter(n => !(n && !n.pinned && n.appId === appId && n.id === notifId));
+    if (OS.notifications.length === before) return false;
+    OS.notifUnread = OS.notifications.filter(n => !n.read).length;
+    Notify.persist();
+    Notify.updateBadge();
+    updateNotificationBadge();
+    Notify.renderPanel();
+    return true;
+  },
+
+  consumePendingActions(appId) {
+    return consumeActionsForApp(appId);
+  },
+
+  removeAllAppState(appId) {
+    dropNotificationAppState(appId);
+  },
+
   show(opts) {
     Notify.loadPersisted();
-    const { title, body, type, appName, appId, category, icon, action, actionLabel, pinned, pinId } = opts;
-    const id = generateId();
+    const { title, body, type, appName, appId, category, icon, action, actionLabel, pinned, pinId, channelId, tag, actions, progress } = opts;
+
+    // v2 channel gate — system callers (no appId) and pinned background-app
+    // entries bypass channels entirely, exactly as before. App posts resolve
+    // their channel (defaulting to 'general' for legacy callers) and drop
+    // silently when the user muted it.
+    let importance = 'default';
+    if (appId && !pinned) {
+      const chId = typeof channelId === 'string' && channelId ? channelId : 'general';
+      const channel = getChannelForApp(appId, chId);
+      if (channel) {
+        if (channel.blocked) return null;
+        importance = channel.importance;
+      }
+      // Unknown channel: fall through with default importance. The v2 IPC
+      // handler rejects unknown channels before show() is ever reached;
+      // this leniency only covers first-party callers.
+    }
+
+    // Update-in-place: a post carrying a tag that matches a live (unpinned,
+    // undismissed) notification from the same app replaces it — same id,
+    // same panel position. This is what makes progress bars and chat
+    // previews possible without spamming the rate limiter.
+    let target = null;
+    if (!pinned && tag && appId) {
+      target = OS.notifications.find(n => n && !n.pinned && n.appId === appId && n.tag === tag) || null;
+    }
+
+    // App-declared action buttons (max 3). A legacy string action from the
+    // old allowlist is wrapped with legacy:true so clicks keep routing
+    // through runAction()'s built-in switch; function actions stay
+    // first-party-only and keep the single-button render below.
+    let v2Actions = [];
+    if (Array.isArray(actions)) {
+      for (const a of actions.slice(0, MAX_ACTIONS_PER_NOTIF)) {
+        if (a && slugOk(a.id, 40) && typeof a.label === 'string' && a.label.trim()) {
+          v2Actions.push({ id: a.id, label: a.label.slice(0, 40) });
+        }
+      }
+    } else if (target && actions === undefined && Array.isArray(target.actions)) {
+      // Field-wise update semantics: a tag-update that omits actions keeps
+      // the existing buttons — a progress ticker shouldn't have to re-list
+      // them. Pass actions: [] explicitly to clear them.
+      v2Actions = target.actions.filter(a => a && slugOk(a.id, 40) && typeof a.label === 'string');
+    }
+    if (!v2Actions.length && typeof action === 'string' && actionLabel) {
+      v2Actions = [{ id: action, label: String(actionLabel).slice(0, 40), legacy: true }];
+    }
+
+    const id = target ? target.id : generateId();
     const notif = {
       id,
       title: title || '',
@@ -156,12 +489,20 @@ const Notify = {
       type: type || 'info',
       appName: appName || 'System',
       appId: appId || null,
-      category: category || 'system',
+      category: category || (appId ? 'app' : 'system'),
       icon: safeIconKey(icon || 'bell'),
       timestamp: Date.now(),
       read: false,
       action: action || null,
       actionLabel: actionLabel || null,
+      channelId: appId && !pinned ? (typeof channelId === 'string' && channelId ? channelId : 'general') : null,
+      tag: tag || null,
+      actions: v2Actions,
+      // Same field-wise rule as actions: an update that omits progress
+      // keeps the existing bar; an explicit null/absent-on-new-post clears.
+      progress: progress !== undefined
+        ? (progress && typeof progress === 'object' ? progress : null)
+        : (target ? (target.progress || null) : null),
       // Pinned entries are for things that are still true right now (an app
       // is currently running in the background), not a one-off event — see
       // pinBackgroundApp()/unpin() below. `pinId` is a stable key so a
@@ -171,30 +512,41 @@ const Notify = {
       pinId: pinned ? (pinId || `pin_${id}`) : null,
     };
 
-    OS.notifications.unshift(notif);
-    if (OS.notifications.length > 100) {
-      // Never let the 100-cap evict a pinned entry — it's reporting a
-      // currently-true fact (a background app is alive), not a stale event,
-      // so it doesn't age out just because unrelated notifications piled up.
-      // Trim the oldest *unpinned* entry instead. Walk backward from the end
-      // rather than cloning and reversing the whole array just to find one
-      // index.
-      let trimIndex = -1;
-      for (let i = OS.notifications.length - 1; i >= 0; i--) {
-        if (!OS.notifications[i].pinned) {
-          trimIndex = i;
-          break;
+    if (target) {
+      Object.assign(target, notif);
+      OS.notifUnread = OS.notifications.filter(n => n && !n.read).length;
+    } else {
+      OS.notifications.unshift(notif);
+      if (OS.notifications.length > 100) {
+        // Never let the 100-cap evict a pinned entry — it's reporting a
+        // currently-true fact (a background app is alive), not a stale event,
+        // so it doesn't age out just because unrelated notifications piled up.
+        // Trim the oldest *unpinned* entry instead. Walk backward from the end
+        // rather than cloning and reversing the whole array just to find one
+        // index.
+        let trimIndex = -1;
+        for (let i = OS.notifications.length - 1; i >= 0; i--) {
+          if (!OS.notifications[i].pinned) {
+            trimIndex = i;
+            break;
+          }
         }
+        if (trimIndex !== -1) OS.notifications.splice(trimIndex, 1);
       }
-      if (trimIndex !== -1) OS.notifications.splice(trimIndex, 1);
+      OS.notifUnread++;
     }
-    OS.notifUnread++;
     Notify.updateBadge();
     updateNotificationBadge();
     Notify.renderPanel();
     Notify.persist();
 
-    if (!OS.dnd) Notify.showToast(notif);
+    // Channel importance drives toast behavior: 'low' lands in the panel
+    // silently (dwell 0), 'high' lingers 8s (closest thing to heads-up),
+    // 'default' gets the classic 4s. Entries with action buttons always get
+    // the long dwell so the buttons are actually reachable. DND still wins.
+    let dwellMs = IMPORTANCE_DWELL_MS[importance] ?? 4000;
+    if ((v2Actions.length || notif.action) && dwellMs < 8000) dwellMs = 8000;
+    if (!OS.dnd && dwellMs > 0) Notify.showToast(notif, { dwellMs });
 
     if (notif.type === 'error' && typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'Notify', category: 'system', severity: 'error', message: `[${notif.appName}] ${notif.title}${notif.body ? ': ' + notif.body : ''}`, data: { appName: notif.appName, title: notif.title } });
@@ -314,7 +666,7 @@ const Notify = {
     }
   },
 
-  showToast(notif) {
+  showToast(notif, { dwellMs } = {}) {
     const container = document.getElementById('toast-container');
     // The container should always be in the page shell, but bail out
     // quietly instead of throwing if some layout variant doesn't have it —
@@ -333,16 +685,30 @@ const Notify = {
     content.appendChild(titleEl);
     if (notif.body) content.appendChild(bodyEl);
 
-    if (notif.action && notif.actionLabel) {
+    // Tapping the toast body opens the posting app. Progress lives only in
+    // the panel — toasts stay text + buttons.
+    content.addEventListener('click', () => {
+      clearTimeout(timer);
+      removeToast();
+      openNotificationApp(notif);
+    }, { signal: ac.signal });
+
+    // v2: up to 3 app-declared action buttons. Legacy single string actions
+    // (and first-party function actions, e.g. the pinned Terminate button)
+    // render through the fallback below and route via runAction().
+    const actionDefs = (Array.isArray(notif.actions) && notif.actions.length)
+      ? notif.actions
+      : (notif.action && notif.actionLabel ? [{ id: notif.action, label: notif.actionLabel, legacy: true }] : []);
+    for (const a of actionDefs.slice(0, MAX_ACTIONS_PER_NOTIF)) {
       const actionBtn = createEl('button', { className: 'toast-action' });
-      actionBtn.textContent = notif.actionLabel;
+      actionBtn.textContent = a.label;
       actionBtn.style.cssText = `margin-left:auto;${ACTION_BUTTON_STYLE}`;
       wireActionButtonHover(actionBtn);
       actionBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         clearTimeout(timer);
         removeToast();
-        Notify.runAction(notif);
+        handleNotificationActionClick(notif, a);
       }, { signal: ac.signal });
       content.appendChild(actionBtn);
     }
@@ -358,8 +724,11 @@ const Notify = {
     // post-hover grace period, so a reader has time to notice the button
     // either way — the grace period isn't meant to be shorter than a plain
     // toast's full timer, just shorter than this toast's own initial one.
-    const initialDelay = notif.action ? 8000 : 4000;
-    const hoverGraceDelay = notif.action ? 4000 : 2000;
+    // A channel-supplied dwellMs (v2 importance) overrides the default;
+    // legacy callers get the original behavior unchanged.
+    const hasAction = actionDefs.length > 0;
+    const initialDelay = dwellMs ?? (hasAction ? 8000 : 4000);
+    const hoverGraceDelay = hasAction ? 4000 : 2000;
     let timer = setTimeout(() => removeToast(), initialDelay);
 
     toast.addEventListener('pointerenter', () => clearTimeout(timer), { signal: ac.signal });
@@ -413,18 +782,45 @@ const Notify = {
       const content = createEl('div', { className: 'notif-item-content' });
       content.appendChild(createEl('div', { className: 'notif-item-title', textContent: n.title }));
       content.appendChild(createEl('div', { className: 'notif-item-body', textContent: n.body }));
+
+      // v2 deterministic progress bar (determinate only; an indeterminate
+      // progress renders a fixed 40% sliver since this panel has no CSS
+      // animation contract to lean on).
+      if (n.progress && typeof n.progress === 'object') {
+        const bar = createEl('div');
+        bar.style.cssText = 'height:4px;border-radius:2px;background:rgba(139,148,158,0.3);margin-top:6px;overflow:hidden;';
+        const fill = createEl('div');
+        const max = Math.max(1, Number(n.progress.max) || 100);
+        const pct = n.progress.indeterminate
+          ? 40
+          : Math.max(0, Math.min(100, Math.round((Number(n.progress.value) / max) * 100)));
+        fill.style.cssText = `height:100%;width:${pct}%;background:#58a6ff;border-radius:2px;`;
+        bar.appendChild(fill);
+        content.appendChild(bar);
+      }
+
       content.appendChild(createEl('div', { className: 'notif-item-time', textContent: timeAgoLabel(n.timestamp, { running: n.pinned }) }));
+      // Tapping the row body opens the posting app — the tap-through the
+      // old panel was missing. The buttons below stopPropagation, so they
+      // don't trigger this.
+      content.addEventListener('click', () => openNotificationApp(n));
       item.appendChild(icon);
       item.appendChild(content);
 
-      if (n.action && n.actionLabel) {
+      const actionDefs = (Array.isArray(n.actions) && n.actions.length)
+        ? n.actions
+        : (n.action && n.actionLabel ? [{ id: n.action, label: n.actionLabel, legacy: true }] : []);
+      for (let ai = 0; ai < actionDefs.length && ai < MAX_ACTIONS_PER_NOTIF; ai++) {
+        const a = actionDefs[ai];
         const actionBtn = createEl('button', { className: 'notif-item-action' });
-        actionBtn.textContent = n.actionLabel;
-        actionBtn.style.cssText = `margin-left:auto;flex-shrink:0;${ACTION_BUTTON_STYLE}`;
+        actionBtn.textContent = a.label;
+        // Only the first button pushes itself to the far edge; extra
+        // buttons sit beside it instead of spreading across the row.
+        actionBtn.style.cssText = `${ai === 0 ? 'margin-left:auto;' : ''}flex-shrink:0;${ACTION_BUTTON_STYLE}`;
         wireActionButtonHover(actionBtn);
         actionBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          Notify.runAction(n);
+          handleNotificationActionClick(n, a);
         });
         item.appendChild(actionBtn);
       }
