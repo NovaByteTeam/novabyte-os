@@ -698,8 +698,14 @@ const AppSandbox = (() => {
       ...base,
       channelId,
       tag,
-      actions: sanitizeNotifActions(raw.actions),
-      progress: sanitizeNotifProgress(raw.progress),
+      // Field-wise update contract (see NOVAAPP.md): a tagged post that
+      // OMITS actions/progress keeps the previous values — only an explicit
+      // actions: [] or progress: null clears them. Normalizing an omitted
+      // field to [] / null here silently erased every tagged update's
+      // buttons and progress bar, breaking progress tickers and chat
+      // previews that legitimately re-post title/body only.
+      actions: raw.actions === undefined ? undefined : sanitizeNotifActions(raw.actions),
+      progress: raw.progress === undefined ? undefined : sanitizeNotifProgress(raw.progress),
     };
   }
 
@@ -4260,6 +4266,28 @@ const AppSandbox = (() => {
       }
     } catch (e) {
       log('warn', 'nova:app:uninstall — failed to clear storage partition for', appId, e);
+    }
+    // nova:storage:* is a separate host-shell-side IndexedDB keyed by
+    // [appId, key] — clearAppPartition never touches it (see destroy()'s
+    // long comment). Every manual uninstall path (Launchpad, App Manager,
+    // My Apps, Store) wipes both; this IPC path must too, or an
+    // uninstall/reinstall cycle leaks the previous install's key-value data.
+    try {
+      await storageClear(appId);
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to clear nova:storage for', appId, e);
+    }
+    // Android parity: uninstalling an app resets its runtime permissions.
+    // Without this, grants (and denials) persist in localStorage forever and
+    // a reinstall of the same package id silently inherits the previous
+    // install's capabilities. revokeAllPermissions also triggers the root
+    // reload and the same-origin/nested-webview live-sandbox teardown.
+    try {
+      if (typeof AppPermissionManager !== 'undefined' && typeof AppPermissionManager.revokeAllPermissions === 'function') {
+        await AppPermissionManager.revokeAllPermissions(appId);
+      }
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to reset permissions for', appId, e);
     }
     try {
       if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {

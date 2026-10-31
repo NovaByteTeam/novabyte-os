@@ -83,6 +83,8 @@ function freshOS() {
     dnd: false,
     clipboard: '',
     clipboardHistory: [],
+    // nova:app:install / nova:app:uninstall keep per-app manifest state here.
+    apps: {},
     windows: new Map([['win-1', {
       id: 'win-1', x: 10, y: 10, width: 800, height: 600,
       maximized: false, minimized: false,

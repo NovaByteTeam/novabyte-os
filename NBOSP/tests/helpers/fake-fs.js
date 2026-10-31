@@ -106,8 +106,11 @@ function createFakeFS() {
   }
 
   // Ensure /data/<appId> exists (the host does this lazily on first write).
+  // Segment naming must match app-sandbox.js's sanitizeAppIdSegment exactly
+  // (dots become underscores) or the sandbox's /data/<appId>/... path
+  // rewrites won't resolve against directories created here.
   function ensureAppDir(appId) {
-    const seg = String(appId).replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const seg = String(appId).replace(/[^a-zA-Z0-9_-]/g, '_');
     let dir = listDir(data.id).find((n) => n.name === seg && n.type === 'folder');
     if (!dir) dir = makeNode(seg, 'folder', data.id);
     return dir;
