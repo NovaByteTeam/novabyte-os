@@ -103,7 +103,9 @@ async function attemptBiometricUnlock(statusEl) {
     });
     if (credential) {
       unlockFromLockScreen();
-      Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
+      if (typeof Notify !== 'undefined' && typeof Notify.show === 'function') {
+        Notify.show({ title: 'Welcome back', body: 'Authenticated via biometrics', type: 'success', appName: 'System' });
+      }
     }
   } catch (err) {
     statusEl.textContent = 'Biometric failed: ' + (err?.message || 'Try PIN instead');

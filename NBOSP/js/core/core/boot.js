@@ -350,7 +350,7 @@ const Boot = {
    */
   startServices() {
     WM.init();
-    updateNotificationBadge();
+    if (typeof updateNotificationBadge === 'function') updateNotificationBadge();
 
     const { timeEl, dateEl } = Boot._dom;
     function updateClock() {

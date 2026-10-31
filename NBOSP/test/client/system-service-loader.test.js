@@ -261,6 +261,31 @@ describe('SystemServiceLoader', () => {
     ]);
     expect(boot).toHaveBeenCalledOnce();
     expect(statusElements).toHaveLength(1);
+    expect(context.localStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('loads all services before boot', async () => {
+    const services = [
+      { id: 'com.example.first', entry: 'service.js' },
+      { id: 'com.example.second', entry: 'service.js' },
+    ];
+    const { context, boot } = createLoaderContext({ services });
+    const events = [];
+    const originalFetch = context.fetch.getMockImplementation();
+    context.boot.mockImplementation(() => { events.push('boot'); });
+    context.fetch.mockImplementation(url => {
+      if (url.endsWith('.novaapp')) events.push(url);
+      return originalFetch(url);
+    });
+    runInNewContext(loaderSource, context);
+
+    await context.SystemServiceLoader.load();
+    expect(events).toEqual([
+      'js/apps/com.example.first.novaapp',
+      'js/apps/com.example.second.novaapp',
+      'boot',
+    ]);
+    expect(boot).toHaveBeenCalledOnce();
   });
 
   it('continues OS boot if an untrusted or tampered service is rejected', async () => {
@@ -350,20 +375,23 @@ describe('SystemServiceLoader', () => {
     });
   });
 
-  it('routes to recovery instead of booting after a required package fails', async () => {
+  it('continues loading and boots when an individual service package fails', async () => {
     const { context, started, boot } = createLoaderContext({
       missingPackage: 'com.example.first',
       services: [
-        { id: 'com.example.first', entry: 'service.js', required: true },
+        { id: 'com.example.first', entry: 'service.js' },
         { id: 'com.example.second', entry: 'service.js' },
       ],
     });
     runInNewContext(loaderSource, context);
 
-    await context.SystemServiceLoader.load();
+    const result = await context.SystemServiceLoader.load();
 
-    expect(started).toEqual([]);
-    expect(context.localStorage.setItem).toHaveBeenCalledWith('nova_force_recovery', '1');
+    expect(started).toEqual([2]);
+    expect(result.failures).toEqual([
+      { id: 'com.example.first', message: 'Failed to fetch com.example.first: HTTP 404' },
+    ]);
     expect(boot).toHaveBeenCalledOnce();
+    expect(context.localStorage.setItem).not.toHaveBeenCalled();
   });
 });

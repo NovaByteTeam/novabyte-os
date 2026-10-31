@@ -5,14 +5,12 @@
   },
   {
     "id": "com.nbosp.service.novabyte-system",
-    "entry": "service.js",
-    "required": true
+    "entry": "service.js"
   },
   {
     "id": "com.nbosp.shell-ui",
     "entry": "wm.js",
-    "scripts": ["wm.js", "menu.js", "modals.js", "desktop.js"],
-    "required": true
+    "scripts": ["wm.js", "menu.js", "modals.js", "desktop.js"]
   },
   {
     "id": "com.nbosp.service.event-log",

@@ -63,7 +63,7 @@ describe('built-in service boundaries', () => {
     expect(packageManifest.every(bundle => /^[a-f0-9]{64}$/.test(bundle.cacheKey || ''))).toBe(true);
   });
 
-  it('boots NovaByte System as the required owner of Settings preferences', () => {
+  it('boots NovaByte System as the owner of Settings preferences', () => {
     const appId = 'com.nbosp.service.novabyte-system';
     const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
     const packageManifest = JSON.parse(readWorkspaceFile('../../js/apps/novaapp-manifest.json'));
@@ -73,7 +73,7 @@ describe('built-in service boundaries', () => {
     const launcherSource = readWorkspaceFile('../../js/apps/launcher/app.js');
     const sourceManifest = JSON.parse(readWorkspaceFile('../../js/apps/novabyte-system/manifest.json'));
 
-    expect(runtimeServices).toContainEqual({ id: appId, entry: 'service.js', required: true });
+    expect(runtimeServices).toContainEqual({ id: appId, entry: 'service.js' });
     expect(packageManifest).toContainEqual(expect.objectContaining({
       id: appId,
       file: `js/apps/${appId}.novaapp`,
@@ -90,6 +90,44 @@ describe('built-in service boundaries', () => {
     expect(launcherSource).toContain('window.NovaByteSystem?.developer?.setRootAccess');
     expect(launcherSource).not.toMatch(/OS\.settings\.(?:get|set)\(['"](?:devMode|rootAccessEnabled)['"]/);
     expect(launcherSource).not.toContain("execFile('/usr/bin/nbosp-power'");
+  });
+
+  it('keeps core service dependencies ordered before boot', () => {
+    const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
+    const bootSource = readWorkspaceFile('../../js/core/core/boot.js');
+    const notificationsIndex = runtimeServices.findIndex(service =>
+      service.id === 'com.nbosp.service.notifications'
+    );
+    const systemEventsIndex = runtimeServices.findIndex(service =>
+      service.id === 'com.nbosp.service.system-events'
+    );
+    const defaultAppsIndex = runtimeServices.findIndex(service =>
+      service.id === 'com.nbosp.service.default-apps'
+    );
+    const lockScreenIndex = runtimeServices.findIndex(service =>
+      service.id === 'com.nbosp.service.lock-screen'
+    );
+
+    expect(runtimeServices[defaultAppsIndex]).toEqual({
+      id: 'com.nbosp.service.default-apps',
+      entry: 'service.js',
+    });
+    expect(runtimeServices[notificationsIndex]).toEqual({
+      id: 'com.nbosp.service.notifications',
+      entry: 'service.js',
+    });
+    expect(runtimeServices[systemEventsIndex]).toEqual({
+      id: 'com.nbosp.service.system-events',
+      entry: 'service.js',
+    });
+    expect(defaultAppsIndex).toBeLessThan(systemEventsIndex);
+    expect(notificationsIndex).toBeLessThan(systemEventsIndex);
+    expect(runtimeServices[lockScreenIndex]).toEqual({
+      id: 'com.nbosp.service.lock-screen',
+      entry: 'service.js',
+    });
+    expect(lockScreenIndex).toBeLessThan(systemEventsIndex);
+    expect(bootSource).toContain('Boot.startServices()');
   });
 
   it('packages the Snake Easter egg as a trusted overlay service', () => {
