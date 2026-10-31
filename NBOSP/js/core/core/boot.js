@@ -243,6 +243,10 @@ const Boot = {
     OS.username    = sGet('username')  || 'user';
     OS.idleTimeout = (parseInt(sGet('autoLock')) || 10) * 60000;
     OS.lockPin     = sGet('lockPin')   || null;
+    // Do Not Disturb (Settings > Notifications). Only suppresses toasts —
+    // panel entries and unread badges still land, matching the runtime
+    // semantics in notifications/service.js.
+    OS.dnd         = sGet('doNotDisturb') === true;
     return sGet;
   },
 

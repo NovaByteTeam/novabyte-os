@@ -42,6 +42,7 @@ registerApp({
       { id: 'date-and-region', name: 'Date and Region',  icon: 'calendar'      },
       { id: 'connectivity',    name: 'Connectivity',     icon: 'globe'         },
       { id: 'storage',         name: 'Storage',          icon: 'database'      },
+      { id: 'notifications',   name: 'Notifications',    icon: 'bell'          },
       { id: 'privacy',         name: 'Privacy',          icon: 'lock'          },
       { id: 'root',            name: 'Root Access',      icon: 'shield'        },
       { id: 'default-apps',    name: 'Default Apps',     icon: 'default-apps'  },
@@ -598,6 +599,7 @@ registerApp({
         case 'date-and-region':   renderDateAndRegion();   break;
         case 'connectivity':      renderConnectivity();   break;
         case 'storage':           renderStorage();         break;
+        case 'notifications':     renderNotifications();   break;
         case 'shortcuts':         renderShortcuts();       break;
         case 'privacy':           renderPrivacy();         break;
         case 'root':              renderRootAccess();      break;
@@ -1675,6 +1677,140 @@ registerApp({
         iconSizeGroup.appendChild(row);
       }
       mainContent.appendChild(iconSizeGroup);
+    }
+
+    // Notifications
+    function renderNotifications() {
+      mainContent.appendChild(createEl('h2', { textContent: 'Notifications', style: { marginBottom: '4px' } }));
+      mainContent.appendChild(createEl('p', {
+        textContent: 'Do Not Disturb and per-app notification channels.',
+        style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }
+      }));
+
+      // Do Not Disturb
+      const dndGroup = createEl('div', { className: 'nook-group' });
+      dndGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Do Not Disturb' }));
+      const dndRow = createEl('div', { className: 'nook-toggle-row' });
+      dndRow.appendChild(createEl('span', { textContent: 'Hide notification toasts' }));
+      const dndOn = !!OS.dnd;
+      const dndToggle = createEl('button', {
+        className: 'toggle' + (dndOn ? ' active' : ''),
+        role: 'switch',
+        'aria-checked': String(dndOn),
+        'aria-label': 'Toggle Do Not Disturb'
+      });
+      dndToggle.addEventListener('click', () => {
+        const next = !OS.dnd;
+        OS.dnd = next;
+        systemSettings.set('doNotDisturb', next);
+        dndToggle.classList.toggle('active', next);
+        dndToggle.setAttribute('aria-checked', String(next));
+      }, { signal: lifecycle.signal });
+      dndRow.appendChild(dndToggle);
+      dndGroup.appendChild(dndRow);
+      mainContent.appendChild(dndGroup);
+      mainContent.appendChild(createEl('p', {
+        textContent: 'While on, new notifications skip the toast and land silently in the notification panel instead.',
+        style: { color: 'var(--text-secondary)', fontSize: '12px', marginTop: '-8px', marginBottom: '20px' }
+      }));
+
+      // Notification channels
+      mainContent.appendChild(createEl('h3', { textContent: 'App Channels', style: { marginBottom: '8px' } }));
+      mainContent.appendChild(createEl('p', {
+        textContent: 'Apps sort their notifications into channels (Messages, Promos, …). Pick an importance per channel — Blocked silences it completely.',
+        style: { color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }
+      }));
+
+      const notify = (typeof Notify !== 'undefined' && Notify.listAppsWithChannels) ? Notify : null;
+      if (!notify) {
+        const warn = createEl('div', { style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;' });
+        warn.textContent = 'Notification channel system not available.';
+        mainContent.appendChild(warn);
+        return;
+      }
+
+      const devMode = !!systemSettings.get('devMode');
+      const appIds = notify.listAppsWithChannels().filter(id => {
+        if (devMode) return true;
+        return !OS.apps?.[id]?.devOnly;
+      }).sort();
+
+      if (!appIds.length) {
+        const empty = createEl('div', {
+          style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:13px;'
+        });
+        empty.textContent = 'No apps have created notification channels yet. Channels appear here once an app declares them in its manifest or creates them through the notifications API.';
+        mainContent.appendChild(empty);
+        return;
+      }
+
+      // Segmented importance picker per channel, matching the button-group
+      // pattern used elsewhere (Icon Size, taskbar size). Values mirror the
+      // channel importance model in notifications/service.js.
+      const IMPORTANCE_OPTIONS = [
+        { value: 'none',    label: 'Off',   title: 'Blocked — nothing is shown' },
+        { value: 'low',     label: 'Low',   title: 'Panel only, no toast' },
+        { value: 'default', label: 'Norm',  title: 'Normal — toast + panel' },
+        { value: 'high',    label: 'High',  title: 'High — long-lived toast' }
+      ];
+
+      for (const appId of appIds) {
+        const entry   = OS.apps?.[appId];
+        const appName = entry?.name || appId;
+        const channels = notify.listChannels(appId);
+
+        const card = createEl('div', {
+          style: 'background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden;'
+        });
+        const header = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;' });
+        header.appendChild(createEl('div', { style: 'font-weight:600;font-size:13px;', textContent: appName }));
+        const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset' });
+        resetBtn.addEventListener('click', () => {
+          // Clear every override for this app — channels fall back to the
+          // importances the developer declared.
+          for (const ch of channels) notify.setChannelOverride(appId, ch.id, null);
+          renderContent();
+        }, { signal: lifecycle.signal });
+        header.appendChild(resetBtn);
+        card.appendChild(header);
+
+        for (const ch of channels) {
+          const row = createEl('div', { style: 'display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border-subtle);' });
+          const info = createEl('div', { style: 'flex:1;min-width:0;' });
+          info.appendChild(createEl('div', { style: 'font-size:13px;', textContent: ch.name }));
+          if (ch.description) {
+            info.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', textContent: ch.description }));
+          }
+          row.appendChild(info);
+
+          const group = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
+          for (const opt of IMPORTANCE_OPTIONS) {
+            const active = ch.importance === opt.value;
+            const btn = createEl('button', {
+              className: 'btn btn-sm' + (active ? ' btn-primary' : ''),
+              textContent: opt.label,
+              title: opt.title,
+              'aria-pressed': String(active)
+            });
+            btn.addEventListener('click', () => {
+              if (active) return;
+              // Picking the channel's own declared importance clears the
+              // override entirely, so a future app-side declaration wins
+              // again instead of being pinned by the user's old choice.
+              if (opt.value === ch.declaredImportance) {
+                notify.setChannelOverride(appId, ch.id, null);
+              } else {
+                notify.setChannelOverride(appId, ch.id, { enabled: ch.enabled, importance: opt.value });
+              }
+              renderContent();
+            }, { signal: lifecycle.signal });
+            group.appendChild(btn);
+          }
+          row.appendChild(group);
+          card.appendChild(row);
+        }
+        mainContent.appendChild(card);
+      }
     }
 
     // Apps

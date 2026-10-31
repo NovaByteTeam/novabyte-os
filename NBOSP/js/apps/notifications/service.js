@@ -117,7 +117,13 @@ function getChannelForApp(appId, channelId) {
   const importance = override && CHANNEL_IMPORTANCES.has(override.importance)
     ? override.importance
     : (CHANNEL_IMPORTANCES.has(def.importance) ? def.importance : 'default');
-  return { ...def, enabled, importance, blocked: !enabled || importance === 'none' };
+  return {
+    ...def,
+    declaredImportance: def.importance,
+    enabled,
+    importance,
+    blocked: !enabled || importance === 'none',
+  };
 }
 
 // Queue an action click for the app to consume. Android delivers action
@@ -384,6 +390,14 @@ const Notify = {
     return Object.keys(channelDefs[appId] || {})
       .map(id => getChannelForApp(appId, id))
       .filter(Boolean);
+  },
+
+  // App ids that have registered at least one channel. Uninstalled apps are
+  // wiped from channelDefs on uninstall, so everything listed here is live.
+  // Used by the Settings > Notifications channel UI.
+  listAppsWithChannels() {
+    return Object.keys(channelDefs)
+      .filter(id => channelDefs[id] && Object.keys(channelDefs[id]).length > 0);
   },
 
   // Tag lookup for update-in-place — pinned entries are never tag targets
