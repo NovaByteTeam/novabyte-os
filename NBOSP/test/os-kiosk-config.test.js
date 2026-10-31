@@ -30,6 +30,7 @@ describe('NBOSP VMware kiosk device configuration', () => {
     );
     const deviceTable = readFileSync(new URL('../os/board/nbosp/device_table.txt', import.meta.url), 'utf8');
     const build = readFileSync(new URL('../os/build-iso.sh', import.meta.url), 'utf8');
+    const postBuild = readFileSync(new URL('../os/board/nbosp/post-build.sh', import.meta.url), 'utf8');
 
     expect(defconfig).toContain('BR2_PACKAGE_SUDO=y');
     expect(sudoers).toContain('nbosp ALL=(ALL) NOPASSWD: ALL');
@@ -38,6 +39,10 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(mainSudoers).toMatch(/^[#@]includedir\s+\/etc\/sudoers\.d\s*$/m);
     expect(deviceTable).toContain('/etc/sudoers\tf\t440\t0\t0');
     expect(deviceTable).toContain('/etc/sudoers.d/nbosp\tf\t440\t0\t0');
+    expect(postBuild).toContain('install -D -m 0440 "${SCRIPT_DIR}/rootfs-overlay/etc/sudoers"');
+    expect(postBuild).toContain('"${TARGET_DIR}/etc/sudoers"');
+    expect(postBuild).toContain('install -D -m 0440 "${SCRIPT_DIR}/rootfs-overlay/etc/sudoers.d/nbosp"');
+    expect(postBuild).toContain('"${TARGET_DIR}/etc/sudoers.d/nbosp"');
     expect(build).toContain('BR2_PACKAGE_SUDO \\');
     expect(build).toContain('SUDO_BIN="$OUTPUT_DIR/target/usr/bin/sudo"');
     expect(build).toContain('SUDOERS_FILE="$OUTPUT_DIR/target/etc/sudoers.d/nbosp"');
