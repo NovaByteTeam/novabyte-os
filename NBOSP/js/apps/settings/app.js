@@ -2421,6 +2421,81 @@ registerApp({
         }
       })();
 
+      // Security policy (NB-MAC). Shows the mandatory-access-control layer's
+      // mode, rule coverage, and the avc denial feed. Settings reads
+      // AppSandbox.macPolicySnapshot() directly — trusted host tier; the
+      // snapshot is deliberately not reachable over app IPC.
+      const macGroup = createEl('div', { className: 'nook-privacy-section' });
+      macGroup.appendChild(createEl('h3', { textContent: 'Security Policy (MAC)' }));
+      macGroup.appendChild(createEl('p', {
+        textContent: 'Every app call passes a mandatory access control check before it reaches a system handler. Enforcing domains are refused unless policy allows; permissive domains are only logged.',
+        style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
+      }));
+      mainContent.appendChild(macGroup);
+      (async () => {
+        let snap = null;
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.macPolicySnapshot) {
+            snap = await AppSandbox.macPolicySnapshot();
+          }
+        } catch (err) {
+          devLog('mac policy snapshot failed:', err);
+        }
+        if (!isAlive()) return;
+        if (!snap || !snap.info) {
+          macGroup.appendChild(createEl('p', {
+            textContent: 'Security policy information is unavailable in this session.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        const info = snap.info;
+        const modeLabel = (m) => (m === 'enforcing' ? 'Enforcing' : 'Permissive (log only)');
+        const statusRow = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+        statusRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Policy v' + info.policyVersion }));
+        statusRow.appendChild(createEl('span', {
+          textContent: 'Apps: ' + modeLabel(info.domains?.untrusted_app) + ' · Platform: ' + modeLabel(info.domains?.platform_module),
+          style: { opacity: '0.8' },
+        }));
+        statusRow.appendChild(createEl('div', {
+          textContent: info.grantCoupledEndpoints + ' grant-coupled endpoints · ' + info.advisoryEndpoints
+            + ' advisory endpoints · ' + info.advisoryFamilies + ' advisory families · '
+            + info.neverallow + ' neverallow rules',
+          style: { opacity: '0.65', fontSize: '11px' },
+        }));
+        statusRow.appendChild(createEl('div', {
+          textContent: info.denialsToday + ' enforced denial' + (info.denialsToday === 1 ? '' : 's') + ' today'
+            + (info.auditDropped ? ' · ' + info.auditDropped + ' audit entries dropped (rate limit)' : ''),
+          style: { opacity: '0.65', fontSize: '11px' },
+        }));
+        macGroup.appendChild(statusRow);
+        const denials = snap.denials || [];
+        if (!denials.length) {
+          macGroup.appendChild(createEl('p', {
+            textContent: 'No policy denials recorded. Apps are staying inside their allowed capabilities.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        for (const d of denials.slice(0, 25)) {
+          const appName = (typeof OS !== 'undefined' && OS.apps?.[d.appId]?.name) || d.appId || '(unknown)';
+          const when = new Date(d.t).toLocaleString();
+          const row = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: appName, title: d.appId || '' }));
+          top.appendChild(createEl('span', {
+            textContent: (d.enforced ? 'Denied' : 'Would deny (permissive)') + ' · ' + (d.endpoint || ''),
+            style: { opacity: '0.8' },
+          }));
+          row.appendChild(top);
+          row.appendChild(createEl('div', {
+            textContent: (d.perms && d.perms.length ? 'requires ' + d.perms.join(' | ') : 'no policy rule') + ' · ' + when,
+            style: { opacity: '0.65', fontSize: '11px', wordBreak: 'break-all' },
+          }));
+          macGroup.appendChild(row);
+        }
+      })();
+
       // Data management
       const exportSection = createEl('div', { className: 'nook-privacy-section' });
       exportSection.appendChild(createEl('h3', { textContent: 'Data Management' }));

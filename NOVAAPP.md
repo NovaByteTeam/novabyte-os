@@ -1675,3 +1675,50 @@ The eight implementation findings in the 2026-10-19 AppSandbox audit have been p
 - XHR `timeout` emits guest-side timeout events but does not yet cancel the host-side network operation. True incremental progress/upload-target events, synchronous XHR, and credentialed XHR remain unsupported. Use `fetch()` for new code.
 - Partition cleanup prevents a replacement app renderer from starting while required cleanup is pending or has failed. This is not a claim of forensic secure erasure, does not wipe `nova:storage:*`, and does not clear the separately partitioned content of nested browser views.
 - Validation completed: `node --check` passed for all five changed JavaScript files; focused Node checks passed for generated shim syntax, launch-option escaping, transparent HTML injection, restricted IPC dispatch, WebSocket URL classification, and the partition-cleanup failure path. The Vitest suite could not be run in this workspace because the `npm ci` install did not complete and `node_modules/vitest` remains incomplete; the newly added Vitest tests have not been executed here. Run `npm test` in `NBOSP/` with the project's dependencies installed before release.
+
+## MAC policy engine (NB-MAC)
+
+Every sandboxed IPC call passes a mandatory access control check in the bridge
+(`MacPolicy.checkIpc`, in `app-sandbox.js`) **before** any handler code runs.
+This is the JS-side analog of the SELinux layer Android stacks on top of its
+per-app UIDs — reimplemented in JS because the kernel route (per-app Linux
+UIDs) does not fit this architecture (single browser process, single-user OS;
+see "Linux per-app process mode" above and the storage ledger section).
+
+### The model
+
+| SELinux concept | NB-MAC equivalent |
+| --- | --- |
+| domain (process type) | app → domain via the policy `subjects` map, else `untrusted_app` |
+| type (object label) | IPC endpoint family (`nova:fs`, `nova:admin`, … — first two segments of the endpoint type) |
+| `allow src tgt:class perm` | `endpointGrants` rows: endpoint → ANY-of permission array, or `null` (advisory) |
+| `neverallow` | `verifyPolicy()` rejects policies that weaken protected targets |
+| avc audit log | rate-limited denial ring (`novaOS_mac_audit`), surfaced in Settings → Privacy |
+| permissive mode | per-domain: would-be denials are logged but passed through |
+
+### What apps observe
+
+- Grant-coupled endpoints behave exactly as before: without a required
+  permission the call is refused with `PERMISSION_DENIED` (now at the MAC
+  front door, message prefixed `Blocked by system security policy (MAC):`),
+  with the permission it succeeds. Handlers keep their own checks as defense
+  in depth.
+- Endpoints with an explicit `null` row (advisory) and endpoints whose family
+  is advisory pass MAC untouched — the handler's own context-sensitive checks
+  (fs path ownership, storage quotas, picker grants) remain the boundary.
+- An endpoint with **no policy row at all** is refused for enforcing domains
+  (`PERMISSION_DENIED`, "no policy rule for this endpoint"). New handlers must
+  be added to the policy — new attack surface is locked by default.
+
+### Rules for policy changes
+
+- The seed policy mirrors `tests/test_ipc_matrix.js` row for row. A policy
+  that fails `verifyCoverage(Object.keys(API_HANDLERS))` (handler left
+  uncovered) or `verifyPolicy()` (malformed row, unknown domain, or a
+  `neverallow` violation — e.g. making `nova:admin:*` advisory) cannot be
+  applied; both checks run in `tests/test_mac_policy.js`.
+- Rollout rule of thumb (the SELinux playbook): when adding a gated endpoint,
+  first ship it advisory under a permissive domain, watch the Settings denial
+  feed, then flip the row to grant-coupled and the domain to enforcing.
+- `AppSandbox.macPolicySnapshot()` is host-tier only (never reachable over
+  app IPC) and feeds the Settings → Privacy → Security Policy panel.
