@@ -1272,17 +1272,38 @@ const AppSandbox = (() => {
   }
 
   // Sanitize an app id for safe interpolation into a /data/ path segment.
-  // Strips anything that isn't a word char or dash — notably including dots
-  // now, since a bare '..' previously survived this unchanged (the old
-  // pattern allowed dots and dashes both, so '..' matched every character
-  // and passed through as-is). The one path that constructs an appId here
-  // (handleAppInstall) requires signature verification before an id ever
-  // reaches this function, so '..' isn't reachable through it today — but
-  // this is the last line of defense if a future sideload/dev-install path
-  // ever skips that check, so it strips dots regardless of current
-  // reachability.
+  // Dots are PRESERVED so the segment is the app's real id — the same name
+  // AppDirs bootstraps under ~/.local/share/novabyte/data/<appId>/ on Linux
+  // — instead of a mangled com_example_app shadow folder that split each
+  // app's data across two differently-named trees. Safety comes from the
+  // shape check rather than from stripping dots: every unsafe character
+  // (path separators, whitespace, unicode, ...) is replaced with '_', and
+  // the result must START with an alphanumeric character, so '', '.', '..',
+  // and any dot-led traversal shape can never survive (they collapse to
+  // 'default' or a stripped form). A bare '..' therefore stays unreachable
+  // exactly as before — handleAppInstall only admits signature-verified ids
+  // today, but this remains the last line of defense for future install
+  // paths that might skip that check.
   function sanitizeAppIdSegment(appId) {
-    return String(appId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+    let segment = String(appId || 'default').replace(/[^a-zA-Z0-9._-]/g, '_');
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(segment)) {
+      segment = segment.replace(/^[._-]+/, '');
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(segment)) segment = 'default';
+    }
+    return segment;
+  }
+
+  // The /data/ segment the CALLING app owns: alias-canonicalized first (a
+  // legacy id like com.nbosp.quill owns com.nbosp.textedit's data subtree —
+  // the same folder AppDirs maintains for it), then reduced to a safe
+  // segment. Every /data path construction and ownership comparison must go
+  // through this so an app's data lives under exactly one folder name.
+  function appDataSegment(appId) {
+    let canonical = appId;
+    try {
+      canonical = window.NovaAppIdAliases?.canonicalize?.(appId) || appId;
+    } catch (_) { /* no host window (tests) — use the id as-is */ }
+    return sanitizeAppIdSegment(canonical);
   }
 
   // Notification gateway helpers
@@ -1557,6 +1578,17 @@ const AppSandbox = (() => {
   // entirely.
   function filesystemRelativePath(canonicalPath) {
     const path = String(canonicalPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    /* Linux keeps app data at ~/.local/share/novabyte/data (the tree AppDirs
+       bootstraps), so the app-data root's NATIVE path is not a first-level
+       child of home. Map it back to the logical /data form the ownership
+       checks and picker rules are written against — before the generic
+       root-relative fallback, which would otherwise expose it as a plain
+       shared folder under /.local/... */
+    const dataRoot = String(FS.specialFolders?.data || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (dataRoot) {
+      if (path === dataRoot) return '/data';
+      if (path.startsWith(`${dataRoot}/`)) return `/data${path.slice(dataRoot.length)}`;
+    }
     const root = String(FS.getPath(FS.rootId) || '').replace(/\\/g, '/').replace(/\/+$/, '');
     if (path === root) return '/';
     if (root && path.startsWith(`${root}/`)) return path.slice(root.length);
@@ -1637,7 +1669,7 @@ const AppSandbox = (() => {
       // null from expandLogicalFsPath is a refused shared:/media: mapping.
       if (expanded === null) return null;
       const rewritten = expanded.startsWith('/data/')
-        ? '/data/' + sanitizeAppIdSegment(appId) + expanded.slice('/data'.length)
+        ? '/data/' + appDataSegment(appId) + expanded.slice('/data'.length)
         : expanded;
       node = FS.getByPath(rewritten);
     } else {
@@ -1647,7 +1679,7 @@ const AppSandbox = (() => {
 
     const canonicalPath = FS.getPath(node.id);
     const ownerAppId = ownerAppIdForNode(node, canonicalPath);
-    const safeAppId = sanitizeAppIdSegment(appId);
+    const safeAppId = appDataSegment(appId);
 
     // Enforce filesystem ownership for every sandboxed caller. Broad access includes
     // shared user files, never another app's private data.
@@ -1680,7 +1712,7 @@ const AppSandbox = (() => {
   }
 
   function isOwnedByApp(node, appId) {
-    return ownerAppIdForNode(node, FS.getPath(node.id)) === sanitizeAppIdSegment(appId);
+    return ownerAppIdForNode(node, FS.getPath(node.id)) === appDataSegment(appId);
   }
 
   function canReadFileContents(node, appId, sandbox) {
@@ -1748,7 +1780,7 @@ const AppSandbox = (() => {
   function rewriteDataPath(rawPath, appId) {
     const p = String(rawPath || '');
     if (!p.startsWith('/data/')) return p;
-    return '/data/' + sanitizeAppIdSegment(appId) + p.slice('/data'.length);
+    return '/data/' + appDataSegment(appId) + p.slice('/data'.length);
   }
 
   // File dialog
@@ -1833,7 +1865,7 @@ const AppSandbox = (() => {
         mode === 'open'
           ? resolveFile({ id: item.id }, app.id)
           : resolveFile({ id: item.id }, app.id, true, broadAccess)
-            || (item.type === 'folder' && FS.getPath(item.id) === '/data')
+            || (item.type === 'folder' && isAppDataContainer(item))
       );
 
       children.sort((a, b) => {
