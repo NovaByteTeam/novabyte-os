@@ -3,6 +3,8 @@
   'use strict';
 
   const sandboxStates = new Map();
+  const CAPTURE_TIMEOUT_MS = 1500;
+  const MAX_ANNOTATION_EXPORT_LENGTH = 2_000_000;
   const WEBVIEW_EVENTS = [
     'loadstart', 'loadredirect', 'loadcommit', 'loadstop', 'contentload',
     'loadabort', 'loaderror', 'close', 'crashed', 'exit', 'did-fail-load',
@@ -17,6 +19,8 @@
         appId,
         views: new Map(),
         pendingPopups: new Map(),
+        guests: new Map(),
+        freezeSeq: 0,
       };
       sandboxStates.set(sandbox, state);
     }
@@ -32,6 +36,261 @@
       'INTERNAL_ERROR',
       error?.message || 'Webview operation failed'
     );
+  }
+
+  /*
+   * <webview> guests are composited by NW.js as separate out-of-process
+   * surfaces that render above ordinary same-window DOM content regardless
+   * of z-index or stacking context (the same fact showFileDialog in
+   * app-sandbox.js works around). The only thing that reliably wins against
+   * a guest is toggling its own visibility. These helpers hide a guest while
+   * host pixels (overlays, context menus, dialogs) must appear above it,
+   * optionally leaving a captured still of the guest so the page does not
+   * blank out behind the overlay.
+   */
+
+  function captureGuest(child) {
+    return new Promise(resolve => {
+      if (!child || typeof child.capturePage !== 'function') return resolve(null);
+      let settled = false;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => finish(null), CAPTURE_TIMEOUT_MS);
+      try {
+        const maybe = child.capturePage(result => {
+          let dataUrl = result;
+          if (dataUrl && typeof dataUrl === 'object' && typeof dataUrl.toDataURL === 'function') {
+            try { dataUrl = dataUrl.toDataURL(); } catch (_) { dataUrl = null; }
+          }
+          finish(typeof dataUrl === 'string' && dataUrl.startsWith('data:image') ? dataUrl : null);
+        });
+        if (maybe && typeof maybe.then === 'function') maybe.then(finish, () => finish(null));
+      } catch (_) {
+        finish(null);
+      }
+    });
+  }
+
+  async function freezeGuest(state, guest, { capture = true } = {}) {
+    if (!guest || !guest.isConnected) return { captured: false };
+    let record = state.guests.get(guest);
+    if (!record) {
+      record = { img: null, baseVisibility: guest.style.visibility || 'visible', refs: 0 };
+      state.guests.set(guest, record);
+    }
+    record.refs += 1;
+    if (record.img) return { captured: true };
+    if (record.pending) {
+      await record.pending;
+      return { captured: Boolean(record.img) };
+    }
+    record.pending = (async () => {
+      const dataUrl = capture ? await captureGuest(guest) : null;
+      /* The guest may have been restored or destroyed while the capture was
+         in flight — in that case drop our ref instead of hiding it. */
+      if (state.guests.get(guest) !== record || !guest.isConnected) return;
+      if (dataUrl) {
+        const img = guest.ownerDocument.createElement('img');
+        img.src = dataUrl;
+        img.alt = '';
+        img.setAttribute('aria-hidden', 'true');
+        img.style.cssText = 'position:absolute;border:0;margin:0;padding:0;pointer-events:none;object-fit:fill;'
+          + `left:${guest.style.left || '0px'};top:${guest.style.top || '0px'};`
+          + `width:${guest.style.width || '100%'};height:${guest.style.height || '100%'};`;
+        if (guest.style.zIndex) img.style.zIndex = guest.style.zIndex;
+        guest.parentNode?.insertBefore(img, guest.nextSibling);
+        record.img = img;
+      }
+      guest.style.visibility = 'hidden';
+    })();
+    try { await record.pending; } finally { record.pending = null; }
+    return { captured: Boolean(record.img) };
+  }
+
+  function unfreezeGuest(state, guest) {
+    const record = guest && state.guests.get(guest);
+    if (!record) return;
+    record.refs -= 1;
+    if (record.refs > 0) return;
+    if (record.img) {
+      record.img.remove();
+      record.img = null;
+    }
+    if (guest.isConnected) guest.style.visibility = record.baseVisibility;
+    state.guests.delete(guest);
+  }
+
+  function syncGuestTwin(state, guest) {
+    const record = guest && state.guests.get(guest);
+    if (!record?.img) return;
+    const img = record.img;
+    img.style.left = guest.style.left;
+    img.style.top = guest.style.top;
+    img.style.width = guest.style.width;
+    img.style.height = guest.style.height;
+    img.style.display = guest.style.display === 'none' ? 'none' : 'block';
+  }
+
+  async function freezeSandbox(sandbox, { capture = true } = {}) {
+    const state = sandboxStates.get(sandbox);
+    if (!state) return { captured: false };
+    /* Generation guard: restoreSandbox (or a newer freeze) while captures
+       are in flight must not leave half-frozen guests behind. */
+    const generation = ++state.freezeSeq;
+    const guests = [];
+    if (sandbox?.webview?.isConnected) guests.push(sandbox.webview);
+    for (const entry of state.views.values()) {
+      if (entry.view?.isConnected && !guests.includes(entry.view)) guests.push(entry.view);
+    }
+    let captured = false;
+    for (const guest of guests) {
+      if (generation !== state.freezeSeq) break;
+      const result = await freezeGuest(state, guest, { capture });
+      captured = captured || result.captured;
+    }
+    if (generation !== state.freezeSeq) {
+      for (const guest of guests) unfreezeGuest(state, guest);
+      return { captured: false, superseded: true };
+    }
+    return { captured };
+  }
+
+  function restoreSandbox(sandbox) {
+    const state = sandboxStates.get(sandbox);
+    if (!state) return;
+    state.freezeSeq += 1;
+    if (sandbox?.webview) unfreezeGuest(state, sandbox.webview);
+    for (const entry of state.views.values()) unfreezeGuest(state, entry.view);
+  }
+
+  function dropGuestRecord(state, guest) {
+    const record = guest && state.guests.get(guest);
+    if (!record) return;
+    if (record.img) record.img.remove();
+    state.guests.delete(guest);
+  }
+
+  const runGuestScript = (child, code) => new Promise(resolve => {
+    try { child.executeScript({ code }, () => resolve(true)); } catch (_) { resolve(false); }
+  });
+
+  async function handleAnnotation(state, child, entry, payload) {
+    const command = payload?.command;
+    if (command === 'enable') {
+      entry.annotationEnabled = true;
+      entry.annotationOptions = payload.options && typeof payload.options === 'object' ? payload.options : {};
+      const installed = await runGuestScript(child, annotationLayerScript(entry.annotationMarker));
+      if (installed) await applyAnnotationOptions(child, entry.annotationOptions);
+      return { success: installed, installed };
+    }
+    if (command === 'disable') {
+      entry.annotationEnabled = false;
+      await runGuestScript(child,
+        'try { window.__novaAnnotationLayer && window.__novaAnnotationLayer.setActive(false); '
+        + 'document.querySelector("[data-nova-annotation-layer]")?.remove(); '
+        + 'delete window.__novaAnnotationLayer; } catch (_) {} true;');
+      return { success: true };
+    }
+    if (!entry.annotationEnabled) {
+      return { success: false, reason: 'Annotation layer is not enabled' };
+    }
+    if (command === 'style' || command === 'active') {
+      const options = command === 'style' ? payload.options : { active: payload.active };
+      entry.annotationOptions = { ...entry.annotationOptions, ...options };
+      await applyAnnotationOptions(child, options);
+      return { success: true };
+    }
+    if (command === 'clear' || command === 'undo') {
+      await runGuestScript(child,
+        `window.__novaAnnotationLayer && window.__novaAnnotationLayer.${command === 'clear' ? 'clear' : 'undo'}()`);
+      return { success: true };
+    }
+    if (command === 'export') {
+      const sent = await runGuestScript(child,
+        'window.__novaAnnotationLayer && window.__novaAnnotationLayer.export()');
+      return { success: sent };
+    }
+    return { success: false, reason: 'Unsupported annotation command' };
+  }
+
+  async function applyAnnotationOptions(child, options = {}) {
+    const style = {};
+    if (typeof options.color === 'string') style.color = options.color.slice(0, 64);
+    if (Number.isFinite(Number(options.lineWidth))) style.lineWidth = Math.max(1, Math.min(64, Number(options.lineWidth)));
+    const active = typeof options.active === 'boolean' ? options.active : undefined;
+    await runGuestScript(child,
+      `window.__novaAnnotationLayer && window.__novaAnnotationLayer.configure(${JSON.stringify({ ...style, active })})`);
+  }
+
+  /* The annotation layer lives INSIDE the guest: host-side DOM can never
+     composite above a webview guest, so interactive pixels that must appear
+     over the page have to be part of the guest's own document. The layer is
+     a fixed-position canvas that captures pointer input while active and
+     exports its content through the console bridge (captured in the
+     consolemessage listener below). */
+  function annotationLayerScript(marker) {
+    return '(() => {'
+      + 'if (window.__novaAnnotationLayer) return true;'
+      + 'const state = { active: false, color: "#ff4d6d", lineWidth: 3, strokes: [], redo: [], drawing: false, points: null };'
+      + 'const canvas = document.createElement("canvas");'
+      + 'canvas.setAttribute("data-nova-annotation-layer", "");'
+      + 'canvas.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483647;display:none;touch-action:none;cursor:crosshair;";'
+      + '(document.body || document.documentElement).appendChild(canvas);'
+      + 'const ctx = canvas.getContext("2d");'
+      + 'const ratio = () => window.devicePixelRatio || 1;'
+      + 'function drawStroke(s) {'
+      + '  if (!s || s.points.length === 0) return;'
+      + '  ctx.strokeStyle = s.color; ctx.lineWidth = s.lineWidth; ctx.lineCap = "round"; ctx.lineJoin = "round";'
+      + '  ctx.beginPath();'
+      + '  if (s.points.length === 1) { ctx.arc(s.points[0].x, s.points[0].y, s.lineWidth / 2, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill(); return; }'
+      + '  ctx.moveTo(s.points[0].x, s.points[0].y);'
+      + '  for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y);'
+      + '  ctx.stroke();'
+      + '}'
+      + 'function redraw() {'
+      + '  const r = ratio(); ctx.setTransform(r, 0, 0, r, 0, 0);'
+      + '  ctx.clearRect(0, 0, canvas.width / r, canvas.height / r);'
+      + '  for (const s of state.strokes) drawStroke(s);'
+      + '  if (state.drawing && state.points) drawStroke({ color: state.color, lineWidth: state.lineWidth, points: state.points });'
+      + '}'
+      + 'function resize() {'
+      + '  const r = ratio();'
+      + '  canvas.width = Math.max(1, Math.round(window.innerWidth * r));'
+      + '  canvas.height = Math.max(1, Math.round(window.innerHeight * r));'
+      + '  redraw();'
+      + '}'
+      + 'function pointOf(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }'
+      + 'canvas.addEventListener("pointerdown", e => {'
+      + '  if (!state.active) return;'
+      + '  e.preventDefault(); canvas.setPointerCapture(e.pointerId);'
+      + '  state.drawing = true; state.points = [pointOf(e)]; redraw();'
+      + '});'
+      + 'canvas.addEventListener("pointermove", e => {'
+      + '  if (!state.active || !state.drawing) return;'
+      + '  e.preventDefault(); state.points.push(pointOf(e)); redraw();'
+      + '});'
+      + 'const finishStroke = e => {'
+      + '  if (!state.drawing) return;'
+      + '  state.drawing = false; state.strokes.push({ color: state.color, lineWidth: state.lineWidth, points: state.points });'
+      + '  state.points = null; redraw();'
+      + '};'
+      + 'canvas.addEventListener("pointerup", finishStroke);'
+      + 'canvas.addEventListener("pointercancel", finishStroke);'
+      + 'window.addEventListener("resize", resize);'
+      + 'window.__novaAnnotationLayer = {'
+      + '  configure(o) { if (!o) return; if (typeof o.color === "string") state.color = o.color; if (Number.isFinite(+o.lineWidth)) state.lineWidth = Math.max(1, Math.min(64, +o.lineWidth)); if (typeof o.active === "boolean") state.active = o.active; canvas.style.display = state.active ? "block" : "none"; if (state.active) resize(); redraw(); },'
+      + '  setActive(v) { state.active = !!v; canvas.style.display = state.active ? "block" : "none"; if (state.active) resize(); },'
+      + '  clear() { state.strokes = []; state.redo = []; state.points = null; redraw(); },'
+      + '  undo() { state.redo.push(state.strokes.pop()); redraw(); },'
+      + '  export() { try { console.log(\'' + marker + '\' + canvas.toDataURL("image/png")); } catch (_) {} },'
+      + '};'
+      + 'resize();'
+      + 'return true;'
+      + '})()';
   }
 
   async function handleRequest(context) {
@@ -113,6 +372,7 @@
           try { console.log(marker + JSON.stringify(payload)); } catch (_) {}
         }, true);
       })();`;
+      const annotationMarker = `__NOVA_ANNOTATION_EXPORT__:${id}:`;
 
       if (app.id === 'com.nbosp.browser' && typeof child.addContentScripts === 'function') {
         try {
@@ -162,6 +422,11 @@
       };
       for (const name of WEBVIEW_EVENTS) {
         const listener = event => {
+          if (name === 'loadstop' && state.views.get(id)?.annotationEnabled) {
+            runGuestScript(child, annotationLayerScript(annotationMarker)).then(installed => {
+              if (installed) applyAnnotationOptions(child, state.views.get(id)?.annotationOptions || {});
+            });
+          }
           if (name === 'loadstop' && contextMenuMarker) {
             try {
               child.executeScript({ code: contextMenuScript }, results => {
@@ -172,6 +437,13 @@
             } catch (error) {
               log('warn', 'Could not install nested browser context menu bridge', error);
             }
+          }
+          if (name === 'consolemessage' && typeof event?.message === 'string' && event.message.startsWith(annotationMarker)) {
+            const dataUrl = event.message.slice(annotationMarker.length);
+            if (dataUrl.startsWith('data:image/') && dataUrl.length <= MAX_ANNOTATION_EXPORT_LENGTH) {
+              respond(webview, 'nova:nested-webview:event', id, { proxyId: id, eventName: 'annotation-export', dataUrl });
+            }
+            return;
           }
           if (name === 'consolemessage' && typeof event?.message === 'string' && event.message.startsWith(contextMenuMarker)) {
             let contextData;
@@ -230,7 +502,7 @@
       cleanups.push(() => child.removeEventListener('will-navigate', navigationListener));
       cleanups.push(setupPermissionRequestGate(child));
       parent.style.position ||= 'relative';
-      entry = { view: child, cleanups };
+      entry = { view: child, cleanups, annotationEnabled: false, annotationOptions: {}, annotationMarker };
       state.views.set(id, entry);
       parent.appendChild(child);
 
@@ -249,6 +521,20 @@
     if (action === 'destroy') {
       destroyView(state, id, entry, log);
       return respond(webview, 'nova:nested-webview', requestId, { success: true });
+    }
+
+    if (action === 'freeze') {
+      const result = await freezeGuest(state, child, { capture: payload.capture !== false });
+      return respond(webview, 'nova:nested-webview', requestId, { success: true, ...result });
+    }
+
+    if (action === 'unfreeze') {
+      unfreezeGuest(state, child);
+      return respond(webview, 'nova:nested-webview', requestId, { success: true });
+    }
+
+    if (action === 'annotation') {
+      return respond(webview, 'nova:nested-webview', requestId, await handleAnnotation(state, child, entry, payload));
     }
 
     if (action === 'bounds') {
@@ -271,9 +557,14 @@
       child.style.width = `${width}px`;
       child.style.height = `${height}px`;
       child.style.display = visible ? 'flex' : 'none';
-      child.style.visibility = bounds.visibility === 'hidden' ? 'hidden' : 'visible';
+      /* While the guest is frozen (hidden behind a captured still), the
+         bounds sync must not unhide it — the facade reports the proxy's
+         visibility, which says nothing about the freeze. */
+      const frozen = state.guests.has(child);
+      child.style.visibility = bounds.visibility === 'hidden' || frozen ? 'hidden' : 'visible';
       child.style.pointerEvents = bounds.pointerEvents === 'none' ? 'none' : 'auto';
       child.style.zIndex = String(Math.max(0, Math.min(100, Number(bounds.zIndex) || 1)));
+      syncGuestTwin(state, child);
       return respond(webview, 'nova:nested-webview', requestId, { success: true });
     }
 
@@ -379,6 +670,7 @@
     for (const cleanup of entry.cleanups) {
       try { cleanup(); } catch (error) { log('warn', 'Nested webview cleanup failed', error); }
     }
+    dropGuestRecord(state, entry.view);
     try { entry.view.remove(); }
     catch (error) { log('warn', 'Nested webview removal failed', error); }
   }
@@ -389,6 +681,10 @@
       try { pending.discard(); } catch (error) { log('warn', 'Pending popup cleanup failed', error); }
     }
     state.pendingPopups.clear();
+    for (const record of state.guests.values()) {
+      if (record.img) record.img.remove();
+    }
+    state.guests.clear();
   }
 
   function destroySandbox(sandbox) {
@@ -421,5 +717,7 @@
     },
     destroySandbox,
     revokeApp,
+    freezeSandbox,
+    restoreSandbox,
   });
 })();

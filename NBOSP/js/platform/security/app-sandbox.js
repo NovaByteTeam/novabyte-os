@@ -2794,10 +2794,23 @@ const AppSandbox = (() => {
     let menuElement;
     const cleanup = () => {
       if (sandbox.contextMenuCleanup === cleanup) sandbox.contextMenuCleanup = null;
+      /* Unfreeze the guests this menu hid — see the freeze below. */
+      window.NovaSystemWebview?.restoreSandbox?.(sandbox);
       hostContextMenu.hide(menuElement);
     };
+    /* The menu MUST be shown synchronously (apps are allowed to dismiss it
+       in the same tick, and a newer show must cleanly replace this one), so
+       it renders before the guests are frozen: the freeze kicks off right
+       after and pops the menu above the captured stills once it lands. The
+       menu is body-level host DOM: it loses to every webview guest AND,
+       while its window is focused, to the window itself (.context-menu sits
+       at --z-popup while focused windows are raised above it) — hence both
+       the freeze and the z-index raise. */
     menuElement = hostContextMenu.show(rect.left + x, rect.top + y, menuItems, resolveSelection);
+    const windowZ = Number(sandbox.state?.element?.style?.zIndex);
+    if (menuElement && Number.isFinite(windowZ)) menuElement.style.zIndex = String(windowZ + 1);
     sandbox.contextMenuCleanup = cleanup;
+    window.NovaSystemWebview?.freezeSandbox?.(sandbox)?.catch?.(() => {});
 
     const selectedIndex = await selection;
     if (sandbox.contextMenuCleanup === cleanup) sandbox.contextMenuCleanup = null;
@@ -2896,6 +2909,10 @@ const AppSandbox = (() => {
     };
     const cleanup = () => {
       if (sandbox.overlayCleanup === cleanup) sandbox.overlayCleanup = null;
+      /* The sandbox's webviews were frozen (hidden behind captured stills) so
+         this overlay could composite above them — restore them on the way
+         out, whatever path led here. */
+      window.NovaSystemWebview?.restoreSandbox?.(sandbox);
       if (!responseSent) {
         responseSent = true;
         respondError(webview, 'nova:overlay:show', requestId, 'CANCELLED', 'Overlay was closed before rendering completed');
@@ -2970,6 +2987,11 @@ const AppSandbox = (() => {
       cleanup();
       respondError(webview, 'nova:overlay:show', requestId, 'RENDER_FAILED', 'Could not load the host overlay document');
     }, { once: true });
+    /* Host DOM always loses to a <webview> guest surface (regardless of
+       z-index), so freeze the sandbox's guests into captured stills before
+       the overlay iframe is appended — otherwise this overlay renders
+       behind the app's webview and the nested webview and is invisible. */
+    try { await window.NovaSystemWebview?.freezeSandbox?.(sandbox); } catch (_) { /* overlay still renders, page may blank */ }
     overlayParent.appendChild(iframe);
     return undefined;
   }
@@ -9191,6 +9213,34 @@ const AppSandbox = (() => {
       __valueCommand(command, value) {
         return ipc('nova:nested-webview', { action: 'command', id: this.__nestedId, command, value });
       }
+      /* Freeze the guest into a still frame (captured via capturePage) and
+         hide the live surface, so the app's own DOM can composite above the
+         frozen page. Guests always render above host DOM regardless of
+         z-index, so this is the only way to layer under host pixels while
+         keeping the page visible. */
+      setOverlayActive(active) {
+        return ipc('nova:nested-webview', { action: active === true ? 'freeze' : 'unfreeze', id: this.__nestedId });
+      }
+      /* Interactive annotation layer — a canvas the host injects INTO the
+         guest document, because host DOM can never render above a guest. */
+      setAnnotationLayer(options) {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'enable', options: options || {} });
+      }
+      updateAnnotationLayer(patch) {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'style', options: patch || {} });
+      }
+      setAnnotationActive(active) {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'active', active: active === true });
+      }
+      clearAnnotationLayer() {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'clear' });
+      }
+      undoAnnotationLayer() {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'undo' });
+      }
+      exportAnnotationLayer() {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'export' });
+      }
     }
 
     customElements.define('nova-nested-webview', NovaNestedWebview);
@@ -9330,6 +9380,11 @@ const AppSandbox = (() => {
             });
           }
         };
+        this._onAnnotationExport = event => {
+          if (typeof event?.dataUrl === 'string' && event.dataUrl.startsWith('data:image/')) {
+            this._emit('annotation-export', { dataUrl: event.dataUrl });
+          }
+        };
         this._onContextMenu = event => {
           const rect = element.getBoundingClientRect();
           const viewportWidth = Number(event.viewportWidth) || rect.width || 1;
@@ -9359,6 +9414,7 @@ const AppSandbox = (() => {
         element.addEventListener('newwindow', this._onNewWindow);
         element.addEventListener('permissionrequest', this._onPermissionRequest);
         element.addEventListener('contextmenu', this._onContextMenu);
+        element.addEventListener('annotation-export', this._onAnnotationExport);
         if (pollingInterval > 0) {
           this._pollTimer = setInterval(() => {
             this.refreshState().catch(error => this._reportStateError(error));
@@ -9468,6 +9524,13 @@ const AppSandbox = (() => {
       setZoom(zoom) { return this.element.setZoom(zoom); }
       setZoomMode(mode) { return this.element.setZoomMode(mode); }
       setUserAgent(userAgent) { return this.element.setUserAgentOverride(userAgent); }
+      setOverlayActive(active) { return this.element.setOverlayActive(active === true); }
+      setAnnotationLayer(options) { return this.element.setAnnotationLayer(options); }
+      updateAnnotationLayer(patch) { return this.element.updateAnnotationLayer(patch); }
+      setAnnotationActive(active) { return this.element.setAnnotationActive(active === true); }
+      clearAnnotationLayer() { return this.element.clearAnnotationLayer(); }
+      undoAnnotationLayer() { return this.element.undoAnnotationLayer(); }
+      exportAnnotationLayer() { return this.element.exportAnnotationLayer(); }
       executeScript(code) {
         if (typeof code !== 'string' || !code.trim()) return Promise.reject(new TypeError('Script code is required'));
         return this.element.executeScript({ code });
@@ -9491,6 +9554,7 @@ const AppSandbox = (() => {
         this.element.removeEventListener('newwindow', this._onNewWindow);
         this.element.removeEventListener('permissionrequest', this._onPermissionRequest);
         this.element.removeEventListener('contextmenu', this._onContextMenu);
+        this.element.removeEventListener('annotation-export', this._onAnnotationExport);
         this.element.remove();
         this._emit('destroy', {});
       }

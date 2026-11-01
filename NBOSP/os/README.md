@@ -307,6 +307,43 @@ the surface to the top of the managed X11 stack whenever cage focuses the view
 sway's handling of the same wlroots API. Override-redirect surfaces are skipped:
 wlroots asserts on restacking them and they always map above managed windows.
 
+### Nested webview overlays, context menus, and the annotation layer
+
+`<webview>` guests are composited by NW.js as separate out-of-process surfaces
+that render above ordinary same-window DOM content regardless of z-index or
+stacking context. Host pixels can only win by toggling the guest's own
+visibility — the same fact `showFileDialog` has always worked around.
+`nova:overlay:show` and `nova:context-menu:show` rendered body/window-level
+host DOM and therefore lost to the app's webview and any nested webview, so
+both appeared behind the page: static overlays were invisible and host context
+menus never surfaced.
+
+The sandbox stack now freezes guests behind captured stills for the duration
+of an overlay or context menu (`NovaSystemWebview.freezeSandbox` /
+`restoreSandbox`, refcounted and generation-guarded so overlapping menus,
+in-flight captures, and bounds updates cannot leak a frozen guest), raises the
+context menu above its own window's z-index, and keeps the page visible behind
+the stills instead of blanking it.
+
+For interactive pixels above a webview — annotation tools drawing over the
+page — host DOM can never work even when frozen, because the app's own UI is
+itself a guest surface. The nested-webview API therefore gained an
+annotation layer that lives inside the guest document:
+
+- `browserView.setAnnotationLayer({ color, lineWidth, active })` injects a
+  fixed-position canvas into the page that captures pointer input while
+  active; it re-injects itself after every navigation.
+- `browserView.updateAnnotationLayer({ color, lineWidth })`,
+  `browserView.setAnnotationActive(bool)`, `browserView.clearAnnotationLayer()`,
+  and `browserView.undoAnnotationLayer()` drive the tool state.
+- `browserView.exportAnnotationLayer()` resolves through the console bridge
+  and emits an `annotation-export` event on the view carrying the canvas as a
+  PNG data URL.
+- `browserView.setOverlayActive(true)` freezes the live guest behind a
+  captured still so the app's own DOM can composite above it — only useful
+  when the app keeps its view container transparent, since an opaque app
+  background still paints over the frozen page.
+
 ## Current limitations
 
 This image targets the VMware virtual SVGA device first. Graphics support for
