@@ -2463,3 +2463,281 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
   });
 
 });
+
+describe('sandbox escape popups (sandbox:escape-popups)', () => {
+  const granted = { isGranted: permission => permission === 'sandbox:escape-popups' };
+  const denied = { isGranted: () => false };
+
+  it('honors the documented top-level allowPopupsToEscapeSandbox manifest flag', () => {
+    vi.stubGlobal('AppPermissionManager', granted);
+    try {
+      const app = { id: 'com.example.oauth', allowPopupsToEscapeSandbox: true };
+      const attr = AppSandbox._internal.sanitizeSandboxAttr(app.sandbox, app.id, false, app);
+      expect(attr).toContain('allow-popups');
+      expect(attr).toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('honors the flag set under manifest.allowPopupsToEscapeSandbox', () => {
+    vi.stubGlobal('AppPermissionManager', granted);
+    try {
+      const app = { id: 'com.example.oauth2', manifest: { allowPopupsToEscapeSandbox: true } };
+      const attr = AppSandbox._internal.sanitizeSandboxAttr(app.sandbox, app.id, false, app);
+      expect(attr).toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the legacy sandbox-object opt-in for direct callers without an app object', () => {
+    vi.stubGlobal('AppPermissionManager', granted);
+    try {
+      const attr = AppSandbox._internal.sanitizeSandboxAttr(
+        { allowPopupsToEscapeSandbox: true }, 'com.example.legacy', false
+      );
+      expect(attr).toContain('allow-popups');
+      expect(attr).toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('adds no escape token without the user grant, in any config shape', () => {
+    vi.stubGlobal('AppPermissionManager', denied);
+    try {
+      // Config-less app: the default token set already includes allow-popups
+      // (pre-existing baseline behavior), but the escape token must not appear.
+      const configless = AppSandbox._internal.sanitizeSandboxAttr(
+        undefined, 'com.example.ungranted', false,
+        { id: 'com.example.ungranted', allowPopupsToEscapeSandbox: true }
+      );
+      expect(configless).toContain('allow-popups');
+      expect(configless).not.toContain('allow-popups-to-escape-sandbox');
+
+      // Object form with popups never declared: neither popup token appears.
+      const objectForm = AppSandbox._internal.sanitizeSandboxAttr(
+        { allowScripts: true }, 'com.example.ungranted', false,
+        { id: 'com.example.ungranted', allowPopupsToEscapeSandbox: true }
+      );
+      expect(objectForm).not.toContain('allow-popups');
+      expect(objectForm).not.toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('never self-grants the escape token from a string-form sandbox config', () => {
+    vi.stubGlobal('AppPermissionManager', denied);
+    try {
+      const deniedAttr = AppSandbox._internal.sanitizeSandboxAttr(
+        'allow-scripts allow-popups allow-popups-to-escape-sandbox', 'com.example.string', false
+      );
+      expect(deniedAttr).toContain('allow-popups');
+      expect(deniedAttr).not.toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    vi.stubGlobal('AppPermissionManager', granted);
+    try {
+      const grantedAttr = AppSandbox._internal.sanitizeSandboxAttr(
+        'allow-scripts allow-popups allow-popups-to-escape-sandbox', 'com.example.string', false
+      );
+      expect(grantedAttr).toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('implies allow-popups when escape is permitted but allowPopups was never declared', () => {
+    vi.stubGlobal('AppPermissionManager', granted);
+    try {
+      // allow-popups-to-escape-sandbox only controls sandbox inheritance of
+      // an OPENED popup; without allow-popups the popup is blocked outright.
+      const app = { id: 'com.example.escape-only', sandbox: {}, allowPopupsToEscapeSandbox: true };
+      const attr = AppSandbox._internal.sanitizeSandboxAttr(app.sandbox, app.id, false, app);
+      expect(attr).toContain('allow-popups');
+      expect(attr).toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('leaves popups blocked for apps without the manifest opt-in', () => {
+    vi.stubGlobal('AppPermissionManager', granted);
+    try {
+      const app = { id: 'com.example.opted-out', sandbox: { allowScripts: true } };
+      const attr = AppSandbox._internal.sanitizeSandboxAttr(app.sandbox, app.id, false, app);
+      expect(attr).toContain('allow-scripts');
+      expect(attr).not.toContain('allow-popups-to-escape-sandbox');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('sandbox popup display (setupSandboxPopupHandler)', () => {
+  function makeFakeElement(tag = 'div') {
+    const listeners = new Map();
+    const element = {
+      tagName: tag,
+      style: { cssText: '' },
+      attrs: {},
+      children: [],
+      setAttribute(name, value) { element.attrs[name] = value; },
+      appendChild(child) { element.children.push(child); return child; },
+      append(...children) { element.children.push(...children); },
+      addEventListener(name, fn) {
+        if (!listeners.has(name)) listeners.set(name, []);
+        listeners.get(name).push(fn);
+      },
+      removeEventListener(name, fn) {
+        const queue = listeners.get(name) || [];
+        const index = queue.indexOf(fn);
+        if (index !== -1) queue.splice(index, 1);
+      },
+      remove: vi.fn(),
+      fire(name, event) {
+        for (const fn of [...(listeners.get(name) || [])]) fn(event);
+      },
+    };
+    return element;
+  }
+
+  function installFakeDocument() {
+    const created = [];
+    vi.stubGlobal('document', {
+      createElement: tag => {
+        const element = makeFakeElement(tag);
+        created.push(element);
+        return element;
+      },
+    });
+    vi.stubGlobal('window', { innerWidth: 1024, innerHeight: 768 });
+    return created;
+  }
+
+  function makeWebview() {
+    const listeners = new Map();
+    return {
+      listeners,
+      addEventListener(name, fn) {
+        if (!listeners.has(name)) listeners.set(name, []);
+        listeners.get(name).push(fn);
+      },
+      removeEventListener(name, fn) {
+        const queue = listeners.get(name) || [];
+        const index = queue.indexOf(fn);
+        if (index !== -1) queue.splice(index, 1);
+      },
+    };
+  }
+
+  it('attaches a permitted popup into an OS-owned overlay over the app content', () => {
+    const created = installFakeDocument();
+    const webview = makeWebview();
+    const contentEl = makeFakeElement('div');
+    const attach = vi.fn();
+    const discard = vi.fn();
+
+    const teardown = AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.oauth' }, {
+      sandboxAttr: 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads',
+      partitionId: 'app_com.example.oauth',
+      state: { content: contentEl },
+    });
+
+    webview.listeners.get('newwindow')[0]({
+      targetUrl: 'https://accounts.example.com/oauth?client_id=1',
+      initialWidth: 480,
+      initialHeight: 640,
+      window: { attach, discard },
+    });
+
+    expect(attach).toHaveBeenCalledOnce();
+    expect(discard).not.toHaveBeenCalled();
+    expect(contentEl.children).toHaveLength(1);
+    const popupWebview = created.find(el => el.tagName === 'webview');
+    expect(popupWebview.attrs.partition).toBe('persist:app_com.example.oauth');
+    expect(popupWebview.attrs.nodeintegration).toBe('false');
+    expect(popupWebview.attrs.enableremotemodule).toBe('false');
+
+    // Closing inside the popup (window.close()) removes the overlay.
+    popupWebview.fire('close');
+    const backdrop = contentEl.children[0];
+    expect(backdrop.remove).toHaveBeenCalledOnce();
+    teardown();
+    vi.unstubAllGlobals();
+  });
+
+  it('discards popups when the sandbox tokens do not permit them', () => {
+    installFakeDocument();
+    const webview = makeWebview();
+    const contentEl = makeFakeElement('div');
+    const attach = vi.fn();
+    const discard = vi.fn();
+
+    AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.blocked' }, {
+      sandboxAttr: 'allow-scripts allow-downloads',
+      partitionId: 'app_com.example.blocked',
+      state: { content: contentEl },
+    });
+
+    webview.listeners.get('newwindow')[0]({
+      targetUrl: 'https://ads.example.com/popup',
+      window: { attach, discard },
+    });
+
+    expect(discard).toHaveBeenCalledOnce();
+    expect(attach).not.toHaveBeenCalled();
+    expect(contentEl.children).toHaveLength(0);
+    vi.unstubAllGlobals();
+  });
+
+  it('discards un-navigable popup targets like about:blank and javascript: URLs', () => {
+    installFakeDocument();
+    const webview = makeWebview();
+    const discard = vi.fn();
+    const attach = vi.fn();
+
+    AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.junk' }, {
+      sandboxAttr: 'allow-popups',
+      partitionId: 'app_com.example.junk',
+      state: { content: makeFakeElement('div') },
+    });
+
+    for (const targetUrl of ['', 'about:blank', 'javascript:void(0)']) {
+      webview.listeners.get('newwindow')[0]({ targetUrl, window: { attach, discard } });
+    }
+
+    expect(discard).toHaveBeenCalledTimes(3);
+    expect(attach).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('tears down open overlays and the listener when the sandbox is destroyed', () => {
+    const created = installFakeDocument();
+    const webview = makeWebview();
+    const contentEl = makeFakeElement('div');
+
+    const teardown = AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.teardown' }, {
+      sandboxAttr: 'allow-popups',
+      partitionId: 'app_com.example.teardown',
+      state: { content: contentEl },
+    });
+
+    webview.listeners.get('newwindow')[0]({
+      targetUrl: 'https://example.com/first',
+      window: { attach: vi.fn() },
+    });
+    expect(contentEl.children).toHaveLength(1);
+
+    teardown();
+
+    expect(contentEl.children[0].remove).toHaveBeenCalledOnce();
+    expect(webview.listeners.get('newwindow')).toHaveLength(0);
+    expect(created.find(el => el.tagName === 'webview')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+});
