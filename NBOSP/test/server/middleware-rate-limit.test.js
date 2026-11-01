@@ -18,6 +18,12 @@ describe('global API rate-limit exclusions', () => {
     )).toBe(true);
   });
 
+  it('excludes the per-sandbox app-serve liveness heartbeat', () => {
+    expect(shouldSkipGlobalApiRateLimit(
+      request('/api/apps/serve/heartbeat', '/apps/serve/heartbeat')
+    )).toBe(true);
+  });
+
   it('keeps mounted-path exclusions and does not skip ordinary API requests', () => {
     expect(shouldSkipGlobalApiRateLimit(
       request('/api/apps/serve/unregister/sandbox_a', '/apps/serve/unregister/sandbox_a')

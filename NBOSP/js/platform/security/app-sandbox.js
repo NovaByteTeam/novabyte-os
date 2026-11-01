@@ -1048,6 +1048,30 @@ const AppSandbox = (() => {
     return `sandbox_${appId}_${unique}`;
   }
 
+  // Stable per-app serving alias. Besides the per-session path (see
+  // generateSandboxId), the server also publishes this app's bundled files
+  // under `sandbox_<appId>` with NO unique suffix — a URL that survives
+  // relaunches, which is what makes pre-registered OAuth/redirect callback
+  // URLs possible (register
+  // `http://localhost:3003/api/apps/serve/sandbox_<appId>/callback.html`
+  // with the provider once; it resolves to the most recent launch). Only ids
+  // matching the platform's app-id shapes are eligible — reverse-domain
+  // package ids (app-package.js install validation) and webapp_ shortcut ids.
+  // Anything else degrades to session-only serving, exactly as before the
+  // alias existed, so an unexpected id can never break a launch.
+  const APP_SERVE_APP_ID_PATTERN = /^(?:webapp_[a-z0-9._-]{1,112}|[a-z][a-z0-9]*(?:\.[a-z0-9]+)+)$/;
+
+  // Per-sandbox liveness heartbeat cadence for the server-side app-serve
+  // registry (server prunes entries idle for 30 minutes — six missed beats,
+  // so plenty of margin for a dropped request).
+  const APP_SERVE_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+
+  function stableServeAppId(appId) {
+    return (typeof appId === 'string' && appId.length <= 128 && APP_SERVE_APP_ID_PATTERN.test(appId))
+      ? appId
+      : null;
+  }
+
   // Escape a string for safe HTML interpolation. Used whenever app-supplied
   // metadata (name, author, etc.) is embedded into the default shell or error
   // page. Without this, a malicious package could inject <script> tags.
@@ -9904,7 +9928,10 @@ const AppSandbox = (() => {
         const regRes = await fetch('/api/apps/serve/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sandboxId, files: shimmedFiles, allowExternalFrames }),
+          // appId requests the stable per-app serving alias (sandbox_<appId>,
+          // no unique suffix) alongside this launch's own session path. Dropped
+          // from the JSON entirely when the id isn't alias-eligible.
+          body: JSON.stringify({ sandboxId, files: shimmedFiles, allowExternalFrames, appId: stableServeAppId(app.id) || undefined }),
         });
         if (!regRes.ok) throw new Error(`File registration failed: ${regRes.status}`);
         const { baseUrl } = await regRes.json();
@@ -10364,25 +10391,40 @@ const AppSandbox = (() => {
     // realm the guest's own scripts cannot reach (see
     // buildIsolatedTransportScript for why that matters).
     //
-    // Scoped to THIS sandbox's own serving path, not the whole origin.
+    // Scoped to THIS sandbox's own serving path and this app's own STABLE
+    // per-app serving path, not the whole origin.
     // /api/apps/serve/register (server/core/index.js) always returns
     // baseUrl = `/api/apps/serve/${sandboxId}` — deterministic from the
     // sandboxId we already generated above, no need to wait on the async
-    // registration call below to know it. Matching the bare origin would
+    // registration call below to know it. The stable alias
+    // `/api/apps/serve/sandbox_${app.id}` is equally deterministic (same app
+    // id every launch), so pages that reach the app's own bundled files
+    // through it — an OAuth provider redirecting back to the app's registered
+    // callback.html, for example — get the same isolated transport as pages
+    // loaded through the session path. Matching the bare origin would
     // register this transport against every app's served files on this
     // host (they all live under window.location.origin), so every
     // launched app's webview would get every other app's transport
-    // script injected into it — scoping to our own baseUrl keeps this
+    // script injected into it — scoping to our own two paths keeps this
     // sandbox's isolated IPC transport from leaking into any other
-    // sandbox's webview.
+    // sandbox's webview. (The transport stays inert on any page whose main
+    // world doesn't run this app's capability shim — it only relays for the
+    // shim's one-time port claim — so an app navigating to another app's
+    // stable path gains nothing.)
     // webapp-type apps (external URLs) don't get this at all: they
     // navigate to classified.url directly and were never given
     // window.nova capabilities in the first place.
     if (typeof webview.addContentScripts === 'function') {
+      const transportMatches = [`${window.location.origin}/api/apps/serve/${sandboxId}/*`];
+      // Same eligibility rule as the registration alias in loadAppContent:
+      // only platform-shaped ids get a stable path at all.
+      if (stableServeAppId(app.id)) {
+        transportMatches.push(`${window.location.origin}/api/apps/serve/sandbox_${app.id}/*`);
+      }
       try {
         webview.addContentScripts([{
           name: `nova-ipc-transport-${sandboxId}`,
-          matches: [`${window.location.origin}/api/apps/serve/${sandboxId}/*`],
+          matches: transportMatches,
           js: { code: buildIsolatedTransportScript() },
           run_at: 'document_start',
           all_frames: false,
@@ -10445,6 +10487,27 @@ const AppSandbox = (() => {
     // a real leak for backgrounded sandboxes whose webview element
     // survives in #background-app-host).
     const teardownFns = [];
+
+    // Liveness heartbeat for the server-side app-serve registry. Its entries
+    // expire after 30 minutes without access; an app that loads its bundle
+    // once and then goes quiet (a long OAuth consent page in a popup, a
+    // dashboard SPA that never navigates) would otherwise have its files
+    // pruned mid-session and 404 on the next navigation — including the
+    // OAuth redirect back to its callback URL. The heartbeat pins the entry
+    // for as long as THIS sandbox exists; destroy() clears the timer via
+    // cleanup and unregisters the files, so nothing outlives the sandbox.
+    // Only apps with real bundled content register files with the server,
+    // so only those bother beating.
+    if (app.entry && app.files && app.files[app.entry]) {
+      const serveHeartbeatTimer = setInterval(() => {
+        fetch('/api/apps/serve/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sandboxId }),
+        }).catch(() => {});
+      }, APP_SERVE_HEARTBEAT_INTERVAL_MS);
+      teardownFns.push(() => clearInterval(serveHeartbeatTimer));
+    }
 
     const requestedFileIntent = launchOptions?.fileIntent;
     const requestedFileId = requestedFileIntent?.action === 'open'
@@ -11320,6 +11383,8 @@ const AppSandbox = (() => {
       isNestedWebviewPermitted,
       isEscapePopupsOptedIn,
       setupSandboxPopupHandler,
+      loadAppContent,
+      stableServeAppId,
       RELAXED_CSP_META,
       // Test-only helpers for resetting module state between tests.
       _resetState() {

@@ -1037,7 +1037,22 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               appData.minSize = appData.minSize || pkgData.minSize || [400, 300];
             }
 
-            const sandboxId = 'sandbox_' + appId.replace(/\./g, '_') + '_' + Date.now();
+            // Canonical session-key shape, matching generateSandboxId() in
+            // app-sandbox.js: sandbox_<appId>_<unique>. The previous version
+            // mangled dots to underscores here — pointless (the server's
+            // registry regex accepts dots) and, worse, it made this session
+            // key fail the server's appId ownership binding for the stable
+            // per-app serving alias, which compares the key prefix against
+            // the literal app id.
+            const sandboxId = 'sandbox_' + appId + '_' + Date.now();
+            // Stable per-app serving alias eligibility (server/core/index.js
+            // also publishes these files under sandbox_<appId> with no unique
+            // suffix so bundled files keep a URL that survives relaunches —
+            // pre-registered OAuth/redirect callback URLs need that). Only
+            // platform-shaped app ids qualify; anything else degrades to
+            // session-only serving, exactly as before the alias existed.
+            const stableAppId = (typeof appId === 'string' && appId.length <= 128
+              && /^(?:webapp_[a-z0-9._-]{1,112}|[a-z][a-z0-9]*(?:\.[a-z0-9]+)+)$/.test(appId)) ? appId : null;
 
             // ── Attempt sandboxed serve via API ──
             let serveFailed = false;
@@ -1059,7 +1074,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               const regRes = await fetch('/api/apps/serve/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sandboxId, files: shimmedFiles })
+                body: JSON.stringify({ sandboxId, files: shimmedFiles, appId: stableAppId || undefined })
               });
 
               if (regRes.ok) {
