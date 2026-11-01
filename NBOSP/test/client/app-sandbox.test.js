@@ -1416,7 +1416,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       ['legacy-trashed-note', '/Trash/legacy.txt'],
       ['trash', '/Trash'],
       ['other-app-data', '/data/another.app'],
-      ['own-app-data', '/data/editor_app'],
+      ['own-app-data', '/data/editor.app'],
     ]);
     const files = new Map([[sharedFile.id, sharedFile], [privateFile.id, privateFile]]);
     const writeFile = vi.fn(async (_id, content) => { sharedFile.content = content; });
@@ -1433,7 +1433,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     files.set(legacyTrashedFile.id, legacyTrashedFile);
     files.set('trash', { id: 'trash', name: 'Trash', type: 'folder' });
     files.set('other-app-data', { id: 'other-app-data', name: 'another.app', type: 'folder' });
-    files.set('own-app-data', { id: 'own-app-data', name: 'editor_app', type: 'folder' });
+    files.set('own-app-data', { id: 'own-app-data', name: 'editor.app', type: 'folder' });
 
     try {
       const webview = { __directResponder: message => responses.push(message) };
@@ -2240,7 +2240,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     vi.stubGlobal('FS', {
       rootId: 'root',
       files: new Map([[folder.id, folder]]),
-      getPath: id => id === folder.id ? '/data/example_app' : '/data/example_app/wallhaven.jpg',
+      getPath: id => id === folder.id ? '/data/example.app' : '/data/example.app/wallhaven.jpg',
       listDir: () => [],
       createFile,
     });

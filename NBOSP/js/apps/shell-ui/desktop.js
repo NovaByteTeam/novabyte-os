@@ -1026,6 +1026,48 @@ const AppDirs = {
 
     mergeDirectory(path.join(OPFS._nativeRoot || '', 'data'), dataRoot);
     mergeDirectory(path.join(require('os').homedir(), 'data'), dataRoot);
+
+    // Older builds mangled the app id in the /data/ segment (dots replaced
+    // with underscores) and wrote it under ~/data, so an app could end up
+    // with two differently-named data folders — com_example_app next to
+    // com.example.app. After the merges above have relocated any legacy
+    // ~/data content, reconcile the names: every mangled folder whose real
+    // (dotted) app id is known is renamed into place, or merged into the
+    // canonical folder when both exist.
+    const legacySegment = id => String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const knownIds = new Set(Object.values(this.PACKAGES));
+    try {
+      const installed = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+      if (Array.isArray(installed)) {
+        for (const app of installed) {
+          if (app && typeof app.id === 'string') {
+            knownIds.add(window.NovaAppIdAliases?.canonicalize(app.id) || app.id);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('[AppDirs] Could not read installed apps for the data migration:', error);
+    }
+    for (const id of knownIds) {
+      const legacyName = legacySegment(id);
+      if (legacyName === id) continue;
+      const legacyPath = path.join(dataRoot, legacyName);
+      const canonicalPath = path.join(dataRoot, id);
+      let legacyIsFolder = false;
+      try {
+        legacyIsFolder = fs.statSync(legacyPath).isDirectory();
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      if (!legacyIsFolder) continue;
+      if (!fs.existsSync(canonicalPath)) {
+        fs.renameSync(legacyPath, canonicalPath);
+      } else {
+        mergeDirectory(legacyPath, canonicalPath);
+        fs.rmSync(legacyPath, { recursive: true, force: true });
+      }
+    }
+
     this._handles = {};
     this.appDataPaths = {};
 

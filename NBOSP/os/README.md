@@ -26,7 +26,13 @@ and can launch executable files as the unprivileged kiosk user after
 confirmation. The shared filesystem API maps to the kiosk user's real home
 directory, app data and package blobs are stored under
 `~/.local/share/novabyte`, settings use `~/.config/novabyte/settings.json`, and
-browser-origin state is mirrored to the native filesystem. First boot imports
+browser-origin state is mirrored to the native filesystem. The sandbox's
+per-app tree `/data/<appId>/` (the `appdata:` root) resolves to
+`~/.local/share/novabyte/data/<appId>/` — the same folders AppDirs
+bootstraps, with the app's real id (dots preserved, aliases canonicalized) as
+the folder name. Older builds mangled the id (dots to underscores) and wrote
+it under `~/data`; boot merges that legacy content into the data root and
+renames mangled folders to their canonical app ids. First boot imports
 legacy VFS, OPFS, and IndexedDB data when available; the browser-backed
 filesystem remains only for non-Linux builds and that one-time migration.
 Sandboxed apps use the system file picker to browse the kiosk user's readable
