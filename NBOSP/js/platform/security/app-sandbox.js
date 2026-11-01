@@ -7475,6 +7475,21 @@ const AppSandbox = (() => {
       || declaredPermissions.includes('sandbox:nested-webview');
   }
 
+  // Sandbox popups that escape the app sandbox use the same double gate as
+  // allowSameOrigin (manifest opt-in AND a separate user grant), but the
+  // manifest opt-in is a TOP-LEVEL allowPopupsToEscapeSandbox field — the
+  // same location as allowNestedWebview, which is how NOVAAPP.md and the
+  // studio permission picker both document it. Unlike nested-webview,
+  // listing sandbox:escape-popups in `permissions` does NOT count as the
+  // opt-in: the docs are explicit that the permission alone does nothing,
+  // the boolean is the publisher's declaration that this app's popups are
+  // meant to run unsandboxed.
+  function isEscapePopupsOptedIn(app) {
+    if (!app) return false;
+    return app.allowPopupsToEscapeSandbox === true
+      || app.manifest?.allowPopupsToEscapeSandbox === true;
+  }
+
   function isNestedWebviewPermitted(app) {
     if (!isNestedWebviewOptedIn(app)) return false;
     try {
@@ -10075,7 +10090,7 @@ const AppSandbox = (() => {
   // Sandboxed apps must explicitly opt in via allowSameOrigin and hold the
   // separate sandbox:same-origin grant. Packages approved for unrestricted
   // host execution return before this function is needed.
-  function sanitizeSandboxAttr(sandboxConfig, appId, fullyUnrestricted = false) {
+  function sanitizeSandboxAttr(sandboxConfig, appId, fullyUnrestricted = false, app = null) {
     if (fullyUnrestricted) return '';
     const isExplicitOptIn = sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowSameOrigin === true;
     const sameOriginPermitted = isExplicitOptIn
@@ -10097,20 +10112,38 @@ const AppSandbox = (() => {
     // unrestricted browsing context, arguably comparable risk to
     // allow-same-origin, so it now goes through the same double-gate:
     // manifest opt-in AND sandbox:escape-popups granted.
-    const popupsEscapePermitted = sandboxConfig && typeof sandboxConfig === 'object'
-      && sandboxConfig.allowPopupsToEscapeSandbox === true
+    // The manifest opt-in is the TOP-LEVEL allowPopupsToEscapeSandbox field
+    // (see isEscapePopupsOptedIn above). Reading it from the sandbox object
+    // here is what silently broke the whole feature: NOVAAPP.md and the
+    // studio both document the top-level location, so a compliant manifest
+    // never satisfied this gate and the token was never added. Direct
+    // callers that pass no `app` object keep the legacy opt-in locations for
+    // compatibility: the in-sandbox-object flag, or the token itself in a
+    // string-form config.
+    const popupsOptedIn = app
+      ? isEscapePopupsOptedIn(app)
+      : (sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowPopupsToEscapeSandbox === true)
+        || (typeof sandboxConfig === 'string' && sandboxConfig.split(/\s+/).includes('allow-popups-to-escape-sandbox'));
+    const popupsEscapePermitted = popupsOptedIn
       && AppPermissionManager?.isGranted('sandbox:escape-popups', appId);
 
     const requestedTokens = new Set();
     if (sandboxConfig && typeof sandboxConfig === 'object') {
       if (sandboxConfig.allowScripts === true) requestedTokens.add('allow-scripts');
       if (sandboxConfig.allowForms === true) requestedTokens.add('allow-forms');
-      if (sandboxConfig.allowPopups === true) requestedTokens.add('allow-popups');
-      if (popupsEscapePermitted) requestedTokens.add('allow-popups-to-escape-sandbox');
+      // allow-popups-to-escape-sandbox only decides whether an OPENED popup
+      // inherits the sandbox; it cannot conjure popups that allow-popups
+      // never unlocked. Opting in therefore implies allow-popups. The escape
+      // token itself is NOT added here — it is grant-gated once at the final
+      // token level below, so every config shape gets identical treatment.
+      if (sandboxConfig.allowPopups === true || popupsEscapePermitted) requestedTokens.add('allow-popups');
       if (sandboxConfig.allowModals === true) requestedTokens.add('allow-modals');
     } else if (typeof sandboxConfig === 'string') {
       for (const tok of sandboxConfig.split(/\s+/)) {
-        if (tok) requestedTokens.add(tok);
+        // allow-popups-to-escape-sandbox is grant-gated below and is never
+        // forwarded from a self-declared string — same rule as the object
+        // form, which used to self-grant it from the manifest alone.
+        if (tok && tok !== 'allow-popups-to-escape-sandbox') requestedTokens.add(tok);
       }
     }
 
@@ -10140,9 +10173,147 @@ const AppSandbox = (() => {
       tokens.add('allow-downloads');
     }
 
+    // The sandbox:escape-popups grant is applied once, at the final token
+    // level, so it covers every config shape — object, string, or NO sandbox
+    // config at all. That last case is the common one for a compliant
+    // manifest: allowPopupsToEscapeSandbox is a top-level field, so the
+    // publisher may never declare a sandbox object and the default set above
+    // is what runs. Without this block the object-branch-only handling would
+    // still leave every config-less app unable to open escape popups.
+    if (popupsEscapePermitted) {
+      tokens.add('allow-popups');
+      tokens.add('allow-popups-to-escape-sandbox');
+    }
+
     const attr = Array.from(tokens).join(' ');
     log('debug', `sandbox attrs for ${appId || 'unknown'}: ${attr}`);
     return attr;
+  }
+
+  // Popup display path for sandboxed apps.
+  //
+  // The sandbox attribute alone never shows a popup. Chromium only spawns
+  // the popup when the sandbox tokens permit it (allow-popups, plus
+  // allow-popups-to-escape-sandbox for popups that leave the sandbox
+  // behind), but the embedder is then responsible for giving the spawned
+  // window a surface — attach() it into a webview we own, or discard() it.
+  // With no newwindow handler on sandbox webviews, every spawned popup was
+  // silently discarded, so even an app with the full sandbox:escape-popups
+  // double gate (top-level allowPopupsToEscapeSandbox + user grant) got
+  // literally nothing when it called window.open().
+  //
+  // The handler mirrors the Nova Browser's popup policy: permitted popups
+  // attach into an OS-owned overlay card (title bar with the target URL and
+  // a close button) over the app's own content, so window.close() inside
+  // the popup keeps working via the preserved opener relationship. Whether
+  // the popup content is sandboxed or escaped is Chromium's decision from
+  // the opener's sandbox tokens — attach() is only the display surface, so
+  // this single handler serves both the plain allow-popups case and the
+  // sandbox:escape-popups case.
+  function setupSandboxPopupHandler(webview, app, options = {}) {
+    const { sandboxAttr = '', partitionId = '', state = null } = options;
+    const sandboxTokens = new Set(
+      typeof sandboxAttr === 'string' && sandboxAttr
+        ? sandboxAttr.split(/\s+/).filter(Boolean)
+        : []
+    );
+    // An unsandboxed guest (no sandbox attribute at all — the deliberate
+    // fully-unrestricted hand-off) has no token restrictions, so popups are
+    // permitted exactly as they would be for any unsandboxed page.
+    const popupsPermitted = sandboxAttr === '' ? true : sandboxTokens.has('allow-popups');
+
+    const openPopupOverlays = new Set();
+    const closeOverlay = backdrop => {
+      openPopupOverlays.delete(backdrop);
+      try { backdrop.remove(); } catch (e) { log('debug', 'popup overlay removal failed', e); }
+    };
+
+    const onNewWindow = event => {
+      const popupWindow = event?.window;
+      const discard = () => { try { popupWindow?.discard?.(); } catch (e) { log('debug', 'popup discard failed', e); } };
+
+      if (!popupsPermitted) {
+        // The sandbox tokens already told the guest popups are blocked —
+        // discard explicitly so no embedder default leaks a surface through.
+        discard();
+        return;
+      }
+
+      const url = typeof event.targetUrl === 'string' ? event.targetUrl : '';
+      if (!url || url === 'about:blank' || url.startsWith('javascript:')) {
+        // Nothing safe to display — same policy as the browser's newwindow
+        // handler for un-navigable popup targets.
+        discard();
+        return;
+      }
+
+      const contentEl = state?.content;
+      if (!contentEl || typeof contentEl.appendChild !== 'function') {
+        discard();
+        return;
+      }
+
+      let backdrop = null;
+      try {
+        const hostWidth = (typeof window !== 'undefined' && Number(window.innerWidth)) || 1024;
+        const hostHeight = (typeof window !== 'undefined' && Number(window.innerHeight)) || 768;
+        const popupWidth = Math.min(Math.max(Number(event.initialWidth) || 520, 360), Math.round(hostWidth * 0.75));
+        const popupHeight = Math.min(Math.max(Number(event.initialHeight) || 620, 300), Math.round(hostHeight * 0.85));
+
+        backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:absolute;inset:0;z-index:9999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+
+        const card = document.createElement('div');
+        card.style.cssText = `width:${popupWidth}px;height:${popupHeight}px;background:var(--bg,#1e1e2e);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);`;
+
+        const bar = document.createElement('div');
+        bar.style.cssText = 'height:36px;min-height:36px;background:var(--bg2,#181825);display:flex;align-items:center;padding:0 10px;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);user-select:none;';
+        const barTitle = document.createElement('span');
+        barTitle.style.cssText = 'flex:1;font-size:12px;opacity:0.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        barTitle.textContent = url;
+        const barClose = document.createElement('button');
+        barClose.type = 'button';
+        barClose.textContent = '✕';
+        barClose.setAttribute('aria-label', 'Close popup');
+        barClose.style.cssText = 'background:none;border:none;color:inherit;opacity:0.5;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px;';
+        bar.append(barTitle, barClose);
+
+        const popupWebview = document.createElement('webview');
+        popupWebview.style.cssText = 'flex:1;width:100%;border:none;';
+        // The popup shares the app's own storage partition (OAuth sessions,
+        // external checkouts) but nothing else: no node integration, no
+        // remote module. No sandbox attribute is set here on purpose — the
+        // popup's security context is already fixed by Chromium from the
+        // opener's sandbox tokens, and attach() only supplies the surface.
+        popupWebview.setAttribute('nodeintegration', 'false');
+        popupWebview.setAttribute('enableremotemodule', 'false');
+        popupWebview.setAttribute('partition', `persist:${partitionId}`);
+
+        card.append(bar, popupWebview);
+        backdrop.appendChild(card);
+
+        const closePopup = () => closeOverlay(backdrop);
+        barClose.addEventListener('click', closePopup);
+        popupWebview.addEventListener('close', closePopup);
+
+        openPopupOverlays.add(backdrop);
+        contentEl.appendChild(backdrop);
+        // attach() is what actually binds the spawned window into our
+        // popupWebview — it can throw if the popup was already consumed, in
+        // which case we tear the overlay back down and discard.
+        popupWindow.attach(popupWebview);
+      } catch (e) {
+        log('warn', `Could not display popup for ${app?.name || app?.id || 'unknown app'}`, e);
+        if (backdrop) closeOverlay(backdrop);
+        discard();
+      }
+    };
+
+    webview.addEventListener('newwindow', onNewWindow);
+    return () => {
+      webview.removeEventListener('newwindow', onNewWindow);
+      for (const backdrop of [...openPopupOverlays]) closeOverlay(backdrop);
+    };
   }
 
   // Sandbox creation
@@ -10174,7 +10345,7 @@ const AppSandbox = (() => {
     const partitionId = `app_${app.id}`;
     webview.setAttribute('partition', `persist:${partitionId}`);
 
-    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app) && !forceSandbox);
+    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app) && !forceSandbox, app);
     if (sandboxAttr) {
       webview.setAttribute('sandbox', sandboxAttr);
     } else if (isFullyUnrestricted(app) && !forceSandbox) {
@@ -10343,6 +10514,7 @@ const AppSandbox = (() => {
     teardownFns.push(setupAPIBridge(webview, app, sandboxId, sandboxRecord));
     teardownFns.push(setupErrorHandling(webview, app));
     teardownFns.push(setupPermissionRequestGate(webview, app));
+    teardownFns.push(setupSandboxPopupHandler(webview, app, { sandboxAttr, partitionId, state }));
 
     // Compose all teardowns into the sandbox's cleanup function.
     sandboxRecord.cleanup = () => cleanupSandboxRecord(sandboxRecord, teardownFns);
@@ -11146,6 +11318,8 @@ const AppSandbox = (() => {
       buildIsolatedTransportScript,
       isNestedWebviewOptedIn,
       isNestedWebviewPermitted,
+      isEscapePopupsOptedIn,
+      setupSandboxPopupHandler,
       RELAXED_CSP_META,
       // Test-only helpers for resetting module state between tests.
       _resetState() {
