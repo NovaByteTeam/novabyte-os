@@ -18,8 +18,13 @@ chmod 1777 "${TARGET_DIR}/tmp/.X11-unix"
 install -D -m 0755 "${SCRIPT_DIR}/rootfs-overlay/etc/init.d/S01mounts" \
 	"${TARGET_DIR}/etc/init.d/S01mounts"
 
-# sudoers.d files must be 0440
-chmod 440 "${TARGET_DIR}/etc/sudoers.d/nbosp" 2>/dev/null || true
+# The sudo package may replace /etc/sudoers after the rootfs overlay is copied.
+# Reinstall both NovaByte policy files after package installation so the
+# includedir directive and kiosk rule are always present in the final target.
+install -D -m 0440 "${SCRIPT_DIR}/rootfs-overlay/etc/sudoers" \
+	"${TARGET_DIR}/etc/sudoers"
+install -D -m 0440 "${SCRIPT_DIR}/rootfs-overlay/etc/sudoers.d/nbosp" \
+	"${TARGET_DIR}/etc/sudoers.d/nbosp"
 
 # Keep startup files current even when Buildroot reuses a cached target tree.
 install -D -m 0644 "${SCRIPT_DIR}/rootfs-overlay/etc/inittab" \

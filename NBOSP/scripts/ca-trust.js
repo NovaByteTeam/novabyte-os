@@ -103,6 +103,7 @@ function installCaTrustLinux(caCrtPath) {
   ];
 
   for (const [dest, updateCmd] of distros) {
+    if (!fs.existsSync(path.dirname(dest))) continue;
     try {
       execFileSync('sudo', ['cp', caCrtPath, dest],  { stdio: 'inherit', timeout: 30_000 });
       execFileSync('sudo', updateCmd,                 { stdio: 'pipe',    timeout: 30_000 });

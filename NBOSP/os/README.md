@@ -26,7 +26,13 @@ and can launch executable files as the unprivileged kiosk user after
 confirmation. The shared filesystem API maps to the kiosk user's real home
 directory, app data and package blobs are stored under
 `~/.local/share/novabyte`, settings use `~/.config/novabyte/settings.json`, and
-browser-origin state is mirrored to the native filesystem. First boot imports
+browser-origin state is mirrored to the native filesystem. The sandbox's
+per-app tree `/data/<appId>/` (the `appdata:` root) resolves to
+`~/.local/share/novabyte/data/<appId>/` — the same folders AppDirs
+bootstraps, with the app's real id (dots preserved, aliases canonicalized) as
+the folder name. Older builds mangled the id (dots to underscores) and wrote
+it under `~/data`; boot merges that legacy content into the data root and
+renames mangled folders to their canonical app ids. First boot imports
 legacy VFS, OPFS, and IndexedDB data when available; the browser-backed
 filesystem remains only for non-Linux builds and that one-time migration.
 Sandboxed apps use the system file picker to browse the kiosk user's readable
@@ -279,6 +285,70 @@ The workflow caches the Buildroot source/downloads and compiled output, along
 with the NW.js SDK and npm cache, to speed up later manual runs. The local
 Buildroot package is deliberately rebuilt each run to include the newly built
 NW.js bundle.
+
+### XWayland popup positioning
+
+NW.js runs as an X11 client through XWayland, so the native Chromium right-click
+menu and `<select>` dropdowns are X11 override-redirect windows. Those windows
+map first and then move themselves to the anchored position, and Cage 0.2.0 only
+copied the position at map time — every such popup landed in the top-left corner
+instead of at the cursor (upstream cage issue #228, fix in unmerged PR #283).
+`patches/cage/0003-xwayland-position-override-redirect-windows.patch` backports
+that fix: it tracks wlroots' `set_geometry` event for override-redirect surfaces
+and moves the scene node with it, and skips maximize/center positioning for them.
+
+### XWayland input stacking
+
+The same XWayland boundary also affects which window receives the mouse. Xwayland
+delivers pointer events to the topmost X11 window under the cursor (`XYToWindow`
+semantics), but wlroots 0.17+ restacks every newly mapped managed window to the
+*bottom* of the X11 stack and leaves syncing the stack to the compositor via
+`wlr_xwayland_surface_restack()` — which Cage 0.2.0 never calls. Since kiosk views
+are all fullscreen at (0,0), a second window (NW.js DevTools, any other X client)
+draws on top but sits at the bottom of the X11 stack: it renders fine, keyboard
+focus follows activation, yet every click silently lands on the window underneath.
+`patches/cage/0004-xwayland-restack-focused-view.patch` fixes this by restacking
+the surface to the top of the managed X11 stack whenever cage focuses the view
+(both map-time focus and click-to-focus go through `seat_set_focus`), mirroring
+sway's handling of the same wlroots API. Override-redirect surfaces are skipped:
+wlroots asserts on restacking them and they always map above managed windows.
+
+### Nested webview overlays, context menus, and the annotation layer
+
+`<webview>` guests are composited by NW.js as separate out-of-process surfaces
+that render above ordinary same-window DOM content regardless of z-index or
+stacking context. Host pixels can only win by toggling the guest's own
+visibility — the same fact `showFileDialog` has always worked around.
+`nova:overlay:show` and `nova:context-menu:show` rendered body/window-level
+host DOM and therefore lost to the app's webview and any nested webview, so
+both appeared behind the page: static overlays were invisible and host context
+menus never surfaced.
+
+The sandbox stack now freezes guests behind captured stills for the duration
+of an overlay or context menu (`NovaSystemWebview.freezeSandbox` /
+`restoreSandbox`, refcounted and generation-guarded so overlapping menus,
+in-flight captures, and bounds updates cannot leak a frozen guest), raises the
+context menu above its own window's z-index, and keeps the page visible behind
+the stills instead of blanking it.
+
+For interactive pixels above a webview — annotation tools drawing over the
+page — host DOM can never work even when frozen, because the app's own UI is
+itself a guest surface. The nested-webview API therefore gained an
+annotation layer that lives inside the guest document:
+
+- `browserView.setAnnotationLayer({ color, lineWidth, active })` injects a
+  fixed-position canvas into the page that captures pointer input while
+  active; it re-injects itself after every navigation.
+- `browserView.updateAnnotationLayer({ color, lineWidth })`,
+  `browserView.setAnnotationActive(bool)`, `browserView.clearAnnotationLayer()`,
+  and `browserView.undoAnnotationLayer()` drive the tool state.
+- `browserView.exportAnnotationLayer()` resolves through the console bridge
+  and emits an `annotation-export` event on the view carrying the canvas as a
+  PNG data URL.
+- `browserView.setOverlayActive(true)` freezes the live guest behind a
+  captured still so the app's own DOM can composite above it — only useful
+  when the app keeps its view container transparent, since an opaque app
+  background still paints over the frozen page.
 
 ## Current limitations
 

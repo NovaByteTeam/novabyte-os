@@ -9,7 +9,7 @@ mounted() {
 
 case "$1" in
   start)
-    mkdir -p /proc /sys /dev/pts /dev/shm /tmp
+    mkdir -p /proc /sys /dev/pts /dev/shm /tmp /var/lock/subsys
     mounted /proc || mount -t proc proc /proc
     mounted /sys || mount -t sysfs sysfs /sys
     mounted /dev/pts || mount -t devpts -o gid=5,mode=620,noexec,nosuid devpts /dev/pts

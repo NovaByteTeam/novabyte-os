@@ -208,7 +208,9 @@ const AppSandbox = (() => {
   // rejected to prevent key injection across app namespaces.
   const STORAGE_KEY_REGEX = /^[\w\-. ]+$/;
   const STORAGE_VALUE_MAX_BYTES = 5 * 1024 * 1024; // 5 MB per single value
-  const STORAGE_APP_QUOTA_BYTES = 25 * 1024 * 1024; // 25 MB total per app
+  // The per-app total quota lives in the StorageLedger budget table below
+  // (storageQuotaBytes, default raised from the legacy hardcoded 25 MB and
+  // overridable per app) — see StorageLedger.DEFAULT_BUDGETS.
   const CLIPBOARD_HISTORY_MAX = 30;
   const ALLOWED_HTTP_METHODS = new Set([
     'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS',
@@ -227,6 +229,745 @@ const AppSandbox = (() => {
   const DIALOG_FOCUS_DELAY_MS = 50;
   const DOWNLOAD_DIALOG_TIMEOUT_MS = 5 * 60 * 1000; // 5 min cap on save dialog
   const CLEAR_PARTITION_TIMEOUT_MS = 4000;
+
+  // ── Storage ledger: per-app accounting, budgets, and access audit ────────
+  // The "logical UID" layer. Kernel per-app UIDs don't fit this architecture
+  // (single browser process, single-user OS, webview renderers can't carry
+  // distinct kernel identities), so per-app isolation is enforced where every
+  // app call already funnels through: this bridge. File ownership itself
+  // stays path-derived (ownerAppIdForPath — always accurate, no index to
+  // drift); what the ledger adds on top is what a UID layer would otherwise
+  // give us and path checks can't:
+  //   1. per-app resource budgets (storage quota, IPC payload cap, HTTP body
+  //      cap, request timeout) — the OS-wide caps become per-app values;
+  //   2. per-app accounting (bytes written/read, request count) for the
+  //      Settings storage dashboard and future usageStats;
+  //   3. an access audit of shared-tree file reads/writes ("who touched
+  //      what outside its own sandbox") for the privacy dashboard.
+  // Persistence follows the root-audit precedent: debounced localStorage,
+  // mirrored to disk on Linux-native installs by the browser-state writer.
+  // Accounting counters are best-effort telemetry, NOT security boundaries —
+  // every real boundary (ownership, permissions, caps) is enforced at the
+  // call site even if this module were deleted.
+  const StorageLedger = (() => {
+    'use strict';
+
+    const LEDGER_STORAGE_KEY = 'novaOS_storage_ledger';
+    const LEDGER_SCHEMA_VERSION = 1;
+    const LEDGER_ACCESS_LOG_MAX = 500;
+    const LEDGER_SAVE_DEBOUNCE_MS = 400;
+
+    // OS-wide defaults; an app record may override any subset. Values are
+    // clamped by BUDGET_LIMITS so a misconfigured override can neither
+    // disable a cap entirely nor set an unusably tiny one.
+    const DEFAULT_BUDGETS = Object.freeze({
+      storageQuotaBytes: 256 * 1024 * 1024, // 256 MB (legacy cap: 25 MB)
+      ipcPayloadBytes: 256 * 1024,          // 256 KB (legacy cap: 64 KB)
+      httpBodyBytes: 16 * 1024 * 1024,      // 16 MiB (legacy cap: 6 MiB)
+      requestTimeoutMs: 60_000,             // 60 s   (legacy cap: 30 s)
+    });
+    const BUDGET_LIMITS = Object.freeze({
+      storageQuotaBytes: { min: 1024 * 1024, max: 2 * 1024 * 1024 * 1024 }, // 1 MB – 2 GB
+      ipcPayloadBytes: { min: 1024, max: 8 * 1024 * 1024 },                 // 1 KB – 8 MB
+      httpBodyBytes: { min: 64 * 1024, max: 64 * 1024 * 1024 },             // 64 KB – 64 MiB
+      requestTimeoutMs: { min: 5000, max: 10 * 60 * 1000 },                 // 5 s – 10 min
+    });
+    const BUDGET_KEYS = new Set(Object.keys(DEFAULT_BUDGETS));
+
+    let state = null;
+    let persistTimer = null;
+
+    function defaultState() {
+      return { version: LEDGER_SCHEMA_VERSION, apps: {}, accessLog: [] };
+    }
+
+    function load() {
+      if (state) return state;
+      try {
+        const raw = localStorage.getItem(LEDGER_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        state = parsed && typeof parsed === 'object' && parsed.apps && typeof parsed.apps === 'object'
+          ? {
+              version: LEDGER_SCHEMA_VERSION,
+              apps: parsed.apps,
+              accessLog: Array.isArray(parsed.accessLog) ? parsed.accessLog.filter(e => e && typeof e === 'object' && typeof e.t === 'number') : [],
+            }
+          : defaultState();
+      } catch (e) {
+        console.error('[StorageLedger] Could not read the storage ledger — starting empty:', e);
+        state = defaultState();
+      }
+      for (const [id, rec] of Object.entries(state.apps)) {
+        if (!rec || typeof rec !== 'object') delete state.apps[id];
+      }
+      return state;
+    }
+
+    function persist() {
+      if (persistTimer) return;
+      persistTimer = setTimeout(() => {
+        persistTimer = null;
+        try {
+          localStorage.setItem(LEDGER_STORAGE_KEY, JSON.stringify(load()));
+        } catch (e) {
+          console.error('[StorageLedger] Could not persist the storage ledger:', e);
+        }
+      }, LEDGER_SAVE_DEBOUNCE_MS);
+    }
+
+    function ensureApp(appId) {
+      const key = String(appId || '');
+      if (!key) return null;
+      const s = load();
+      let rec = s.apps[key];
+      if (!rec) {
+        rec = s.apps[key] = {
+          created: Date.now(),
+          lastActive: Date.now(),
+          bytesWritten: 0,
+          bytesRead: 0,
+          requestCount: 0,
+          budgets: {},
+        };
+        persist();
+      }
+      return rec;
+    }
+
+    function clampBudget(key, value) {
+      const limits = BUDGET_LIMITS[key];
+      const n = Math.floor(Number(value));
+      if (!limits || !Number.isFinite(n)) return null;
+      return Math.min(limits.max, Math.max(limits.min, n));
+    }
+
+    return {
+      DEFAULT_BUDGETS,
+      BUDGET_KEYS,
+
+      getBudget(appId, key) {
+        if (!BUDGET_KEYS.has(key)) return null;
+        const rec = load().apps[String(appId || '')];
+        const override = rec ? rec.budgets[key] : undefined;
+        return Number.isFinite(override) ? override : DEFAULT_BUDGETS[key];
+      },
+
+      setBudget(appId, key, value) {
+        if (!BUDGET_KEYS.has(key)) throw new Error(`Unknown budget '${key}'`);
+        const clamped = clampBudget(key, value);
+        if (clamped === null) throw new Error(`Invalid budget value for '${key}'`);
+        const rec = ensureApp(appId);
+        if (!rec) throw new Error('appId is required');
+        rec.budgets[key] = clamped;
+        persist();
+        return clamped;
+      },
+
+      touch(appId) { ensureApp(appId); },
+
+      noteRequest(appId) {
+        const rec = ensureApp(appId);
+        if (!rec) return;
+        rec.requestCount = (rec.requestCount || 0) + 1;
+        rec.lastActive = Date.now();
+        persist();
+      },
+
+      noteBytes(appId, delta) {
+        const rec = ensureApp(appId);
+        if (!rec) return;
+        const written = Math.max(0, Math.floor(Number(delta?.written) || 0));
+        const read = Math.max(0, Math.floor(Number(delta?.read) || 0));
+        if (!written && !read) return;
+        rec.bytesWritten = Math.max(0, (rec.bytesWritten || 0) + written);
+        rec.bytesRead = Math.max(0, (rec.bytesRead || 0) + read);
+        rec.lastActive = Date.now();
+        persist();
+      },
+
+      // Records one shared-tree access ("this app read/wrote a file outside
+      // its own /data/<appId>/ sandbox") for the Settings privacy panel.
+      recordAccess(entry) {
+        if (!entry || typeof entry !== 'object') return false;
+        const appId = String(entry.appId || '');
+        const kind = String(entry.kind || '');
+        if (!appId || !kind) return false;
+        const s = load();
+        s.accessLog.unshift({
+          t: Date.now(),
+          appId,
+          kind,
+          detail: typeof entry.detail === 'string' ? entry.detail.slice(0, 300) : '',
+        });
+        if (s.accessLog.length > LEDGER_ACCESS_LOG_MAX) s.accessLog.length = LEDGER_ACCESS_LOG_MAX;
+        persist();
+        return true;
+      },
+
+      getAppStats(appId) {
+        const key = String(appId || '');
+        const rec = load().apps[key];
+        if (!rec) return null;
+        return {
+          appId: key,
+          created: rec.created,
+          lastActive: rec.lastActive,
+          bytesWritten: rec.bytesWritten || 0,
+          bytesRead: rec.bytesRead || 0,
+          requestCount: rec.requestCount || 0,
+          budgets: { ...DEFAULT_BUDGETS, ...(rec.budgets || {}) },
+        };
+      },
+
+      getAllStats() {
+        const s = load();
+        return Object.keys(s.apps).sort().map(id => this.getAppStats(id)).filter(Boolean);
+      },
+
+      listAccess(appId, limit) {
+        const s = load();
+        const cap = Math.max(1, Math.min(LEDGER_ACCESS_LOG_MAX, Math.floor(Number(limit) || 100)));
+        const items = appId == null
+          ? s.accessLog
+          : s.accessLog.filter(e => e.appId === String(appId));
+        return items.slice(0, cap);
+      },
+
+      // Uninstall: the app's accounting, budget overrides, and access-log
+      // entries all die with the install (Android clears app state on
+      // uninstall too).
+      removeApp(appId) {
+        const key = String(appId || '');
+        if (!key) return false;
+        const s = load();
+        if (!s.apps[key]) return false;
+        delete s.apps[key];
+        s.accessLog = s.accessLog.filter(e => e.appId !== key);
+        persist();
+        return true;
+      },
+
+      // "Clear app data" (app stays installed): counters reset, budget
+      // overrides survive — they are configuration, not data.
+      resetForApp(appId) {
+        const rec = load().apps[String(appId || '')];
+        if (!rec) return false;
+        rec.bytesWritten = 0;
+        rec.bytesRead = 0;
+        rec.requestCount = 0;
+        rec.lastActive = Date.now();
+        persist();
+        return true;
+      },
+
+      resetAll() {
+        state = defaultState();
+        persist();
+      },
+    };
+  })();
+
+  // ── MAC policy engine ("NB-MAC": the JS-side SELinux analog) ─────────────
+  // The kernel route for per-app mandatory access control is a dead end in
+  // this architecture (single browser process, single-user OS — see the
+  // StorageLedger preamble and NOVAAPP.md "Linux per-app process mode"), so
+  // the SELinux model is reimplemented in JS at the same chokepoint every
+  // app call already funnels through: this bridge.
+  //
+  //   SELinux concept          NB-MAC equivalent
+  //   ─────────────────────    ──────────────────────────────────────────
+  //   domain (process type)    app → domain via `subjects` pinning, else
+  //                            `untrusted_app` (default-deny posture)
+  //   type (object class)      IPC endpoint family (nova:fs, nova:admin, …)
+  //   allow src tgt:class perm `endpointGrants` rows: endpoint → ANY-of
+  //                            permission list, or null (advisory)
+  //   neverallow               verifyPolicy() rejects weakening rules
+  //   avc audit log            rate-limited denial ring, debounced persist
+  //   permissive mode          per-domain: log would-be denials, allow
+  //
+  // Enforcement contract (the part that makes rollout safe): a grant row is
+  // ONLY seeded for endpoints whose handler permission check is
+  // unconditional and context-free (verified against test_ipc_matrix.js's
+  // MATRIX table — the granted/denied cases there assert the exact same
+  // observable behavior with and without this layer). Path-dependent rules
+  // (the fs family: app-owned paths need no grant, shared paths do) and
+  // handler-internal checks stay handler-level — MAC passes those through
+  // as `advisory` and the existing checks remain the boundary. The handler
+  // checks are NOT removed anywhere: MAC is the uniform front door, the
+  // handlers are defense in depth.
+  //
+  // What MAC adds over the scattered handler checks:
+  //   1. default-deny posture — an endpoint with no policy row is refused
+  //      for enforcing domains before it can reach any handler code;
+  //   2. a single audit trail of every policy denial (avc-style);
+  //   3. permissive mode per domain — new/unknown behavior can be rolled
+  //      out log-first, exactly like real SELinux deployments;
+  //   4. policy linting (verifyPolicy/verifyCoverage) so a policy that
+  //      fails to cover every handler, or weakens a neverallow target,
+  //      cannot ship.
+  // Accounting is best-effort telemetry; every real boundary is still
+  // enforced at the call site even if this module were deleted.
+  const MacPolicy = (() => {
+    'use strict';
+
+    const MAC_AUDIT_STORAGE_KEY = 'novaOS_mac_audit';
+    const MAC_AUDIT_LOG_MAX = 300;
+    const MAC_SAVE_DEBOUNCE_MS = 400;
+    // Rate limit for AUDIT WRITES only (a flood of denials must not turn
+    // into a flood of localStorage churn). Denial decisions themselves are
+    // never rate-limited — a denied call is always denied.
+    const MAC_AUDIT_RATE_MAX = 60;
+    const MAC_AUDIT_RATE_WINDOW_MS = 60 * 1000;
+
+    const MAC_MODES = new Set(['enforcing', 'permissive']);
+    const DOMAIN_UNTRUSTED = 'untrusted_app';
+    const DOMAIN_PLATFORM = 'platform_module';
+
+    // Family = first two segments of the endpoint type ("nova:fs" from
+    // "nova:fs:read"). Documented in NOVAAPP.md; keep familyOf and the seed
+    // data below in sync with API_HANDLERS (verifyCoverage enforces it).
+    function familyOf(endpointType) {
+      const parts = String(endpointType || '').split(':');
+      return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : String(endpointType || '');
+    }
+
+    // Seed grant table — mirrors the MATRIX table in tests/test_ipc_matrix.js
+    // row for row (ANY-of semantics, same perms). Values:
+    //   ['perm:a', 'perm:b'] — enforced here: requires ANY-of the grants
+    //   null                 — advisory: handler-level checks are the boundary
+    // Grant-coupled rows are exactly the context-free permission gates.
+    const SEED_ENDPOINT_GRANTS = Object.freeze({
+      // Notifications — every handler checks device:notifications.
+      'nova:notifications:show': ['device:notifications'],
+      'nova:notifications:clear': ['device:notifications'],
+      'nova:notifications:post': ['device:notifications'],
+      'nova:notifications:createChannel': ['device:notifications'],
+      'nova:notifications:cancel': ['device:notifications'],
+      'nova:notifications:cancelAll': ['device:notifications'],
+      'nova:notifications:consumeActions': ['device:notifications'],
+      // Clipboard.
+      'nova:clipboard:read': ['clipboard:read'],
+      'nova:clipboard:write': ['clipboard:write'],
+      // System settings read/write.
+      'nova:settings:get': ['system:info'],
+      'nova:settings:set': ['system:settings'],
+      // App management (launch is any-of launch|apps, as in the handler).
+      'nova:app:launch': ['system:app-launch', 'system:apps'],
+      'nova:app:list': ['system:apps'],
+      'nova:app:install': ['system:apps'],
+      'nova:app:uninstall': ['system:apps'],
+      'nova:app:openDefaultAppsSettings': ['system:apps'],
+      'nova:home:apps:launch': ['system:app-launch', 'system:apps'],
+      'nova:home:openDefaultAppsSettings': ['system:apps'],
+      // Admin — also a neverallow target: rows here must never be weakened.
+      'nova:admin:audit': ['admin:audit'],
+      'nova:admin:system': ['admin:system'],
+      'nova:admin:users': ['admin:users'],
+      'nova:admin:apps': ['admin:apps'],
+      // Mail.
+      'nova:mail:read': ['mail:read'],
+      'nova:mail:write': ['mail:write'],
+      'nova:mail:session': ['mail:write'],
+      'nova:mail:send': ['mail:send'],
+      'nova:mail:delete': ['mail:delete'],
+      // Network.
+      'nova:net:fetch': ['net:external'],
+      'nova:net:websocket': ['net:websocket'],
+      // Devices.
+      'nova:device:geolocation': ['device:geolocation'],
+      'nova:device:camera': ['device:camera'],
+      'nova:device:microphone': ['device:microphone'],
+      // Calendar / contacts.
+      'nova:calendar:read': ['calendar:read'],
+      'nova:calendar:write': ['calendar:write'],
+      'nova:calendar:delete': ['calendar:delete'],
+      'nova:contacts:read': ['contacts:read'],
+      'nova:contacts:write': ['contacts:write'],
+      'nova:contacts:delete': ['contacts:delete'],
+      // Misc.
+      'nova:system:info': ['system:info'],
+      'nova:nested-webview': ['sandbox:nested-webview'],
+      'nova:ipc:register': ['apps:communicate'],
+      'nova:ipc:unregister': ['apps:communicate'],
+      'nova:ipc:invoke': ['apps:communicate'],
+      'nova:ipc:reply': ['apps:communicate'],
+      'nova:ipc:broadcast:subscribe': ['apps:communicate'],
+      'nova:ipc:broadcast': ['apps:communicate'],
+      'nova:background:stay-alive': ['system:background:live'],
+      // Advisory endpoints inside otherwise grant-coupled families
+      // (cleanup/passive forms, matrix rows assert they are ungated).
+      'nova:app:info': null,
+      'nova:home:apps:list': null,
+      'nova:net:ws:send': null,
+      'nova:net:ws:close': null,
+      'nova:ipc:broadcast:unsubscribe': null,
+      'nova:events:subscribe': null,
+      'nova:events:unsubscribe': null,
+      'nova:background:wake-done': null,
+      // Path-dependent gate — the handler decides per-path (app-owned paths
+      // need no grant, shared-tree paths do). Cannot be expressed as a flat
+      // grant without breaking app-owned access; see test_storage_ledger.js
+      // S5 which writes /data/<app>/ paths with zero grants.
+      'nova:fs:read': null,
+      'nova:fs:write': null,
+      'nova:fs:delete': null,
+      'nova:fs:list': null,
+      'nova:fs:mkdir': null,
+      'nova:fs:stat': null,
+      'nova:fs:rename': null,
+      'nova:fs:move': null,
+    });
+
+    // Families with NO grant-coupled endpoints: every endpoint in them is
+    // ungated or gated by handler-internal context (picker flows, dialogs,
+    // key-value storage ownership, root-execution checks…). NOTE: for
+    // two-segment types (nova:ready, nova:open-url, nova:request-permission,
+    // …) familyOf() returns the full type, so those keys are the types.
+    const SEED_ADVISORY_FAMILIES = Object.freeze([
+      'nova:fs', 'nova:storage', 'nova:window', 'nova:appearance',
+      'nova:ready', 'nova:dialog', 'nova:sysdialog', 'nova:overlay',
+      'nova:context-menu', 'nova:share', 'nova:files', 'nova:email',
+      'nova:open-url', 'nova:open-with', 'nova:download',
+      'nova:wallpaper', 'nova:request-permission',
+      'nova:permission-rate-limited', 'nova:audit',
+    ]);
+
+    // neverallow v1: the admin family is the platform's privilege anchor —
+    // a policy may not make its endpoints advisory (grant-less) or park the
+    // family in advisoryFamilies. verifyPolicy() enforces this on every
+    // applied policy. (A *dropped* row is not a neverallow violation — no
+    // rule means deny, which is stricter — it is a coverage gap caught by
+    // verifyCoverage() against the handler table, asserted in tests.)
+    const SEED_NEVERALLOW = Object.freeze([
+      Object.freeze({ target: 'nova:admin', requireGrant: true, reason: 'admin endpoints must stay grant-coupled' }),
+    ]);
+
+    const DEFAULT_POLICY = Object.freeze({
+      policyVersion: 1,
+      domains: Object.freeze({
+        [DOMAIN_UNTRUSTED]: Object.freeze({ mode: 'enforcing' }),
+        [DOMAIN_PLATFORM]: Object.freeze({ mode: 'permissive' }),
+      }),
+      // seapp_contexts analog: pin a specific appId to a domain. Empty by
+      // default — every sandboxed app starts as untrusted_app.
+      subjects: Object.freeze({}),
+      endpointGrants: SEED_ENDPOINT_GRANTS,
+      advisoryFamilies: SEED_ADVISORY_FAMILIES,
+      neverallow: SEED_NEVERALLOW,
+    });
+
+    let active = null;          // live policy (deep copy of seed or applied)
+    let domainModes = null;     // domain → mode, derived from active.domains
+    let auditState = null;
+    let auditPersistTimer = null;
+    const auditRateLog = new Map(); // appId → [timestamps] (audit writes only)
+
+    function freshPolicy() {
+      return {
+        policyVersion: DEFAULT_POLICY.policyVersion,
+        domains: { untrusted_app: { mode: 'enforcing' }, platform_module: { mode: 'permissive' } },
+        subjects: {},
+        endpointGrants: { ...DEFAULT_POLICY.endpointGrants },
+        advisoryFamilies: [...DEFAULT_POLICY.advisoryFamilies],
+        neverallow: DEFAULT_POLICY.neverallow.map((r) => ({ ...r })),
+      };
+    }
+
+    function load() {
+      if (active) return active;
+      active = freshPolicy();
+      domainModes = new Map(Object.entries(active.domains).map(([d, v]) => [d, v.mode]));
+      return active;
+    }
+
+    function defaultAuditState() {
+      return { version: 1, entries: [], dropped: 0 };
+    }
+
+    function loadAudit() {
+      if (auditState) return auditState;
+      try {
+        const raw = localStorage.getItem(MAC_AUDIT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        auditState = parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)
+          ? { version: 1, entries: parsed.entries.filter((e) => e && typeof e === 'object' && typeof e.t === 'number'), dropped: Math.max(0, Math.floor(Number(parsed.dropped) || 0)) }
+          : defaultAuditState();
+      } catch (e) {
+        console.error('[MacPolicy] Could not read the MAC audit log — starting empty:', e);
+        auditState = defaultAuditState();
+      }
+      return auditState;
+    }
+
+    function persistAudit() {
+      if (auditPersistTimer) return;
+      auditPersistTimer = setTimeout(() => {
+        auditPersistTimer = null;
+        try {
+          localStorage.setItem(MAC_AUDIT_STORAGE_KEY, JSON.stringify(loadAudit()));
+        } catch (e) {
+          console.error('[MacPolicy] Could not persist the MAC audit log:', e);
+        }
+      }, MAC_SAVE_DEBOUNCE_MS);
+    }
+
+    function rateLimitedFor(appId) {
+      const key = String(appId || '');
+      const now = Date.now();
+      const log = auditRateLog.get(key) || [];
+      const fresh = log.filter((t) => now - t < MAC_AUDIT_RATE_WINDOW_MS);
+      if (fresh.length >= MAC_AUDIT_RATE_MAX) {
+        auditRateLog.set(key, fresh);
+        return true;
+      }
+      fresh.push(now);
+      auditRateLog.set(key, fresh);
+      return false;
+    }
+
+    function recordAudit(entry) {
+      const s = loadAudit();
+      if (rateLimitedFor(entry.appId)) {
+        s.dropped += 1;
+        persistAudit();
+        return false;
+      }
+      s.entries.unshift({ ...entry, t: Date.now() });
+      if (s.entries.length > MAC_AUDIT_LOG_MAX) s.entries.length = MAC_AUDIT_LOG_MAX;
+      persistAudit();
+      return true;
+    }
+
+    function domainFor(appId) {
+      const policy = load();
+      return policy.subjects[String(appId || '')] || DOMAIN_UNTRUSTED;
+    }
+
+    function modeFor(domain) {
+      return domainModes.get(domain) || 'enforcing';
+    }
+
+    function safeIsGranted(perm, appId) {
+      try {
+        return typeof AppPermissionManager !== 'undefined'
+          && AppPermissionManager.isGranted(perm, appId) === true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    // Resolve the policy row for an endpoint: exact endpoint row wins, then
+    // the endpoint's family if it is advisory, otherwise undefined (which
+    // means "no rule" → denied for enforcing domains — default deny).
+    function resolveRow(endpointType) {
+      const policy = load();
+      const rows = policy.endpointGrants;
+      if (Object.prototype.hasOwnProperty.call(rows, endpointType)) {
+        return { grants: rows[endpointType], source: 'endpoint' };
+      }
+      const family = familyOf(endpointType);
+      if (policy.advisoryFamilies.includes(family)) {
+        return { grants: null, source: 'family' };
+      }
+      return { grants: undefined, source: 'none' };
+    }
+
+    // The bridge front-door check. Pure decision + audit; throws nothing.
+    function checkIpc(appId, endpointType) {
+      const id = String(appId || '');
+      const type = String(endpointType || '');
+      const domain = domainFor(id);
+      const mode = modeFor(domain);
+      const row = resolveRow(type);
+      if (row.grants !== undefined) {
+        if (row.grants === null) {
+          return { allowed: true, advisory: true, domain, mode, endpoint: type };
+        }
+        const held = row.grants.some((p) => safeIsGranted(p, id));
+        if (held) {
+          return { allowed: true, domain, mode, endpoint: type, rule: [...row.grants] };
+        }
+        const denial = {
+          appId: id, domain, mode, endpoint: type, action: 'call',
+          perms: [...row.grants], enforced: mode !== 'permissive',
+          avc: `avc: denied { call } for app=${id || '(anonymous)'} endpoint=${type} domain=${domain} mode=${mode} required=${row.grants.join('|')}`,
+        };
+        recordAudit(denial);
+        if (mode === 'permissive') {
+          return { allowed: true, wouldDeny: true, domain, mode, endpoint: type, rule: [...row.grants] };
+        }
+        return { allowed: false, code: 'PERMISSION_DENIED', domain, mode, endpoint: type, rule: [...row.grants] };
+      }
+      // No policy row: default-deny for enforcing domains (this is the
+      // property that keeps future endpoints locked until policy allows
+      // them), audit and pass for permissive ones.
+      const denial = {
+        appId: id, domain, mode, endpoint: type, action: 'call',
+        perms: [], enforced: mode !== 'permissive', noRule: true,
+        avc: `avc: denied { call } for app=${id || '(anonymous)'} endpoint=${type} domain=${domain} mode=${mode} reason=no_policy_row`,
+      };
+      recordAudit(denial);
+      if (mode === 'permissive') {
+        return { allowed: true, wouldDeny: true, domain, mode, endpoint: type, noRule: true };
+      }
+      return { allowed: false, code: 'PERMISSION_DENIED', domain, mode, endpoint: type, noRule: true };
+    }
+
+    // ── Policy linting (the neverallow/coverage compiler) ────────────────
+
+    function verifyPolicy(policy) {
+      const errors = [];
+      if (!policy || typeof policy !== 'object') {
+        return { ok: false, errors: ['policy must be an object'] };
+      }
+      if (!policy.domains || typeof policy.domains !== 'object'
+          || !Object.keys(policy.domains).length) {
+        errors.push('domains must be a non-empty object');
+      } else {
+        for (const [name, def] of Object.entries(policy.domains)) {
+          if (!/^[a-z_][a-z0-9_]*$/i.test(name)) errors.push(`bad domain name '${name}'`);
+          if (!def || !MAC_MODES.has(def.mode)) errors.push(`domain '${name}' needs mode enforcing|permissive`);
+        }
+      }
+      const subjects = policy.subjects || {};
+      if (typeof subjects !== 'object') errors.push('subjects must be an object');
+      for (const [appId, domain] of Object.entries(subjects)) {
+        if (!policy.domains || !policy.domains[domain]) {
+          errors.push(`subject '${appId}' pins unknown domain '${domain}'`);
+        }
+      }
+      const rows = policy.endpointGrants;
+      if (!rows || typeof rows !== 'object') {
+        errors.push('endpointGrants must be an object');
+      } else {
+        for (const [endpoint, grants] of Object.entries(rows)) {
+          if (!/^[a-z][a-z0-9:-]*$/i.test(endpoint)) errors.push(`bad endpoint key '${endpoint}'`);
+          if (grants === null) continue;
+          if (!Array.isArray(grants) || !grants.length || grants.some((g) => typeof g !== 'string' || !g.trim())) {
+            errors.push(`endpoint '${endpoint}' needs null or a non-empty perm array`);
+          }
+        }
+      }
+      const families = policy.advisoryFamilies;
+      if (!Array.isArray(families) || families.some((f) => typeof f !== 'string' || !f.trim())) {
+        errors.push('advisoryFamilies must be an array of family names');
+      }
+      // neverallow: covered targets must stay grant-coupled.
+      const neverallow = Array.isArray(policy.neverallow) ? policy.neverallow : [];
+      for (const rule of neverallow) {
+        if (!rule || typeof rule.target !== 'string') { errors.push('neverallow rule needs a target'); continue; }
+        const looksLikeFamily = !rule.target.includes(':') || rule.target.split(':').length === 2;
+        if (rule.requireGrant) {
+          const violates = (key, grants) => grants === null || grants === undefined;
+          if (looksLikeFamily) {
+            if (Array.isArray(families) && families.includes(rule.target)) {
+              errors.push(`neverallow violated: family '${rule.target}' is advisory (${rule.reason || 'must stay grant-coupled'})`);
+            }
+            for (const [endpoint, grants] of Object.entries(rows || {})) {
+              if (familyOf(endpoint) === rule.target && violates(endpoint, grants)) {
+                errors.push(`neverallow violated: endpoint '${endpoint}' is not grant-coupled (${rule.reason || 'must stay grant-coupled'})`);
+              }
+            }
+          } else if (Object.prototype.hasOwnProperty.call(rows || {}, rule.target)
+            && violates(rule.target, rows[rule.target])) {
+            errors.push(`neverallow violated: endpoint '${rule.target}' is not grant-coupled (${rule.reason || 'must stay grant-coupled'})`);
+          }
+        }
+      }
+      return { ok: errors.length === 0, errors };
+    }
+
+    // Every handler type must resolve to a row or an advisory family — a
+    // policy that fails coverage would default-deny existing handlers.
+    function verifyCoverage(endpointTypes) {
+      const uncovered = [];
+      for (const type of endpointTypes || []) {
+        if (resolveRow(type).grants === undefined) uncovered.push(type);
+      }
+      return { ok: uncovered.length === 0, uncovered };
+    }
+
+    function applyPolicy(policy) {
+      const verdict = verifyPolicy(policy);
+      if (!verdict.ok) {
+        const err = new Error(`Invalid MAC policy: ${verdict.errors.join('; ')}`);
+        err.policyErrors = verdict.errors;
+        throw err;
+      }
+      active = {
+        policyVersion: Math.max(1, Math.floor(Number(policy.policyVersion) || 1)),
+        domains: JSON.parse(JSON.stringify(policy.domains)),
+        subjects: JSON.parse(JSON.stringify(policy.subjects || {})),
+        endpointGrants: JSON.parse(JSON.stringify(policy.endpointGrants)),
+        advisoryFamilies: [...policy.advisoryFamilies],
+        neverallow: JSON.parse(JSON.stringify(policy.neverallow || [])),
+      };
+      domainModes = new Map(Object.entries(active.domains).map(([d, v]) => [d, v.mode]));
+      return true;
+    }
+
+    function setDomainMode(domain, mode) {
+      if (!MAC_MODES.has(mode)) throw new Error(`Invalid MAC mode '${mode}'`);
+      const policy = load();
+      if (!policy.domains[domain]) throw new Error(`Unknown domain '${domain}'`);
+      policy.domains[domain].mode = mode;
+      domainModes.set(domain, mode);
+      return mode;
+    }
+
+    function getAudit(limit) {
+      const cap = Math.max(1, Math.min(MAC_AUDIT_LOG_MAX, Math.floor(Number(limit) || 100)));
+      return loadAudit().entries.slice(0, cap);
+    }
+
+    function clearAudit() {
+      auditState = defaultAuditState();
+      persistAudit();
+    }
+
+    function getPolicyInfo() {
+      const policy = load();
+      const grantRows = Object.entries(policy.endpointGrants);
+      const now = Date.now();
+      const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+      const audit = loadAudit();
+      return {
+        policyVersion: policy.policyVersion,
+        domains: Object.fromEntries(domainModes),
+        subjects: Object.keys(policy.subjects).length,
+        grantCoupledEndpoints: grantRows.filter(([, g]) => Array.isArray(g)).length,
+        advisoryEndpoints: grantRows.filter(([, g]) => g === null).length,
+        advisoryFamilies: policy.advisoryFamilies.length,
+        neverallow: policy.neverallow.length,
+        auditEntries: audit.entries.length,
+        auditDropped: audit.dropped,
+        denialsToday: audit.entries.filter((e) => e.enforced && e.t >= startOfDay.getTime()).length,
+      };
+    }
+
+    function _resetForTests() {
+      active = null;
+      domainModes = null;
+      auditState = null;
+      if (auditPersistTimer) clearTimeout(auditPersistTimer);
+      auditPersistTimer = null;
+      auditRateLog.clear();
+    }
+
+    return {
+      DEFAULT_POLICY,
+      checkIpc,
+      verifyPolicy,
+      verifyCoverage,
+      applyPolicy,
+      setDomainMode,
+      domainFor,
+      getAudit,
+      clearAudit,
+      getPolicyInfo,
+      _resetForTests,
+    };
+  })();
 
   // Notification gateway
   // Sandboxed apps never touch Notify.show() directly — everything funnels
@@ -254,8 +995,25 @@ const AppSandbox = (() => {
   // Sliding-window rate limit: N notifications per app per window.
   const NOTIF_RATE_LIMIT_MAX = 10;
   const NOTIF_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  // v2 update budget: posts that update an EXISTING tagged notification run
+  // against their own, much larger window instead of the new-post budget.
+  // Without this split, a download progress bar updating once a second would
+  // hit the spam limiter within ten seconds.
+  const NOTIF_UPDATE_RATE_LIMIT_MAX = 60;
+  const NOTIF_UPDATE_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  // v2 payload bounds. Slugs match the sandbox-wide id pattern; channel ids
+  // and tags end up inside storage keys, so they get the same treatment.
+  const NOTIF_CHANNEL_ID_MAX = 64;
+  const NOTIF_CHANNEL_LIMIT = 32;
+  const NOTIF_TAG_MAX_LEN = 64;
+  const NOTIF_ACTIONS_MAX = 3;
+  const NOTIF_ACTION_ID_MAX_LEN = 40;
+  const NOTIF_PROGRESS_MAX = 100000;
+  const NOTIF_SLUG_RE = /^[a-zA-Z0-9_-]+$/;
   // appId -> array of timestamps (ms) within the current window.
   const notifRateLimitLog = new Map();
+  // Same shape, separate budget for tagged update-in-place posts (v2).
+  const notifUpdateRateLimitLog = new Map();
 
   // Only an app which passes UnrestrictedGate may execute in the host
   // document. Any package that falls back to a sandbox gets the same
@@ -514,17 +1272,38 @@ const AppSandbox = (() => {
   }
 
   // Sanitize an app id for safe interpolation into a /data/ path segment.
-  // Strips anything that isn't a word char or dash — notably including dots
-  // now, since a bare '..' previously survived this unchanged (the old
-  // pattern allowed dots and dashes both, so '..' matched every character
-  // and passed through as-is). The one path that constructs an appId here
-  // (handleAppInstall) requires signature verification before an id ever
-  // reaches this function, so '..' isn't reachable through it today — but
-  // this is the last line of defense if a future sideload/dev-install path
-  // ever skips that check, so it strips dots regardless of current
-  // reachability.
+  // Dots are PRESERVED so the segment is the app's real id — the same name
+  // AppDirs bootstraps under ~/.local/share/novabyte/data/<appId>/ on Linux
+  // — instead of a mangled com_example_app shadow folder that split each
+  // app's data across two differently-named trees. Safety comes from the
+  // shape check rather than from stripping dots: every unsafe character
+  // (path separators, whitespace, unicode, ...) is replaced with '_', and
+  // the result must START with an alphanumeric character, so '', '.', '..',
+  // and any dot-led traversal shape can never survive (they collapse to
+  // 'default' or a stripped form). A bare '..' therefore stays unreachable
+  // exactly as before — handleAppInstall only admits signature-verified ids
+  // today, but this remains the last line of defense for future install
+  // paths that might skip that check.
   function sanitizeAppIdSegment(appId) {
-    return String(appId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+    let segment = String(appId || 'default').replace(/[^a-zA-Z0-9._-]/g, '_');
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(segment)) {
+      segment = segment.replace(/^[._-]+/, '');
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(segment)) segment = 'default';
+    }
+    return segment;
+  }
+
+  // The /data/ segment the CALLING app owns: alias-canonicalized first (a
+  // legacy id like com.nbosp.quill owns com.nbosp.textedit's data subtree —
+  // the same folder AppDirs maintains for it), then reduced to a safe
+  // segment. Every /data path construction and ownership comparison must go
+  // through this so an app's data lives under exactly one folder name.
+  function appDataSegment(appId) {
+    let canonical = appId;
+    try {
+      canonical = window.NovaAppIdAliases?.canonicalize?.(appId) || appId;
+    } catch (_) { /* no host window (tests) — use the id as-is */ }
+    return sanitizeAppIdSegment(canonical);
   }
 
   // Notification gateway helpers
@@ -595,6 +1374,101 @@ const AppSandbox = (() => {
   // doesn't grow unbounded across the app's install/uninstall lifecycle.
   function clearNotificationRateLimit(appId) {
     notifRateLimitLog.delete(appId);
+  }
+
+  function checkNotificationUpdateRateLimit(appId) {
+    const now = Date.now();
+    const windowStart = now - NOTIF_UPDATE_RATE_LIMIT_WINDOW_MS;
+    const timestamps = (notifUpdateRateLimitLog.get(appId) ?? []).filter((ts) => ts > windowStart);
+
+    if (timestamps.length >= NOTIF_UPDATE_RATE_LIMIT_MAX) {
+      notifUpdateRateLimitLog.set(appId, timestamps);
+      return false;
+    }
+
+    timestamps.push(now);
+    notifUpdateRateLimitLog.set(appId, timestamps);
+    return true;
+  }
+
+  function clearNotificationUpdateRateLimit(appId) {
+    notifUpdateRateLimitLog.delete(appId);
+  }
+
+  // Seed channels declared statically in the app manifest under
+  // notifications.channels: [{ id, name, importance, description }]. Runs
+  // before every post/createChannel — the host-side ensureChannel is
+  // idempotent and cheap, so a manifest's channels are always registered by
+  // the time a post names one.
+  function seedManifestNotificationChannels(appId) {
+    try {
+      const manifest = OS?.apps?.[appId]?.manifest;
+      if (manifest && typeof Notify !== 'undefined' && Notify.ensureChannelsFromManifest) {
+        Notify.ensureChannelsFromManifest(appId, manifest);
+      }
+    } catch (e) {
+      log('warn', 'notification channel manifest seeding failed for', appId, e);
+    }
+  }
+
+  // v2 action buttons: [{id, label}] — ids are slugs so they can be routed
+  // back to the app as opaque strings, never functions. The v1 rule that
+  // keeps Notify.show() from executing app-controlled code still holds:
+  // nothing but plain, bounded data crosses from a sandboxed app.
+  function sanitizeNotifActions(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const a of raw.slice(0, NOTIF_ACTIONS_MAX)) {
+      if (!a || typeof a !== 'object') continue;
+      const id = typeof a.id === 'string' && a.id.length >= 1
+        && a.id.length <= NOTIF_ACTION_ID_MAX_LEN && NOTIF_SLUG_RE.test(a.id)
+        ? a.id
+        : null;
+      const label = typeof a.label === 'string' && a.label.trim()
+        ? a.label.slice(0, NOTIF_ACTION_LABEL_MAX_LEN)
+        : null;
+      if (id && label) out.push({ id, label });
+    }
+    return out;
+  }
+
+  function sanitizeNotifProgress(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const max = Number.isFinite(raw.max) ? Math.max(1, Math.min(NOTIF_PROGRESS_MAX, Math.floor(raw.max))) : 100;
+    if (raw.indeterminate === true) return { max, indeterminate: true, value: null };
+    if (!Number.isFinite(raw.value)) return null;
+    const value = Math.max(0, Math.min(max, Math.floor(raw.value)));
+    return { value, max, indeterminate: false };
+  }
+
+  // v2 payload sanitizer: layers channel/tag/actions/progress on top of the
+  // v1 clamps (which stay the security boundary for title/body/type/icon).
+  // Channel *validation* (does it exist, is it muted) happens in the
+  // handler against the host-side registry, not here — this function only
+  // normalizes shapes and bounds.
+  function sanitizeNotificationPayloadV2(payload, appName, appId) {
+    const base = sanitizeNotificationPayload(payload, appName, appId);
+    const raw = payload ?? {};
+    const channelId = typeof raw.channelId === 'string' && raw.channelId.length >= 1
+      && raw.channelId.length <= NOTIF_CHANNEL_ID_MAX
+      ? raw.channelId
+      : 'general';
+    const tag = typeof raw.tag === 'string' && raw.tag.length >= 1 && raw.tag.length <= NOTIF_TAG_MAX_LEN
+      ? raw.tag
+      : null;
+    return {
+      ...base,
+      channelId,
+      tag,
+      // Field-wise update contract (see NOVAAPP.md): a tagged post that
+      // OMITS actions/progress keeps the previous values — only an explicit
+      // actions: [] or progress: null clears them. Normalizing an omitted
+      // field to [] / null here silently erased every tagged update's
+      // buttons and progress bar, breaking progress tickers and chat
+      // previews that legitimately re-post title/body only.
+      actions: raw.actions === undefined ? undefined : sanitizeNotifActions(raw.actions),
+      progress: raw.progress === undefined ? undefined : sanitizeNotifProgress(raw.progress),
+    };
   }
 
   // Response helpers
@@ -704,6 +1578,17 @@ const AppSandbox = (() => {
   // entirely.
   function filesystemRelativePath(canonicalPath) {
     const path = String(canonicalPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    /* Linux keeps app data at ~/.local/share/novabyte/data (the tree AppDirs
+       bootstraps), so the app-data root's NATIVE path is not a first-level
+       child of home. Map it back to the logical /data form the ownership
+       checks and picker rules are written against — before the generic
+       root-relative fallback, which would otherwise expose it as a plain
+       shared folder under /.local/... */
+    const dataRoot = String(FS.specialFolders?.data || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (dataRoot) {
+      if (path === dataRoot) return '/data';
+      if (path.startsWith(`${dataRoot}/`)) return `/data${path.slice(dataRoot.length)}`;
+    }
     const root = String(FS.getPath(FS.rootId) || '').replace(/\\/g, '/').replace(/\/+$/, '');
     if (path === root) return '/';
     if (root && path.startsWith(`${root}/`)) return path.slice(root.length);
@@ -748,16 +1633,44 @@ const AppSandbox = (() => {
   // filesystem grants could reach any file's node directly as long as
   // it knew (or guessed/enumerated) an id, regardless of which app's
   // /data/ folder it actually lived in. That's the bug this closes.
+  // Logical fs roots (see NOVAAPP.md "Scoped filesystem roots"):
+  //   appdata:<path> — the CALLING app's own /data/<appId>/<path>; there is
+  //     no way to name another app's subtree with this scheme.
+  //   shared:<path> / media:<path> — the shared tree (Documents, Downloads,
+  //     Pictures, …) under the same permission rules as raw paths; media:
+  //     is a read-intent alias. A shared:/media: root is refused if it
+  //     resolves into /data — the shared roots address the shared tree, and
+  //     app data stays reachable only through appdata:/raw paths where the
+  //     regular ownership checks apply.
+  function expandLogicalFsPath(rawPath, appId) {
+    if (rawPath.startsWith('appdata:')) {
+      const rest = rawPath.slice('appdata:'.length).replace(/^\/+/, '');
+      // Returns the CALLER-RELATIVE /data form: rewriteDataPath/resolveFile
+      // remain the single point that injects the caller's own id segment, so
+      // even 'appdata:/someOtherApp/…' lands in the caller's own subtree.
+      return '/data/' + rest;
+    }
+    if (rawPath.startsWith('shared:') || rawPath.startsWith('media:')) {
+      const rest = rawPath.slice(rawPath.indexOf(':') + 1).replace(/^\/+/, '');
+      const resolved = '/' + rest;
+      if (resolved === '/data' || resolved.startsWith('/data/')) return null;
+      return resolved;
+    }
+    return rawPath;
+  }
+
   function resolveFile(payload, appId, requireOwnAppData, allowSharedMutation = false) {
     const { path, id } = payload ?? {};
     let node = null;
     if (id) {
       node = FS.files.get(id) || null;
     } else if (path) {
-      const rawPath = String(path);
-      const rewritten = rawPath.startsWith('/data/')
-        ? '/data/' + sanitizeAppIdSegment(appId) + rawPath.slice('/data'.length)
-        : rawPath;
+      const expanded = expandLogicalFsPath(String(path), appId);
+      // null from expandLogicalFsPath is a refused shared:/media: mapping.
+      if (expanded === null) return null;
+      const rewritten = expanded.startsWith('/data/')
+        ? '/data/' + appDataSegment(appId) + expanded.slice('/data'.length)
+        : expanded;
       node = FS.getByPath(rewritten);
     } else {
       return null;
@@ -766,7 +1679,7 @@ const AppSandbox = (() => {
 
     const canonicalPath = FS.getPath(node.id);
     const ownerAppId = ownerAppIdForNode(node, canonicalPath);
-    const safeAppId = sanitizeAppIdSegment(appId);
+    const safeAppId = appDataSegment(appId);
 
     // Enforce filesystem ownership for every sandboxed caller. Broad access includes
     // shared user files, never another app's private data.
@@ -799,7 +1712,7 @@ const AppSandbox = (() => {
   }
 
   function isOwnedByApp(node, appId) {
-    return ownerAppIdForNode(node, FS.getPath(node.id)) === sanitizeAppIdSegment(appId);
+    return ownerAppIdForNode(node, FS.getPath(node.id)) === appDataSegment(appId);
   }
 
   function canReadFileContents(node, appId, sandbox) {
@@ -867,7 +1780,7 @@ const AppSandbox = (() => {
   function rewriteDataPath(rawPath, appId) {
     const p = String(rawPath || '');
     if (!p.startsWith('/data/')) return p;
-    return '/data/' + sanitizeAppIdSegment(appId) + p.slice('/data'.length);
+    return '/data/' + appDataSegment(appId) + p.slice('/data'.length);
   }
 
   // File dialog
@@ -952,7 +1865,7 @@ const AppSandbox = (() => {
         mode === 'open'
           ? resolveFile({ id: item.id }, app.id)
           : resolveFile({ id: item.id }, app.id, true, broadAccess)
-            || (item.type === 'folder' && FS.getPath(item.id) === '/data')
+            || (item.type === 'folder' && isAppDataContainer(item))
       );
 
       children.sort((a, b) => {
@@ -1263,6 +2176,17 @@ const AppSandbox = (() => {
     if (!selectedFile && !canReadFileContents(node, app.id, sandbox)) {
       return respondError(webview, 'nova:fs:read', requestId, 'PERMISSION_DENIED', 'App-owned files need no grant; shared files require a media read grant, a user-picked file, or fs:access');
     }
+    // Accounting + audit. Owner reads only tick the byte counters; anything
+    // outside the app's own subtree is audited for the privacy dashboard.
+    StorageLedger.noteRequest(app.id);
+    StorageLedger.noteBytes(app.id, { read: node.size || 0 });
+    if (!isOwnedByApp(node, app.id)) {
+      StorageLedger.recordAccess({
+        appId: app.id,
+        kind: selectedFile ? 'picked-file-read' : 'shared-file-read',
+        detail: FS.getPath(node.id),
+      });
+    }
     return respond(webview, 'nova:fs:read', requestId, {
       success: true,
       data: node.content,
@@ -1274,6 +2198,19 @@ const AppSandbox = (() => {
       modified: node.modified,
       created: node.created,
     });
+  }
+
+  // Best-effort byte size of a write payload for ledger accounting.
+  // Accounting is telemetry — a failure here must never fail the write.
+  function ledgerWriteBytes(content) {
+    try {
+      const s = typeof content === 'string'
+        ? content
+        : (content == null ? '' : JSON.stringify(content));
+      return s ? sharedTextEncoder.encode(s).length : 0;
+    } catch (e) {
+      return 0;
+    }
   }
 
   async function handleFsWrite({ payload, requestId, app, webview, sandbox }) {
@@ -1292,12 +2229,21 @@ const AppSandbox = (() => {
       if (!confirmed) return respond(webview, 'nova:fs:write', requestId, { cancelled: true });
       const saved = await FS.writeFile(selectedFile.id, content);
       if (!saved) return respondError(webview, 'nova:fs:write', requestId, 'NOT_FOUND', 'Selected file no longer exists');
+      StorageLedger.noteRequest(app.id);
+      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(content) });
+      if (!isOwnedByApp(selectedFile, app.id)) {
+        StorageLedger.recordAccess({ appId: app.id, kind: 'picked-file-write', detail: FS.getPath(selectedFile.id) });
+      }
       return respond(webview, 'nova:fs:write', requestId, { success: true, id: selectedFile.id });
     }
     if (!path || content === undefined || content === null) {
       return respondError(webview, 'nova:fs:write', requestId, 'INVALID_ARGS', 'path and content are required');
     }
-    const resolvedPath = rewriteDataPath(path, app.id);
+    const expandedWritePath = expandLogicalFsPath(String(path), app.id);
+    if (expandedWritePath === null) {
+      return respondError(webview, 'nova:fs:write', requestId, 'PERMISSION_DENIED', 'shared:/media: roots cannot address app data');
+    }
+    const resolvedPath = rewriteDataPath(expandedWritePath, app.id);
     let node = FS.getByPath(resolvedPath);
     if (node) {
       if (node.type === 'folder') {
@@ -1312,6 +2258,11 @@ const AppSandbox = (() => {
       }
       if (!confirmed) return respond(webview, 'nova:fs:write', requestId, { cancelled: true });
       await FS.writeFile(node.id, content);
+      StorageLedger.noteRequest(app.id);
+      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(content) });
+      if (!isOwnedByApp(node, app.id)) {
+        StorageLedger.recordAccess({ appId: app.id, kind: 'shared-file-write', detail: FS.getPath(node.id) });
+      }
       return respond(webview, 'nova:fs:write', requestId, { success: true, id: node.id });
     }
     const parts = resolvedPath.split('/').filter(Boolean);
@@ -1330,6 +2281,8 @@ const AppSandbox = (() => {
     // rather than becoming "[object Object]".
     const fileContent = typeof content === 'string' ? content : JSON.stringify(content);
     const newNode = await FS.createFile(parent.id, fileName, fileContent, mimeType || 'text/plain');
+    StorageLedger.noteRequest(app.id);
+    StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(fileContent) });
     return respond(webview, 'nova:fs:write', requestId, {
       success: true,
       id: newNode.id,
@@ -1395,7 +2348,11 @@ const AppSandbox = (() => {
     }
     // rewriteDataPath returns '' for null/undefined path; treat that as
     // "root" so a caller can mkdir directly under the app's /data/<appId>/.
-    const resolvedPath = rewriteDataPath(path, app.id);
+    const expandedMkdirPath = expandLogicalFsPath(String(path ?? ''), app.id);
+    if (expandedMkdirPath === null) {
+      return respondError(webview, 'nova:fs:mkdir', requestId, 'PERMISSION_DENIED', 'shared:/media: roots cannot address app data');
+    }
+    const resolvedPath = rewriteDataPath(expandedMkdirPath, app.id);
     let parent;
     if (resolvedPath) {
       parent = FS.getByPath(resolvedPath);
@@ -1455,7 +2412,11 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:fs:move', requestId, 'UNAVAILABLE', 'User confirmation is required to move a shared file');
     }
     if (!confirmed) return respond(webview, 'nova:fs:move', requestId, { cancelled: true });
-    const destPath = rewriteDataPath(payload.destPath, app.id);
+    const expandedDestPath = expandLogicalFsPath(String(payload.destPath ?? ''), app.id);
+    if (expandedDestPath === null) {
+      return respondError(webview, 'nova:fs:move', requestId, 'PERMISSION_DENIED', 'shared:/media: roots cannot address app data');
+    }
+    const destPath = rewriteDataPath(expandedDestPath, app.id);
     const destParent = destPath ? FS.getByPath(destPath) : null;
     if (!destParent || destParent.type !== 'folder') {
       return respondError(webview, 'nova:fs:move', requestId, 'NOT_FOUND', 'Destination folder not found');
@@ -1504,6 +2465,134 @@ const AppSandbox = (() => {
     }
     Notify.clearForApp(app.id);
     return respond(webview, 'nova:notifications:clear', requestId, { success: true });
+  }
+
+  // ── Notifications v2 ────────────────────────────────────────────────────
+  // Channels + tagged update-in-place + app-declared actions + progress.
+  // The permission model is unchanged (device:notifications covers all of
+  // it, still risk:'low'); the v1 show/clear channels above stay untouched
+  // for compatibility and keep their 10/min new-post budget.
+
+  async function handleNotificationsCreateChannel({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.ensureChannel !== 'function') {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    seedManifestNotificationChannels(app.id);
+    const def = payload ?? {};
+    const id = typeof def.id === 'string' && def.id.length >= 1 && def.id.length <= NOTIF_CHANNEL_ID_MAX ? def.id : null;
+    if (!id || !NOTIF_SLUG_RE.test(id)) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'INVALID_ARGS',
+        `channel id must match ${NOTIF_SLUG_RE} and be <= ${NOTIF_CHANNEL_ID_MAX} chars`);
+    }
+    const existing = Notify.listChannels(app.id);
+    const alreadyDeclared = existing.some((ch) => ch.id === id);
+    if (!alreadyDeclared && existing.length >= NOTIF_CHANNEL_LIMIT) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'LIMIT_REACHED',
+        `Max ${NOTIF_CHANNEL_LIMIT} channels per app`);
+    }
+    const res = Notify.ensureChannel(app.id, { id, name: def.name, importance: def.importance, description: def.description });
+    if (!res) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'INVALID_ARGS',
+        'channel requires a non-empty name (<= 60 chars)');
+    }
+    // Android parity: importance is locked at creation. Report the effective
+    // importance back so an app trying to change it learns it was a no-op.
+    const effective = Notify.getChannel(app.id, res.channel.id);
+    return respond(webview, 'nova:notifications:createChannel', requestId, {
+      success: true,
+      created: res.created,
+      channel: { id: res.channel.id, name: res.channel.name, importance: effective ? effective.importance : res.channel.importance },
+    });
+  }
+
+  async function handleNotificationsPost({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:post', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    // Same UNAVAILABLE-before-rate-limit ordering as the v1 handler: an
+    // environment without Notify must not burn rate-limit slots.
+    if (typeof Notify === 'undefined' || typeof Notify.show !== 'function' || typeof Notify.getChannel !== 'function') {
+      return respondError(webview, 'nova:notifications:post', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    seedManifestNotificationChannels(app.id);
+    const payloadV2 = sanitizeNotificationPayloadV2(payload, app.name, app.id);
+    const channel = Notify.getChannel(app.id, payloadV2.channelId);
+    if (!channel) {
+      return respondError(webview, 'nova:notifications:post', requestId, 'INVALID_ARGS',
+        `Unknown notification channel '${payloadV2.channelId}' — create it first (nova:notifications:createChannel) or declare notifications.channels in the manifest`);
+    }
+    if (channel.blocked) {
+      // A muted channel isn't an app error — the user chose this. Report
+      // success with posted:false so apps can tell "muted" apart from
+      // "rate limited" or "malformed" without a distinct error path.
+      return respond(webview, 'nova:notifications:post', requestId, { success: true, posted: false, reason: 'CHANNEL_MUTED', importance: channel.importance });
+    }
+    const isUpdate = !!(payloadV2.tag && Notify.findByTag(app.id, payloadV2.tag));
+    const underLimit = isUpdate
+      ? checkNotificationUpdateRateLimit(app.id)
+      : checkNotificationRateLimit(app.id);
+    if (!underLimit) {
+      const max = isUpdate ? NOTIF_UPDATE_RATE_LIMIT_MAX : NOTIF_RATE_LIMIT_MAX;
+      return respondError(webview, 'nova:notifications:post', requestId, 'RATE_LIMITED',
+        `Max ${max} notification ${isUpdate ? 'updates' : 'posts'} per minute`);
+    }
+    const notif = Notify.show(payloadV2);
+    return respond(webview, 'nova:notifications:post', requestId, {
+      success: true,
+      posted: !!notif,
+      updated: isUpdate,
+      id: notif ? notif.id : null,
+      importance: channel.importance,
+    });
+  }
+
+  async function handleNotificationsCancel({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:cancel', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.cancelByTag !== 'function') {
+      return respondError(webview, 'nova:notifications:cancel', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    const { tag, id } = payload ?? {};
+    let removed = false;
+    if (typeof tag === 'string' && tag) {
+      removed = Notify.cancelByTag(app.id, tag);
+    } else if (typeof id === 'string' && id) {
+      removed = Notify.cancelById(app.id, id);
+    } else {
+      return respondError(webview, 'nova:notifications:cancel', requestId, 'INVALID_ARGS', 'either tag or id is required');
+    }
+    return respond(webview, 'nova:notifications:cancel', requestId, { success: true, removed });
+  }
+
+  async function handleNotificationsCancelAll({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:cancelAll', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.clearForApp !== 'function') {
+      return respondError(webview, 'nova:notifications:cancelAll', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    Notify.clearForApp(app.id);
+    return respond(webview, 'nova:notifications:cancelAll', requestId, { success: true });
+  }
+
+  // Action delivery is a pull queue: the host opens the app when an action
+  // is tapped, and the app drains whatever actions accumulated — including
+  // ones clicked while it wasn't running — via this call on launch/resume.
+  // Push delivery to a live sandbox is a later refinement (it needs a new
+  // guest-side push handler in the injected bridge).
+  async function handleNotificationsConsumeActions({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:consumeActions', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.consumePendingActions !== 'function') {
+      return respondError(webview, 'nova:notifications:consumeActions', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    const actions = Notify.consumePendingActions(app.id);
+    return respond(webview, 'nova:notifications:consumeActions', requestId, { success: true, actions });
   }
 
   // Background wake (system:background)
@@ -1737,10 +2826,23 @@ const AppSandbox = (() => {
     let menuElement;
     const cleanup = () => {
       if (sandbox.contextMenuCleanup === cleanup) sandbox.contextMenuCleanup = null;
+      /* Unfreeze the guests this menu hid — see the freeze below. */
+      window.NovaSystemWebview?.restoreSandbox?.(sandbox);
       hostContextMenu.hide(menuElement);
     };
+    /* The menu MUST be shown synchronously (apps are allowed to dismiss it
+       in the same tick, and a newer show must cleanly replace this one), so
+       it renders before the guests are frozen: the freeze kicks off right
+       after and pops the menu above the captured stills once it lands. The
+       menu is body-level host DOM: it loses to every webview guest AND,
+       while its window is focused, to the window itself (.context-menu sits
+       at --z-popup while focused windows are raised above it) — hence both
+       the freeze and the z-index raise. */
     menuElement = hostContextMenu.show(rect.left + x, rect.top + y, menuItems, resolveSelection);
+    const windowZ = Number(sandbox.state?.element?.style?.zIndex);
+    if (menuElement && Number.isFinite(windowZ)) menuElement.style.zIndex = String(windowZ + 1);
     sandbox.contextMenuCleanup = cleanup;
+    window.NovaSystemWebview?.freezeSandbox?.(sandbox)?.catch?.(() => {});
 
     const selectedIndex = await selection;
     if (sandbox.contextMenuCleanup === cleanup) sandbox.contextMenuCleanup = null;
@@ -1839,6 +2941,10 @@ const AppSandbox = (() => {
     };
     const cleanup = () => {
       if (sandbox.overlayCleanup === cleanup) sandbox.overlayCleanup = null;
+      /* The sandbox's webviews were frozen (hidden behind captured stills) so
+         this overlay could composite above them — restore them on the way
+         out, whatever path led here. */
+      window.NovaSystemWebview?.restoreSandbox?.(sandbox);
       if (!responseSent) {
         responseSent = true;
         respondError(webview, 'nova:overlay:show', requestId, 'CANCELLED', 'Overlay was closed before rendering completed');
@@ -1913,6 +3019,11 @@ const AppSandbox = (() => {
       cleanup();
       respondError(webview, 'nova:overlay:show', requestId, 'RENDER_FAILED', 'Could not load the host overlay document');
     }, { once: true });
+    /* Host DOM always loses to a <webview> guest surface (regardless of
+       z-index), so freeze the sandbox's guests into captured stills before
+       the overlay iframe is appended — otherwise this overlay renders
+       behind the app's webview and the nested webview and is invisible. */
+    try { await window.NovaSystemWebview?.freezeSandbox?.(sandbox); } catch (_) { /* overlay still renders, page may blank */ }
     overlayParent.appendChild(iframe);
     return undefined;
   }
@@ -2132,9 +3243,12 @@ const AppSandbox = (() => {
   // works, and is a deliberate departure from path-based file writes
   // above, which writes into novabyte-os's own virtual FS without a
   // per-write prompt.
-  const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024; // 100MB — generous for a
-  // vault export or similar; guards against a runaway/misbehaving app
-  // trying to stream something enormous through the IPC bridge.
+  //
+  // No size cap: like Android's DownloadManager there is no artificial
+  // byte limit on what a user-approved download may contain. The payload
+  // is still buffered in memory (base64 over the bridge, then a Buffer),
+  // so enormous files fail on their own footprint rather than a policy
+  // number — the user's explicit save-dialog confirmation is the control.
 
   function sanitizeDownloadFilename(name) {
     const fallback = 'download';
@@ -2157,9 +3271,6 @@ const AppSandbox = (() => {
       buffer = Buffer.from(base64Data, 'base64');
     } catch {
       return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', 'base64Data is not valid base64');
-    }
-    if (buffer.length > MAX_DOWNLOAD_BYTES) {
-      return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', `Download exceeds ${MAX_DOWNLOAD_BYTES} byte limit`);
     }
 
     const safeName = sanitizeDownloadFilename(filename);
@@ -3438,6 +4549,10 @@ const AppSandbox = (() => {
           await AppSandbox.clearAllStorage();
         }
       } catch (e) { console.warn('[Settings] app storage wipe failed:', e); }
+      // The ledger is localStorage-backed and localStorage.clear() above
+      // already dropped its persisted copy — reset the in-memory state too
+      // so a snapshot taken before the reload can't resurrect stale rows.
+      try { StorageLedger.resetAll(); } catch (e) { console.warn('[Settings] storage ledger reset failed:', e); }
       const dbResults = await deleteHostIndexedDBs(['NovaByte_FS', 'novabyte_opfs_fallback', 'NovaByte_AppStorage']);
       const blocked = dbResults.filter(r => !r.ok);
 
@@ -4027,6 +5142,36 @@ const AppSandbox = (() => {
     } catch (e) {
       log('warn', 'nova:app:uninstall — failed to clear storage partition for', appId, e);
     }
+    // nova:storage:* is a separate host-shell-side IndexedDB keyed by
+    // [appId, key] — clearAppPartition never touches it (see destroy()'s
+    // long comment). Every manual uninstall path (Launchpad, App Manager,
+    // My Apps, Store) wipes both; this IPC path must too, or an
+    // uninstall/reinstall cycle leaks the previous install's key-value data.
+    try {
+      await storageClear(appId);
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to clear nova:storage for', appId, e);
+    }
+    // The ledger's accounting, budget overrides, and access-log entries for
+    // this app die with the install too (Android clears app state on
+    // uninstall).
+    try {
+      StorageLedger.removeApp(appId);
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to clear storage ledger for', appId, e);
+    }
+    // Android parity: uninstalling an app resets its runtime permissions.
+    // Without this, grants (and denials) persist in localStorage forever and
+    // a reinstall of the same package id silently inherits the previous
+    // install's capabilities. revokeAllPermissions also triggers the root
+    // reload and the same-origin/nested-webview live-sandbox teardown.
+    try {
+      if (typeof AppPermissionManager !== 'undefined' && typeof AppPermissionManager.revokeAllPermissions === 'function') {
+        await AppPermissionManager.revokeAllPermissions(appId);
+      }
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to reset permissions for', appId, e);
+    }
     try {
       if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
         await AppDirs.removeAppData(appId);
@@ -4034,9 +5179,16 @@ const AppSandbox = (() => {
     } catch (e) {
       log('warn', 'nova:app:uninstall — failed to clear app data for', appId, e);
     }
-    // Drop the notification rate-limit entry so it doesn't leak across
+    // Drop the notification rate-limit entries so they don't leak across
     // an uninstall/reinstall cycle for the same app id.
     clearNotificationRateLimit(appId);
+    clearNotificationUpdateRateLimit(appId);
+    // Channels, channel overrides, and queued notification actions die with
+    // the app (Android removes channels on uninstall too). Guarded: Notify
+    // lives in the shell bundle and may be absent in headless test runs.
+    if (typeof Notify !== 'undefined' && Notify.removeAllAppState) {
+      Notify.removeAllAppState(appId);
+    }
     clearDefaultAppsRateLimit(appId);
 
     delete OS.apps[appId];
@@ -4223,7 +5375,9 @@ const AppSandbox = (() => {
     ['contacts:updated', 'contacts:read'],
   ]);
 
-  const APP_IPC_MAX_PAYLOAD_BYTES = 64 * 1024;
+  // Legacy OS-wide default; the live cap is per-app via the ledger budget
+  // (ipcPayloadBytes, default 256 KB) — see StorageLedger.DEFAULT_BUDGETS.
+  const APP_IPC_LEGACY_MAX_PAYLOAD_BYTES = 64 * 1024;
   const APP_IPC_TIMEOUT_MS = 25_000;
   const APP_IPC_ENDPOINT_PATTERN = /^(?:service|provider):[a-z0-9][a-z0-9._-]{0,127}$/;
   const APP_IPC_ACTION_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
@@ -4244,11 +5398,12 @@ const AppSandbox = (() => {
     return Array.isArray(values) ? values.filter(value => typeof value === 'string') : [];
   }
 
-  function normalizeAppIpcPayload(value) {
+  function normalizeAppIpcPayload(value, appId) {
     try {
+      const maxBytes = StorageLedger.getBudget(appId, 'ipcPayloadBytes') || APP_IPC_LEGACY_MAX_PAYLOAD_BYTES;
       const serialized = JSON.stringify(value === undefined ? null : value);
-      if (serialized === undefined || new TextEncoder().encode(serialized).byteLength > APP_IPC_MAX_PAYLOAD_BYTES) {
-        return { error: 'IPC payload exceeds the 64 KB limit' };
+      if (serialized === undefined || new TextEncoder().encode(serialized).byteLength > maxBytes) {
+        return { error: `IPC payload exceeds the ${Math.round(maxBytes / 1024)} KB limit` };
       }
       return { value: JSON.parse(serialized) };
     } catch (error) {
@@ -4307,6 +5462,12 @@ const AppSandbox = (() => {
   }
 
   function handleAppIpcUnregister({ payload, requestId, app, webview, sandbox }) {
+    // Gated for consistency with the rest of the nova:ipc:* family — an app
+    // without apps:communicate never legitimately registered an endpoint, so
+    // there is nothing it should be able to tear down over the bridge.
+    if (!AppPermissionManager.isGranted('apps:communicate', app.id)) {
+      return respondError(webview, 'nova:ipc:unregister', requestId, 'PERMISSION_DENIED', 'apps:communicate permission required');
+    }
     const endpoint = payload?.endpoint;
     if (typeof endpoint === 'string') sandbox?.appIpcEndpoints?.delete(endpoint);
     return respond(webview, 'nova:ipc:unregister', requestId, { success: true, endpoint });
@@ -4339,10 +5500,11 @@ const AppSandbox = (() => {
     if (!targetSandbox) {
       return respondError(webview, 'nova:ipc:invoke', requestId, 'UNAVAILABLE', 'Target endpoint is not running');
     }
-    const safePayload = normalizeAppIpcPayload(payload.data);
+    const safePayload = normalizeAppIpcPayload(payload.data, app.id);
     if (safePayload.error) {
       return respondError(webview, 'nova:ipc:invoke', requestId, 'INVALID_ARGS', safePayload.error);
     }
+    StorageLedger.noteRequest(app.id);
 
     const callId = generateRequestId();
     const sourceSandboxId = activeSandboxId(webview);
@@ -4370,6 +5532,13 @@ const AppSandbox = (() => {
   }
 
   function handleAppIpcReply({ payload, requestId, app, webview, sandbox }) {
+    // Defense in depth: only an app holding apps:communicate may act as an
+    // IPC endpoint at all, so it is also the only thing that can complete a
+    // pending request. Without this gate a stripped app could still resolve
+    // an in-flight call (e.g. granted, then revoked mid-call).
+    if (!AppPermissionManager.isGranted('apps:communicate', app.id)) {
+      return respondError(webview, 'nova:ipc:reply', requestId, 'PERMISSION_DENIED', 'apps:communicate permission required');
+    }
     const callId = payload?.callId;
     const pending = typeof callId === 'string' ? pendingAppIpcCalls.get(callId) : null;
     const sandboxId = activeSandboxId(webview);
@@ -4382,7 +5551,7 @@ const AppSandbox = (() => {
     if (typeof payload.error === 'string' && payload.error) {
       pending.resolve({ error: payload.error.slice(0, 500) });
     } else {
-      const safeResult = normalizeAppIpcPayload(payload.result);
+      const safeResult = normalizeAppIpcPayload(payload.result, app.id);
       pending.resolve(safeResult.error ? { error: safeResult.error } : { result: safeResult.value });
     }
     return respond(webview, 'nova:ipc:reply', requestId, { success: true });
@@ -4423,7 +5592,7 @@ const AppSandbox = (() => {
     if (!appIpcRateLimit(app.id, 'broadcast')) {
       return respondError(webview, 'nova:ipc:broadcast', requestId, 'RATE_LIMITED', 'Max 20 app broadcasts per minute');
     }
-    const safePayload = normalizeAppIpcPayload(payload.data);
+    const safePayload = normalizeAppIpcPayload(payload.data, app.id);
     if (safePayload.error) {
       return respondError(webview, 'nova:ipc:broadcast', requestId, 'INVALID_ARGS', safePayload.error);
     }
@@ -4507,6 +5676,7 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted(netPerm, app.id)) {
       return respondError(webview, 'nova:net:fetch', requestId, 'PERMISSION_DENIED', `${netPerm} permission required`);
     }
+    StorageLedger.noteRequest(app.id);
     // Normalize headers to a plain object — apps can pass a Headers instance,
     // an array of pairs, or a plain object. Same conversion the shim does
     // client-side; redo here so the proxy path doesn't choke on a non-plain
@@ -4532,15 +5702,19 @@ const AppSandbox = (() => {
       if (bodyEncoding === 'base64' && typeof body === 'string') {
         try {
           const binary = atob(body);
-          if (binary.length > 6 * 1024 * 1024) {
-            return respondError(webview, 'nova:net:fetch', requestId, 'PAYLOAD_TOO_LARGE', 'Binary request body exceeds the 6 MiB limit');
+          const maxBodyBytes = StorageLedger.getBudget(app.id, 'httpBodyBytes');
+          if (binary.length > maxBodyBytes) {
+            return respondError(webview, 'nova:net:fetch', requestId, 'PAYLOAD_TOO_LARGE', `Binary request body exceeds the ${Math.round(maxBodyBytes / (1024 * 1024))} MiB limit`);
           }
+          StorageLedger.noteBytes(app.id, { written: binary.length });
           requestBody = Uint8Array.from(binary, character => character.charCodeAt(0));
         } catch (error) {
           return respondError(webview, 'nova:net:fetch', requestId, 'INVALID_ARGS', 'Invalid base64 request body');
         }
       } else if (bodyEncoding && bodyEncoding !== 'utf8') {
         return respondError(webview, 'nova:net:fetch', requestId, 'INVALID_ARGS', 'Unsupported request body encoding');
+      } else if (typeof requestBody === 'string' && requestBody.length > 0) {
+        StorageLedger.noteBytes(app.id, { written: sharedTextEncoder.encode(requestBody).length });
       }
       let resStatus, resStatusText, resHeaders, resBody, resBodyEncoding = 'utf8';
 
@@ -4794,7 +5968,8 @@ const AppSandbox = (() => {
       storageAppUsageBytes(appId, db),
       storageExistingByteSize(db, appId, key),
     ]);
-    if (usage - existing + valueBytes > STORAGE_APP_QUOTA_BYTES) {
+    const quotaBytes = StorageLedger.getBudget(appId, 'storageQuotaBytes');
+    if (usage - existing + valueBytes > quotaBytes) {
       const err = new Error('Storage quota exceeded');
       err.code = 'STORAGE_FULL';
       throw err;
@@ -4906,14 +6081,25 @@ const AppSandbox = (() => {
     // '[object Object]' that String(value) would give, otherwise the quota
     // check is silently too lenient for any non-string value.
     const value = payload?.value ?? '';
-    const valueBytes = sharedTextEncoder.encode(
-      typeof value === 'string' ? value : JSON.stringify(value)
-    ).length;
+    // JSON.stringify can throw on a value the guest bridge would never carry
+    // anyway (cyclic structures, BigInt) — but handleAPICall's catch-all
+    // surfaces that as an opaque INTERNAL_ERROR. Validate it explicitly so
+    // the guest gets a precise INVALID_ARGS instead.
+    let valueJson;
+    try {
+      valueJson = typeof value === 'string' ? value : JSON.stringify(value);
+    } catch (e) {
+      return respondError(webview, 'nova:storage:set', requestId, 'INVALID_ARGS',
+        `Value is not JSON-serializable: ${e?.message || e}`);
+    }
+    const valueBytes = sharedTextEncoder.encode(valueJson).length;
     if (valueBytes > STORAGE_VALUE_MAX_BYTES) {
       return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', `Value exceeds ${STORAGE_VALUE_MAX_BYTES} byte limit`);
     }
     try {
       await storageSet(app.id, rawKey, value, valueBytes);
+      StorageLedger.noteRequest(app.id);
+      StorageLedger.noteBytes(app.id, { written: valueBytes });
       return respond(webview, 'nova:storage:set', requestId, { success: true });
     } catch (e) {
       if (e && e.code === 'STORAGE_FULL') {
@@ -4930,6 +6116,7 @@ const AppSandbox = (() => {
     }
     try {
       await storageDelete(app.id, rawKey);
+      StorageLedger.noteRequest(app.id);
       return respond(webview, 'nova:storage:delete', requestId, { success: true });
     } catch (e) {
       return respondError(webview, 'nova:storage:delete', requestId, 'ERROR', e?.message || 'Unknown error');
@@ -4952,6 +6139,53 @@ const AppSandbox = (() => {
     } catch (e) {
       return respondError(webview, 'nova:storage:keys', requestId, 'ERROR', e?.message || 'Unknown error');
     }
+  }
+
+  // An app asking about its own usage — the storage equivalent of Android's
+  // StorageManager. Returns the authoritative IndexedDB usage plus the
+  // ledger budget, so an app can stay under its own quota without guessing.
+  async function handleStorageUsage({ requestId, app, webview }) {
+    try {
+      const db = await openStorageDB();
+      const usage = await storageAppUsageBytes(app.id, db);
+      return respond(webview, 'nova:storage:usage', requestId, {
+        success: true,
+        usage,
+        budget: StorageLedger.getBudget(app.id, 'storageQuotaBytes'),
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:storage:usage', requestId, 'ERROR', e?.message || 'Unknown error');
+    }
+  }
+
+  // Host-side snapshot of the MAC policy engine for the Settings privacy
+  // dashboard (mode, rule counts, avc denial feed). Same trust model as the
+  // storage ledger snapshot: trusted host-tier direct call, deliberately NOT
+  // reachable over the sandbox IPC bridge.
+  async function macPolicySnapshot() {
+    return {
+      info: MacPolicy.getPolicyInfo(),
+      denials: MacPolicy.getAudit(50),
+    };
+  }
+
+  // Host-side snapshot of the storage ledger for the Settings storage and
+  // privacy dashboard. Settings runs in the trusted host tier and calls
+  // AppSandbox.storageLedgerSnapshot() directly — this is deliberately NOT
+  // reachable over the sandbox IPC bridge, so apps can never enumerate each
+  // other's accounting or the access audit.
+  async function storageLedgerSnapshot() {
+    let db = null;
+    try { db = await openStorageDB(); } catch (e) { db = null; }
+    const apps = [];
+    for (const stats of StorageLedger.getAllStats()) {
+      let kvUsage = 0;
+      if (db) {
+        try { kvUsage = await storageAppUsageBytes(stats.appId, db); } catch (e) { kvUsage = 0; }
+      }
+      apps.push({ ...stats, kvUsage });
+    }
+    return { apps, accessLog: StorageLedger.listAccess(null, 100) };
   }
 
   // Device: geolocation
@@ -5757,6 +6991,11 @@ const AppSandbox = (() => {
     'nova:fs:move': handleFsMove,
     'nova:notifications:show': handleNotificationsShow,
     'nova:notifications:clear': handleNotificationsClear,
+    'nova:notifications:post': handleNotificationsPost,
+    'nova:notifications:createChannel': handleNotificationsCreateChannel,
+    'nova:notifications:cancel': handleNotificationsCancel,
+    'nova:notifications:cancelAll': handleNotificationsCancelAll,
+    'nova:notifications:consumeActions': handleNotificationsConsumeActions,
     'nova:settings:get': handleSettingsGet,
     'nova:settings:set': handleSettingsSet,
     'nova:wallpaper:set': handleWallpaperSet,
@@ -5811,6 +7050,7 @@ const AppSandbox = (() => {
     'nova:storage:delete': handleStorageDelete,
     'nova:storage:clear': handleStorageClear,
     'nova:storage:keys': handleStorageKeys,
+    'nova:storage:usage': handleStorageUsage,
     'nova:device:geolocation': handleDeviceGeolocation,
     'nova:device:camera': handleDeviceCamera,
     'nova:device:microphone': handleDeviceMicrophone,
@@ -5835,10 +7075,13 @@ const AppSandbox = (() => {
     'nova:fs:read', 'nova:fs:write', 'nova:fs:delete', 'nova:fs:list',
     'nova:fs:mkdir', 'nova:fs:stat', 'nova:fs:rename', 'nova:fs:move',
     'nova:storage:get', 'nova:storage:set', 'nova:storage:delete',
-    'nova:storage:clear', 'nova:storage:keys',
+    'nova:storage:clear', 'nova:storage:keys', 'nova:storage:usage',
     'nova:settings:get', 'nova:settings:set',
     'nova:appearance:get', 'nova:appearance:set',
     'nova:notifications:show', 'nova:notifications:clear',
+    'nova:notifications:post', 'nova:notifications:createChannel',
+    'nova:notifications:cancel', 'nova:notifications:cancelAll',
+    'nova:notifications:consumeActions',
     'nova:request-permission',
     'nova:clipboard:read', 'nova:clipboard:write',
     'nova:net:fetch',
@@ -5859,6 +7102,19 @@ const AppSandbox = (() => {
       const handler = API_HANDLERS[type];
       if (!handler) {
         return respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
+      }
+      // MAC front door (NB-MAC): mandatory access control before any handler
+      // code runs. Denials keep the PERMISSION_DENIED code handlers would
+      // produce, so app-visible behavior is unchanged for seeded rules; the
+      // denial is avc-audited in MacPolicy. Permissive domains are audited
+      // as would-be denials and passed through to the handler as today.
+      const macVerdict = MacPolicy.checkIpc(app && app.id, type);
+      if (!macVerdict.allowed) {
+        const required = macVerdict.rule && macVerdict.rule.length
+          ? `requires ${macVerdict.rule.join(' | ')}`
+          : 'no policy rule for this endpoint';
+        return respondError(webview, type, requestId, 'PERMISSION_DENIED',
+          `Blocked by system security policy (MAC): ${required}`);
       }
       await handler({ payload, requestId, app, webview, sandbox });
     } catch (err) {
@@ -6464,10 +7720,15 @@ const AppSandbox = (() => {
   // operations still go through the existing IPC bridge and host-side handlers,
   // which preserve per-app isolation, validation, quotas, and permission checks.
   // This is source text because the code runs inside each sandboxed app document.
-  function buildNovaOSFacadeSource() {
+  function buildNovaOSFacadeSource(maxHttpBodyBytes) {
+    const bodyCap = Number(maxHttpBodyBytes) >= 64 * 1024 ? Math.floor(Number(maxHttpBodyBytes)) : 6 * 1024 * 1024;
     return `
   // NovaByte platform API v2. The legacy window.nova surface above remains
   // available with its original return shapes and error behavior.
+  // __NOVA_MAX_BODY_BYTES__ is baked in from the calling app's ledger budget
+  // (httpBodyBytes); the host re-checks the same budget authoritatively on
+  // every request, so these guest-side checks are just early failures.
+  const __NOVA_MAX_BODY_BYTES__ = ${bodyCap};
   const NOVAOS_SUPPORTED_CAPABILITIES = Object.freeze({
     'storage.v2': true,
   });
@@ -6504,6 +7765,46 @@ const AppSandbox = (() => {
           return result && Array.isArray(result.keys) ? result.keys : [];
         });
       },
+      // This app's own usage against its own budget — the storage twin of
+      // Android's StorageManager.getAllocatedBytes(). No other app's numbers
+      // are reachable, ever.
+      usage: function() {
+        return ipc('nova:storage:usage', {}).then(function(result) {
+          return {
+            usage: result && Number.isFinite(result.usage) ? result.usage : 0,
+            budget: result && Number.isFinite(result.budget) ? result.budget : 0,
+          };
+        });
+      },
+    }),
+    // Scoped filesystem roots (host-side expansion — see NOVAAPP.md).
+    // appdata: always resolves to THIS app's /data/<appId>/ subtree; there
+    // is no syntax to name another app's subtree. shared:/media: address
+    // the shared tree under the same permission rules as raw paths —
+    // ownership and grant checks happen on every call host-side.
+    fs: Object.freeze({
+      appdata: Object.freeze({
+        list: function(path) {
+          return ipc('nova:fs:list', { path: 'appdata:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
+        },
+        read: function(path) {
+          return ipc('nova:fs:read', { path: 'appdata:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
+        },
+        write: function(path, content) {
+          return ipc('nova:fs:write', { path: 'appdata:/' + String(path || '').replace(/^\\/+$|^\\/+/, ''), content: content });
+        },
+        remove: function(path) {
+          return ipc('nova:fs:delete', { path: 'appdata:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
+        },
+      }),
+      shared: Object.freeze({
+        list: function(path) {
+          return ipc('nova:fs:list', { path: 'shared:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
+        },
+        read: function(path) {
+          return ipc('nova:fs:read', { path: 'shared:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
+        },
+      }),
     }),
   });`;
   }
@@ -6511,11 +7812,15 @@ const AppSandbox = (() => {
   // Builds the capability shim string for a given app. Whether the package
   // opted in is baked in at injection time; user permission is checked on
   // each host operation so a runtime grant can enable the API without reload.
-  function buildCapabilityShim(nestedWebviewOptedIn, initialUrl = null) {
+  // budgets: { requestTimeoutMs, httpBodyBytes } from the app's ledger record
+  // (StorageLedger.getBudget) — the guest-side constants match the caps the
+  // host actually enforces, so an app with a raised budget doesn't fail
+  // client-side at the old lower cap.
+  function buildCapabilityShim(nestedWebviewOptedIn, initialUrl = null, budgets = {}) {
   return `<script>
 (function() {
   'use strict';
-  const REQUEST_TIMEOUT_MS = 30000;
+  const REQUEST_TIMEOUT_MS = ${Number(budgets.requestTimeoutMs) >= 5000 ? Math.floor(Number(budgets.requestTimeoutMs)) : 30000};
   // Baked in from the package manifest. Actual permission is checked by the
   // host for every nested-webview IPC request.
   const __NOVA_NESTED_WEBVIEW_OPTED_IN__ = ${nestedWebviewOptedIn ? 'true' : 'false'};
@@ -6992,29 +8297,34 @@ const AppSandbox = (() => {
           throw error;
         });
       },
-      contextMenu: {
-        show: function(x, y, items) {
-          return ipc('nova:context-menu:show', { x: x, y: y, items: items });
-        },
-        hide: function() {
-          return ipc('nova:context-menu:hide', {});
-        },
+    },
+    // Top-level app-facing surfaces, documented in NOVAAPP.md as
+    // window.nova.overlay.* and window.nova.contextMenu.*. They must stay
+    // siblings of the appearance object — a misplaced brace used to nest
+    // them inside it, so both were undefined for every app (overlay.show
+    // and onEvent threw "Cannot read properties of undefined").
+    contextMenu: {
+      show: function(x, y, items) {
+        return ipc('nova:context-menu:show', { x: x, y: y, items: items });
       },
-      overlay: {
-        show: function(options) {
-          return ipc('nova:overlay:show', options || {});
-        },
-        hide: function() {
-          return ipc('nova:overlay:hide', {});
-        },
-        onEvent: function(callback) {
-          if (typeof callback !== 'function') throw new TypeError('callback must be a function');
-          overlayListeners.push(callback);
-          return function() {
-            const index = overlayListeners.indexOf(callback);
-            if (index >= 0) overlayListeners.splice(index, 1);
-          };
-        },
+      hide: function() {
+        return ipc('nova:context-menu:hide', {});
+      },
+    },
+    overlay: {
+      show: function(options) {
+        return ipc('nova:overlay:show', options || {});
+      },
+      hide: function() {
+        return ipc('nova:overlay:hide', {});
+      },
+      onEvent: function(callback) {
+        if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+        overlayListeners.push(callback);
+        return function() {
+          const index = overlayListeners.indexOf(callback);
+          if (index >= 0) overlayListeners.splice(index, 1);
+        };
       },
     },
     app: {
@@ -7248,7 +8558,7 @@ const AppSandbox = (() => {
 
   // Add a v2 facade without replacing or mutating the established v1 object.
   // Both API surfaces use the same secure IPC bridge and host-side services.
-  ${buildNovaOSFacadeSource()}
+  ${buildNovaOSFacadeSource(budgets.httpBodyBytes)}
 
   // Self-triggered handshake — every app gets this automatically on load,
   // rather than needing to remember to call it. Runs the same
@@ -7384,7 +8694,7 @@ const AppSandbox = (() => {
     function bytesToBase64(bytes) {
       // Keep browser-to-host IPC and the matching server proxy within one
       // bounded binary-request size. Fail explicitly rather than truncating.
-      if (bytes.length > 6 * 1024 * 1024) throw new RangeError('XHR request body exceeds the 6 MiB limit');
+      if (bytes.length > __NOVA_MAX_BODY_BYTES__) throw new RangeError('XHR request body exceeds the ' + Math.round(__NOVA_MAX_BODY_BYTES__ / (1024 * 1024)) + ' MiB limit');
       let binary = '';
       // Chunking avoids argument-count and call-stack limits for large bodies.
       for (let offset = 0; offset < bytes.length; offset += 0x8000) {
@@ -7427,13 +8737,13 @@ const AppSandbox = (() => {
         }
         parts.push('--' + boundary + '--\\r\\n');
         const multipart = new Blob(parts, { type: 'multipart/form-data; boundary=' + boundary });
-        if (multipart.size > 6 * 1024 * 1024) throw new RangeError('XHR request body exceeds the 6 MiB limit');
+        if (multipart.size > __NOVA_MAX_BODY_BYTES__) throw new RangeError('XHR request body exceeds the ' + Math.round(__NOVA_MAX_BODY_BYTES__ / (1024 * 1024)) + ' MiB limit');
         const multipartBytes = new Uint8Array(await multipart.arrayBuffer());
         setHeaderIfMissing('Content-Type', 'multipart/form-data; boundary=' + boundary);
         return { body: bytesToBase64(multipartBytes), bodyEncoding: 'base64' };
       }
       if (typeof Blob !== 'undefined' && value instanceof Blob) {
-        if (value.size > 6 * 1024 * 1024) throw new RangeError('XHR request body exceeds the 6 MiB limit');
+        if (value.size > __NOVA_MAX_BODY_BYTES__) throw new RangeError('XHR request body exceeds the ' + Math.round(__NOVA_MAX_BODY_BYTES__ / (1024 * 1024)) + ' MiB limit');
         if (value.type) setHeaderIfMissing('Content-Type', value.type);
         return { body: bytesToBase64(new Uint8Array(await value.arrayBuffer())), bodyEncoding: 'base64' };
       }
@@ -7940,6 +9250,34 @@ const AppSandbox = (() => {
       __valueCommand(command, value) {
         return ipc('nova:nested-webview', { action: 'command', id: this.__nestedId, command, value });
       }
+      /* Freeze the guest into a still frame (captured via capturePage) and
+         hide the live surface, so the app's own DOM can composite above the
+         frozen page. Guests always render above host DOM regardless of
+         z-index, so this is the only way to layer under host pixels while
+         keeping the page visible. */
+      setOverlayActive(active) {
+        return ipc('nova:nested-webview', { action: active === true ? 'freeze' : 'unfreeze', id: this.__nestedId });
+      }
+      /* Interactive annotation layer — a canvas the host injects INTO the
+         guest document, because host DOM can never render above a guest. */
+      setAnnotationLayer(options) {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'enable', options: options || {} });
+      }
+      updateAnnotationLayer(patch) {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'style', options: patch || {} });
+      }
+      setAnnotationActive(active) {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'active', active: active === true });
+      }
+      clearAnnotationLayer() {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'clear' });
+      }
+      undoAnnotationLayer() {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'undo' });
+      }
+      exportAnnotationLayer() {
+        return ipc('nova:nested-webview', { action: 'annotation', id: this.__nestedId, command: 'export' });
+      }
     }
 
     customElements.define('nova-nested-webview', NovaNestedWebview);
@@ -8079,6 +9417,11 @@ const AppSandbox = (() => {
             });
           }
         };
+        this._onAnnotationExport = event => {
+          if (typeof event?.dataUrl === 'string' && event.dataUrl.startsWith('data:image/')) {
+            this._emit('annotation-export', { dataUrl: event.dataUrl });
+          }
+        };
         this._onContextMenu = event => {
           const rect = element.getBoundingClientRect();
           const viewportWidth = Number(event.viewportWidth) || rect.width || 1;
@@ -8108,6 +9451,7 @@ const AppSandbox = (() => {
         element.addEventListener('newwindow', this._onNewWindow);
         element.addEventListener('permissionrequest', this._onPermissionRequest);
         element.addEventListener('contextmenu', this._onContextMenu);
+        element.addEventListener('annotation-export', this._onAnnotationExport);
         if (pollingInterval > 0) {
           this._pollTimer = setInterval(() => {
             this.refreshState().catch(error => this._reportStateError(error));
@@ -8217,6 +9561,13 @@ const AppSandbox = (() => {
       setZoom(zoom) { return this.element.setZoom(zoom); }
       setZoomMode(mode) { return this.element.setZoomMode(mode); }
       setUserAgent(userAgent) { return this.element.setUserAgentOverride(userAgent); }
+      setOverlayActive(active) { return this.element.setOverlayActive(active === true); }
+      setAnnotationLayer(options) { return this.element.setAnnotationLayer(options); }
+      updateAnnotationLayer(patch) { return this.element.updateAnnotationLayer(patch); }
+      setAnnotationActive(active) { return this.element.setAnnotationActive(active === true); }
+      clearAnnotationLayer() { return this.element.clearAnnotationLayer(); }
+      undoAnnotationLayer() { return this.element.undoAnnotationLayer(); }
+      exportAnnotationLayer() { return this.element.exportAnnotationLayer(); }
       executeScript(code) {
         if (typeof code !== 'string' || !code.trim()) return Promise.reject(new TypeError('Script code is required'));
         return this.element.executeScript({ code });
@@ -8240,6 +9591,7 @@ const AppSandbox = (() => {
         this.element.removeEventListener('newwindow', this._onNewWindow);
         this.element.removeEventListener('permissionrequest', this._onPermissionRequest);
         this.element.removeEventListener('contextmenu', this._onContextMenu);
+        this.element.removeEventListener('annotation-export', this._onAnnotationExport);
         this.element.remove();
         this._emit('destroy', {});
       }
@@ -8278,7 +9630,6 @@ const AppSandbox = (() => {
         const response = await fetch(options.url);
         if (!response.ok) throw new Error('Download request failed with HTTP ' + response.status);
         const blob = await response.blob();
-        if (blob.size > 100 * 1024 * 1024) throw new RangeError('Downloads are limited to 100 MB');
         const dataUrl = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
@@ -8473,7 +9824,11 @@ const AppSandbox = (() => {
       && canNestedWebviewNavigate(app, launchOptions.url)
       ? resolveAndClassifyUrl(launchOptions.url).url
       : null;
-    const shim = buildCapabilityShim(nestedWebviewOptedIn, initialUrl);
+    const ledgerBudgets = {
+      requestTimeoutMs: StorageLedger.getBudget(app?.id, 'requestTimeoutMs'),
+      httpBodyBytes: StorageLedger.getBudget(app?.id, 'httpBodyBytes'),
+    };
+    const shim = buildCapabilityShim(nestedWebviewOptedIn, initialUrl, ledgerBudgets);
     const cspMeta = buildRelaxedCspMeta(allowExternalFrames);
     // Add transparent document-root styling through the same unconditional
     // prefix path as the capability shim. This works for fragments or HTML
@@ -9737,6 +11092,14 @@ const AppSandbox = (() => {
     // for this store.
     storageClear,
     clearAllStorage,
+    // Storage ledger — per-app budgets, accounting, and shared-access audit
+    // (the "logical UID" layer). Settings (trusted host tier) reads the
+    // snapshot for its storage/privacy dashboard; uninstall/clear-data flows
+    // call removeApp/resetForApp. Apps never see any of this over IPC.
+    storageLedger: StorageLedger,
+    storageLedgerSnapshot,
+    macPolicy: MacPolicy,
+    macPolicySnapshot,
     detachToBackground,
     terminateBackground,
     dispatchBackgroundWake,
@@ -9809,6 +11172,7 @@ const AppSandbox = (() => {
         appearanceSetRateLimits.clear();
         storageDbPromise = null;
         _isolatedTransportScriptCache = null;
+        StorageLedger.resetAll();
       },
       _activeSandboxes: activeSandboxes,
       _eventSubscriptions: eventSubscriptions,

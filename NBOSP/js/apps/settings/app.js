@@ -42,6 +42,7 @@ registerApp({
       { id: 'date-and-region', name: 'Date and Region',  icon: 'calendar'      },
       { id: 'connectivity',    name: 'Connectivity',     icon: 'globe'         },
       { id: 'storage',         name: 'Storage',          icon: 'database'      },
+      { id: 'notifications',   name: 'Notifications',    icon: 'bell'          },
       { id: 'privacy',         name: 'Privacy',          icon: 'lock'          },
       { id: 'root',            name: 'Root Access',      icon: 'shield'        },
       { id: 'default-apps',    name: 'Default Apps',     icon: 'default-apps'  },
@@ -598,6 +599,7 @@ registerApp({
         case 'date-and-region':   renderDateAndRegion();   break;
         case 'connectivity':      renderConnectivity();   break;
         case 'storage':           renderStorage();         break;
+        case 'notifications':     renderNotifications();   break;
         case 'shortcuts':         renderShortcuts();       break;
         case 'privacy':           renderPrivacy();         break;
         case 'root':              renderRootAccess();      break;
@@ -1387,6 +1389,55 @@ registerApp({
         mainContent.appendChild(createEl('p', { textContent: 'Unable to retrieve storage information.' }));
       }
 
+      // Per-app storage ledger (the "logical UID" accounting layer).
+      // Settings reads AppSandbox.storageLedgerSnapshot() directly — trusted
+      // host-tier access; apps can never see each other's numbers over IPC.
+      const perAppGroup = createEl('div', { className: 'nook-group' });
+      perAppGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Per-App Storage' }));
+      perAppGroup.appendChild(createEl('p', {
+        textContent: 'Key-value usage against each app\'s own budget, plus lifetime bytes moved and request counts. Budgets are enforced by the system, not by the app.',
+        style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
+      }));
+      mainContent.appendChild(perAppGroup);
+      (async () => {
+        let snapshot = null;
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedgerSnapshot) {
+            snapshot = await AppSandbox.storageLedgerSnapshot();
+          }
+        } catch (err) {
+          devLog('storage ledger snapshot failed:', err);
+        }
+        if (!isAlive()) return;
+        const apps = snapshot?.apps || [];
+        if (!apps.length) {
+          perAppGroup.appendChild(createEl('p', {
+            textContent: 'No per-app storage recorded yet. Apps appear here once they store data through the platform API.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        for (const app of apps) {
+          const knownName = (typeof OS !== 'undefined' && OS.apps?.[app.appId]?.name) || app.appId;
+          const row = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: knownName, title: app.appId }));
+          top.appendChild(createEl('span', {
+            textContent: formatBytes(app.kvUsage || 0) + ' / ' + formatBytes(app.budgets?.storageQuotaBytes || 0),
+          }));
+          row.appendChild(top);
+          row.appendChild(createEl('div', {
+            textContent: formatBytes(app.bytesWritten || 0) + ' written · ' + formatBytes(app.bytesRead || 0) + ' read · ' + (app.requestCount || 0) + ' requests',
+            style: { opacity: '0.65', fontSize: '11px' },
+          }));
+          const barRatio = Math.min(100, (app.kvUsage || 0) / (app.budgets?.storageQuotaBytes || 1) * 100);
+          const bar = createEl('div', { className: 'lens-bar', style: { width: '100%' } });
+          bar.appendChild(createEl('div', { className: 'lens-bar-fill', style: { width: barRatio + '%' } }));
+          row.appendChild(bar);
+          perAppGroup.appendChild(row);
+        }
+      })();
+
       // Clear data buttons
       const clearGroup = createEl('div', { className: 'nook-group' });
       clearGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Clear Data' }));
@@ -1675,6 +1726,140 @@ registerApp({
         iconSizeGroup.appendChild(row);
       }
       mainContent.appendChild(iconSizeGroup);
+    }
+
+    // Notifications
+    function renderNotifications() {
+      mainContent.appendChild(createEl('h2', { textContent: 'Notifications', style: { marginBottom: '4px' } }));
+      mainContent.appendChild(createEl('p', {
+        textContent: 'Do Not Disturb and per-app notification channels.',
+        style: { color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '20px' }
+      }));
+
+      // Do Not Disturb
+      const dndGroup = createEl('div', { className: 'nook-group' });
+      dndGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Do Not Disturb' }));
+      const dndRow = createEl('div', { className: 'nook-toggle-row' });
+      dndRow.appendChild(createEl('span', { textContent: 'Hide notification toasts' }));
+      const dndOn = !!OS.dnd;
+      const dndToggle = createEl('button', {
+        className: 'toggle' + (dndOn ? ' active' : ''),
+        role: 'switch',
+        'aria-checked': String(dndOn),
+        'aria-label': 'Toggle Do Not Disturb'
+      });
+      dndToggle.addEventListener('click', () => {
+        const next = !OS.dnd;
+        OS.dnd = next;
+        systemSettings.set('doNotDisturb', next);
+        dndToggle.classList.toggle('active', next);
+        dndToggle.setAttribute('aria-checked', String(next));
+      }, { signal: lifecycle.signal });
+      dndRow.appendChild(dndToggle);
+      dndGroup.appendChild(dndRow);
+      mainContent.appendChild(dndGroup);
+      mainContent.appendChild(createEl('p', {
+        textContent: 'While on, new notifications skip the toast and land silently in the notification panel instead.',
+        style: { color: 'var(--text-secondary)', fontSize: '12px', marginTop: '-8px', marginBottom: '20px' }
+      }));
+
+      // Notification channels
+      mainContent.appendChild(createEl('h3', { textContent: 'App Channels', style: { marginBottom: '8px' } }));
+      mainContent.appendChild(createEl('p', {
+        textContent: 'Apps sort their notifications into channels (Messages, Promos, …). Pick an importance per channel — Blocked silences it completely.',
+        style: { color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px' }
+      }));
+
+      const notify = (typeof Notify !== 'undefined' && Notify.listAppsWithChannels) ? Notify : null;
+      if (!notify) {
+        const warn = createEl('div', { style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);font-size:13px;' });
+        warn.textContent = 'Notification channel system not available.';
+        mainContent.appendChild(warn);
+        return;
+      }
+
+      const devMode = !!systemSettings.get('devMode');
+      const appIds = notify.listAppsWithChannels().filter(id => {
+        if (devMode) return true;
+        return !OS.apps?.[id]?.devOnly;
+      }).sort();
+
+      if (!appIds.length) {
+        const empty = createEl('div', {
+          style: 'padding:16px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:13px;'
+        });
+        empty.textContent = 'No apps have created notification channels yet. Channels appear here once an app declares them in its manifest or creates them through the notifications API.';
+        mainContent.appendChild(empty);
+        return;
+      }
+
+      // Segmented importance picker per channel, matching the button-group
+      // pattern used elsewhere (Icon Size, taskbar size). Values mirror the
+      // channel importance model in notifications/service.js.
+      const IMPORTANCE_OPTIONS = [
+        { value: 'none',    label: 'Off',   title: 'Blocked — nothing is shown' },
+        { value: 'low',     label: 'Low',   title: 'Panel only, no toast' },
+        { value: 'default', label: 'Norm',  title: 'Normal — toast + panel' },
+        { value: 'high',    label: 'High',  title: 'High — long-lived toast' }
+      ];
+
+      for (const appId of appIds) {
+        const entry   = OS.apps?.[appId];
+        const appName = entry?.name || appId;
+        const channels = notify.listChannels(appId);
+
+        const card = createEl('div', {
+          style: 'background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden;'
+        });
+        const header = createEl('div', { style: 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;' });
+        header.appendChild(createEl('div', { style: 'font-weight:600;font-size:13px;', textContent: appName }));
+        const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset' });
+        resetBtn.addEventListener('click', () => {
+          // Clear every override for this app — channels fall back to the
+          // importances the developer declared.
+          for (const ch of channels) notify.setChannelOverride(appId, ch.id, null);
+          renderContent();
+        }, { signal: lifecycle.signal });
+        header.appendChild(resetBtn);
+        card.appendChild(header);
+
+        for (const ch of channels) {
+          const row = createEl('div', { style: 'display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border-subtle);' });
+          const info = createEl('div', { style: 'flex:1;min-width:0;' });
+          info.appendChild(createEl('div', { style: 'font-size:13px;', textContent: ch.name }));
+          if (ch.description) {
+            info.appendChild(createEl('div', { style: 'font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', textContent: ch.description }));
+          }
+          row.appendChild(info);
+
+          const group = createEl('div', { style: 'display:flex;gap:6px;flex-shrink:0;' });
+          for (const opt of IMPORTANCE_OPTIONS) {
+            const active = ch.importance === opt.value;
+            const btn = createEl('button', {
+              className: 'btn btn-sm' + (active ? ' btn-primary' : ''),
+              textContent: opt.label,
+              title: opt.title,
+              'aria-pressed': String(active)
+            });
+            btn.addEventListener('click', () => {
+              if (active) return;
+              // Picking the channel's own declared importance clears the
+              // override entirely, so a future app-side declaration wins
+              // again instead of being pinned by the user's old choice.
+              if (opt.value === ch.declaredImportance) {
+                notify.setChannelOverride(appId, ch.id, null);
+              } else {
+                notify.setChannelOverride(appId, ch.id, { enabled: ch.enabled, importance: opt.value });
+              }
+              renderContent();
+            }, { signal: lifecycle.signal });
+            group.appendChild(btn);
+          }
+          row.appendChild(group);
+          card.appendChild(row);
+        }
+        mainContent.appendChild(card);
+      }
     }
 
     // Apps
@@ -2185,6 +2370,131 @@ registerApp({
     // Privacy & Security
     function renderPrivacy() {
       mainContent.appendChild(createEl('h2', { textContent: 'Privacy & Security', style: { marginBottom: '20px' } }));
+
+      // Shared-file access audit (from the storage ledger). Shows which apps
+      // touched files outside their own sandbox — the Android privacy
+      // dashboard equivalent for the shared tree.
+      const auditGroup = createEl('div', { className: 'nook-privacy-section' });
+      auditGroup.appendChild(createEl('h3', { textContent: 'File Access Audit' }));
+      auditGroup.appendChild(createEl('p', {
+        textContent: 'Apps reading or writing files outside their own storage (shared files, picked files) are logged here. Entries appear after the access happens.',
+        style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
+      }));
+      mainContent.appendChild(auditGroup);
+      (async () => {
+        let snapshot = null;
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedgerSnapshot) {
+            snapshot = await AppSandbox.storageLedgerSnapshot();
+          }
+        } catch (err) {
+          devLog('access audit snapshot failed:', err);
+        }
+        if (!isAlive()) return;
+        const events = snapshot?.accessLog || [];
+        if (!events.length) {
+          auditGroup.appendChild(createEl('p', {
+            textContent: 'No shared-file access recorded. This is good — apps have stayed in their own storage.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        const KIND_LABELS = {
+          'shared-file-read': 'Read shared file',
+          'shared-file-write': 'Wrote shared file',
+          'picked-file-read': 'Read picked file',
+          'picked-file-write': 'Wrote picked file',
+        };
+        for (const ev of events.slice(0, 50)) {
+          const appName = (typeof OS !== 'undefined' && OS.apps?.[ev.appId]?.name) || ev.appId;
+          const when = new Date(ev.t).toLocaleString();
+          const row = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: appName, title: ev.appId }));
+          top.appendChild(createEl('span', { textContent: KIND_LABELS[ev.kind] || ev.kind, style: { opacity: '0.8' } }));
+          row.appendChild(top);
+          row.appendChild(createEl('div', {
+            textContent: (ev.detail || '') + ' · ' + when,
+            style: { opacity: '0.65', fontSize: '11px', wordBreak: 'break-all' },
+          }));
+          auditGroup.appendChild(row);
+        }
+      })();
+
+      // Security policy (NB-MAC). Shows the mandatory-access-control layer's
+      // mode, rule coverage, and the avc denial feed. Settings reads
+      // AppSandbox.macPolicySnapshot() directly — trusted host tier; the
+      // snapshot is deliberately not reachable over app IPC.
+      const macGroup = createEl('div', { className: 'nook-privacy-section' });
+      macGroup.appendChild(createEl('h3', { textContent: 'Security Policy (MAC)' }));
+      macGroup.appendChild(createEl('p', {
+        textContent: 'Every app call passes a mandatory access control check before it reaches a system handler. Enforcing domains are refused unless policy allows; permissive domains are only logged.',
+        style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
+      }));
+      mainContent.appendChild(macGroup);
+      (async () => {
+        let snap = null;
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.macPolicySnapshot) {
+            snap = await AppSandbox.macPolicySnapshot();
+          }
+        } catch (err) {
+          devLog('mac policy snapshot failed:', err);
+        }
+        if (!isAlive()) return;
+        if (!snap || !snap.info) {
+          macGroup.appendChild(createEl('p', {
+            textContent: 'Security policy information is unavailable in this session.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        const info = snap.info;
+        const modeLabel = (m) => (m === 'enforcing' ? 'Enforcing' : 'Permissive (log only)');
+        const statusRow = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+        statusRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Policy v' + info.policyVersion }));
+        statusRow.appendChild(createEl('span', {
+          textContent: 'Apps: ' + modeLabel(info.domains?.untrusted_app) + ' · Platform: ' + modeLabel(info.domains?.platform_module),
+          style: { opacity: '0.8' },
+        }));
+        statusRow.appendChild(createEl('div', {
+          textContent: info.grantCoupledEndpoints + ' grant-coupled endpoints · ' + info.advisoryEndpoints
+            + ' advisory endpoints · ' + info.advisoryFamilies + ' advisory families · '
+            + info.neverallow + ' neverallow rules',
+          style: { opacity: '0.65', fontSize: '11px' },
+        }));
+        statusRow.appendChild(createEl('div', {
+          textContent: info.denialsToday + ' enforced denial' + (info.denialsToday === 1 ? '' : 's') + ' today'
+            + (info.auditDropped ? ' · ' + info.auditDropped + ' audit entries dropped (rate limit)' : ''),
+          style: { opacity: '0.65', fontSize: '11px' },
+        }));
+        macGroup.appendChild(statusRow);
+        const denials = snap.denials || [];
+        if (!denials.length) {
+          macGroup.appendChild(createEl('p', {
+            textContent: 'No policy denials recorded. Apps are staying inside their allowed capabilities.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        for (const d of denials.slice(0, 25)) {
+          const appName = (typeof OS !== 'undefined' && OS.apps?.[d.appId]?.name) || d.appId || '(unknown)';
+          const when = new Date(d.t).toLocaleString();
+          const row = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: appName, title: d.appId || '' }));
+          top.appendChild(createEl('span', {
+            textContent: (d.enforced ? 'Denied' : 'Would deny (permissive)') + ' · ' + (d.endpoint || ''),
+            style: { opacity: '0.8' },
+          }));
+          row.appendChild(top);
+          row.appendChild(createEl('div', {
+            textContent: (d.perms && d.perms.length ? 'requires ' + d.perms.join(' | ') : 'no policy rule') + ' · ' + when,
+            style: { opacity: '0.65', fontSize: '11px', wordBreak: 'break-all' },
+          }));
+          macGroup.appendChild(row);
+        }
+      })();
 
       // Data management
       const exportSection = createEl('div', { className: 'nook-privacy-section' });

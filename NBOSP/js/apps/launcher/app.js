@@ -427,11 +427,14 @@ async function uninstallApp(app) {
     // shouldn't abort the uninstall. clearAppPartition wipes the webview's
     // own storage partition; storageClear wipes the separate nova:storage
     // IndexedDB (see storageClear in app-sandbox.js) that clearAppPartition
-    // never touches.
+    // never touches. revokeAllPermissions resets the app's runtime grants
+    // (Android parity) so a reinstall starts from a clean slate instead of
+    // silently inheriting the previous install's capabilities.
     await Promise.allSettled([
       AppSandbox?.clearAppPartition?.(app.id),
       AppSandbox?.storageClear?.(app.id),
       AppDirs?.removeAppData?.(app.id),
+      window.AppPermissionManager?.revokeAllPermissions?.(app.id),
     ]);
 
     if (AppRegistry?.uninstallApp) await AppRegistry.uninstallApp(app.id);
@@ -1400,6 +1403,13 @@ function renderDesktopIcons() {
                 console.warn('[Desktop] Failed to clear nova:storage for', app.id, err);
               }
               try {
+                if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
+                  AppSandbox.storageLedger.removeApp(app.id);
+                }
+              } catch (err) {
+                console.warn('[Desktop] Failed to clear storage ledger for', app.id, err);
+              }
+              try {
                 if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
                   await AppDirs.removeAppData(app.id);
                 }
@@ -1705,6 +1715,13 @@ function renderDesktopIcons() {
                   }
                 } catch (err) {
                   console.warn('[Desktop] Failed to clear nova:storage for', appId, err);
+                }
+                try {
+                  if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
+                    AppSandbox.storageLedger.removeApp(appId);
+                  }
+                } catch (err) {
+                  console.warn('[Desktop] Failed to clear storage ledger for', appId, err);
                 }
                 try {
                   if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {

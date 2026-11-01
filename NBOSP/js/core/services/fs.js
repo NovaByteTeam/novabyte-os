@@ -429,6 +429,12 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
   const home = nativePath.resolve(nativeOs.homedir());
   const homePrefix = home.endsWith(nativePath.sep) ? home : home + nativePath.sep;
   const trashPath = nativePath.join(home, '.local', 'share', 'Trash', 'files');
+  // The per-app data root — the same tree AppDirs bootstraps as
+  // ~/.local/share/novabyte/data/<appId>/{files,cache,databases,shared_prefs}.
+  // The VFS exposes it as /data so sandboxed apps' appdata:/ and /data/
+  // paths land in the documented NovaByte data root instead of a stray
+  // ~/data folder alongside the home directories.
+  const appDataRoot = nativePath.join(home, '.local', 'share', 'novabyte', 'data');
   const oldVfsMigrated = nativePath.join(home, '.local', 'share', 'novabyte', 'migration', 'vfs-imported');
 
   const assertHomePath = path => {
@@ -638,6 +644,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         createFolderAt(nativePath.isAbsolute(folder) ? folder : nativePath.join(home, folder));
       }
       createFolderAt(nativePath.join(home, 'Pictures', 'Screenshots'));
+      nativeFs.mkdirSync(appDataRoot, { recursive: true });
       this.rootId = home;
       this.files = new Map();
       this._childrenByParent = new Map();
@@ -649,6 +656,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         pictures: nativePath.join(home, 'Pictures'),
         videos: nativePath.join(home, 'Videos'),
         trash: trashPath,
+        data: appDataRoot,
       };
       nodeForPath(home);
       for (const folder of Object.values(this.specialFolders)) nodeForPath(folder);
@@ -678,7 +686,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     getByPath(path) {
       let resolved;
       if (path === '/') resolved = home;
-      else if (path === '/data' || path.startsWith('/data/')) resolved = nativePath.join(home, path.slice(1));
+      else if (path === '/data' || path.startsWith('/data/')) resolved = nativePath.join(appDataRoot, path.slice('/data/'.length));
       else if (path.startsWith('/')) resolved = nativePath.join(home, path.slice(1));
       else resolved = nativePath.resolve(home, path);
       try {

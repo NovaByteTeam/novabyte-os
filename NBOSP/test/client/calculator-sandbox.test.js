@@ -40,5 +40,9 @@ describe('Calculator sandbox entry', () => {
     expect(manifest.entry).toBe('index.html');
     expect(manifest).not.toHaveProperty('unrestrictedEntry');
     expect(html).toContain('<script src="app.js"></script>');
+    expect(html).toContain('--bg-base: #07090f');
+    expect(html).toContain('--bg-elevated: rgba(14, 18, 28, 0.80)');
+    expect(html).toContain('--bg-overlay: rgba(20, 26, 40, 0.70)');
+    expect(html).toContain('--accent: #58a6ff');
   });
 });
