@@ -280,6 +280,17 @@ with the NW.js SDK and npm cache, to speed up later manual runs. The local
 Buildroot package is deliberately rebuilt each run to include the newly built
 NW.js bundle.
 
+### XWayland popup positioning
+
+NW.js runs as an X11 client through XWayland, so the native Chromium right-click
+menu and `<select>` dropdowns are X11 override-redirect windows. Those windows
+map first and then move themselves to the anchored position, and Cage 0.2.0 only
+copied the position at map time — every such popup landed in the top-left corner
+instead of at the cursor (upstream cage issue #228, fix in unmerged PR #283).
+`patches/cage/0003-xwayland-position-override-redirect-windows.patch` backports
+that fix: it tracks wlroots' `set_geometry` event for override-redirect surfaces
+and moves the scene node with it, and skips maximize/center positioning for them.
+
 ## Current limitations
 
 This image targets the VMware virtual SVGA device first. Graphics support for
