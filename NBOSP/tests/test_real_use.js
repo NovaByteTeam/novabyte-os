@@ -770,8 +770,13 @@ async function r7() {
   await call('nova:ipc:register', { endpoint: 'service:echo' }, actx);
 
   // Payload discipline: oversize and non-serializable payloads rejected.
-  const big = await call('nova:ipc:invoke', { targetAppId: A.id, endpoint: 'service:echo', data: { blob: 'x'.repeat(65 * 1024) } }, bctx);
-  check('64KB payload cap enforced', code(big) === 'INVALID_ARGS', code(big));
+  // The default cap is the ledger budget ipcPayloadBytes (256 KB — see
+  // StorageLedger.DEFAULT_BUDGETS in app-sandbox.js); 65 KB now forwards,
+  // so the over-cap probe uses ~300 KB. The forwarded 65 KB request is fine
+  // to leave pending — it times out host-side without affecting the spoof
+  // checks below, which now match on payload, not on request order.
+  const big = await call('nova:ipc:invoke', { targetAppId: A.id, endpoint: 'service:echo', data: { blob: 'x'.repeat(300 * 1024) } }, bctx);
+  check('256KB default payload cap enforced', code(big) === 'INVALID_ARGS', code(big));
   const cyclic = {};
   cyclic.self = cyclic;
   const cycRes = await call('nova:ipc:invoke', { targetAppId: A.id, endpoint: 'service:echo', data: cyclic }, bctx);
@@ -782,14 +787,17 @@ async function r7() {
   await PM.grantPermission('apps:communicate', C.id);
   const spoofInvoke = call('nova:ipc:invoke', { targetAppId: A.id, endpoint: 'service:echo', data: { msg: 'spoof-me' } }, bctx);
   await sleep(40);
-  const spoofReq = A.webview.responses.find((m) => m.type?.startsWith('nova:ipc:request'));
+  // Match the spoof request by its payload: A's response buffer may hold
+  // earlier forwarded requests (e.g. a big-but-allowed payload still pending
+  // its timeout), and only THIS callId must be probed.
+  const spoofReq = [...A.webview.responses].reverse().find((m) => m.type?.startsWith('nova:ipc:request') && m.result?.data?.msg === 'spoof-me');
   const spoofCallId = spoofReq?.requestId;
   const spoofReply = await call('nova:ipc:reply', { callId: spoofCallId, result: { hacked: true } }, cctx);
   check('foreign sandbox cannot resolve a pending call', code(spoofReply) === 'NOT_FOUND', code(spoofReply));
   const realReply = await call('nova:ipc:reply', { callId: spoofCallId, result: { echoed: 'spoof-me' } }, actx);
   check('the real target still resolves it', realReply.result?.success === true, code(realReply));
   const spoofOutcome = await spoofInvoke;
-  check('spoofed answer never reached the invoker', spoofOutcome.result?.result?.echoed === 'spoof-me' && spoofOutcome.result?.result?.hacked === undefined);
+  check('spoofed answer never reached the invoker', spoofOutcome.result?.result?.echoed === 'spoof-me' && spoofOutcome.result?.result?.hacked === undefined, JSON.stringify(spoofOutcome.result || spoofOutcome.error));
 
   // Rate limit: 20 invokes/min per app, enforced BEFORE endpoint resolution
   // (so a burst against a bogus endpoint still trips it without leaving 20

@@ -1403,6 +1403,13 @@ function renderDesktopIcons() {
                 console.warn('[Desktop] Failed to clear nova:storage for', app.id, err);
               }
               try {
+                if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
+                  AppSandbox.storageLedger.removeApp(app.id);
+                }
+              } catch (err) {
+                console.warn('[Desktop] Failed to clear storage ledger for', app.id, err);
+              }
+              try {
                 if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
                   await AppDirs.removeAppData(app.id);
                 }
@@ -1708,6 +1715,13 @@ function renderDesktopIcons() {
                   }
                 } catch (err) {
                   console.warn('[Desktop] Failed to clear nova:storage for', appId, err);
+                }
+                try {
+                  if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
+                    AppSandbox.storageLedger.removeApp(appId);
+                  }
+                } catch (err) {
+                  console.warn('[Desktop] Failed to clear storage ledger for', appId, err);
                 }
                 try {
                   if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {

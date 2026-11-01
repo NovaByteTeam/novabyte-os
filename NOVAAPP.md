@@ -672,6 +672,47 @@ See [Storage — `nova:storage:*`](#storage-novastorage) below for the full refe
 
 ---
 
+## Storage Ledger — budgets, accounting, and scoped roots
+
+Every app gets a **ledger record** host-side: per-app resource budgets, byte/request accounting, and a shared-file access audit. Apps can't see the ledger itself (Settings reads it for the storage/privacy dashboards); what apps get is the behavior:
+
+**Per-app budgets.** The OS-wide caps are now defaults in a per-app budget table (raised from the legacy fixed caps). The system enforces these on every call; an app can be granted a bigger budget without an OS update:
+
+| Budget | Default | Was |
+| --- | --- | --- |
+| `storageQuotaBytes` | 256 MB | 25 MB |
+| `ipcPayloadBytes` | 256 KB | 64 KB |
+| `httpBodyBytes` | 16 MiB | 6 MiB |
+| `requestTimeoutMs` | 60 s | 30 s |
+
+Your app can read its own numbers — and only its own — through the v2 facade:
+
+```javascript
+const { usage, budget } = await window.novaOS.storage.usage();
+if (budget - usage < 64 * 1024) pruneOldData();
+```
+
+**Scoped filesystem roots.** Raw `/data/...` paths remain caller-relative (the host injects your app's own id segment; there is no way to name another app's subtree). On top of that, three logical roots are accepted anywhere a path is, and the v2 facade ships helpers for two of them:
+
+```javascript
+// 'appdata:' — YOUR own /data/<appId>/ subtree. Always caller-scoped.
+await window.novaOS.fs.appdata.write('notes/todo.txt', 'hello');
+const listing = await window.novaOS.fs.appdata.list('notes');
+
+// 'shared:' / 'media:' — the shared tree (Documents, Downloads, …) under
+// the same permission rules as raw paths: media grants, user-picked files,
+// or fs:access. 'shared:' and 'media:' cannot address /data at all.
+await window.nova.ipc('nova:fs:read', { path: 'shared:/Downloads/report.txt' });
+```
+
+`appdata:/someOtherApp/…` is not an escape: the caller-relative rewrite happens after scheme expansion, so it still lands in **your own** subtree.
+
+**Shared-access audit.** Reads and writes outside your own `appdata:` subtree (shared files via grants, user-picked files) are logged to the ledger and surfaced in **Settings → Privacy & Security → File Access Audit**. Apps that stay inside their own sandbox generate no audit entries.
+
+**Accounting.** Bytes written/read and request counts are tracked per app (storage sets, fs writes, fetch bodies). They power the **Settings → Storage → Per-App Storage** dashboard; quotas are enforced by the system regardless of what the app does.
+
+---
+
 ## IPC API — `window.nova`
 
 Apps communicate with the OS via `window.nova.ipc(type, payload)`, injected automatically before your app's script runs — no import, no handshake required to start using it.
