@@ -247,10 +247,16 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
       }),
     });
     if (Array.isArray(active) && active.length) throw new PublisherError('This app already has an update awaiting review.');
+    // Optional listing description override: the portal sends the edited description on
+    // updates (blank means keep the current one). Accept it with the same validation as
+    // new submissions so the published listing actually reflects the new text.
+    const submittedDescription = typeof submission.description === 'string' && submission.description.trim()
+      ? requiredText(submission.description, 'Description', 1000, 20)
+      : null;
     metadata = {
       name: publishedApp.name,
       author: publishedApp.author,
-      description: publishedApp.description,
+      description: submittedDescription ?? publishedApp.description,
       categories: publishedApp.categories,
       links: publishedApp.links,
     };
