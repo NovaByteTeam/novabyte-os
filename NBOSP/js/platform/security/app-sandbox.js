@@ -3189,9 +3189,12 @@ const AppSandbox = (() => {
   // works, and is a deliberate departure from path-based file writes
   // above, which writes into novabyte-os's own virtual FS without a
   // per-write prompt.
-  const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024; // 100MB — generous for a
-  // vault export or similar; guards against a runaway/misbehaving app
-  // trying to stream something enormous through the IPC bridge.
+  //
+  // No size cap: like Android's DownloadManager there is no artificial
+  // byte limit on what a user-approved download may contain. The payload
+  // is still buffered in memory (base64 over the bridge, then a Buffer),
+  // so enormous files fail on their own footprint rather than a policy
+  // number — the user's explicit save-dialog confirmation is the control.
 
   function sanitizeDownloadFilename(name) {
     const fallback = 'download';
@@ -3214,9 +3217,6 @@ const AppSandbox = (() => {
       buffer = Buffer.from(base64Data, 'base64');
     } catch {
       return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', 'base64Data is not valid base64');
-    }
-    if (buffer.length > MAX_DOWNLOAD_BYTES) {
-      return respondError(webview, 'nova:download', requestId, 'INVALID_ARGS', `Download exceeds ${MAX_DOWNLOAD_BYTES} byte limit`);
     }
 
     const safeName = sanitizeDownloadFilename(filename);
@@ -9529,7 +9529,6 @@ const AppSandbox = (() => {
         const response = await fetch(options.url);
         if (!response.ok) throw new Error('Download request failed with HTTP ' + response.status);
         const blob = await response.blob();
-        if (blob.size > 100 * 1024 * 1024) throw new RangeError('Downloads are limited to 100 MB');
         const dataUrl = await new Promise((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
