@@ -291,6 +291,22 @@ instead of at the cursor (upstream cage issue #228, fix in unmerged PR #283).
 that fix: it tracks wlroots' `set_geometry` event for override-redirect surfaces
 and moves the scene node with it, and skips maximize/center positioning for them.
 
+### XWayland input stacking
+
+The same XWayland boundary also affects which window receives the mouse. Xwayland
+delivers pointer events to the topmost X11 window under the cursor (`XYToWindow`
+semantics), but wlroots 0.17+ restacks every newly mapped managed window to the
+*bottom* of the X11 stack and leaves syncing the stack to the compositor via
+`wlr_xwayland_surface_restack()` — which Cage 0.2.0 never calls. Since kiosk views
+are all fullscreen at (0,0), a second window (NW.js DevTools, any other X client)
+draws on top but sits at the bottom of the X11 stack: it renders fine, keyboard
+focus follows activation, yet every click silently lands on the window underneath.
+`patches/cage/0004-xwayland-restack-focused-view.patch` fixes this by restacking
+the surface to the top of the managed X11 stack whenever cage focuses the view
+(both map-time focus and click-to-focus go through `seat_set_focus`), mirroring
+sway's handling of the same wlroots API. Override-redirect surfaces are skipped:
+wlroots asserts on restacking them and they always map above managed windows.
+
 ## Current limitations
 
 This image targets the VMware virtual SVGA device first. Graphics support for
