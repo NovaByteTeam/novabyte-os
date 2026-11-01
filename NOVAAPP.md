@@ -931,20 +931,57 @@ This mirrors Android's internal-storage convention by name, but the subfolders a
 
 ### Notifications — `nova:notifications:*`
 
-```javascript
-// Show a notification (requires device:notifications)
-const res = await window.nova.ipc('nova:notifications:show', {
-  title: 'Done',
-  body: 'Your file was saved.',
-});
-// { success: true }
+All notification APIs require `device:notifications` (low risk, auto-granted).
+
+**Channels.** Sort your notifications into named categories your users can control. Declare them in your manifest and they are registered before your first post:
+
+```json
+{
+  "notifications": {
+    "channels": [
+      { "id": "messages", "name": "Messages", "importance": "high", "description": "Incoming chats" },
+      { "id": "promos",   "name": "Promotions", "importance": "low" }
+    ]
+  }
+}
 ```
 
-`nova:notifications:clear` clears all notifications for the calling app's session (requires `device:notifications`).
+Or create them at runtime:
 
-Optional fields on `nova:notifications:show`, sanitized/clamped by the OS gateway before display — invalid values silently fall back rather than erroring: `type` (`'info' | 'success' | 'warning' | 'error'`, default `'info'`), `icon` (name from the OS icon set, default none), `action` (one of a small set of built-in action strings, e.g. `'open-settings'`), `actionLabel` (label for that action button). `title` and `body` are length-capped server-side. The action button is clickable both on the initial toast and later from the persistent notification panel — clicking `'open-settings'`/`'settings'`/`'openSettings'` opens the Settings app.
+```javascript
+await window.nova.ipc('nova:notifications:createChannel', {
+  id: 'messages', name: 'Messages', importance: 'high', description: 'Incoming chats'
+});
+// { success: true, created: true, channel: { id: 'messages', importance: 'high' } }
+```
 
-Rate limited to 10 notifications per app per minute. Once exceeded, further calls reject with `{ code: 'RATE_LIMITED' }` until the window rolls over.
+Channel ids are slugs (`[a-zA-Z0-9_-]`, ≤64 chars), max 32 per app. **Importance is locked at creation** (Android parity): re-creating a channel updates its name/description but keeps the original importance — only the user can change importance, in Settings → Notifications. Importances: `'low'` (panel only, no toast), `'default'` (toast + panel), `'high'` (long-lived toast + panel). `'none'` is not valid at creation — that state exists only when the user blocks a channel.
+
+**Posting.**
+
+```javascript
+const res = await window.nova.ipc('nova:notifications:post', {
+  channelId: 'messages',
+  tag: 'chat:alice',                       // optional — enables update-in-place
+  title: 'Alice',
+  body: 'Lunch at noon?',
+  actions: [ { id: 'reply', label: 'Reply' }, { id: 'open', label: 'Open' } ],
+  progress: { value: 42, max: 100 }        // or { indeterminate: true }
+});
+// { success: true, posted: true, updated: false, id: 'n42', importance: 'high' }
+```
+
+- `channelId` is required to resolve; posting to an unknown channel fails with `INVALID_ARGS`. If the user blocked the channel, the call succeeds with `{ posted: false, reason: 'CHANNEL_MUTED' }` — treat that as normal, not an error.
+- `tag` groups posts: posting again with the same tag **replaces the live notification in place** (same id, same panel position). Updates run against a separate, larger budget (60/min) than new posts (10/min), so a progress ticker updating once a second never trips the spam limiter. On an update, fields you omit keep their previous value — pass `actions: []` explicitly to clear buttons.
+- `actions` (max 3): `{ id, label }` pairs. Ids are opaque slugs routed back to your app — never functions. Tapping an action **opens your app** and queues `{ actionId, label, tag, notifId, title, clickedAt }`; drain the queue on launch/resume with `nova:notifications:consumeActions` (returns and acknowledges all pending actions for your app, oldest first, capped at 20). Tapping the notification body itself also opens your app.
+- `progress` renders a determinate bar in the panel (`value` clamped to `0..max`, `max` ≤ 100000; `indeterminate: true` shows a fixed sliver).
+- Legacy fields still work on `post` and on the old `nova:notifications:show`: `type` (`'info' | 'success' | 'warning' | 'error'`), `icon` (name from the OS icon set), `action`/`actionLabel` (built-in strings such as `'open-settings'`, `'open-store'`). `title` (≤120) and `body` (≤500) are length-capped; invalid values fall back rather than erroring.
+
+**Cancel.** `nova:notifications:cancel` removes one of your notifications by `tag` or `id` (`{ success: true, removed: true|false }`); `nova:notifications:cancelAll` (and the legacy `nova:notifications:clear`) clears all of them. Pinned background-app entries are never affected by any of these.
+
+**Rate limits.** Max 10 new posts per app per minute; tagged updates get their own 60/min window. Once either is exceeded, further calls reject with `{ code: 'RATE_LIMITED' }` until the window rolls over.
+
+**User controls.** Settings → Notifications exposes Do Not Disturb (toasts are suppressed; panel entries still land) and a per-channel importance picker (Blocked / Low / Normal / High). Your declared importance is the default; the user's choice always wins for that channel.
 
 ### Clipboard — `nova:clipboard:*`
 

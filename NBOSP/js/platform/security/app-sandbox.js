@@ -254,8 +254,25 @@ const AppSandbox = (() => {
   // Sliding-window rate limit: N notifications per app per window.
   const NOTIF_RATE_LIMIT_MAX = 10;
   const NOTIF_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  // v2 update budget: posts that update an EXISTING tagged notification run
+  // against their own, much larger window instead of the new-post budget.
+  // Without this split, a download progress bar updating once a second would
+  // hit the spam limiter within ten seconds.
+  const NOTIF_UPDATE_RATE_LIMIT_MAX = 60;
+  const NOTIF_UPDATE_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+  // v2 payload bounds. Slugs match the sandbox-wide id pattern; channel ids
+  // and tags end up inside storage keys, so they get the same treatment.
+  const NOTIF_CHANNEL_ID_MAX = 64;
+  const NOTIF_CHANNEL_LIMIT = 32;
+  const NOTIF_TAG_MAX_LEN = 64;
+  const NOTIF_ACTIONS_MAX = 3;
+  const NOTIF_ACTION_ID_MAX_LEN = 40;
+  const NOTIF_PROGRESS_MAX = 100000;
+  const NOTIF_SLUG_RE = /^[a-zA-Z0-9_-]+$/;
   // appId -> array of timestamps (ms) within the current window.
   const notifRateLimitLog = new Map();
+  // Same shape, separate budget for tagged update-in-place posts (v2).
+  const notifUpdateRateLimitLog = new Map();
 
   // Only an app which passes UnrestrictedGate may execute in the host
   // document. Any package that falls back to a sandbox gets the same
@@ -595,6 +612,101 @@ const AppSandbox = (() => {
   // doesn't grow unbounded across the app's install/uninstall lifecycle.
   function clearNotificationRateLimit(appId) {
     notifRateLimitLog.delete(appId);
+  }
+
+  function checkNotificationUpdateRateLimit(appId) {
+    const now = Date.now();
+    const windowStart = now - NOTIF_UPDATE_RATE_LIMIT_WINDOW_MS;
+    const timestamps = (notifUpdateRateLimitLog.get(appId) ?? []).filter((ts) => ts > windowStart);
+
+    if (timestamps.length >= NOTIF_UPDATE_RATE_LIMIT_MAX) {
+      notifUpdateRateLimitLog.set(appId, timestamps);
+      return false;
+    }
+
+    timestamps.push(now);
+    notifUpdateRateLimitLog.set(appId, timestamps);
+    return true;
+  }
+
+  function clearNotificationUpdateRateLimit(appId) {
+    notifUpdateRateLimitLog.delete(appId);
+  }
+
+  // Seed channels declared statically in the app manifest under
+  // notifications.channels: [{ id, name, importance, description }]. Runs
+  // before every post/createChannel — the host-side ensureChannel is
+  // idempotent and cheap, so a manifest's channels are always registered by
+  // the time a post names one.
+  function seedManifestNotificationChannels(appId) {
+    try {
+      const manifest = OS?.apps?.[appId]?.manifest;
+      if (manifest && typeof Notify !== 'undefined' && Notify.ensureChannelsFromManifest) {
+        Notify.ensureChannelsFromManifest(appId, manifest);
+      }
+    } catch (e) {
+      log('warn', 'notification channel manifest seeding failed for', appId, e);
+    }
+  }
+
+  // v2 action buttons: [{id, label}] — ids are slugs so they can be routed
+  // back to the app as opaque strings, never functions. The v1 rule that
+  // keeps Notify.show() from executing app-controlled code still holds:
+  // nothing but plain, bounded data crosses from a sandboxed app.
+  function sanitizeNotifActions(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    for (const a of raw.slice(0, NOTIF_ACTIONS_MAX)) {
+      if (!a || typeof a !== 'object') continue;
+      const id = typeof a.id === 'string' && a.id.length >= 1
+        && a.id.length <= NOTIF_ACTION_ID_MAX_LEN && NOTIF_SLUG_RE.test(a.id)
+        ? a.id
+        : null;
+      const label = typeof a.label === 'string' && a.label.trim()
+        ? a.label.slice(0, NOTIF_ACTION_LABEL_MAX_LEN)
+        : null;
+      if (id && label) out.push({ id, label });
+    }
+    return out;
+  }
+
+  function sanitizeNotifProgress(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const max = Number.isFinite(raw.max) ? Math.max(1, Math.min(NOTIF_PROGRESS_MAX, Math.floor(raw.max))) : 100;
+    if (raw.indeterminate === true) return { max, indeterminate: true, value: null };
+    if (!Number.isFinite(raw.value)) return null;
+    const value = Math.max(0, Math.min(max, Math.floor(raw.value)));
+    return { value, max, indeterminate: false };
+  }
+
+  // v2 payload sanitizer: layers channel/tag/actions/progress on top of the
+  // v1 clamps (which stay the security boundary for title/body/type/icon).
+  // Channel *validation* (does it exist, is it muted) happens in the
+  // handler against the host-side registry, not here — this function only
+  // normalizes shapes and bounds.
+  function sanitizeNotificationPayloadV2(payload, appName, appId) {
+    const base = sanitizeNotificationPayload(payload, appName, appId);
+    const raw = payload ?? {};
+    const channelId = typeof raw.channelId === 'string' && raw.channelId.length >= 1
+      && raw.channelId.length <= NOTIF_CHANNEL_ID_MAX
+      ? raw.channelId
+      : 'general';
+    const tag = typeof raw.tag === 'string' && raw.tag.length >= 1 && raw.tag.length <= NOTIF_TAG_MAX_LEN
+      ? raw.tag
+      : null;
+    return {
+      ...base,
+      channelId,
+      tag,
+      // Field-wise update contract (see NOVAAPP.md): a tagged post that
+      // OMITS actions/progress keeps the previous values — only an explicit
+      // actions: [] or progress: null clears them. Normalizing an omitted
+      // field to [] / null here silently erased every tagged update's
+      // buttons and progress bar, breaking progress tickers and chat
+      // previews that legitimately re-post title/body only.
+      actions: raw.actions === undefined ? undefined : sanitizeNotifActions(raw.actions),
+      progress: raw.progress === undefined ? undefined : sanitizeNotifProgress(raw.progress),
+    };
   }
 
   // Response helpers
@@ -1504,6 +1616,134 @@ const AppSandbox = (() => {
     }
     Notify.clearForApp(app.id);
     return respond(webview, 'nova:notifications:clear', requestId, { success: true });
+  }
+
+  // ── Notifications v2 ────────────────────────────────────────────────────
+  // Channels + tagged update-in-place + app-declared actions + progress.
+  // The permission model is unchanged (device:notifications covers all of
+  // it, still risk:'low'); the v1 show/clear channels above stay untouched
+  // for compatibility and keep their 10/min new-post budget.
+
+  async function handleNotificationsCreateChannel({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.ensureChannel !== 'function') {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    seedManifestNotificationChannels(app.id);
+    const def = payload ?? {};
+    const id = typeof def.id === 'string' && def.id.length >= 1 && def.id.length <= NOTIF_CHANNEL_ID_MAX ? def.id : null;
+    if (!id || !NOTIF_SLUG_RE.test(id)) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'INVALID_ARGS',
+        `channel id must match ${NOTIF_SLUG_RE} and be <= ${NOTIF_CHANNEL_ID_MAX} chars`);
+    }
+    const existing = Notify.listChannels(app.id);
+    const alreadyDeclared = existing.some((ch) => ch.id === id);
+    if (!alreadyDeclared && existing.length >= NOTIF_CHANNEL_LIMIT) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'LIMIT_REACHED',
+        `Max ${NOTIF_CHANNEL_LIMIT} channels per app`);
+    }
+    const res = Notify.ensureChannel(app.id, { id, name: def.name, importance: def.importance, description: def.description });
+    if (!res) {
+      return respondError(webview, 'nova:notifications:createChannel', requestId, 'INVALID_ARGS',
+        'channel requires a non-empty name (<= 60 chars)');
+    }
+    // Android parity: importance is locked at creation. Report the effective
+    // importance back so an app trying to change it learns it was a no-op.
+    const effective = Notify.getChannel(app.id, res.channel.id);
+    return respond(webview, 'nova:notifications:createChannel', requestId, {
+      success: true,
+      created: res.created,
+      channel: { id: res.channel.id, name: res.channel.name, importance: effective ? effective.importance : res.channel.importance },
+    });
+  }
+
+  async function handleNotificationsPost({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:post', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    // Same UNAVAILABLE-before-rate-limit ordering as the v1 handler: an
+    // environment without Notify must not burn rate-limit slots.
+    if (typeof Notify === 'undefined' || typeof Notify.show !== 'function' || typeof Notify.getChannel !== 'function') {
+      return respondError(webview, 'nova:notifications:post', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    seedManifestNotificationChannels(app.id);
+    const payloadV2 = sanitizeNotificationPayloadV2(payload, app.name, app.id);
+    const channel = Notify.getChannel(app.id, payloadV2.channelId);
+    if (!channel) {
+      return respondError(webview, 'nova:notifications:post', requestId, 'INVALID_ARGS',
+        `Unknown notification channel '${payloadV2.channelId}' — create it first (nova:notifications:createChannel) or declare notifications.channels in the manifest`);
+    }
+    if (channel.blocked) {
+      // A muted channel isn't an app error — the user chose this. Report
+      // success with posted:false so apps can tell "muted" apart from
+      // "rate limited" or "malformed" without a distinct error path.
+      return respond(webview, 'nova:notifications:post', requestId, { success: true, posted: false, reason: 'CHANNEL_MUTED', importance: channel.importance });
+    }
+    const isUpdate = !!(payloadV2.tag && Notify.findByTag(app.id, payloadV2.tag));
+    const underLimit = isUpdate
+      ? checkNotificationUpdateRateLimit(app.id)
+      : checkNotificationRateLimit(app.id);
+    if (!underLimit) {
+      const max = isUpdate ? NOTIF_UPDATE_RATE_LIMIT_MAX : NOTIF_RATE_LIMIT_MAX;
+      return respondError(webview, 'nova:notifications:post', requestId, 'RATE_LIMITED',
+        `Max ${max} notification ${isUpdate ? 'updates' : 'posts'} per minute`);
+    }
+    const notif = Notify.show(payloadV2);
+    return respond(webview, 'nova:notifications:post', requestId, {
+      success: true,
+      posted: !!notif,
+      updated: isUpdate,
+      id: notif ? notif.id : null,
+      importance: channel.importance,
+    });
+  }
+
+  async function handleNotificationsCancel({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:cancel', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.cancelByTag !== 'function') {
+      return respondError(webview, 'nova:notifications:cancel', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    const { tag, id } = payload ?? {};
+    let removed = false;
+    if (typeof tag === 'string' && tag) {
+      removed = Notify.cancelByTag(app.id, tag);
+    } else if (typeof id === 'string' && id) {
+      removed = Notify.cancelById(app.id, id);
+    } else {
+      return respondError(webview, 'nova:notifications:cancel', requestId, 'INVALID_ARGS', 'either tag or id is required');
+    }
+    return respond(webview, 'nova:notifications:cancel', requestId, { success: true, removed });
+  }
+
+  async function handleNotificationsCancelAll({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:cancelAll', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.clearForApp !== 'function') {
+      return respondError(webview, 'nova:notifications:cancelAll', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    Notify.clearForApp(app.id);
+    return respond(webview, 'nova:notifications:cancelAll', requestId, { success: true });
+  }
+
+  // Action delivery is a pull queue: the host opens the app when an action
+  // is tapped, and the app drains whatever actions accumulated — including
+  // ones clicked while it wasn't running — via this call on launch/resume.
+  // Push delivery to a live sandbox is a later refinement (it needs a new
+  // guest-side push handler in the injected bridge).
+  async function handleNotificationsConsumeActions({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('device:notifications', app.id)) {
+      return respondError(webview, 'nova:notifications:consumeActions', requestId, 'PERMISSION_DENIED', 'device:notifications permission required');
+    }
+    if (typeof Notify === 'undefined' || typeof Notify.consumePendingActions !== 'function') {
+      return respondError(webview, 'nova:notifications:consumeActions', requestId, 'UNAVAILABLE', 'Notification service not available');
+    }
+    const actions = Notify.consumePendingActions(app.id);
+    return respond(webview, 'nova:notifications:consumeActions', requestId, { success: true, actions });
   }
 
   // Background wake (system:background)
@@ -4027,6 +4267,28 @@ const AppSandbox = (() => {
     } catch (e) {
       log('warn', 'nova:app:uninstall — failed to clear storage partition for', appId, e);
     }
+    // nova:storage:* is a separate host-shell-side IndexedDB keyed by
+    // [appId, key] — clearAppPartition never touches it (see destroy()'s
+    // long comment). Every manual uninstall path (Launchpad, App Manager,
+    // My Apps, Store) wipes both; this IPC path must too, or an
+    // uninstall/reinstall cycle leaks the previous install's key-value data.
+    try {
+      await storageClear(appId);
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to clear nova:storage for', appId, e);
+    }
+    // Android parity: uninstalling an app resets its runtime permissions.
+    // Without this, grants (and denials) persist in localStorage forever and
+    // a reinstall of the same package id silently inherits the previous
+    // install's capabilities. revokeAllPermissions also triggers the root
+    // reload and the same-origin/nested-webview live-sandbox teardown.
+    try {
+      if (typeof AppPermissionManager !== 'undefined' && typeof AppPermissionManager.revokeAllPermissions === 'function') {
+        await AppPermissionManager.revokeAllPermissions(appId);
+      }
+    } catch (e) {
+      log('warn', 'nova:app:uninstall — failed to reset permissions for', appId, e);
+    }
     try {
       if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
         await AppDirs.removeAppData(appId);
@@ -4034,9 +4296,16 @@ const AppSandbox = (() => {
     } catch (e) {
       log('warn', 'nova:app:uninstall — failed to clear app data for', appId, e);
     }
-    // Drop the notification rate-limit entry so it doesn't leak across
+    // Drop the notification rate-limit entries so they don't leak across
     // an uninstall/reinstall cycle for the same app id.
     clearNotificationRateLimit(appId);
+    clearNotificationUpdateRateLimit(appId);
+    // Channels, channel overrides, and queued notification actions die with
+    // the app (Android removes channels on uninstall too). Guarded: Notify
+    // lives in the shell bundle and may be absent in headless test runs.
+    if (typeof Notify !== 'undefined' && Notify.removeAllAppState) {
+      Notify.removeAllAppState(appId);
+    }
     clearDefaultAppsRateLimit(appId);
 
     delete OS.apps[appId];
@@ -4307,6 +4576,12 @@ const AppSandbox = (() => {
   }
 
   function handleAppIpcUnregister({ payload, requestId, app, webview, sandbox }) {
+    // Gated for consistency with the rest of the nova:ipc:* family — an app
+    // without apps:communicate never legitimately registered an endpoint, so
+    // there is nothing it should be able to tear down over the bridge.
+    if (!AppPermissionManager.isGranted('apps:communicate', app.id)) {
+      return respondError(webview, 'nova:ipc:unregister', requestId, 'PERMISSION_DENIED', 'apps:communicate permission required');
+    }
     const endpoint = payload?.endpoint;
     if (typeof endpoint === 'string') sandbox?.appIpcEndpoints?.delete(endpoint);
     return respond(webview, 'nova:ipc:unregister', requestId, { success: true, endpoint });
@@ -4370,6 +4645,13 @@ const AppSandbox = (() => {
   }
 
   function handleAppIpcReply({ payload, requestId, app, webview, sandbox }) {
+    // Defense in depth: only an app holding apps:communicate may act as an
+    // IPC endpoint at all, so it is also the only thing that can complete a
+    // pending request. Without this gate a stripped app could still resolve
+    // an in-flight call (e.g. granted, then revoked mid-call).
+    if (!AppPermissionManager.isGranted('apps:communicate', app.id)) {
+      return respondError(webview, 'nova:ipc:reply', requestId, 'PERMISSION_DENIED', 'apps:communicate permission required');
+    }
     const callId = payload?.callId;
     const pending = typeof callId === 'string' ? pendingAppIpcCalls.get(callId) : null;
     const sandboxId = activeSandboxId(webview);
@@ -4906,9 +5188,18 @@ const AppSandbox = (() => {
     // '[object Object]' that String(value) would give, otherwise the quota
     // check is silently too lenient for any non-string value.
     const value = payload?.value ?? '';
-    const valueBytes = sharedTextEncoder.encode(
-      typeof value === 'string' ? value : JSON.stringify(value)
-    ).length;
+    // JSON.stringify can throw on a value the guest bridge would never carry
+    // anyway (cyclic structures, BigInt) — but handleAPICall's catch-all
+    // surfaces that as an opaque INTERNAL_ERROR. Validate it explicitly so
+    // the guest gets a precise INVALID_ARGS instead.
+    let valueJson;
+    try {
+      valueJson = typeof value === 'string' ? value : JSON.stringify(value);
+    } catch (e) {
+      return respondError(webview, 'nova:storage:set', requestId, 'INVALID_ARGS',
+        `Value is not JSON-serializable: ${e?.message || e}`);
+    }
+    const valueBytes = sharedTextEncoder.encode(valueJson).length;
     if (valueBytes > STORAGE_VALUE_MAX_BYTES) {
       return respondError(webview, 'nova:storage:set', requestId, 'STORAGE_FULL', `Value exceeds ${STORAGE_VALUE_MAX_BYTES} byte limit`);
     }
@@ -5757,6 +6048,11 @@ const AppSandbox = (() => {
     'nova:fs:move': handleFsMove,
     'nova:notifications:show': handleNotificationsShow,
     'nova:notifications:clear': handleNotificationsClear,
+    'nova:notifications:post': handleNotificationsPost,
+    'nova:notifications:createChannel': handleNotificationsCreateChannel,
+    'nova:notifications:cancel': handleNotificationsCancel,
+    'nova:notifications:cancelAll': handleNotificationsCancelAll,
+    'nova:notifications:consumeActions': handleNotificationsConsumeActions,
     'nova:settings:get': handleSettingsGet,
     'nova:settings:set': handleSettingsSet,
     'nova:wallpaper:set': handleWallpaperSet,
@@ -5839,6 +6135,9 @@ const AppSandbox = (() => {
     'nova:settings:get', 'nova:settings:set',
     'nova:appearance:get', 'nova:appearance:set',
     'nova:notifications:show', 'nova:notifications:clear',
+    'nova:notifications:post', 'nova:notifications:createChannel',
+    'nova:notifications:cancel', 'nova:notifications:cancelAll',
+    'nova:notifications:consumeActions',
     'nova:request-permission',
     'nova:clipboard:read', 'nova:clipboard:write',
     'nova:net:fetch',

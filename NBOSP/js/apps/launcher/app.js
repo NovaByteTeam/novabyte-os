@@ -427,11 +427,14 @@ async function uninstallApp(app) {
     // shouldn't abort the uninstall. clearAppPartition wipes the webview's
     // own storage partition; storageClear wipes the separate nova:storage
     // IndexedDB (see storageClear in app-sandbox.js) that clearAppPartition
-    // never touches.
+    // never touches. revokeAllPermissions resets the app's runtime grants
+    // (Android parity) so a reinstall starts from a clean slate instead of
+    // silently inheriting the previous install's capabilities.
     await Promise.allSettled([
       AppSandbox?.clearAppPartition?.(app.id),
       AppSandbox?.storageClear?.(app.id),
       AppDirs?.removeAppData?.(app.id),
+      window.AppPermissionManager?.revokeAllPermissions?.(app.id),
     ]);
 
     if (AppRegistry?.uninstallApp) await AppRegistry.uninstallApp(app.id);
