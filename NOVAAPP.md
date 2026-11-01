@@ -238,6 +238,33 @@ Without either opt-in or the grant, access is blocked. This is a critical permis
 
 The old advice to delay the first navigation by one second is obsolete. The host-mediated implementation creates the web-content view outside the app renderer. Prefer `window.nova.browser.createView()`: it waits for host-side view creation before starting the first navigation and gives your app a stable Nova API.
 
+### Stable app URLs — OAuth and redirect callbacks
+
+Your bundled files are reachable at **two** serving paths:
+
+- **Per-session path** — `http://localhost:3003/api/apps/serve/sandbox_<app-id>_<unique>/index.html`. The `<unique>` suffix is regenerated at every launch, so this URL is for your app's own runtime navigation only. It is what your webview actually loads.
+- **Stable per-app path** — `http://localhost:3003/api/apps/serve/sandbox_<app-id>/index.html`. Same bundled files, no unique suffix. This URL is fixed for the lifetime of the install, which is what redirect-based flows need.
+
+Use the stable path as the `redirect_uri` you register with third-party providers — OAuth (GitHub, Google, …), payment providers, anything that redirects back to your app:
+
+```
+http://localhost:3003/api/apps/serve/sandbox_com.example.myapp/callback.html
+```
+
+Register that URL with the provider once; it keeps working across restarts. Behavior of the stable path:
+
+- It resolves to the **most recent launch** of your app. Relaunching repoints it; a still-open older window keeps its own per-session path, so multi-window apps are unaffected.
+- It serves files **only while your app is running**. When your app's last window closes, the stable path stops serving (HTTP 404) — an OAuth redirect that arrives after the user closed the app gets a 404, which is the honest signal to restart the flow.
+- It serves the same **static bundled files** as the session path, under the same relaxed app CSP. Long-running apps are kept servable automatically (the OS refreshes the registry while a sandbox is alive), so a consent page that takes a while does not expire your files mid-flow.
+
+A callback page is ordinary static HTML from your own bundle — it does **not** get the `window.nova` bridge (only the entry file gets the capability shim). Hand the authorization result back to your app yourself:
+
+- **Popup flows** (`sandbox:escape-popups`): from `callback.html`, `window.opener.postMessage({ code }, '*')` — the opener is your app's own guest window; validate `event.origin === 'http://localhost:3003'` on the receiving side before trusting the payload.
+- **In-page redirect flows**: navigating your own frame to the provider and back replaces your document; `callback.html` reads `?code=` from its own `location.search` directly.
+- With `sandbox:same-origin` granted, the callback page (same origin and partition) can also relay through `localStorage`/`BroadcastChannel`.
+
+The `sandbox:escape-popups` permission (see the [permission list](#full-permission-list)) covers the popup leg of these flows: popups open into an OS-owned overlay window that shares your app's storage partition, so provider login sessions work the way users expect.
+
 ### Building browser apps
 
 Use the Nova browser API for an in-app browser. It creates a host-managed browser view and exposes Nova event names and Promise-based operations; app code does not need `BrowserWindow`, `webContents`, `ipcRenderer`, `require('electron')`, or direct access to `OS`. The older nested `<webview>` proxy remains for compatibility, but new browser apps should prefer `window.nova.browser`.

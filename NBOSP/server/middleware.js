@@ -28,6 +28,10 @@ const EXACT_SKIP_PATHS = new Set([
     // App sandbox registration is local bookkeeping performed during every
     // packaged-app launch, not a user-facing API request.
     '/api/apps/serve/register',
+    // Same for the per-sandbox liveness heartbeat (app-sandbox.js keeps its
+    // serve-registry entry fresh while the sandbox exists). Long-running apps
+    // would otherwise burn the global API budget on keep-alive pings.
+    '/api/apps/serve/heartbeat',
 ]);
 const PREFIX_SKIP_PATHS = [
     '/js/',

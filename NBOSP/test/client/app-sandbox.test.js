@@ -2741,3 +2741,174 @@ describe('sandbox popup display (setupSandboxPopupHandler)', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('stable per-app serving alias (sandbox_<appId>)', () => {
+  const ORIGIN = 'http://localhost:3003';
+
+  function makeSandboxWebview() {
+    const listeners = new Map();
+    const webview = {
+      tagName: 'webview',
+      listeners,
+      dataset: {},
+      style: { cssText: '' },
+      attrs: {},
+      contentScripts: [],
+      addEventListener(name, fn) {
+        if (!listeners.has(name)) listeners.set(name, []);
+        listeners.get(name).push(fn);
+      },
+      removeEventListener(name, fn) {
+        const queue = listeners.get(name) || [];
+        const index = queue.indexOf(fn);
+        if (index !== -1) queue.splice(index, 1);
+      },
+      setAttribute(name, value) { webview.attrs[name] = value; },
+      getAttribute(name) { return Object.prototype.hasOwnProperty.call(webview.attrs, name) ? webview.attrs[name] : null; },
+      removeAttribute(name) { delete webview.attrs[name]; },
+      addContentScripts(scripts) { webview.contentScripts.push(...scripts); },
+    };
+    return webview;
+  }
+
+  function installSandboxStubs() {
+    vi.stubGlobal('document', {
+      createElement: tag => (tag === 'webview' ? makeSandboxWebview() : { style: { cssText: '' }, attrs: {}, children: [], appendChild: child => child, append() {}, addEventListener() {}, setAttribute() {} }),
+      body: { appendChild() {} },
+    });
+    vi.stubGlobal('window', { location: { origin: ORIGIN }, innerWidth: 1024, innerHeight: 768 });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+  }
+
+  it('registers bundled files under the stable per-app alias and loads from the session path', async () => {
+    installSandboxStubs();
+    const registerCalls = [];
+    vi.stubGlobal('fetch', vi.fn((url, init) => {
+      registerCalls.push({ url, body: JSON.parse(init.body) });
+      const sandboxId = registerCalls[registerCalls.length - 1].body.sandboxId;
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          ok: true,
+          baseUrl: `/api/apps/serve/${sandboxId}`,
+          stableBaseUrl: `/api/apps/serve/sandbox_com.test.oauth`,
+        }),
+      });
+    }));
+
+    try {
+      AppSandbox._internal._resetState();
+      const webview = { dataset: { sandboxId: 'sandbox_com.test.oauth_e5be8755-c430-4f3f-802b-56b23abc3999' } };
+      const app = {
+        id: 'com.test.oauth',
+        name: 'OAuth Test',
+        entry: 'index.html',
+        files: { 'index.html': Buffer.from('<html><body>hi</body></html>').toString('base64') },
+      };
+
+      await AppSandbox._internal.loadAppContent(webview, app, {});
+
+      // The registration asks for the stable alias: appId rides along with
+      // the sandboxId, and the webview itself still loads from the per-launch
+      // session path.
+      expect(registerCalls).toHaveLength(1);
+      expect(registerCalls[0].url).toBe('/api/apps/serve/register');
+      expect(registerCalls[0].body).toMatchObject({
+        sandboxId: 'sandbox_com.test.oauth_e5be8755-c430-4f3f-802b-56b23abc3999',
+        appId: 'com.test.oauth',
+      });
+      expect(webview.src).toBe(`${ORIGIN}/api/apps/serve/sandbox_com.test.oauth_e5be8755-c430-4f3f-802b-56b23abc3999/index.html`);
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+
+  it('degrades to session-only registration for ids that are not alias-eligible', async () => {
+    expect(AppSandbox._internal.stableServeAppId('com.test.oauth')).toBe('com.test.oauth');
+    expect(AppSandbox._internal.stableServeAppId('webapp_github_123')).toBe('webapp_github_123');
+    expect(AppSandbox._internal.stableServeAppId('Bad.App')).toBeNull();
+    expect(AppSandbox._internal.stableServeAppId('nodot')).toBeNull();
+    expect(AppSandbox._internal.stableServeAppId('sandbox_com.test.oauth')).toBeNull();
+    expect(AppSandbox._internal.stableServeAppId(undefined)).toBeNull();
+
+    installSandboxStubs();
+    const registerBodies = [];
+    vi.stubGlobal('fetch', vi.fn((_url, init) => {
+      registerBodies.push(JSON.parse(init.body));
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ok: true, baseUrl: `/api/apps/serve/${registerBodies[registerBodies.length - 1].sandboxId}` }),
+      });
+    }));
+
+    try {
+      AppSandbox._internal._resetState();
+      const webview = { dataset: { sandboxId: 'sandbox_weird_id_1' } };
+      const app = {
+        id: 'not an app id',
+        name: 'Odd',
+        entry: 'index.html',
+        files: { 'index.html': Buffer.from('<html></html>').toString('base64') },
+      };
+
+      await AppSandbox._internal.loadAppContent(webview, app, {});
+
+      // No alias requested — the key is absent from the body entirely, so the
+      // launch behaves exactly as it did before stable aliases existed.
+      expect(registerBodies).toHaveLength(1);
+      expect(Object.prototype.hasOwnProperty.call(registerBodies[0], 'appId')).toBe(false);
+      expect(webview.src).toBe(`${ORIGIN}/api/apps/serve/sandbox_weird_id_1/index.html`);
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+
+  it('scopes the isolated IPC transport to both the session and stable serving paths, and heartbeats only while the sandbox lives', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    installSandboxStubs();
+    const fetchStub = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.stubGlobal('fetch', fetchStub);
+
+    try {
+      AppSandbox._internal._resetState();
+      const app = {
+        id: 'com.test.oauth',
+        name: 'OAuth Test',
+        entry: 'index.html',
+        files: { 'index.html': Buffer.from('<html><body>hi</body></html>').toString('base64') },
+      };
+      const webview = AppSandbox.createSandbox(app, { innerHTML: '' }, { id: 'win-1' });
+
+      // Transport content script matches this launch's session path AND this
+      // app's stable alias — an OAuth provider redirecting the popup back to
+      // the stable callback.html gets the same isolated transport.
+      expect(webview.contentScripts).toHaveLength(1);
+      const sandboxId = webview.dataset.sandboxId;
+      expect(sandboxId).toMatch(/^sandbox_com\.test\.oauth_/);
+      expect(webview.contentScripts[0].matches).toEqual([
+        `${ORIGIN}/api/apps/serve/${sandboxId}/*`,
+        `${ORIGIN}/api/apps/serve/sandbox_com.test.oauth/*`,
+      ]);
+
+      // Liveness heartbeat: fires on the 5-minute cadence while alive.
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(fetchStub).toHaveBeenCalledTimes(1);
+      expect(fetchStub.mock.calls[0][0]).toBe('/api/apps/serve/heartbeat');
+      expect(JSON.parse(fetchStub.mock.calls[0][1].body)).toEqual({ sandboxId });
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(fetchStub).toHaveBeenCalledTimes(2);
+
+      // Teardown (destroy() runs this via sandbox.cleanup) stops the beat.
+      AppSandbox._internal._activeSandboxes.get(sandboxId).cleanup();
+      const callsAtTeardown = fetchStub.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+      expect(fetchStub.mock.calls).toHaveLength(callsAtTeardown);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      AppSandbox._internal._resetState();
+    }
+  });
+});
