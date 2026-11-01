@@ -1389,6 +1389,55 @@ registerApp({
         mainContent.appendChild(createEl('p', { textContent: 'Unable to retrieve storage information.' }));
       }
 
+      // Per-app storage ledger (the "logical UID" accounting layer).
+      // Settings reads AppSandbox.storageLedgerSnapshot() directly — trusted
+      // host-tier access; apps can never see each other's numbers over IPC.
+      const perAppGroup = createEl('div', { className: 'nook-group' });
+      perAppGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Per-App Storage' }));
+      perAppGroup.appendChild(createEl('p', {
+        textContent: 'Key-value usage against each app\'s own budget, plus lifetime bytes moved and request counts. Budgets are enforced by the system, not by the app.',
+        style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
+      }));
+      mainContent.appendChild(perAppGroup);
+      (async () => {
+        let snapshot = null;
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedgerSnapshot) {
+            snapshot = await AppSandbox.storageLedgerSnapshot();
+          }
+        } catch (err) {
+          devLog('storage ledger snapshot failed:', err);
+        }
+        if (!isAlive()) return;
+        const apps = snapshot?.apps || [];
+        if (!apps.length) {
+          perAppGroup.appendChild(createEl('p', {
+            textContent: 'No per-app storage recorded yet. Apps appear here once they store data through the platform API.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        for (const app of apps) {
+          const knownName = (typeof OS !== 'undefined' && OS.apps?.[app.appId]?.name) || app.appId;
+          const row = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: knownName, title: app.appId }));
+          top.appendChild(createEl('span', {
+            textContent: formatBytes(app.kvUsage || 0) + ' / ' + formatBytes(app.budgets?.storageQuotaBytes || 0),
+          }));
+          row.appendChild(top);
+          row.appendChild(createEl('div', {
+            textContent: formatBytes(app.bytesWritten || 0) + ' written · ' + formatBytes(app.bytesRead || 0) + ' read · ' + (app.requestCount || 0) + ' requests',
+            style: { opacity: '0.65', fontSize: '11px' },
+          }));
+          const barRatio = Math.min(100, (app.kvUsage || 0) / (app.budgets?.storageQuotaBytes || 1) * 100);
+          const bar = createEl('div', { className: 'lens-bar', style: { width: '100%' } });
+          bar.appendChild(createEl('div', { className: 'lens-bar-fill', style: { width: barRatio + '%' } }));
+          row.appendChild(bar);
+          perAppGroup.appendChild(row);
+        }
+      })();
+
       // Clear data buttons
       const clearGroup = createEl('div', { className: 'nook-group' });
       clearGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Clear Data' }));
@@ -2321,6 +2370,56 @@ registerApp({
     // Privacy & Security
     function renderPrivacy() {
       mainContent.appendChild(createEl('h2', { textContent: 'Privacy & Security', style: { marginBottom: '20px' } }));
+
+      // Shared-file access audit (from the storage ledger). Shows which apps
+      // touched files outside their own sandbox — the Android privacy
+      // dashboard equivalent for the shared tree.
+      const auditGroup = createEl('div', { className: 'nook-privacy-section' });
+      auditGroup.appendChild(createEl('h3', { textContent: 'File Access Audit' }));
+      auditGroup.appendChild(createEl('p', {
+        textContent: 'Apps reading or writing files outside their own storage (shared files, picked files) are logged here. Entries appear after the access happens.',
+        style: { margin: '0 0 8px', opacity: '0.75', fontSize: '12px' },
+      }));
+      mainContent.appendChild(auditGroup);
+      (async () => {
+        let snapshot = null;
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedgerSnapshot) {
+            snapshot = await AppSandbox.storageLedgerSnapshot();
+          }
+        } catch (err) {
+          devLog('access audit snapshot failed:', err);
+        }
+        if (!isAlive()) return;
+        const events = snapshot?.accessLog || [];
+        if (!events.length) {
+          auditGroup.appendChild(createEl('p', {
+            textContent: 'No shared-file access recorded. This is good — apps have stayed in their own storage.',
+            style: { margin: '0', opacity: '0.65', fontSize: '12px' },
+          }));
+          return;
+        }
+        const KIND_LABELS = {
+          'shared-file-read': 'Read shared file',
+          'shared-file-write': 'Wrote shared file',
+          'picked-file-read': 'Read picked file',
+          'picked-file-write': 'Wrote picked file',
+        };
+        for (const ev of events.slice(0, 50)) {
+          const appName = (typeof OS !== 'undefined' && OS.apps?.[ev.appId]?.name) || ev.appId;
+          const when = new Date(ev.t).toLocaleString();
+          const row = createEl('div', { className: 'nook-row', style: { alignItems: 'flex-start', flexDirection: 'column', gap: '2px' } });
+          const top = createEl('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%' } });
+          top.appendChild(createEl('span', { className: 'nook-row-label', textContent: appName, title: ev.appId }));
+          top.appendChild(createEl('span', { textContent: KIND_LABELS[ev.kind] || ev.kind, style: { opacity: '0.8' } }));
+          row.appendChild(top);
+          row.appendChild(createEl('div', {
+            textContent: (ev.detail || '') + ' · ' + when,
+            style: { opacity: '0.65', fontSize: '11px', wordBreak: 'break-all' },
+          }));
+          auditGroup.appendChild(row);
+        }
+      })();
 
       // Data management
       const exportSection = createEl('div', { className: 'nook-privacy-section' });

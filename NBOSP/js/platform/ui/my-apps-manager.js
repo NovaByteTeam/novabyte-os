@@ -117,6 +117,13 @@ const MyAppsManager = (() => {
         console.warn('[MyAppsManager] Failed to clear nova:storage for', appId, err);
       }
       try {
+        if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
+          AppSandbox.storageLedger.removeApp(appId);
+        }
+      } catch (err) {
+        console.warn('[MyAppsManager] Failed to clear storage ledger for', appId, err);
+      }
+      try {
         if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
           await AppDirs.removeAppData(appId);
         }

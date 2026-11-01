@@ -522,9 +522,11 @@ async function p9() {
   r = await call('nova:ipc:invoke', { targetAppId: c.id, endpoint: 'service:echo', data: {} }, { app: a });
   check('invoke target without apps:communicate denied', code(r) === 'PERMISSION_DENIED', code(r));
 
-  // Oversized IPC payload.
-  r = await call('nova:ipc:invoke', { targetAppId: b.id, endpoint: 'service:echo', data: { blob: 'x'.repeat(70 * 1024) } }, { app: a });
-  check('IPC payload > 64KB rejected', code(r) === 'INVALID_ARGS' || code(r) === 'UNAVAILABLE', code(r));
+  // Oversized IPC payload. The default cap is the ledger budget
+  // ipcPayloadBytes (256 KB — see StorageLedger.DEFAULT_BUDGETS in
+  // app-sandbox.js), so 70 KB now forwards and ~300 KB is what gets rejected.
+  r = await call('nova:ipc:invoke', { targetAppId: b.id, endpoint: 'service:echo', data: { blob: 'x'.repeat(300 * 1024) } }, { app: a });
+  check('IPC payload > 256KB default budget rejected', code(r) === 'INVALID_ARGS' || code(r) === 'UNAVAILABLE', code(r));
 
   // Broadcast: B subscribes to declared action, A broadcasts.
   r = await call('nova:ipc:broadcast:subscribe', { action: 'chat.message' }, { app: b, sandbox: sb, webview: sb.webview });

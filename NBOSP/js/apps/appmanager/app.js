@@ -2074,6 +2074,8 @@ registerApp({
           }
           await window.AppSandbox.clearAppPartition(app.id);
           await window.AppSandbox.storageClear(app.id);
+          // Counters reset; budget overrides survive (configuration, not data).
+          try { window.AppSandbox.storageLedger?.resetForApp(app.id); } catch (e) { console.warn('[AppManager] ledger reset failed:', e); }
           if (window.AppDirs?.clearAppData) {
             const cleared = await window.AppDirs.clearAppData(app.id);
             if (!cleared) throw new Error('The app files could not be cleared.');
@@ -2641,6 +2643,13 @@ registerApp({
           }
         } catch (e) {
           console.warn('[AppManager] Failed to clear nova:storage for', appId, e);
+        }
+        try {
+          if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
+            AppSandbox.storageLedger.removeApp(appId);
+          }
+        } catch (e) {
+          console.warn('[AppManager] Failed to clear storage ledger for', appId, e);
         }
         try {
           if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
