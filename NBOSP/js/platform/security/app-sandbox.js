@@ -8297,29 +8297,34 @@ const AppSandbox = (() => {
           throw error;
         });
       },
-      contextMenu: {
-        show: function(x, y, items) {
-          return ipc('nova:context-menu:show', { x: x, y: y, items: items });
-        },
-        hide: function() {
-          return ipc('nova:context-menu:hide', {});
-        },
+    },
+    // Top-level app-facing surfaces, documented in NOVAAPP.md as
+    // window.nova.overlay.* and window.nova.contextMenu.*. They must stay
+    // siblings of the appearance object — a misplaced brace used to nest
+    // them inside it, so both were undefined for every app (overlay.show
+    // and onEvent threw "Cannot read properties of undefined").
+    contextMenu: {
+      show: function(x, y, items) {
+        return ipc('nova:context-menu:show', { x: x, y: y, items: items });
       },
-      overlay: {
-        show: function(options) {
-          return ipc('nova:overlay:show', options || {});
-        },
-        hide: function() {
-          return ipc('nova:overlay:hide', {});
-        },
-        onEvent: function(callback) {
-          if (typeof callback !== 'function') throw new TypeError('callback must be a function');
-          overlayListeners.push(callback);
-          return function() {
-            const index = overlayListeners.indexOf(callback);
-            if (index >= 0) overlayListeners.splice(index, 1);
-          };
-        },
+      hide: function() {
+        return ipc('nova:context-menu:hide', {});
+      },
+    },
+    overlay: {
+      show: function(options) {
+        return ipc('nova:overlay:show', options || {});
+      },
+      hide: function() {
+        return ipc('nova:overlay:hide', {});
+      },
+      onEvent: function(callback) {
+        if (typeof callback !== 'function') throw new TypeError('callback must be a function');
+        overlayListeners.push(callback);
+        return function() {
+          const index = overlayListeners.indexOf(callback);
+          if (index >= 0) overlayListeners.splice(index, 1);
+        };
       },
     },
     app: {
