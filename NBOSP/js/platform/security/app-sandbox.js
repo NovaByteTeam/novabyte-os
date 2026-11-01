@@ -467,6 +467,508 @@ const AppSandbox = (() => {
     };
   })();
 
+  // ── MAC policy engine ("NB-MAC": the JS-side SELinux analog) ─────────────
+  // The kernel route for per-app mandatory access control is a dead end in
+  // this architecture (single browser process, single-user OS — see the
+  // StorageLedger preamble and NOVAAPP.md "Linux per-app process mode"), so
+  // the SELinux model is reimplemented in JS at the same chokepoint every
+  // app call already funnels through: this bridge.
+  //
+  //   SELinux concept          NB-MAC equivalent
+  //   ─────────────────────    ──────────────────────────────────────────
+  //   domain (process type)    app → domain via `subjects` pinning, else
+  //                            `untrusted_app` (default-deny posture)
+  //   type (object class)      IPC endpoint family (nova:fs, nova:admin, …)
+  //   allow src tgt:class perm `endpointGrants` rows: endpoint → ANY-of
+  //                            permission list, or null (advisory)
+  //   neverallow               verifyPolicy() rejects weakening rules
+  //   avc audit log            rate-limited denial ring, debounced persist
+  //   permissive mode          per-domain: log would-be denials, allow
+  //
+  // Enforcement contract (the part that makes rollout safe): a grant row is
+  // ONLY seeded for endpoints whose handler permission check is
+  // unconditional and context-free (verified against test_ipc_matrix.js's
+  // MATRIX table — the granted/denied cases there assert the exact same
+  // observable behavior with and without this layer). Path-dependent rules
+  // (the fs family: app-owned paths need no grant, shared paths do) and
+  // handler-internal checks stay handler-level — MAC passes those through
+  // as `advisory` and the existing checks remain the boundary. The handler
+  // checks are NOT removed anywhere: MAC is the uniform front door, the
+  // handlers are defense in depth.
+  //
+  // What MAC adds over the scattered handler checks:
+  //   1. default-deny posture — an endpoint with no policy row is refused
+  //      for enforcing domains before it can reach any handler code;
+  //   2. a single audit trail of every policy denial (avc-style);
+  //   3. permissive mode per domain — new/unknown behavior can be rolled
+  //      out log-first, exactly like real SELinux deployments;
+  //   4. policy linting (verifyPolicy/verifyCoverage) so a policy that
+  //      fails to cover every handler, or weakens a neverallow target,
+  //      cannot ship.
+  // Accounting is best-effort telemetry; every real boundary is still
+  // enforced at the call site even if this module were deleted.
+  const MacPolicy = (() => {
+    'use strict';
+
+    const MAC_AUDIT_STORAGE_KEY = 'novaOS_mac_audit';
+    const MAC_AUDIT_LOG_MAX = 300;
+    const MAC_SAVE_DEBOUNCE_MS = 400;
+    // Rate limit for AUDIT WRITES only (a flood of denials must not turn
+    // into a flood of localStorage churn). Denial decisions themselves are
+    // never rate-limited — a denied call is always denied.
+    const MAC_AUDIT_RATE_MAX = 60;
+    const MAC_AUDIT_RATE_WINDOW_MS = 60 * 1000;
+
+    const MAC_MODES = new Set(['enforcing', 'permissive']);
+    const DOMAIN_UNTRUSTED = 'untrusted_app';
+    const DOMAIN_PLATFORM = 'platform_module';
+
+    // Family = first two segments of the endpoint type ("nova:fs" from
+    // "nova:fs:read"). Documented in NOVAAPP.md; keep familyOf and the seed
+    // data below in sync with API_HANDLERS (verifyCoverage enforces it).
+    function familyOf(endpointType) {
+      const parts = String(endpointType || '').split(':');
+      return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : String(endpointType || '');
+    }
+
+    // Seed grant table — mirrors the MATRIX table in tests/test_ipc_matrix.js
+    // row for row (ANY-of semantics, same perms). Values:
+    //   ['perm:a', 'perm:b'] — enforced here: requires ANY-of the grants
+    //   null                 — advisory: handler-level checks are the boundary
+    // Grant-coupled rows are exactly the context-free permission gates.
+    const SEED_ENDPOINT_GRANTS = Object.freeze({
+      // Notifications — every handler checks device:notifications.
+      'nova:notifications:show': ['device:notifications'],
+      'nova:notifications:clear': ['device:notifications'],
+      'nova:notifications:post': ['device:notifications'],
+      'nova:notifications:createChannel': ['device:notifications'],
+      'nova:notifications:cancel': ['device:notifications'],
+      'nova:notifications:cancelAll': ['device:notifications'],
+      'nova:notifications:consumeActions': ['device:notifications'],
+      // Clipboard.
+      'nova:clipboard:read': ['clipboard:read'],
+      'nova:clipboard:write': ['clipboard:write'],
+      // System settings read/write.
+      'nova:settings:get': ['system:info'],
+      'nova:settings:set': ['system:settings'],
+      // App management (launch is any-of launch|apps, as in the handler).
+      'nova:app:launch': ['system:app-launch', 'system:apps'],
+      'nova:app:list': ['system:apps'],
+      'nova:app:install': ['system:apps'],
+      'nova:app:uninstall': ['system:apps'],
+      'nova:app:openDefaultAppsSettings': ['system:apps'],
+      'nova:home:apps:launch': ['system:app-launch', 'system:apps'],
+      'nova:home:openDefaultAppsSettings': ['system:apps'],
+      // Admin — also a neverallow target: rows here must never be weakened.
+      'nova:admin:audit': ['admin:audit'],
+      'nova:admin:system': ['admin:system'],
+      'nova:admin:users': ['admin:users'],
+      'nova:admin:apps': ['admin:apps'],
+      // Mail.
+      'nova:mail:read': ['mail:read'],
+      'nova:mail:write': ['mail:write'],
+      'nova:mail:session': ['mail:write'],
+      'nova:mail:send': ['mail:send'],
+      'nova:mail:delete': ['mail:delete'],
+      // Network.
+      'nova:net:fetch': ['net:external'],
+      'nova:net:websocket': ['net:websocket'],
+      // Devices.
+      'nova:device:geolocation': ['device:geolocation'],
+      'nova:device:camera': ['device:camera'],
+      'nova:device:microphone': ['device:microphone'],
+      // Calendar / contacts.
+      'nova:calendar:read': ['calendar:read'],
+      'nova:calendar:write': ['calendar:write'],
+      'nova:calendar:delete': ['calendar:delete'],
+      'nova:contacts:read': ['contacts:read'],
+      'nova:contacts:write': ['contacts:write'],
+      'nova:contacts:delete': ['contacts:delete'],
+      // Misc.
+      'nova:system:info': ['system:info'],
+      'nova:nested-webview': ['sandbox:nested-webview'],
+      'nova:ipc:register': ['apps:communicate'],
+      'nova:ipc:unregister': ['apps:communicate'],
+      'nova:ipc:invoke': ['apps:communicate'],
+      'nova:ipc:reply': ['apps:communicate'],
+      'nova:ipc:broadcast:subscribe': ['apps:communicate'],
+      'nova:ipc:broadcast': ['apps:communicate'],
+      'nova:background:stay-alive': ['system:background:live'],
+      // Advisory endpoints inside otherwise grant-coupled families
+      // (cleanup/passive forms, matrix rows assert they are ungated).
+      'nova:app:info': null,
+      'nova:home:apps:list': null,
+      'nova:net:ws:send': null,
+      'nova:net:ws:close': null,
+      'nova:ipc:broadcast:unsubscribe': null,
+      'nova:events:subscribe': null,
+      'nova:events:unsubscribe': null,
+      'nova:background:wake-done': null,
+      // Path-dependent gate — the handler decides per-path (app-owned paths
+      // need no grant, shared-tree paths do). Cannot be expressed as a flat
+      // grant without breaking app-owned access; see test_storage_ledger.js
+      // S5 which writes /data/<app>/ paths with zero grants.
+      'nova:fs:read': null,
+      'nova:fs:write': null,
+      'nova:fs:delete': null,
+      'nova:fs:list': null,
+      'nova:fs:mkdir': null,
+      'nova:fs:stat': null,
+      'nova:fs:rename': null,
+      'nova:fs:move': null,
+    });
+
+    // Families with NO grant-coupled endpoints: every endpoint in them is
+    // ungated or gated by handler-internal context (picker flows, dialogs,
+    // key-value storage ownership, root-execution checks…). NOTE: for
+    // two-segment types (nova:ready, nova:open-url, nova:request-permission,
+    // …) familyOf() returns the full type, so those keys are the types.
+    const SEED_ADVISORY_FAMILIES = Object.freeze([
+      'nova:fs', 'nova:storage', 'nova:window', 'nova:appearance',
+      'nova:ready', 'nova:dialog', 'nova:sysdialog', 'nova:overlay',
+      'nova:context-menu', 'nova:share', 'nova:files', 'nova:email',
+      'nova:open-url', 'nova:open-with', 'nova:download',
+      'nova:wallpaper', 'nova:request-permission',
+      'nova:permission-rate-limited', 'nova:audit',
+    ]);
+
+    // neverallow v1: the admin family is the platform's privilege anchor —
+    // a policy may not make its endpoints advisory (grant-less) or park the
+    // family in advisoryFamilies. verifyPolicy() enforces this on every
+    // applied policy. (A *dropped* row is not a neverallow violation — no
+    // rule means deny, which is stricter — it is a coverage gap caught by
+    // verifyCoverage() against the handler table, asserted in tests.)
+    const SEED_NEVERALLOW = Object.freeze([
+      Object.freeze({ target: 'nova:admin', requireGrant: true, reason: 'admin endpoints must stay grant-coupled' }),
+    ]);
+
+    const DEFAULT_POLICY = Object.freeze({
+      policyVersion: 1,
+      domains: Object.freeze({
+        [DOMAIN_UNTRUSTED]: Object.freeze({ mode: 'enforcing' }),
+        [DOMAIN_PLATFORM]: Object.freeze({ mode: 'permissive' }),
+      }),
+      // seapp_contexts analog: pin a specific appId to a domain. Empty by
+      // default — every sandboxed app starts as untrusted_app.
+      subjects: Object.freeze({}),
+      endpointGrants: SEED_ENDPOINT_GRANTS,
+      advisoryFamilies: SEED_ADVISORY_FAMILIES,
+      neverallow: SEED_NEVERALLOW,
+    });
+
+    let active = null;          // live policy (deep copy of seed or applied)
+    let domainModes = null;     // domain → mode, derived from active.domains
+    let auditState = null;
+    let auditPersistTimer = null;
+    const auditRateLog = new Map(); // appId → [timestamps] (audit writes only)
+
+    function freshPolicy() {
+      return {
+        policyVersion: DEFAULT_POLICY.policyVersion,
+        domains: { untrusted_app: { mode: 'enforcing' }, platform_module: { mode: 'permissive' } },
+        subjects: {},
+        endpointGrants: { ...DEFAULT_POLICY.endpointGrants },
+        advisoryFamilies: [...DEFAULT_POLICY.advisoryFamilies],
+        neverallow: DEFAULT_POLICY.neverallow.map((r) => ({ ...r })),
+      };
+    }
+
+    function load() {
+      if (active) return active;
+      active = freshPolicy();
+      domainModes = new Map(Object.entries(active.domains).map(([d, v]) => [d, v.mode]));
+      return active;
+    }
+
+    function defaultAuditState() {
+      return { version: 1, entries: [], dropped: 0 };
+    }
+
+    function loadAudit() {
+      if (auditState) return auditState;
+      try {
+        const raw = localStorage.getItem(MAC_AUDIT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        auditState = parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)
+          ? { version: 1, entries: parsed.entries.filter((e) => e && typeof e === 'object' && typeof e.t === 'number'), dropped: Math.max(0, Math.floor(Number(parsed.dropped) || 0)) }
+          : defaultAuditState();
+      } catch (e) {
+        console.error('[MacPolicy] Could not read the MAC audit log — starting empty:', e);
+        auditState = defaultAuditState();
+      }
+      return auditState;
+    }
+
+    function persistAudit() {
+      if (auditPersistTimer) return;
+      auditPersistTimer = setTimeout(() => {
+        auditPersistTimer = null;
+        try {
+          localStorage.setItem(MAC_AUDIT_STORAGE_KEY, JSON.stringify(loadAudit()));
+        } catch (e) {
+          console.error('[MacPolicy] Could not persist the MAC audit log:', e);
+        }
+      }, MAC_SAVE_DEBOUNCE_MS);
+    }
+
+    function rateLimitedFor(appId) {
+      const key = String(appId || '');
+      const now = Date.now();
+      const log = auditRateLog.get(key) || [];
+      const fresh = log.filter((t) => now - t < MAC_AUDIT_RATE_WINDOW_MS);
+      if (fresh.length >= MAC_AUDIT_RATE_MAX) {
+        auditRateLog.set(key, fresh);
+        return true;
+      }
+      fresh.push(now);
+      auditRateLog.set(key, fresh);
+      return false;
+    }
+
+    function recordAudit(entry) {
+      const s = loadAudit();
+      if (rateLimitedFor(entry.appId)) {
+        s.dropped += 1;
+        persistAudit();
+        return false;
+      }
+      s.entries.unshift({ ...entry, t: Date.now() });
+      if (s.entries.length > MAC_AUDIT_LOG_MAX) s.entries.length = MAC_AUDIT_LOG_MAX;
+      persistAudit();
+      return true;
+    }
+
+    function domainFor(appId) {
+      const policy = load();
+      return policy.subjects[String(appId || '')] || DOMAIN_UNTRUSTED;
+    }
+
+    function modeFor(domain) {
+      return domainModes.get(domain) || 'enforcing';
+    }
+
+    function safeIsGranted(perm, appId) {
+      try {
+        return typeof AppPermissionManager !== 'undefined'
+          && AppPermissionManager.isGranted(perm, appId) === true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    // Resolve the policy row for an endpoint: exact endpoint row wins, then
+    // the endpoint's family if it is advisory, otherwise undefined (which
+    // means "no rule" → denied for enforcing domains — default deny).
+    function resolveRow(endpointType) {
+      const policy = load();
+      const rows = policy.endpointGrants;
+      if (Object.prototype.hasOwnProperty.call(rows, endpointType)) {
+        return { grants: rows[endpointType], source: 'endpoint' };
+      }
+      const family = familyOf(endpointType);
+      if (policy.advisoryFamilies.includes(family)) {
+        return { grants: null, source: 'family' };
+      }
+      return { grants: undefined, source: 'none' };
+    }
+
+    // The bridge front-door check. Pure decision + audit; throws nothing.
+    function checkIpc(appId, endpointType) {
+      const id = String(appId || '');
+      const type = String(endpointType || '');
+      const domain = domainFor(id);
+      const mode = modeFor(domain);
+      const row = resolveRow(type);
+      if (row.grants !== undefined) {
+        if (row.grants === null) {
+          return { allowed: true, advisory: true, domain, mode, endpoint: type };
+        }
+        const held = row.grants.some((p) => safeIsGranted(p, id));
+        if (held) {
+          return { allowed: true, domain, mode, endpoint: type, rule: [...row.grants] };
+        }
+        const denial = {
+          appId: id, domain, mode, endpoint: type, action: 'call',
+          perms: [...row.grants], enforced: mode !== 'permissive',
+          avc: `avc: denied { call } for app=${id || '(anonymous)'} endpoint=${type} domain=${domain} mode=${mode} required=${row.grants.join('|')}`,
+        };
+        recordAudit(denial);
+        if (mode === 'permissive') {
+          return { allowed: true, wouldDeny: true, domain, mode, endpoint: type, rule: [...row.grants] };
+        }
+        return { allowed: false, code: 'PERMISSION_DENIED', domain, mode, endpoint: type, rule: [...row.grants] };
+      }
+      // No policy row: default-deny for enforcing domains (this is the
+      // property that keeps future endpoints locked until policy allows
+      // them), audit and pass for permissive ones.
+      const denial = {
+        appId: id, domain, mode, endpoint: type, action: 'call',
+        perms: [], enforced: mode !== 'permissive', noRule: true,
+        avc: `avc: denied { call } for app=${id || '(anonymous)'} endpoint=${type} domain=${domain} mode=${mode} reason=no_policy_row`,
+      };
+      recordAudit(denial);
+      if (mode === 'permissive') {
+        return { allowed: true, wouldDeny: true, domain, mode, endpoint: type, noRule: true };
+      }
+      return { allowed: false, code: 'PERMISSION_DENIED', domain, mode, endpoint: type, noRule: true };
+    }
+
+    // ── Policy linting (the neverallow/coverage compiler) ────────────────
+
+    function verifyPolicy(policy) {
+      const errors = [];
+      if (!policy || typeof policy !== 'object') {
+        return { ok: false, errors: ['policy must be an object'] };
+      }
+      if (!policy.domains || typeof policy.domains !== 'object'
+          || !Object.keys(policy.domains).length) {
+        errors.push('domains must be a non-empty object');
+      } else {
+        for (const [name, def] of Object.entries(policy.domains)) {
+          if (!/^[a-z_][a-z0-9_]*$/i.test(name)) errors.push(`bad domain name '${name}'`);
+          if (!def || !MAC_MODES.has(def.mode)) errors.push(`domain '${name}' needs mode enforcing|permissive`);
+        }
+      }
+      const subjects = policy.subjects || {};
+      if (typeof subjects !== 'object') errors.push('subjects must be an object');
+      for (const [appId, domain] of Object.entries(subjects)) {
+        if (!policy.domains || !policy.domains[domain]) {
+          errors.push(`subject '${appId}' pins unknown domain '${domain}'`);
+        }
+      }
+      const rows = policy.endpointGrants;
+      if (!rows || typeof rows !== 'object') {
+        errors.push('endpointGrants must be an object');
+      } else {
+        for (const [endpoint, grants] of Object.entries(rows)) {
+          if (!/^[a-z][a-z0-9:-]*$/i.test(endpoint)) errors.push(`bad endpoint key '${endpoint}'`);
+          if (grants === null) continue;
+          if (!Array.isArray(grants) || !grants.length || grants.some((g) => typeof g !== 'string' || !g.trim())) {
+            errors.push(`endpoint '${endpoint}' needs null or a non-empty perm array`);
+          }
+        }
+      }
+      const families = policy.advisoryFamilies;
+      if (!Array.isArray(families) || families.some((f) => typeof f !== 'string' || !f.trim())) {
+        errors.push('advisoryFamilies must be an array of family names');
+      }
+      // neverallow: covered targets must stay grant-coupled.
+      const neverallow = Array.isArray(policy.neverallow) ? policy.neverallow : [];
+      for (const rule of neverallow) {
+        if (!rule || typeof rule.target !== 'string') { errors.push('neverallow rule needs a target'); continue; }
+        const looksLikeFamily = !rule.target.includes(':') || rule.target.split(':').length === 2;
+        if (rule.requireGrant) {
+          const violates = (key, grants) => grants === null || grants === undefined;
+          if (looksLikeFamily) {
+            if (Array.isArray(families) && families.includes(rule.target)) {
+              errors.push(`neverallow violated: family '${rule.target}' is advisory (${rule.reason || 'must stay grant-coupled'})`);
+            }
+            for (const [endpoint, grants] of Object.entries(rows || {})) {
+              if (familyOf(endpoint) === rule.target && violates(endpoint, grants)) {
+                errors.push(`neverallow violated: endpoint '${endpoint}' is not grant-coupled (${rule.reason || 'must stay grant-coupled'})`);
+              }
+            }
+          } else if (Object.prototype.hasOwnProperty.call(rows || {}, rule.target)
+            && violates(rule.target, rows[rule.target])) {
+            errors.push(`neverallow violated: endpoint '${rule.target}' is not grant-coupled (${rule.reason || 'must stay grant-coupled'})`);
+          }
+        }
+      }
+      return { ok: errors.length === 0, errors };
+    }
+
+    // Every handler type must resolve to a row or an advisory family — a
+    // policy that fails coverage would default-deny existing handlers.
+    function verifyCoverage(endpointTypes) {
+      const uncovered = [];
+      for (const type of endpointTypes || []) {
+        if (resolveRow(type).grants === undefined) uncovered.push(type);
+      }
+      return { ok: uncovered.length === 0, uncovered };
+    }
+
+    function applyPolicy(policy) {
+      const verdict = verifyPolicy(policy);
+      if (!verdict.ok) {
+        const err = new Error(`Invalid MAC policy: ${verdict.errors.join('; ')}`);
+        err.policyErrors = verdict.errors;
+        throw err;
+      }
+      active = {
+        policyVersion: Math.max(1, Math.floor(Number(policy.policyVersion) || 1)),
+        domains: JSON.parse(JSON.stringify(policy.domains)),
+        subjects: JSON.parse(JSON.stringify(policy.subjects || {})),
+        endpointGrants: JSON.parse(JSON.stringify(policy.endpointGrants)),
+        advisoryFamilies: [...policy.advisoryFamilies],
+        neverallow: JSON.parse(JSON.stringify(policy.neverallow || [])),
+      };
+      domainModes = new Map(Object.entries(active.domains).map(([d, v]) => [d, v.mode]));
+      return true;
+    }
+
+    function setDomainMode(domain, mode) {
+      if (!MAC_MODES.has(mode)) throw new Error(`Invalid MAC mode '${mode}'`);
+      const policy = load();
+      if (!policy.domains[domain]) throw new Error(`Unknown domain '${domain}'`);
+      policy.domains[domain].mode = mode;
+      domainModes.set(domain, mode);
+      return mode;
+    }
+
+    function getAudit(limit) {
+      const cap = Math.max(1, Math.min(MAC_AUDIT_LOG_MAX, Math.floor(Number(limit) || 100)));
+      return loadAudit().entries.slice(0, cap);
+    }
+
+    function clearAudit() {
+      auditState = defaultAuditState();
+      persistAudit();
+    }
+
+    function getPolicyInfo() {
+      const policy = load();
+      const grantRows = Object.entries(policy.endpointGrants);
+      const now = Date.now();
+      const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
+      const audit = loadAudit();
+      return {
+        policyVersion: policy.policyVersion,
+        domains: Object.fromEntries(domainModes),
+        subjects: Object.keys(policy.subjects).length,
+        grantCoupledEndpoints: grantRows.filter(([, g]) => Array.isArray(g)).length,
+        advisoryEndpoints: grantRows.filter(([, g]) => g === null).length,
+        advisoryFamilies: policy.advisoryFamilies.length,
+        neverallow: policy.neverallow.length,
+        auditEntries: audit.entries.length,
+        auditDropped: audit.dropped,
+        denialsToday: audit.entries.filter((e) => e.enforced && e.t >= startOfDay.getTime()).length,
+      };
+    }
+
+    function _resetForTests() {
+      active = null;
+      domainModes = null;
+      auditState = null;
+      if (auditPersistTimer) clearTimeout(auditPersistTimer);
+      auditPersistTimer = null;
+      auditRateLog.clear();
+    }
+
+    return {
+      DEFAULT_POLICY,
+      checkIpc,
+      verifyPolicy,
+      verifyCoverage,
+      applyPolicy,
+      setDomainMode,
+      domainFor,
+      getAudit,
+      clearAudit,
+      getPolicyInfo,
+      _resetForTests,
+    };
+  })();
+
   // Notification gateway
   // Sandboxed apps never touch Notify.show() directly — everything funnels
   // through handleNotificationsShow, which enforces the limits below. This is
@@ -5602,6 +6104,17 @@ const AppSandbox = (() => {
     }
   }
 
+  // Host-side snapshot of the MAC policy engine for the Settings privacy
+  // dashboard (mode, rule counts, avc denial feed). Same trust model as the
+  // storage ledger snapshot: trusted host-tier direct call, deliberately NOT
+  // reachable over the sandbox IPC bridge.
+  async function macPolicySnapshot() {
+    return {
+      info: MacPolicy.getPolicyInfo(),
+      denials: MacPolicy.getAudit(50),
+    };
+  }
+
   // Host-side snapshot of the storage ledger for the Settings storage and
   // privacy dashboard. Settings runs in the trusted host tier and calls
   // AppSandbox.storageLedgerSnapshot() directly — this is deliberately NOT
@@ -6535,6 +7048,19 @@ const AppSandbox = (() => {
       const handler = API_HANDLERS[type];
       if (!handler) {
         return respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
+      }
+      // MAC front door (NB-MAC): mandatory access control before any handler
+      // code runs. Denials keep the PERMISSION_DENIED code handlers would
+      // produce, so app-visible behavior is unchanged for seeded rules; the
+      // denial is avc-audited in MacPolicy. Permissive domains are audited
+      // as would-be denials and passed through to the handler as today.
+      const macVerdict = MacPolicy.checkIpc(app && app.id, type);
+      if (!macVerdict.allowed) {
+        const required = macVerdict.rule && macVerdict.rule.length
+          ? `requires ${macVerdict.rule.join(' | ')}`
+          : 'no policy rule for this endpoint';
+        return respondError(webview, type, requestId, 'PERMISSION_DENIED',
+          `Blocked by system security policy (MAC): ${required}`);
       }
       await handler({ payload, requestId, app, webview, sandbox });
     } catch (err) {
@@ -10472,6 +10998,8 @@ const AppSandbox = (() => {
     // call removeApp/resetForApp. Apps never see any of this over IPC.
     storageLedger: StorageLedger,
     storageLedgerSnapshot,
+    macPolicy: MacPolicy,
+    macPolicySnapshot,
     detachToBackground,
     terminateBackground,
     dispatchBackgroundWake,
