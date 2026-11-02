@@ -272,7 +272,7 @@ A callback page is ordinary static HTML from your own bundle — it does **not**
 - **In-page redirect flows**: navigating your own frame to the provider and back replaces your document; `callback.html` reads `?code=` from its own `location.search` directly.
 - With `sandbox:same-origin` granted, the callback page (same origin and partition) can also relay through `localStorage`/`BroadcastChannel`.
 
-The `sandbox:escape-popups` permission (see the [permission list](#full-permission-list)) covers the popup leg of these flows: popups open into an OS-owned overlay window that shares your app's storage partition, so provider login sessions work the way users expect.
+The `sandbox:escape-popups` permission (see the [permission list](#full-permission-list)) covers the popup leg of these flows: popups open into an OS-owned overlay window that shares your app's storage partition, so provider login sessions work the way users expect. The user grant is checked **each time a popup is opened**, not once at launch — request it right before your first `window.open()` (or at any point before), and it applies to that popup immediately, no relaunch needed. Revoking it stops further escape popups at once. What the grant does requires the top-level `allowPopupsToEscapeSandbox` manifest flag; without it the OS never lets your popups leave the sandbox, and a popup that stays sandboxed runs at an opaque (`null`) origin — where the origin check above can never pass, so relay messages are dropped even though everything looks like it worked.
 
 ### Building browser apps
 
@@ -557,7 +557,9 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 41 permissions across 10 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
-The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`. The manifest flag **and** the matching user grant must both be present before the underlying sandbox attribute is added.
+The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
+
+They differ in *when* the user grant takes effect. `sandbox:same-origin` shapes the document's origin itself, so it can only be honored when the sandbox is created — grant it before your app launches (a grant answered mid-session applies from the next launch). `sandbox:nested-webview` and `sandbox:escape-popups` are checked at the moment the capability is used — each webview or popup — so a grant answered mid-session applies immediately, and revoking it blocks further use right away. The sandbox *attribute* for escape-popups follows the manifest flag alone (the publisher's declaration of intent); the per-popup grant check is what actually gates consent.
 
 Filesystem permissions follow scoped-storage rules: app-owned files need no grants; shared media requires a matching read grant; document access is user-picker mediated. `fs:metadata` grants metadata-only access to shared files, not contents. `fs:access` is manually enabled special access for the shared filesystem and never grants access to another app's private `/data/` directory.
 

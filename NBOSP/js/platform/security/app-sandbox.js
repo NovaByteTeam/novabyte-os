@@ -10133,26 +10133,36 @@ const AppSandbox = (() => {
     // wrongly accept e.g. "allow-scripts-foo" as "allow-scripts").
     //
     // allow-popups-to-escape-sandbox used to be granted purely from the
-    // manifest's own self-declaration, with no permission check — unlike
-    // allow-same-origin just above, which requires both the manifest flag
-    // AND a separate grant. A popup that escapes the sandbox is a fully
-    // unrestricted browsing context, arguably comparable risk to
-    // allow-same-origin, so it now goes through the same double-gate:
-    // manifest opt-in AND sandbox:escape-popups granted.
+    // manifest's own self-declaration, with no permission check — a popup
+    // that escapes the sandbox is a fully unrestricted browsing context,
+    // so user consent is mandatory. But pinning the token to the grant
+    // state AT SANDBOX CREATION was its own bug: an app that asked for
+    // sandbox:escape-popups after launch — the documented
+    // requestPermission-at-first-use pattern — got a webview whose sandbox
+    // attribute was missing the token, so its popups silently STAYED
+    // SANDBOXED (opaque 'null' origin). The window.opener.postMessage relay
+    // from a provider callback page still ran — attach() preserves the
+    // opener — but every message arrived with event.origin 'null', and
+    // OAuth flows died with "popup closed before sign-in completed" and
+    // nothing in any log. Consent now lives where the decision is actually
+    // made: setupSandboxPopupHandler checks sandbox:escape-popups per popup
+    // at newwindow time. The token here therefore only follows the
+    // publisher's INTENT — a grant obtained mid-session applies to the very
+    // next window.open(), and a revoked one stops applying immediately,
+    // without ever rewriting this attribute.
+    //
     // The manifest opt-in is the TOP-LEVEL allowPopupsToEscapeSandbox field
     // (see isEscapePopupsOptedIn above). Reading it from the sandbox object
-    // here is what silently broke the whole feature: NOVAAPP.md and the
-    // studio both document the top-level location, so a compliant manifest
-    // never satisfied this gate and the token was never added. Direct
-    // callers that pass no `app` object keep the legacy opt-in locations for
-    // compatibility: the in-sandbox-object flag, or the token itself in a
-    // string-form config.
+    // instead is what originally broke the whole feature: NOVAAPP.md and
+    // the studio both document the top-level location, so a compliant
+    // manifest never satisfied that gate and the token was never added.
+    // Direct callers that pass no `app` object keep the legacy opt-in
+    // locations for compatibility: the in-sandbox-object flag, or the token
+    // itself in a string-form config.
     const popupsOptedIn = app
       ? isEscapePopupsOptedIn(app)
       : (sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowPopupsToEscapeSandbox === true)
         || (typeof sandboxConfig === 'string' && sandboxConfig.split(/\s+/).includes('allow-popups-to-escape-sandbox'));
-    const popupsEscapePermitted = popupsOptedIn
-      && AppPermissionManager?.isGranted('sandbox:escape-popups', appId);
 
     const requestedTokens = new Set();
     if (sandboxConfig && typeof sandboxConfig === 'object') {
@@ -10161,15 +10171,17 @@ const AppSandbox = (() => {
       // allow-popups-to-escape-sandbox only decides whether an OPENED popup
       // inherits the sandbox; it cannot conjure popups that allow-popups
       // never unlocked. Opting in therefore implies allow-popups. The escape
-      // token itself is NOT added here — it is grant-gated once at the final
-      // token level below, so every config shape gets identical treatment.
-      if (sandboxConfig.allowPopups === true || popupsEscapePermitted) requestedTokens.add('allow-popups');
+      // token itself is NOT added here — it is added once at the final token
+      // level below, so every config shape gets identical treatment.
+      if (sandboxConfig.allowPopups === true || popupsOptedIn) requestedTokens.add('allow-popups');
       if (sandboxConfig.allowModals === true) requestedTokens.add('allow-modals');
     } else if (typeof sandboxConfig === 'string') {
       for (const tok of sandboxConfig.split(/\s+/)) {
-        // allow-popups-to-escape-sandbox is grant-gated below and is never
-        // forwarded from a self-declared string — same rule as the object
-        // form, which used to self-grant it from the manifest alone.
+        // The escape token is never forwarded as a plain token here — a
+        // string mentioning it is treated as the opt-in instead (see
+        // popupsOptedIn above) and the token itself is added once at the
+        // final token level below. Consent for the escaped popups it
+        // produces is enforced per popup in setupSandboxPopupHandler.
         if (tok && tok !== 'allow-popups-to-escape-sandbox') requestedTokens.add(tok);
       }
     }
@@ -10200,14 +10212,20 @@ const AppSandbox = (() => {
       tokens.add('allow-downloads');
     }
 
-    // The sandbox:escape-popups grant is applied once, at the final token
-    // level, so it covers every config shape — object, string, or NO sandbox
-    // config at all. That last case is the common one for a compliant
-    // manifest: allowPopupsToEscapeSandbox is a top-level field, so the
-    // publisher may never declare a sandbox object and the default set above
-    // is what runs. Without this block the object-branch-only handling would
-    // still leave every config-less app unable to open escape popups.
-    if (popupsEscapePermitted) {
+    // The escape opt-in is applied once, at the final token level, so it
+    // covers every config shape — object, string, or NO sandbox config at
+    // all. That last case is the common one for a compliant manifest:
+    // allowPopupsToEscapeSandbox is a top-level field, so the publisher may
+    // never declare a sandbox object and the default set above is what
+    // runs. Without this block the object-branch-only handling would still
+    // leave every config-less app unable to open escape popups.
+    //
+    // This deliberately does NOT consult the sandbox:escape-popups grant:
+    // the attribute is the publisher's intent, not the consent decision —
+    // consent is enforced per popup in setupSandboxPopupHandler, which sees
+    // the LIVE grant state every time a popup is opened, including grants
+    // that arrived after this webview was created.
+    if (popupsOptedIn) {
       tokens.add('allow-popups');
       tokens.add('allow-popups-to-escape-sandbox');
     }
@@ -10262,6 +10280,36 @@ const AppSandbox = (() => {
       if (!popupsPermitted) {
         // The sandbox tokens already told the guest popups are blocked —
         // discard explicitly so no embedder default leaks a surface through.
+        discard();
+        return;
+      }
+
+      // Escape-capable popups are unsandboxed browsing contexts, so the
+      // sandbox:escape-popups consent is checked HERE, per popup, instead of
+      // only being baked into the sandbox attribute at creation time. The
+      // old creation-time snapshot silently stranded apps that requested the
+      // permission after launch: the attribute lacked the escape token, the
+      // popup spawned sandboxed (opaque origin), and every postMessage relay
+      // from a provider callback page arrived with event.origin 'null' and
+      // was dropped — OAuth flows died as "popup closed before sign-in
+      // completed". Checking at use time means a grant that arrives
+      // mid-session applies to the very next window.open(), and a revoked
+      // one stops applying immediately.
+      //
+      // Fail-closed: a missing manager or unexpected throw counts as
+      // ungranted, same rule as isNestedWebviewPermitted.
+      let escapeGranted = false;
+      try {
+        escapeGranted = sandboxTokens.has('allow-popups-to-escape-sandbox')
+          && AppPermissionManager?.isGranted('sandbox:escape-popups', app?.id) === true;
+      } catch (e) {
+        log('debug', 'escape-popups grant check failed', e);
+      }
+      if (!escapeGranted && sandboxTokens.has('allow-popups-to-escape-sandbox')) {
+        // The attribute let Chromium spawn this popup UNSANDBOXED already —
+        // displaying it would hand out exactly what the consent gate exists
+        // to guard, so the only safe outcome is a discard (the guest sees
+        // the popup fail to open, which is what an ungranted popup means).
         discard();
         return;
       }

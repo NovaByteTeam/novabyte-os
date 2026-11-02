@@ -2504,48 +2504,53 @@ describe('sandbox escape popups (sandbox:escape-popups)', () => {
     }
   });
 
-  it('adds no escape token without the user grant, in any config shape', () => {
+  it('adds the escape token on manifest opt-in even while still ungranted — consent is enforced at popup time', () => {
     vi.stubGlobal('AppPermissionManager', denied);
     try {
-      // Config-less app: the default token set already includes allow-popups
-      // (pre-existing baseline behavior), but the escape token must not appear.
+      // The attribute records the publisher's INTENT, not the consent
+      // decision: it must carry the escape token even before the user has
+      // granted anything, because the sandbox attribute is written once at
+      // creation while the grant can arrive at any time (the documented
+      // requestPermission-at-first-use pattern). Gating the token on the
+      // grant here made it a creation-time snapshot: popups spawned by a
+      // guest whose attribute lacked the token stayed sandboxed (opaque
+      // 'null' origin) and every postMessage relay from a provider callback
+      // page was silently dropped. The consent gate lives in
+      // setupSandboxPopupHandler, checked per popup at newwindow time.
       const configless = AppSandbox._internal.sanitizeSandboxAttr(
         undefined, 'com.example.ungranted', false,
         { id: 'com.example.ungranted', allowPopupsToEscapeSandbox: true }
       );
       expect(configless).toContain('allow-popups');
-      expect(configless).not.toContain('allow-popups-to-escape-sandbox');
+      expect(configless).toContain('allow-popups-to-escape-sandbox');
 
-      // Object form with popups never declared: neither popup token appears.
+      // Object form with popups never declared: opting in still implies
+      // allow-popups alongside the escape token.
       const objectForm = AppSandbox._internal.sanitizeSandboxAttr(
         { allowScripts: true }, 'com.example.ungranted', false,
         { id: 'com.example.ungranted', allowPopupsToEscapeSandbox: true }
       );
-      expect(objectForm).not.toContain('allow-popups');
-      expect(objectForm).not.toContain('allow-popups-to-escape-sandbox');
+      expect(objectForm).toContain('allow-popups');
+      expect(objectForm).toContain('allow-popups-to-escape-sandbox');
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it('never self-grants the escape token from a string-form sandbox config', () => {
+  it('treats a string-form escape token as the opt-in; the user grant is enforced at popup time, not in the attribute', () => {
     vi.stubGlobal('AppPermissionManager', denied);
     try {
+      // Same rule as the object form: the string mentioning the token is
+      // the publisher's opt-in, so the attribute carries it regardless of
+      // grant state. What keeps an ungranted string-form app from actually
+      // opening escaped popups is the per-popup consent check in
+      // setupSandboxPopupHandler — the old creation-time gate here was
+      // silently stranding mid-session grants.
       const deniedAttr = AppSandbox._internal.sanitizeSandboxAttr(
         'allow-scripts allow-popups allow-popups-to-escape-sandbox', 'com.example.string', false
       );
       expect(deniedAttr).toContain('allow-popups');
-      expect(deniedAttr).not.toContain('allow-popups-to-escape-sandbox');
-    } finally {
-      vi.unstubAllGlobals();
-    }
-
-    vi.stubGlobal('AppPermissionManager', granted);
-    try {
-      const grantedAttr = AppSandbox._internal.sanitizeSandboxAttr(
-        'allow-scripts allow-popups allow-popups-to-escape-sandbox', 'com.example.string', false
-      );
-      expect(grantedAttr).toContain('allow-popups-to-escape-sandbox');
+      expect(deniedAttr).toContain('allow-popups-to-escape-sandbox');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -2642,6 +2647,9 @@ describe('sandbox popup display (setupSandboxPopupHandler)', () => {
     const attach = vi.fn();
     const discard = vi.fn();
 
+    // The attr carries the escape token, so the per-popup consent check
+    // consults the manager — this test covers the granted path.
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => true });
     const teardown = AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.oauth' }, {
       sandboxAttr: 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads',
       partitionId: 'app_com.example.oauth',
@@ -2669,6 +2677,103 @@ describe('sandbox popup display (setupSandboxPopupHandler)', () => {
     expect(backdrop.remove).toHaveBeenCalledOnce();
     teardown();
     vi.unstubAllGlobals();
+  });
+
+  it('refuses to display an escape-capable popup while sandbox:escape-popups is ungranted', () => {
+    installFakeDocument();
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    const webview = makeWebview();
+    const contentEl = makeFakeElement('div');
+    const attach = vi.fn();
+    const discard = vi.fn();
+
+    try {
+      AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.ungranted' }, {
+        sandboxAttr: 'allow-scripts allow-popups allow-popups-to-escape-sandbox',
+        partitionId: 'app_com.example.ungranted',
+        state: { content: contentEl },
+      });
+
+      webview.listeners.get('newwindow')[0]({
+        targetUrl: 'https://github.com/login/oauth/authorize',
+        window: { attach, discard },
+      });
+
+      // The attribute already let Chromium spawn this popup UNSANDBOXED —
+      // displaying it would hand out exactly what the consent gate exists
+      // to guard, so discard is the only safe outcome (the guest's
+      // window.open fails, same visible result as a blocked popup).
+      expect(discard).toHaveBeenCalledOnce();
+      expect(attach).not.toHaveBeenCalled();
+      expect(contentEl.children).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('fails closed when the permission manager is unavailable for an escape-capable popup', () => {
+    installFakeDocument();
+    // No AppPermissionManager global at all — must behave like ungranted.
+    const webview = makeWebview();
+    const contentEl = makeFakeElement('div');
+    const attach = vi.fn();
+    const discard = vi.fn();
+
+    AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.nomanager' }, {
+      sandboxAttr: 'allow-popups allow-popups-to-escape-sandbox',
+      partitionId: 'app_com.example.nomanager',
+      state: { content: contentEl },
+    });
+
+    webview.listeners.get('newwindow')[0]({
+      targetUrl: 'https://example.com/popup',
+      window: { attach, discard },
+    });
+
+    expect(discard).toHaveBeenCalledOnce();
+    expect(attach).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('honors an escape-popups grant obtained after the sandbox was created — no relaunch needed', () => {
+    // The regression this whole change fixes: consent used to be read once,
+    // at sandbox creation, so an app that called requestPermission()
+    // mid-session (the documented first-use pattern) kept spawning popups
+    // that stayed sandboxed — opaque origin, dropped postMessage relays,
+    // OAuth flows dying as "popup closed before sign-in completed".
+    let granted = false;
+    installFakeDocument();
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => granted });
+    const webview = makeWebview();
+    const contentEl = makeFakeElement('div');
+
+    try {
+      AppSandbox._internal.setupSandboxPopupHandler(webview, { id: 'com.example.late-grant' }, {
+        sandboxAttr: 'allow-scripts allow-popups allow-popups-to-escape-sandbox',
+        partitionId: 'app_com.example.late-grant',
+        state: { content: contentEl },
+      });
+
+      const beforeGrant = { attach: vi.fn(), discard: vi.fn() };
+      webview.listeners.get('newwindow')[0]({
+        targetUrl: 'https://github.com/login/oauth/authorize',
+        window: beforeGrant,
+      });
+      expect(beforeGrant.discard).toHaveBeenCalledOnce();
+
+      granted = true; // the user answered the consent dialog mid-session
+
+      const afterGrant = { attach: vi.fn(), discard: vi.fn() };
+      webview.listeners.get('newwindow')[0]({
+        targetUrl: 'https://github.com/login/oauth/authorize',
+        window: afterGrant,
+      });
+      expect(afterGrant.attach).toHaveBeenCalledOnce();
+      expect(afterGrant.discard).not.toHaveBeenCalled();
+      expect(contentEl.children).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('discards popups when the sandbox tokens do not permit them', () => {
