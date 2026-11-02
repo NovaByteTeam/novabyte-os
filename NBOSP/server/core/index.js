@@ -233,7 +233,7 @@ app.get('/api/files/metadata', (req, res) => res.json({}));
 //      the same registration call that created the session key, pointing at the exact
 //      same entry object. This gives the app's bundled files a URL that survives
 //      relaunches, so redirect-based flows (OAuth callbacks, payment providers) can
-//      register `http://localhost:3003/api/apps/serve/sandbox_<appId>/callback.html`
+//      register `https://localhost:3003/api/apps/serve/sandbox_<appId>/callback.html`
 //      with a third party ahead of time. When the same app is launched again, the new
 //      registration overwrites the alias (last launch wins); the previous launch's
 //      session key keeps serving its own copy until its TTL or its destroy(). The alias

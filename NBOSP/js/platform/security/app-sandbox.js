@@ -1053,7 +1053,7 @@ const AppSandbox = (() => {
   // under `sandbox_<appId>` with NO unique suffix — a URL that survives
   // relaunches, which is what makes pre-registered OAuth/redirect callback
   // URLs possible (register
-  // `http://localhost:3003/api/apps/serve/sandbox_<appId>/callback.html`
+  // `https://localhost:3003/api/apps/serve/sandbox_<appId>/callback.html`
   // with the provider once; it resolves to the most recent launch). Only ids
   // matching the platform's app-id shapes are eligible — reverse-domain
   // package ids (app-package.js install validation) and webapp_ shortcut ids.

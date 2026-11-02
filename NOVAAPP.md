@@ -242,16 +242,16 @@ The old advice to delay the first navigation by one second is obsolete. The host
 
 Your bundled files are reachable at **two** serving paths:
 
-- **Per-session path** — `http://localhost:3003/api/apps/serve/sandbox_<app-id>_<unique>/index.html`. The `<unique>` suffix is regenerated at every launch, so this URL is for your app's own runtime navigation only. It is what your webview actually loads.
-- **Stable per-app path** — `http://localhost:3003/api/apps/serve/sandbox_<app-id>/index.html`. Same bundled files, no unique suffix. This URL is fixed for the lifetime of the install, which is what redirect-based flows need.
+- **Per-session path** — `https://localhost:3003/api/apps/serve/sandbox_<app-id>_<unique>/index.html`. The `<unique>` suffix is regenerated at every launch, so this URL is for your app's own runtime navigation only. It is what your webview actually loads.
+- **Stable per-app path** — `https://localhost:3003/api/apps/serve/sandbox_<app-id>/index.html`. Same bundled files, no unique suffix. This URL is fixed for the lifetime of the install, which is what redirect-based flows need.
 
 Use the stable path as the `redirect_uri` you register with third-party providers — OAuth (GitHub, Google, …), payment providers, anything that redirects back to your app:
 
 ```
-http://localhost:3003/api/apps/serve/sandbox_com.example.myapp/callback.html
+https://localhost:3003/api/apps/serve/sandbox_com.example.myapp/callback.html
 ```
 
-Register that URL with the provider once; it keeps working across restarts. Behavior of the stable path:
+Register that URL with the provider once; it keeps working across restarts. **Always use `https://`** — the OS server is TLS-only, and a provider redirecting to an `http://` callback sends the user's browser at the HTTPS port over plain HTTP. The server answers that with an explicit "HTTPS required" error page (never silently), but the flow stops there. Behavior of the stable path:
 
 - It resolves to the **most recent launch** of your app. Relaunching repoints it; a still-open older window keeps its own per-session path, so multi-window apps are unaffected.
 - It serves files **only while your app is running**. When your app's last window closes, the stable path stops serving (HTTP 404) — an OAuth redirect that arrives after the user closed the app gets a 404, which is the honest signal to restart the flow.
@@ -259,7 +259,16 @@ Register that URL with the provider once; it keeps working across restarts. Beha
 
 A callback page is ordinary static HTML from your own bundle — it does **not** get the `window.nova` bridge (only the entry file gets the capability shim). Hand the authorization result back to your app yourself:
 
-- **Popup flows** (`sandbox:escape-popups`): from `callback.html`, `window.opener.postMessage({ code }, '*')` — the opener is your app's own guest window; validate `event.origin === 'http://localhost:3003'` on the receiving side before trusting the payload.
+- **Popup flows** (`sandbox:escape-popups`): from `callback.html`, `window.opener.postMessage({ code }, '*')` — the `'*'` target origin is **required**, not a shortcut. Without `sandbox:same-origin` your app's guest window has an opaque origin, and the browser matches `postMessage`'s target origin against the *receiver* — a concrete origin string such as `window.location.origin` can never match an opaque origin, so the message is silently dropped: the popup closes, nothing arrives, and no error appears anywhere. `'*'` still delivers to exactly one window (the `window.opener` reference); the security check is the receiving side's origin validation, which works because the escaped popup runs at your real serving origin:
+
+  ```js
+  // app.js (receiver)
+  if (event.origin !== 'https://localhost:3003') return; // sender is your escaped popup
+  // callback.js (sender) — never a concrete targetOrigin here:
+  window.opener.postMessage({ type: 'auth-callback', code }, '*');
+  ```
+
+  The same applies to `window.close()` + a watchdog: poll `popup.closed` for the failure case only, and let the `message` handler cancel the watchdog when the payload arrives.
 - **In-page redirect flows**: navigating your own frame to the provider and back replaces your document; `callback.html` reads `?code=` from its own `location.search` directly.
 - With `sandbox:same-origin` granted, the callback page (same origin and partition) can also relay through `localStorage`/`BroadcastChannel`.
 
