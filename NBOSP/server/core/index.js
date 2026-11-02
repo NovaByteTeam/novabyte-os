@@ -34,6 +34,31 @@ try {
     process.exit(1);
 }
 
+// 1.5. OS build identity — print WHICH sandbox code this deployment runs.
+//
+// Field debugging of the sandbox popup path kept dead-ending on the same
+// question: a serial capture shows a popup opening, but nothing says which
+// app-sandbox.js produced the decision. Kernel timestamps only date the
+// (often cache-reused) Buildroot kernel, and package.json's version does
+// not move between rebuilds, so two captures from different deployments
+// were indistinguishable. process.stdout here IS the serial console (the
+// same channel as the [Memory] heartbeat), so hashing the deployed module
+// at startup puts an unforgeable identity at the top of every capture: if
+// the hash does not match the commit believed to be deployed, the rebuild
+// did not take — and the capture says so itself instead of the operator
+// having to guess.
+(function printOsBuildIdentity() {
+    try {
+        const crypto = require('crypto');
+        const sandboxPath = path.join(__dirname, '..', '..', 'js', 'platform', 'security', 'app-sandbox.js');
+        const stat = fs.statSync(sandboxPath);
+        const hash = crypto.createHash('sha256').update(fs.readFileSync(sandboxPath)).digest('hex').slice(0, 8);
+        process.stdout.write(`[OS Build] sandbox=${hash} (${stat.size} bytes, mtime ${stat.mtime.toISOString()})\n`);
+    } catch (e) {
+        process.stdout.write(`[OS Build] sandbox identity unavailable: ${e?.message}\n`);
+    }
+})();
+
 // 2. Setup middleware
 setupMiddleware(app);
 
