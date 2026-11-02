@@ -10267,6 +10267,15 @@ const AppSandbox = (() => {
     // permitted exactly as they would be for any unsandboxed page.
     const popupsPermitted = sandboxAttr === '' ? true : sandboxTokens.has('allow-popups');
 
+    // Operator-facing one-liners. The popup path used to log nothing at info
+    // level (decisions were debug-gated or silent), so a serial capture of a
+    // failing OAuth flow showed pages loading but could not say WHY the relay
+    // died — sandboxed spawn, missing grant, or popup closed mid-flow were
+    // indistinguishable. Every decision below now leaves one line.
+    const appId = app?.id || app?.name || 'unknown';
+    const shortUrl = u => (typeof u === 'string' && u.length > 120 ? `${u.slice(0, 117)}...` : u);
+    const logPopup = message => log('info', `popup: app=${appId} ${message}`);
+
     const openPopupOverlays = new Set();
     const closeOverlay = backdrop => {
       openPopupOverlays.delete(backdrop);
@@ -10280,6 +10289,7 @@ const AppSandbox = (() => {
       if (!popupsPermitted) {
         // The sandbox tokens already told the guest popups are blocked —
         // discard explicitly so no embedder default leaks a surface through.
+        logPopup('blocked: sandbox attribute forbids popups');
         discard();
         return;
       }
@@ -10298,18 +10308,20 @@ const AppSandbox = (() => {
       //
       // Fail-closed: a missing manager or unexpected throw counts as
       // ungranted, same rule as isNestedWebviewPermitted.
+      const escapeTokenInAttr = sandboxTokens.has('allow-popups-to-escape-sandbox');
       let escapeGranted = false;
       try {
-        escapeGranted = sandboxTokens.has('allow-popups-to-escape-sandbox')
+        escapeGranted = escapeTokenInAttr
           && AppPermissionManager?.isGranted('sandbox:escape-popups', app?.id) === true;
       } catch (e) {
         log('debug', 'escape-popups grant check failed', e);
       }
-      if (!escapeGranted && sandboxTokens.has('allow-popups-to-escape-sandbox')) {
+      if (!escapeGranted && escapeTokenInAttr) {
         // The attribute let Chromium spawn this popup UNSANDBOXED already —
         // displaying it would hand out exactly what the consent gate exists
         // to guard, so the only safe outcome is a discard (the guest sees
         // the popup fail to open, which is what an ungranted popup means).
+        logPopup(`discarded: escape token in attribute but sandbox:escape-popups not granted (fail-closed) url=${shortUrl(event?.targetUrl)}`);
         discard();
         return;
       }
@@ -10318,15 +10330,21 @@ const AppSandbox = (() => {
       if (!url || url === 'about:blank' || url.startsWith('javascript:')) {
         // Nothing safe to display — same policy as the browser's newwindow
         // handler for un-navigable popup targets.
+        logPopup(`discarded: un-navigable popup target url=${shortUrl(url)}`);
         discard();
         return;
       }
 
       const contentEl = state?.content;
       if (!contentEl || typeof contentEl.appendChild !== 'function') {
+        logPopup('discarded: no app content element available to host the overlay');
         discard();
         return;
       }
+
+      logPopup(escapeGranted
+        ? `displayed unsandboxed (sandbox:escape-popups granted) url=${shortUrl(url)}`
+        : `displayed SANDBOXED: attribute lacks allow-popups-to-escape-sandbox (app did not opt in) — this popup runs at an opaque origin, so provider relays arrive with event.origin 'null' and a receiving-side origin check will drop them url=${shortUrl(url)}`);
 
       let backdrop = null;
       try {
@@ -10367,9 +10385,21 @@ const AppSandbox = (() => {
         card.append(bar, popupWebview);
         backdrop.appendChild(card);
 
-        const closePopup = () => closeOverlay(backdrop);
-        barClose.addEventListener('click', closePopup);
-        popupWebview.addEventListener('close', closePopup);
+        // Track the last committed URL so the close line says WHERE the
+        // popup died: still on a provider page (closed early — watchdog or
+        // user) vs already back on the app callback (relay path reached).
+        let lastPopupUrl = url;
+        const trackPopupUrl = e => { if (typeof e?.url === 'string' && e.url) lastPopupUrl = e.url; };
+        popupWebview.addEventListener('loadcommit', trackPopupUrl);
+        popupWebview.addEventListener('did-navigate', trackPopupUrl);
+        popupWebview.addEventListener('did-navigate-in-page', trackPopupUrl);
+
+        const closePopup = source => () => {
+          logPopup(`overlay closed (${source}) lastUrl=${shortUrl(lastPopupUrl)}`);
+          closeOverlay(backdrop);
+        };
+        barClose.addEventListener('click', closePopup('titlebar'));
+        popupWebview.addEventListener('close', closePopup('popup window.close'));
 
         openPopupOverlays.add(backdrop);
         contentEl.appendChild(backdrop);
