@@ -32,6 +32,16 @@ const EXACT_SKIP_PATHS = new Set([
     // serve-registry entry fresh while the sandbox exists). Long-running apps
     // would otherwise burn the global API budget on keep-alive pings.
     '/api/apps/serve/heartbeat',
+    // The OS UI log mirror (app-sandbox.js POSTs its info/warn/error lines
+    // here so they reach the serial console). It must never be rate-limited:
+    // the whole OS shares one localhost bucket, OS-internal traffic already
+    // exhausts the budget (that is why register/heartbeat are exempt), and a
+    // 429 here is swallowed by the mirror's never-throw policy — so limiter
+    // starvation silently killed every field-debugging capture before this
+    // exemption. The sink is self-throttled at the source (40 lines/5s) and
+    // bounded at the sink (50 lines/request, 2000 chars/line), so exempting
+    // it does not reopen an abuse hole.
+    '/api/os/log',
 ]);
 const PREFIX_SKIP_PATHS = [
     '/js/',
