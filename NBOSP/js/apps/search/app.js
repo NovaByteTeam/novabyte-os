@@ -32,7 +32,7 @@ registerApp({
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // FILE INDEX — built once on init, updated on FS mutation events
+    // FILE INDEX — refreshed on search and filesystem mutation events
     // ════════════════════════════════════════════════════════════════════════
 
     let fileIndex = SearchIndex.build([], f => f.name || '');
@@ -42,7 +42,7 @@ registerApp({
     function buildFileIndex() {
       try {
         if (!window.FS?.files) return;
-        fileItems = [...FS.files.values()].filter(f => f.type === 'file');
+        fileItems = SearchIndex.collectFiles(FS);
         fileIndex = SearchIndex.build(fileItems, f => f.name || '');
         filePathCache = new Map();
         for (const f of fileItems) {
@@ -56,14 +56,20 @@ registerApp({
     buildFileIndex();
 
     let fsChangeTimer = null;
-    try {
-      if (window.FS?.addEventListener) {
-        FS.addEventListener('change', () => {
-          clearTimeout(fsChangeTimer);
-          fsChangeTimer = setTimeout(buildFileIndex, 200);
-        });
+    const onFsChange = () => {
+      clearTimeout(fsChangeTimer);
+      fsChangeTimer = setTimeout(buildFileIndex, 200);
+    };
+    for (const eventName of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+      OS.events.on(eventName, onFsChange);
+    }
+    state.cleanups = state.cleanups || [];
+    state.cleanups.push(() => {
+      clearTimeout(fsChangeTimer);
+      for (const eventName of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+        OS.events.off(eventName, onFsChange);
       }
-    } catch { /* FS may not support events */ }
+    });
 
     function searchFiles(lq) {
       if (!lq) return [];
@@ -299,6 +305,13 @@ registerApp({
       return 'file';
     }
 
+    function fileMime(f) {
+      const extension = (f.name || '').split('.').pop().toLowerCase();
+      if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'avif'].includes(extension)) return 'image/*';
+      if (['mp3', 'mp4', 'm4a', 'ogg', 'wav', 'flac', 'aac', 'opus', 'weba', 'webm'].includes(extension)) return 'audio/*';
+      return f.mimeType || '';
+    }
+
     /** Builds a result row and registers it in liveRows. */
     function buildRow(icon, primary, secondary, onActivate) {
       const row = createEl('div', {
@@ -376,7 +389,7 @@ registerApp({
       const { signal } = fetchController;
 
       const q  = rawQuery;
-      const lq = q.toLowerCase();
+      const lq = q.trim().toLowerCase();
 
       // Reset live row registry and clear results DOM in one shot
       liveRows = [];
@@ -387,13 +400,20 @@ registerApp({
       // ── Local results — trigram index lookups (effectively O(1)) ────────────
       let hasAnyLocal = false;
 
+      buildFileIndex();
       const fileHits = searchFiles(lq);
       const filesSec = buildSection('Files', fileHits.slice(0, 12), (f) => {
         const path = filePathCache.get(f.id) || (f.name || '');
-        return buildRow(iconForMime(f.mimeType), f.name || '(unnamed)', path, () => {
-          if (f.mimeType?.startsWith('image/')) WM.createWindow('com.nbosp.gallery', { fileId: f.id });
-          else if (f.mimeType?.startsWith('audio/')) WM.createWindow('com.nbosp.music', { fileId: f.id });
-          else WM.createWindow('com.nbosp.textedit', { fileId: f.id });
+        const mime = fileMime(f);
+        return buildRow(iconForMime(mime), f.name || '(unnamed)', path, () => {
+          if (mime.startsWith('image/')) WM.createWindow('com.nbosp.gallery', { fileId: f.id });
+          else if (mime.startsWith('audio/')) WM.createWindow('com.nbosp.music', { fileId: f.id });
+          else if (typeof process !== 'undefined' && process.platform === 'linux'
+              && FS.backend === 'linux-native') {
+            WM.createWindow('com.nbosp.textedit', { path });
+          } else {
+            WM.createWindow('com.nbosp.textedit', { fileId: f.id });
+          }
         });
       });
       if (filesSec) { results.appendChild(filesSec); hasAnyLocal = true; }

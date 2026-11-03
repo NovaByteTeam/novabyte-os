@@ -1427,7 +1427,9 @@ function initLinuxTerminal(content, state) {
     output.scrollTop = output.scrollHeight;
   };
   const append = chunk => {
-    pending += chunk.toString();
+    pending += chunk.toString()
+      .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
+      .replace(/\r\n?/g, '\n');
     if (!flushQueued) {
       flushQueued = true;
       requestAnimationFrame(flush);
@@ -1435,13 +1437,13 @@ function initLinuxTerminal(content, state) {
   };
 
   let shell = null;
-  // detached puts the shell in its own process group so signals can reach
-  // whatever it is running. stdin is a pipe, not a tty, so writing \u0003
-  // to it never produced a SIGINT.
+  // Keep the shell in its own process group so signals can reach whatever it
+  // is running. The app supplies the prompt, so the shell itself need not be
+  // interactive (which would warn that stdin has no controlling terminal).
   const startShell = () => {
-    const child = spawn('/bin/sh', ['-i'], {
+    const child = spawn('/bin/sh', [], {
       cwd: os.homedir(),
-      env: { ...process.env, PS1: '' },
+      env: { ...process.env, TERM: process.env.TERM || 'xterm-256color', PS1: '' },
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true
     });

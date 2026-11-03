@@ -27,7 +27,8 @@
   // that historically patched it still work.
   const EXT_TO_MIME = {
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
-    webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
+    webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', avif: 'image/avif',
+    tif: 'image/tiff', tiff: 'image/tiff',
     mp3: 'audio/mpeg', mp4: 'audio/mp4', ogg: 'audio/ogg', wav: 'audio/wav',
     flac: 'audio/flac', m4a: 'audio/mp4', aac: 'audio/aac',
     opus: 'audio/ogg; codecs=opus', weba: 'audio/webm', webm: 'audio/webm',
@@ -1235,6 +1236,7 @@
       this.state._linuxPath = this.currentPath;
       this.selectedPath = null;
       this.selectedPaths = new Set();
+      this.clipboard = null;
       this.renderVersion = 0;
       this.controller = new AbortController();
       if (!Array.isArray(state.cleanups)) state.cleanups = [];
@@ -1309,6 +1311,7 @@
           ContextMenu.show(event.clientX, event.clientY, [
             { label: 'New folder', action: () => this.createEntry(true) },
             { label: 'New file', action: () => this.createEntry(false) },
+            { label: 'Paste', disabled: !this.clipboard, action: () => this.pasteClipboard() },
             { label: 'Refresh', action: () => this.render() }
           ]);
           return;
@@ -1322,7 +1325,7 @@
       }, { signal: this.controller.signal });
       this.list.addEventListener('dblclick', event => {
         const row = event.target.closest('[data-path]');
-        if (row?._entry) this.openEntry(row._entry);
+        if (row?._entry) void this.openEntry(row._entry);
       }, { signal: this.controller.signal });
       this.list.addEventListener('click', event => {
         const row = event.target.closest('[data-path]');
@@ -1338,6 +1341,16 @@
         this.updateSelection();
       }, { signal: this.controller.signal });
       this.list.addEventListener('keydown', event => {
+        if (event.ctrlKey || event.metaKey) {
+          const key = event.key.toLowerCase();
+          if (key === 'c' || key === 'x') {
+            event.preventDefault();
+            this.copyOrMoveSelection(key === 'x' ? 'cut' : 'copy');
+          } else if (key === 'v') {
+            event.preventDefault();
+            this.pasteClipboard();
+          }
+        }
         if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a') return;
         event.preventDefault();
         this.selectedPaths = new Set(
@@ -1410,7 +1423,8 @@
               isFile: entry.isFile(),
               isSymlink: entry.isSymbolicLink(),
               unavailable: stat === null,
-              executable: stat !== null && entry.isFile() && (stat.mode & 0o111) !== 0,
+              executable: stat !== null && entry.isFile() && (stat.mode & 0o111) !== 0
+                && !/\.(?:mp3|mp4|m4a|ogg|wav|flac|aac|opus|weba|webm|jpg|jpeg|png|gif|webp|bmp|svg|avif|tif|tiff)$/i.test(entry.name),
               size: stat?.size ?? 0,
               modified: stat ? stat.mtime.toLocaleString() : 'Unavailable'
             };
@@ -1450,28 +1464,60 @@
       }
     }
 
-    openEntry(entry) {
+    async openEntry(entry) {
       if (entry.isDirectory) {
-        this.navigate(entry.path);
+        await this.navigate(entry.path);
       } else if (isNovaPackage(entry.name)) {
         // Checked before the executable branch: these files often carry the
         // exec bit, and double-clicking one must never spawn it as a program.
         this.installPackage(entry.path);
       } else if (entry.name.toLowerCase().endsWith('.iso')) {
-        this.browseIso(entry.path);
+        await this.browseIso(entry.path);
       } else if (/\.(?:txt|md|json|js|mjs|c|h|css|html|htm|log|conf|ini|sh)$/i.test(entry.name)) {
-        WM.createWindow('com.nbosp.textedit', { path: entry.path });
+        try {
+          const text = await this.fs.readFile(entry.path, 'utf8');
+          const win = WM.createWindow('com.nbosp.textedit', {
+            path: entry.path,
+            initialContent: text,
+          });
+          if (!win) throw new Error('TextEdit could not be opened.');
+        } catch (error) {
+          console.error('[Files] text file open failed:', error);
+          Notify.show({ title: 'Cannot open file', body: error.message, type: 'error', appName: 'Files' });
+        }
+      } else if (/\.(?:mp3|mp4|m4a|ogg|wav|flac|aac|opus|weba|webm|jpg|jpeg|png|gif|webp|bmp|svg|avif|tif|tiff)$/i.test(entry.name)) {
+        let file = FS.files.get(entry.path);
+        if (!file) {
+          file = {
+            id: entry.path,
+            name: entry.name,
+            type: 'file',
+            parentId: this.path.dirname(entry.path),
+            content: null,
+            mimeType: detectMimeFromName(entry.name),
+            modified: Date.now(),
+          };
+          FS.files.set(file.id, file);
+          FS._indexFile?.(file);
+        } else if (!file.mimeType || file.mimeType === 'application/octet-stream' ||
+            /\.(?:mp3|mp4|m4a|ogg|wav|flac|aac|opus|weba|webm|jpg|jpeg|png|gif|webp|bmp|svg|avif|tif|tiff)$/i.test(entry.name)) {
+          file.mimeType = detectMimeFromName(entry.name);
+        }
+        openFileWithDefaultApp(file);
       } else if (entry.executable) {
-        this.runExecutable(entry.path);
+        await this.runExecutable(entry.path);
       } else {
-        this.previewFile(entry.path);
+        await this.previewFile(entry.path);
       }
     }
 
     showContextMenu(event, entry) {
       const items = [];
       if (entry.isDirectory) {
-        items.push({ label: 'Open folder', action: () => this.navigate(entry.path) });
+        items.push(
+          { label: 'Open folder', action: () => this.navigate(entry.path) },
+          { label: 'Paste into folder', disabled: !this.clipboard, action: () => this.pasteClipboard(entry.path) }
+        );
       } else if (isNovaPackage(entry.name)) {
         items.push({ label: 'Install', disabled: entry.unavailable, action: () => this.installPackage(entry.path) });
       } else {
@@ -1479,16 +1525,24 @@
         if (entry.name.toLowerCase().endsWith('.iso')) {
           items.push({ label: 'Browse ISO contents', action: () => this.browseIso(entry.path) });
         }
-        items.push({
-          label: 'Run Linux executable',
-          disabled: !entry.executable,
-          action: () => this.runExecutable(entry.path)
-        });
+        if (entry.executable) {
+          items.push({
+            label: 'Run Linux executable',
+            action: () => this.runExecutable(entry.path)
+          });
+        }
       }
       if (!entry.isDirectory && /\.zip$/i.test(entry.name)) {
         items.push({ label: 'Extract', disabled: entry.unavailable, action: () => this.extractZip(entry.path) });
       }
       items.push({ separator: true });
+      if (!entry.unavailable) {
+        items.push(
+          { label: 'Copy', shortcut: 'Ctrl+C', action: () => this.copyOrMove(entry, 'copy') },
+          { label: 'Move', shortcut: 'Ctrl+X', action: () => this.copyOrMove(entry, 'cut') }
+        );
+        items.push({ separator: true });
+      }
       items.push(
         { label: 'Copy as path', action: () => this.copyAsPath(entry) },
         { label: 'Compress to zip', disabled: entry.unavailable, action: () => this.compressToZip(entry) }
@@ -1573,6 +1627,68 @@
         : [entry.path];
     }
 
+    copyOrMove(entry, type) {
+      this.clipboard = { type, paths: this.actionTargets(entry) };
+      Notify.show({
+        title: type === 'copy' ? 'Copied' : 'Ready to move',
+        body: this.clipboard.paths.length === 1
+          ? this.path.basename(this.clipboard.paths[0])
+          : `${this.clipboard.paths.length} items`,
+        type: 'info',
+        appName: 'Files'
+      });
+    }
+
+    copyOrMoveSelection(type) {
+      const paths = [...this.selectedPaths];
+      if (!paths.length && this.selectedPath) paths.push(this.selectedPath);
+      if (!paths.length) return;
+      this.clipboard = { type, paths };
+      Notify.show({
+        title: type === 'copy' ? 'Copied' : 'Ready to move',
+        body: paths.length === 1 ? this.path.basename(paths[0]) : `${paths.length} items`,
+        type: 'info',
+        appName: 'Files'
+      });
+    }
+
+    async pasteClipboard(destinationPath = this.currentPath) {
+      const clip = this.clipboard;
+      if (!clip?.paths?.length) return;
+      try {
+        for (const source of clip.paths) {
+          const stat = await this.fs.lstat(source);
+          if (stat.isDirectory()) {
+            const relative = this.path.relative(source, destinationPath);
+            if (relative && !relative.startsWith('..' + this.path.sep) &&
+                relative !== '..' && !this.path.isAbsolute(relative)) {
+              throw new Error('A folder cannot be copied or moved into itself.');
+            }
+          }
+          if (clip.type === 'cut' && this.path.dirname(source) === destinationPath) continue;
+
+          const name = this.path.basename(source);
+          const dot = name.lastIndexOf('.');
+          const hasExtension = !stat.isDirectory() && dot > 0;
+          const destination = await this.uniquePath(
+            destinationPath,
+            hasExtension ? name.slice(0, dot) : name,
+            hasExtension ? name.slice(dot) : ''
+          );
+          if (clip.type === 'cut') {
+            await this.fs.rename(source, destination);
+          } else {
+            await this.fs.cp(source, destination, { recursive: true, errorOnExist: true });
+          }
+        }
+        if (clip.type === 'cut') this.clipboard = null;
+        if (destinationPath === this.currentPath) await this.render();
+      } catch (error) {
+        console.error('[Files] paste failed:', error);
+        Notify.show({ title: 'Paste failed', body: error.message, type: 'error', appName: 'Files' });
+      }
+    }
+
     async copyAsPath(entry) {
       const paths = this.actionTargets(entry);
       try {
@@ -1590,8 +1706,15 @@
 
     // First free name next to the originals: "a.zip", "a (2).zip", ...
     async uniquePath(dir, stem, ext) {
+      const original = this.path.join(dir, `${stem}${ext}`);
+      try {
+        await this.fs.lstat(original);
+      } catch (error) {
+        if (error.code === 'ENOENT') return original;
+        throw error;
+      }
       for (let n = 1; n < 1000; n++) {
-        const candidate = this.path.join(dir, n === 1 ? `${stem}${ext}` : `${stem} (${n})${ext}`);
+        const candidate = this.path.join(dir, `${stem} (${n})${ext}`);
         try {
           await this.fs.lstat(candidate);
         } catch (error) {

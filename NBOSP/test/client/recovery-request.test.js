@@ -3,6 +3,7 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
 const initSource = readFileSync(new URL('../../js/core/core/init.js', import.meta.url), 'utf8');
+const recoverySource = readFileSync(new URL('../../os/board/nbosp/nbosp-recovery', import.meta.url), 'utf8');
 
 const REQUEST_FILE = '/home/nbosp/.config/novabyte/recovery-request';
 
@@ -50,6 +51,12 @@ function load({ platform = 'linux', home = '/home/nbosp', store = {}, hasPower =
 }
 
 describe('Linux recovery request', () => {
+  it('restarts the kiosk after the recovery shell releases its VT', () => {
+    expect(recoverySource).toContain('NBOSP_RECOVERY_DONE=1 "$KIOSK_INIT" start');
+    expect(recoverySource).toContain(') </dev/null >/dev/null 2>&1 &');
+    expect(recoverySource).not.toContain('start-stop-daemon --start --background --exec /bin/sh');
+  });
+
   it('writes the one-shot request file and restarts through nbosp-power', () => {
     const { context, writes, execs } = load();
     context.NovaRecovery.request('manual');

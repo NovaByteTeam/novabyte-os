@@ -2627,8 +2627,6 @@ registerApp({
         );
         if (uninstallResult !== 'confirm') return;
 
-        pushLog({ action: 'uninstall', appId: app.id, label: `${app.name} v${app.version} uninstalled` });
-
         // Close any open windows for this app before removing it — otherwise
         // the window is left running against an app whose registry entry,
         // files, and permissions are about to be deleted out from under it.
@@ -2640,11 +2638,28 @@ registerApp({
           await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
         }
 
+        let removedByAppRegistry = false;
         try {
-          if (PackageStore?.removeApp) await PackageStore.removeApp(appId, { updateRegistry: false });
+          if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+            removedByAppRegistry = await AppRegistry.uninstallApp(appId);
+          }
+          if (!removedByAppRegistry) {
+            if (!PackageStore?.removeApp) throw new Error('Package storage is not available.');
+            const removed = await PackageStore.removeApp(appId, { updateRegistry: false });
+            if (!removed) throw new Error(`Package storage refused to remove ${appId}`);
+          }
         } catch (e) {
-          console.warn('[AppManager] Failed to remove stored package files for', appId, e);
+          console.error('[AppManager] Failed to remove app package and registry entry for', appId, e);
+          Notify.show({
+            title: 'Uninstall Failed',
+            body: e?.message || String(e),
+            type: 'error',
+            appName: 'App Manager',
+          });
+          return false;
         }
+        pushLog({ action: 'uninstall', appId: app.id, label: `${app.name} v${app.version} uninstalled` });
+
         try {
           if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
             await AppSandbox.clearAppPartition(appId);
@@ -2673,6 +2688,11 @@ registerApp({
         } catch (e) {
           console.warn('[AppManager] Failed to clear app data for', appId, e);
         }
+        try {
+          await window.AppPermissionManager?.revokeAllPermissions?.(appId);
+        } catch (e) {
+          console.warn('[AppManager] Failed to revoke permissions for', appId, e);
+        }
         installedApps = installedApps.filter(a => a.id !== appId);
         saveStoredApps(installedApps);
         delete OS.apps[appId];
@@ -2695,6 +2715,10 @@ registerApp({
                   const data = JSON.parse(f.content || '{}');
                   if (data?.type === 'app-shortcut' && data?.target === appId) {
                     await FS.permanentDelete(f.id);
+                    const iconPositions = OS.settings.get('desktopIconPositions') || {};
+                    delete iconPositions['file:' + f.id];
+                    delete iconPositions['app:' + appId];
+                    OS.settings.set('desktopIconPositions', iconPositions);
                   }
                 } catch { /* skip invalid shortcuts */ }
               }
@@ -2711,7 +2735,13 @@ registerApp({
         renderDetail();
         if (typeof refreshStats === 'function') refreshStats();
         Notify.show({ title: 'App Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'App Manager' });
+        return true;
       }
+
+      // Other system surfaces (Launchpad and desktop context menus) delegate
+      // here so every uninstall updates the same package registry and cleanup
+      // state as the App Manager UI.
+      content._novaAppUninstall = doUninstall;
 
       // ── Debounced search to avoid excessive re-renders ──
       searchEl.addEventListener('input', debounce(renderList, 150), listenerOpts);

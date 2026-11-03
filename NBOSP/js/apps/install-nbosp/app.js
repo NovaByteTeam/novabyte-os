@@ -181,7 +181,11 @@
       };
       const selectedDisk = () => disks.find(disk => disk.device === selectedDevice);
       const appendOutput = text => {
-        installOutput = `${installOutput}${text}`.slice(-16000);
+        const readable = String(text)
+          .replace(/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g, '')
+          .replace(/[\u2580-\u259f]/g, '#')
+          .replace(/\r\n?/g, '\n');
+        installOutput = `${installOutput}${readable}`.slice(-16000);
         const output = body.querySelector('pre');
         if (output) {
           output.textContent = installOutput;

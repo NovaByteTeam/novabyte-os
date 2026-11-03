@@ -406,78 +406,35 @@ async function unpinAppFromDesktop(app) {
 
 async function uninstallApp(app) {
   toggleLaunchpad();
-  const uninstallResult = await showModal(
-    'Uninstall App',
-    `Uninstall "${app.name}"? This cannot be undone.`,
-    [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
-  );
-  if (uninstallResult !== 'confirm') return;
-
   try {
-    // Close any open windows for this app before tearing it down.
-    if (WM?.closeWindow && OS.windows) {
-      const openWindowIds = [];
-      for (const [wid, wstate] of OS.windows) {
-        if (wstate.appId === app.id) openWindowIds.push(wid);
-      }
-      await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
-    }
-
-    // Best-effort cleanup of per-app storage and data dirs — failures here
-    // shouldn't abort the uninstall. clearAppPartition wipes the webview's
-    // own storage partition; storageClear wipes the separate nova:storage
-    // IndexedDB (see storageClear in app-sandbox.js) that clearAppPartition
-    // never touches. revokeAllPermissions resets the app's runtime grants
-    // (Android parity) so a reinstall starts from a clean slate instead of
-    // silently inheriting the previous install's capabilities.
-    await Promise.allSettled([
-      AppSandbox?.clearAppPartition?.(app.id),
-      AppSandbox?.storageClear?.(app.id),
-      AppDirs?.removeAppData?.(app.id),
-      window.AppPermissionManager?.revokeAllPermissions?.(app.id),
-    ]);
-
-    if (AppRegistry?.uninstallApp) await AppRegistry.uninstallApp(app.id);
-    if (OS.apps) delete OS.apps[app.id];
-    const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
-    if (ri > -1) APP_REGISTRY.splice(ri, 1);
-    OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== app.id));
-
-    // Clear disabled/boot lists so the app doesn't get re-resurrected on restart.
-    for (const key of ['nova_disabled_apps', 'nova_boot_apps']) {
-      try {
-        const list = JSON.parse(localStorage.getItem(key) || '[]');
-        const updated = list.filter(x => (typeof x === 'string' ? x : x?.id) !== app.id);
-        localStorage.setItem(key, JSON.stringify(updated));
-      } catch { /* quota or parse error — best effort */ }
-    }
-
-    // Remove any desktop shortcuts that pointed at the uninstalled app.
-    try {
-      const desktopFolder = FS.specialFolders?.desktop;
-      if (desktopFolder) {
-        for (const f of FS.listDir(desktopFolder)) {
-          if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
-            try {
-              const data = JSON.parse(f.content || '{}');
-              if (data?.type === 'app-shortcut' && data?.target === app.id) {
-                await FS.permanentDelete(f.id);
-              }
-            } catch { /* skip invalid shortcut payloads */ }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[Launchpad] Failed to clean up shortcuts for', app.id, err);
-      EventLog?.log?.({ app: 'Launchpad', category: 'apps', severity: 'warn', message: `Failed to clean up desktop shortcuts for ${app.id}: ${err?.message || err}`, data: { appId: app.id } });
-    }
-
-    renderDesktopIcons();
-    WM.updateTaskbar();
-    if (document.getElementById('launchpad')?.classList.contains('active')) renderLaunchpad();
-    Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Launchpad' });
+    await uninstallThroughAppManager(app.id, 'Launchpad');
   } catch (err) {
     Notify.show({ title: 'Error', body: `Failed to uninstall: ${err?.message || err}`, type: 'error', appName: 'Launchpad' });
+  }
+}
+
+async function uninstallThroughAppManager(appId, source) {
+  try {
+    const appManagerId = 'com.nbosp.appmanager';
+    let managerWindow = [...(window.OS?.windows?.values() ?? [])].find(w => w.appId === appManagerId);
+    managerWindow ??= WM.createWindow(appManagerId);
+    if (!managerWindow) throw new Error('App Manager is not available.');
+
+    const deadline = Date.now() + 8000;
+    while (typeof managerWindow.content?._novaAppUninstall !== 'function') {
+      if (Date.now() > deadline) throw new Error('App Manager took too long to open.');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    await managerWindow.content._novaAppUninstall(appId);
+    if (source === 'Desktop') renderDesktopIcons();
+  } catch (error) {
+    console.error(`[${source}] App Manager uninstall failed:`, error);
+    Notify.show({
+      title: 'Cannot uninstall app',
+      body: error?.message || String(error),
+      type: 'error',
+      appName: source,
+    });
   }
 }
 
@@ -1373,91 +1330,7 @@ function renderDesktopIcons() {
       } else if (isUserApp) {
         items.push({ separator: true }, {
           label: 'Uninstall', icon: 'trash', danger: true,
-          action: async () => {
-            const uninstallResult = await showModal(
-              'Uninstall App',
-              `Uninstall "${app.name}"? This cannot be undone.`,
-              [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
-            );
-            if (uninstallResult !== 'confirm') return;
-            try {
-              if (typeof WM !== 'undefined' && WM.closeWindow) {
-                const openWindowIds = [];
-                for (const [wid, wstate] of OS.windows) {
-                  if (wstate.appId === app.id) openWindowIds.push(wid);
-                }
-                await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
-              }
-              try {
-                if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
-                  await AppSandbox.clearAppPartition(app.id);
-                }
-              } catch (err) {
-                console.warn('[Desktop] Failed to clear storage partition for', app.id, err);
-              }
-              try {
-                if (typeof AppSandbox !== 'undefined' && AppSandbox.storageClear) {
-                  await AppSandbox.storageClear(app.id);
-                }
-              } catch (err) {
-                console.warn('[Desktop] Failed to clear nova:storage for', app.id, err);
-              }
-              try {
-                if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
-                  AppSandbox.storageLedger.removeApp(app.id);
-                }
-              } catch (err) {
-                console.warn('[Desktop] Failed to clear storage ledger for', app.id, err);
-              }
-              try {
-                if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
-                  await AppDirs.removeAppData(app.id);
-                }
-              } catch (err) {
-                console.warn('[Desktop] Failed to clear app data for', app.id, err);
-              }
-              if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
-                await AppRegistry.uninstallApp(app.id);
-              }
-              delete OS.apps[app.id];
-              const ri = APP_REGISTRY.findIndex(a => a.id === app.id);
-              if (ri > -1) APP_REGISTRY.splice(ri, 1);
-              OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== app.id));
-              try {
-                const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
-                const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== app.id);
-                localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
-              } catch { /* quota */ }
-              try {
-                const bootApps = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
-                const updated = bootApps.filter(id => id !== app.id);
-                localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
-              } catch { /* quota */ }
-              try {
-                const desktopFolder = FS.specialFolders?.desktop;
-                if (desktopFolder) {
-                  const files = FS.listDir(desktopFolder);
-                  for (const f of files) {
-                    if (f.name.endsWith('.lnk') && f.mimeType === 'application/x-app-shortcut') {
-                      try {
-                        const data = JSON.parse(f.content || '{}');
-                        if (data?.type === 'app-shortcut' && data?.target === app.id) {
-                          await FS.permanentDelete(f.id);
-                        }
-                      } catch { /* skip invalid shortcuts */ }
-                    }
-                  }
-                }
-              } catch (err) {
-                console.warn('[Desktop] Failed to clean up shortcuts for', app.id, err);
-              }
-              renderDesktopIcons();
-              WM.updateTaskbar();
-              Notify.show({ title: 'Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'Desktop' });
-            } catch (err) {
-              Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Desktop' });
-            }
-          }
+          action: () => uninstallThroughAppManager(app.id, 'Desktop')
         });
       }
       ContextMenu.show(e.clientX, e.clientY, items);
@@ -1685,79 +1558,7 @@ function renderDesktopIcons() {
         } else if (isUserApp) {
           menuItems.push({
             label: 'Uninstall', icon: 'trash', danger: true,
-            action: async () => {
-              const appId = shortcutData.target;
-              const appName = f.name.replace(/\.lnk$/i, '');
-              const uninstallResult = await showModal(
-                'Uninstall App',
-                `Uninstall "${appName}"? This cannot be undone.`,
-                [{ label: 'Cancel' }, { label: 'Uninstall', value: 'confirm', danger: true }]
-              );
-              if (uninstallResult !== 'confirm') return;
-              try {
-                if (typeof WM !== 'undefined' && WM.closeWindow) {
-                  const openWindowIds = [];
-                  for (const [wid, wstate] of OS.windows) {
-                    if (wstate.appId === appId) openWindowIds.push(wid);
-                  }
-                  await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
-                }
-                try {
-                  if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
-                    await AppSandbox.clearAppPartition(appId);
-                  }
-                } catch (err) {
-                  console.warn('[Desktop] Failed to clear storage partition for', appId, err);
-                }
-                try {
-                  if (typeof AppSandbox !== 'undefined' && AppSandbox.storageClear) {
-                    await AppSandbox.storageClear(appId);
-                  }
-                } catch (err) {
-                  console.warn('[Desktop] Failed to clear nova:storage for', appId, err);
-                }
-                try {
-                  if (typeof AppSandbox !== 'undefined' && AppSandbox.storageLedger?.removeApp) {
-                    AppSandbox.storageLedger.removeApp(appId);
-                  }
-                } catch (err) {
-                  console.warn('[Desktop] Failed to clear storage ledger for', appId, err);
-                }
-                try {
-                  if (typeof AppDirs !== 'undefined' && AppDirs.removeAppData) {
-                    await AppDirs.removeAppData(appId);
-                  }
-                } catch (err) {
-                  console.warn('[Desktop] Failed to clear app data for', appId, err);
-                }
-                if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
-                  await AppRegistry.uninstallApp(appId);
-                }
-                delete OS.apps[appId];
-                const ri = APP_REGISTRY.findIndex(a => a.id === appId);
-                if (ri > -1) APP_REGISTRY.splice(ri, 1);
-                OS.settings.set('pinnedApps', (OS.settings.get('pinnedApps') || []).filter(id => id !== appId));
-                try {
-                  const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
-                  const updated = disabled.filter(x => (typeof x === 'string' ? x : x?.id) !== appId);
-                  localStorage.setItem('nova_disabled_apps', JSON.stringify(updated));
-                } catch { /* quota */ }
-                try {
-                  const bootApps = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
-                  const updated = bootApps.filter(id => id !== appId);
-                  localStorage.setItem('nova_boot_apps', JSON.stringify(updated));
-                } catch { /* quota */ }
-                await FS.permanentDelete(f.id);
-                delete iconPositions['file:' + f.id];
-                delete iconPositions['app:' + appId];
-                OS.settings.set('desktopIconPositions', iconPositions);
-                renderDesktopIcons();
-                WM.updateTaskbar();
-                Notify.show({ title: 'Uninstalled', body: `${appName} has been removed.`, type: 'success', appName: 'Desktop' });
-              } catch (err) {
-                Notify.show({ title: 'Error', body: `Failed to uninstall: ${err.message}`, type: 'error', appName: 'Desktop' });
-              }
-            }
+            action: () => uninstallThroughAppManager(shortcutData.target, 'Desktop')
           });
         }
       } else if (!viewOnly) {

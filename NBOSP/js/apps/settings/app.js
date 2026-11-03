@@ -1508,8 +1508,9 @@ registerApp({
       const presetContainer = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;' });
 
       const savedWallpaperId = systemSettings.get('wallpaperId');
-      const currentWallpaperId = PRESET_WALLPAPERS.some(wp => wp.id === savedWallpaperId)
-        ? savedWallpaperId : 'stock-blue';
+      const currentWallpaperId = systemSettings.get('customWallpaper')
+        ? null
+        : PRESET_WALLPAPERS.some(wp => wp.id === savedWallpaperId) ? savedWallpaperId : 'stock-blue';
 
       // Direct references to cards for O(1) visual updates on click
       const wpCards = [];
@@ -1527,10 +1528,12 @@ registerApp({
 
         function applyWallpaper() {
           if (systemSettings.set('wallpaperId', wp.id) === false ||
-              systemSettings.set('customWallpaper', null) === false) {
+              systemSettings.set('customWallpaper', null) === false ||
+              systemSettings.set('customWallpaperName', null) === false) {
             Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
             return;
           }
+          wallpaperName.textContent = 'No custom image selected';
           for (let i = 0; i < wpCards.length; i++) {
             const on = i === idx;
             wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -1555,6 +1558,13 @@ registerApp({
 
       const wallpaperRow = createEl('div', { className: 'nook-row', style: 'margin-top:16px;' });
       wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
+      const wallpaperName = createEl('span', {
+        id: 'custom-wallpaper-name',
+        textContent: systemSettings.get('customWallpaper')
+          ? (systemSettings.get('customWallpaperName') || 'Custom image')
+          : 'No custom image selected',
+        style: 'margin-left:8px;color:var(--text-secondary);font-size:12px;'
+      });
 
       const wallpaperBtn = createEl('button', { className: 'btn btn-sm', id: 'wallpaper-upload', textContent: 'Choose Image…' });
       wallpaperBtn.addEventListener('click', async () => {
@@ -1568,6 +1578,7 @@ registerApp({
         const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
         try {
           if (systemSettings.set('customWallpaper', dataUrl) === false ||
+              systemSettings.set('customWallpaperName', file.name) === false ||
               systemSettings.set('wallpaperId', null) === false) {
             Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
             return;
@@ -1576,17 +1587,21 @@ registerApp({
           Notify.show({ title: 'Wallpaper Not Changed', body: error?.message || 'The selected image is not supported.', type: 'error', appName: 'Settings' });
           return;
         }
+        wallpaperName.textContent = file.name;
         Notify.show({ title: 'Wallpaper Changed', body: 'Custom wallpaper applied', type: 'success', appName: 'Settings' });
       }, { signal: lifecycle.signal });
       wallpaperRow.appendChild(wallpaperBtn);
+      wallpaperRow.appendChild(wallpaperName);
 
       const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset to Default', style: { marginLeft: '8px' } });
       resetBtn.addEventListener('click', () => {
         if (systemSettings.set('customWallpaper', null) === false ||
+            systemSettings.set('customWallpaperName', null) === false ||
             systemSettings.set('wallpaperId', 'stock-blue') === false) {
           Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
           return;
         }
+        wallpaperName.textContent = 'No custom image selected';
         for (let i = 0; i < wpCards.length; i++) {
           const on = i === 0;
           wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -2265,6 +2280,7 @@ registerApp({
       function openPicker(categoryId, category, onChosen) {
         const candidates = DefaultApps.getAppsForCategory(categoryId);
         const currentId  = DefaultApps.getDefault(categoryId);
+        const selectedId = currentId || candidates[0]?.id || null;
 
         const overlay = createEl('div', {
           tabIndex: -1,
@@ -2294,20 +2310,24 @@ registerApp({
           const optRow = createEl('div', {
             role: 'radio',
             tabindex: '0',
-            'aria-checked': String(app.id === currentId),
-            style: 'display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:8px;cursor:pointer;'
+            'aria-checked': String(app.id === selectedId),
+            style: `display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:8px;cursor:pointer;background:${app.id === selectedId ? 'var(--accent-muted, rgba(59,130,246,0.14))' : 'transparent'};`
           });
-          optRow.addEventListener('mouseenter', () => optRow.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))');
-          optRow.addEventListener('mouseleave', () => optRow.style.background = '');
+          optRow.addEventListener('mouseenter', () => {
+            if (app.id !== selectedId) optRow.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))';
+          });
+          optRow.addEventListener('mouseleave', () => {
+            if (app.id !== selectedId) optRow.style.background = 'transparent';
+          });
 
           optRow.appendChild(iconFor(app.icon, app.name));
 
           optRow.appendChild(createEl('div', { textContent: app.name, style: 'flex:1;font-size:13px;color:var(--text-primary);' }));
 
           const radio = createEl('div', {
-            style: 'width:16px;height:16px;border-radius:50%;border:2px solid ' + (app.id === currentId ? 'var(--accent)' : 'var(--border)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;'
+            style: 'width:16px;height:16px;border-radius:50%;border:2px solid ' + (app.id === selectedId ? 'var(--accent)' : 'var(--border)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;'
           });
-          if (app.id === currentId) {
+          if (app.id === selectedId) {
             radio.appendChild(createEl('div', { style: 'width:8px;height:8px;border-radius:50%;background:var(--accent);' }));
           }
           optRow.appendChild(radio);

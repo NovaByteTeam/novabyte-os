@@ -824,24 +824,26 @@ const Notify = {
       const actionDefs = (Array.isArray(n.actions) && n.actions.length)
         ? n.actions
         : (n.action && n.actionLabel ? [{ id: n.action, label: n.actionLabel, legacy: true }] : []);
+      const controls = createEl('div', {
+        className: 'notif-item-controls',
+        style: 'display:flex;flex:1 1 100%;min-width:0;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px;margin-left:34px;',
+      });
       for (let ai = 0; ai < actionDefs.length && ai < MAX_ACTIONS_PER_NOTIF; ai++) {
         const a = actionDefs[ai];
         const actionBtn = createEl('button', { className: 'notif-item-action' });
         actionBtn.textContent = a.label;
-        // Only the first button pushes itself to the far edge; extra
-        // buttons sit beside it instead of spreading across the row.
-        actionBtn.style.cssText = `${ai === 0 ? 'margin-left:auto;' : ''}flex-shrink:0;${ACTION_BUTTON_STYLE}`;
+        actionBtn.style.cssText = `flex:0 1 auto;min-width:0;${ACTION_BUTTON_STYLE}`;
         wireActionButtonHover(actionBtn);
         actionBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           handleNotificationActionClick(n, a);
         });
-        item.appendChild(actionBtn);
+        controls.appendChild(actionBtn);
       }
 
       if (!n.read) {
         const markReadBtn = createEl('button', { className: 'notif-item-action', textContent: 'Mark read' });
-        markReadBtn.style.cssText = `margin-left:auto;flex-shrink:0;${ACTION_BUTTON_STYLE}`;
+        markReadBtn.style.cssText = `flex:0 1 auto;min-width:0;${ACTION_BUTTON_STYLE}`;
         wireActionButtonHover(markReadBtn);
         markReadBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -853,7 +855,7 @@ const Notify = {
             Notify.renderPanel();
           }
         });
-        item.appendChild(markReadBtn);
+        controls.appendChild(markReadBtn);
       }
 
       if (!n.pinned) {
@@ -869,9 +871,10 @@ const Notify = {
             Notify.renderPanel();
           }
         });
-        item.appendChild(dismissBtn);
+        controls.appendChild(dismissBtn);
       }
 
+      if (controls.childNodes.length) item.appendChild(controls);
       frag.appendChild(item);
     }
     list.replaceChildren(frag);

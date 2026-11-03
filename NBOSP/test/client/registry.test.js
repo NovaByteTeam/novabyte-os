@@ -159,6 +159,26 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     expect(mod.unregisterApp('to-remove')).toBe(false);
   });
 
+  it('uninstalls package storage and removes the persisted runtime registry entry', async () => {
+    vi.resetModules();
+    const removeApp = vi.fn(async () => true);
+    globalThis.NovaAppPackageStore = { removeApp };
+    const mod = require('../../js/platform/core/app-registry.js');
+    mod.registerApp({ id: 'persistent-remove', name: 'Persistent Remove', source: 'package' });
+
+    await expect(mod.uninstallApp('persistent-remove')).resolves.toBe(true);
+
+    expect(removeApp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'persistent-remove' }),
+      { force: false }
+    );
+    expect(mod.getApp('persistent-remove')).toBeNull();
+    expect(mockOS.apps['persistent-remove']).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem('nova_registry_meta')))
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'persistent-remove' })]));
+    delete globalThis.NovaAppPackageStore;
+  });
+
   it('fires onInstall and onUninstall hooks', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');

@@ -4,7 +4,7 @@ registerApp({
   description: 'Calendar & Scheduling',
   defaultSize: [860, 580], minSize: [600, 440],
 
-  init(content, _state) {
+  init(content, state) {
     // ── NovaByte runtime guard ──────────────────────────────────────────
     if (!window.AppDirs?.getAppDataPath('com.nbosp.calendar', 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
@@ -14,6 +14,8 @@ registerApp({
 
     // ── Constants (frozen — no accidental mutation) ─────────────────────
     const STORE_KEY   = 'calendar_events_v2';
+    const APP_ID      = 'com.nbosp.calendar';
+    const DB_FILE     = 'events.json';
     const COLORS      = Object.freeze(['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#ff7b72','#79c0ff','#56d364']);
     const COLOR_NAMES = Object.freeze(['Blue','Green','Yellow','Red','Purple','Salmon','Sky','Lime']);
     const VALID_VIEWS = Object.freeze(['month','week','day','agenda']);
@@ -37,8 +39,23 @@ registerApp({
     const navDay   = (d, delta) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + delta);
 
     // ── Storage ─────────────────────────────────────────────────────────
-    // SECURITY: sanitize every event loaded from localStorage to prevent
-    // CSS injection via ev.color and corrupt/missing field crashes.
+    // Sandboxed apps use the permission-gated novaOS.calendar API, whose
+    // shared source of truth is this localStorage key. AppDirs.syncKey keeps
+    // the value backed up under Calendar's databases directory.
+    function readLegacyDatabase() {
+      const directory = AppDirs.getAppDataPath(APP_ID, 'databases');
+      if (!directory) throw new Error('Calendar database directory is unavailable.');
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        const path = require('path').join(directory, DB_FILE);
+        const fs = require('fs');
+        return fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : null;
+      }
+      const file = FS.listDir(directory).find(node => node.name === DB_FILE && node.type === 'file');
+      return typeof file?.content === 'string' ? file.content : null;
+    }
+
+    // SECURITY: sanitize every event loaded from storage to prevent CSS
+    // injection via ev.color and corrupt/missing field crashes.
     function sanitizeEvent(ev) {
       if (!ev || typeof ev !== 'object') return null;
       if (typeof ev.title !== 'string' || !ev.title.trim()) return null;
@@ -56,12 +73,32 @@ registerApp({
     }
 
     function loadEvents() {
+      let raw = localStorage.getItem(STORE_KEY);
       try {
-        const raw = JSON.parse(localStorage.getItem(STORE_KEY) ?? '[]');
-        return Array.isArray(raw) ? raw.map(sanitizeEvent).filter(Boolean) : [];
-      } catch { return []; }
+        if (raw === null) raw = readLegacyDatabase();
+      } catch (error) {
+        console.warn('[Calendar] Could not read saved events:', error);
+      }
+      try {
+        const parsed = JSON.parse(raw ?? '[]');
+        const valid = Array.isArray(parsed) ? parsed.map(sanitizeEvent).filter(Boolean) : [];
+        if (localStorage.getItem(STORE_KEY) === null && raw !== null) saveEvents(valid);
+        return valid;
+      } catch (error) {
+        console.warn('[Calendar] Ignoring unreadable event data:', error);
+        return [];
+      }
     }
-    function saveEvents(evs) { lsSave(STORE_KEY, evs); }
+    function saveEvents(evs) {
+      try {
+        lsSave(STORE_KEY, evs);
+        return true;
+      } catch (error) {
+        console.error('[Calendar] Could not save events:', error);
+        Notify?.show?.({ title: 'Calendar save failed', body: error.message, type: 'error', appName: 'Calendar' });
+        return false;
+      }
+    }
 
     // ── App state ───────────────────────────────────────────────────────
     let events   = loadEvents();
@@ -493,26 +530,27 @@ registerApp({
       modal.appendChild(colorWrap);
 
       // Save handler — shared between button click and Enter key
-      function handleSave() {
+      async function handleSave() {
         const t = titleInp.value.trim();
         if (!t) { titleInp.focus(); return; }
         // FIX: validate date before saving — original allowed empty string date
         const dateVal = dateInp.value;
         if (!dateVal || !/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) { dateInp.focus(); return; }
 
+        let nextEvents;
         if (isEdit) {
           const idx = events.findIndex(ev => ev.id === existing.id);
-          if (idx !== -1) {
-            // structuredClone for clean immutable update — no Object.assign mutation
-            events[idx] = structuredClone({
-              ...events[idx],
-              title: t, date: dateVal,
-              timeStart: timeStartInp.value, timeEnd: timeEndInp.value,
-              desc: descInp.value.trim(), color: selectedColor,
-            });
-          }
+          if (idx === -1) return;
+          // structuredClone for clean immutable update — no Object.assign mutation
+          nextEvents = [...events];
+          nextEvents[idx] = structuredClone({
+            ...events[idx],
+            title: t, date: dateVal,
+            timeStart: timeStartInp.value, timeEnd: timeEndInp.value,
+            desc: descInp.value.trim(), color: selectedColor,
+          });
         } else {
-          events.push({
+          nextEvents = [...events, {
             id:        crypto.randomUUID(),   // FIX: UUID not Date.now() — no collision risk
             title:     t,
             date:      dateVal,
@@ -520,9 +558,10 @@ registerApp({
             timeEnd:   timeEndInp.value,
             desc:      descInp.value.trim(),
             color:     selectedColor,
-          });
+          }];
         }
-        saveEvents(events);
+        if (!saveEvents(nextEvents)) return;
+        events = nextEvents;
         close();
         renderAll();
         Notify?.show?.({ title: isEdit ? 'Event updated' : 'Event added', body: t, type: 'success', appName: 'Calendar' });
@@ -541,8 +580,10 @@ registerApp({
       if (isEdit) {
         const delBtn = createEl('button', { className: 'btn', style: 'color:var(--text-danger);border-color:var(--text-danger);', textContent: 'Delete' });
         delBtn.addEventListener('click', () => {
-          events = events.filter(ev => ev.id !== existing.id);
-          saveEvents(events); close(); renderAll();
+          const nextEvents = events.filter(ev => ev.id !== existing.id);
+          if (!saveEvents(nextEvents)) return;
+          events = nextEvents;
+          close(); renderAll();
         }, { signal: sig });
         actions.appendChild(delBtn);
       } else {
@@ -578,6 +619,15 @@ registerApp({
     newEvtBtn.addEventListener('click', () => openEventModal(new Date(), null));
 
     function renderAll() { renderMini(); renderMain(); renderUpcoming(); updateViewBtns(); }
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      const onCalendarUpdated = () => {
+        events = loadEvents();
+        renderAll();
+      };
+      OS.events.on('calendar:updated', onCalendarUpdated);
+      state.cleanups = state.cleanups || [];
+      state.cleanups.push(() => OS.events.off('calendar:updated', onCalendarUpdated));
+    }
     renderAll();
   }
 });

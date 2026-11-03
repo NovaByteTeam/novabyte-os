@@ -82,9 +82,13 @@ function initLinuxTextEdit(content, state, options = {}) {
   root.append(toolbar, editor, status);
   content.replaceChildren(root);
   content.style.cssText = 'padding:0;height:100%;overflow:hidden;position:relative;';
-  if (currentPath) {
+  if (Object.prototype.hasOwnProperty.call(options, 'initialContent')) {
+    editor.value = String(options.initialContent ?? '');
+    setStatus();
+  } else if (currentPath) {
     fs.readFile(currentPath, 'utf8').then(text => {
       editor.value = text;
+      modified = false;
       setStatus();
     }).catch(error => {
       console.error('[TextEdit] Could not open requested file:', error);

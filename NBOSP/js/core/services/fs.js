@@ -460,9 +460,13 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       '.lnk': 'application/x-app-shortcut',
       '.txt': 'text/plain', '.md': 'text/markdown', '.pdf': 'application/pdf',
       '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
-      '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
-      '.mp4': 'video/mp4', '.webm': 'video/webm',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+      '.svg': 'image/svg+xml', '.avif': 'image/avif', '.tif': 'image/tiff',
+      '.tiff': 'image/tiff',
+      '.mp3': 'audio/mpeg', '.mp4': 'audio/mp4', '.m4a': 'audio/mp4',
+      '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.flac': 'audio/flac',
+      '.aac': 'audio/aac', '.opus': 'audio/ogg; codecs=opus',
+      '.weba': 'audio/webm', '.webm': 'video/webm',
     };
     return mimeTypes[extension] || 'application/octet-stream';
   };

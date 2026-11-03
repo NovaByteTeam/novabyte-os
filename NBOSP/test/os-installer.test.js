@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 const installerPath = fileURLToPath(
   new URL('../os/package/nbosp-install/nbosp-install-system', import.meta.url)
 );
+const installerHelperPath = fileURLToPath(
+  new URL('../os/package/nbosp-install/nbosp-install.c', import.meta.url)
+);
 
 describe('NBOSP disk installer boot configuration', () => {
   it('marks the FAT boot partition as a GPT EFI System Partition', () => {
@@ -32,5 +35,12 @@ describe('NBOSP disk installer boot configuration', () => {
     for (const entry of bootEntries) {
       expect(entry).toMatch(/\brootwait rw\b/);
     }
+  });
+
+  it('uses a UTF-8 locale for FAT volume-label conversion', () => {
+    const helper = readFileSync(installerHelperPath, 'utf8');
+    expect(helper).toContain('"LANG=C.UTF-8"');
+    expect(helper).toContain('"LC_ALL=C.UTF-8"');
+    expect(helper).not.toContain('"LC_ALL=C"');
   });
 });

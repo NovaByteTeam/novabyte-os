@@ -34,6 +34,7 @@
     weba: 'audio/webm',
     webm: 'audio/webm',
   });
+  const AUDIO_FOLDER = 'music';
 
   const DEFAULT_VOLUME = 1;
 
@@ -161,6 +162,11 @@
         return;
       }
 
+      const linuxNative = typeof process !== 'undefined' && process.platform === 'linux'
+        && FS?.backend === 'linux-native';
+      const nativeFs = linuxNative ? require('fs').promises : null;
+      const nativePath = linuxNative ? require('path') : null;
+      const nativeOs = linuxNative ? require('os') : null;
       const prefs = loadPrefs(PREFS_KEY);
 
       const root = createEl('div', {
@@ -186,6 +192,8 @@
       // Object URLs we hand to <audio>. Cached per track id so flipping
       // back to a track is instant and free.
       const blobCache = new Map();
+      let loadGeneration = 0;
+      let initialFileHandled = false;
 
       // One AbortController for every listener we attach. Aborting it on
       // teardown drops every closure and lets the GC collect the DOM.
@@ -515,7 +523,7 @@
         syncRepeatBtn();
       });
 
-      on(refreshBtn, 'click', () => scanLibrary());
+      on(refreshBtn, 'click', () => { void scanLibrary(); });
 
       // Initial toggle visuals.
       syncShuffleBtn();
@@ -539,17 +547,19 @@
         });
       }
 
-      function getUrl(track) {
+      async function getUrl(track) {
         if (!track) return null;
         const cached = blobCache.get(track.id);
         if (cached) return cached;
-        if (!track.content) return null;
 
         let data;
         try {
           data = normalizeBuffer(track.content);
+          if (!data && nativeFs && typeof track.id === 'string') {
+            data = await nativeFs.readFile(track.id);
+          }
         } catch (err) {
-          console.warn('[Music] Could not normalise track content:', err);
+          console.warn('[Music] Could not read track content:', err);
           return null;
         }
         if (!data || data.byteLength === 0) return null;
@@ -593,8 +603,10 @@
         playTrack(queue[queueIdx]);
       }
 
-      function playTrack(track) {
-        const url = getUrl(track);
+      async function playTrack(track) {
+        const generation = ++loadGeneration;
+        const url = await getUrl(track);
+        if (generation !== loadGeneration) return;
         if (!url) {
           Notify.show({
             title: 'Music',
@@ -616,27 +628,72 @@
 
       // ---- Library scan & render ----
 
-      function scanLibrary() {
-        const files = FS?.files;
-        if (!files) {
-          tracks.length = 0;
-        } else {
-          // Filter in a single pass and sort once, rather than building
-          // an intermediate array with Array.from + filter.
-          const next = [];
-          for (const f of files.values()) {
-            if (f.type !== 'file') continue;
-            const isAudio =
-              (f.mimeType && f.mimeType.startsWith('audio/')) ||
-              AUDIO_EXTENSIONS.has(extOf(f.name));
-            if (isAudio) next.push(f);
-          }
-          next.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      function isAudioFile(file) {
+        return file?.type === 'file' && (
+          file.mimeType?.startsWith('audio/') || AUDIO_EXTENSIONS.has(extOf(file.name))
+        );
+      }
 
-          // Mutate tracks in place so external references (if any)
-          // stay valid.
+      function scanVirtualFolder(folderId, found) {
+        for (const file of FS.listDir(folderId)) {
+          if (file.type === 'folder') scanVirtualFolder(file.id, found);
+          else if (isAudioFile(file)) found.push(file);
+        }
+      }
+
+      async function scanNativeFolder(folderPath, found) {
+        let entries;
+        try {
+          entries = await nativeFs.readdir(folderPath, { withFileTypes: true });
+        } catch (err) {
+          if (err.code === 'ENOENT') return;
+          throw err;
+        }
+        for (const entry of entries) {
+          if (entry.name.startsWith('.')) continue;
+          const fullPath = nativePath.join(folderPath, entry.name);
+          if (entry.isDirectory()) {
+            await scanNativeFolder(fullPath, found);
+          } else if (entry.isFile()) {
+            const file = {
+              id: fullPath,
+              name: entry.name,
+              type: 'file',
+              parentId: folderPath,
+              content: null,
+              mimeType: mimeFromName(entry.name),
+            };
+            if (isAudioFile(file)) found.push(file);
+          }
+        }
+      }
+
+      async function scanLibrary() {
+        try {
+          const found = [];
+          const musicFolder = FS?.specialFolders?.[AUDIO_FOLDER];
+          if (nativeFs) {
+            const folderPath = typeof musicFolder === 'string'
+              ? musicFolder
+              : nativePath.join(nativeOs.homedir(), 'Music');
+            await scanNativeFolder(folderPath, found);
+          } else if (musicFolder) {
+            scanVirtualFolder(musicFolder, found);
+          }
+
+          // A file opened from Files is a user-picked item and may live outside
+          // Music; include only that explicit intent in addition to the library.
+          const openedFile = state.fileId ? FS?.files?.get(state.fileId) : null;
+          if (isAudioFile(openedFile) && !found.some(file => file.id === openedFile.id)) {
+            found.push(openedFile);
+          }
+          found.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
           tracks.length = 0;
-          for (const t of next) tracks.push(t);
+          for (const track of found) tracks.push(track);
+        } catch (err) {
+          console.error('[Music] Library scan failed:', err);
+          Notify.show({ title: 'Music', body: 'Could not read the Music folder: ' + err.message, type: 'error', appName: 'Music' });
         }
 
         // Revoke object URLs for tracks that have disappeared — without
@@ -656,6 +713,12 @@
         // to a valid index on the next interaction.
         buildQueue(queue[queueIdx]?.id);
         renderList();
+
+        if (!initialFileHandled && state.fileId) {
+          initialFileHandled = true;
+          const openedIdx = tracks.findIndex(track => track.id === state.fileId);
+          if (openedIdx !== -1) playIdx(openedIdx);
+        }
       }
 
       // ---- List rendering (with event delegation) ----

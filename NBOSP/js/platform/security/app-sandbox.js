@@ -6312,6 +6312,7 @@ const AppSandbox = (() => {
 
   function saveCalendarEvents(evs) {
     localStorage.setItem(CALENDAR_STORE_KEY, JSON.stringify(evs));
+    if (typeof OS !== 'undefined' && OS.events?.emit) OS.events.emit('calendar:updated');
   }
 
   async function handleCalendarRead({ requestId, app, webview }) {
@@ -6382,6 +6383,7 @@ const AppSandbox = (() => {
 
   function saveContacts(arr) {
     localStorage.setItem(CONTACTS_STORE_KEY, JSON.stringify(arr));
+    if (typeof OS !== 'undefined' && OS.events?.emit) OS.events.emit('contacts:updated');
   }
 
   async function handleContactsRead({ requestId, app, webview }) {

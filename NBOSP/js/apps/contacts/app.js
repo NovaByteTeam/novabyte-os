@@ -6,13 +6,15 @@ registerApp({
 
   init(content, state) {
     // ── NovaByte runtime guard ──────────────────────────────────────────────
-          if (!window.AppDirs?.getAppDataPath('com.nbosp.contacts', 'files')) {
+    const APP_ID = 'com.nbosp.contacts';
+    const DB_FILE = 'contacts.json';
+    if (!window.AppDirs?.getAppDataPath(APP_ID, 'files')) {
       content.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;font-family:var(--font-ui,sans-serif);color:var(--text-muted,#888);';
       const warn = createEl('div', { style: 'font-size:32px;' });
       warn.textContent = '⚠️';
       const msg = createEl('div', { style: 'font-size:14px;text-align:center;' });
       const b = createEl('b');
-       b.textContent = 'com.nbosp.contacts';
+      b.textContent = APP_ID;
       msg.append(b, document.createTextNode('\nApp data directory missing.\nThis app requires NovaByte OS.'));
       content.append(warn, msg);
       return;
@@ -20,6 +22,18 @@ registerApp({
 
     // ── Storage helpers ─────────────────────────────────────────────────────
     const SK = 'nova_contacts';
+
+    function readLegacyDatabase() {
+      const directory = AppDirs.getAppDataPath(APP_ID, 'databases');
+      if (!directory) throw new Error('Contacts database directory is unavailable.');
+      if (typeof process !== 'undefined' && process.platform === 'linux') {
+        const path = require('path').join(directory, DB_FILE);
+        const fs = require('fs');
+        return fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : null;
+      }
+      const file = FS.listDir(directory).find(node => node.name === DB_FILE && node.type === 'file');
+      return typeof file?.content === 'string' ? file.content : null;
+    }
 
     function isValidContact(c) {
       return c !== null && typeof c === 'object' &&
@@ -31,20 +45,28 @@ registerApp({
     }
 
     function load() {
+      let raw = localStorage.getItem(SK);
       try {
-        const raw = localStorage.getItem(SK);
+        if (raw === null) raw = readLegacyDatabase();
+      } catch (error) {
+        console.warn('[Contacts] Could not read saved contacts:', error);
+      }
+      try {
         if (!raw) return [];
         const arr = JSON.parse(raw);
         if (!Array.isArray(arr)) return [];
         // Validate + sanitise each entry; drop malformed ones
-        return arr.filter(isValidContact).map(c => ({
+        const valid = arr.filter(isValidContact).map(c => ({
           id:    String(c.id),
           name:  String(c.name),
           email: String(c.email),
           phone: String(c.phone),
           notes: String(c.notes),
         }));
-      } catch {
+        if (localStorage.getItem(SK) === null && raw !== null) save(valid);
+        return valid;
+      } catch (error) {
+        console.warn('[Contacts] Ignoring unreadable contact data:', error);
         return [];
       }
     }
@@ -52,9 +74,11 @@ registerApp({
     function save(arr) {
       try {
         lsSave(SK, arr);
-      } catch (e) {
-        // Storage quota or private-mode error — surface silently, data stays in memory
-        console.warn('[contacts] save failed:', e);
+        return true;
+      } catch (error) {
+        console.error('[Contacts] Could not save contacts:', error);
+        Notify.show({ title: 'Contacts save failed', body: error.message, type: 'error', appName: 'Contacts' });
+        return false;
       }
     }
 
@@ -290,7 +314,7 @@ registerApp({
           selected.email = emailInp.value.trim();
           selected.phone = phoneInp.value.trim();
           selected.notes = notesInp.value.trim();
-          save(contacts);
+          if (!save(contacts)) return;
           editMode = false;
           renderList();
           renderDetail();
@@ -366,9 +390,10 @@ registerApp({
 
         editBtn.addEventListener('click', () => { editMode = true; renderDetail(); });
         delBtn.addEventListener('click',  () => {
-          contacts   = contacts.filter(c => c.id !== selectedId);
+          const nextContacts = contacts.filter(c => c.id !== selectedId);
+          if (!save(nextContacts)) return;
+          contacts = nextContacts;
           selectedId = null;
-          save(contacts);
           renderList();
           renderDetail();
         });
@@ -398,6 +423,18 @@ registerApp({
       searchQ = searchInp.value;
       renderList();
     });
+
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      const onContactsUpdated = () => {
+        contacts = load();
+        if (selectedId && !contacts.some(contact => contact.id === selectedId)) selectedId = null;
+        renderList();
+        renderDetail();
+      };
+      OS.events.on('contacts:updated', onContactsUpdated);
+      state.cleanups = state.cleanups || [];
+      state.cleanups.push(() => OS.events.off('contacts:updated', onContactsUpdated));
+    }
 
     // ── Initial render ───────────────────────────────────────────────────────
     renderList();

@@ -1338,6 +1338,8 @@
   }
   .notif-item {
     display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
     gap: 10px;
     padding: 10px;
     border-radius: var(--r-sm);
@@ -1384,6 +1386,22 @@
   }
   .notif-item-content {
     flex: 1;
+    min-width: 0;
+  }
+  .notif-item-controls {
+    display: flex;
+    flex: 1 1 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+    margin-left: 34px;
+  }
+  .notif-item-controls > button {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .notif-item-title {
     font-size: 13px;

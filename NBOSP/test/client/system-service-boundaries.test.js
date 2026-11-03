@@ -320,6 +320,35 @@ describe('built-in service boundaries', () => {
     expect(observed).toHaveLength(2);
   });
 
+  it('collects files recursively from the visible tree and app-data root', () => {
+    const serviceSource = readWorkspaceFile('../../js/apps/search-index/service.js');
+    const window = { addEventListener() {} };
+    const localStorage = { getItem: () => null, setItem() {} };
+    runInNewContext(serviceSource, { window, localStorage, console });
+    const tree = {
+      rootId: '/home/user',
+      specialFolders: { data: '/home/user/.local/appdata' },
+      files: new Map(),
+      listDir: id => ({
+        '/home/user': [
+          { id: '/home/user/Documents', name: 'Documents', type: 'folder' },
+          { id: '/home/user/.cache', name: '.cache', type: 'folder' },
+        ],
+        '/home/user/Documents': [
+          { id: '/home/user/Documents/notes.txt', name: 'notes.txt', type: 'file' },
+        ],
+        '/home/user/.local/appdata': [
+          { id: '/home/user/.local/appdata/app.json', name: 'app.json', type: 'file' },
+        ],
+      })[id] || [],
+    };
+
+    expect(window.SearchIndex.collectFiles(tree).map(file => file.id)).toEqual([
+      '/home/user/.local/appdata/app.json',
+      '/home/user/Documents/notes.txt',
+    ]);
+  });
+
   it('owns download history mutations and notifies subscribers', () => {
     const serviceSource = readWorkspaceFile('../../js/apps/downloads-history/service.js');
     const values = new Map();
