@@ -110,7 +110,36 @@ function setupMiddleware(app) {
             disableFloc: true
         },
         crossOriginResourcePolicy: false,
-        originAgentCluster: false
+        originAgentCluster: false,
+        // helmet 8 defaults COOP to the strict `same-origin`, and that default
+        // is what killed every OAuth popup relay in the field. Serial capture
+        // 2026-11-03 22:48: the sandboxed guest opened github.com/login/oauth/
+        // authorize, the OS attached the popup into its overlay webview (opener
+        // intact), the user signed in through GitHub and Google, and the
+        // provider redirected back to the app's own
+        // /api/apps/serve/sandbox_<id>/callback.html?code=... — served by THIS
+        // server with helmet's `Cross-Origin-Opener-Policy: same-origin`.
+        // Chromium's COOP processing then moved the popup into a NEW browsing
+        // context group: a `same-origin` policy document may not share a group
+        // with the cross-origin documents around it (the provider pages and the
+        // opaque-origin sandboxed guest that is the popup's opener — strict
+        // same-origin exempts even opener-related cross-origin documents). The
+        // callback page therefore executed with `window.opener` null, its
+        // window.opener.postMessage relay dropped, the popup closed itself, and
+        // the guest saw only "Popup closed before sign-in completed". GitHub's
+        // login pages send no COOP at all and accounts.google.com sends COOP
+        // report-only — verified live — so our own header was the single
+        // severing hop in the whole chain, sitting exactly on the page that
+        // needs its opener.
+        //
+        // `same-origin-allow-popups` is the variant built for this: documents
+        // connected by an opener relationship stay in the same browsing context
+        // group, so popup↔opener postMessage relays (OAuth callbacks, SSO,
+        // payment providers — the whole reason sandbox:escape-popups exists)
+        // keep working, while cross-origin isolation is retained everywhere a
+        // popup relationship is not involved. It is also the policy github.com
+        // and accounts.google.com choose for their own sign-in pages.
+        crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
     }));
 
     // .filter(Boolean) can leave an empty array (e.g. CORS_ORIGIN="," or a
