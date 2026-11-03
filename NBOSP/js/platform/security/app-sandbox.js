@@ -1116,6 +1116,46 @@ const AppSandbox = (() => {
     return btoa(binary);
   }
 
+  // Serial mirror for operator-visible log lines. Field debugging kept dying
+  // on the same wall: the popup decision lines (763edcd) and every other
+  // info/warn/error from this module go to this window's console, and THIS
+  // window's console never reaches the serial console — two captures covered
+  // a popup spawning and not one [AppSandbox] line appeared, while the
+  // server's process.stdout (the channel carrying the [OS Build] marker and
+  // the [Memory] heartbeat) provably does. The UI is served same-origin by
+  // the server, so mirroring is a POST to /api/os/log, which the server
+  // writes straight to its stdout — i.e. onto the serial console.
+  // Fire-and-forget, never throws, debug stays console-only.
+  const serialMirror = (() => {
+    let windowStart = 0;
+    let sentInWindow = 0;
+    let dropped = 0;
+    const MAX_PER_WINDOW = 40;
+    const WINDOW_MS = 5000;
+    function formatItem(item) {
+      if (typeof item === 'string') return item;
+      if (item instanceof Error) return item.stack || `${item.name}: ${item.message}`;
+      try { return JSON.stringify(item) ?? String(item); } catch (e) { return String(item); }
+    }
+    return function mirror(level, message, ...rest) {
+      try {
+        const now = Date.now();
+        if (now - windowStart > WINDOW_MS) { windowStart = now; sentInWindow = 0; }
+        if (sentInWindow >= MAX_PER_WINDOW) { dropped += 1; return; }
+        sentInWindow += 1;
+        const dropNote = dropped > 0 ? `(${dropped} earlier lines dropped by throttle) ` : '';
+        dropped = 0;
+        const line = `${dropNote}[AppSandbox:${level}] ${message}${rest.length ? ' ' + rest.map(formatItem).join(' ') : ''}`;
+        fetch('/api/os/log', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ lines: [line.slice(0, 2000)] }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch (e) { /* logging must never throw */ }
+    };
+  })();
+
   // Structured logger. Debug-level messages are gated on a window flag so
   // production builds stay quiet unless an operator opts in.
   function log(level, message, ...rest) {
@@ -1128,6 +1168,9 @@ const AppSandbox = (() => {
       }
     } else {
       console.log(prefix, message, ...rest);
+    }
+    if (level !== 'debug' && typeof fetch === 'function') {
+      serialMirror(level, message, ...rest);
     }
   }
 

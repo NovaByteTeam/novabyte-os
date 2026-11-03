@@ -62,6 +62,30 @@ try {
 // 2. Setup middleware
 setupMiddleware(app);
 
+// 2.2. OS UI log mirror — the serial console's only proven channel is this
+// process's stdout (the [OS Build] marker and the [Memory] heartbeat go out
+// over it). The OS UI window's own console does NOT reach serial in the
+// field: two captures of a failing OAuth popup showed zero of the sandbox's
+// popup-decision lines even though app-sandbox.js logs every decision, so it
+// now mirrors its info/warn/error lines here and this endpoint writes them
+// straight to stdout — i.e. onto the serial console, prefixed [OS UI] so
+// they stay distinguishable from the server's own lines.
+// Trust model: an operator diagnostics sink, not a security boundary — the
+// UI is served same-origin, but sandboxed app guests share that origin and
+// could post forged lines; the caps below (50 lines/request, 2000
+// chars/line) bound the cost of abuse.
+app.post('/api/os/log', (req, res) => {
+    const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    let written = 0;
+    for (const line of lines) {
+        if (typeof line !== 'string' || line.length === 0) continue;
+        if (written >= 50) break;
+        process.stdout.write(`[OS UI] ${line.slice(0, 2000)}\n`);
+        written += 1;
+    }
+    res.status(204).end();
+});
+
 // 2.5. Index.html caching and nonce injection (MUST come before static middleware)
 let _indexHtmlRaw = null;
 async function getIndexHtml() {
