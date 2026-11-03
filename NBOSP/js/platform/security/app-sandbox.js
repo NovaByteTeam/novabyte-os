@@ -1146,9 +1146,17 @@ const AppSandbox = (() => {
         const dropNote = dropped > 0 ? `(${dropped} earlier lines dropped by throttle) ` : '';
         dropped = 0;
         const line = `${dropNote}[AppSandbox:${level}] ${message}${rest.length ? ' ' + rest.map(formatItem).join(' ') : ''}`;
+        // The sink is a POST route, so it sits behind the server's CSRF gate
+        // like every other one: without the token each POST is answered 403
+        // CSRF_MISSING and the never-throw policy hides it — which is exactly
+        // what happened in the field (the app guest's devtools filled with
+        // 403s on :3003/api/os/log while serial never showed one [OS UI]
+        // line). The UI window's own document carries the live session token
+        // in the csrf-token meta tag injected by GET /, and csrfToken() is
+        // the same accessor authedJsonFetch uses for its POSTs.
         fetch('/api/os/log', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/json', 'X-CSRF-Token': csrfToken() },
           body: JSON.stringify({ lines: [line.slice(0, 2000)] }),
           keepalive: true,
         }).catch(() => {});
