@@ -10454,6 +10454,27 @@ const AppSandbox = (() => {
         barClose.addEventListener('click', closePopup('titlebar'));
         popupWebview.addEventListener('close', closePopup('popup window.close'));
 
+        // Same guest console mirror as createSandbox, scoped to this popup.
+        // The relay half of an OAuth flow runs HERE — the provider's pages
+        // and the app's callback.html are the popup's documents, so the
+        // decisive probe lines ("callback fired, opener present/absent,
+        // relay posted") surface only if this webview's console reaches
+        // serial. Prefix distinguishes popup lines from app-window lines;
+        // share the same throttle budget (see createSandbox).
+        popupWebview.addEventListener('console-message', e => {
+          if (!e || typeof e.message !== 'string' || !e.message) return;
+          let level = typeof e.level === 'number'
+            ? (['debug', 'info', 'warn', 'error'][e.level] || 'info')
+            : (typeof e.level === 'string' ? e.level : 'info');
+          if (level !== 'debug' && level !== 'info' && level !== 'warn' && level !== 'error') level = 'info';
+          let srcLine = '';
+          if (typeof e.sourceId === 'string' && e.sourceId) {
+            const base = e.sourceId.split('/').pop();
+            srcLine = ` [${base}${Number.isFinite(e.lineNumber) ? ':' + e.lineNumber : ''}]`;
+          }
+          log(level === 'debug' ? 'debug' : level, `popup console app=${appId}${srcLine} ${e.message}`);
+        });
+
         openPopupOverlays.add(backdrop);
         contentEl.appendChild(backdrop);
         // attach() is what actually binds the spawned window into our
@@ -10502,6 +10523,34 @@ const AppSandbox = (() => {
     // launch of the same app resolves to the same on-disk partition.
     const partitionId = `app_${app.id}`;
     webview.setAttribute('partition', `persist:${partitionId}`);
+
+    // Guest console mirror. The serial mirror above carries every decision
+    // THIS module makes, but a guest-side flow has a second half that used
+    // to be invisible: the app's own console — the token exchange result,
+    // a relay message arriving or never arriving, a state-mismatch branch.
+    // A serial capture could show the full popup round-trip completing
+    // (authorize → provider → callback → window.close) and still not say
+    // whether the app accepted the code or died inside its own fetch.
+    // The <webview> console-message event carries every guest console line
+    // host-side, so route them through the same mirror. Levels map from
+    // Chromium's numeric scheme (0=debug..3=error) when the embedder sends
+    // numbers; debug stays console-only, matching this module's own rule
+    // that debug never reaches serial. Guest noise shares serialMirror's
+    // 40-lines/5s budget with OS-side lines by design — diagnostics must
+    // never flood the channel they diagnose.
+    webview.addEventListener('console-message', e => {
+      if (!e || typeof e.message !== 'string' || !e.message) return;
+      let level = typeof e.level === 'number'
+        ? (['debug', 'info', 'warn', 'error'][e.level] || 'info')
+        : (typeof e.level === 'string' ? e.level : 'info');
+      if (level !== 'debug' && level !== 'info' && level !== 'warn' && level !== 'error') level = 'info';
+      let srcLine = '';
+      if (typeof e.sourceId === 'string' && e.sourceId) {
+        const base = e.sourceId.split('/').pop();
+        srcLine = ` [${base}${Number.isFinite(e.lineNumber) ? ':' + e.lineNumber : ''}]`;
+      }
+      log(level === 'debug' ? 'debug' : level, `guest console app=${app?.id || app?.name || 'unknown'}${srcLine} ${e.message}`);
+    });
 
     const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app) && !forceSandbox, app);
     if (sandboxAttr) {
