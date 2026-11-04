@@ -1933,14 +1933,20 @@ const AppSandbox = (() => {
     let currentFolderId = FS.rootId;
     let selectedFile = null;
 
+    // Open mode: enforce the documented accept filter on file rows (folders
+    // always stay visible for navigation). accept used to be display-only —
+    // a "Filter:" label while every file stayed clickable.
+    const acceptMatch = mode === 'open' ? pickerAcceptMatcher(payload.accept) : null;
+
     function renderFileList() {
       fileList.innerHTML = '';
       const broadAccess = hasFsAccess(app.id);
       const children = FS.listDir(currentFolderId).filter(item =>
-        mode === 'open'
+        (mode === 'open'
           ? resolveFile({ id: item.id }, app.id)
           : resolveFile({ id: item.id }, app.id, true, broadAccess)
             || (item.type === 'folder' && isAppDataContainer(item))
+        ) && (!acceptMatch || item.type === 'folder' || acceptMatch(item.name, item.mimeType))
       );
 
       children.sort((a, b) => {
@@ -6622,6 +6628,14 @@ const AppSandbox = (() => {
   // File dialogs
 
   async function handleDialogOpen({ payload, requestId, app, webview, sandbox }) {
+    // Same accept contract as the other two pickers (nova:files:open,
+    // nova:sysdialog:open): MIME types and/or .ext entries, array or comma
+    // string. An invalid list is rejected loudly instead of silently opening
+    // an unfiltered dialog.
+    if (payload?.accept !== undefined && normalizePickerAcceptList(payload?.accept) === null) {
+      return respondError(webview, 'nova:dialog:open', requestId, 'INVALID_ARGS',
+        'accept must be a string or an array of at most 20 MIME types and/or file extensions (e.g. ".json")');
+    }
     showFileDialog('open', webview, 'nova:dialog:open', requestId, app, payload, sandbox);
     // Response is sent from the dialog's confirm/cancel handler.
   }
@@ -6632,6 +6646,89 @@ const AppSandbox = (() => {
 
   // The trusted picker returns host paths; sandbox filesystem APIs use a
   // separate virtual filesystem and cannot resolve those paths as nodes.
+
+  // Picker accept-list contract (shared by nova:files:open and
+  // nova:sysdialog:open): an app may pass MIME types ('text/plain'),
+  // file extensions ('.json'), or both, matching <input accept> semantics —
+  // SystemDialogs.acceptFilter() has always understood both forms. The
+  // files:open handler used to validate entries as MIME-only, so an app
+  // sending ['.json', 'text/plain'] was rejected with INVALID_ARGS before
+  // the picker ever opened. Both handlers now share this validator.
+  const PICKER_ACCEPT_MAX_ENTRIES = 20;
+  const PICKER_ACCEPT_ENTRY_MAX_LEN = 64;
+  const PICKER_ACCEPT_MIME_RE = /^[\w.+*-]+\/[\w.+*-]+$/;
+  const PICKER_ACCEPT_EXT_RE = /^\.[\w+-]+$/i;
+
+  function isValidPickerAcceptEntry(entry) {
+    return typeof entry === 'string' && entry.length <= PICKER_ACCEPT_ENTRY_MAX_LEN
+      && (PICKER_ACCEPT_MIME_RE.test(entry) || PICKER_ACCEPT_EXT_RE.test(entry));
+  }
+
+  // Validates an accept list (array or, for sysdialog, a comma-separated
+  // string) and returns it in the single form SystemDialogs consumes:
+  // one comma-joined string. Returns undefined for "no filter".
+  function normalizePickerAcceptList(raw) {
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw === 'string') return raw.length <= 512 ? raw : undefined;
+    if (!Array.isArray(raw) || raw.length > PICKER_ACCEPT_MAX_ENTRIES
+      || raw.some(entry => !isValidPickerAcceptEntry(entry))) {
+      return null; // invalid — caller responds INVALID_ARGS
+    }
+    return raw.join(',');
+  }
+
+  // Multi-select ceiling for a single picker call. Each picked file is read
+  // into memory and base64-framed across the guest bridge (up to 10 MB per
+  // file), so an uncapped multi-pick lets an app memory-bomb its own sandbox
+  // through the bridge. 25 covers real photo/batch-import workflows.
+  const PICKER_MULTI_MAX_FILES = 25;
+
+  // Builds a (name, mimeType) => boolean matcher from an accept list in any
+  // form the pickers accept (comma string or array of MIME types and/or .ext
+  // rules). Mirrors SystemDialogs.acceptFilter semantics: extension rules
+  // match by filename suffix; MIME rules match the node's type exactly (or
+  // by type/* prefix) and let unidentified (application/octet-stream) files
+  // through, since the mime table cannot rule them out. Returns null when
+  // the list yields no usable rule. Used by the nova:dialog:open overlay,
+  // whose accept field used to be display-only (a "Filter:" label) while the
+  // documented example passed ['.txt', '.md'].
+  function pickerAcceptMatcher(rawAccept) {
+    const joined = normalizePickerAcceptList(rawAccept);
+    if (!joined) return null;
+    const rules = String(joined).split(',').map(r => r.trim().toLowerCase())
+      .filter(r => PICKER_ACCEPT_EXT_RE.test(r) || PICKER_ACCEPT_MIME_RE.test(r));
+    if (!rules.length) return null;
+    return (name, mimeType) => {
+      const lowerName = String(name || '').toLowerCase();
+      const type = String(mimeType || '').toLowerCase() || 'application/octet-stream';
+      return rules.some(rule => {
+        if (PICKER_ACCEPT_EXT_RE.test(rule)) return lowerName.endsWith(rule);
+        if (type === 'application/octet-stream') return true;
+        if (rule.endsWith('/*')) return type.startsWith(rule.slice(0, -1));
+        return type === rule;
+      });
+    };
+  }
+
+  // True when the bytes are clean UTF-8 text (no NUL bytes, decodes under a
+  // strict decoder). Used for files the mime table can't type — a
+  // '.recipe'-style custom text format looks like application/octet-stream
+  // but is plain text an app must be able to read as text. Genuinely binary
+  // content virtually always contains NULs or invalid UTF-8 sequences and
+  // still comes back base64 with encoding:'base64'.
+  function looksLikeUtf8Text(bytes) {
+    if (!bytes || !bytes.length) return true;
+    for (let i = 0; i < bytes.length; i++) {
+      if (bytes[i] === 0) return false;
+    }
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function readPickedHostFile(picked) {
     const path = require('path');
     const filePath = typeof picked?.path === 'string' ? picked.path : '';
@@ -6652,7 +6749,11 @@ const AppSandbox = (() => {
 
       const mimeType = typeof picked.mimeType === 'string' ? picked.mimeType : 'application/octet-stream';
       const isText = mimeType.startsWith('text/') ||
-        ['application/json', 'application/x-sh', 'application/xml'].includes(mimeType);
+        ['application/json', 'application/x-sh', 'application/xml'].includes(mimeType) ||
+        // Unknown-typed files: sniff. Returning clean UTF-8 as text keeps
+        // custom text formats ('.recipe', '.yaml', …) readable; real binary
+        // fails the sniff and stays base64. See looksLikeUtf8Text.
+        (mimeType === 'application/octet-stream' && looksLikeUtf8Text(data));
       return {
         name,
         path: resolvedPath,
@@ -6671,39 +6772,64 @@ const AppSandbox = (() => {
     if (typeof window.SystemDialogs === 'undefined') {
       return respondError(webview, 'nova:sysdialog:open', requestId, 'UNAVAILABLE', 'SystemDialogs not loaded');
     }
+    // accept: a comma-separated string OR an array of MIME types and/or file
+    // extensions — same contract as nova:files:open (normalizePickerAcceptList).
+    // Previously only the string form was read, so an app's array accept list
+    // was silently dropped and the picker showed every file unfiltered.
+    const accept = normalizePickerAcceptList(payload?.accept);
+    if (accept === null) {
+      return respondError(webview, 'nova:sysdialog:open', requestId, 'INVALID_ARGS',
+        'accept must be a string or an array of at most 20 MIME types and/or file extensions (e.g. ".json")');
+    }
+    // multiple: true — SystemDialogs has always supported click-to-toggle
+    // multi-select (open mode only), but this bridge never forwarded the
+    // flag, so every multi-file picker silently degraded to single-file.
+    const multiple = payload?.multiple === true;
     try {
       const picked = await window.SystemDialogs.open({
         title: typeof payload?.title === 'string' ? payload.title.slice(0, 100) : undefined,
         startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
           ? payload.startPath
           : undefined,
-        accept: typeof payload?.accept === 'string' && payload.accept.length <= 512
-          ? payload.accept
-          : undefined,
+        accept: accept || undefined,
+        multiple,
         pathOnly: true,
       });
       if (!picked) return respond(webview, 'nova:sysdialog:open', requestId, { cancelled: true });
-      let file;
-      if (typeof picked.path === 'string') {
-        file = await readPickedHostFile(picked);
-      } else {
-        if (!resolveFile({ id: picked.id }, app.id)) {
-          return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible files');
+      // Single picks resolve one descriptor; multi picks resolve an array.
+      // Normalize to an array of entries either way and answer with both
+      // shapes: `files` (always an array) and `file` (the first entry), so
+      // single-select apps keep their existing result.file reads while
+      // multi-select apps get a stable list.
+      const entries = Array.isArray(picked) ? picked : [picked];
+      if (entries.length > PICKER_MULTI_MAX_FILES) {
+        return respondError(webview, 'nova:sysdialog:open', requestId, 'LIMIT_REACHED',
+          `Multi-select is limited to ${PICKER_MULTI_MAX_FILES} files per pick`);
+      }
+      const files = [];
+      for (const entry of entries) {
+        if (typeof entry?.path === 'string') {
+          files.push(await readPickedHostFile(entry));
+        } else {
+          if (!resolveFile({ id: entry.id }, app.id)) {
+            return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible files');
+          }
+          if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
+          sandbox.pickedFileIds.add(entry.id);
+          files.push({
+            id: entry.id,
+            name: entry.name,
+            content: entry.content || '',
+            mimeType: entry.mimeType || 'text/plain',
+            size: entry.size || 0,
+            path: FS.getPath(entry.id),
+          });
         }
-        if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
-        sandbox.pickedFileIds.add(picked.id);
-        file = {
-          id: picked.id,
-          name: picked.name,
-          content: picked.content || '',
-          mimeType: picked.mimeType || 'text/plain',
-          size: picked.size || 0,
-          path: FS.getPath(picked.id),
-        };
       }
       respond(webview, 'nova:sysdialog:open', requestId, {
         success: true,
-        file,
+        file: files[0],
+        files,
       });
     } catch (e) {
       respondError(webview, 'nova:sysdialog:open', requestId, 'DIALOG_ERROR', e?.message || 'Dialog failed');
@@ -6875,10 +7001,15 @@ const AppSandbox = (() => {
     if (typeof window.SystemDialogs?.open !== 'function') {
       return respondError(webview, 'nova:files:open', requestId, 'UNAVAILABLE', 'File picker is not available');
     }
-    const accept = payload?.accept;
-    if (accept !== undefined && (!Array.isArray(accept) || accept.length > 20
-      || accept.some(type => typeof type !== 'string' || !/^[\w.+*-]+\/[\w.+*-]+$/.test(type)))) {
-      return respondError(webview, 'nova:files:open', requestId, 'INVALID_ARGS', 'accept must be an array of MIME types');
+    // Accept entries may be MIME types ('text/plain') and/or file extensions
+    // ('.json') — same contract as nova:sysdialog:open; see
+    // normalizePickerAcceptList. (Previously MIME-only, which rejected the
+    // mixed lists real importers send and killed the feature with
+    // INVALID_ARGS before the picker even opened.)
+    const accept = normalizePickerAcceptList(payload?.accept);
+    if (accept === null) {
+      return respondError(webview, 'nova:files:open', requestId, 'INVALID_ARGS',
+        'accept must be an array of at most 20 MIME types and/or file extensions (e.g. ".json")');
     }
     try {
       const node = await window.SystemDialogs.open({
@@ -6886,7 +7017,7 @@ const AppSandbox = (() => {
         startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
           ? payload.startPath
           : undefined,
-        accept: accept?.join(','),
+        accept: accept || undefined,
         pathOnly: true,
       });
       if (!node) return respond(webview, 'nova:files:open', requestId, { cancelled: true });
@@ -11553,6 +11684,9 @@ const AppSandbox = (() => {
       dispatchIsolatedProcessRequest,
       respond,
       normalizeFsSavePayload,
+      normalizePickerAcceptList,
+      pickerAcceptMatcher,
+      looksLikeUtf8Text,
       setupAPIBridge,
       API_HANDLERS,
       buildCapabilityShim,
