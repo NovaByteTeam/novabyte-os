@@ -888,7 +888,7 @@ Use these methods to import or export a document the user explicitly selects. Th
 ```javascript
 const opened = await window.nova.files.open({
   title: 'Import notes',
-  accept: ['text/plain', 'application/json']
+  accept: ['text/plain', 'application/json', '.json']
 });
 if (!opened.cancelled) {
   console.log(opened.file.id, opened.file.name, opened.file.content);
@@ -903,7 +903,11 @@ const saved = await window.nova.files.save({
 if (!saved.cancelled) console.log('Saved:', saved.file.path);
 ```
 
-Open/save calls return `{ cancelled: true }` when dismissed. This first version is text-only and capped at 10 MB. A selected file's id can be used with `nova:fs:*` for the lifetime of that sandbox, with a confirmation for shared-file changes.
+`accept` is an array of at most 20 entries; each entry is a MIME type (`'text/plain'`) and/or a file extension with its leading dot (`'.json'`), matching `<input accept>` semantics. Passing only MIME types used to be the accepted form — both forms (and mixed lists) work now, and an invalid entry rejects the call with `INVALID_ARGS` instead of being silently dropped.
+
+Open/save calls return `{ cancelled: true }` when dismissed. A single selection is returned; use `nova:sysdialog:open` with `multiple: true` when the user needs to pick several files at once. Files are capped at 10 MB. A selected file's id can be used with `nova:fs:*` for the lifetime of that sandbox, with a confirmation for shared-file changes.
+
+Picked-file content decoding (both this picker and `nova:sysdialog:open`): text-typed files come back as `content` text; binary files come back as base64 with an `encoding: 'base64'` marker, so image pickers get decodable bytes. A file whose extension the OS cannot type (a custom format like `.recipe`) is sniffed — clean UTF-8 text is returned as text, anything else as base64 with the marker.
 
 ### Filesystem — `nova:fs:*`
 
@@ -1373,11 +1377,15 @@ Autostart never runs behind a lock screen — if the machine is locked at boot, 
 
 ```javascript
 // Open file picker (user selection grants access to the chosen file)
-const file = await window.nova.ipc('nova:dialog:open', {
-  accept: ['.txt', '.md'],
-  multiple: false,
+const result = await window.nova.ipc('nova:dialog:open', {
+  accept: ['.txt', '.md'],   // optional: extension and/or MIME rules; the
+                             // picker filters the visible files to match
 });
-// { path, name, content }
+if (result.cancelled) {
+  // user backed out — not an error
+} else {
+  const { id, name, content, mimeType, size, path } = result.file;
+}
 
 // Save file picker (user selection grants access to the chosen destination)
 await window.nova.ipc('nova:dialog:save', {
@@ -1385,6 +1393,8 @@ await window.nova.ipc('nova:dialog:save', {
   content: 'Hello',
 });
 ```
+
+`accept` takes the same forms as the other pickers — a comma-separated string or an array of MIME types and/or `.ext` entries (at most 20) — and is enforced: files that don't match are hidden from the list (folders stay visible for navigation; files the OS cannot type pass MIME rules). An invalid list rejects the call with `INVALID_ARGS`. This picker is single-select; there is no `multiple` option — use `nova:sysdialog:open` with `multiple: true` when the user should pick several files in one go.
 
 ### Styled file picker — `nova:sysdialog:*`
 
@@ -1394,7 +1404,8 @@ A second, additional picker pair — separate from `nova:dialog:*`, not a replac
 // Open picker
 const result = await window.nova.ipc('nova:sysdialog:open', {
   title: 'Import',            // optional, defaults to "Open"
-  startFolderId: undefined,   // optional folder id; defaults to root
+  startPath: '/home/nbosp',   // optional host path the browser opens at
+  accept: ['.json', 'text/plain'],  // optional: extension and/or MIME rules
 });
 if (result.cancelled) {
   // user backed out — not an error
@@ -1402,11 +1413,23 @@ if (result.cancelled) {
   const { id, name, content, mimeType, size, path } = result.file;
 }
 
+// Multi-select — the user toggles files in the grid, you get all of them
+const result = await window.nova.ipc('nova:sysdialog:open', {
+  title: 'Choose photos',
+  multiple: true,
+  accept: ['image/jpeg', 'image/png', 'image/webp'],
+});
+if (!result.cancelled) {
+  for (const f of result.files) {
+    // f has the same shape as result.file above
+  }
+}
+
 // Save picker — writes the file once a destination is chosen
 const result = await window.nova.ipc('nova:sysdialog:save', {
   title: 'Save As',            // optional, defaults to "Save As"
   suggestedName: 'notes.txt',  // optional, prefills the filename box
-  startFolderId: undefined,
+  startPath: '/home/nbosp',    // optional host path to open at
   content: 'Hello',
   mimeType: 'text/plain',      // optional, defaults to 'text/plain'
 });
@@ -1414,6 +1437,8 @@ if (!result.cancelled) {
   const { id, name, path } = result.file;
 }
 ```
+
+`accept` takes a comma-separated string or an array of at most 20 MIME types and/or `.ext` entries; the grid filters what the user can select to matching files (folders stay navigable). An invalid list rejects the call with `INVALID_ARGS` rather than being ignored. `multiple: true` turns the picker into click-to-toggle multi-select: the response carries `files` (an array, capped at 25 files — a larger selection rejects with `LIMIT_REACHED`) plus `file`, an alias for the first entry, so single-select code keeps working unchanged. Single-select responses include `files` as a one-element array for the same uniformity. Picked files are capped at 10 MB each, and follow the content-decoding rule described under [`window.nova.files`](#picker-scoped-files--windownovafiles) — text as `content`, binary as base64 with `encoding: 'base64'`.
 
 Both picker channels are on the same interactive, long-timeout tier as `nova:download` and `nova:share` — the call can legitimately sit open for minutes while a person navigates folders, so it gets the 10-minute interactive timeout instead of the normal per-request timeout (60 s by default, per the app's `requestTimeoutMs` budget).
 
