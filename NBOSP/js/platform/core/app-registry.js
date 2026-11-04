@@ -33,6 +33,7 @@ const AppRegistry = (() => {
     'fs:access', 'fs:metadata', 'fs:read:images', 'fs:read:video', 'fs:read:audio',
     'apps:communicate',
     'clipboard:read', 'clipboard:write',
+    'data:export', 'data:backup',
     'net:internal', 'net:external', 'net:websocket',
     'mail:read', 'mail:write', 'mail:send', 'mail:delete',
     'calendar:read', 'calendar:write', 'calendar:delete',

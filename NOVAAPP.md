@@ -555,7 +555,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-37 permissions across 10 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+43 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -592,6 +592,8 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `device:microphone` | Device | Critical | Voice recording, voice chat, dictation |
 | `clipboard:read` | Device | High | Paste-in tools, import-from-clipboard features — can expose whatever any other app or the user copied, not just your own app's data |
 | `clipboard:write` | Device | Low | Copy-to-clipboard features (does not allow reading clipboard contents) |
+| `data:export` | Data | Low | Export a targeted subset of your app's own storage namespace and import previously exported envelopes back (see [Data portability](#data-portability--novadata--windownovadata)) |
+| `data:backup` | Data | Low | Snapshot your app's entire storage namespace to a portable envelope and restore it, optionally wiping first (see [Data portability](#data-portability--novadata--windownovadata)) |
 | `system:info` | System | Medium | Diagnostics, "about this device" panels — also gates reading allowlisted settings values (see [Settings](#settings--novasettingsget--novasettingsset)) |
 | `system:settings` | System | Medium | Preference sync, theme/settings dashboards |
 | `system:apps` | System | Medium | Launchers, app-store-style installers, dock/dashboard replacements |
@@ -750,6 +752,52 @@ await window.nova.ipc('nova:fs:read', { path: 'shared:/Downloads/report.txt' });
 **Shared-access audit.** Reads and writes outside your own `appdata:` subtree (shared files via grants, user-picked files) are logged to the ledger and surfaced in **Settings → Privacy & Security → File Access Audit**. Apps that stay inside their own sandbox generate no audit entries.
 
 **Accounting.** Bytes written/read and request counts are tracked per app (storage sets, fs writes, fetch bodies) and power the **Settings → Storage → Per-App Storage** dashboard. Quotas are enforced by the system regardless of what the app does.
+
+---
+
+## Data portability — `nova:data:*` / `window.nova.data`
+
+History note, because it matters: `data:export` and `data:backup` were listed in the earliest permission documentation but **were never implemented** — dead metadata with no backing handler — and were later removed from the docs entirely. They now exist for real, with the semantics below.
+
+Two permissions, both **low risk** because the entire surface is strictly caller-scoped — it touches your app's own key/value namespace (the same store behind `nova:storage:*`) and nothing else:
+
+- **`data:export`** gates `nova:data:export` + `nova:data:import` — targeted subsets. Export a selection of your own storage keys (an explicit key list or a key prefix) as a portable envelope; import merges a previously exported envelope back over the live namespace (merge only — import never deletes keys).
+- **`data:backup`** gates `nova:data:backup` + `nova:data:restore` — full snapshots. Back up your entire namespace as one envelope; restore it, optionally wiping the namespace first (`clearFirst: true`) for a true reset-then-restore.
+
+Envelope shape (versioned, checksummed):
+
+```json
+{
+  "novaDataEnvelope": 1,
+  "format": 1,
+  "kind": "backup",
+  "appId": "com.example.myapp",
+  "capturedAt": "2026-11-04T12:00:00.000Z",
+  "storage": { "key": "value" },
+  "counts": { "keys": 1, "bytes": 42 },
+  "checksum": "<sha256 hex over a key-sorted serialization of storage>"
+}
+```
+
+Rules the host enforces, in order:
+
+1. **Envelope validation** — `novaDataEnvelope: 1`, matching `format`, and a `kind` matching the channel (restore wants `'backup'`, import wants `'export'`); anything else rejects with `INVALID_ARGS`.
+2. **appId pinning** — an envelope only ever restores/imports into the app that produced it. A `kind`-valid envelope whose `appId` differs from the caller rejects with `POLICY_BLOCKED`; envelopes are deliberately **not** a cross-app data-transfer channel.
+3. **Integrity** — the checksum is re-computed and compared before anything is written; a corrupted or hand-edited envelope rejects with `INVALID_ARGS` instead of half-writing.
+4. **Normal storage limits** — values are written through the same path as `nova:storage:set`, so the per-value byte cap and the per-app quota apply; a value over the cap is reported per-key in `failedKeys` rather than failing the whole call.
+
+```javascript
+// Requires data:export
+const { envelope } = await window.nova.data.export({ prefix: 'recipes.' });
+await window.nova.data.import(envelope);                    // merge back
+
+// Requires data:backup
+const { envelope: snapshot } = await window.nova.data.backup();
+const result = await window.nova.data.restore(snapshot, { clearFirst: true });
+// → { success: true, restoredKeys, cleared: true, failedKeys: [] }
+```
+
+Envelope payloads can be large (they contain your whole namespace), so persist them through the same channels you already use for user files: `nova:files:save`, the download surface, or your app's own export flows. The OS does not store envelopes for you.
 
 ---
 

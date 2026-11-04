@@ -548,6 +548,12 @@ const AppSandbox = (() => {
       // Clipboard.
       'nova:clipboard:read': ['clipboard:read'],
       'nova:clipboard:write': ['clipboard:write'],
+      // Data portability (own-namespace export/backup — see the handlers
+      // for why restore/import are caller-pinned and checksummed).
+      'nova:data:export': ['data:export'],
+      'nova:data:import': ['data:export'],
+      'nova:data:backup': ['data:backup'],
+      'nova:data:restore': ['data:backup'],
       // System settings read/write.
       'nova:settings:get': ['system:info'],
       'nova:settings:set': ['system:settings'],
@@ -6328,6 +6334,213 @@ const AppSandbox = (() => {
     }
   }
 
+  /* ---------------- data portability — data:export / data:backup ----------
+     Listed in the early permission docs, never implemented, and eventually
+     removed as dead metadata — this is the real thing.
+
+     Scope: strictly the CALLING app's own key/value namespace (the same
+     IndexedDB store nova:storage:* uses). Both permissions are 'low' risk
+     because there is no cross-app path: export/backup serialize the
+     caller's own namespace, and restore/import refuse any envelope whose
+     appId does not match the caller, so one app cannot use another app's
+     backup as a data-transfer channel. Restores verify the envelope's
+     checksum before writing anything, so a corrupted or hand-edited
+     envelope fails cleanly instead of half-writing.
+
+     Envelope: { novaDataEnvelope: 1, format, kind: 'backup'|'export',
+     appId, capturedAt, storage: {key: value}, counts: {keys, bytes},
+     checksum } — checksum is sha256 over a key-sorted serialization of
+     storage. Values round-trip through the same storageSet path as
+     nova:storage:set, so per-value caps and the per-app quota apply. */
+
+  const DATA_ENVELOPE_FORMAT = 1;
+
+  /* sha256 hex — Node crypto when running inside the NW host (the common
+     case for the sandbox bridge), WebCrypto everywhere else. Checksums
+     are async throughout so both paths work. */
+  async function sha256Hex(text) {
+    if (typeof require === 'function') {
+      try {
+        return require('crypto').createHash('sha256').update(text).digest('hex');
+      } catch (_) { /* fall through to WebCrypto */ }
+    }
+    if (typeof crypto !== 'undefined' && typeof crypto?.subtle?.digest === 'function') {
+      const digest = await crypto.subtle.digest('SHA-256', sharedTextEncoder.encode(text));
+      return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    }
+    throw new Error('No SHA-256 implementation available for data envelope checksums');
+  }
+
+  async function dataChecksum(storageMap) {
+    /* Key-sorted pair list — stable across insertion order so the
+       checksum a backup produced is the checksum a restore verifies. */
+    const canonical = JSON.stringify(
+      Object.keys(storageMap).sort().map(k => [k, storageMap[k]])
+    );
+    return sha256Hex(canonical);
+  }
+
+  async function readOwnNamespace(appId) {
+    const keys = await storageKeys(appId);
+    const entries = await Promise.all(keys.map(async k => [k, await storageGet(appId, k)]));
+    return Object.fromEntries(entries);
+  }
+
+  async function makeDataEnvelope(kind, appId, storageMap) {
+    let bytes = 0;
+    for (const [k, v] of Object.entries(storageMap)) {
+      let json;
+      try { json = typeof v === 'string' ? v : JSON.stringify(v); } catch (_) { json = String(v); }
+      bytes += sharedTextEncoder.encode(k).length + sharedTextEncoder.encode(json).length;
+    }
+    return {
+      novaDataEnvelope: 1,
+      format: DATA_ENVELOPE_FORMAT,
+      kind,
+      appId,
+      capturedAt: new Date().toISOString(),
+      storage: storageMap,
+      counts: { keys: Object.keys(storageMap).length, bytes },
+      checksum: await dataChecksum(storageMap),
+    };
+  }
+
+  /* Returns { env } on success or { error, message } for respondError. */
+  async function validateDataEnvelope(payload, callerAppId, kind) {
+    const env = payload?.envelope;
+    if (!env || typeof env !== 'object' || env.novaDataEnvelope !== 1 || env.format !== DATA_ENVELOPE_FORMAT) {
+      return { error: 'INVALID_ARGS', message: 'envelope must be a data envelope produced by nova.data.export or nova.data.backup' };
+    }
+    if (env.kind !== kind) {
+      return { error: 'INVALID_ARGS', message: `envelope kind mismatch: expected '${kind}', got '${env.kind}'` };
+    }
+    if (env.appId !== callerAppId) {
+      /* Not INVALID_ARGS — this is a policy boundary: envelopes are pinned
+         to their appId and cross-app restore is refused outright. */
+      return { error: 'POLICY_BLOCKED', message: 'envelope belongs to a different app — envelopes only restore into their own app' };
+    }
+    if (!env.storage || typeof env.storage !== 'object' || Array.isArray(env.storage)) {
+      return { error: 'INVALID_ARGS', message: 'envelope.storage must be an object of key/value pairs' };
+    }
+    if (typeof env.checksum !== 'string' || (await dataChecksum(env.storage)) !== env.checksum) {
+      return { error: 'INVALID_ARGS', message: 'envelope checksum mismatch — the data is corrupt or was modified' };
+    }
+    return { env };
+  }
+
+  /* Writes one namespace entry through the same path as nova:storage:set
+     (per-value cap + quota + ledger accounting). Returns {ok, bytes} or
+     {ok:false, reason}. */
+  async function writeOwnNamespaceEntry(appId, key, value) {
+    let valueJson;
+    try { valueJson = typeof value === 'string' ? value : JSON.stringify(value); } catch (e) {
+      return { ok: false, reason: `not JSON-serializable: ${e?.message || e}` };
+    }
+    const valueBytes = sharedTextEncoder.encode(valueJson).length;
+    if (valueBytes > STORAGE_VALUE_MAX_BYTES) {
+      return { ok: false, reason: `value exceeds ${STORAGE_VALUE_MAX_BYTES} byte limit` };
+    }
+    try {
+      await storageSet(appId, key, value, valueBytes);
+      StorageLedger.noteRequest(appId);
+      StorageLedger.noteBytes(appId, { written: valueBytes });
+      return { ok: true, bytes: valueBytes };
+    } catch (e) {
+      return { ok: false, reason: e && e.code === 'STORAGE_FULL' ? 'per-app storage quota exceeded' : 'write failed' };
+    }
+  }
+
+  async function handleDataBackup({ requestId, app, webview }) {
+    try {
+      const storage = await readOwnNamespace(app.id);
+      StorageLedger.noteRequest(app.id);
+      return respond(webview, 'nova:data:backup', requestId, {
+        success: true,
+        envelope: await makeDataEnvelope('backup', app.id, storage),
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:data:backup', requestId, 'ERROR', e?.message || 'Failed to back up app data');
+    }
+  }
+
+  async function handleDataRestore({ payload, requestId, app, webview }) {
+    const check = await validateDataEnvelope(payload, app.id, 'backup');
+    if (check.error) {
+      return respondError(webview, 'nova:data:restore', requestId, check.error, check.message);
+    }
+    const { clearFirst } = payload || {};
+    try {
+      if (clearFirst === true) {
+        await storageClear(app.id);
+      }
+      let restoredKeys = 0;
+      const failedKeys = [];
+      for (const [key, value] of Object.entries(check.env.storage)) {
+        const result = await writeOwnNamespaceEntry(app.id, key, value);
+        if (result.ok) restoredKeys++;
+        else failedKeys.push({ key, reason: result.reason });
+      }
+      return respond(webview, 'nova:data:restore', requestId, {
+        success: true, restoredKeys, cleared: clearFirst === true, failedKeys,
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:data:restore', requestId, 'ERROR', e?.message || 'Failed to restore app data');
+    }
+  }
+
+  async function handleDataExport({ payload, requestId, app, webview }) {
+    const keys = Array.isArray(payload?.keys) ? payload.keys : null;
+    const prefix = typeof payload?.prefix === 'string' && payload.prefix.length ? payload.prefix : null;
+    if (!keys && !prefix) {
+      return respondError(webview, 'nova:data:export', requestId, 'INVALID_ARGS',
+        'provide keys (array of storage keys) or prefix (key prefix) — for everything, use nova:data:backup');
+    }
+    if (keys && keys.length > 1000) {
+      return respondError(webview, 'nova:data:export', requestId, 'INVALID_ARGS', 'keys is limited to 1000 entries per export');
+    }
+    try {
+      const namespace = await readOwnNamespace(app.id);
+      let selected;
+      if (keys) {
+        const wanted = new Set(keys.map(k => String(k)));
+        selected = Object.fromEntries(Object.entries(namespace).filter(([k]) => wanted.has(k)));
+      } else {
+        selected = Object.fromEntries(Object.entries(namespace).filter(([k]) => k.startsWith(prefix)));
+      }
+      StorageLedger.noteRequest(app.id);
+      return respond(webview, 'nova:data:export', requestId, {
+        success: true,
+        envelope: await makeDataEnvelope('export', app.id, selected),
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:data:export', requestId, 'ERROR', e?.message || 'Failed to export app data');
+    }
+  }
+
+  async function handleDataImport({ payload, requestId, app, webview }) {
+    const check = await validateDataEnvelope(payload, app.id, 'export');
+    if (check.error) {
+      return respondError(webview, 'nova:data:import', requestId, check.error, check.message);
+    }
+    try {
+      /* Merge semantics only: import writes the envelope's keys over the
+         live namespace and never deletes keys it doesn't contain. The
+         destructive path (wiping before writing) is backup/restore with
+         clearFirst, which is a different permission with full-snapshot
+         semantics. */
+      let importedKeys = 0;
+      const failedKeys = [];
+      for (const [key, value] of Object.entries(check.env.storage)) {
+        const result = await writeOwnNamespaceEntry(app.id, key, value);
+        if (result.ok) importedKeys++;
+        else failedKeys.push({ key, reason: result.reason });
+      }
+      return respond(webview, 'nova:data:import', requestId, { success: true, importedKeys, failedKeys });
+    } catch (e) {
+      return respondError(webview, 'nova:data:import', requestId, 'ERROR', e?.message || 'Failed to import app data');
+    }
+  }
+
   // Host-side snapshot of the MAC policy engine for the Settings privacy
   // dashboard (mode, rule counts, avc denial feed). Same trust model as the
   // storage ledger snapshot: trusted host-tier direct call, deliberately NOT
@@ -7348,6 +7561,10 @@ const AppSandbox = (() => {
     'nova:storage:clear': handleStorageClear,
     'nova:storage:keys': handleStorageKeys,
     'nova:storage:usage': handleStorageUsage,
+    'nova:data:export': handleDataExport,
+    'nova:data:import': handleDataImport,
+    'nova:data:backup': handleDataBackup,
+    'nova:data:restore': handleDataRestore,
     'nova:device:geolocation': handleDeviceGeolocation,
     'nova:device:camera': handleDeviceCamera,
     'nova:device:microphone': handleDeviceMicrophone,
@@ -7373,6 +7590,7 @@ const AppSandbox = (() => {
     'nova:fs:mkdir', 'nova:fs:stat', 'nova:fs:rename', 'nova:fs:move',
     'nova:storage:get', 'nova:storage:set', 'nova:storage:delete',
     'nova:storage:clear', 'nova:storage:keys', 'nova:storage:usage',
+    'nova:data:export', 'nova:data:import', 'nova:data:backup', 'nova:data:restore',
     'nova:settings:get', 'nova:settings:set',
     'nova:appearance:get', 'nova:appearance:set',
     'nova:notifications:show', 'nova:notifications:clear',
@@ -8590,6 +8808,18 @@ const AppSandbox = (() => {
       save: function(options) { return ipc('nova:files:save', options || {}); },
     },
     share: function(data) { return ipc('nova:share', data || {}); },
+    data: {
+      /* Data portability over this app's OWN namespace. export/import move
+         targeted subsets (data:export); backup/restore move the whole
+         namespace (data:backup). Envelopes are checksummed and pinned to
+         the calling appId — restore/import refuse another app's envelope. */
+      export: function(options) { return ipc('nova:data:export', options || {}); },
+      import: function(envelope) { return ipc('nova:data:import', { envelope: envelope }); },
+      backup: function() { return ipc('nova:data:backup', {}); },
+      restore: function(envelope, options) {
+        return ipc('nova:data:restore', Object.assign({ envelope: envelope }, options || {}));
+      },
+    },
     appearance: {
       get: function() { return ipc('nova:appearance:get', {}); },
       set: function(appearance) { return ipc('nova:appearance:set', { appearance: appearance || {} }); },

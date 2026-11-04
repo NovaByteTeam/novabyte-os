@@ -32,6 +32,12 @@ const AppPermissionManager = (() => {
     DEVICE_MICROPHONE : 'device:microphone',
     // Clipboard is a shared, ambient, cross-app channel, not a file.
     CLIPBOARD_READ    : 'clipboard:read',  CLIPBOARD_WRITE   : 'clipboard:write',
+    // Data portability — export/backup of the app's OWN storage namespace.
+    // 'low' on purpose: both grants only ever touch the caller's own
+    // key/value namespace (strictly caller-scoped, like clipboard:write);
+    // restore/import pin the envelope's appId to the caller, so no grant
+    // here can read another app's data or smuggle data across apps.
+    DATA_EXPORT       : 'data:export',     DATA_BACKUP       : 'data:backup',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
     SYSTEM_APPS       : 'system:apps',    SYSTEM_APP_LAUNCH : 'system:app-launch',
     APPS_COMMUNICATE  : 'apps:communicate',
@@ -111,6 +117,14 @@ const AppPermissionManager = (() => {
     // See handleClipboardRead/Write in app-sandbox.js for the full rationale.
     'clipboard:read'    : { category: 'device',     risk: 'high',     label: 'Read clipboard' },
     'clipboard:write'   : { category: 'device',     risk: 'low',      label: 'Write clipboard' },
+    // Data portability. 'low' because the entire surface is caller-scoped:
+    // export/backup serialize the app's own key/value namespace, and
+    // restore/import refuse any envelope whose appId doesn't match the
+    // caller (no cross-app channel) and verify a checksum before writing.
+    // The worst a bad envelope can destroy is the app's own data — the
+    // same blast radius as the app calling nova:storage:clear itself.
+    'data:export'       : { category: 'data',       risk: 'low',      label: 'Export this app\u2019s data' },
+    'data:backup'       : { category: 'data',       risk: 'low',      label: 'Back up and restore this app\u2019s data' },
     // 'medium', not 'low' — this gates both nova:system:info (OS version,
     // security patch level, username, uptime) and handleSettingsGet's
     // SETTINGS_READABLE_KEYS allowlist (username, region, timezone,

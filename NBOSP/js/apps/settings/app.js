@@ -113,6 +113,7 @@ registerApp({
       'fs:read:images': 'Read shared images', 'fs:read:video': 'Read shared videos', 'fs:read:audio': 'Read shared audio',
       'net:internal': 'Internal network', 'net:external': 'Public internet', 'net:websocket': 'Public WebSocket',
       'clipboard:read': 'Read clipboard', 'clipboard:write': 'Write clipboard',
+      'data:export': 'Export this app\u2019s data', 'data:backup': 'Back up and restore this app\u2019s data',
       'mail:read': 'Read emails', 'mail:write': 'Compose emails', 'mail:send': 'Send emails', 'mail:delete': 'Delete emails',
       'calendar:read': 'Read calendar', 'calendar:write': 'Edit calendar', 'calendar:delete': 'Delete events',
       'contacts:read': 'Read contacts', 'contacts:write': 'Edit contacts',

@@ -127,6 +127,7 @@ async function ga1() {
     'ipc.broadcast': 'function', 'ipc.onBroadcast': 'function',
     'files.open': 'function', 'files.save': 'function',
     'share': 'function',
+    'data.export': 'function', 'data.import': 'function', 'data.backup': 'function', 'data.restore': 'function',
     'appearance.get': 'function', 'appearance.set': 'function', 'appearance.onChange': 'function',
     'contextMenu.show': 'function', 'contextMenu.hide': 'function',
     'overlay.show': 'function', 'overlay.hide': 'function', 'overlay.onEvent': 'function',
@@ -271,6 +272,10 @@ const DOC_CHANNELS = [
   ['nova:storage:clear', {}],
   ['nova:storage:keys', {}],
   ['nova:storage:usage', {}],
+  ['nova:data:export', { keys: ['x'] }],
+  ['nova:data:import', { envelope: null }],
+  ['nova:data:backup', {}],
+  ['nova:data:restore', { envelope: null }],
   ['nova:fs:read', { path: '/data/x.txt' }],
   ['nova:fs:write', { path: '/data/x.txt', content: 'hi' }],
   ['nova:fs:list', { path: '/data/' }],
@@ -974,8 +979,8 @@ async function ga9() {
 
   // 1) The documented permission table matches the manager catalog exactly.
   const mgrBlock = mgrSrc.match(/const PERMISSION_TYPES = Object\.freeze\(\{([\s\S]*?)\n\s*\}\)/);
-  const mgrPerms = [...mgrBlock[1].matchAll(/:\s*'([a-z:]+)'/g)].map((x) => x[1]);
-  const docRows = [...doc.matchAll(/^\| \`([a-z:]+)\` \| (Filesystem|Apps|Network|Email|Calendar|Contacts|Device|System|Admin|Sandbox) \|/gm)].map((x) => x[1]);
+  const mgrPerms = [...mgrBlock[1].matchAll(/:\s*'([a-z:-]+)'/g)].map((x) => x[1]);
+  const docRows = [...doc.matchAll(/^\| \`([a-z:-]+)\` \| (Filesystem|Apps|Network|Email|Calendar|Contacts|Device|Data|System|Admin|Sandbox) \|/gm)].map((x) => x[1]);
   check(`doc permission table (${docRows.length}) matches manager catalog (${mgrPerms.length})`,
     docRows.length === mgrPerms.length && docRows.every((p) => mgrPerms.includes(p)),
     `doc-only: ${docRows.filter((p) => !mgrPerms.includes(p)).join(',')} | mgr-only: ${mgrPerms.filter((p) => !docRows.includes(p)).join(',')}`);
