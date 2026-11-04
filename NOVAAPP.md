@@ -555,7 +555,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-43 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+44 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -603,6 +603,7 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `system:background` | System | Medium | Periodic sync/checks while closed (see below) |
 | `system:background:live` | System | High | Staying alive after the window closes (see below) |
 | `system:autostart` | System | High | Launching automatically at OS startup with no user action (see below) |
+| `system:badge` | System | Low | Show a count or short label on your app's own taskbar icon (see [Taskbar badge](#taskbar-badge--novabadge)) |
 | `admin:apps` | Admin | High | Fleet/security audit tools — see actual grants per app, not just declared ones (needs admin mode) |
 | `admin:users` | Admin | Critical | Session monitors, force-logout tools (needs admin mode) |
 | `admin:system` | Admin | Critical | Security-policy dashboards, lockout/IP-block tuning (needs admin mode) |
@@ -813,7 +814,7 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1` and `badge.v1`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
@@ -825,6 +826,8 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `dialog` | `pickOpen(options)`, `pickSave(options)` | `nova:sysdialog:*` / `nova:dialog:*` | none — user-mediated |
 | `app` | `info list launch openUrl share openWith` | `nova:app:*`, `nova:open-url`, `nova:share`, `nova:open-with` | same as wrapped channel |
 | `data` | `export import backup restore` | `nova:data:*` | `data:export` / `data:backup` |
+| `locale` | `get()` → `{ locale, region, timeZone, firstDayOfWeek }` | `nova:locale:get` | none |
+| `badge` | `set(count\|{text})`, `clear()` | `nova:badge:*` | `system:badge` |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -848,6 +851,10 @@ const target = await window.novaOS.dialog.pickSave({ defaultName: 'out.txt', sty
 const { id } = await window.novaOS.app.info();
 await window.novaOS.app.launch('com.example.other');
 await window.novaOS.app.share({ title: 'Look', text: 'shared text' });
+
+// Locale + badge (new host powers — see their own sections below).
+const { region, firstDayOfWeek } = await window.novaOS.locale.get();
+await window.novaOS.badge.set(3);
 ```
 
 The `dialog` facade deserves one explicit note: it exists precisely because the two picker families (`nova:dialog:*` plain, `nova:sysdialog:*` styled) predate the v2 facade and remain separately available for compatibility. New apps should use `novaOS.dialog` and stop caring which picker family runs underneath; the raw channels stay unchanged either way.
@@ -1388,6 +1395,36 @@ For providers with an HTTP/REST API (Gmail API, Microsoft Graph, etc.) you can s
 const info = await window.nova.ipc('nova:system:info', {});
 // { osVersion, securityPatch, platform, ... }
 ```
+
+### Locale — `nova:locale:get` / `window.novaOS.locale`
+
+Coarse, read-only locale facts for formatting dates, numbers, and currencies. **No permission** — on purpose: these are the same values any plain web page gets from `navigator`/`Intl` on the open web, they identify no one, and gating date formatting behind a prompt would just push apps back to user-agent sniffing. Anything sensitive (username, hostname, uptime) stays behind `system:info` — this surface exposes nothing but formatting facts.
+
+```javascript
+const { locale, region, timeZone, firstDayOfWeek } = await window.novaOS.locale.get();
+// locale: 'de-DE' (environment default), region: 'DE' | null,
+// timeZone: 'Europe/Berlin', firstDayOfWeek: 'monday' | 'sunday'
+```
+
+Precedence: the user's OS **region** and **timezone** settings win when set; otherwise region derives from the locale tag and the timezone comes from the environment. `firstDayOfWeek` is a coarse documented mapping (Sunday-conventional regions vs Monday), enough for calendar grids — it is not a full i18n library.
+
+Feature-detect with `window.novaOS.capabilities.has('locale.v1')`.
+
+### Taskbar badge — `nova:badge:*` / `window.novaOS.badge`
+
+Requires `system:badge` (System / Low). Shows a badge on **your app's own** taskbar icon: a count (0–999) or a short text label (1–4 characters after trimming). Host-side clamps are authoritative, updates are rate-limited to 30/minute, and the badge is **session-only live state** — it clears when your app closes (a badge is a view of live state, not data) and never persists across reboots.
+
+```javascript
+// Requires system:badge
+await window.novaOS.badge.set(3);        // count badge
+await window.novaOS.badge.set({ text: 'new' }); // 1-4 characters
+await window.novaOS.badge.set(0);        // same as clear() — nothing to show
+await window.novaOS.badge.clear();
+```
+
+`set` accepts a number or an object; when both `count` and `text` are given, `count` wins. The taskbar renders the badge bottom-right on your icon (the window count, managed by the OS, stays top-right).
+
+Feature-detect with `window.novaOS.capabilities.has('badge.v1')`.
 
 ### Settings — `nova:settings:get` / `nova:settings:set`
 

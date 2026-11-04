@@ -30,6 +30,8 @@
 //        background wakes
 //   GA15 v2 facade completion — fs/clipboard/notifications/window/dialog/
 //        app/data facades behave exactly like the channels they wrap
+//   GA16 locale + taskbar badge — first new host powers (ungated locale,
+//        clamped/rate-limited badge store)
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -161,7 +163,7 @@ async function ga1() {
   // v2 facade surface.
   check('window.novaOS exists', !!g.novaOS);
   check('novaOS.apiVersion === 2', g.novaOS.apiVersion === 2, `got ${g.novaOS.apiVersion}`);
-  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2']) {
+  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1']) {
     check(`novaOS.capabilities.has("${cap}") === true`, g.novaOS.capabilities.has(cap) === true);
   }
   check('novaOS.capabilities.has("nope.v9") === false', g.novaOS.capabilities.has('nope.v9') === false);
@@ -175,7 +177,8 @@ async function ga1() {
     'window.close', 'window.minimize', 'window.maximize', 'window.setTitle', 'window.resize', 'window.getState',
     'dialog.pickOpen', 'dialog.pickSave',
     'app.info', 'app.list', 'app.launch', 'app.openUrl', 'app.share', 'app.openWith',
-    'data.export', 'data.import', 'data.backup', 'data.restore'];
+    'data.export', 'data.import', 'data.backup', 'data.restore',
+    'locale.get', 'badge.set', 'badge.clear'];
   for (const name of osSurface) {
     check(`window.novaOS.${name} exists`, typeof get(g.novaOS, name) === 'function', `got ${typeof get(g.novaOS, name)}`);
   }
@@ -343,6 +346,9 @@ const DOC_CHANNELS = [
   ['nova:mail:delete', { uids: [1] }],
   ['nova:mail:session', { action: 'restore' }],
   ['nova:system:info', {}],
+  ['nova:locale:get', {}],
+  ['nova:badge:set', { count: 3 }],
+  ['nova:badge:clear', {}],
   ['nova:settings:get', { key: 'theme' }],
   ['nova:settings:set', { key: 'theme', value: 'dark' }],
   ['nova:events:subscribe', { event: 'system:themeChanged' }],
@@ -445,6 +451,7 @@ const PERM_MATRIX = [
   ['device:microphone', 'nova:device:microphone', {}],
   ['clipboard:read', 'nova:clipboard:read', {}],
   ['clipboard:write', 'nova:clipboard:write', { text: 'hi' }],
+  ['system:badge', 'nova:badge:set', { count: 3 }],
   ['system:info', 'nova:system:info', {}],
   ['system:settings', 'nova:settings:set', { key: 'theme', value: 'dark' }],
   ['system:apps', 'nova:app:list', {}],
@@ -1302,13 +1309,92 @@ async function ga15() {
   g.teardown();
 }
 
+// ════════════════════════════════ GA16 ═════════════════════════════════════
+// Locale + taskbar badge — the first two new host-side powers.
+// Locale: ungated, coarse formatting facts only. Badge: permission-gated,
+// host-clamped, rate-limited, session-only (cleared with the sandbox).
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga16() {
+  section('[GA16] locale + taskbar badge');
+
+  const g = await freshGuest('com.test.audit.g16');
+  const osCall = async (fn) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+
+  // Locale — no permission, normalized record.
+  const loc = await osCall(() => g.novaOS.locale.get());
+  check('locale.get resolves without any grant', loc.ok, JSON.stringify(loc.error && loc.error.code));
+  check('locale record has the documented shape',
+    loc.ok && typeof loc.value.locale === 'string'
+    && (loc.value.firstDayOfWeek === 'monday' || loc.value.firstDayOfWeek === 'sunday')
+    && (loc.value.region === null || typeof loc.value.region === 'string')
+    && (loc.value.timeZone === null || typeof loc.value.timeZone === 'string'),
+    JSON.stringify(loc.value));
+  check('locale firstDayOfWeek maps US to sunday', loc.ok && loc.value.region === 'US' ? loc.value.firstDayOfWeek === 'sunday' : true, JSON.stringify(loc.value));
+  check('locale region derives from locale tag', loc.ok && loc.value.region !== null, JSON.stringify(loc.value));
+
+  // Badge — deny without grant.
+  const bd = await osCall(() => g.novaOS.badge.set(3));
+  check('badge.set denied without system:badge', !bd.ok && errCode(bd.error) === 'PERMISSION_DENIED', JSON.stringify(bd.error && bd.error.code));
+  const bc = await osCall(() => g.novaOS.badge.clear());
+  check('badge.clear denied without system:badge', !bc.ok && errCode(bc.error) === 'PERMISSION_DENIED', JSON.stringify(bc.error && bc.error.code));
+
+  // With the grant: set/clear against the exported host store.
+  await grant('system:badge', 'com.test.audit.g16');
+  const appId = 'com.test.audit.g16';
+  const s1 = await osCall(() => g.novaOS.badge.set(5));
+  check('badge.set(5) resolves undefined', s1.ok && s1.value === undefined, JSON.stringify(s1.error && s1.error.code));
+  const store1 = INTERNAL.appBadgeState.get(appId) || null;
+  check('host store holds { count: 5 }', JSON.stringify(store1) === '{"count":5}', JSON.stringify(store1));
+  const s2 = await osCall(() => g.novaOS.badge.set({ text: 'new' }));
+  check('badge.set({text:"new"}) resolves', s2.ok, JSON.stringify(s2.error && s2.error.code));
+  const store2 = INTERNAL.appBadgeState.get(appId) || null;
+  check('host store holds { text: "new" } after text set', JSON.stringify(store2) === '{"text":"new"}', JSON.stringify(store2));
+  const s3 = await osCall(() => g.novaOS.badge.set({ count: 2, text: 'zz' }));
+  check('badge.set with both count and text resolves (count wins host-side)', s3.ok, JSON.stringify(s3.error && s3.error.code));
+  const store3 = INTERNAL.appBadgeState.get(appId) || null;
+  check('count wins when both fields are sent', store3 && store3.count === 2, JSON.stringify(store3));
+  const s4 = await osCall(() => g.novaOS.badge.set(0));
+  check('badge.set(0) clears (badge: null response)', s4.ok, JSON.stringify(s4.error && s4.error.code));
+  const store4 = INTERNAL.appBadgeState.get(appId) || null;
+  check('count 0 leaves the store empty', store4 === null || store4 === undefined, JSON.stringify(store4));
+
+  // Clamps.
+  const tooBig = await osCall(() => g.novaOS.badge.set(1000));
+  check('badge.set(1000) → INVALID_ARGS', !tooBig.ok && errCode(tooBig.error) === 'INVALID_ARGS', JSON.stringify(tooBig.error && tooBig.error.code));
+  const negative = await osCall(() => g.novaOS.badge.set(-1));
+  check('badge.set(-1) → INVALID_ARGS', !negative.ok && errCode(negative.error) === 'INVALID_ARGS', JSON.stringify(negative.error && negative.error.code));
+  const longText = await osCall(() => g.novaOS.badge.set({ text: 'toolong' }));
+  check('badge.set text > 4 chars → INVALID_ARGS', !longText.ok && errCode(longText.error) === 'INVALID_ARGS', JSON.stringify(longText.error && longText.error.code));
+  const empty = await osCall(() => g.novaOS.badge.set({}));
+  check('badge.set({}) → INVALID_ARGS', !empty.ok && errCode(empty.error) === 'INVALID_ARGS', JSON.stringify(empty.error && empty.error.code));
+
+  // Rate limit: 30/min; the harness already burned ~8 on the sets above,
+  // so a tight loop up to the cap then one more must end RATE_LIMITED.
+  let rateLimited = false;
+  for (let i = 0; i < 30; i++) {
+    const r = await osCall(() => g.novaOS.badge.set(1));
+    if (!r.ok && errCode(r.error) === 'RATE_LIMITED') { rateLimited = true; break; }
+  }
+  check('badge flood eventually RATE_LIMITED (30/min cap)', rateLimited);
+
+  const cleared = await osCall(() => g.novaOS.badge.clear());
+  check('badge.clear resolves', cleared.ok, JSON.stringify(cleared.error && cleared.error.code));
+  await revoke('system:badge', appId);
+
+  g.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16,
 };
 
 (async () => {

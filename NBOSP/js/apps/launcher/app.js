@@ -1657,6 +1657,21 @@ function updateTaskbar() {
           }));
         }
 
+        // App-set badge (system:badge permission, host-clamped). Read from
+        // the read-only NovaAppBadges store that app-sandbox.js exports;
+        // badge updates call WM.updateTaskbar() themselves, so this render
+        // pass always runs after the store changed.
+        const appBadge = (typeof NovaAppBadges !== 'undefined' && NovaAppBadges.get) ? NovaAppBadges.get(appId) : null;
+        if (appBadge) {
+          const badgeLabel = appBadge.count != null ? String(appBadge.count) : appBadge.text;
+          if (badgeLabel) {
+            btn.appendChild(createEl('span', {
+              className:   'taskbar-app-badge',
+              textContent: badgeLabel,
+            }));
+          }
+        }
+
         const clickHandler = () => {
           if (!hasWindows) {
             // Web apps need openWebApp() (registry.js) so OS.apps[appId]

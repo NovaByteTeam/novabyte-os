@@ -128,6 +128,9 @@ const MATRIX = [
   ['nova:settings:set', ['system:settings'], { key: 'theme', value: 'dark' }],
   ['nova:clipboard:read', ['clipboard:read'], {}],
   ['nova:clipboard:write', ['clipboard:write'], { text: 'x' }],
+  // Locale is ungated (advisory) — no matrix row on purpose; P1 fuzzes it.
+  ['nova:badge:set', ['system:badge'], { count: 3 }],
+  ['nova:badge:clear', ['system:badge'], {}],
 
   ['nova:app:launch', ['system:app-launch', 'system:apps'], { appId: 'com.other.app' }],
   // Home-surface rows are context-dependent (Home-caller + always-launchable

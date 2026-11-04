@@ -58,6 +58,11 @@ const AppPermissionManager = (() => {
     SYSTEM_BACKGROUND      : 'system:background',
     SYSTEM_BACKGROUND_LIVE : 'system:background:live',
     SYSTEM_AUTOSTART       : 'system:autostart',
+    // Taskbar badge — a count or short label on the app's own taskbar icon.
+    // 'low': purely presentational, scoped to the app's own icon, host-clamped
+    // (0-999 / 4 chars) and rate-limited; it can't touch other apps' icons
+    // or any user data.
+    SYSTEM_BADGE           : 'system:badge',
     ADMIN_APPS        : 'admin:apps',     ADMIN_USERS       : 'admin:users',
     ADMIN_SYSTEM      : 'admin:system',   ADMIN_AUDIT       : 'admin:audit',
     // Lets a .novaapp's own guest content instantiate a nested <webview>
@@ -143,6 +148,8 @@ const AppPermissionManager = (() => {
     'system:background' : { category: 'system',     risk: 'medium',   label: 'Run scheduled background tasks' },
     'system:background:live': { category: 'system', risk: 'high',     label: 'Keep running after you close it' },
     'system:autostart'  : { category: 'system',     risk: 'high',     label: 'Start automatically when NovaByte starts' },
+    // Presentational only — see the SYSTEM_BADGE rationale above.
+    'system:badge'      : { category: 'system',     risk: 'low',      label: 'Show a badge on the taskbar' },
     'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },

@@ -606,6 +606,13 @@ const AppSandbox = (() => {
       'nova:contacts:delete': ['contacts:delete'],
       // Misc.
       'nova:system:info': ['system:info'],
+      // Locale — ungated on purpose (coarse formatting facts only; see the
+      // handler comment). Still an explicit advisory row so policy coverage
+      // is a statement, not an accident.
+      'nova:locale:get': null,
+      // Taskbar badge.
+      'nova:badge:set': ['system:badge'],
+      'nova:badge:clear': ['system:badge'],
       'nova:nested-webview': ['sandbox:nested-webview'],
       'nova:ipc:register': ['apps:communicate'],
       'nova:ipc:unregister': ['apps:communicate'],
@@ -649,7 +656,7 @@ const AppSandbox = (() => {
       'nova:context-menu', 'nova:share', 'nova:files', 'nova:email',
       'nova:open-url', 'nova:open-with', 'nova:download',
       'nova:wallpaper', 'nova:request-permission',
-      'nova:permission-rate-limited', 'nova:audit',
+      'nova:permission-rate-limited', 'nova:audit', 'nova:locale',
     ]);
 
     // neverallow v1: the admin family is the platform's privilege anchor —
@@ -6807,6 +6814,140 @@ const AppSandbox = (() => {
     });
   }
 
+  // ── Locale ─────────────────────────────────────────────────────────────
+  // Read-only, deliberately coarse locale facts for formatting: the OS
+  // region/timezone settings when the user set them, else environment
+  // defaults. No permission gate on purpose — these are the same values a
+  // plain web page gets from navigator/Intl on the open web, they identify
+  // no one, and gating date formatting behind a prompt would just push
+  // apps back to user-agent sniffing. Anything sensitive (username,
+  // hostname, …) stays behind system:info; this surface exposes nothing
+  // but formatting facts.
+  function firstDayOfWeekForRegion(region) {
+    // Coarse, documented mapping (enough for calendar grids, not an i18n
+    // library): regions whose calendars conventionally start on Sunday.
+    const SUNDAY_REGIONS = new Set(['US', 'CA', 'JP', 'CN', 'TW', 'KR', 'SA', 'IL', 'BR', 'PH', 'MX']);
+    return region && SUNDAY_REGIONS.has(region) ? 'sunday' : 'monday';
+  }
+
+  async function handleLocaleGet({ requestId, app, webview }) {
+    let locale = null;
+    try {
+      locale = (typeof navigator !== 'undefined' && navigator.language) || null;
+    } catch (_) { locale = null; }
+    if (typeof locale !== 'string' || !locale) locale = 'en-US';
+    // User preference wins over the environment default, when set. These
+    // two keys are read through the same OS.settings service the Settings
+    // app uses, but only the two formatting-innocuous keys — nothing from
+    // the system:info-gated set is reachable here.
+    let region = null;
+    let timeZone = null;
+    try {
+      const setRegion = OS?.settings?.get?.('region');
+      if (typeof setRegion === 'string' && setRegion) region = setRegion;
+      const setTz = OS?.settings?.get?.('timezone');
+      if (typeof setTz === 'string' && setTz) timeZone = setTz;
+    } catch (_) { /* settings service unavailable — fall through to env defaults */ }
+    if (!region) {
+      const dash = locale.indexOf('-');
+      region = dash > 0 ? locale.slice(dash + 1).toUpperCase() : null;
+    }
+    if (!timeZone) {
+      try { timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (_) { timeZone = null; }
+    }
+    return respond(webview, 'nova:locale:get', requestId, {
+      success: true,
+      locale: locale,
+      region: region,
+      timeZone: timeZone,
+      firstDayOfWeek: firstDayOfWeekForRegion(region),
+    });
+  }
+
+  // ── Taskbar badge (system:badge) ───────────────────────────────────────
+  // Per-app badge shown on the app's taskbar icon: a count (0-999) or a
+  // short text label (1-4 characters). Session-only host state — nothing
+  // persists across reboots, because a badge is a view of live state
+  // (like the window count), not data. The taskbar reads the store via
+  // window.NovaAppBadges (exported below); updates are pushed to the UI
+  // with a nova-badge-changed event plus a WM.updateTaskbar() refresh.
+  const appBadgeState = new Map();   // appId -> { count } | { text }
+  const badgeRateLimits = new Map(); // appId -> [timestamps]
+  const BADGE_RATE_MAX = 30;         // updates per minute — a badge is not a ticker
+  const BADGE_TEXT_MAX = 4;
+  const BADGE_COUNT_MAX = 999;
+
+  function badgeRateLimited(appId) {
+    const now = Date.now();
+    const recent = (badgeRateLimits.get(appId) || []).filter((t) => t > now - 60_000);
+    if (recent.length >= BADGE_RATE_MAX) {
+      badgeRateLimits.set(appId, recent);
+      return true;
+    }
+    recent.push(now);
+    badgeRateLimits.set(appId, recent);
+    return false;
+  }
+
+  function publishBadge(appId) {
+    const badge = appBadgeState.get(appId) || null;
+    try {
+      if (typeof document !== 'undefined' && typeof document.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        document.dispatchEvent(new CustomEvent('nova-badge-changed', { detail: { appId: appId, badge: badge } }));
+      }
+    } catch (_) { /* event dispatch is best-effort; the store is the truth */ }
+    try {
+      if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
+    } catch (_) { /* taskbar refresh is best-effort */ }
+  }
+
+  async function handleBadgeSet({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:badge', app.id)) {
+      return respondError(webview, 'nova:badge:set', requestId, 'PERMISSION_DENIED', 'system:badge permission required');
+    }
+    if (badgeRateLimited(app.id)) {
+      return respondError(webview, 'nova:badge:set', requestId, 'RATE_LIMITED', 'Max 30 badge updates per minute');
+    }
+    const hasCount = payload && Object.prototype.hasOwnProperty.call(payload, 'count');
+    const hasText = payload && Object.prototype.hasOwnProperty.call(payload, 'text');
+    if (!hasCount && !hasText) {
+      return respondError(webview, 'nova:badge:set', requestId, 'INVALID_ARGS', 'provide count (number 0-999) or text (1-4 characters)');
+    }
+    let badge;
+    if (hasCount) {
+      const n = payload.count;
+      if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > BADGE_COUNT_MAX) {
+        return respondError(webview, 'nova:badge:set', requestId, 'INVALID_ARGS', 'count must be a number between 0 and 999');
+      }
+      const rounded = Math.floor(n);
+      if (rounded === 0) {
+        // count: 0 means "nothing to show" — identical to clear(), documented.
+        appBadgeState.delete(app.id);
+        publishBadge(app.id);
+        return respond(webview, 'nova:badge:set', requestId, { success: true, badge: null });
+      }
+      badge = { count: rounded };
+    } else {
+      const t = typeof payload.text === 'string' ? payload.text.trim() : '';
+      if (!t || t.length > BADGE_TEXT_MAX) {
+        return respondError(webview, 'nova:badge:set', requestId, 'INVALID_ARGS', `text must be 1-${BADGE_TEXT_MAX} characters after trimming`);
+      }
+      badge = { text: t };
+    }
+    appBadgeState.set(app.id, badge);
+    publishBadge(app.id);
+    return respond(webview, 'nova:badge:set', requestId, { success: true, badge: badge });
+  }
+
+  async function handleBadgeClear({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:badge', app.id)) {
+      return respondError(webview, 'nova:badge:clear', requestId, 'PERMISSION_DENIED', 'system:badge permission required');
+    }
+    const had = appBadgeState.delete(app.id);
+    publishBadge(app.id);
+    return respond(webview, 'nova:badge:clear', requestId, { success: true, cleared: had });
+  }
+
   const PUBLIC_APPEARANCE_SETTING_KEYS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'removeTransparency']);
   const PUBLIC_APPEARANCE_FIELDS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'transparentSurfaces']);
   const PUBLIC_THEMES = new Set(['nova-dark', 'nova-light', 'nord', 'dracula', 'catppuccin', 'tokyo-night', 'gruvbox']);
@@ -7575,6 +7716,9 @@ const AppSandbox = (() => {
     'nova:contacts:write': handleContactsWrite,
     'nova:contacts:delete': handleContactsDelete,
     'nova:system:info': handleSystemInfo,
+    'nova:locale:get': handleLocaleGet,
+    'nova:badge:set': handleBadgeSet,
+    'nova:badge:clear': handleBadgeClear,
     'nova:ready': handleReady,
     'nova:dialog:open': handleDialogOpen,
     'nova:dialog:save': handleDialogSave,
@@ -7604,6 +7748,7 @@ const AppSandbox = (() => {
     'nova:mail:send', 'nova:mail:delete',
     'nova:calendar:read', 'nova:calendar:write', 'nova:calendar:delete',
     'nova:contacts:read', 'nova:contacts:write', 'nova:contacts:delete',
+    'nova:locale:get', 'nova:badge:set', 'nova:badge:clear',
   ]);
 
   // Dispatch an incoming IPC message to its handler. Catches sync throws and
@@ -8291,6 +8436,11 @@ const AppSandbox = (() => {
     'dialogs.v2': true,
     'app.v2': true,
     'data.v2': true,
+    // New host-side capabilities (each with its own permission — a
+    // capability name says the runtime ships the surface, not that the
+    // app may use it).
+    'locale.v1': true,
+    'badge.v1': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -8505,6 +8655,30 @@ const AppSandbox = (() => {
       restore: function(envelope, options) {
         return ipc('nova:data:restore', Object.assign({ envelope: envelope }, options || {}));
       },
+    }),
+    // Locale facade — no permission, coarse formatting facts only (see the
+    // host handler). get() returns the normalized record.
+    locale: Object.freeze({
+      get: function() {
+        return ipc('nova:locale:get', {}).then(function(result) {
+          return {
+            locale: result && typeof result.locale === 'string' ? result.locale : 'en-US',
+            region: result && typeof result.region === 'string' ? result.region : null,
+            timeZone: result && typeof result.timeZone === 'string' ? result.timeZone : null,
+            firstDayOfWeek: result && result.firstDayOfWeek === 'sunday' ? 'sunday' : 'monday',
+          };
+        });
+      },
+    }),
+    // Taskbar badge (system:badge). set takes a number 0-999 or an object
+    // { text } (1-4 chars); set(0) clears, exactly like clear(). Mutations
+    // resolve undefined; the host clamps and rate-limits authoritatively.
+    badge: Object.freeze({
+      set: function(value) {
+        const payload = typeof value === 'number' ? { count: value } : (value || {});
+        return ipc('nova:badge:set', payload).then(function() {});
+      },
+      clear: function() { return ipc('nova:badge:clear', {}).then(function() {}); },
     }),
   });`;
   }
@@ -11886,6 +12060,10 @@ const AppSandbox = (() => {
     // activeSandboxes.delete(sandboxId) already ran at the top of this
     // function — that early delete is the reentrancy guard, see the
     // comment there for why.
+    // A badge is a view of live state — a closed app has no live state.
+    try {
+      if (appBadgeState.delete(appId)) publishBadge(appId);
+    } catch (_) { /* best-effort */ }
     log('debug', `Destroyed sandbox: ${sandboxId}`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `Destroyed sandbox ${sandboxId}`, data: { appId: sandbox.appId, sandboxId } });
@@ -12175,6 +12353,7 @@ const AppSandbox = (() => {
       isInternalHost,
       handlePermissionRevoked,
       GUEST_FORBIDDEN_IPC_APIS,
+      appBadgeState,
       cleanupSandboxRecord,
       clearAppPartitionsByName,
       ensureExecutionPartitionClean,
@@ -12239,6 +12418,16 @@ const AppSandbox = (() => {
 // In the browser, the module attaches as a global `AppSandbox`.
 if (typeof window !== 'undefined') {
   window.AppSandbox = AppSandbox;
+  // Taskbar badge store (session-only, written by the nova:badge:*
+  // handlers, read by the taskbar renderer in the launcher). Read-only
+  // view on purpose — the only writers are the permission-gated handlers.
+  window.NovaAppBadges = Object.freeze({
+    get: function(appId) {
+      const badge = appBadgeState.get(appId);
+      if (!badge) return null;
+      return badge.count != null ? { count: badge.count } : { text: badge.text };
+    },
+  });
 }
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AppSandbox;
