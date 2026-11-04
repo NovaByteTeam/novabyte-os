@@ -1869,12 +1869,18 @@ A `.novaapp` file is plain JSON:
     "index.html": "<base64-encoded content>",
     "app.js": "<base64-encoded content>"
   },
-  "signature": "<Ed25519 signature, base64url>",
-  "signer": "NovaByte Trusted Signing"
+  "signing": { "method": "ed25519" },
+  "signature": "<signature, base64url>",
+  "signer": "NovaByte Trusted Signing",
+  "integrity": {
+    "method": "blake3",
+    "payloadHash": "<hex digest of the signed payload>",
+    "fileHashes": { "index.html": "<hex digest>", "app.js": "<hex digest>" }
+  }
 }
 ```
 
-File contents are Base64-encoded. `signature` is an Ed25519 signature over the `novabyte_app`, `manifest`, `files`, and `compiled_at` fields — not a checksum. A checksum says nothing about who produced the file; a signature can only be produced by whoever holds the matching private key, which is what makes trust meaningful.
+File contents are Base64-encoded. `signature` is a signature over the `novabyte_app`, `manifest`, `files`, and `compiled_at` fields — not a checksum. A checksum says nothing about who produced the file; a signature can only be produced by whoever holds the matching private key, which is what makes trust meaningful. `signing.method` records which algorithm produced the signature (Ed25519 unless stated otherwise — see [Supported signing methods](#supported-signing-methods)), and the optional `integrity` block records tamper-evidence digests (see [Package integrity](#package-integrity)).
 
 ### Package signatures
 
@@ -1900,26 +1906,81 @@ An app can carry a perfectly valid signature from some other key and still be re
 
 Unverified doesn't mean blocked — NBOSP doesn't gatekeep what you can run on your own machine. It means the OS tells you the truth about what it can and can't vouch for, and leaves the decision with you.
 
+### Supported signing methods
+
+Packages record the algorithm that produced their signature in a `signing: { "method": "..." }` field, and verification reads that field. Seven methods are built in (`AppPackage.listSigningMethods()` returns this list at runtime):
+
+| `signing.method` | Algorithm | Status | Notes |
+| --- | --- | --- | --- |
+| `ed25519` | Ed25519 | **Default** | 64-byte signatures, fast verification. What NovaByte's own keys use; a package without a `signing` field is verified as Ed25519. |
+| `ecdsa-p256` | ECDSA P-256 | Stable | NIST curve over SHA-256. Enterprise / smart-card compatibility. |
+| `ecdsa-p384` | ECDSA P-384 | Stable | Same, over SHA-384. |
+| `rsa-pss-4096` | RSA-PSS 4096 | Stable | 4096-bit keys, SHA-384, 48-byte salt. Legacy infrastructure fallback. |
+| `ml-dsa-65` | ML-DSA-65 | Experimental | NIST post-quantum signatures (FIPS 204). Requires `@noble/post-quantum`; keys are hex strings rather than JWKs. |
+| `ed448` | Ed448 | Experimental | 224-bit security margin. Requires Node crypto — present in the NW.js host, absent in a plain browser tab, where verification of this method fails. |
+| `custom` | Bring your own | Stable | You supply the signing and verification logic; the `signature` field holds whatever your signer emits. Only useful where you control both ends. |
+
+Practical notes:
+
+- Keypairs come from `AppPackage.generateSigningKeyPair(method)` — WebCrypto JWKs for every method except ML-DSA-65 (hex strings) and `custom` (you bring your own material). The Packages app generates keypairs and builds signed packages for any of these methods.
+- Verification accepts both the documented base64url signature encoding and the plain-hex encoding older builds emitted (an ambiguous string is tried as both), so packages from either generation verify. New builds emit base64url.
+- A trust-store entry can pin the method it verifies with; otherwise the package's `signing.method` decides, falling back to Ed25519 when absent.
+- Experimental methods are labelled as such in the Packages app. Don't ship production packages on them without a fallback plan.
+
+### Package integrity
+
+Signatures prove who produced a package; integrity digests prove the bytes you received are still the ones that were produced. A package may carry an optional `integrity` block: `payloadHash` covers the exact canonical payload the signature covers, and `fileHashes` covers each packaged file's decoded bytes individually — so a tampered install can be narrowed down to the exact files that changed.
+
+Supported methods (`AppPackage.listIntegrityMethods()`): `blake3` (default), `sha256`, `sha512`, and `none`. Recording a digest is opt-in at build time — the Packages app offers the choice per build, and NovaPack Studio v1.1.80+ defaults new projects to None. A package has integrity protection only if its build computed one.
+
+How the runtime treats the block:
+
+- **Fail closed.** A block recorded with method `none` — or missing its payload hash — never verifies as passing. There is nothing to compare, so it is reported as *unavailable*, never *ok*.
+- **A separate axis from trust.** The App Manager checks recorded digests before the trust decision and reports the two independently. A trusted signer whose bytes were altered gets a dedicated tamper warning listing the mismatched files; an untrusted signer with altered bytes gets a combined dialog. Like the unverified warning, both can be overridden by the user — the OS tells the truth and leaves the decision with you.
+- **Integrity-only installs.** `installPackage()` accepts an `allowIntegrityFallback` option: when trust-store verification fails but the recorded digests all match, the install proceeds marked with signer `integrity-only` — the contents provably match what was built, but nobody vouches for who built them. The Packages app exposes this behind an explicit opt-in in its install tab; the Store and the App Manager never use it.
+
 ---
 
 ## Distribution
 
 ### Direct distribution
 
-Share the `.novaapp` file directly. Users drag and drop it into the App Manager, or click Install and pick the file. That's the whole install flow — no separate installer, no admin rights required.
+Share the `.novaapp` file directly. Users drag and drop it into the App Manager — anywhere in its window — or click Install and pick the file; several files dropped at once install as a batch. That's the whole install flow: no separate installer, no admin rights required.
 
-Unverified packages still install, but with a warning so users can decide whether to trust them.
+Every install runs the content scanner over each packaged file, then verifies the signature against the trust store and any recorded integrity digests, with the dialog flow described under [Package signatures](#package-signatures). Unverified packages still install, but with a warning so users can decide whether to trust them.
+
+When a user installs a package whose app id is already installed, the App Manager detects the conflict and prompts to replace the existing version. System apps cannot be replaced by package installs. A replace only swaps the package files — the app's sandboxed storage and data folders survive.
+
+### Store
+
+The Store (`com.nbosp.store`) is the built-in catalog app, and the normal way users discover and install third-party apps. It merges two catalogs, deduplicated by app id:
+
+- **The static catalog** — `apps.json` served from `https://novabyteteam.github.io/novabyte-os/`.
+- **The community publisher catalog** — NovaByte's hosted publisher service.
+
+A catalog entry carries: `id`, `name`, `version`, `file` (the `.novaapp` URL), `author`, `description`, `categories`, `icon`, `size`, `screenshots`, `links`, `releaseNotes`, and `versionHistory` — an array of `{ version, date, notes }` entries that powers the detail page's Release track panel. `file`, icons, and screenshots resolve against the catalog base URL, so they can be relative paths on the catalog host or absolute `https://` URLs — a GitHub Releases download link works fine. Non-HTTPS URLs are dropped.
+
+Store installs run the same trust machinery as manual installs: the package's manifest id must match the catalog entry, the signature is verified against the trust store with revocation applied (a revoked signature refuses to install outright), and any recorded integrity digests are checked. Packages that verify get a **Verified** badge with the signer's name on the card and detail page. If one catalog is unreachable, the Store degrades to the other; if both fail, it shows a connection error.
 
 ### Updates
 
-There's no built-in update pipeline in NBOSP. The simplest approach is a GitHub Releases pipeline:
+Updates are built in — users never re-download a package by hand unless they want to.
+
+**One-click updates in the Store.** When the catalog version is strictly newer than the installed version, the app's card and detail page show an **Update** button. Updating re-downloads and re-verifies the package, requires the downloaded version to match the catalog entry and be strictly newer than what's installed, then swaps it in place: the original install date and source are preserved, the update source and time are recorded, the app is re-registered into the live OS registry (launchable immediately, no restart), and an *App Updated* notification with release notes is posted. The app's data is untouched.
+
+**Background update checks.** The Store Update Service (`com.nbosp.service.store-updates`, a system service) checks the catalog once at startup and then on an interval — 15/30/60 (default)/120/360/720/1440 minutes, or 0 to disable — set in the Store's settings, next to a manual *Check now*. When an installed non-system app has a newer catalog version, it posts an OS notification — app name, new version, release notes, and an *Open store* action — once per app and version.
+
+**What a release looks like for the developer:**
 
 1. Bump `version` in `manifest.json`
-2. Build and tag a release
-3. Attach the `.novaapp` to the release
-4. Tell your users to re-download and reinstall
+2. Build and sign the `.novaapp`
+3. Publish it at the URL the catalog entry's `file` field points to
+4. Update the catalog entry — new `version`, plus a `versionHistory` entry (and `releaseNotes`) so the notification and Release track say what changed
 
-When a user installs an app that's already installed, the App Manager detects the version conflict and prompts them to replace it.
+Two rules keep the pipeline working:
+
+- **Versions must be valid semver** — `1.2.3`, optionally `v`/`=`-prefixed, with optional `-prerelease` and `+build` suffixes (a prerelease sorts before its release). Anything else can't be compared, and update detection silently skips that app.
+- **System apps never update through the Store** — neither the background check nor the Update button applies to them.
 
 ---
 
