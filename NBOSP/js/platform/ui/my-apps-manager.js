@@ -147,7 +147,8 @@ const MyAppsManager = (() => {
    * @returns {Array} Array of app objects
    */
   function getAllApps() {
-    return AppRegistry?.getAllApps() || [];
+    return (AppRegistry?.getAllApps() || [])
+      .filter(app => app.systemService !== true && app.headlessSystemService !== true);
   }
 
   /**

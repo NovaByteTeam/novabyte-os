@@ -342,6 +342,7 @@ const AppRegistry = (() => {
 
     const registered = Object.freeze({
       ...service,
+      categories: ['system-service'],
       systemService: true,
       headlessSystemService: true,
     });
@@ -570,11 +571,14 @@ const AppRegistry = (() => {
 
   function getApp(appId)              { return installedApps.get(appId) ?? systemServices.get(appId) ?? null; }
   function isRegistered(appId)        { return installedApps.has(appId) || systemServices.has(appId); }
-  function getAllApps()               { return [...installedApps.values()]; }
-  function getAppsByCategory(cat)    { return [...installedApps.values()].filter(a => a.categories.includes(cat)); }
+  function isInstalled(appId)         { return isRegistered(appId); }
+  function getAllApps()               { return [...installedApps.values(), ...systemServices.values()]; }
+  function getAppsByCategory(cat)    {
+    return getAllApps().filter(app => (app.categories || []).includes(cat));
+  }
 
   function getStats() {
-    const apps = [...installedApps.values()];
+    const apps = getAllApps();
     return {
       totalApps   : apps.length,
       totalLaunches: apps.reduce((s, a) => s + (a.launchCount || 0), 0),
@@ -595,7 +599,7 @@ const AppRegistry = (() => {
   return {
     initialize, registerApp, registerSystemService, unregisterSystemService,
     unregisterApp, uninstallApp, launchApp, updateApp,
-    getApp, isRegistered, getAllApps, getAppsByCategory, checkPermissions,
+    getApp, isRegistered, isInstalled, getAllApps, getAppsByCategory, checkPermissions,
     onInstall, onUninstall, getStats,
   };
 })();

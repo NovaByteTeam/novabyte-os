@@ -86,7 +86,9 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     expect(registered.headlessSystemService).toBe(true);
     expect(mod.getApp(service.id)).toBe(registered);
     expect(mod.isRegistered(service.id)).toBe(true);
-    expect(mod.getAllApps()).not.toContain(registered);
+    expect(mod.isInstalled(service.id)).toBe(true);
+    expect(mod.getAllApps()).toContain(registered);
+    expect(mod.getAppsByCategory('system-service')).toContain(registered);
     expect(mockOS.apps[service.id]).toBeUndefined();
     expect(window.APP_REGISTRY.some(app => app.id === service.id)).toBe(false);
     expect(() => mod.registerApp({ id: service.id, name: 'Imposter' })).toThrow(/reserved for a system service/);
@@ -234,7 +236,10 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     vi.resetModules();
     localStorage.clear();
     const mod = require('../../js/platform/core/app-registry.js');
-    for (const app of mod.getAllApps()) mod.unregisterApp(app.id);
+    for (const app of mod.getAllApps()) {
+      if (app.systemService) mod.unregisterSystemService(app.id);
+      else mod.unregisterApp(app.id);
+    }
     mod.registerApp({ id: 'a1', name: 'A1', categories: ['productivity'] });
     mod.registerApp({ id: 'a2', name: 'A2', categories: ['productivity', 'social'] });
     const stats = mod.getStats();
