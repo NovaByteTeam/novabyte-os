@@ -6934,6 +6934,13 @@ const AppSandbox = (() => {
     return false;
   }
 
+  // Copy out so callers can't mutate the live store entry.
+  function getBadge(appId) {
+    const badge = appBadgeState.get(appId);
+    if (!badge) return null;
+    return badge.count != null ? { count: badge.count } : { text: badge.text };
+  }
+
   function publishBadge(appId) {
     const badge = appBadgeState.get(appId) || null;
     try {
@@ -13508,6 +13515,7 @@ const AppSandbox = (() => {
     handlePermissionRevoked,
     getSandbox,
     getAllSandboxes,
+    getBadge,
     clearAppPartition,
     clearAppPartitions,
     // storageClear/clearAllStorage clear nova:storage (a separate,
@@ -13633,11 +13641,12 @@ if (typeof window !== 'undefined') {
   // Taskbar badge store (session-only, written by the nova:badge:*
   // handlers, read by the taskbar renderer in the launcher). Read-only
   // view on purpose — the only writers are the permission-gated handlers.
+  // appBadgeState lives inside the AppSandbox closure, so go through its
+  // public getter. Referencing the Map from here threw a ReferenceError
+  // on every taskbar refresh.
   window.NovaAppBadges = Object.freeze({
     get: function(appId) {
-      const badge = appBadgeState.get(appId);
-      if (!badge) return null;
-      return badge.count != null ? { count: badge.count } : { text: badge.text };
+      return AppSandbox.getBadge(appId);
     },
   });
 }
