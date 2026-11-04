@@ -122,7 +122,7 @@ registerApp({
       'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps', 'system:app-launch': 'Launch apps',
       'apps:communicate': 'Communicate with other apps',
       'system:background': 'Background tasks', 'system:background:live': 'Keep running in background', 'system:autostart': 'Start at launch',
-      'system:badge': 'Taskbar badge', 'system:schedule': 'Named alarms',
+      'system:badge': 'Taskbar badge', 'system:schedule': 'Named alarms', 'system:share-target': 'Receive shared content',
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
 

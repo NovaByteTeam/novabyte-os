@@ -83,6 +83,13 @@ const AppPermissionManager = (() => {
     // can NEVER launch itself: a fire while fully closed queues a bounded
     // push for the next launch and nothing runs in between.
     SYSTEM_SCHEDULE        : 'system:schedule',
+    // Inbound share target — the app may be OFFERED as a destination in the
+    // share sheet (outbound nova:share), and receives a push when the user
+    // picks it. 'medium': delivery is strictly user-mediated (the pick IS
+    // the consent), but the app receives other apps' content, which is a
+    // real data-inflow surface; the manifest must also declare a
+    // shareTarget with the MIME types it accepts.
+    SYSTEM_SHARE_TARGET    : 'system:share-target',
     ADMIN_APPS        : 'admin:apps',     ADMIN_USERS       : 'admin:users',
     ADMIN_SYSTEM      : 'admin:system',   ADMIN_AUDIT       : 'admin:audit',
     // Lets a .novaapp's own guest content instantiate a nested <webview>
@@ -177,6 +184,8 @@ const AppPermissionManager = (() => {
     'system:badge'      : { category: 'system',     risk: 'low',      label: 'Show a badge on the taskbar' },
     // See SYSTEM_SCHEDULE above — scheduling, never self-launching.
     'system:schedule'   : { category: 'system',     risk: 'medium',   label: 'Schedule named alarms' },
+    // See SYSTEM_SHARE_TARGET above — user-mediated inbound content.
+    'system:share-target': { category: 'system',    risk: 'medium',   label: 'Receive shared content' },
     'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },

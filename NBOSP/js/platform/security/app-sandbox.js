@@ -3843,6 +3843,29 @@ const AppSandbox = (() => {
           return {};
         });
       }
+      // Inbound share targets (system:share-target): apps that declared a
+      // shareTarget in their manifest and hold the user grant. The user
+      // picks one — that IS the delivery consent — and the target receives
+      // a nova:share:inbound push now (live) or on its next launch (queued).
+      try {
+        const shareContent = { text: text, url: url };
+        const targets = Object.values(OS?.apps || {})
+          .filter((a) => a && a.id && a.id !== app?.id
+            && shareTargetMatches(normalizedShareTargetMimes(a), shareContent)
+            && AppPermissionManager.isGranted('system:share-target', a.id))
+          .slice(0, SHARE_TARGET_SHEET_MAX);
+        for (const target of targets) {
+          const targetId = target.id;
+          const targetName = target.name || targetId;
+          addAction('Send to ' + targetName, async () => {
+            const outcome = deliverShareTarget(targetId, { title: title, text: text, url: url, sourceAppId: app?.id || null });
+            if (!outcome.delivered && typeof WM !== 'undefined' && typeof WM.createWindow === 'function') {
+              try { WM.createWindow(targetId); } catch (_) { /* window opening is best-effort */ }
+            }
+            return { sharedWith: targetName, queued: outcome.queued === true };
+          });
+        }
+      } catch (_) { /* targets are an enhancement; the sheet works without them */ }
       addAction('Cancel', async () => ({ cancelled: true }));
       overlay.addEventListener('click', event => {
         if (event.target === overlay) finish({ cancelled: true });
@@ -7153,6 +7176,98 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:fs:unwatch', requestId, { success: true, cleared: cleared });
   }
 
+  // ── Share target (system:share-target) ─────────────────────────────────
+  // The inbound half of the share surface. Outbound is user-mediated via
+  // nova:share (the sheet); this makes the sheet bidirectional: apps that
+  // declare a shareTarget in their manifest AND hold the system:share-target
+  // grant are offered as destinations, and the user's pick delivers a
+  // nova:share:inbound push to the target. Delivery to a live sandbox is
+  // immediate; a closed target gets the entry queued (bounded 8) and it is
+  // delivered right after its next nova:ready — the same honest semantics
+  // as alarms: the user's click launches the window, the push never starts
+  // an app by itself.
+  const SHARE_TARGET_QUEUE_KEY = 'nova_share_inbound';
+  const SHARE_TARGET_QUEUE_MAX = 8;
+  const SHARE_TARGET_SHEET_MAX = 6;
+
+  function normalizedShareTargetMimes(app) {
+    const raw = app?.manifest?.shareTarget?.mimeTypes;
+    if (!Array.isArray(raw)) return null;
+    const mimes = raw
+      .filter((v) => typeof v === 'string' && v.trim())
+      .map((v) => v.split(';', 1)[0].trim().toLowerCase());
+    return mimes.length ? mimes : null;
+  }
+
+  function shareTargetMatches(mimes, content) {
+    if (!Array.isArray(mimes) || !mimes.length) return false;
+    const contentMimes = [];
+    if (content && content.text) contentMimes.push('text/plain');
+    if (content && content.url) contentMimes.push('text/uri-list', 'text/plain');
+    if (!contentMimes.length) return false;
+    return mimes.some((declared) => declared === '*/*'
+      || contentMimes.some((c) => c === declared
+        || (declared.endsWith('/*') && c.startsWith(declared.slice(0, -1)))));
+  }
+
+  function loadShareQueue() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SHARE_TARGET_QUEUE_KEY) || '{}');
+      if (parsed && typeof parsed === 'object' && parsed.apps && typeof parsed.apps === 'object') return parsed;
+    } catch (_) { /* corrupt — start clean */ }
+    return { version: 1, apps: {} };
+  }
+
+  function saveShareQueue(state) {
+    try { localStorage.setItem(SHARE_TARGET_QUEUE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
+  }
+
+  function queueShareInbound(appId, entry) {
+    const state = loadShareQueue();
+    const record = state.apps[appId] || (state.apps[appId] = []);
+    if (!Array.isArray(record)) { state.apps[appId] = record = []; }
+    record.push(entry);
+    if (record.length > SHARE_TARGET_QUEUE_MAX) record.splice(0, record.length - SHARE_TARGET_QUEUE_MAX);
+    saveShareQueue(state);
+  }
+
+  function flushShareInboundQueue(appId, webview) {
+    const state = loadShareQueue();
+    const record = state.apps[appId];
+    if (!Array.isArray(record) || !record.length) return 0;
+    const pending = record.splice(0, record.length);
+    if (pending.length) saveShareQueue(state);
+    for (const entry of pending) {
+      try {
+        respond(webview, 'nova:share:inbound', generateRequestId(), Object.assign({}, entry, { queued: true }));
+      } catch (_) { /* best-effort */ }
+    }
+    return pending.length;
+  }
+
+  function deliverShareTarget(appId, content) {
+    if (typeof AppPermissionManager === 'undefined'
+      || !AppPermissionManager.isGranted('system:share-target', appId)) {
+      return { delivered: false, queued: false, reason: 'PERMISSION_DENIED' };
+    }
+    const payload = {
+      title: typeof content?.title === 'string' ? content.title.slice(0, 120) : '',
+      text: typeof content?.text === 'string' ? content.text.slice(0, 4000) : '',
+      url: typeof content?.url === 'string' ? content.url : '',
+      sourceAppId: typeof content?.sourceAppId === 'string' ? content.sourceAppId : null,
+      firedAt: new Date().toISOString(),
+    };
+    const sandbox = liveSandboxForApp(appId);
+    if (sandbox) {
+      try {
+        respond(sandbox.webview, 'nova:share:inbound', generateRequestId(), payload);
+        return { delivered: true, queued: false };
+      } catch (_) { /* fall through to queue */ }
+    }
+    queueShareInbound(appId, payload);
+    return { delivered: false, queued: true };
+  }
+
   // ── Named alarms (system:schedule) ─────────────────────────────────────
   // App-scheduled wake prompts, Chrome-alarms style: an app creates named
   // alarms (a one-shot `when` or a periodic `periodMinutes` with a 15-minute
@@ -7559,6 +7674,10 @@ const AppSandbox = (() => {
         }
       }
     } catch (_) { /* best-effort delivery */ }
+
+    // Inbound shares queued while this app was closed (share-target picks
+    // with no live sandbox) — delivered right after ready, like alarms.
+    try { flushShareInboundQueue(app.id, webview); } catch (_) { /* best-effort */ }
   }
 
   // File dialogs
@@ -8949,6 +9068,7 @@ const AppSandbox = (() => {
     'fsWatch.v1': true,
     'alarms.v1': true,
     'secrets.v1': true,
+    'shareTarget.v1': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -9233,6 +9353,19 @@ const AppSandbox = (() => {
         return ipc('nova:secrets:keys', {}).then(function(result) {
           return result && Array.isArray(result.keys) ? result.keys : [];
         });
+      },
+    }),
+    // Inbound share (system:share-target) — receive content other apps
+    // shared after the user picked THIS app in the share sheet. The push
+    // payload: { title, text, url, sourceAppId, firedAt, queued? }.
+    share: Object.freeze({
+      onInbound: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        shareInboundListeners.push(callback);
+        return function() {
+          const index = shareInboundListeners.indexOf(callback);
+          if (index >= 0) shareInboundListeners.splice(index, 1);
+        };
       },
     }),
     // Named alarms (system:schedule). create takes exactly one of
@@ -9548,6 +9681,15 @@ const AppSandbox = (() => {
       return;
     }
 
+    // Pushed inbound shares (novaOS.share.onInbound) — delivered only to
+    // apps the user explicitly picked in the share sheet.
+    if (msg.type === 'nova:share:inbound:response' && msg.result) {
+      for (let w = 0; w < shareInboundListeners.length; w++) {
+        try { shareInboundListeners[w](msg.result); } catch (error) { console.error('Share inbound listener failed:', error); }
+      }
+      return;
+    }
+
     if (typeof msg.requestId !== 'string') return;
     const entry = pendingRequests.get(msg.requestId);
     if (!entry) return;
@@ -9695,6 +9837,10 @@ const AppSandbox = (() => {
   // Callbacks registered via novaOS.alarms.onAlarm() — the host pushes
   // nova:background:alarm events (fire + queued-after-launch delivery).
   const alarmListeners = [];
+
+  // Callbacks registered via novaOS.share.onInbound() — pushed
+  // nova:share:inbound events (user-mediated share-target delivery).
+  const shareInboundListeners = [];
 
   ipc.provide = function(endpoint, handler) {
     if (typeof handler !== 'function') return Promise.reject(new TypeError('handler must be a function'));
@@ -12965,6 +13111,9 @@ const AppSandbox = (() => {
       fsWatchers,
       fsWatchConfig,
       stopFsWatchersForApp,
+      deliverShareTarget,
+      normalizedShareTargetMimes,
+      shareTargetMatches,
       cleanupSandboxRecord,
       clearAppPartitionsByName,
       ensureExecutionPartitionClean,

@@ -821,6 +821,34 @@ const AppPackage = (() => {
         }
       }
     }
+    if (manifest.shareTarget !== undefined) {
+      const shareTarget = manifest.shareTarget;
+      if (!shareTarget || typeof shareTarget !== 'object' || Array.isArray(shareTarget)) {
+        errors.push('shareTarget must be an object');
+      } else {
+        for (const key of Object.keys(shareTarget)) {
+          if (key !== 'mimeTypes') errors.push(`shareTarget.${key} is not supported`);
+        }
+        if (shareTarget.mimeTypes !== undefined) {
+          if (!Array.isArray(shareTarget.mimeTypes) || shareTarget.mimeTypes.length > 20) {
+            errors.push('shareTarget.mimeTypes must be an array of at most 20 MIME patterns');
+          } else {
+            const seenMime = new Set();
+            shareTarget.mimeTypes.forEach((value, index) => {
+              const base = typeof value === 'string' ? value.split(';', 1)[0].trim() : '';
+              const valid = /^\*\/\*$/.test(base) || /^[a-z0-9!#$&^_.+-]+\/(?:[a-z0-9!#$&^_.+-]+|\*)$/i.test(base);
+              if (!valid) {
+                errors.push(`shareTarget.mimeTypes[${index}] is invalid`);
+              } else if (seenMime.has(base.toLowerCase())) {
+                errors.push(`shareTarget.mimeTypes[${index}] is duplicated`);
+              } else {
+                seenMime.add(base.toLowerCase());
+              }
+            });
+          }
+        }
+      }
+    }
     if (manifest.ipc !== undefined) {
       const ipcManifest = manifest.ipc;
       if (!ipcManifest || typeof ipcManifest !== 'object' || Array.isArray(ipcManifest)) {

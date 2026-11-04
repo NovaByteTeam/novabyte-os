@@ -555,7 +555,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-47 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+48 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -607,6 +607,7 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `system:autostart` | System | High | Launching automatically at OS startup with no user action (see below) |
 | `system:badge` | System | Low | Show a count or short label on your app's own taskbar icon (see [Taskbar badge](#taskbar-badge--novabadge)) |
 | `system:schedule` | System | Medium | Schedule named alarms your running app reacts to — never self-launching while closed (see [Named alarms](#named-alarms--novaalarms--novaosalarms)) |
+| `system:share-target` | System | Medium | Be offered as a destination in the share sheet and receive what the user sends (see [Share target](#share-target--systemshare-target--novaosshareoninbound)) |
 | `admin:apps` | Admin | High | Fleet/security audit tools — see actual grants per app, not just declared ones (needs admin mode) |
 | `admin:users` | Admin | Critical | Session monitors, force-logout tools (needs admin mode) |
 | `admin:system` | Admin | Critical | Security-policy dashboards, lockout/IP-block tuning (needs admin mode) |
@@ -817,7 +818,7 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, and `secrets.v1`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, and `shareTarget.v1`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
@@ -833,6 +834,7 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `badge` | `set(count\|{text})`, `clear()` | `nova:badge:*` | `system:badge` |
 | `alarms` | `create(options)`, `clear(name)`, `getAll()`, `onAlarm(cb)` | `nova:alarms:*` | `system:schedule` |
 | `secrets` | `set(key, value)`, `get(key)`, `delete(key)`, `keys()` | `nova:secrets:*` | `secrets:store` |
+| `share` | `onInbound(cb)` | push: `nova:share:inbound` | `system:share-target` |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -1457,6 +1459,29 @@ await window.novaOS.badge.clear();
 `set` accepts a number or an object; when both `count` and `text` are given, `count` wins. The taskbar renders the badge bottom-right on your icon (the window count, managed by the OS, stays top-right).
 
 Feature-detect with `window.novaOS.capabilities.has('badge.v1')`.
+
+### Share target — `system:share-target` / `novaOS.share.onInbound`
+
+The inbound half of [User-mediated sharing](#user-mediated-sharing--windownovashare). Declare what you accept in the manifest and hold the `system:share-target` grant (System / Medium):
+
+```json
+{
+  "shareTarget": { "mimeTypes": ["text/plain", "text/uri-list"] }
+}
+```
+
+```javascript
+// Requires system:share-target
+const unsub = window.novaOS.share.onInbound((share) => {
+  // share: { title, text, url, sourceAppId, firedAt, queued? }
+});
+```
+
+Delivery is strictly user-mediated: other apps open the share sheet, the OS lists matching targets (apps whose declared MIME patterns match the shared text or URL — `type/*` and `*/*` wildcards accepted), and the user's pick is the consent. At most 6 targets are listed so the sheet stays human.
+
+Delivery semantics: a live sandbox receives the `nova:share:inbound` push immediately; a closed target has the entry **queued** (bounded at 8) and delivered right after its next launch, with `queued: true`. The pick itself may open the target's window; the push never starts an app by itself. `sourceAppId` names the sharing app when known.
+
+Feature-detect with `window.novaOS.capabilities.has('shareTarget.v1')`.
 
 ### Secrets — `nova:secrets:*` / `novaOS.secrets`
 

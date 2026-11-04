@@ -37,6 +37,8 @@
 //   GA18 named alarms — schedule/fire/queue-on-close delivery semantics
 //   GA19 secrets — encrypted store, budgets, cross-app isolation,
 //        backup-envelope exclusion
+//   GA20 share target — MIME matching, user-mediated delivery,
+//        queue-on-close and deliver-on-relaunch
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -1678,13 +1680,89 @@ async function ga19() {
   }
 }
 
+// ════════════════════════════════ GA20 ═════════════════════════════════════
+// Share target (system:share-target) — manifest validation, MIME matching,
+// user-mediated delivery to live sandboxes, queue-on-close + deliver-on-
+// relaunch, and the grant gate on delivery.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga20() {
+  section('[GA20] share target — matching, delivery, queue-on-close');
+  try { global.localStorage.removeItem('nova_share_inbound'); } catch (_) {}
+  const appId20 = 'com.test.audit.g20';
+  const osCall = async (fn) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+
+  // 1) Manifest validation (real validateManifest).
+  let validate = null;
+  try { validate = require('../js/platform/core/app-package.js').validateManifest; } catch (_) {}
+  if (typeof validate === 'function') {
+    const ok = validate({ id: 'com.st.app', name: 'S', version: '1.0.0', entry: 'index.html', shareTarget: { mimeTypes: ['text/plain', 'text/*', '*/*'] } });
+    check('valid shareTarget manifest passes validation', ok.valid === true, JSON.stringify(ok.errors));
+    const bad = validate({ id: 'com.st.app', name: 'S', version: '1.0.0', entry: 'index.html', shareTarget: { mimeTypes: ['not a mime'], bogus: 1 } });
+    check('invalid shareTarget manifest fails validation', bad.valid === false && bad.errors.length >= 2, JSON.stringify(bad.errors));
+  } else {
+    check('shareTarget manifest validation reachable', false, 'validateManifest not loadable');
+  }
+
+  // 2) MIME matching.
+  check('text/plain declared matches text content', INTERNAL.shareTargetMatches(['text/plain'], { text: 'hi' }) === true);
+  check('text/uri-list declared matches url content', INTERNAL.shareTargetMatches(['text/uri-list'], { url: 'https://x.y' }) === true);
+  check('text/* wildcard matches text content', INTERNAL.shareTargetMatches(['text/*'], { text: 'hi' }) === true);
+  check('image/png declared does NOT match text content', INTERNAL.shareTargetMatches(['image/png'], { text: 'hi' }) === false);
+  check('*/* matches anything shareable', INTERNAL.shareTargetMatches(['*/*'], { text: 'hi' }) === true);
+  check('empty or missing declaration matches nothing', INTERNAL.shareTargetMatches(null, { text: 'hi' }) === false);
+
+  // 3) Delivery gate: without the grant, delivery is refused outright.
+  const refused = INTERNAL.deliverShareTarget(appId20, { text: 'nope' });
+  check('delivery refused without system:share-target', refused.delivered === false && refused.queued === false && refused.reason === 'PERMISSION_DENIED', JSON.stringify(refused));
+
+  // 4) Live delivery: grant + live sandbox → push reaches onInbound.
+  const g = await freshGuest(appId20, {
+    manifest: { ...AUDIT_MANIFEST, id: appId20, shareTarget: { mimeTypes: ['text/plain'] } },
+  });
+  await grant('system:share-target', appId20);
+  let inbound = null;
+  const unsub = g.novaOS.share.onInbound((share) => { inbound = share; });
+  check('share.onInbound returns an unsubscribe function', typeof unsub === 'function');
+  const out = INTERNAL.deliverShareTarget(appId20, { title: 'Look', text: 'shared text', url: '', sourceAppId: 'com.sender.app' });
+  await sleep(250);
+  check('live target receives the inbound push', out.delivered === true && inbound && inbound.text === 'shared text' && inbound.sourceAppId === 'com.sender.app', JSON.stringify({ out, inbound }));
+
+  // 5) Closed target → queue, then deliver on relaunch right after ready.
+  g.teardown();
+  const q = INTERNAL.deliverShareTarget(appId20, { text: 'for later' });
+  check('closed target queues the inbound share', q.delivered === false && q.queued === true, JSON.stringify(q));
+  let queuedInbound = null;
+  const g2 = await freshGuest(appId20, {
+    manifest: { ...AUDIT_MANIFEST, id: appId20, shareTarget: { mimeTypes: ['text/plain'] } },
+  });
+  const unsub2 = g2.novaOS.share.onInbound((share) => { queuedInbound = share; });
+  await sleep(400);
+  check('queued share delivered right after the next launch', queuedInbound && queuedInbound.text === 'for later' && queuedInbound.queued === true, JSON.stringify(queuedInbound));
+
+  // 6) Unsubscribed listeners stop receiving.
+  queuedInbound = null;
+  unsub();
+  unsub2();
+  INTERNAL.deliverShareTarget(appId20, { text: 'after unsub' });
+  await sleep(250);
+  check('no delivery after unsubscribe', queuedInbound === null, JSON.stringify(queuedInbound));
+
+  await revoke('system:share-target', appId20);
+  try { global.localStorage.removeItem('nova_share_inbound'); } catch (_) {}
+  g2.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20,
 };
 
 (async () => {
