@@ -15,6 +15,12 @@ const AppPermissionManager = (() => {
   const PERMISSION_TYPES = Object.freeze({
     FS_ACCESS         : 'fs:access',
     FS_METADATA       : 'fs:metadata',
+    // Change notifications for paths the app could already read. 'low':
+    // purely reactive — it cannot read anything a plain read could not, it
+    // only learns WHEN a readable path changes. The handler still enforces
+    // the exact nova:fs:read per-path rules; this grant is the context-free
+    // front door on top.
+    FS_WATCH          : 'fs:watch',
     FS_READ_IMAGES    : 'fs:read:images',
     FS_READ_VIDEO     : 'fs:read:video',
     FS_READ_AUDIO     : 'fs:read:audio',
@@ -94,6 +100,8 @@ const AppPermissionManager = (() => {
   const PERMISSION_CATEGORIES = Object.freeze({
     'fs:access'         : { category: 'filesystem', risk: 'critical', label: 'Manage all files', specialAccess: true },
     'fs:metadata'       : { category: 'filesystem', risk: 'medium',   label: 'Read shared file metadata' },
+    // See FS_WATCH above — reactive-only, never grants new read access.
+    'fs:watch'          : { category: 'filesystem', risk: 'low',      label: 'Get notified when your files change' },
     'fs:read:images'    : { category: 'filesystem', risk: 'medium',   label: 'Read shared images' },
     'fs:read:video'     : { category: 'filesystem', risk: 'medium',   label: 'Read shared videos' },
     'fs:read:audio'     : { category: 'filesystem', risk: 'medium',   label: 'Read shared audio' },

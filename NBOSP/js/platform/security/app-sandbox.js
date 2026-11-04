@@ -643,6 +643,12 @@ const AppSandbox = (() => {
       'nova:fs:stat': null,
       'nova:fs:rename': null,
       'nova:fs:move': null,
+      // Watch — context-free fs:watch grant at the front door PLUS the
+      // per-path nova:fs:read access rules in the handler (watching is
+      // reading). The unwatch counterpart is advisory: dropping your own
+      // poller leaks nothing.
+      'nova:fs:watch': ['fs:watch'],
+      'nova:fs:unwatch': null,
     });
 
     // Families with NO grant-coupled endpoints: every endpoint in them is
@@ -6948,6 +6954,196 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:badge:clear', requestId, { success: true, cleared: had });
   }
 
+  // ── fs:watch (fs:watch permission) ─────────────────────────────────────
+  // Change notifications for paths the app could already read. Watching is
+  // reading: the watcher is only created for a path that passes the exact
+  // same access checks as nova:fs:read (app-owned paths need no grant,
+  // shared paths need the same grants a read would), and the fs:watch
+  // grant is required on top. Delivery is abstract-FS polling (works
+  // across every backend, including the in-memory one) with a debounce so
+  // a burst of writes is one event, a per-app push cap so a hot tree can't
+  // flood the guest, and a hard per-app watcher budget. Events are
+  // best-effort: a missed tick self-heals on the next poll because the
+  // snapshot is only advanced after the decision.
+  const fsWatchers = new Map();      // watcherId -> record
+  const fsWatchPushLog = new Map();  // appId -> [timestamps]
+  const fsWatchConfig = { pollMs: 2000, debounceMs: 300, pushesPerMinute: 60 };
+  const FS_WATCH_MAX_PER_APP = 8;
+
+  function snapshotFsTarget(node) {
+    if (node.type === 'folder') {
+      const kids = FS.listDir(node.id)
+        .map((c) => `${c.id}~${c.name}~${c.type}~${c.modified ?? ''}`)
+        .sort()
+        .join('|');
+      return 'dir:' + kids;
+    }
+    return `file:${node.modified ?? 0}:${node.size ?? 0}`;
+  }
+
+  // Polling re-resolves by path, and resolveFile rewrites every /data/...
+  // path into the CALLER's own subtree — a canonical /data/<appId>/...
+  // path would double-nest (/data/<appId>/<appId>/...). App-owned targets
+  // therefore poll on the caller-relative form ('/data/' + rest); shared
+  // paths resolve as-is.
+  function watchablePathFor(node, appId) {
+    const canonical = FS.getPath(node.id);
+    const prefix = '/data/' + appDataSegment(appId) + '/';
+    if (canonical.startsWith(prefix)) {
+      return '/data/' + canonical.slice(prefix.length);
+    }
+    return canonical;
+  }
+
+  function stopFsWatcher(watcherId) {
+    const w = fsWatchers.get(watcherId);
+    if (!w) return false;
+    clearInterval(w.timer);
+    clearTimeout(w.debounceTimer);
+    fsWatchers.delete(watcherId);
+    return true;
+  }
+
+  function stopFsWatchersForApp(appId) {
+    let stopped = 0;
+    for (const [id, w] of [...fsWatchers.entries()]) {
+      if (w.appId === appId) { stopFsWatcher(id); stopped++; }
+    }
+    return stopped;
+  }
+
+  function fsWatchPushAllowed(appId) {
+    const now = Date.now();
+    const recent = (fsWatchPushLog.get(appId) || []).filter((t) => t > now - 60_000);
+    if (recent.length >= fsWatchConfig.pushesPerMinute) {
+      fsWatchPushLog.set(appId, recent);
+      return false;
+    }
+    recent.push(now);
+    fsWatchPushLog.set(appId, recent);
+    return true;
+  }
+
+  function pollFsWatcher(watcherId) {
+    const w = fsWatchers.get(watcherId);
+    if (!w) return;
+    // Re-resolve by canonical path each tick: the node may have been
+    // renamed, rewritten, or deleted since the watcher was created.
+    let node = null;
+    try { node = resolveFile({ path: w.watchPath }, w.appId) || null; } catch (_) { node = null; }
+    let snap = null;
+    if (node) { try { snap = snapshotFsTarget(node); } catch (_) { snap = null; } }
+    if (snap === w.snapshot) return;
+
+    // State changed since the last tick — debounce, then push one event.
+    clearTimeout(w.debounceTimer);
+    w.debounceTimer = setTimeout(() => {
+      const live = fsWatchers.get(watcherId);
+      if (!live) return;
+      let node2 = null;
+      try { node2 = resolveFile({ path: live.watchPath }, live.appId) || null; } catch (_) { node2 = null; }
+      let snap2 = null;
+      if (node2) { try { snap2 = snapshotFsTarget(node2); } catch (_) { snap2 = null; } }
+      const prev = live.snapshot;
+      live.snapshot = snap2;
+      if (!fsWatchPushAllowed(live.appId)) return; // coalesced; snapshot already advanced
+      const kind = snap2 === null ? 'deleted' : (prev === null ? 'created' : 'changed');
+      try {
+        respond(live.webview, 'nova:fs:changed', generateRequestId(), {
+          watcherId: watcherId,
+          path: live.canonicalPath,
+          kind: kind,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (_) { /* best-effort delivery */ }
+    }, Math.max(0, Number(fsWatchConfig.debounceMs) || 0));
+    w.snapshot = snap;
+  }
+
+  async function handleFsWatch({ payload, requestId, app, webview, sandbox }) {
+    if (!AppPermissionManager.isGranted('fs:watch', app.id)) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'PERMISSION_DENIED', 'fs:watch permission required');
+    }
+    const rawPath = payload?.path;
+    if (typeof rawPath !== 'string' || !rawPath) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'INVALID_ARGS', 'path is required');
+    }
+    const node = resolveFile({ path: rawPath }, app.id);
+    if (!node) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'NOT_FOUND', 'File or folder not found');
+    }
+    // The exact nova:fs:read access rules, per target type — watching is
+    // reading, so a watcher can never be a read-access oracle.
+    if (node.type === 'folder') {
+      const hasMetadataPermission = AppPermissionManager.isGranted('fs:metadata', app.id);
+      const hasMediaPermission = ['fs:read:images', 'fs:read:video', 'fs:read:audio']
+        .some((permission) => AppPermissionManager.isGranted(permission, app.id));
+      if (!isOwnedByApp(node, app.id) && !hasFsAccess(app.id)
+        && !hasMetadataPermission && !hasMediaPermission) {
+        return respondError(webview, 'nova:fs:watch', requestId, 'PERMISSION_DENIED',
+          'watching requires the same access as reading: app-owned paths need no grant, shared paths need the nova:fs:read grants');
+      }
+    } else if (!canReadFileContents(node, app.id, sandbox)) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'PERMISSION_DENIED',
+        'watching requires the same access as reading: app-owned paths need no grant, shared paths need the nova:fs:read grants');
+    }
+    // The caller supplies the watcher id it registered its listener under
+    // (the facade generates one per watch() call) — honor it so pushed
+    // events carry an id the guest can actually dispatch, including on
+    // FIRST registration. Re-registering an existing watcher of this app
+    // replaces its target instead of consuming a second budget slot; a
+    // foreign id falls through to a fresh host-side id, never hijacked.
+    // EVERY new registration counts against the budget — only a true
+    // re-registration of the app's own watcher skips it.
+    let watcherId = null;
+    let reRegister = false;
+    if (typeof payload?.watcherId === 'string' && /^w_[a-z0-9_]{4,64}$/.test(payload.watcherId)) {
+      const existing = fsWatchers.get(payload.watcherId);
+      if (existing && existing.appId === app.id) {
+        watcherId = payload.watcherId;
+        reRegister = true;
+      } else if (!existing) {
+        watcherId = payload.watcherId;
+      }
+    }
+    if (!reRegister) {
+      const mine = [...fsWatchers.values()].filter((w) => w.appId === app.id).length;
+      if (mine >= FS_WATCH_MAX_PER_APP) {
+        return respondError(webview, 'nova:fs:watch', requestId, 'RATE_LIMITED', `Max ${FS_WATCH_MAX_PER_APP} watchers per app`);
+      }
+      if (!watcherId) {
+        watcherId = 'w_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+      }
+    } else {
+      stopFsWatcher(watcherId);
+    }
+    const record = {
+      appId: app.id,
+      canonicalPath: FS.getPath(node.id),
+      watchPath: watchablePathFor(node, app.id),
+      snapshot: snapshotFsTarget(node),
+      webview,
+      timer: null,
+      debounceTimer: null,
+    };
+    fsWatchers.set(watcherId, record);
+    record.timer = setInterval(() => pollFsWatcher(watcherId), Math.max(10, Number(fsWatchConfig.pollMs) || 2000));
+    return respond(webview, 'nova:fs:watch', requestId, {
+      success: true,
+      watcherId: watcherId,
+      path: record.canonicalPath,
+    });
+  }
+
+  async function handleFsUnwatch({ payload, requestId, app, webview }) {
+    const watcherId = payload?.watcherId;
+    const w = typeof watcherId === 'string' ? fsWatchers.get(watcherId) : null;
+    // Idempotent and silent about other apps' watcher ids — an unknown id
+    // and a foreign id are the same "cleared: false".
+    const cleared = !!(w && w.appId === app.id && stopFsWatcher(watcherId));
+    return respond(webview, 'nova:fs:unwatch', requestId, { success: true, cleared: cleared });
+  }
+
   const PUBLIC_APPEARANCE_SETTING_KEYS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'removeTransparency']);
   const PUBLIC_APPEARANCE_FIELDS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'transparentSurfaces']);
   const PUBLIC_THEMES = new Set(['nova-dark', 'nova-light', 'nord', 'dracula', 'catppuccin', 'tokyo-night', 'gruvbox']);
@@ -7634,6 +7830,8 @@ const AppSandbox = (() => {
     'nova:appearance:unsubscribe': handleAppearanceUnsubscribe,
     'nova:fs:read': handleFsRead,
     'nova:fs:write': handleFsWrite,
+    'nova:fs:watch': handleFsWatch,
+    'nova:fs:unwatch': handleFsUnwatch,
     'nova:fs:delete': handleFsDelete,
     'nova:fs:list': handleFsList,
     'nova:fs:mkdir': handleFsMkdir,
@@ -7732,6 +7930,7 @@ const AppSandbox = (() => {
     'nova:ready', 'nova:app:info',
     'nova:fs:read', 'nova:fs:write', 'nova:fs:delete', 'nova:fs:list',
     'nova:fs:mkdir', 'nova:fs:stat', 'nova:fs:rename', 'nova:fs:move',
+    'nova:fs:watch', 'nova:fs:unwatch',
     'nova:storage:get', 'nova:storage:set', 'nova:storage:delete',
     'nova:storage:clear', 'nova:storage:keys', 'nova:storage:usage',
     'nova:data:export', 'nova:data:import', 'nova:data:backup', 'nova:data:restore',
@@ -8441,6 +8640,7 @@ const AppSandbox = (() => {
     // app may use it).
     'locale.v1': true,
     'badge.v1': true,
+    'fsWatch.v1': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -8521,6 +8721,34 @@ const AppSandbox = (() => {
       },
       remove: function(path) {
         return ipc('nova:fs:delete', { path: path });
+      },
+      // Change watch (fs:watch + the per-path read rules of nova:fs:read —
+      // watching is reading). watch() resolves with a handle whose unwatch()
+      // stops the events; changes arrive on the callback as
+      // { watcherId, path, kind: 'changed'|'created'|'deleted', timestamp }.
+      // Delivery is debounced and budgeted host-side (max 8 watchers, 60
+      // events/min) and is best-effort — poll if you need guarantees.
+      watch: function(path, callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        const watcherId = 'w_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+        fsWatchListeners[watcherId] = [callback];
+        return ipc('nova:fs:watch', { path: path, watcherId: watcherId }).then(function(result) {
+          return {
+            watcherId: watcherId,
+            path: result && result.path ? result.path : path,
+            unwatch: function() {
+              delete fsWatchListeners[watcherId];
+              return ipc('nova:fs:unwatch', { watcherId: watcherId }).then(function() {});
+            },
+          };
+        }, function(error) {
+          delete fsWatchListeners[watcherId];
+          throw error;
+        });
+      },
+      // Raw unwatch by watcher id (fs.watch().unwatch() is the usual path).
+      unwatch: function(watcherId) {
+        return ipc('nova:fs:unwatch', { watcherId: watcherId }).then(function() {});
       },
       appdata: Object.freeze({
         list: function(path) {
@@ -8951,6 +9179,16 @@ const AppSandbox = (() => {
       return;
     }
 
+    // Pushed fs watch events (novaOS.fs.watch) — dispatched to listeners
+    // registered per-watcherId via the facade's callback.
+    if (msg.type === 'nova:fs:changed:response' && msg.result && msg.result.watcherId) {
+      const cbs = fsWatchListeners[msg.result.watcherId] || [];
+      for (let k = 0; k < cbs.length; k++) {
+        try { cbs[k](msg.result); } catch (error) { console.error('fs watch listener failed:', error); }
+      }
+      return;
+    }
+
     if (typeof msg.requestId !== 'string') return;
     const entry = pendingRequests.get(msg.requestId);
     if (!entry) return;
@@ -9089,6 +9327,11 @@ const AppSandbox = (() => {
   // wsId -> { message: [cb,...], error: [cb,...], close: [cb,...] }
   // Populated by window.nova.websocket(); read by the inbox poller above.
   const wsEventListeners = {};
+
+  // watcherId -> [callback, ...] — populated by novaOS.fs.watch(); the
+  // pushed nova:fs:changed events fan out to the matching watcher's
+  // callbacks. Same lifecycle as wsEventListeners above.
+  const fsWatchListeners = {};
 
   ipc.provide = function(endpoint, handler) {
     if (typeof handler !== 'function') return Promise.reject(new TypeError('handler must be a function'));
@@ -12064,6 +12307,8 @@ const AppSandbox = (() => {
     try {
       if (appBadgeState.delete(appId)) publishBadge(appId);
     } catch (_) { /* best-effort */ }
+    // Same for fs watchers: no sandbox, nowhere to push events.
+    try { stopFsWatchersForApp(appId); } catch (_) { /* best-effort */ }
     log('debug', `Destroyed sandbox: ${sandboxId}`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `Destroyed sandbox ${sandboxId}`, data: { appId: sandbox.appId, sandboxId } });
@@ -12354,6 +12599,9 @@ const AppSandbox = (() => {
       handlePermissionRevoked,
       GUEST_FORBIDDEN_IPC_APIS,
       appBadgeState,
+      fsWatchers,
+      fsWatchConfig,
+      stopFsWatchersForApp,
       cleanupSandboxRecord,
       clearAppPartitionsByName,
       ensureExecutionPartitionClean,

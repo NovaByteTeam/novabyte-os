@@ -111,6 +111,8 @@ const MATRIX = [
   ['nova:fs:mkdir', ['fs:access'], { path: '/Documents', name: 'newdir' }],
   ['nova:fs:rename', ['fs:access'], { path: '/Documents/a.txt', name: 'b.txt' }],
   ['nova:fs:move', ['fs:access'], { path: '/Documents/a.txt', destPath: '/Documents' }],
+  ['nova:fs:watch', ['fs:watch'], { path: '/data/watch-probe.txt' }],
+  ['nova:fs:unwatch', null, { watcherId: 'w_none' }],
   ['nova:fs:stat', ['fs:metadata', 'fs:access'], { path: '/Documents/a.txt' }],
   ['nova:fs:read', ['fs:access', 'fs:metadata', 'fs:read:images'], { path: '/Documents/a.txt' }],
 

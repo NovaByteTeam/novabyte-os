@@ -30,7 +30,7 @@ const AppRegistry = (() => {
   const _onUninstalled = [];
 
   const KNOWN_PERMISSIONS = new Set([
-    'fs:access', 'fs:metadata', 'fs:read:images', 'fs:read:video', 'fs:read:audio',
+    'fs:access', 'fs:metadata', 'fs:watch', 'fs:read:images', 'fs:read:video', 'fs:read:audio',
     'apps:communicate',
     'clipboard:read', 'clipboard:write',
     'data:export', 'data:backup',

@@ -555,7 +555,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-44 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+45 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -569,6 +569,7 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 |------------|----------|------|------------|
 | `fs:access` | Filesystem | Critical | Special access to shared files; users enable it manually in Settings |
 | `fs:metadata` | Filesystem | Medium | Reading metadata for shared files without their contents |
+| `fs:watch` | Filesystem | Low | Change alerts for paths your app can already read (see [File watch](#file-watch--novafswatch--novaosfswatch)) |
 | `fs:read:images` | Filesystem | Medium | Reading shared images |
 | `fs:read:video` | Filesystem | Medium | Reading shared videos |
 | `fs:read:audio` | Filesystem | Medium | Reading shared audio |
@@ -814,12 +815,12 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1` and `badge.v1`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, and `fsWatch.v1`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
 | `storage` | `get set remove clear keys usage` | `nova:storage:*` | none — always your own namespace |
-| `fs` | `read write list stat mkdir rename move remove` + `appdata.*` / `shared.*` roots | `nova:fs:*` | same path rules as raw `nova:fs:*` |
+| `fs` | `read write list stat mkdir rename move remove` + `watch`/`unwatch` + `appdata.*` / `shared.*` roots | `nova:fs:*` + `nova:fs:watch` | same path rules as raw `nova:fs:*`; watch adds `fs:watch` |
 | `clipboard` | `readText() → text\|null`, `writeText(text)` | `nova:clipboard:*` | `clipboard:read` / `clipboard:write` |
 | `notifications` | `show post createChannel cancel cancelAll clear consumeActions` | `nova:notifications:*` | `device:notifications` |
 | `window` | `close minimize maximize setTitle resize getState` | `nova:window:*` | none |
@@ -1107,6 +1108,33 @@ The first time your app's `/data/<your-app-id>/` folder is set up, the host pre-
 ```
 
 This mirrors Android's internal-storage convention by name, but the subfolders are organizational only — writing directly to your app root works exactly the same. If you list your root right after install and see these four folders, that's expected. File-browser-style apps should decide up front whether to show them or filter them out.
+
+### File watch — `nova:fs:watch` / `novaOS.fs.watch`
+
+Requires `fs:watch` (Filesystem / Low) **plus** the exact per-path access rules of `nova:fs:read` — watching is reading, never a way to learn about paths you couldn't already read. App-owned paths need no other grant; shared paths need the same grants a read would.
+
+`novaOS.fs.watch(path, callback)` resolves with a handle: `{ watcherId, path, unwatch() }`. Changes arrive on the callback as `{ watcherId, path, kind: 'changed' | 'created' | 'deleted', timestamp }`.
+
+Delivery is deliberately best-effort and budgeted host-side:
+
+- max **8 watchers per app** (a 9th rejects with `RATE_LIMITED`);
+- events are **debounced** — a burst of writes is one event;
+- a per-app cap of **60 events per minute**; beyond it, events are coalesced away (the watcher stays live and healthy);
+- a watcher whose target is deleted reports `kind: 'deleted'` once and keeps watching — recreating the path reports `created`;
+- watchers are session-scoped and torn down with the app.
+
+If your app must not miss an event, poll instead — the watch surface is a convenience over the same read rules, not a guaranteed event log.
+
+```javascript
+// Requires fs:watch
+const handle = await window.novaOS.fs.watch('appdata:/notes/todo.txt', (event) => {
+  if (event.kind === 'changed') reloadFile();
+});
+// …later
+await handle.unwatch();
+```
+
+Feature-detect with `window.novaOS.capabilities.has('fsWatch.v1')`.
 
 ### Notifications — `nova:notifications:*`
 

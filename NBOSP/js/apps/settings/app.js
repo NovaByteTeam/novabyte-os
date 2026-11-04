@@ -109,7 +109,7 @@ registerApp({
     ];
 
     const PERM_LABELS = {
-      'fs:access': 'Manage all files (special access)', 'fs:metadata': 'Read shared file metadata',
+      'fs:access': 'Manage all files (special access)', 'fs:metadata': 'Read shared file metadata', 'fs:watch': 'File change alerts',
       'fs:read:images': 'Read shared images', 'fs:read:video': 'Read shared videos', 'fs:read:audio': 'Read shared audio',
       'net:internal': 'Internal network', 'net:external': 'Public internet', 'net:websocket': 'Public WebSocket',
       'clipboard:read': 'Read clipboard', 'clipboard:write': 'Write clipboard',

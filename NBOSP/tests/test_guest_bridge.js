@@ -32,6 +32,8 @@
 //        app/data facades behave exactly like the channels they wrap
 //   GA16 locale + taskbar badge — first new host powers (ungated locale,
 //        clamped/rate-limited badge store)
+//   GA17 fs:watch — change events, per-path access parity with fs:read,
+//        watcher budget and unwatch semantics
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -349,6 +351,8 @@ const DOC_CHANNELS = [
   ['nova:locale:get', {}],
   ['nova:badge:set', { count: 3 }],
   ['nova:badge:clear', {}],
+  ['nova:fs:watch', { path: '/data/watch-probe.txt' }],
+  ['nova:fs:unwatch', { watcherId: 'w_none' }],
   ['nova:settings:get', { key: 'theme' }],
   ['nova:settings:set', { key: 'theme', value: 'dark' }],
   ['nova:events:subscribe', { event: 'system:themeChanged' }],
@@ -452,6 +456,7 @@ const PERM_MATRIX = [
   ['clipboard:read', 'nova:clipboard:read', {}],
   ['clipboard:write', 'nova:clipboard:write', { text: 'hi' }],
   ['system:badge', 'nova:badge:set', { count: 3 }],
+  ['fs:watch', 'nova:fs:watch', { path: '/data/watch-probe.txt' }],
   ['system:info', 'nova:system:info', {}],
   ['system:settings', 'nova:settings:set', { key: 'theme', value: 'dark' }],
   ['system:apps', 'nova:app:list', {}],
@@ -1388,13 +1393,101 @@ async function ga16() {
   g.teardown();
 }
 
+// ════════════════════════════════ GA17 ═════════════════════════════════════
+// fs:watch — change events over the abstract FS, per-path access rules
+// identical to nova:fs:read, watcher budget, unwatch semantics.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga17() {
+  section('[GA17] fs:watch — events, budgets, access rules');
+  seedSharedFiles();
+  const appId17 = 'com.test.audit.g17';
+  const savedWatchConfig = { ...INTERNAL.fsWatchConfig };
+  INTERNAL.fsWatchConfig.pollMs = 25;
+  INTERNAL.fsWatchConfig.debounceMs = 30;
+  try {
+    const g = await freshGuest(appId17);
+    const osCall = async (fn) => {
+      try { return { ok: true, value: await settle(fn(), 6000) }; }
+      catch (e) { return { ok: false, error: e }; }
+    };
+
+    // 1) Deny without the fs:watch grant (context-free front door).
+    const d1 = await guestCall(g, 'nova:fs:watch', { path: '/data/watch-probe.txt' });
+    check('fs:watch denied without fs:watch grant', !d1.ok && errCode(d1.error) === 'PERMISSION_DENIED', JSON.stringify(d1.error && d1.error.code));
+
+    await grant('fs:watch', appId17);
+
+    // 2) Own path: watch + change + delete events end-to-end.
+    await settle(g.novaOS.fs.write('appdata:/ga17/watched.txt', 'v1'));
+    let evt = null;
+    const h = await osCall(() => g.novaOS.fs.watch('appdata:/ga17/watched.txt', (e) => { evt = e; }));
+    check('fs.watch resolves a handle with a watcherId', h.ok && h.value && typeof h.value.watcherId === 'string' && h.value.watcherId.startsWith('w_'), JSON.stringify(h.error && h.error.code));
+    check('fs.watch handle echoes the canonical path', h.ok && typeof h.value.path === 'string' && h.value.path.indexOf('/data/' + appId17) === 0, JSON.stringify(h.value && h.value.path));
+    await settle(g.nova.ipc('nova:fs:write', { path: 'appdata:/ga17/watched.txt', content: 'v2' }));
+    await sleep(200);
+    check('change event delivered with kind=changed', evt && evt.kind === 'changed' && evt.watcherId === h.value.watcherId, JSON.stringify(evt));
+    evt = null;
+    await settle(g.nova.ipc('nova:fs:delete', { path: 'appdata:/ga17/watched.txt' }));
+    await sleep(200);
+    check('delete event delivered with kind=deleted', evt && evt.kind === 'deleted', JSON.stringify(evt));
+
+    // 3) Shared path needs the same read grants a nova:fs:read would.
+    const d2 = await guestCall(g, 'nova:fs:watch', { path: '/Pictures/notes.txt' });
+    check('shared watch denied without read grants even with fs:watch', !d2.ok && errCode(d2.error) === 'PERMISSION_DENIED', JSON.stringify(d2.error && d2.error.code));
+    await grant('fs:access', appId17);
+    const h2 = await osCall(() => g.novaOS.fs.watch('/Pictures/notes.txt', () => {}));
+    check('shared watch allowed with fs:access', h2.ok, JSON.stringify(h2.error && h2.error.code));
+
+    // 4) Watcher budget: 8 per app. Two are live; fill up and hit the cap.
+    for (let i = 0; i < 7; i++) {
+      await settle(g.nova.ipc('nova:fs:write', { path: 'appdata:/ga17/w' + i + '.txt', content: 'x' }));
+    }
+    let budgetHit = false;
+    const watchErrs = [];
+    for (let i = 0; i < 7; i++) {
+      const r = await osCall(() => g.novaOS.fs.watch('appdata:/ga17/w' + i + '.txt', () => {}));
+      if (!r.ok) watchErrs.push(i + ':' + errCode(r.error));
+      if (!r.ok && errCode(r.error) === 'RATE_LIMITED') { budgetHit = true; break; }
+    }
+    check('watcher over budget → RATE_LIMITED (max 8 per app)', budgetHit);
+
+    // 5) unwatch frees a slot.
+    if (h2.ok) await settle(h2.value.unwatch());
+    await settle(g.nova.ipc('nova:fs:write', { path: 'appdata:/ga17/free.txt', content: 'x' }));
+    const again = await osCall(() => g.novaOS.fs.watch('appdata:/ga17/free.txt', () => {}));
+    check('unwatch frees a watcher slot', again.ok, JSON.stringify(again.error && again.error.code));
+
+    // 6) Unknown watcher id: cleared:false, never an error, no info leak.
+    const foreign = await guestCall(g, 'nova:fs:unwatch', { watcherId: 'w_unknown' });
+    check('unwatch of unknown id answers cleared:false', foreign.ok && foreign.value && foreign.value.cleared === false, JSON.stringify(foreign.value));
+
+    // 7) No events after unwatch.
+    evt = null;
+    if (h.ok) await settle(h.value.unwatch());
+    await settle(g.nova.ipc('nova:fs:write', { path: 'appdata:/ga17/watched.txt', content: 'post-unwatch' }));
+    await sleep(200);
+    check('no events after unwatch', evt === null, JSON.stringify(evt));
+
+    // 8) Host-side cleanup for an app's watchers.
+    const stopped = INTERNAL.stopFsWatchersForApp(appId17);
+    check('stopFsWatchersForApp tears down the rest', stopped >= 1 && [...INTERNAL.fsWatchers.values()].every((w) => w.appId !== appId17), `stopped=${stopped}`);
+
+    await revoke('fs:watch', appId17);
+    await revoke('fs:access', appId17);
+    g.teardown();
+  } finally {
+    Object.assign(INTERNAL.fsWatchConfig, savedWatchConfig);
+  }
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17,
 };
 
 (async () => {
