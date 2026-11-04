@@ -173,6 +173,10 @@ global.fetch = function stubFetch(url, opts) {
   const u = String(url);
   // Host service endpoints the sandbox itself talks to.
   if (u === '/api/security/settings') return jsonResponse(200, { success: true, data: { _meta: { adminMode: true } } });
+  if (u === '/api/push/subscribe') {
+    const body = JSON.parse(opts?.body || '{}');
+    return jsonResponse(200, { ok: true, subscribed: Array.isArray(body.subscriptions) ? body.subscriptions.length : 0 });
+  }
   if (u.startsWith('/api/security/audit')) return jsonResponse(200, { success: true, data: [], pagination: {}, statistics: {} });
   if (u.startsWith('/api/admin')) return jsonResponse(200, { success: true, data: {} });
   // Mirrors the REAL /api/proxy response contract (server/proxies.js):

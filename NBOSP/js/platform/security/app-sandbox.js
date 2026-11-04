@@ -7832,22 +7832,31 @@ const AppSandbox = (() => {
   // revoked/uninstalled apps' tokens as a side effect — the server's
   // token→device map is rebuilt from this on every reconnect, so a
   // restart anywhere heals itself.
-  async function syncPushSubscriptions() {
-    pushSubscriptionsDirty = true;
-    if (!pushStreamAbort) return; // only meaningful while connected
+  async function syncPushSubscriptions(force = false) {
+    if (!force && !pushSubscriptionsDirty) return true;
     try {
       const holders = pushPermissionHolders();
       const state = loadPushState();
       const subscriptions = holders
         .map((app) => (state.tokens[app.id] ? { token: state.tokens[app.id].token, appId: app.id } : null))
         .filter(Boolean);
-      await fetch('/api/push/subscribe', {
+      const response = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceId: pushDeviceId(), subscriptions: subscriptions }),
       });
+      if (!response?.ok) throw new Error(`server returned HTTP ${response?.status ?? 'unknown'}`);
+      const result = await response.json();
+      if (result?.ok !== true || result.subscribed !== subscriptions.length) {
+        throw new Error('server did not confirm every push subscription');
+      }
       pushSubscriptionsDirty = false;
-    } catch (_) { /* next reconnect re-syncs */ }
+      return true;
+    } catch (error) {
+      pushSubscriptionsDirty = true;
+      console.warn('[Push] Subscription sync failed; it will retry on the next registration or stream reconnect:', error?.message || error);
+      return false;
+    }
   }
 
   function schedulePushReconnect() {
@@ -7883,7 +7892,7 @@ const AppSandbox = (() => {
       }
 
       pushReconnectStep = 0;
-      try { syncPushSubscriptions(); } catch (_) { /* re-synced on next connect */ }
+      syncPushSubscriptions(true);
       // Drain replay happens server-side at attach; parse the event stream.
       try {
         const reader = res.body.getReader();
@@ -7924,7 +7933,7 @@ const AppSandbox = (() => {
     }
     if (pushStreamAbort) {
       // Already connected — but the token set may have changed.
-      if (pushSubscriptionsDirty) syncPushSubscriptions().catch(() => {});
+      if (pushSubscriptionsDirty) syncPushSubscriptions();
       return;
     }
     pushStreamAbort = new AbortController();
@@ -7948,6 +7957,7 @@ const AppSandbox = (() => {
     // Connection may not exist yet (first registrant boots it); the sync
     // marks the token set dirty even when it can't run right now.
     pushSubscriptionsDirty = true;
+    const subscribed = await syncPushSubscriptions(true);
     ensurePushConnection();
     let endpoint = '/api/push/publish';
     try { endpoint = new URL('/api/push/publish', window.location.href).toString(); } catch (_) { /* relative path is fine */ }
@@ -7958,6 +7968,7 @@ const AppSandbox = (() => {
       endpoint: endpoint,
       queued: queued,
       replaced: replaced,
+      subscribed: subscribed,
     });
   }
 
@@ -7974,6 +7985,7 @@ const AppSandbox = (() => {
     if (state.queue && Object.prototype.hasOwnProperty.call(state.queue, app.id)) delete state.queue[app.id];
     savePushState(state);
     pushSubscriptionsDirty = true;
+    await syncPushSubscriptions(true);
     ensurePushConnection();
     return respond(webview, 'nova:push:unregister', requestId, { success: true, removed: had });
   }
@@ -9860,10 +9872,10 @@ const AppSandbox = (() => {
     }),
     // Push delivery (push:receive) — messages from the app's own backend
     // via the OS push service. register() resolves
-    // { success, token, endpoint, queued?, replaced? } — hand the stable
-    // token to YOUR backend, which publishes to the endpoint documented in
-    // NOVAAPP.md. register() is idempotent: the same install keeps the
-    // same token. Messages arrive via onMessage as
+    // { success, token, endpoint, queued?, replaced?, subscribed } — hand
+    // the stable token to YOUR backend, which publishes to the endpoint
+    // documented in NOVAAPP.md. register() is idempotent: the same install
+    // keeps the same token. Messages arrive via onMessage as
     // { appId, id, title?, body?, data?, sentAt, queued? }.
     push: Object.freeze({
       register: function() { return ipc('nova:push:register', {}).then(function(result) { return result || {}; }); },

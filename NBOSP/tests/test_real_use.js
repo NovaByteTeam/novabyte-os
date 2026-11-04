@@ -1301,9 +1301,24 @@ async function r13() {
   check('token has the publish shape', /^nps_[0-9a-f]{32}$/.test(reg.result?.token || ''), JSON.stringify(reg.result));
   check('endpoint names the publish route', typeof reg.result?.endpoint === 'string' && reg.result.endpoint.endsWith('/api/push/publish'), JSON.stringify(reg.result?.endpoint));
   const token = reg.result?.token;
+  const subscribeCall = fetchCalls.slice(fetchLenBefore).find((call) => call.url === '/api/push/subscribe');
+  let subscriptionBody = null;
+  try { subscriptionBody = JSON.parse(subscribeCall?.opts?.body || 'null'); } catch (_) { /* checked below */ }
+  check('register subscribes its token without waiting for the SSE stream', reg.result?.subscribed === true
+    && subscriptionBody?.subscriptions?.some((entry) => entry.token === token && entry.appId === appId), JSON.stringify({ result: reg.result, subscriptionBody }));
   const regAgain = await call('nova:push:register', {}, ctx);
   check('re-register keeps the same token', regAgain.result?.token === token, JSON.stringify(regAgain.result));
-  check('register attempted no transport calls of its own beyond state sync', fetchCalls.length - fetchLenBefore <= 2, String(fetchCalls.length - fetchLenBefore));
+  check('re-register confirms the server subscription', regAgain.result?.subscribed === true, JSON.stringify(regAgain.result));
+  const originalFetch = global.fetch;
+  global.fetch = (url, options) => String(url) === '/api/push/subscribe'
+    ? Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) })
+    : originalFetch(url, options);
+  let unavailable;
+  try { unavailable = await call('nova:push:register', {}, ctx); }
+  finally { global.fetch = originalFetch; }
+  check('register reports an unconfirmed subscription instead of masking server failure', unavailable.result?.subscribed === false, JSON.stringify(unavailable.result));
+  const retry = await call('nova:push:register', {}, ctx);
+  check('register can retry the server subscription', retry.result?.subscribed === true, JSON.stringify(retry.result));
 
   // 2) Rung 1 — live sandbox: the message lands as a pushed event, intact.
   const outLive = INTERNAL.deliverPushMessage(appId, { title: 'Ada', body: 'picture this', data: { conversationId: 'c-42' } });
@@ -1364,9 +1379,15 @@ async function r13() {
   check('queue drains empty after the flush', queueLen() === 0, String(queueLen()));
 
   // 8) Unregister tears the whole surface down for this app.
+  const fetchLenBeforeUnregister = fetchCalls.length;
   const unreg = await INTERNAL.handleAPICall('nova:push:unregister', {}, 'req-unreg', chat.app, wv3, sb3);
   await sleep(25);
   check('unregister resolves and clears token + queue', !pushState().tokens[appId] && !pushState().queue[appId], JSON.stringify(unreg));
+  const unsubscribeCall = fetchCalls.slice(fetchLenBeforeUnregister).find((call) => call.url === '/api/push/subscribe');
+  let unsubscribeBody = null;
+  try { unsubscribeBody = JSON.parse(unsubscribeCall?.opts?.body || 'null'); } catch (_) { /* checked below */ }
+  check('unregister synchronizes the removed token to the server', Array.isArray(unsubscribeBody?.subscriptions)
+    && !unsubscribeBody.subscriptions.some((entry) => entry.token === token), JSON.stringify(unsubscribeBody));
 
   PM.closeAllDialogs();
 }

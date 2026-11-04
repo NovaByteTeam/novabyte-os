@@ -1545,8 +1545,10 @@ Requires `push:receive` (System / Medium). Server-to-app push in the FCM shape: 
 
 ```javascript
 // Requires push:receive
-const { token, endpoint } = await window.novaOS.push.register();
+const { token, endpoint, subscribed } = await window.novaOS.push.register();
 // Hand `token` to YOUR backend — it publishes to the OS push service:
+// `subscribed` is true once the OS server acknowledges this device mapping.
+// If false (for example, while offline), retry register() after connectivity returns.
 
 // (on your backend, not in the app)
 // POST <os-server>/api/push/publish
