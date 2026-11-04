@@ -849,7 +849,12 @@ Reading the small, non-sensitive appearance snapshot and subscribing to its chan
 ```javascript
 const current = await window.nova.appearance.get();
 const unsubscribe = await window.nova.appearance.onChange(appearance => {
-  document.documentElement.dataset.theme = appearance.theme;
+  /* appearance.theme is an OS theme id ('nova-light', 'nord', …), NOT a
+     light/dark token. Map it to your app's own theme names — unless your
+     stylesheet really covers every OS id — or the assignment below matches
+     no selector and your app silently keeps its default look. */
+  const light = appearance.theme === 'nova-light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
   document.documentElement.style.setProperty('--accent', appearance.accentColor || '');
   document.documentElement.classList.toggle('high-contrast', appearance.highContrast);
   document.documentElement.classList.toggle('reduce-motion', appearance.reduceMotion);
@@ -857,6 +862,8 @@ const unsubscribe = await window.nova.appearance.onChange(appearance => {
 // later, when the view is disposed:
 unsubscribe();
 ```
+
+`appearance.theme` is an OS theme id, not a light/dark token. Apps that only ship a light and a dark variant must map ids onto their own theme names (above) instead of assigning the id raw to an attribute like `data-theme` — an unmatched selector fails silently, leaving the app stuck on its default look. Every OS theme id except `'nova-light'` currently names a dark palette, so map unrecognized ids (from future OS versions) to your dark variant.
 
 The API deliberately does not expose unrelated OS settings. `set` accepts only the supported appearance fields and validated values; it does not require `system:settings`. Valid values: `theme` must be one of the OS theme ids — `'nova-dark'`, `'nova-light'`, `'nord'`, `'dracula'`, `'catppuccin'`, `'tokyo-night'`, `'gruvbox'` (an unknown theme rejects with `INVALID_ARGS`); `accentColor` is a `#rrggbb` hex string or `null`; `highContrast`, `reduceMotion`, and `transparentSurfaces` are booleans. `onChange` calls the callback immediately with the current snapshot, then on each change. Updates are rate-limited to 10 per minute.
 
