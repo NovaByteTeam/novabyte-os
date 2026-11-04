@@ -25,22 +25,15 @@ const EXACT_SKIP_PATHS = new Set([
     '/favicon.ico',
     '/api/favicon',
     '/api/events/stream',
-    // App sandbox registration is local bookkeeping performed during every
-    // packaged-app launch, not a user-facing API request.
-    '/api/apps/serve/register',
-    // Same for the per-sandbox liveness heartbeat (app-sandbox.js keeps its
-    // serve-registry entry fresh while the sandbox exists). Long-running apps
-    // would otherwise burn the global API budget on keep-alive pings.
-    '/api/apps/serve/heartbeat',
     // The OS UI log mirror (app-sandbox.js POSTs its info/warn/error lines
     // here so they reach the serial console). It must never be rate-limited:
     // the whole OS shares one localhost bucket, OS-internal traffic already
-    // exhausts the budget (that is why register/heartbeat are exempt), and a
-    // 429 here is swallowed by the mirror's never-throw policy — so limiter
-    // starvation silently killed every field-debugging capture before this
-    // exemption. The sink is self-throttled at the source (40 lines/5s) and
-    // bounded at the sink (50 lines/request, 2000 chars/line), so exempting
-    // it does not reopen an abuse hole.
+    // exhausts the budget, and a 429 here is swallowed by the mirror's
+    // never-throw policy — so limiter starvation silently killed every
+    // field-debugging capture before this exemption. The sink is
+    // self-throttled at the source (40 lines/5s) and bounded at the sink
+    // (50 lines/request, 2000 chars/line), so exempting it does not reopen
+    // an abuse hole.
     '/api/os/log',
 ]);
 const PREFIX_SKIP_PATHS = [
@@ -48,7 +41,20 @@ const PREFIX_SKIP_PATHS = [
     '/css/',
     '/public/',
     '/assets/',
-    '/api/apps/serve/unregister/',
+    // The per-sandbox app-serve surface (register, heartbeat, unregister,
+    // and every installed app's content tree: HTML/JS/CSS/icons under
+    // /api/apps/serve/<sandbox>/…). App windows load these through
+    // navigation and <script>/<link>/<img>/<iframe> tags, which cannot
+    // carry custom headers, so they can never be trusted via signature —
+    // yet a handful of app launches pulls dozens of requests through here
+    // and exhausted the global per-IP budget in the field, 429-ing the
+    // whole desktop (default launcher included) for the 15-minute window
+    // ("Too many requests from this IP"). This surface is the OS's own
+    // installed-app content on localhost; the limiter exists for untrusted
+    // remote clients, not for it. OS-UI fetch() traffic is separately
+    // trusted via signature (js/platform/security/system-fetch.js +
+    // isTrustedSystemAppRequest below).
+    '/api/apps/serve/',
 ];
 
 function shouldSkipGlobalApiRateLimit(req) {
