@@ -50,17 +50,45 @@ function makeRichNode(tag) {
   const handlers = {};
   const node = {
     tagName: String(tag).toUpperCase(),
+    // Element nodes: nodeType 1, with the parentElement alias the host's
+    // event forwarders read alongside parentNode.
+    nodeType: 1,
     style: {}, dataset: {}, children: [],
     textContent: '', value: '', className: '',
     disabled: false, checked: false, removed: false,
-    append(...kids) { for (const k of kids) node.children.push(k); },
-    appendChild(k) { node.children.push(k); return k; },
-    replaceChildren(...kids) { node.children.length = 0; node.children.push(...kids); },
+    parentNode: null,
+    get parentElement() { return node.parentNode; },
+    append(...kids) { for (const k of kids) { k.parentNode = node; node.children.push(k); } },
+    appendChild(k) { k.parentNode = node; node.children.push(k); return k; },
+    replaceChildren(...kids) {
+      for (const k of node.children) k.parentNode = null;
+      node.children.length = 0;
+      for (const k of kids) { k.parentNode = node; node.children.push(k); }
+    },
     addEventListener(type, fn) { (handlers[type] ||= []).push(fn); },
     removeEventListener() {},
     setAttribute(k, v) { (node.attrs ||= {})[k] = String(v); },
     getAttribute(k) { return node.attrs ? (node.attrs[k] ?? null) : null; },
     removeAttribute(k) { if (node.attrs) delete node.attrs[k]; },
+    // Minimal selector fidelity for the host's overlay event forwarder,
+    // which resolves the interaction target with
+    // eventTarget.closest('[data-nova-action], [data-nova-field]').
+    closest(selector) {
+      const alternatives = String(selector).split(',').map((s) => s.trim()).filter(Boolean);
+      const matches = (n) => alternatives.some((sel) => {
+        if (sel.startsWith('[') && sel.endsWith(']')) {
+          const attr = sel.slice(1, -1);
+          return !!(n.attrs && n.attrs[attr] !== undefined);
+        }
+        return n.tagName === sel.toUpperCase();
+      });
+      let cur = node;
+      while (cur) {
+        if (matches(cur)) return cur;
+        cur = cur.parentNode;
+      }
+      return null;
+    },
     querySelector: () => null,
     querySelectorAll: () => [],
     remove() { node.removed = true; },
@@ -72,8 +100,19 @@ function makeRichNode(tag) {
       contains(c) { return node.classListStore?.has(c) ?? false; },
     },
     __handlers: handlers,
+    // Real click/input/change/submit/keydown events bubble from the target
+    // through every ancestor, so a document-level overlay listener sees
+    // element-level __fire() calls like a user click would.
     __fire(type, evt = {}) {
-      for (const fn of handlers[type] || []) fn({ stopPropagation() {}, preventDefault() {}, ...evt });
+      const event = { stopPropagation() { event.__stopped = true; }, preventDefault() {}, ...evt, target: node, type };
+      let cur = node;
+      while (cur) {
+        for (const fn of cur.__handlers?.[type] || []) {
+          try { fn(event); } catch (_) {}
+        }
+        if (event.__stopped) break;
+        cur = cur.parentNode;
+      }
     },
   };
   return node;
@@ -108,7 +147,11 @@ function installRichDocument() {
     visibilityState: 'visible',
     hasFocus: () => true,
     getElementById(id) { return id === 'toast-container' ? toastContainer : null; },
-    createElement(tag) { return makeRichNode(tag); },
+    createElement(tag) {
+      const node = makeRichNode(tag);
+      if (String(tag).toLowerCase() === 'iframe') installIframeFidelity(node);
+      return node;
+    },
     createTextNode(text) { const n = makeRichNode('#text'); n.textContent = text; return n; },
     createDocumentFragment() { return makeRichNode('#fragment'); },
     execCommand: () => true,
@@ -129,6 +172,127 @@ function installRichDocument() {
 }
 
 installRichDocument();
+
+// ── host-realm window fidelity (the overlay/dialog code lives here) ──
+
+// The host page IS a window; the overlay handler registers resize/scroll
+// listeners and reads NovaSystemWebview off it. helpers/env.js may already
+// have installed a bare window stub — augment it with the DOM-event surface
+// the host realm needs instead of replacing it.
+if (!global.window) global.window = global;
+global.window.addEventListener = global.window.addEventListener || (() => {});
+global.window.removeEventListener = global.window.removeEventListener || (() => {});
+global.window.innerWidth = global.window.innerWidth || 1280;
+global.window.innerHeight = global.window.innerHeight || 800;
+global.addEventListener = global.addEventListener || global.window.addEventListener;
+global.removeEventListener = global.removeEventListener || global.window.removeEventListener;
+if (typeof global.getComputedStyle !== 'function') {
+  global.getComputedStyle = () => ({
+    visibility: 'visible', display: 'block', pointerEvents: 'auto', zIndex: 'auto',
+    getPropertyValue: () => '',
+  });
+}
+
+// DOMPurify equivalent for the simulator's host realm. The production host
+// loads the real DOMPurify; the overlay path only needs sanitize() to strip
+// the forbidden tags/attributes the handler config already names.
+if (typeof global.DOMPurify === 'undefined') {
+  global.DOMPurify = {
+    sanitize(html, options = {}) {
+      const forbiddenTags = new Set((options.FORBID_TAGS || []).map((t) => String(t).toLowerCase()));
+      const forbiddenAttrs = new Set((options.FORBID_ATTR || []).map((a) => String(a).toLowerCase()));
+      let out = String(html)
+        .replace(/<!--(?!--\[)[\s\S]*?-->/g, '')
+        .replace(/<\/?([a-zA-Z0-9-]+)((?:\s+[^<>]*?)?)\s*\/?>/g, (match, tagName, attrs) => {
+          if (forbiddenTags.has(String(tagName).toLowerCase())) return '';
+          const cleanedAttrs = String(attrs || '').replace(/([^=\s"'>]+)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/g, (attrMatch, attrName, attrValue) => {
+            const name = String(attrName).toLowerCase();
+            if (forbiddenAttrs.has(name) || name.startsWith('on')) return '';
+            if (/^(href|src|action|formaction)$/i.test(name) && /^\s*(javascript|data:text\/html)/i.test(attrValue)) return '';
+            return attrMatch;
+          });
+          return `<${match.startsWith('</') ? '/' : ''}${tagName}${cleanedAttrs}>`;
+        });
+      return out;
+    },
+  };
+}
+
+// A rich contentDocument for simulator <iframe> elements: parse simple HTML
+// into rich nodes (attributes preserved) so the host's overlay renderer can
+// attach listeners and the audit can click [data-nova-action] elements.
+function makeRichSubDocument(ownerNode) {
+  const doc = makeRichNode('#document');
+  doc.body = makeRichNode('body');
+  doc.head = makeRichNode('head');
+  doc.body.parentNode = doc;
+  doc.head.parentNode = doc;
+  doc.documentElement = makeRichNode('html');
+  doc.documentElement.appendChild(doc.head);
+  doc.documentElement.appendChild(doc.body);
+  doc.appendChild(doc.documentElement);
+  doc.createElement = (tag) => makeRichNode(tag);
+  doc.createTextNode = (text) => { const n = makeRichNode('#text'); n.textContent = text; return n; };
+  Object.defineProperty(doc.body, 'innerHTML', {
+    set(html) {
+      doc.body.replaceChildren();
+      const tagPattern = /<([a-zA-Z0-9-]+)((?:\s+[^<>]*?)?)>([\s\S]*?)<\/\1>|<([a-zA-Z0-9-]+)((?:\s+[^<>]*?)?)\/>/g;
+      let match;
+      while ((match = tagPattern.exec(String(html))) !== null) {
+        const tagName = match[1] || match[4];
+        const attrsRaw = match[2] || match[5] || '';
+        const text = match[3] ?? '';
+        const el = makeRichNode(tagName);
+        const attrPattern = /([^=\s"'>]+)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/g;
+        let attr;
+        while ((attr = attrPattern.exec(attrsRaw)) !== null) {
+          el.setAttribute(attr[1], attr[2].replace(/^(["'])([\s\S]*)\1$/, '$2'));
+        }
+        el.textContent = text;
+        doc.body.appendChild(el);
+      }
+    },
+    get() { return ''; },
+    configurable: true,
+  });
+  void ownerNode;
+  return doc;
+}
+
+// A simulator <iframe> behaves like the real thing for the overlay flow:
+// contentDocument exists, and 'load' fires (async) once the element is
+// appended to the document with a srcdoc assigned.
+function installIframeFidelity(iframe) {
+  let doc = null;
+  let loadArmed = false;
+  Object.defineProperty(iframe, 'contentDocument', {
+    get() {
+      if (!doc) doc = makeRichSubDocument(iframe);
+      return doc;
+    },
+    configurable: true,
+  });
+  const maybeFireLoad = () => {
+    if (loadArmed || iframe.removed) return;
+    loadArmed = true;
+    setImmediate(() => {
+      if (iframe.removed) return;
+      iframe.__fire('load');
+    });
+  };
+  let srcdocValue = '';
+  Object.defineProperty(iframe, 'srcdoc', {
+    set(v) {
+      srcdocValue = String(v);
+      // A real browser fires 'load' after parsing srcdoc; the host assigns
+      // srcdoc then appends, so deferring to the next tick lands after the
+      // append without needing parent-side hooks.
+      maybeFireLoad();
+    },
+    get() { return srcdocValue; },
+    configurable: true,
+  });
+}
 
 // ── OS event bus (same on/off/emit contract the real shell exposes) ──
 
@@ -382,6 +546,16 @@ function makeGuestWebview(appId, sandboxId, isolatedContext) {
   const wv = {
     dataset: { appId, sandboxId },
     src: null,
+    // A real NW.js <webview> is a DOM element: it always has a live style
+    // object. Host code (e.g. the system dialogs) toggles
+    // webview.style.visibility while a modal is open, so the simulator
+    // must carry one too or those flows crash the host.
+    style: {},
+    clientWidth: 800,
+    clientHeight: 600,
+    getBoundingClientRect() {
+      return { left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0 };
+    },
     addEventListener(type, fn) {
       if (!listeners.has(type)) listeners.set(type, new Set());
       listeners.get(type).add(fn);

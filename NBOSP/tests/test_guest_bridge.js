@@ -24,6 +24,10 @@
 //   GA8  real flows: clipboard, notifications, settings, events,
 //        appearance, launch intents, inter-app IPC, requestPermission
 //   GA9  doc parity — permission table vs manager catalog, event table
+//   GA13 full channel-table sweep — every runtime handler-table channel
+//        answers; every guest-forbidden channel rejects despite grants
+//   GA14 host→app push delivery — appearance changes, overlay events,
+//        background wakes
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -1009,12 +1013,190 @@ const appId09 = 'com.test.audit.g9';
 
 // ═══════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════
+// GA13 — full channel-table sweep + guest-forbidden enforcement
+//
+// DOC_CHANNELS pins the documented surface; the runtime's real handler
+// table (INTERNAL.API_HANDLERS) is the source of truth and can drift.
+// This section drives EVERY table channel the documented probe does not
+// cover, and proves every GUEST_FORBIDDEN_IPC_APIS entry rejects even a
+// fully privileged guest (the dispatch-time guard runs before MAC and
+// before any handler — these channels are host-UI-only by design).
+// ═══════════════════════════════════════════════════════════════════════
+
+const appId13 = 'com.test.audit.g13';
+const appId13b = 'com.test.audit.g13b';
+
+// Channels whose real behavior is proven elsewhere as interactive flows:
+// GA12 drives requestPermission dialogs and the rate-limit probe end to end.
+const SWEEP_COVERED_ELSEWHERE = new Set([
+  'nova:request-permission',
+  'nova:permission-rate-limited',
+]);
+
+// The sweep may open a real file dialog (sysdialog/dialog channels are in
+// the handler table); a user answers it by cancelling, so the sweep does
+// the same. GA4's dismiss pattern, generalized to any open dialog.
+function dismissAnyOpenDialog() {
+  const cancelBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Cancel');
+  if (cancelBtn) cancelBtn.__fire('click');
+}
+
+async function ga13() {
+  section('[GA13] full channel-table sweep + guest-forbidden enforcement');
+  const forbidden = INTERNAL.GUEST_FORBIDDEN_IPC_APIS;
+  const table = Object.keys(INTERNAL.API_HANDLERS);
+  check('runtime channel table is non-trivial', table.length >= 80, `got ${table.length}`);
+  check('guest-forbidden set is non-trivial', forbidden.size >= 30, `got ${forbidden.size}`);
+
+  // 1) Every forbidden channel rejects PERMISSION_DENIED for a guest that
+  //    holds every grant these domains would otherwise consult.
+  const g = await freshGuest(appId13);
+  for (const p of ['system:apps', 'system:app-launch', 'apps:communicate', 'admin:audit', 'admin:system', 'admin:users', 'system:events']) {
+    await grant(p, appId13);
+  }
+  let denied = 0;
+  const weak = [];
+  for (const type of forbidden) {
+    const r = await guestCall(g, type, {});
+    if (!r.ok && errCode(r.error) === 'PERMISSION_DENIED') denied++;
+    else weak.push(`${type} → ${r.ok ? 'RESOLVED' : errCode(r.error)}`);
+  }
+  check(`all ${forbidden.size} guest-forbidden channels reject PERMISSION_DENIED despite full grants`, denied === forbidden.size, weak.join(', '));
+  g.teardown();
+
+  // 2) Sweep: every remaining table channel answers with a code-carrying
+  //    response — success or a documented typed error (INVALID_ARGS,
+  //    PERMISSION_DENIED, UNAVAILABLE, ...), never a hang or a codeless
+  //    rejection. This is the anti-drift check: a handler added to the
+  //    runtime table must be exercisable by an app or removed.
+  const probed = new Set(DOC_CHANNELS.map(([type]) => type));
+  const rest = table
+    .filter((t) => !forbidden.has(t) && !probed.has(t) && !SWEEP_COVERED_ELSEWHERE.has(t));
+  const g2 = await freshGuest(appId13b, {
+    manifest: {
+      ...AUDIT_MANIFEST, id: appId13b,
+      allowNestedWebview: true,
+      permissions: ['sandbox:nested-webview'],
+      ipc: { exports: [], receives: [] },
+    },
+    permissions: ['sandbox:nested-webview'],
+  });
+  for (const p of ['system:apps', 'system:app-launch', 'apps:communicate', 'system:events', 'system:background']) await grant(p, appId13b);
+  const interactive = new Set(['nova:sysdialog:open', 'nova:sysdialog:save', 'nova:dialog:open', 'nova:dialog:save', 'nova:files:open']);
+  const unanswered = [];
+  for (const type of rest) {
+    const callPromise = g2.nova.ipc(type, {});
+    // Dismissals happen while this promise is still un-awaited; attach a
+    // no-op catch now so a rejection during the interactive window can't
+    // become an unhandledRejection that kills the process.
+    callPromise.catch(() => {});
+    if (interactive.has(type)) {
+      await sleep(200);
+      dismissAnyOpenDialog();
+      await sleep(100);
+      dismissAnyOpenDialog();
+    }
+    const r = await guestCallResult(callPromise);
+    if (r.ok) continue;
+    const e = r.error || {};
+    if (e.code && typeof e.code === 'string' && e.message && typeof e.message === 'string') continue;
+    unanswered.push(`${type} → ${e.message || 'no error object'}`);
+  }
+  check(`every remaining ${rest.length} runtime channels answer with a typed response`, unanswered.length === 0, unanswered.join(', '));
+  g2.teardown();
+}
+
+// Same shape as guestCall but for an already-started call promise.
+async function guestCallResult(callPromise) {
+  try {
+    const value = await settle(callPromise, 6000);
+    return { ok: true, value };
+  } catch (e) {
+    return { ok: false, error: e };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// GA14 — host→app push delivery
+//
+// GA8 proved nova:events:event pushes; this section covers the other
+// push channels a running app lives on: appearance changes, overlay
+// interactions, and AppScheduler background wakes.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga14() {
+  section('[GA14] host→app push delivery — appearance, overlay events, background wake');
+
+  // 1) Appearance change push → appearance.onChange callbacks. The host
+  //    handler subscribes to OS settings:changed and forwards public keys
+  //    as nova:appearance:changed:event; the shim acks and fans out.
+  const g = await freshGuest('com.test.audit.g14');
+  let seen = null, onChangeErr = null, unsubFn = null;
+  try { unsubFn = await settle(g.nova.appearance.onChange((snap) => { seen = snap; })); }
+  catch (e) { onChangeErr = e; }
+  check('appearance.onChange subscribes', !onChangeErr, JSON.stringify(onChangeErr && onChangeErr.code));
+  env.state.OS.events.emit('settings:changed', { key: 'theme', value: 'nord' });
+  await sleep(250);
+  check('appearance change pushes a snapshot to onChange callbacks', seen && typeof seen === 'object' && seen.theme !== undefined, JSON.stringify(seen).slice(0, 140));
+  if (typeof unsubFn === 'function') await settle(unsubFn());
+  env.state.OS.events.emit('settings:changed', { key: 'theme', value: 'light' });
+  await sleep(150);
+  check('no push after appearance.onChange unsubscribe', seen && seen.theme !== 'light', JSON.stringify(seen).slice(0, 140));
+
+  // 2) Overlay interaction push: clicking a [data-nova-action] element in a
+  //    shown overlay forwards { overlayId, type, action } to overlay.onEvent.
+  const overlayGuest = await freshGuest('com.test.audit.g14b', {
+    manifest: {
+      ...AUDIT_MANIFEST, id: 'com.test.audit.g14b',
+      allowNestedWebview: true,
+      permissions: ['sandbox:nested-webview'],
+    },
+    permissions: ['sandbox:nested-webview'],
+  });
+  // The overlay is a double gate: manifest opt-in AND the user grant.
+  await grant('sandbox:nested-webview', 'com.test.audit.g14b');
+  let overlayEvent = null, showErr = null, shown = null;
+  overlayGuest.nova.overlay.onEvent((e) => { overlayEvent = e; });
+  try { shown = await settle(overlayGuest.nova.overlay.show({ html: '<button data-nova-action="go">Go</button>' })); }
+  catch (e) { showErr = e; }
+  check('overlay.show resolves', !showErr && shown && shown.success !== false, JSON.stringify(showErr && showErr.code || shown).slice(0, 140));
+  await sleep(150);
+  // The overlay renders inside the host's sandboxed <iframe>; the action
+  // button lives in that iframe's contentDocument, not the host body.
+  const overlayIframes = [];
+  findInTree(global.document.body, (n) => { if (n.tagName === 'IFRAME') overlayIframes.push(n); return false; });
+  let btn = null;
+  for (const f of overlayIframes) {
+    btn = findInTree(f.contentDocument?.body, (n) => n.tagName === 'BUTTON' && n.getAttribute?.('data-nova-action') === 'go');
+    if (btn) break;
+  }
+  check('overlay action button rendered into the overlay document', !!btn);
+  if (btn) { btn.__fire('click'); await sleep(250); }
+  check('overlay click pushes an event to overlay.onEvent', overlayEvent && overlayEvent.type === 'click' && overlayEvent.action === 'go', JSON.stringify(overlayEvent).slice(0, 180));
+
+  // 3) Background wake push: the host only sends wake messages to a
+  //    sandbox it started for a wake cycle (gated on system:background
+  //    before creation), so the guest side dispatches without a second
+  //    permission check. Drive the real respond() push path — respond()
+  //    appends the ':response' wire suffix itself (see AppScheduler.wake).
+  let wake = null;
+  g.nova.onBackgroundWake((info) => { wake = info; });
+  INTERNAL.respond(g.webview, 'nova:background:wake', INTERNAL.generateRequestId(), { reason: 'scheduled-wake' });
+  await sleep(600);
+  check('background wake push reaches onBackgroundWake listeners', wake && wake.reason === 'scheduled-wake', JSON.stringify(wake).slice(0, 140));
+
+  g.teardown();
+  overlayGuest.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
+  GA13: ga13, GA14: ga14,
 };
 
 (async () => {
