@@ -18,7 +18,7 @@
 //   GA2  v2 storage facade end-to-end
 //   GA3  v2 fs facade (appdata + shared roots)
 //   GA4  raw channel probe — every documented channel answers
-//   GA5  permission matrix — all 37 documented permissions, deny + grant
+//   GA5  permission matrix — all documented permissions, deny + grant
 //   GA6  error contract — rejections carry .code/.message; UNKNOWN_API
 //   GA7  cross-app isolation (storage, appdata, picker scope)
 //   GA8  real flows: clipboard, notifications, settings, events,

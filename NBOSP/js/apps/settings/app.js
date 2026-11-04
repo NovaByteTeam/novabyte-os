@@ -2116,6 +2116,43 @@ registerApp({
           body.appendChild(normSection);
         }
 
+        // Live per-app resource counts for the newer surfaces — visible in
+        // the same detail view as the grants, never the values themselves
+        // (secret VALUES are unreadable even here, by design).
+        try {
+          const liveCounts = [];
+          if (mgr.isGranted && mgr.isGranted('secrets:store', appId) && typeof AppSecrets !== 'undefined' && AppSecrets.count) {
+            const n = AppSecrets.count(appId);
+            liveCounts.push(n + (n === 1 ? ' secret' : ' secrets'));
+          }
+          if (mgr.isGranted && mgr.isGranted('system:schedule', appId)) {
+            let alarmCount = 0;
+            try {
+              const state = JSON.parse(localStorage.getItem('nova_app_alarms') || '{"apps":{}}');
+              const rec = state.apps && state.apps[appId];
+              if (rec && rec.alarms) alarmCount = Object.keys(rec.alarms).length;
+            } catch (_) {}
+            liveCounts.push(alarmCount + (alarmCount === 1 ? ' alarm' : ' alarms'));
+          }
+          if (mgr.isGranted && mgr.isGranted('fs:watch', appId) && typeof AppSandbox !== 'undefined' && AppSandbox._internal && AppSandbox._internal.fsWatchers) {
+            let watcherCount = 0;
+            for (const w of AppSandbox._internal.fsWatchers.values()) if (w.appId === appId) watcherCount++;
+            liveCounts.push(watcherCount + (watcherCount === 1 ? ' watcher' : ' watchers'));
+          }
+          if (liveCounts.length > 0) {
+            const liveSection = createEl('div', { style: 'padding:0 14px 10px;' });
+            liveSection.appendChild(createEl('div', {
+              textContent: 'IN USE',
+              style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:4px;'
+            }));
+            liveSection.appendChild(createEl('div', {
+              textContent: liveCounts.join(' · '),
+              style: 'font-size:11px;color:var(--text-muted);'
+            }));
+            body.appendChild(liveSection);
+          }
+        } catch (_) { /* counts are informational; never block the page */ }
+
         if (dangerous.length > 0) {
           const footer   = createEl('div', { style: 'padding:8px 14px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;' });
           const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset All Permissions', style: 'font-size:11px;' });
