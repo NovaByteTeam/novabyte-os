@@ -115,12 +115,19 @@ function createLoaderContext({
   const statusElements = [];
   const boot = vi.fn();
   const eventListeners = new Map();
+  const registeredServices = new Map();
   const context = {
     atob,
     TextDecoder,
     ...(indexedDB ? { indexedDB } : {}),
     started,
     boot,
+    AppRegistry: {
+      registerSystemService: vi.fn(service => {
+        registeredServices.set(service.id, service);
+        return service;
+      }),
+    },
     addEventListener: vi.fn((type, listener) => eventListeners.set(type, listener)),
     removeEventListener: vi.fn((type, listener) => {
       if (eventListeners.get(type) === listener) eventListeners.delete(type);
@@ -167,7 +174,7 @@ function createLoaderContext({
     },
   };
 
-  return { context, statusElements, packages, started, boot };
+  return { context, statusElements, packages, started, boot, registeredServices };
 }
 
 describe('SystemServiceLoader', () => {
@@ -202,7 +209,7 @@ describe('SystemServiceLoader', () => {
   });
 
   it('verifies and starts trusted services sequentially in manifest order', async () => {
-    const { context, statusElements, started, boot } = createLoaderContext();
+    const { context, statusElements, started, boot, registeredServices } = createLoaderContext();
     runInNewContext(loaderSource, context);
 
     await context.SystemServiceLoader.load();
@@ -218,6 +225,8 @@ describe('SystemServiceLoader', () => {
       system: true,
       headlessSystemService: true,
     });
+    expect(registeredServices.size).toBe(2);
+    expect(context.AppRegistry.registerSystemService).toHaveBeenCalledTimes(2);
   });
 
   it('starts the App Loader Optimiser before loading later service packages', async () => {
@@ -248,7 +257,7 @@ describe('SystemServiceLoader', () => {
   });
 
   it('continues startup when an individual service package is missing', async () => {
-    const { context, statusElements, started, boot } = createLoaderContext({
+    const { context, statusElements, started, boot, registeredServices } = createLoaderContext({
       missingPackage: 'com.example.first',
     });
     runInNewContext(loaderSource, context);
@@ -262,6 +271,7 @@ describe('SystemServiceLoader', () => {
     expect(boot).toHaveBeenCalledOnce();
     expect(statusElements).toHaveLength(1);
     expect(context.localStorage.setItem).not.toHaveBeenCalled();
+    expect([...registeredServices.keys()]).toEqual(['com.example.second']);
   });
 
   it('loads all services before boot', async () => {

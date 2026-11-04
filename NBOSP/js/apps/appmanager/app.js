@@ -1285,8 +1285,10 @@ registerApp({
 
     // ── Helpers ────────────────────────────────────────────────────
     const PackageStore = window.NovaAppPackageStore || null;
-    const isManagedSystemPackage = app =>
-      app.headlessSystemService || app.manifest?.systemService === true;
+    const isSystemService = app =>
+      app?.systemService === true || app?.headlessSystemService === true ||
+      app?.manifest?.systemService === true;
+    const isManagedSystemPackage = app => isSystemService(app);
 
     // Builds the CSP injected into sandboxed app HTML. Only the webapp
     // template needs frame-src — everything else gets none, since no other
@@ -1328,7 +1330,7 @@ registerApp({
         const knownIds = new Set(apps.map(app => app.id));
         for (const [id, entry] of Object.entries(OS.apps || {})) {
           if (knownIds.has(id) || id.startsWith('wa_') || id.startsWith('webapp_') ||
-              entry?.headlessSystemService || entry?.manifest?.systemService === true) continue;
+              isManagedSystemPackage(entry)) continue;
           apps.push({
             ...entry,
             id,
@@ -1608,8 +1610,7 @@ registerApp({
       }, listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
-      // Developer tools, the built-in launcher, and headless services are
-      // available for inspection but hidden from the ordinary package list.
+      // Developer tools and the built-in launcher can be inspected on demand.
       let showHiddenApps = localStorage.getItem('nova_show_hidden_apps') === '1' ||
         (localStorage.getItem('nova_show_hidden_apps') === null &&
           localStorage.getItem('nova_show_system_apps') === '1');
@@ -1700,10 +1701,10 @@ registerApp({
         listEl.innerHTML = '';
         const q = searchEl.value.trim().toLowerCase();
         const disabledSet = new Set(getDisabled());
-        let visible = installedApps.filter(app => showHiddenApps || !(
-          app.system === true &&
-          (HIDDEN_SYSTEM_APP_IDS.has(app.id) || app.manifest?.systemService === true)
-        ));
+        let visible = installedApps.filter(app => {
+          if (isSystemService(app)) return showHiddenApps;
+          return showHiddenApps || !(app.system === true && HIDDEN_SYSTEM_APP_IDS.has(app.id));
+        });
 
         if (q) {
           visible = visible.filter(a =>
@@ -1720,7 +1721,7 @@ registerApp({
             ? '<div style="font-size:13px;">No apps match.</div>'
             : showHiddenApps
               ? '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No packages installed.<br>Click <strong style="color:var(--text-primary);">Install</strong> or drop a <code style="color:var(--accent);">.novaapp</code> file.</div>'
-              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No apps match.<br>Enable <strong style="color:var(--text-primary);">Show hidden apps</strong> to include developer tools and system services.</div>';
+              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No apps match.<br>Enable <strong style="color:var(--text-primary);">Show hidden apps</strong> to include developer tools and hidden system apps.</div>';
           listEl.appendChild(msg);
           return;
         }

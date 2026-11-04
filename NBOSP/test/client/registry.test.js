@@ -68,6 +68,44 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     expect(mockOS.apps['test-app'].name).toBe('Test');
   });
 
+  it('registers system services internally without exposing them as apps', () => {
+    vi.resetModules();
+    const mod = require('../../js/platform/core/app-registry.js');
+    const service = {
+      id: 'com.nbosp.service.hidden',
+      name: 'Hidden service',
+      system: true,
+      verified: true,
+      signer: 'NovaByte System',
+      source: 'system-bundle',
+      manifest: { system: true, systemService: true },
+    };
+
+    const registered = mod.registerSystemService(service);
+
+    expect(registered.headlessSystemService).toBe(true);
+    expect(mod.getApp(service.id)).toBe(registered);
+    expect(mod.isRegistered(service.id)).toBe(true);
+    expect(mod.getAllApps()).not.toContain(registered);
+    expect(mockOS.apps[service.id]).toBeUndefined();
+    expect(window.APP_REGISTRY.some(app => app.id === service.id)).toBe(false);
+    expect(() => mod.registerApp({ id: service.id, name: 'Imposter' })).toThrow(/reserved for a system service/);
+  });
+
+  it('rejects system service registration without trusted system provenance', () => {
+    vi.resetModules();
+    const mod = require('../../js/platform/core/app-registry.js');
+
+    expect(() => mod.registerSystemService({
+      id: 'com.example.untrusted',
+      name: 'Untrusted service',
+      system: true,
+      verified: false,
+      signer: 'Unknown',
+      manifest: { system: true, systemService: true },
+    })).toThrow(/verified NovaByte System package/);
+  });
+
   it('fills default fields when omitted', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');

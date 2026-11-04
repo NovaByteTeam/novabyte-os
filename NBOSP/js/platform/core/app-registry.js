@@ -26,6 +26,7 @@ const AppRegistry = (() => {
   const STORAGE_KEY = 'nova_registry_meta';
 
   let installedApps    = new Map();
+  const systemServices = new Map();
   const _onInstalled   = [];
   const _onUninstalled = [];
 
@@ -197,6 +198,9 @@ const AppRegistry = (() => {
 
   function registerApp(appConfig, options = {}) {
     if (!appConfig?.id || !appConfig?.name) throw new Error('[AppRegistry] App must have id and name');
+    if (systemServices.has(appConfig.id)) {
+      throw new Error('[AppRegistry] Registration denied — id "' + appConfig.id + '" is reserved for a system service.');
+    }
 
     if (installedApps.has(appConfig.id) && !options.force) {
       return installedApps.get(appConfig.id);
@@ -323,6 +327,30 @@ const AppRegistry = (() => {
 
     for (const cb of _onInstalled) { try { cb(app); } catch { /* ignore hook errors */ } }
     return app;
+  }
+
+  function registerSystemService(service) {
+    if (!service?.id || !service?.name ||
+        service.system !== true || service.verified !== true ||
+        service.signer !== 'NovaByte System' ||
+        service.manifest?.system !== true || service.manifest?.systemService !== true) {
+      throw new Error('[AppRegistry] System service registration requires a verified NovaByte System package.');
+    }
+    if (installedApps.has(service.id)) {
+      throw new Error('[AppRegistry] System service id is already registered as an app: ' + service.id);
+    }
+
+    const registered = Object.freeze({
+      ...service,
+      systemService: true,
+      headlessSystemService: true,
+    });
+    systemServices.set(registered.id, registered);
+    return registered;
+  }
+
+  function unregisterSystemService(serviceId) {
+    return systemServices.delete(serviceId);
   }
 
   function unregisterApp(appId) {
@@ -540,7 +568,8 @@ const AppRegistry = (() => {
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
-  function getApp(appId)              { return installedApps.get(appId) ?? null; }
+  function getApp(appId)              { return installedApps.get(appId) ?? systemServices.get(appId) ?? null; }
+  function isRegistered(appId)        { return installedApps.has(appId) || systemServices.has(appId); }
   function getAllApps()               { return [...installedApps.values()]; }
   function getAppsByCategory(cat)    { return [...installedApps.values()].filter(a => a.categories.includes(cat)); }
 
@@ -564,8 +593,9 @@ const AppRegistry = (() => {
   function onUninstall(cb) { if (typeof cb === 'function') _onUninstalled.push(cb); }
 
   return {
-    initialize, registerApp, unregisterApp, uninstallApp, launchApp, updateApp,
-    getApp, getAllApps, getAppsByCategory, checkPermissions,
+    initialize, registerApp, registerSystemService, unregisterSystemService,
+    unregisterApp, uninstallApp, launchApp, updateApp,
+    getApp, isRegistered, getAllApps, getAppsByCategory, checkPermissions,
     onInstall, onUninstall, getStats,
   };
 })();
