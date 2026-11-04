@@ -3478,6 +3478,14 @@ const AppSandbox = (() => {
   // App lifecycle
 
   const crossAppLaunchRateLimits = new Map();
+  /* Launch rate limits exist because these are programmatic calls with no
+     user-gesture signal: a buggy or hostile app looping on launch would
+     otherwise spam window creation with no other guard in front of
+     WM.createWindow. The budgets are set far above any human flow (opening
+     and closing apps repeatedly) but far below a runaway loop, so real users
+     never see RATE_LIMITED from normal use. Launches from the desktop
+     launcher/taskbar go through WM directly and are not limited. */
+  const LAUNCH_RATE_LIMIT_MAX = 30;
   const HOME_ALWAYS_LAUNCHABLE_APP_IDS = new Set([
     'com.nbosp.settings',
     'com.nbosp.appmanager',
@@ -3492,9 +3500,9 @@ const AppSandbox = (() => {
     }
     const now = Date.now();
     const launchTimes = (crossAppLaunchRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
-    if (launchTimes.length >= 6) {
+    if (launchTimes.length >= LAUNCH_RATE_LIMIT_MAX) {
       crossAppLaunchRateLimits.set(app.id, launchTimes);
-      return respondError(webview, 'nova:app:launch', requestId, 'RATE_LIMITED', 'Max 6 cross-app launches per minute');
+      return respondError(webview, 'nova:app:launch', requestId, 'RATE_LIMITED', `Max ${LAUNCH_RATE_LIMIT_MAX} cross-app launches per minute`);
     }
     const { appId, options } = payload ?? {};
     if (!appId) {
@@ -3595,9 +3603,9 @@ const AppSandbox = (() => {
 
     const now = Date.now();
     const launchTimes = (crossAppLaunchRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
-    if (launchTimes.length >= 6) {
+    if (launchTimes.length >= LAUNCH_RATE_LIMIT_MAX) {
       crossAppLaunchRateLimits.set(app.id, launchTimes);
-      return respondError(webview, 'nova:home:apps:launch', requestId, 'RATE_LIMITED', 'Max 6 Home app launches per minute');
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'RATE_LIMITED', `Max ${LAUNCH_RATE_LIMIT_MAX} Home app launches per minute`);
     }
     try {
       if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
@@ -3841,9 +3849,12 @@ const AppSandbox = (() => {
   // whole sandbox already does) means we can't lean on the guest telling
   // us it was a click. The mitigation actually available at this layer is
   // the same one used for notifications: a sliding-window rate limit, so
-  // a misbehaving app can steal window focus at most a few times a minute
-  // instead of in a tight loop.
-  const DEFAULT_APPS_RATE_LIMIT_MAX = 3;
+  // a misbehaving app can steal window focus only a bounded number of
+  // times per minute instead of in a tight loop. The budget sits well
+  // above any human flow (a user reopening Settings a dozen times in a
+  // minute is unusual but legitimate) while a focus-stealing loop still
+  // bounces quickly.
+  const DEFAULT_APPS_RATE_LIMIT_MAX = 12;
   const DEFAULT_APPS_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
   const defaultAppsRateLimitLog = new Map();
 

@@ -1171,7 +1171,7 @@ const { apps } = await window.nova.apps.list();
 // `iconUrl` is a package image data URL, a safe local /assets path, or a
 // generated SVG data URL for built-in icon names. It is null when unavailable.
 
-// Launch an installed app (requires system:app-launch; max 6 per minute)
+// Launch an installed app (requires system:app-launch; max 30 per minute)
 await window.nova.apps.launch('com.example.otherapp');
 
 // Get info about this app (no permission)
@@ -1207,11 +1207,11 @@ await window.nova.home.apps.launch('com.nbosp.settings');
 await window.nova.home.apps.launch('com.nbosp.appmanager');
 ```
 
-**`openDefaultAppsSettings` is rate-limited** to 3 calls per minute per app id, using the same sliding-window pattern as notifications. This exists because, unlike a real click, there's no reliable host-side signal that the call came from a user gesture; the limit bounds how often a misbehaving app can steal focus by repeatedly popping Settings open. Calls beyond the limit reject with `{ code: 'RATE_LIMITED' }`.
+**`openDefaultAppsSettings` is rate-limited** to 12 calls per minute per app id, using the same sliding-window pattern as notifications. This exists because, unlike a real click, there's no reliable host-side signal that the call came from a user gesture; the limit bounds how often a misbehaving app can steal focus by repeatedly popping Settings open — the budget sits well above any human flow, while a focus-stealing loop still bounces. Calls beyond the limit reject with `{ code: 'RATE_LIMITED' }`.
 
 This call only opens Settings to the right place — it never changes the user's default. The user still picks your app from the picker; there's no way to set a default programmatically without their action.
 
-`window.nova.home.*` variants are restricted to the currently selected Home app (others receive `PERMISSION_DENIED`), share the 3-per-minute limit, and Home launches are limited to 6 per minute without accepting caller-supplied launch options or file intents.
+`window.nova.home.*` variants are restricted to the currently selected Home app (others receive `PERMISSION_DENIED`), share the 12-per-minute settings limit, and Home launches are limited to 30 per minute without accepting caller-supplied launch options or file intents.
 
 ### Admin — `nova:admin:*` / `window.nova.admin`
 

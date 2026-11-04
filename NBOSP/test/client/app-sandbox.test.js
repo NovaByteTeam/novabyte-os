@@ -1877,7 +1877,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
 
     try {
       const webview = { __directResponder: message => responses.push(message) };
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 31; i++) {
         await AppSandbox._internal.handleAPICall(
           'nova:app:launch',
           { appId: 'target-app' },
@@ -1891,9 +1891,9 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       vi.unstubAllGlobals();
     }
 
-    expect(createWindow).toHaveBeenCalledTimes(6);
-    expect(responses.slice(0, 6).every(response => response.result.success)).toBe(true);
-    expect(responses[6].error.code).toBe('RATE_LIMITED');
+    expect(createWindow).toHaveBeenCalledTimes(30);
+    expect(responses.slice(0, 30).every(response => response.result.success)).toBe(true);
+    expect(responses[30].error.code).toBe('RATE_LIMITED');
   });
 
   it('allows benign system events without system:events but protects app inventory events', async () => {
