@@ -137,6 +137,8 @@ global.updateNotificationBadge = () => {};
 // ── load the real permission manager ──
 const AppPermissionManager = require(path.join(NBOSP, 'js/platform/security/app-permission-manager.js'));
 global.AppPermissionManager = AppPermissionManager;
+const AppSecrets = require(path.join(NBOSP, 'js/platform/security/app-secrets.js'));
+global.AppSecrets = AppSecrets;
 
 // ── load the real notifications service (sets window.Notify) ──
 const svcSource = fs.readFileSync(path.join(NBOSP, 'js/apps/notifications/service.js'), 'utf8');
@@ -320,7 +322,7 @@ function resetHost() {
 }
 
 module.exports = {
-  AppSandbox, AppPermissionManager, Notify,
+  AppSandbox, AppPermissionManager, AppSecrets, Notify,
   makeApp, makeWebview, makeSandbox, call, grant, revoke, resetHost, registerActive,
   fetchCalls,
   state: {

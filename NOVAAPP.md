@@ -555,7 +555,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-46 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+47 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -595,6 +595,7 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `clipboard:write` | Device | Low | Copy-to-clipboard features (does not allow reading clipboard contents) |
 | `data:export` | Data | Low | Export a targeted subset of your app's own storage namespace and import previously exported envelopes back (see [Data portability](#data-portability--novadata--windownovadata)) |
 | `data:backup` | Data | Low | Snapshot your app's entire storage namespace to a portable envelope and restore it, optionally wiping first (see [Data portability](#data-portability--novadata--windownovadata)) |
+| `secrets:store` | Data | Medium | Encrypted storage for your app's own passwords and tokens — never included in export/backup envelopes (see [Secrets](#secrets--novasecrets--novaossecrets)) |
 | `system:info` | System | Medium | Diagnostics, "about this device" panels — also gates reading allowlisted settings values (see [Settings](#settings--novasettingsget--novasettingsset)) |
 | `system:settings` | System | Medium | Preference sync, theme/settings dashboards |
 | `system:apps` | System | Medium | Launchers, app-store-style installers, dock/dashboard replacements |
@@ -816,7 +817,7 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, and `alarms.v1`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, and `secrets.v1`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
@@ -831,6 +832,7 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `locale` | `get()` → `{ locale, region, timeZone, firstDayOfWeek }` | `nova:locale:get` | none |
 | `badge` | `set(count\|{text})`, `clear()` | `nova:badge:*` | `system:badge` |
 | `alarms` | `create(options)`, `clear(name)`, `getAll()`, `onAlarm(cb)` | `nova:alarms:*` | `system:schedule` |
+| `secrets` | `set(key, value)`, `get(key)`, `delete(key)`, `keys()` | `nova:secrets:*` | `secrets:store` |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -1455,6 +1457,27 @@ await window.novaOS.badge.clear();
 `set` accepts a number or an object; when both `count` and `text` are given, `count` wins. The taskbar renders the badge bottom-right on your icon (the window count, managed by the OS, stays top-right).
 
 Feature-detect with `window.novaOS.capabilities.has('badge.v1')`.
+
+### Secrets — `nova:secrets:*` / `novaOS.secrets`
+
+Requires `secrets:store` (Data / Medium). An encrypted per-app key/value store for small credentials — tokens, passwords, API keys. AES-256-GCM at rest under a per-install master key (`root/app-secrets.key`, 0600); plaintext never touches disk. Budgets: **64 secrets per app, 8 KB per value, 128-character keys**.
+
+```javascript
+// Requires secrets:store
+await window.novaOS.secrets.set('api-token', 'dN0t…');
+const token = await window.novaOS.secrets.get('api-token'); // string | null
+const labels = await window.novaOS.secrets.keys();          // your own key names only
+await window.novaOS.secrets.delete('api-token');
+```
+
+Two rules make this surface safe rather than decorative:
+
+1. **Secrets are not part of your portable namespace.** `data:export` / `data:backup` read the storage service only — a backup envelope can never silently carry credentials. If you want a secret in a backup, encrypt it yourself and store the ciphertext.
+2. **No cross-app reads, ever.** The store is namespaced by app ID host-side; `keys()` lists only your own labels, and the Settings dashboard shows per-app secret *counts*, never values. A blob that fails authentication (wrong master key after a reinstall, tampered store) reads back as `null` instead of erroring or leaking.
+
+If the OS cannot persist the master key (locked-down filesystem), secrets degrade to session-only memory and `set` responds with `persisted: false` — surface that to the user rather than pretending nothing happened.
+
+Feature-detect with `window.novaOS.capabilities.has('secrets.v1')`.
 
 ### Named alarms — `nova:alarms:*` / `novaOS.alarms`
 

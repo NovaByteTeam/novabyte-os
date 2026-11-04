@@ -116,6 +116,10 @@ const MATRIX = [
   ['nova:alarms:create', ['system:schedule'], { name: 'mx', periodMinutes: 15 }],
   ['nova:alarms:clear', ['system:schedule'], { name: 'mx' }],
   ['nova:alarms:getAll', ['system:schedule'], {}],
+  ['nova:secrets:set', ['secrets:store'], { key: 'mx', value: 'v' }],
+  ['nova:secrets:get', ['secrets:store'], { key: 'mx' }],
+  ['nova:secrets:delete', ['secrets:store'], { key: 'mx' }],
+  ['nova:secrets:keys', ['secrets:store'], {}],
   ['nova:fs:stat', ['fs:metadata', 'fs:access'], { path: '/Documents/a.txt' }],
   ['nova:fs:read', ['fs:access', 'fs:metadata', 'fs:read:images'], { path: '/Documents/a.txt' }],
 

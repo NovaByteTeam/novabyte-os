@@ -653,6 +653,11 @@ const AppSandbox = (() => {
       'nova:alarms:create': ['system:schedule'],
       'nova:alarms:clear': ['system:schedule'],
       'nova:alarms:getAll': ['system:schedule'],
+      // Secrets — encrypted per-app credential store.
+      'nova:secrets:set': ['secrets:store'],
+      'nova:secrets:get': ['secrets:store'],
+      'nova:secrets:delete': ['secrets:store'],
+      'nova:secrets:keys': ['secrets:store'],
     });
 
     // Families with NO grant-coupled endpoints: every endpoint in them is
@@ -7356,6 +7361,51 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:alarms:clear', requestId, { success: true, cleared: had });
   }
 
+  // ── Secrets (secrets:store) ────────────────────────────────────────────
+  // Encrypted per-app key/value store for small credentials, backed by the
+  // AppSecrets module (AES-256-GCM, per-install master key, plaintext never
+  // on disk). Deliberately NOT part of the app's portable namespace: the
+  // data:export / data:backup surfaces read the storage service only, so a
+  // backup envelope can never silently carry credentials. The Store module
+  // enforces the same budgets (64 secrets, 8 KB values, 128-char keys).
+  function secretsPermitted(appId) {
+    return AppPermissionManager.isGranted('secrets:store', appId);
+  }
+
+  async function handleSecretsSet({ payload, requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:set', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    const result = AppSecrets.set(app.id, payload?.key, payload?.value);
+    if (!result.ok) {
+      return respondError(webview, 'nova:secrets:set', requestId, result.code, result.message);
+    }
+    return respond(webview, 'nova:secrets:set', requestId, { success: true, persisted: result.persisted !== false });
+  }
+
+  async function handleSecretsGet({ payload, requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:get', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    const value = AppSecrets.get(app.id, payload?.key);
+    return respond(webview, 'nova:secrets:get', requestId, { success: true, value: value });
+  }
+
+  async function handleSecretsDelete({ payload, requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:delete', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    const deleted = AppSecrets.del(app.id, payload?.key);
+    return respond(webview, 'nova:secrets:delete', requestId, { success: true, deleted: deleted });
+  }
+
+  async function handleSecretsKeys({ requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:keys', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    return respond(webview, 'nova:secrets:keys', requestId, { success: true, keys: AppSecrets.keys(app.id) });
+  }
+
   async function handleAlarmsGetAll({ requestId, app, webview }) {
     if (!AppPermissionManager.isGranted('system:schedule', app.id)) {
       return respondError(webview, 'nova:alarms:getAll', requestId, 'PERMISSION_DENIED', 'system:schedule permission required');
@@ -8082,6 +8132,10 @@ const AppSandbox = (() => {
     'nova:alarms:create': handleAlarmsCreate,
     'nova:alarms:clear': handleAlarmsClear,
     'nova:alarms:getAll': handleAlarmsGetAll,
+    'nova:secrets:set': handleSecretsSet,
+    'nova:secrets:get': handleSecretsGet,
+    'nova:secrets:delete': handleSecretsDelete,
+    'nova:secrets:keys': handleSecretsKeys,
     'nova:fs:delete': handleFsDelete,
     'nova:fs:list': handleFsList,
     'nova:fs:mkdir': handleFsMkdir,
@@ -8182,6 +8236,7 @@ const AppSandbox = (() => {
     'nova:fs:mkdir', 'nova:fs:stat', 'nova:fs:rename', 'nova:fs:move',
     'nova:fs:watch', 'nova:fs:unwatch',
     'nova:alarms:create', 'nova:alarms:clear', 'nova:alarms:getAll',
+    'nova:secrets:set', 'nova:secrets:get', 'nova:secrets:delete', 'nova:secrets:keys',
     'nova:storage:get', 'nova:storage:set', 'nova:storage:delete',
     'nova:storage:clear', 'nova:storage:keys', 'nova:storage:usage',
     'nova:data:export', 'nova:data:import', 'nova:data:backup', 'nova:data:restore',
@@ -8893,6 +8948,7 @@ const AppSandbox = (() => {
     'badge.v1': true,
     'fsWatch.v1': true,
     'alarms.v1': true,
+    'secrets.v1': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -9159,6 +9215,25 @@ const AppSandbox = (() => {
         return ipc('nova:badge:set', payload).then(function() {});
       },
       clear: function() { return ipc('nova:badge:clear', {}).then(function() {}); },
+    }),
+    // Secrets (secrets:store) — encrypted per-app credential store. get()
+    // returns the plaintext string or null (absent or unauthenticated);
+    // mutations resolve undefined; keys() lists only this app's own labels.
+    // Secrets never appear in data export/backup envelopes — they are not
+    // part of the portable namespace, by design.
+    secrets: Object.freeze({
+      set: function(key, value) { return ipc('nova:secrets:set', { key: key, value: value }).then(function() {}); },
+      get: function(key) {
+        return ipc('nova:secrets:get', { key: key }).then(function(result) {
+          return result && Object.prototype.hasOwnProperty.call(result, 'value') ? result.value : null;
+        });
+      },
+      delete: function(key) { return ipc('nova:secrets:delete', { key: key }).then(function() {}); },
+      keys: function() {
+        return ipc('nova:secrets:keys', {}).then(function(result) {
+          return result && Array.isArray(result.keys) ? result.keys : [];
+        });
+      },
     }),
     // Named alarms (system:schedule). create takes exactly one of
     // when (future epoch ms, one-shot) or periodMinutes (>= 15, periodic);

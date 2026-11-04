@@ -35,6 +35,8 @@
 //   GA17 fs:watch — change events, per-path access parity with fs:read,
 //        watcher budget and unwatch semantics
 //   GA18 named alarms — schedule/fire/queue-on-close delivery semantics
+//   GA19 secrets — encrypted store, budgets, cross-app isolation,
+//        backup-envelope exclusion
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -357,6 +359,10 @@ const DOC_CHANNELS = [
   ['nova:alarms:create', {}],
   ['nova:alarms:clear', { name: 'x' }],
   ['nova:alarms:getAll', {}],
+  ['nova:secrets:set', { key: 'k', value: 'v' }],
+  ['nova:secrets:get', { key: 'k' }],
+  ['nova:secrets:delete', { key: 'k' }],
+  ['nova:secrets:keys', {}],
   ['nova:settings:get', { key: 'theme' }],
   ['nova:settings:set', { key: 'theme', value: 'dark' }],
   ['nova:events:subscribe', { event: 'system:themeChanged' }],
@@ -462,6 +468,7 @@ const PERM_MATRIX = [
   ['system:badge', 'nova:badge:set', { count: 3 }],
   ['fs:watch', 'nova:fs:watch', { path: '/data/watch-probe.txt' }],
   ['system:schedule', 'nova:alarms:getAll', {}],
+  ['secrets:store', 'nova:secrets:keys', {}],
   ['system:info', 'nova:system:info', {}],
   ['system:settings', 'nova:settings:set', { key: 'theme', value: 'dark' }],
   ['system:apps', 'nova:app:list', {}],
@@ -1584,13 +1591,100 @@ async function ga18() {
   try { global.localStorage.removeItem('nova_app_alarms'); } catch (_) {}
 }
 
+// ════════════════════════════════ GA19 ═════════════════════════════════════
+// Secrets (secrets:store) — encrypted per-app credential store. Roundtrip,
+// budgets, cross-app isolation, and the defining negative property: secrets
+// never appear in data export/backup envelopes.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga19() {
+  section('[GA19] secrets — encrypted store, budgets, backup exclusion');
+  const os = require('os');
+  const pathMod = require('path');
+  const fsMod = require('fs');
+  const secretsDir = fsMod.mkdtempSync(pathMod.join(os.tmpdir(), 'nova-secrets-test-'));
+  process.env.NOVA_SECRETS_DIR = secretsDir;
+  env.AppSecrets._resetForTests();
+  const appId19 = 'com.test.audit.g19';
+  const appId19b = 'com.test.audit.g19b';
+  const osCall = async (fn) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+  try {
+    const g = await freshGuest(appId19);
+
+    // 1) Deny without the grant.
+    const d1 = await osCall(() => g.novaOS.secrets.keys());
+    check('secrets.keys denied without secrets:store', !d1.ok && errCode(d1.error) === 'PERMISSION_DENIED', JSON.stringify(d1.error && d1.error.code));
+    await grant('secrets:store', appId19);
+
+    // 2) Roundtrip.
+    const sv = await osCall(() => g.novaOS.secrets.set('api-token', 'sekrit-value'));
+    check('secrets.set resolves undefined', sv.ok && sv.value === undefined, JSON.stringify(sv.error && sv.error.code));
+    const got = await osCall(() => g.novaOS.secrets.get('api-token'));
+    check('secrets.get returns the plaintext', got.ok && got.value === 'sekrit-value', JSON.stringify(got.value));
+    const missing = await osCall(() => g.novaOS.secrets.get('absent'));
+    check('secrets.get absent key → null', missing.ok && missing.value === null, JSON.stringify(missing.value));
+    const labels = await osCall(() => g.novaOS.secrets.keys());
+    check('secrets.keys lists own labels only', labels.ok && JSON.stringify(labels.value) === JSON.stringify(['api-token']), JSON.stringify(labels.value));
+
+    // 3) Values are ciphertext on disk.
+    const storeRaw = fsMod.readFileSync(pathMod.join(secretsDir, 'app-secrets.json'), 'utf8');
+    check('plaintext never touches disk', !storeRaw.includes('sekrit-value'));
+
+    // 4) Budgets and clamps.
+    const tooBig = await osCall(() => g.novaOS.secrets.set('big', 'x'.repeat(8 * 1024 + 1)));
+    check('secret over 8 KB → INVALID_ARGS', !tooBig.ok && errCode(tooBig.error) === 'INVALID_ARGS', JSON.stringify(tooBig.error && tooBig.error.code));
+    let budgetHit = false;
+    for (let i = 0; i < 64; i++) {
+      const r = await osCall(() => g.novaOS.secrets.set('k' + i, 'v' + i));
+      if (!r.ok && errCode(r.error) === 'RATE_LIMITED') { budgetHit = true; break; }
+    }
+    check('secret over budget → RATE_LIMITED (max 64 per app)', budgetHit);
+
+    // 5) Cross-app isolation: another app's namespace is empty, and its
+    //    own writes never leak into ours.
+    const g2 = await freshGuest(appId19b);
+    await grant('secrets:store', appId19b);
+    const foreign = await osCall(() => g2.novaOS.secrets.get('api-token'));
+    check("app B cannot read app A's secret", foreign.ok && foreign.value === null, JSON.stringify(foreign.value));
+    const foreignKeys = await osCall(() => g2.novaOS.secrets.keys());
+    check("app B sees none of app A's labels", foreignKeys.ok && foreignKeys.value.length === 0, JSON.stringify(foreignKeys.value));
+
+    // 6) THE defining negative property: backup envelopes never carry
+    //    secrets, even when the app holds data:backup too.
+    await grant('data:backup', appId19);
+    await settle(g.nova.ipc('nova:storage:set', { key: 'plain', value: 'namespace-value' }));
+    const bk = await osCall(() => g.novaOS.data.backup());
+    const envelopeJson = JSON.stringify((bk.value && bk.value.envelope) || {});
+    check('backup envelope carries the namespace value', envelopeJson.includes('namespace-value'));
+    check('backup envelope NEVER carries secret values', !envelopeJson.includes('sekrit-value'));
+
+    // 7) Delete.
+    const del = await osCall(() => g.novaOS.secrets.delete('api-token'));
+    check('secrets.delete resolves undefined', del.ok && del.value === undefined, JSON.stringify(del.error && del.error.code));
+    const gone = await osCall(() => g.novaOS.secrets.get('api-token'));
+    check('deleted secret reads back null', gone.ok && gone.value === null, JSON.stringify(gone.value));
+
+    await revoke('secrets:store', appId19);
+    await revoke('data:backup', appId19);
+    g.teardown();
+    g2.teardown();
+  } finally {
+    delete process.env.NOVA_SECRETS_DIR;
+    env.AppSecrets._resetForTests();
+    try { fsMod.rmSync(secretsDir, { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19,
 };
 
 (async () => {

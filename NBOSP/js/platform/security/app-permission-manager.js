@@ -44,6 +44,13 @@ const AppPermissionManager = (() => {
     // restore/import pin the envelope's appId to the caller, so no grant
     // here can read another app's data or smuggle data across apps.
     DATA_EXPORT       : 'data:export',     DATA_BACKUP       : 'data:backup',
+    // Encrypted per-app credential store (AES-256-GCM at rest, separate
+    // from nova:storage so backup envelopes can never carry credentials).
+    // 'medium': the app can read back what it stored — the risk is the
+    // app's own credentials, not other apps' or the user's data. The OS
+    // never exposes one app's secrets to another, and the Settings
+    // dashboard shows counts only, never values.
+    SECRETS_STORE     : 'secrets:store',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
     SYSTEM_APPS       : 'system:apps',    SYSTEM_APP_LAUNCH : 'system:app-launch',
     APPS_COMMUNICATE  : 'apps:communicate',
@@ -145,6 +152,9 @@ const AppPermissionManager = (() => {
     // same blast radius as the app calling nova:storage:clear itself.
     'data:export'       : { category: 'data',       risk: 'low',      label: 'Export this app\u2019s data' },
     'data:backup'       : { category: 'data',       risk: 'low',      label: 'Back up and restore this app\u2019s data' },
+    // See SECRETS_STORE above — app-scoped encrypted credentials, counts
+    // only in Settings, never in export/backup envelopes.
+    'secrets:store'     : { category: 'data',       risk: 'medium',   label: 'Securely store passwords and tokens' },
     // 'medium', not 'low' — this gates both nova:system:info (OS version,
     // security patch level, username, uptime) and handleSettingsGet's
     // SETTINGS_READABLE_KEYS allowlist (username, region, timezone,
