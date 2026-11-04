@@ -658,6 +658,13 @@ const AppSandbox = (() => {
       'nova:secrets:get': ['secrets:store'],
       'nova:secrets:delete': ['secrets:store'],
       'nova:secrets:keys': ['secrets:store'],
+      // Push delivery — registration/unregistration of the app's publish
+      // token. The inbound nova:push:message direction is a host→guest
+      // push, not a guest request, so it has no row here; the delivery
+      // ladder re-checks the grant on every message before the app ever
+      // sees one.
+      'nova:push:register': ['push:receive'],
+      'nova:push:unregister': ['push:receive'],
     });
 
     // Families with NO grant-coupled endpoints: every endpoint in them is
@@ -7536,6 +7543,405 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:alarms:getAll', requestId, { success: true, alarms: alarms });
   }
 
+  // ── Push delivery (push:receive) ───────────────────────────────────────
+  // Server-to-app push, the FCM shape: the app's own backend publishes a
+  // message to a per-app subscription token, the OS push service relays it
+  // to the device over ONE connection the OS holds (never the app — apps
+  // get no listen sockets), and the message goes down the delivery ladder:
+  //
+  //   1. app running            → nova:push:message push into the live sandbox
+  //   2. closed + system:background → queue + AppScheduler.requestWake();
+  //      the queue flushes right after the woken sandbox's ready handshake,
+  //      inside the same bounded wake window as any scheduled wake
+  //   3. closed, notification payload (title/body) → the OS displays it
+  //      attributed to the app (same sanitizer + per-app notification rate
+  //      limit as apps posting their own), and…
+  //   4. …the data part is always queued (bounded, flushed after nova:ready
+  //      on the next launch, exactly like missed one-shot alarms)
+  //
+  // Every rung re-checks the push:receive grant and the disabled list, so
+  // a revoked or disabled app stops receiving at the door — no sandbox is
+  // ever started for a message an app may no longer see. The token
+  // registry and the queue persist host-side (localStorage, the same store
+  // the alarms and permission manager use) so tokens and undelivered
+  // messages survive OS reboots.
+  //
+  // Transport honesty: the host's SSE stream is best-effort. If the server
+  // can't be reached, messages published meanwhile are held in the
+  // SERVER's small in-memory backlog (last 16 per token, 24 h) and
+  // replayed on the next connect; anything older, or beyond the backlog,
+  // is genuinely lost — push is live-delivery semantics, not a mailbox.
+  // The register/unregister channels work with the transport fully absent
+  // (offline, headless test runs): the token is real and stable, and the
+  // delivery ladder can be driven locally regardless.
+  const PUSH_STORAGE_KEY = 'nova_app_push';
+  const PUSH_DEVICE_ID_KEY = 'nova_push_device_id';
+  const PUSH_QUEUE_MAX = 8;
+  const PUSH_TITLE_MAX = 200;
+  const PUSH_BODY_MAX = 2000;
+  const PUSH_DATA_MAX_BYTES = 4 * 1024;
+  const PUSH_ID_MAX = 64;
+  const PUSH_BACKOFF_STEPS_MS = [1000, 2000, 5000, 15000];
+
+  function loadPushState() {
+    try {
+      const raw = localStorage.getItem(PUSH_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && parsed.tokens && typeof parsed.tokens === 'object') return parsed;
+    } catch (_) { /* corrupt state — start clean */ }
+    return { version: 1, tokens: {}, queue: {} };
+  }
+
+  function savePushState(state) {
+    try { localStorage.setItem(PUSH_STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
+  }
+
+  function pushDeviceId() {
+    try {
+      const existing = localStorage.getItem(PUSH_DEVICE_ID_KEY);
+      if (existing && /^[\w-]{8,64}$/.test(existing)) return existing;
+    } catch (_) { /* fall through to generation */ }
+    const fresh = generatePushToken().slice(PUSH_TOKEN_PREFIX_LENGTH);
+    try { localStorage.setItem(PUSH_DEVICE_ID_KEY, fresh); } catch (_) { /* best-effort */ }
+    return fresh;
+  }
+
+  function generatePushToken() {
+    const bytes = new Uint8Array(16);
+    try {
+      (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(bytes)
+        : bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
+    } catch (_) {
+      bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
+    }
+    return 'nps_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  const PUSH_TOKEN_PREFIX_LENGTH = 4; // slice('nps_') for device ids
+
+  function normalizePushMessage(raw, appId) {
+    const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const id = typeof src.id === 'string' && src.id.length >= 1 && src.id.length <= PUSH_ID_MAX
+      ? src.id
+      : generatePushToken().slice(4);
+    const title = typeof src.title === 'string' ? src.title.slice(0, PUSH_TITLE_MAX) : '';
+    const body = typeof src.body === 'string' ? src.body.slice(0, PUSH_BODY_MAX) : '';
+    let data = null;
+    if (src.data != null) {
+      try {
+        const encoded = JSON.stringify(src.data);
+        if (encoded.length <= PUSH_DATA_MAX_BYTES) data = JSON.parse(encoded);
+      } catch (_) { data = null; }
+    }
+    return {
+      appId: appId,
+      id: id,
+      title: title,
+      body: body,
+      data: data,
+      sentAt: typeof src.sentAt === 'string' ? src.sentAt : new Date().toISOString(),
+    };
+  }
+
+  function enqueuePushMessage(state, appId, message) {
+    if (!state.queue || typeof state.queue !== 'object') state.queue = {};
+    if (!Array.isArray(state.queue[appId])) state.queue[appId] = [];
+    state.queue[appId].push(message);
+    if (state.queue[appId].length > PUSH_QUEUE_MAX) state.queue[appId].splice(0, state.queue[appId].length - PUSH_QUEUE_MAX);
+  }
+
+  function appIsPushDisabled(appId) {
+    try {
+      const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      return Array.isArray(disabled) && disabled.includes(appId);
+    } catch (_) { return false; }
+  }
+
+  // The OS-attributed notification rung: the same sanitizer and the same
+  // per-app rate budget as an app posting its own notification — the user
+  // granted push:receive, not "spawn unlimited popups while closed".
+  function showPushNotification(appId, message) {
+    if (typeof Notify === 'undefined' || typeof Notify.show !== 'function') return false;
+    if (!message.title && !message.body) return false;
+    if (!checkNotificationRateLimit(appId)) return false;
+    const appRecord = (typeof OS !== 'undefined' && OS.apps && OS.apps[appId]) || {};
+    try {
+      Notify.show(sanitizeNotificationPayload(
+        { title: message.title || 'Notification', body: message.body, type: 'info' },
+        appRecord.name || appId,
+        appId,
+      ));
+      return true;
+    } catch (_) { return false; }
+  }
+
+  // The delivery ladder. Always resolves { delivered, how } — delivered is
+  // true whenever the message reached the app or a durable bounded queue,
+  // false only when the app may not receive at all (no grant, disabled,
+  // uninstalled). Never throws.
+  function deliverPushMessage(appId, rawMessage) {
+    try {
+      if (typeof appId !== 'string' || !appId) return { delivered: false, how: 'bad-app-id' };
+      if (appIsPushDisabled(appId)) return { delivered: false, how: 'disabled' };
+      if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted
+        || !AppPermissionManager.isGranted('push:receive', appId)) {
+        return { delivered: false, how: 'no-grant' };
+      }
+      const message = normalizePushMessage(rawMessage, appId);
+
+      // Rung 1 — live sandbox (visible window, else a Tier-2 keep-alive).
+      const sandbox = liveSandboxForApp(appId);
+      if (sandbox) {
+        try {
+          respond(sandbox.webview, 'nova:push:message', generateRequestId(), message);
+          return { delivered: true, how: 'live' };
+        } catch (_) { /* fall through the ladder — a dying sandbox queues */ }
+      }
+
+      // Rung 2 — closed but allowed to run brief headless work: queue and
+      // request a wake. requestWake uses the same bounded window and
+      // teardown as any scheduled wake; whether or not it fires right now,
+      // the queue is the durable half of this rung (flushed after
+      // nova:ready — next launch at the latest).
+      if (typeof AppPermissionManager.isGranted === 'function'
+        && AppPermissionManager.isGranted('system:background', appId)
+        && typeof AppScheduler !== 'undefined' && typeof AppScheduler.requestWake === 'function') {
+        const state = loadPushState();
+        enqueuePushMessage(state, appId, message);
+        savePushState(state);
+        let woke = false;
+        try { woke = AppScheduler.requestWake(appId); } catch (_) { woke = false; }
+        return { delivered: true, how: woke ? 'wake-queued' : 'queued' };
+      }
+
+      // Rung 3+4 — closed and not wakeable: show the notification payload
+      // attributed to the app (if any), and queue the data part.
+      const notified = showPushNotification(appId, message);
+      const state = loadPushState();
+      enqueuePushMessage(state, appId, message);
+      savePushState(state);
+      return { delivered: true, how: notified ? 'notified-queued' : 'queued' };
+    } catch (_) {
+      return { delivered: false, how: 'error' };
+    }
+  }
+
+  // Flush the bounded queue into a just-ready sandbox — called from the
+  // post-nova:ready block below, alongside the alarm and share flushes.
+  // On a mid-flush failure (sandbox dying under us) the undelivered tail
+  // goes back to the FRONT of the queue, bounded again, so ordering is
+  // preserved for the next attempt.
+  function flushPushQueue(appId, webview) {
+    if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted
+      || !AppPermissionManager.isGranted('push:receive', appId)) return;
+    const state = loadPushState();
+    const record = state.queue ? state.queue[appId] : null;
+    if (!Array.isArray(record) || !record.length) return;
+    const pending = record.splice(0, record.length);
+    try { savePushState(state); } catch (_) { /* best-effort */ }
+    let failedAt = -1;
+    for (let i = 0; i < pending.length; i++) {
+      try {
+        respond(webview, 'nova:push:message', generateRequestId(), Object.assign({}, pending[i], { queued: true }));
+      } catch (_) { failedAt = i; break; }
+    }
+    if (failedAt >= 0) {
+      const remaining = pending.slice(failedAt);
+      const state2 = loadPushState();
+      if (!state2.queue || typeof state2.queue !== 'object') state2.queue = {};
+      state2.queue[appId] = remaining
+        .concat(Array.isArray(state2.queue[appId]) ? state2.queue[appId] : [])
+        .slice(-PUSH_QUEUE_MAX);
+      savePushState(state2);
+    }
+  }
+
+  // ── Push transport (host-side SSE client) ─────────────────────────────
+  // One connection per device, held by the OS, not by any app. Connects
+  // only while at least one installed, enabled app holds push:receive,
+  // re-subscribes the token set on every (re)connect, and backs off
+  // geometrically on failures. Every branch is defensive: this module must
+  // work with fetch, location, and Notify all absent (headless test runs,
+  // offline devices) — delivery-ladder and token lifecycle come first.
+  let pushStreamAbort = null;
+  let pushReconnectTimer = null;
+  let pushReconnectStep = 0;
+  let pushSubscriptionsDirty = true;
+
+  function pushPermissionHolders() {
+    if (typeof OS === 'undefined' || !OS.apps) return [];
+    if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted) return [];
+    let disabled = [];
+    try { disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); } catch (_) { disabled = []; }
+    return Object.values(OS.apps).filter((app) => app && app.id
+      && !(Array.isArray(disabled) && disabled.includes(app.id))
+      && AppPermissionManager.isGranted('push:receive', app.id));
+  }
+
+  function pushTransportAvailable() {
+    return typeof fetch === 'function' && typeof window !== 'undefined' && !!window.location;
+  }
+
+  // Push the current token set to the server: one { token, appId } entry
+  // for every app that STILL holds the grant. The trusted host supplies
+  // the appId, so a backend publishing to a token can never address a
+  // different app than the one that registered it. Prunes
+  // revoked/uninstalled apps' tokens as a side effect — the server's
+  // token→device map is rebuilt from this on every reconnect, so a
+  // restart anywhere heals itself.
+  async function syncPushSubscriptions() {
+    pushSubscriptionsDirty = true;
+    if (!pushStreamAbort) return; // only meaningful while connected
+    try {
+      const holders = pushPermissionHolders();
+      const state = loadPushState();
+      const subscriptions = holders
+        .map((app) => (state.tokens[app.id] ? { token: state.tokens[app.id].token, appId: app.id } : null))
+        .filter(Boolean);
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: pushDeviceId(), subscriptions: subscriptions }),
+      });
+      pushSubscriptionsDirty = false;
+    } catch (_) { /* next reconnect re-syncs */ }
+  }
+
+  function schedulePushReconnect() {
+    if (pushReconnectTimer) return;
+    const delay = PUSH_BACKOFF_STEPS_MS[Math.min(pushReconnectStep, PUSH_BACKOFF_STEPS_MS.length - 1)];
+    pushReconnectStep += 1;
+    pushReconnectTimer = setTimeout(() => {
+      pushReconnectTimer = null;
+      ensurePushConnection();
+    }, delay);
+    if (typeof pushReconnectTimer === 'object' && pushReconnectTimer !== null && typeof pushReconnectTimer.unref === 'function') pushReconnectTimer.unref();
+  }
+
+  async function pushStreamLoop() {
+    // Hold the controller this loop owns so a replaced/aborted connection
+    // never clobbers a newer one's state on its way out.
+    const controller = pushStreamAbort;
+    while (controller && !controller.aborted) {
+      let res = null;
+      try {
+        // system-fetch (OS UI context) signs same-origin /api/ GETs; in
+        // environments without it this is a plain fetch and the server's
+        // trust check will simply refuse — treated like any other failure.
+        res = await fetch('/api/push/stream?deviceId=' + encodeURIComponent(pushDeviceId()), {
+          signal: controller.signal,
+          headers: { Accept: 'text/event-stream' },
+        });
+      } catch (_) { res = null; }
+      if (!res || !res.ok || !res.body) {
+        if (pushStreamAbort === controller) pushStreamAbort = null;
+        schedulePushReconnect();
+        return;
+      }
+
+      pushReconnectStep = 0;
+      try { syncPushSubscriptions(); } catch (_) { /* re-synced on next connect */ }
+      // Drain replay happens server-side at attach; parse the event stream.
+      try {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (controller && !controller.aborted) {
+          let chunk = null;
+          try { chunk = await reader.read(); } catch (_) { chunk = { done: true }; }
+          if (chunk.done || !chunk.value) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          let sep;
+          while ((sep = buffer.indexOf('\n\n')) >= 0) {
+            const frame = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            for (const line of frame.split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const evt = JSON.parse(line.slice(6));
+                if (evt && evt.appId) deliverPushMessage(evt.appId, evt);
+              } catch (_) { /* malformed frame — skip */ }
+            }
+          }
+        }
+        try { reader.cancel?.(); } catch (_) { /* closing anyway */ }
+      } catch (_) { /* fall out to reconnect */ }
+      if (pushStreamAbort === controller) pushStreamAbort = null;
+      schedulePushReconnect();
+      return;
+    }
+  }
+
+  function ensurePushConnection() {
+    if (!pushTransportAvailable()) return;
+    const holders = pushPermissionHolders();
+    if (!holders.length) {
+      if (pushStreamAbort) { try { pushStreamAbort.abort(); } catch (_) {} pushStreamAbort = null; }
+      return;
+    }
+    if (pushStreamAbort) {
+      // Already connected — but the token set may have changed.
+      if (pushSubscriptionsDirty) syncPushSubscriptions().catch(() => {});
+      return;
+    }
+    pushStreamAbort = new AbortController();
+    pushStreamLoop();
+  }
+
+  async function handlePushRegister({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('push:receive', app.id)) {
+      return respondError(webview, 'nova:push:register', requestId, 'PERMISSION_DENIED', 'push:receive permission required');
+    }
+    const state = loadPushState();
+    if (!state.tokens || typeof state.tokens !== 'object') state.tokens = {};
+    if (!state.queue || typeof state.queue !== 'object') state.queue = {};
+    const existing = state.tokens[app.id];
+    const record = existing && /^nps_[0-9a-f]{32}$/.test(existing.token)
+      ? existing
+      : { token: generatePushToken(), createdAt: new Date().toISOString() };
+    const replaced = !!existing && existing !== record;
+    state.tokens[app.id] = record;
+    savePushState(state);
+    // Connection may not exist yet (first registrant boots it); the sync
+    // marks the token set dirty even when it can't run right now.
+    pushSubscriptionsDirty = true;
+    ensurePushConnection();
+    let endpoint = '/api/push/publish';
+    try { endpoint = new URL('/api/push/publish', window.location.href).toString(); } catch (_) { /* relative path is fine */ }
+    const queued = Array.isArray(state.queue[app.id]) ? state.queue[app.id].length : 0;
+    return respond(webview, 'nova:push:register', requestId, {
+      success: true,
+      token: record.token,
+      endpoint: endpoint,
+      queued: queued,
+      replaced: replaced,
+    });
+  }
+
+  async function handlePushUnregister({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('push:receive', app.id)) {
+      return respondError(webview, 'nova:push:unregister', requestId, 'PERMISSION_DENIED', 'push:receive permission required');
+    }
+    const state = loadPushState();
+    const had = !!(state.tokens && Object.prototype.hasOwnProperty.call(state.tokens, app.id));
+    if (had) delete state.tokens[app.id];
+    // Unregistering stops the surface entirely: the queue is dropped too.
+    // Messages published after this point fail the grant check at the
+    // delivery ladder anyway — nothing new can queue behind this flush.
+    if (state.queue && Object.prototype.hasOwnProperty.call(state.queue, app.id)) delete state.queue[app.id];
+    savePushState(state);
+    pushSubscriptionsDirty = true;
+    ensurePushConnection();
+    return respond(webview, 'nova:push:unregister', requestId, { success: true, removed: had });
+  }
+
+  // Rebuild the connection once the host module is live — deferred like
+  // the alarm bootstrap so a module load inside a test harness never
+  // opens anything before state exists. No-op wherever fetch is absent.
+  if (typeof setTimeout === 'function') {
+    const pushBootTimer = setTimeout(ensurePushConnection, 0);
+    if (pushBootTimer && typeof pushBootTimer.unref === 'function') pushBootTimer.unref();
+  }
+
   const PUBLIC_APPEARANCE_SETTING_KEYS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'removeTransparency']);
   const PUBLIC_APPEARANCE_FIELDS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'transparentSurfaces']);
   const PUBLIC_THEMES = new Set(['nova-dark', 'nova-light', 'nord', 'dracula', 'catppuccin', 'tokyo-night', 'gruvbox']);
@@ -7678,6 +8084,11 @@ const AppSandbox = (() => {
     // Inbound shares queued while this app was closed (share-target picks
     // with no live sandbox) — delivered right after ready, like alarms.
     try { flushShareInboundQueue(app.id, webview); } catch (_) { /* best-effort */ }
+
+    // Push messages queued while this app was fully closed (delivery
+    // ladder rungs 2 and 4) — delivered right after ready, same bounded
+    // semantics as the missed-alarm flush above.
+    try { flushPushQueue(app.id, webview); } catch (_) { /* best-effort */ }
   }
 
   // File dialogs
@@ -8251,6 +8662,8 @@ const AppSandbox = (() => {
     'nova:alarms:create': handleAlarmsCreate,
     'nova:alarms:clear': handleAlarmsClear,
     'nova:alarms:getAll': handleAlarmsGetAll,
+    'nova:push:register': handlePushRegister,
+    'nova:push:unregister': handlePushUnregister,
     'nova:secrets:set': handleSecretsSet,
     'nova:secrets:get': handleSecretsGet,
     'nova:secrets:delete': handleSecretsDelete,
@@ -9069,6 +9482,7 @@ const AppSandbox = (() => {
     'alarms.v1': true,
     'secrets.v1': true,
     'shareTarget.v1': true,
+    'push.v1': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -9391,6 +9805,25 @@ const AppSandbox = (() => {
         };
       },
     }),
+    // Push delivery (push:receive) — messages from the app's own backend
+    // via the OS push service. register() resolves
+    // { success, token, endpoint, queued?, replaced? } — hand the stable
+    // token to YOUR backend, which publishes to the endpoint documented in
+    // NOVAAPP.md. register() is idempotent: the same install keeps the
+    // same token. Messages arrive via onMessage as
+    // { appId, id, title?, body?, data?, sentAt, queued? }.
+    push: Object.freeze({
+      register: function() { return ipc('nova:push:register', {}).then(function(result) { return result || {}; }); },
+      unregister: function() { return ipc('nova:push:unregister', {}).then(function() {}); },
+      onMessage: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        pushListeners.push(callback);
+        return function() {
+          const index = pushListeners.indexOf(callback);
+          if (index >= 0) pushListeners.splice(index, 1);
+        };
+      },
+    }),
   });`;
   }
 
@@ -9690,6 +10123,15 @@ const AppSandbox = (() => {
       return;
     }
 
+    // Pushed server messages (novaOS.push.onMessage) — the delivery ladder
+    // already re-checked push:receive host-side before this push existed.
+    if (msg.type === 'nova:push:message:response' && msg.result) {
+      for (let w = 0; w < pushListeners.length; w++) {
+        try { pushListeners[w](msg.result); } catch (error) { console.error('Push message listener failed:', error); }
+      }
+      return;
+    }
+
     if (typeof msg.requestId !== 'string') return;
     const entry = pendingRequests.get(msg.requestId);
     if (!entry) return;
@@ -9841,6 +10283,12 @@ const AppSandbox = (() => {
   // Callbacks registered via novaOS.share.onInbound() — pushed
   // nova:share:inbound events (user-mediated share-target delivery).
   const shareInboundListeners = [];
+
+  // Callbacks registered via novaOS.push.onMessage() — pushed
+  // nova:push:message events (delivery-ladder output from the OS push
+  // service: live, woken, and queued-after-launch deliveries all land
+  // here as the same shape).
+  const pushListeners = [];
 
   ipc.provide = function(endpoint, handler) {
     if (typeof handler !== 'function') return Promise.reject(new TypeError('handler must be a function'));
@@ -13114,6 +13562,10 @@ const AppSandbox = (() => {
       deliverShareTarget,
       normalizedShareTargetMimes,
       shareTargetMatches,
+      deliverPushMessage,
+      flushPushQueue,
+      loadPushState,
+      ensurePushConnection,
       cleanupSandboxRecord,
       clearAppPartitionsByName,
       ensureExecutionPartitionClean,

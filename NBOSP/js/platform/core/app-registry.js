@@ -42,6 +42,7 @@ const AppRegistry = (() => {
     'system:info', 'system:settings', 'system:apps', 'system:app-launch', 'system:events', 'system:root',
     'system:badge', 'system:schedule', 'system:share-target',
     'system:background', 'system:background:live', 'system:autostart',
+    'push:receive',
     'sandbox:nested-webview', 'sandbox:same-origin', 'sandbox:escape-popups',
     'admin:apps', 'admin:users', 'admin:system', 'admin:audit',
   ]);

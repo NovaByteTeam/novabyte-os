@@ -90,6 +90,16 @@ const AppPermissionManager = (() => {
     // real data-inflow surface; the manifest must also declare a
     // shareTarget with the MIME types it accepts.
     SYSTEM_SHARE_TARGET    : 'system:share-target',
+    // Push delivery — the app's own backend may send it messages through the
+    // OS push service, and the OS may display a notification on the app's
+    // behalf while it is fully closed. 'medium': content flows in from the
+    // internet addressed to this app (a real data-inflow surface), but the
+    // OS holds the one server connection — apps never open their own listen
+    // socket — and every message passes through the delivery ladder, which
+    // drops anything for a revoked or disabled app before it can run code.
+    // Notification display while closed is bounded by the same per-app
+    // notification rate limit as apps posting their own.
+    PUSH_RECEIVE           : 'push:receive',
     ADMIN_APPS        : 'admin:apps',     ADMIN_USERS       : 'admin:users',
     ADMIN_SYSTEM      : 'admin:system',   ADMIN_AUDIT       : 'admin:audit',
     // Lets a .novaapp's own guest content instantiate a nested <webview>
@@ -186,6 +196,9 @@ const AppPermissionManager = (() => {
     'system:schedule'   : { category: 'system',     risk: 'medium',   label: 'Schedule named alarms' },
     // See SYSTEM_SHARE_TARGET above — user-mediated inbound content.
     'system:share-target': { category: 'system',    risk: 'medium',   label: 'Receive shared content' },
+    // See PUSH_RECEIVE above — OS-mediated inbound content from the app's
+    // own backend, never a third party's.
+    'push:receive'      : { category: 'system',     risk: 'medium',   label: 'Receive push messages from its own server' },
     'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },

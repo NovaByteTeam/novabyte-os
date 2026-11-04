@@ -123,6 +123,7 @@ registerApp({
       'apps:communicate': 'Communicate with other apps',
       'system:background': 'Background tasks', 'system:background:live': 'Keep running in background', 'system:autostart': 'Start at launch',
       'system:badge': 'Taskbar badge', 'system:schedule': 'Named alarms', 'system:share-target': 'Receive shared content',
+      'push:receive': 'Push from its own server',
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
 
@@ -2138,6 +2139,17 @@ registerApp({
             let watcherCount = 0;
             for (const w of AppSandbox._internal.fsWatchers.values()) if (w.appId === appId) watcherCount++;
             liveCounts.push(watcherCount + (watcherCount === 1 ? ' watcher' : ' watchers'));
+          }
+          if (mgr.isGranted && mgr.isGranted('push:receive', appId) && typeof AppSandbox !== 'undefined'
+            && AppSandbox._internal && AppSandbox._internal.loadPushState) {
+            // Registration state + queued-message count — the token VALUE is
+            // never shown here, same policy as secret values above.
+            let pushState = { tokens: {}, queue: {} };
+            try { pushState = AppSandbox._internal.loadPushState() || pushState; } catch (_) {}
+            const registered = !!(pushState.tokens && pushState.tokens[appId]);
+            const pushQueue = pushState.queue && Array.isArray(pushState.queue[appId]) ? pushState.queue[appId].length : 0;
+            if (registered) liveCounts.push('push registered');
+            if (pushQueue > 0) liveCounts.push(pushQueue + (pushQueue === 1 ? ' queued push' : ' queued pushes'));
           }
           if (liveCounts.length > 0) {
             const liveSection = createEl('div', { style: 'padding:0 14px 10px;' });

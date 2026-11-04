@@ -120,6 +120,8 @@ const MATRIX = [
   ['nova:secrets:get', ['secrets:store'], { key: 'mx' }],
   ['nova:secrets:delete', ['secrets:store'], { key: 'mx' }],
   ['nova:secrets:keys', ['secrets:store'], {}],
+  ['nova:push:register', ['push:receive'], {}],
+  ['nova:push:unregister', ['push:receive'], {}],
   ['nova:fs:stat', ['fs:metadata', 'fs:access'], { path: '/Documents/a.txt' }],
   ['nova:fs:read', ['fs:access', 'fs:metadata', 'fs:read:images'], { path: '/Documents/a.txt' }],
 

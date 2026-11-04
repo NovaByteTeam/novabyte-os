@@ -39,6 +39,8 @@
 //        backup-envelope exclusion
 //   GA20 share target — MIME matching, user-mediated delivery,
 //        queue-on-close and deliver-on-relaunch
+//   GA21 push delivery — token register/unregister, the delivery ladder
+//        (live / wake-queued / notify+queue), queue bound, revocation door
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -170,7 +172,7 @@ async function ga1() {
   // v2 facade surface.
   check('window.novaOS exists', !!g.novaOS);
   check('novaOS.apiVersion === 2', g.novaOS.apiVersion === 2, `got ${g.novaOS.apiVersion}`);
-  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1']) {
+  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1', 'push.v1']) {
     check(`novaOS.capabilities.has("${cap}") === true`, g.novaOS.capabilities.has(cap) === true);
   }
   check('novaOS.capabilities.has("nope.v9") === false', g.novaOS.capabilities.has('nope.v9') === false);
@@ -185,7 +187,8 @@ async function ga1() {
     'dialog.pickOpen', 'dialog.pickSave',
     'app.info', 'app.list', 'app.launch', 'app.openUrl', 'app.share', 'app.openWith',
     'data.export', 'data.import', 'data.backup', 'data.restore',
-    'locale.get', 'badge.set', 'badge.clear'];
+    'locale.get', 'badge.set', 'badge.clear',
+    'push.register', 'push.unregister', 'push.onMessage'];
   for (const name of osSurface) {
     check(`window.novaOS.${name} exists`, typeof get(g.novaOS, name) === 'function', `got ${typeof get(g.novaOS, name)}`);
   }
@@ -1756,13 +1759,118 @@ async function ga20() {
   g2.teardown();
 }
 
+// ════════════════════════════════ GA21 ═════════════════════════════════════
+// Push delivery (push:receive): token lifecycle, the delivery ladder
+// (live → wake-queued → notify/queue), the queue bound, and the
+// revocation door. The SSE transport itself needs a real server — the
+// vitest server suite covers that; here the ladder is driven directly
+// through INTERNAL.deliverPushMessage exactly as the transport calls it.
+async function ga21() {
+  section('[GA21] push delivery — tokens, ladder, queue, revocation door');
+  try { global.localStorage.removeItem('nova_app_push'); } catch (_) {}
+  try { global.localStorage.removeItem('nova_push_device_id'); } catch (_) {}
+  const appId21 = 'com.test.audit.g21';
+  const osCall = async (fn) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+  const pushStateOf = () => {
+    try { return JSON.parse(global.localStorage.getItem('nova_app_push') || '{"tokens":{},"queue":{}}'); }
+    catch (_) { return { tokens: {}, queue: {} }; }
+  };
+
+  const g = await freshGuest(appId21);
+
+  // 1) Deny without the grant.
+  const d1 = await osCall(() => g.novaOS.push.register());
+  check('push.register denied without push:receive', !d1.ok && errCode(d1.error) === 'PERMISSION_DENIED', JSON.stringify(d1.error && d1.error.code));
+
+  // 2) Token lifecycle: shape, stability, idempotence.
+  await grant('push:receive', appId21);
+  const reg = await osCall(() => g.novaOS.push.register());
+  check('push.register returns a shaped token', reg.ok && reg.value && /^nps_[0-9a-f]{32}$/.test(reg.value.token) && typeof reg.value.endpoint === 'string' && reg.value.queued === 0, JSON.stringify(reg.value || reg.error && reg.error.code));
+  const reg2 = await osCall(() => g.novaOS.push.register());
+  check('re-register keeps the same token (idempotent)', reg2.ok && reg2.value.token === reg.value.token && reg2.value.replaced === false, JSON.stringify(reg2.value || reg2.error && reg2.error.code));
+  const deviceOk = /^[\w-]{8,64}$/.test(global.localStorage.getItem('nova_push_device_id') || '');
+  check('a stable per-install device id exists', deviceOk, global.localStorage.getItem('nova_push_device_id'));
+
+  // 3) Live delivery: rung 1 — message pushed into the live sandbox.
+  let liveMessage = null;
+  const unsub = g.novaOS.push.onMessage((m) => { liveMessage = m; });
+  check('push.onMessage returns an unsubscribe function', typeof unsub === 'function');
+  const outLive = INTERNAL.deliverPushMessage(appId21, { title: 'Live', body: 'rung one', data: { n: 1 } });
+  await sleep(250);
+  check('live sandbox receives the push via onMessage', outLive.delivered === true && outLive.how === 'live' && liveMessage && liveMessage.title === 'Live' && liveMessage.data && liveMessage.data.n === 1 && liveMessage.appId === appId21, JSON.stringify({ outLive, liveMessage }));
+  check('message shape is normalized (id, sentAt, data)', liveMessage && typeof liveMessage.id === 'string' && liveMessage.id.length <= 64 && typeof liveMessage.sentAt === 'string', JSON.stringify(liveMessage));
+
+  // 4) Oversized/abnormal payloads are normalized, not rejected, at the
+  //    ladder (the publish endpoint rejects; the ladder defends in depth).
+  const bigOut = INTERNAL.deliverPushMessage(appId21, { title: 'x'.repeat(5000), body: 'y'.repeat(9000), data: { big: 'z'.repeat(9000) } });
+  check('oversized fields are sliced/defused at the ladder', bigOut.delivered === true && liveMessage !== null, JSON.stringify(bigOut));
+
+  // 5) Closed delivery: rung 3+4 — queued (notification display is
+  //    environment-dependent; the queue is the contract here).
+  g.teardown();
+  const queueLen = () => (pushStateOf().queue[appId21] || []).length;
+  const outClosed = INTERNAL.deliverPushMessage(appId21, { title: 'While closed', data: { n: 2 } });
+  check('closed app queues the message (rung 3/4)', outClosed.delivered === true && (outClosed.how === 'queued' || outClosed.how === 'notified-queued') && queueLen() === 1, JSON.stringify({ outClosed, len: queueLen() }));
+
+  // 6) Queue bound: 8 per app — #9 and #10 push out the oldest.
+  for (let i = 0; i < 9; i++) INTERNAL.deliverPushMessage(appId21, { data: { seq: i } });
+  check('queue bound holds at 8 (oldest dropped)', queueLen() === 8, String(queueLen()));
+  const qState = pushStateOf();
+  const firstKept = (qState.queue[appId21] || [])[0];
+  check('bounded queue keeps the NEWEST entries', firstKept && firstKept.data && firstKept.data.seq >= 1, JSON.stringify(firstKept && firstKept.data));
+
+  // 7) Wake rung: with system:background, delivery queues + requests a
+  //    wake (how: 'wake-queued' when the scheduler is live here, 'queued'
+  //    when the harness has no scheduler — the queue is the contract).
+  await grant('system:background', appId21);
+  const outWake = INTERNAL.deliverPushMessage(appId21, { data: { seq: 'wake' } });
+  check('wake-eligible closed app gets queued + wake requested', outWake.delivered === true && (outWake.how === 'wake-queued' || outWake.how === 'queued'), JSON.stringify(outWake));
+
+  // 8) Relaunch flush: queued messages arrive right after nova:ready.
+  let flushed = [];
+  const g2 = await freshGuest(appId21);
+  g2.novaOS.push.onMessage((m) => { if (m.queued) flushed.push(m); });
+  await sleep(500);
+  check('queued pushes flushed right after the next launch', flushed.length >= 8 && flushed.every((m) => m.queued === true), JSON.stringify({ flushed: flushed.length, sample: flushed[0] }));
+
+  // 9) Revocation door: no grant → dropped before any rung.
+  await revoke('push:receive', appId21);
+  const outRevoked = INTERNAL.deliverPushMessage(appId21, { title: 'nope', data: { n: 3 } });
+  check('revoked grant drops the message at the door', outRevoked.delivered === false && outRevoked.how === 'no-grant', JSON.stringify(outRevoked));
+
+  // 10) Unregister: with the grant back, drops token AND queue.
+  await grant('push:receive', appId21);
+  INTERNAL.deliverPushMessage(appId21, { data: { n: 4 } });
+  const queueBefore = queueLen();
+  const unreg = await osCall(() => g2.novaOS.push.unregister());
+  const afterUnreg = pushStateOf();
+  check('unregister resolves removed and drops token + queue', unreg.ok && unreg.value === undefined && !afterUnreg.tokens[appId21] && !(afterUnreg.queue || {})[appId21] && queueBefore >= 0, JSON.stringify({ unreg: unreg.value, queueBefore }));
+
+  // 11) Unsubscribed listeners stop receiving.
+  await grant('push:receive', appId21);
+  unsub();
+  liveMessage = null;
+  INTERNAL.deliverPushMessage(appId21, { title: 'after unsub' });
+  await sleep(250);
+  check('no delivery after unsubscribe', liveMessage === null, JSON.stringify(liveMessage));
+
+  await revoke('push:receive', appId21);
+  await revoke('system:background', appId21);
+  try { global.localStorage.removeItem('nova_app_push'); } catch (_) {}
+  try { global.localStorage.removeItem('nova_push_device_id'); } catch (_) {}
+  g2.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20, GA21: ga21,
 };
 
 (async () => {

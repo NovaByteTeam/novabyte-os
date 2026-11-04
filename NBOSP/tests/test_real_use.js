@@ -18,6 +18,8 @@
 //   R10  permission lifecycle: expiry, recordAppUse, auto-grant, root
 //   R11  install/uninstall via IPC: cleanup contract (storage + permissions)
 //   R12  multi-app concurrency: independent budgets, isolation, unicode
+//   R13  push delivery: register → live push → closed queue → OS-attributed
+//        notification → wake request → flush-on-relaunch → revocation door
 //
 // The permission dialog is REAL here: AppPermissionManager builds its actual
 // overlay into a clickable DOM stub and the suite clicks Allow/Deny exactly
@@ -1255,11 +1257,105 @@ async function r12() {
   PM.closeAllDialogs();
 }
 
-// ═══════════════════════════════ runner ══════════════════════════════════
+// ════════════════════════════════ R13 ═══════════════════════════════════
+
+async function r13() {
+  section('[R13] push delivery: the whole ladder over a chat app lifetime');
+  scenarioReset();
+
+  const appId = freshSessionId('com.push.chat');
+  const chat = session(appId, { permissions: ['push:receive'] });
+  // Manifest declaration ≠ grant — mirror the user answering the prompt.
+  await PM.grantPermission('push:receive', appId, { source: 'test' });
+  const ctx = { app: chat.app, webview: chat.webview, sandbox: chat.sandbox };
+  const pushState = () => JSON.parse(state.ls.get('nova_app_push') || '{"tokens":{},"queue":{}}');
+  const queueLen = () => (pushState().queue[appId] || []).length;
+  const pushesTo = (wv) => wv.responses.filter((r) => r.type === 'nova:push:message:response');
+
+  // The SSE transport would open against the stub server here; the ladder
+  // below is what a transport frame feeds, so it's driven directly — the
+  // vitest server suite covers the wire protocol end-to-end.
+  const fetchLenBefore = fetchCalls.length;
+
+  // 1) Register: a stable shaped token + publish endpoint, first-grant flow.
+  const reg = await call('nova:push:register', {}, ctx);
+  check('register succeeds on a granted app', reg.result?.success === true, code(reg));
+  check('token has the publish shape', /^nps_[0-9a-f]{32}$/.test(reg.result?.token || ''), JSON.stringify(reg.result));
+  check('endpoint names the publish route', typeof reg.result?.endpoint === 'string' && reg.result.endpoint.endsWith('/api/push/publish'), JSON.stringify(reg.result?.endpoint));
+  const token = reg.result?.token;
+  const regAgain = await call('nova:push:register', {}, ctx);
+  check('re-register keeps the same token', regAgain.result?.token === token, JSON.stringify(regAgain.result));
+  check('register attempted no transport calls of its own beyond state sync', fetchCalls.length - fetchLenBefore <= 2, String(fetchCalls.length - fetchLenBefore));
+
+  // 2) Rung 1 — live sandbox: the message lands as a pushed event, intact.
+  const outLive = INTERNAL.deliverPushMessage(appId, { title: 'Ada', body: 'picture this', data: { conversationId: 'c-42' } });
+  await sleep(30);
+  check('live delivery reports how:live', outLive.delivered === true && outLive.how === 'live', JSON.stringify(outLive));
+  const live = pushesTo(chat.webview)[0];
+  check('live push arrives with the full normalized shape', live && live.result.title === 'Ada' && live.result.body === 'picture this' && live.result.data.conversationId === 'c-42' && live.result.appId === appId && typeof live.result.id === 'string', JSON.stringify(live && live.result));
+  check('nothing queued on live delivery', queueLen() === 0, String(queueLen()));
+
+  // 3) The revocation door: a revoked app's messages are dropped before
+  //    any rung — nothing pushed, nothing queued, nothing displayed.
+  await PM.revokePermission('push:receive', appId, { source: 'test' });
+  const outRevoked = INTERNAL.deliverPushMessage(appId, { title: 'sneaky', data: {} });
+  check('revoked grant drops the message', outRevoked.delivered === false && outRevoked.how === 'no-grant', JSON.stringify(outRevoked));
+  check('revoked drop left no queue and no push', queueLen() === 0 && pushesTo(chat.webview).length === 1, JSON.stringify({ queue: queueLen(), pushes: pushesTo(chat.webview).length }));
+  await PM.grantPermission('push:receive', appId, { source: 'test' });
+
+  // 4) Rung 2 — closed + system:background: queue + wake request. The
+  //    scheduler is stubbed at its real requestWake contract; the queue is
+  //    the durable half either way.
+  await PM.grantPermission('system:background', appId, { source: 'test' });
+  const wakeCalls = [];
+  const hadScheduler = typeof global.AppScheduler !== 'undefined';
+  global.AppScheduler = { requestWake: (id) => { wakeCalls.push(id); return true; } };
+  chat.sandbox && INTERNAL._activeSandboxes.delete(chat.webview.dataset.sandboxId); // app "closed"
+  const outWake = INTERNAL.deliverPushMessage(appId, { title: 'While closed', data: { seq: 'wake' } });
+  check('closed wake-eligible app queues + requests a wake', outWake.delivered === true && outWake.how === 'wake-queued' && queueLen() === 1, JSON.stringify({ outWake, len: queueLen() }));
+  check('the wake was requested for the right app', wakeCalls.length === 1 && wakeCalls[0] === appId, JSON.stringify(wakeCalls));
+  if (!hadScheduler) delete global.AppScheduler;
+  await PM.revokePermission('system:background', appId, { source: 'test' });
+
+  // 5) Rung 3+4 — closed, not wakeable: OS shows the notification with the
+  //    app's own name/id attribution, and the data part queues behind it.
+  const outNotified = INTERNAL.deliverPushMessage(appId, { title: 'While closed', body: 'os shows this', data: { seq: 'queue' } });
+  check('closed non-wakeable app gets notified-queued', outNotified.delivered === true && outNotified.how === 'notified-queued' && queueLen() === 2, JSON.stringify({ outNotified, len: queueLen() }));
+  check('OS notification is attributed to the app', global.OS.notifications.some((n) => n.appId === appId && n.title === 'While closed'), JSON.stringify(global.OS.notifications.map((n) => ({ appId: n.appId, title: n.title }))));
+
+  // 6) Budget: the same per-app notification rate limit as self-posted
+  //    notifications caps the display rung (10/min); the queue keeps
+  //    working past it.
+  for (let i = 0; i < 14; i++) INTERNAL.deliverPushMessage(appId, { title: `flood${i}`, data: { seq: i } });
+  const displayedFlood = global.OS.notifications.filter((n) => n.appId === appId && /^flood/.test(n.title)).length;
+  check('display rung respects the notification budget', displayedFlood <= 10, String(displayedFlood));
+  check('queue keeps accepting while display is throttled', queueLen() === 8, String(queueLen()));
+
+  // 7) Relaunch: nova:ready flushes the bounded queue, in order, flagged.
+  const wv3 = makeWebview(appId);
+  const sb3 = makeSandbox(appId, { webview: wv3 });
+  INTERNAL._activeSandboxes.set(wv3.dataset.sandboxId, sb3);
+  INTERNAL._eventSubscriptions.set(wv3.dataset.sandboxId, new Map());
+  await INTERNAL.handleAPICall('nova:ready', {}, 'req-ready-push', chat.app, wv3, sb3);
+  await sleep(50);
+  const flushed = pushesTo(wv3);
+  // The 14-flood burst above replaced the two earlier entries — the bound
+  // keeps the NEWEST 8, so the flush must be exactly floods 6..13 in order.
+  check('queued pushes flush right after nova:ready', flushed.length === 8, String(flushed.length));
+  check('flushed pushes carry queued:true and keep order', flushed.every((r) => r.result.queued === true) && flushed[0].result.data.seq === 6 && flushed[7].result.data.seq === 13, JSON.stringify(flushed.map((r) => r.result.data && r.result.data.seq)));
+  check('queue drains empty after the flush', queueLen() === 0, String(queueLen()));
+
+  // 8) Unregister tears the whole surface down for this app.
+  const unreg = await INTERNAL.handleAPICall('nova:push:unregister', {}, 'req-unreg', chat.app, wv3, sb3);
+  await sleep(25);
+  check('unregister resolves and clears token + queue', !pushState().tokens[appId] && !pushState().queue[appId], JSON.stringify(unreg));
+
+  PM.closeAllDialogs();
+}
 
 const SCENARIOS = [
   ['R1', r1], ['R2', r2], ['R3', r3], ['R4', r4], ['R5', r5], ['R6', r6],
-  ['R7', r7], ['R8', r8], ['R9', r9], ['R10', r10], ['R11', r11], ['R12', r12],
+  ['R7', r7], ['R8', r8], ['R9', r9], ['R10', r10], ['R11', r11], ['R12', r12], ['R13', r13],
 ];
 
 (async () => {

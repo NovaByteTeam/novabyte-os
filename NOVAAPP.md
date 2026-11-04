@@ -555,7 +555,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-48 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+49 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -608,6 +608,7 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `system:badge` | System | Low | Show a count or short label on your app's own taskbar icon (see [Taskbar badge](#taskbar-badge--novabadge)) |
 | `system:schedule` | System | Medium | Schedule named alarms your running app reacts to — never self-launching while closed (see [Named alarms](#named-alarms--novaalarms--novaosalarms)) |
 | `system:share-target` | System | Medium | Be offered as a destination in the share sheet and receive what the user sends (see [Share target](#share-target--systemshare-target--novaosshareoninbound)) |
+| `push:receive` | System | Medium | Receive push messages from the app's own backend through the OS push service (see [Push delivery](#push-delivery--pushreceive--novaospush)) |
 | `admin:apps` | Admin | High | Fleet/security audit tools — see actual grants per app, not just declared ones (needs admin mode) |
 | `admin:users` | Admin | Critical | Session monitors, force-logout tools (needs admin mode) |
 | `admin:system` | Admin | Critical | Security-policy dashboards, lockout/IP-block tuning (needs admin mode) |
@@ -835,6 +836,7 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `alarms` | `create(options)`, `clear(name)`, `getAll()`, `onAlarm(cb)` | `nova:alarms:*` | `system:schedule` |
 | `secrets` | `set(key, value)`, `get(key)`, `delete(key)`, `keys()` | `nova:secrets:*` | `secrets:store` |
 | `share` | `onInbound(cb)` | push: `nova:share:inbound` | `system:share-target` |
+| `push` | `register()`, `unregister()`, `onMessage(cb)` | `nova:push:*` + push: `nova:push:message` | `push:receive` |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -1527,6 +1529,51 @@ Delivery semantics, stated plainly:
 - Apps that must run brief work while fully closed want `system:background` (Tier-1 scheduled wakes) instead — alarms schedule *moments*, the scheduler runs *code*.
 
 Feature-detect with `window.novaOS.capabilities.has('alarms.v1')`.
+
+### Push delivery — `push:receive` / `novaOS.push`
+
+Requires `push:receive` (System / Medium). Server-to-app push in the FCM shape: your backend publishes a message to a per-install subscription token, and the OS push service relays it to the device. The defining design rule is the same one that makes Android's version work: **the OS holds the one server connection — your app never opens a listen socket and never runs just to wait for messages.** Push reaches a closed app by *waking* it under the existing bounded-wake rules, not by keeping it alive.
+
+```javascript
+// Requires push:receive
+const { token, endpoint } = await window.novaOS.push.register();
+// Hand `token` to YOUR backend — it publishes to the OS push service:
+
+// (on your backend, not in the app)
+// POST <os-server>/api/push/publish
+// { "token": "<token>", "title": "New message", "body": "Ada says hi",
+//   "data": { "conversationId": "c-42" } }
+
+const unsub = window.novaOS.push.onMessage((message) => {
+  // message: { appId, id, title?, body?, data?, sentAt, queued? }
+});
+await window.novaOS.push.unregister(); // revokes the token and drops the queue
+```
+
+`register()` is idempotent — the same install keeps the same token across restarts and reboots; the registry persists host-side like the alarm registry. Messages arriving through `onMessage` carry `queued: true` when they are replayed from the closed-app queue rather than delivered live.
+
+**Delivery ladder** — where a published message goes, checked top to bottom on every message:
+
+| App state | What happens |
+| --- | --- |
+| Running (window or keep-alive) | `nova:push:message` push into the live sandbox — immediate. |
+| Closed, holds `system:background` | Queued (bounded at 8) and a Tier-1 wake is requested; the queue flushes right after the woken sandbox's ready handshake, inside the same bounded wake window as any scheduled wake. |
+| Closed, message has `title`/`body` | The **OS displays the notification attributed to your app** (same sanitizer and same per-app notification rate budget as apps posting their own) and queues the message for the next launch. |
+| Closed, data-only message | Queued (bounded at 8), delivered right after the next `nova:ready` with `queued: true`. |
+| Revoked grant, disabled, or uninstalled app | **Dropped at the door.** The ladder re-checks the grant on every message; no sandbox is ever started for a message the app may no longer see. |
+
+Message limits: `title` ≤ 200 characters, `body` ≤ 2000, `data` a JSON object ≤ 4 KB — anything larger is rejected at the publish endpoint. `title`/`body`/`data` are all optional; a message with only `data` is a data-only message and never displays anything by itself.
+
+**The publish endpoint and its trust model:** `POST /api/push/publish` accepts `{ token, title?, body?, data?, id? }` and is *untrusted* traffic — no account, no signature; the subscription token is the capability, and the endpoint lives under the same global API rate limit as every other outside caller. `404 { delivered: false, reason: "unknown-token" }` means no device is currently subscribed to that token; `202 { delivered: false, reason: "device-offline" }` means the message made the device's replay backlog and delivery depends on the next reconnect.
+
+**Honest limits, stated plainly:**
+
+- Push is **live-delivery semantics, not a mailbox**. The server holds a small in-memory backlog per token (last 16 messages, 24 h) that replays on the next device connect and drains there; a server restart forgets it. Devices re-subscribe their whole token set on every reconnect, so token mappings self-heal — but a message older than the backlog, or beyond it, is genuinely lost. For must-not-lose data, push a *pointer* ("you have mail") and fetch the real payload over your own authenticated channel.
+- The device stream connects **only while at least one installed, enabled app holds `push:receive`**; with no holders, the OS keeps no connection at all.
+- Displaying a notification while closed is part of the `push:receive` grant, not a second notification permission — but it draws from the same per-app notification rate budget, so a chatty backend can't out-shout the user's quiet hours (per-device quiet hours are a planned OS-level addition; apps should not build their own around push).
+- The token identifies the *app + device*, and publishing is addressed to the app's own backend by design — the OS never relays third-party content to an app that didn't register for its own server's messages.
+
+Feature-detect with `window.novaOS.capabilities.has('push.v1')`.
 
 ### Settings — `nova:settings:get` / `nova:settings:set`
 
