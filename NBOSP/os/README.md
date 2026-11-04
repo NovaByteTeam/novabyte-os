@@ -7,7 +7,9 @@ permission system. The optional Weston multi-window proof of concept and the
 SELinux boot integration have been removed; the image boots with Buildroot's
 standard BusyBox init and launches the kiosk in Cage. The newer per-app Linux
 UID supervisor, process launcher, and associated seccomp, cgroup, and firewall
-isolation are not part of this image.
+isolation are not part of this image. The Linux Terminal runs commands through
+`/bin/sh`, and the image includes the `curl` command-line client for HTTP(S)
+requests.
 
 The image supplies an explicit BusyBox `/etc/inittab` and `rcS` script so init
 runs the standard `/etc/init.d/S*` service sequence instead of BusyBox's
