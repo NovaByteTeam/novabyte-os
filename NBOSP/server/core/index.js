@@ -48,15 +48,23 @@ try {
 // did not take — and the capture says so itself instead of the operator
 // having to guess.
 (function printOsBuildIdentity() {
-    try {
-        const crypto = require('crypto');
-        const sandboxPath = path.join(__dirname, '..', '..', 'js', 'platform', 'security', 'app-sandbox.js');
-        const stat = fs.statSync(sandboxPath);
-        const hash = crypto.createHash('sha256').update(fs.readFileSync(sandboxPath)).digest('hex').slice(0, 8);
-        process.stdout.write(`[OS Build] sandbox=${hash} (${stat.size} bytes, mtime ${stat.mtime.toISOString()})\n`);
-    } catch (e) {
-        process.stdout.write(`[OS Build] sandbox identity unavailable: ${e?.message}\n`);
-    }
+    const crypto = require('crypto');
+    const identityOf = (label, absPath) => {
+        try {
+            const stat = fs.statSync(absPath);
+            const hash = crypto.createHash('sha256').update(fs.readFileSync(absPath)).digest('hex').slice(0, 8);
+            process.stdout.write(`[OS Build] ${label}=${hash} (${stat.size} bytes, mtime ${stat.mtime.toISOString()})\n`);
+        } catch (e) {
+            process.stdout.write(`[OS Build] ${label} identity unavailable: ${e?.message}\n`);
+        }
+    };
+    identityOf('sandbox', path.join(__dirname, '..', '..', 'js', 'platform', 'security', 'app-sandbox.js'));
+    // The middleware half of the identity: the OAuth popup relay fix lives in
+    // server/middleware.js (COOP headers), and the 2026-11-03 23:44 capture
+    // proved a build can carry a fresh sandbox while its middleware is stale —
+    // the two files are rebuilt by different pipeline steps. Print both, so a
+    // serial capture can prove or refute deployment of each half on its own.
+    identityOf('middleware', path.join(__dirname, '..', 'middleware.js'));
 })();
 
 // 2. Setup middleware
@@ -508,6 +516,13 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
         ];
         if (entry.allowExternalFrames) policy.push('frame-src http: https:');
         res.setHeader('Content-Security-Policy', policy.join('; '));
+        // Serial-visible proof of the effective COOP policy per document. This
+        // route serves the ONLY OS documents that Chromium loads INTO an
+        // opener-linked popup (app callback pages — OAuth/SSO relay targets),
+        // so the header value here decides whether window.opener survives;
+        // one line per document load puts that value directly into the next
+        // serial capture instead of leaving it to be inferred from commits.
+        process.stdout.write(`[serve] doc=${req.params.sandboxId}/${filePath} coop=${res.getHeader('Cross-Origin-Opener-Policy') || 'none'}\n`);
     }
     res.setHeader('Content-Type', APP_SERVE_MIME[ext] || 'application/octet-stream');
     res.setHeader('Cache-Control', 'no-store');

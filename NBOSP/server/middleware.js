@@ -120,27 +120,54 @@ function setupMiddleware(app) {
         // /api/apps/serve/sandbox_<id>/callback.html?code=... — served by THIS
         // server with helmet's `Cross-Origin-Opener-Policy: same-origin`.
         // Chromium's COOP processing then moved the popup into a NEW browsing
-        // context group: a `same-origin` policy document may not share a group
-        // with the cross-origin documents around it (the provider pages and the
-        // opaque-origin sandboxed guest that is the popup's opener — strict
-        // same-origin exempts even opener-related cross-origin documents). The
-        // callback page therefore executed with `window.opener` null, its
-        // window.opener.postMessage relay dropped, the popup closed itself, and
-        // the guest saw only "Popup closed before sign-in completed". GitHub's
-        // login pages send no COOP at all and accounts.google.com sends COOP
-        // report-only — verified live — so our own header was the single
-        // severing hop in the whole chain, sitting exactly on the page that
-        // needs its opener.
+        // context group and the callback page executed with `window.opener`
+        // null. GitHub's login pages send no COOP at all and accounts.google.com
+        // sends COOP report-only — verified live — so our own header was the
+        // single ENFORCING response in the whole chain.
         //
-        // `same-origin-allow-popups` is the variant built for this: documents
-        // connected by an opener relationship stay in the same browsing context
-        // group, so popup↔opener postMessage relays (OAuth callbacks, SSO,
-        // payment providers — the whole reason sandbox:escape-popups exists)
-        // keep working, while cross-origin isolation is retained everywhere a
-        // popup relationship is not involved. It is also the policy github.com
-        // and accounts.google.com choose for their own sign-in pages.
+        // CORRECTION of the 2026-11-03 23:04 attempt (commit f23df12): switching
+        // this global to `same-origin-allow-popups` did NOT fix the field.
+        // Serial capture 2026-11-03 23:44 — run against a build whose deployed
+        // app-sandbox.js hash (f14b6811) matches this tree — shows the IDENTICAL
+        // failure signature: callback fired with opener=ABSENT, relay dropped,
+        // "popup closed without a relay message within 500ms". The soap theory
+        // was wrong about direction. The HTML spec's "matching opener policy
+        // values" algorithm (which governs every non-popup navigation, i.e.
+        // every hop INSIDE an existing popup window) requires a group switch
+        // whenever the two documents' policies differ and either side is
+        // "unsafe-none" — the soap relaxation only applies at POPUP CREATION
+        // ("check if popup COOP values ...": opener soap + response unsafe-none
+        // stays). A provider page (unsafe-none) navigating to our soap callback
+        // therefore switches groups again, opener severed, same failure.
+        // Empirically pinned with a headless-Chromium matrix reproducing this
+        // exact structure (soap/sandboxed guest iframe -> window.open ->
+        // 302 + report-only provider chain -> callback served with the variant
+        // under test): opener survives and the postMessage relay arrives ONLY
+        // when the callback document itself carries unsafe-none; soap and
+        // same-origin both sever for every guest variant.
+        //
+        // So the global policy stays soap (isolation for OS UI pages that are
+        // never popup relay targets), and the app serve surface — the ONLY
+        // documents Chromium loads INTO an opener-linked popup window — gets
+        // unsafe-none right after this middleware, see the override below.
         crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
     }));
+
+    // The app serve surface must never split the popup's browsing context
+    // group. Every document an app registers under /api/apps/serve can be the
+    // redirect target of an OAuth/SSO/payment popup — the app chooses its own
+    // callback filename, so this cannot be narrowed to "callback.html". An
+    // unsafe-none document NEVER requires a group switch (spec: matching is
+    // true whenever both sides are unsafe-none, and a provider chain like
+    // github.com — no COOP — plus accounts.google.com — report-only — never
+    // switches), so the popup stays in the opener's group for its whole life
+    // and window.opener is alive when the relay needs it. This override must
+    // run AFTER helmet (which stamps soap on everything) and BEFORE the serve
+    // routes; headers set later in the chain overwrite earlier ones.
+    app.use('/api/apps/serve', (req, res, next) => {
+        res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+        next();
+    });
 
     // .filter(Boolean) can leave an empty array (e.g. CORS_ORIGIN="," or a
     // stray trailing comma), and `[] || fallback` doesn't trigger since []
