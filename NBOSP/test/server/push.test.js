@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import { createRequire } from 'node:module';
 import { setupPushRoutes } from '../../server/core/push-routes.js';
+import securityMiddleware from '../../security/middleware.js';
 
 // Load the bus through CJS require() — the SAME module instance the
 // routes' own require('./push-bus') resolves to. A bare ESM import of a
@@ -204,6 +205,21 @@ describe('push service — routes', () => {
     expect(res.status).toBe(403);
     const resStream = await request(app).get(`/api/push/stream?deviceId=${DEVICE}`);
     expect(resStream.status).toBe(403);
+  });
+
+  it('trusted host subscription passes CSRF middleware and maps the token', async () => {
+    const securedApp = express();
+    securedApp.use(express.json());
+    securedApp.use(securityMiddleware.csrfProtection);
+    setupPushRoutes(securedApp);
+    const request = (await import('supertest')).default;
+    const res = await request(securedApp)
+      .post('/api/push/subscribe')
+      .set(trustedHeaders())
+      .send({ deviceId: DEVICE, subscriptions: [{ token: TOKEN, appId: APP_ID }] });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, subscribed: 1 });
+    expect(pushBus.publish(TOKEN, { data: {} }).reason).toBe('device-offline');
   });
 
   it('subscribe validates deviceId and subscription shape', async () => {

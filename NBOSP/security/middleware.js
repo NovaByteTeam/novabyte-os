@@ -49,6 +49,10 @@ let config = {
         // launching a sandboxed webview; the route validates sandbox ids.
         '/api/apps/serve',
 
+        // The push host sync is authenticated by the system-request HMAC at
+        // the route; it has no browser session CSRF token to send.
+        '/api/push/subscribe',
+
         // Email API — already session-protected via requireCreds; CSRF here
         // causes Invalid CSRF Token errors due to session/cookie timing in NW.js
         '/api/email',

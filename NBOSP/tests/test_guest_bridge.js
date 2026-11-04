@@ -1567,20 +1567,21 @@ async function ga18() {
 
   // 6) Closed-app queue: fire a one-shot with NO live sandbox → queued;
   //    delivered on the next launch right after ready.
-  const qCreated = await osCall(() => g.novaOS.alarms.create({ name: 'queued', when: Date.now() + 60 }));
+  const qCreated = await osCall(() => g.novaOS.alarms.create({ name: 'queued', when: Date.now() + 1000 }));
   check('queued one-shot created', qCreated.ok, JSON.stringify(qCreated.error && qCreated.error.code));
-  let sawQueuedFire = false;
-  const stopAlarmWatch = setInterval(() => {
-    const state = alarmsOf();
-    const rec = state.apps && state.apps[appId18];
-    if (rec && Array.isArray(rec.queue) && rec.queue.some((q) => q.name === 'queued')) sawQueuedFire = true;
-  }, 25);
   g.teardown(); // guest gone → fire has nowhere to go → queue
-  await sleep(300);
-  clearInterval(stopAlarmWatch);
+  const queueDeadline = Date.now() + 3000;
+  let queuedRecord;
+  while (Date.now() < queueDeadline) {
+    const state = alarmsOf();
+    queuedRecord = state.apps && state.apps[appId18];
+    if (queuedRecord && Array.isArray(queuedRecord.queue) && queuedRecord.queue.some((q) => q.name === 'queued')) break;
+    await sleep(25);
+  }
+  const sawQueuedFire = !!queuedRecord?.queue?.some((q) => q.name === 'queued');
   check('missed one-shot landed in the bounded queue while closed', sawQueuedFire, JSON.stringify((alarmsOf().apps || {})[appId18] || {}));
   const state = alarmsOf();
-  const queuedRecord = (state.apps || {})[appId18];
+  queuedRecord = (state.apps || {})[appId18];
   const queueLen = queuedRecord && Array.isArray(queuedRecord.queue) ? queuedRecord.queue.length : 0;
   if (queueLen > 0) {
     let queuedFire = null;
