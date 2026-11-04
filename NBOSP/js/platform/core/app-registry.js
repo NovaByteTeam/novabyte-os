@@ -40,7 +40,7 @@ const AppRegistry = (() => {
     'contacts:read', 'contacts:write', 'contacts:delete',
     'device:notifications', 'device:geolocation', 'device:camera', 'device:microphone',
     'system:info', 'system:settings', 'system:apps', 'system:app-launch', 'system:events', 'system:root',
-    'system:badge',
+    'system:badge', 'system:schedule',
     'system:background', 'system:background:live', 'system:autostart',
     'sandbox:nested-webview', 'sandbox:same-origin', 'sandbox:escape-popups',
     'admin:apps', 'admin:users', 'admin:system', 'admin:audit',

@@ -34,6 +34,7 @@
 //        clamped/rate-limited badge store)
 //   GA17 fs:watch — change events, per-path access parity with fs:read,
 //        watcher budget and unwatch semantics
+//   GA18 named alarms — schedule/fire/queue-on-close delivery semantics
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -353,6 +354,9 @@ const DOC_CHANNELS = [
   ['nova:badge:clear', {}],
   ['nova:fs:watch', { path: '/data/watch-probe.txt' }],
   ['nova:fs:unwatch', { watcherId: 'w_none' }],
+  ['nova:alarms:create', {}],
+  ['nova:alarms:clear', { name: 'x' }],
+  ['nova:alarms:getAll', {}],
   ['nova:settings:get', { key: 'theme' }],
   ['nova:settings:set', { key: 'theme', value: 'dark' }],
   ['nova:events:subscribe', { event: 'system:themeChanged' }],
@@ -457,6 +461,7 @@ const PERM_MATRIX = [
   ['clipboard:write', 'nova:clipboard:write', { text: 'hi' }],
   ['system:badge', 'nova:badge:set', { count: 3 }],
   ['fs:watch', 'nova:fs:watch', { path: '/data/watch-probe.txt' }],
+  ['system:schedule', 'nova:alarms:getAll', {}],
   ['system:info', 'nova:system:info', {}],
   ['system:settings', 'nova:settings:set', { key: 'theme', value: 'dark' }],
   ['system:apps', 'nova:app:list', {}],
@@ -1481,13 +1486,111 @@ async function ga17() {
   }
 }
 
+// ════════════════════════════════ GA18 ═════════════════════════════════════
+// Named alarms (system:schedule) — create/validation/budget, live-fire
+// push, clear, and queued-after-launch delivery for one-shots missed while
+// the app was closed.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga18() {
+  section('[GA18] named alarms — schedule, fire, queue-on-close');
+  try { global.localStorage.removeItem('nova_app_alarms'); } catch (_) {}
+  const appId18 = 'com.test.audit.g18';
+  const osCall = async (fn, guest) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+
+  const g = await freshGuest(appId18);
+  const alarmsOf = () => (typeof global.localStorage.getItem === 'function'
+    ? JSON.parse(global.localStorage.getItem('nova_app_alarms') || '{"apps":{}}') : { apps: {} });
+
+  // 1) Deny without the grant.
+  const d1 = await osCall(() => g.novaOS.alarms.getAll());
+  check('alarms.getAll denied without system:schedule', !d1.ok && errCode(d1.error) === 'PERMISSION_DENIED', JSON.stringify(d1.error && d1.error.code));
+  await grant('system:schedule', appId18);
+
+  // 2) Validation.
+  const badPeriod = await osCall(() => g.novaOS.alarms.create({ name: 'p', periodMinutes: 5 }));
+  check('periodMinutes below the 15-minute floor → INVALID_ARGS', !badPeriod.ok && errCode(badPeriod.error) === 'INVALID_ARGS', JSON.stringify(badPeriod.error && badPeriod.error.code));
+  const both = await osCall(() => g.novaOS.alarms.create({ name: 'b', when: Date.now() + 60000, periodMinutes: 30 }));
+  check('both when and periodMinutes → INVALID_ARGS', !both.ok && errCode(both.error) === 'INVALID_ARGS', JSON.stringify(both.error && both.error.code));
+  const neither = await osCall(() => g.novaOS.alarms.create({ name: 'n' }));
+  check('neither when nor periodMinutes → INVALID_ARGS', !neither.ok && errCode(neither.error) === 'INVALID_ARGS', JSON.stringify(neither.error && neither.error.code));
+  const badName = await osCall(() => g.novaOS.alarms.create({ name: 'bad name!', periodMinutes: 30 }));
+  check('invalid alarm name → INVALID_ARGS', !badName.ok && errCode(badName.error) === 'INVALID_ARGS', JSON.stringify(badName.error && badName.error.code));
+  const pastWhen = await osCall(() => g.novaOS.alarms.create({ name: 'past', when: Date.now() - 1000 }));
+  check('when in the past → INVALID_ARGS', !pastWhen.ok && errCode(pastWhen.error) === 'INVALID_ARGS', JSON.stringify(pastWhen.error && pastWhen.error.code));
+
+  // 3) Live fire: one-shot 80ms out, onAlarm receives it.
+  let fired = null;
+  const unsub = g.novaOS.alarms.onAlarm((f) => { fired = f; });
+  const created = await osCall(() => g.novaOS.alarms.create({ name: 'live', when: Date.now() + 80 }));
+  check('alarms.create returns the alarm record', created.ok && created.value && created.value.alarm && created.value.alarm.name === 'live' && typeof created.value.alarm.scheduledTime === 'number', JSON.stringify(created.error && created.error.code));
+  const listed = await osCall(() => g.novaOS.alarms.getAll());
+  check('getAll lists the pending alarm', listed.ok && Array.isArray(listed.value) && listed.value.some((a) => a.name === 'live'), JSON.stringify(listed.value));
+  await sleep(400);
+  check('one-shot fired to the live sandbox via onAlarm', fired && fired.name === 'live' && fired.firedAt, JSON.stringify(fired));
+  const after = await osCall(() => g.novaOS.alarms.getAll());
+  check('one-shot is consumed after firing', after.ok && Array.isArray(after.value) && !after.value.some((a) => a.name === 'live'), JSON.stringify(after.value));
+
+  // 4) clear() prevents the fire.
+  fired = null;
+  await osCall(() => g.novaOS.alarms.create({ name: 'gone', when: Date.now() + 120 }));
+  const cleared = await osCall(() => g.novaOS.alarms.clear('gone'));
+  check('alarms.clear resolves cleared:true', cleared.ok && cleared.value === undefined, JSON.stringify(cleared.error && cleared.error.code));
+  await sleep(300);
+  check('no fire after clear', fired === null, JSON.stringify(fired));
+
+  // 5) Budget: 32 alarms per app.
+  let budgetHit = false;
+  for (let i = 0; i < 33; i++) {
+    const r = await osCall(() => g.novaOS.alarms.create({ name: 'bulk' + i, periodMinutes: 15 }));
+    if (!r.ok && errCode(r.error) === 'RATE_LIMITED') { budgetHit = true; break; }
+  }
+  check('alarm over budget → RATE_LIMITED (max 32 per app)', budgetHit);
+  await osCall(() => g.novaOS.alarms.clear('bulk0'));
+  const replacedOk = await osCall(() => g.novaOS.alarms.create({ name: 'bulk1', periodMinutes: 20 }));
+  check('re-creating an existing name replaces it (no budget slot)', replacedOk.ok && replacedOk.value && replacedOk.value.replaced === true, JSON.stringify(replacedOk.error && replacedOk.error.code));
+
+  // 6) Closed-app queue: fire a one-shot with NO live sandbox → queued;
+  //    delivered on the next launch right after ready.
+  const qCreated = await osCall(() => g.novaOS.alarms.create({ name: 'queued', when: Date.now() + 60 }));
+  check('queued one-shot created', qCreated.ok, JSON.stringify(qCreated.error && qCreated.error.code));
+  let sawQueuedFire = false;
+  const stopAlarmWatch = setInterval(() => {
+    const state = alarmsOf();
+    const rec = state.apps && state.apps[appId18];
+    if (rec && Array.isArray(rec.queue) && rec.queue.some((q) => q.name === 'queued')) sawQueuedFire = true;
+  }, 25);
+  g.teardown(); // guest gone → fire has nowhere to go → queue
+  await sleep(300);
+  clearInterval(stopAlarmWatch);
+  check('missed one-shot landed in the bounded queue while closed', sawQueuedFire, JSON.stringify((alarmsOf().apps || {})[appId18] || {}));
+  const state = alarmsOf();
+  const queuedRecord = (state.apps || {})[appId18];
+  const queueLen = queuedRecord && Array.isArray(queuedRecord.queue) ? queuedRecord.queue.length : 0;
+  if (queueLen > 0) {
+    let queuedFire = null;
+    const g2 = await freshGuest(appId18); // same app, fresh sandbox → ready handshake
+    g2.novaOS.alarms.onAlarm((f) => { queuedFire = f; });
+    await sleep(400);
+    check('queued alarm delivered right after the next launch', queuedFire && queuedFire.name === 'queued' && queuedFire.queued === true, JSON.stringify(queuedFire));
+    g2.teardown();
+  } else {
+    check('queued alarm delivered right after the next launch', false, 'queue was empty — live-delivery consumed it');
+  }
+
+  try { global.localStorage.removeItem('nova_app_alarms'); } catch (_) {}
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18,
 };
 
 (async () => {

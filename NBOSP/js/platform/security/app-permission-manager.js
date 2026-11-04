@@ -69,6 +69,13 @@ const AppPermissionManager = (() => {
     // (0-999 / 4 chars) and rate-limited; it can't touch other apps' icons
     // or any user data.
     SYSTEM_BADGE           : 'system:badge',
+    // Named alarms — the app may schedule its own wake-prompt times (one-shot
+    // or periodic with a 15-minute floor). 'medium': alarms persist host-side
+    // and fire pushes into the app's live sandbox, so an app can schedule
+    // future activity without being open — but unlike system:background it
+    // can NEVER launch itself: a fire while fully closed queues a bounded
+    // push for the next launch and nothing runs in between.
+    SYSTEM_SCHEDULE        : 'system:schedule',
     ADMIN_APPS        : 'admin:apps',     ADMIN_USERS       : 'admin:users',
     ADMIN_SYSTEM      : 'admin:system',   ADMIN_AUDIT       : 'admin:audit',
     // Lets a .novaapp's own guest content instantiate a nested <webview>
@@ -158,6 +165,8 @@ const AppPermissionManager = (() => {
     'system:autostart'  : { category: 'system',     risk: 'high',     label: 'Start automatically when NovaByte starts' },
     // Presentational only — see the SYSTEM_BADGE rationale above.
     'system:badge'      : { category: 'system',     risk: 'low',      label: 'Show a badge on the taskbar' },
+    // See SYSTEM_SCHEDULE above — scheduling, never self-launching.
+    'system:schedule'   : { category: 'system',     risk: 'medium',   label: 'Schedule named alarms' },
     'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },

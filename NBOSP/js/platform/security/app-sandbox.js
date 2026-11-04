@@ -649,6 +649,10 @@ const AppSandbox = (() => {
       // poller leaks nothing.
       'nova:fs:watch': ['fs:watch'],
       'nova:fs:unwatch': null,
+      // Named alarms.
+      'nova:alarms:create': ['system:schedule'],
+      'nova:alarms:clear': ['system:schedule'],
+      'nova:alarms:getAll': ['system:schedule'],
     });
 
     // Families with NO grant-coupled endpoints: every endpoint in them is
@@ -7144,6 +7148,229 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:fs:unwatch', requestId, { success: true, cleared: cleared });
   }
 
+  // ── Named alarms (system:schedule) ─────────────────────────────────────
+  // App-scheduled wake prompts, Chrome-alarms style: an app creates named
+  // alarms (a one-shot `when` or a periodic `periodMinutes` with a 15-minute
+  // floor, matching Android WorkManager's coarse periodic floor) and gets a
+  // nova:background:alarm push each time one fires.
+  //
+  // Delivery honesty: alarms fire into a LIVE sandbox — a running window or
+  // a Tier-2 system:background:live process. While an app is fully closed,
+  // periodic alarms skip to their next occurrence and one-shot alarms are
+  // queued (bounded at 8, newest kept) and delivered on the next launch,
+  // right after nova:ready. Apps that must run brief work while fully
+  // closed already have the right tool: system:background's scheduler wakes.
+  //
+  // Alarm registry persists host-side (localStorage, the same store the
+  // permission manager uses) so alarms survive OS reboots; timers are
+  // rebuilt from persisted state at module load.
+  const ALARMS_STORAGE_KEY = 'nova_app_alarms';
+  const ALARMS_MAX_PER_APP = 32;
+  const ALARMS_MIN_PERIOD_MINUTES = 15;
+  const ALARMS_MAX_NAME_LEN = 64;
+  const ALARMS_MAX_WHEN_AHEAD_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+  const ALARMS_QUEUE_MAX = 8;
+  const alarmsTimers = new Map(); // `${appId}:${name}` -> timeoutId
+
+  function loadAlarmState() {
+    try {
+      const raw = localStorage.getItem(ALARMS_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && parsed.apps && typeof parsed.apps === 'object') return parsed;
+    } catch (_) { /* corrupt state — start clean, alarms are app conveniences */ }
+    return { version: 1, apps: {} };
+  }
+
+  function saveAlarmState(state) {
+    try { localStorage.setItem(ALARMS_STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
+  }
+
+  function validAlarmName(name) {
+    return typeof name === 'string' && name.length >= 1 && name.length <= ALARMS_MAX_NAME_LEN && /^[\w.:\-]+$/.test(name);
+  }
+
+  function liveSandboxForApp(appId) {
+    if (typeof AppSandbox === 'undefined' || typeof AppSandbox.getAllSandboxes !== 'function') return null;
+    const all = AppSandbox.getAllSandboxes() || [];
+    // Prefer a visible window; a Tier-2 backgrounded process works too.
+    return all.find((s) => s.appId === appId && !s.backgrounded && s.webview)
+      || all.find((s) => s.appId === appId && s.webview)
+      || null;
+  }
+
+  function scheduleAlarmTimer(appId, name, alarm) {
+    const key = `${appId}:${name}`;
+    const existing = alarmsTimers.get(key);
+    if (existing) clearTimeout(existing);
+    const delay = Math.max(0, Math.min(alarm.nextFire - Date.now(), 2 ** 31 - 1));
+    const timerId = setTimeout(() => fireAlarm(appId, name), delay);
+    if (typeof timerId === 'object' && timerId !== null && typeof timerId.unref === 'function') timerId.unref();
+    alarmsTimers.set(key, timerId);
+  }
+
+  function stopAlarmTimer(appId, name) {
+    const key = `${appId}:${name}`;
+    const timerId = alarmsTimers.get(key);
+    if (timerId) { clearTimeout(timerId); alarmsTimers.delete(key); }
+  }
+
+  function pushAlarmToSandbox(sandbox, payload) {
+    try {
+      respond(sandbox.webview, 'nova:background:alarm', generateRequestId(), payload);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  function fireAlarm(appId, name) {
+    alarmsTimers.delete(`${appId}:${name}`);
+    const state = loadAlarmState();
+    const record = state.apps[appId];
+    const alarm = record && record.alarms ? record.alarms[name] : null;
+    if (!alarm) return; // cleared while the timer was pending
+
+    const now = Date.now();
+    const sandbox = liveSandboxForApp(appId);
+    let delivered = false;
+    if (sandbox) {
+      delivered = pushAlarmToSandbox(sandbox, {
+        name: name,
+        alarm: { name: name, when: alarm.when ?? null, periodMinutes: alarm.periodMinutes ?? null, scheduledTime: alarm.nextFire },
+        firedAt: new Date(now).toISOString(),
+      });
+    }
+
+    if (alarm.periodMinutes) {
+      // Periodic: advance past every missed cycle so a long-sleeping OS
+      // doesn't fire a burst of catch-up events; the next occurrence is
+      // always in the future.
+      const periodMs = Math.max(ALARMS_MIN_PERIOD_MINUTES, alarm.periodMinutes) * 60_000;
+      let next = alarm.nextFire + periodMs;
+      while (next <= now) next += periodMs;
+      alarm.nextFire = next;
+      saveAlarmState(state);
+      scheduleAlarmTimer(appId, name, alarm);
+      return;
+    }
+
+    // One-shot: consume. Undelivered (app fully closed) → bounded queue
+    // for next launch.
+    delete record.alarms[name];
+    if (!delivered) {
+      if (!Array.isArray(record.queue)) record.queue = [];
+      record.queue.push({ name: name, firedAt: new Date(now).toISOString(), scheduledTime: alarm.nextFire });
+      if (record.queue.length > ALARMS_QUEUE_MAX) record.queue.splice(0, record.queue.length - ALARMS_QUEUE_MAX);
+    }
+    saveAlarmState(state);
+  }
+
+  function bootstrapAlarms() {
+    const state = loadAlarmState();
+    const now = Date.now();
+    let dirty = false;
+    for (const [appId, record] of Object.entries(state.apps)) {
+      if (!record || typeof record !== 'object' || !record.alarms) continue;
+      for (const [name, alarm] of Object.entries(record.alarms)) {
+        if (!alarm || typeof alarm.nextFire !== 'number') { delete record.alarms[name]; dirty = true; continue; }
+        if (alarm.periodMinutes) {
+          const periodMs = Math.max(ALARMS_MIN_PERIOD_MINUTES, alarm.periodMinutes) * 60_000;
+          while (alarm.nextFire <= now) { alarm.nextFire += periodMs; dirty = true; }
+          scheduleAlarmTimer(appId, name, alarm);
+        } else if (alarm.nextFire <= now) {
+          // Missed one-shot from before shutdown — treat as undelivered.
+          if (!Array.isArray(record.queue)) record.queue = [];
+          record.queue.push({ name: name, firedAt: new Date(now).toISOString(), scheduledTime: alarm.nextFire });
+          if (record.queue.length > ALARMS_QUEUE_MAX) record.queue.splice(0, record.queue.length - ALARMS_QUEUE_MAX);
+          delete record.alarms[name];
+          dirty = true;
+        } else {
+          scheduleAlarmTimer(appId, name, alarm);
+        }
+      }
+    }
+    if (dirty) saveAlarmState(state);
+  }
+  // Rebuild timers once the host module is live. Deferred so a module load
+  // inside a test harness never schedules anything before state exists.
+  if (typeof setTimeout === 'function') {
+    const bootTimer = setTimeout(bootstrapAlarms, 0);
+    if (bootTimer && typeof bootTimer.unref === 'function') bootTimer.unref();
+  }
+
+  async function handleAlarmsCreate({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:schedule', app.id)) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'PERMISSION_DENIED', 'system:schedule permission required');
+    }
+    const name = payload?.name;
+    if (!validAlarmName(name)) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', `name must be 1-${ALARMS_MAX_NAME_LEN} characters of letters, digits, or . : _ -`);
+    }
+    const hasWhen = payload && Object.prototype.hasOwnProperty.call(payload, 'when') && payload.when != null;
+    const hasPeriod = payload && Object.prototype.hasOwnProperty.call(payload, 'periodMinutes') && payload.periodMinutes != null;
+    if (hasWhen === hasPeriod) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', 'provide exactly one of when (future epoch ms) or periodMinutes (>= 15)');
+    }
+    let alarm;
+    if (hasWhen) {
+      const when = payload.when;
+      if (typeof when !== 'number' || !Number.isFinite(when) || when <= Date.now() || when > Date.now() + ALARMS_MAX_WHEN_AHEAD_MS) {
+        return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', 'when must be a future epoch-ms timestamp no more than a year out');
+      }
+      alarm = { when: Math.floor(when), nextFire: Math.floor(when) };
+    } else {
+      const period = payload.periodMinutes;
+      if (typeof period !== 'number' || !Number.isFinite(period) || period < ALARMS_MIN_PERIOD_MINUTES) {
+        return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', `periodMinutes must be a number >= ${ALARMS_MIN_PERIOD_MINUTES}`);
+      }
+      alarm = { periodMinutes: Math.floor(period), nextFire: Date.now() + Math.floor(period) * 60_000 };
+    }
+    const state = loadAlarmState();
+    const record = state.apps[app.id] || (state.apps[app.id] = { alarms: {}, queue: [] });
+    if (!record.alarms || typeof record.alarms !== 'object') record.alarms = {};
+    const replacing = Object.prototype.hasOwnProperty.call(record.alarms, name);
+    if (!replacing && Object.keys(record.alarms).length >= ALARMS_MAX_PER_APP) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'RATE_LIMITED', `Max ${ALARMS_MAX_PER_APP} alarms per app`);
+    }
+    record.alarms[name] = alarm;
+    saveAlarmState(state);
+    scheduleAlarmTimer(app.id, name, alarm);
+    return respond(webview, 'nova:alarms:create', requestId, {
+      success: true,
+      replaced: replacing,
+      alarm: { name: name, when: alarm.when ?? null, periodMinutes: alarm.periodMinutes ?? null, scheduledTime: alarm.nextFire },
+    });
+  }
+
+  async function handleAlarmsClear({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:schedule', app.id)) {
+      return respondError(webview, 'nova:alarms:clear', requestId, 'PERMISSION_DENIED', 'system:schedule permission required');
+    }
+    const name = payload?.name;
+    if (!validAlarmName(name)) {
+      return respondError(webview, 'nova:alarms:clear', requestId, 'INVALID_ARGS', 'a valid alarm name is required');
+    }
+    const state = loadAlarmState();
+    const record = state.apps[app.id];
+    const had = !!(record && record.alarms && Object.prototype.hasOwnProperty.call(record.alarms, name));
+    if (had) { delete record.alarms[name]; saveAlarmState(state); }
+    stopAlarmTimer(app.id, name);
+    return respond(webview, 'nova:alarms:clear', requestId, { success: true, cleared: had });
+  }
+
+  async function handleAlarmsGetAll({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:schedule', app.id)) {
+      return respondError(webview, 'nova:alarms:getAll', requestId, 'PERMISSION_DENIED', 'system:schedule permission required');
+    }
+    const state = loadAlarmState();
+    const record = state.apps[app.id];
+    const alarms = [];
+    if (record && record.alarms) {
+      for (const [name, alarm] of Object.entries(record.alarms)) {
+        alarms.push({ name: name, when: alarm.when ?? null, periodMinutes: alarm.periodMinutes ?? null, scheduledTime: alarm.nextFire });
+      }
+    }
+    return respond(webview, 'nova:alarms:getAll', requestId, { success: true, alarms: alarms });
+  }
+
   const PUBLIC_APPEARANCE_SETTING_KEYS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'removeTransparency']);
   const PUBLIC_APPEARANCE_FIELDS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'transparentSurfaces']);
   const PUBLIC_THEMES = new Set(['nova-dark', 'nova-light', 'nord', 'dracula', 'catppuccin', 'tokyo-night', 'gruvbox']);
@@ -7262,6 +7489,26 @@ const AppSandbox = (() => {
     // hands back to app code, so a single respond() call covers both
     // shapes — no separate legacy send needed.
     respond(webview, 'nova:ready', requestId, payload);
+
+    // One-shot alarms that fired while the app was fully closed are
+    // delivered right after the ready handshake — the app is up, its
+    // listeners can register. Bounded by ALARMS_QUEUE_MAX at enqueue time.
+    try {
+      const alarmState = loadAlarmState();
+      const alarmRecord = alarmState.apps[app.id];
+      if (alarmRecord && Array.isArray(alarmRecord.queue) && alarmRecord.queue.length) {
+        const pending = alarmRecord.queue.splice(0, alarmRecord.queue.length);
+        saveAlarmState(alarmState);
+        for (const queued of pending) {
+          respond(webview, 'nova:background:alarm', generateRequestId(), {
+            name: queued.name,
+            alarm: { name: queued.name, when: null, periodMinutes: null, scheduledTime: queued.scheduledTime },
+            firedAt: queued.firedAt,
+            queued: true,
+          });
+        }
+      }
+    } catch (_) { /* best-effort delivery */ }
   }
 
   // File dialogs
@@ -7832,6 +8079,9 @@ const AppSandbox = (() => {
     'nova:fs:write': handleFsWrite,
     'nova:fs:watch': handleFsWatch,
     'nova:fs:unwatch': handleFsUnwatch,
+    'nova:alarms:create': handleAlarmsCreate,
+    'nova:alarms:clear': handleAlarmsClear,
+    'nova:alarms:getAll': handleAlarmsGetAll,
     'nova:fs:delete': handleFsDelete,
     'nova:fs:list': handleFsList,
     'nova:fs:mkdir': handleFsMkdir,
@@ -7931,6 +8181,7 @@ const AppSandbox = (() => {
     'nova:fs:read', 'nova:fs:write', 'nova:fs:delete', 'nova:fs:list',
     'nova:fs:mkdir', 'nova:fs:stat', 'nova:fs:rename', 'nova:fs:move',
     'nova:fs:watch', 'nova:fs:unwatch',
+    'nova:alarms:create', 'nova:alarms:clear', 'nova:alarms:getAll',
     'nova:storage:get', 'nova:storage:set', 'nova:storage:delete',
     'nova:storage:clear', 'nova:storage:keys', 'nova:storage:usage',
     'nova:data:export', 'nova:data:import', 'nova:data:backup', 'nova:data:restore',
@@ -8641,6 +8892,7 @@ const AppSandbox = (() => {
     'locale.v1': true,
     'badge.v1': true,
     'fsWatch.v1': true,
+    'alarms.v1': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -8907,6 +9159,29 @@ const AppSandbox = (() => {
         return ipc('nova:badge:set', payload).then(function() {});
       },
       clear: function() { return ipc('nova:badge:clear', {}).then(function() {}); },
+    }),
+    // Named alarms (system:schedule). create takes exactly one of
+    // when (future epoch ms, one-shot) or periodMinutes (>= 15, periodic);
+    // re-creating a name replaces it. Fires arrive via onAlarm as
+    // { name, alarm: { scheduledTime, ... }, firedAt, queued? }. Alarms
+    // fire while the app is running or keep-alive; one-shots missed while
+    // fully closed are delivered right after the next launch.
+    alarms: Object.freeze({
+      create: function(options) { return ipc('nova:alarms:create', options || {}); },
+      clear: function(name) { return ipc('nova:alarms:clear', { name: name }).then(function() {}); },
+      getAll: function() {
+        return ipc('nova:alarms:getAll', {}).then(function(result) {
+          return result && Array.isArray(result.alarms) ? result.alarms : [];
+        });
+      },
+      onAlarm: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        alarmListeners.push(callback);
+        return function() {
+          const index = alarmListeners.indexOf(callback);
+          if (index >= 0) alarmListeners.splice(index, 1);
+        };
+      },
     }),
   });`;
   }
@@ -9189,6 +9464,15 @@ const AppSandbox = (() => {
       return;
     }
 
+    // Pushed alarm fires (novaOS.alarms) — fanned out to every onAlarm
+    // listener, like background wakes.
+    if (msg.type === 'nova:background:alarm:response' && msg.result) {
+      for (let w = 0; w < alarmListeners.length; w++) {
+        try { alarmListeners[w](msg.result); } catch (error) { console.error('Alarm listener failed:', error); }
+      }
+      return;
+    }
+
     if (typeof msg.requestId !== 'string') return;
     const entry = pendingRequests.get(msg.requestId);
     if (!entry) return;
@@ -9332,6 +9616,10 @@ const AppSandbox = (() => {
   // pushed nova:fs:changed events fan out to the matching watcher's
   // callbacks. Same lifecycle as wsEventListeners above.
   const fsWatchListeners = {};
+
+  // Callbacks registered via novaOS.alarms.onAlarm() — the host pushes
+  // nova:background:alarm events (fire + queued-after-launch delivery).
+  const alarmListeners = [];
 
   ipc.provide = function(endpoint, handler) {
     if (typeof handler !== 'function') return Promise.reject(new TypeError('handler must be a function'));
