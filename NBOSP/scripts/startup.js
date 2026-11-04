@@ -13,6 +13,23 @@ const { getRuntimeDataDir } = require('./runtime-data-dir');
 // Window reference module-scoped so it is accessible to global hotkey handlers
 let win = null;
 
+function createServerEnv(nodeBin = process.env.NODE_BIN_PATH || 'node') {
+  // Share an unguessable, per-launch credential with the host renderer and
+  // server child so verified system-app API calls can authenticate.
+  process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = crypto.randomBytes(32).toString('hex');
+
+  const rawHeap = process.env.SERVER_HEAP_MB;
+  // Sanitize heap flag to prevent flag injection vulnerabilities
+  const heapMb = /^\d+$/.test(rawHeap) ? rawHeap : '1024';
+  const nodeOptions = [`--max-old-space-size=${heapMb}`, '--expose-gc'];
+  const serverEnv = {
+    ...process.env,
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, ...nodeOptions].filter(Boolean).join(' '),
+  };
+  if (nodeBin !== 'node') serverEnv.NWJS_RUN_AS_NODE = '1';
+  return serverEnv;
+}
+
 /**
  * Full application startup sequence.
  *
@@ -52,23 +69,9 @@ async function bootstrap(appDir) {
   const tee       = makeTee(logStream, conout);
 
   const nodeBin = process.env.NODE_BIN_PATH || 'node';
-  const rawHeap = process.env.SERVER_HEAP_MB;
-  // Sanitize heap flag to prevent flag injection vulnerabilities
-  const heapMb  = /^\d+$/.test(rawHeap) ? rawHeap : '1024';
-  const nodeOptions = [`--max-old-space-size=${heapMb}`, '--expose-gc'];
-  const serverEnv = {
-    ...process.env,
-    NODE_OPTIONS: [process.env.NODE_OPTIONS, ...nodeOptions].filter(Boolean).join(' '),
-  };
-  if (nodeBin !== 'node') {
-    serverEnv.NWJS_RUN_AS_NODE = '1';
-  }
+  const serverEnv = createServerEnv(nodeBin);
 
   const serverScript = path.join(appDir, 'server', 'core', 'index.js');
-  // Share an unguessable, per-launch credential with the host renderer and
-  // server child so verified system-app API calls can bypass IP rate limits
-  // without trusting a client-supplied app-id header.
-  process.env.NBOSP_SYSTEM_API_RATE_LIMIT_SECRET = crypto.randomBytes(32).toString('hex');
   const server = spawn(
     nodeBin,
     [serverScript],
@@ -167,4 +170,4 @@ async function bootstrap(appDir) {
   }
 }
 
-module.exports = { bootstrap };
+module.exports = { bootstrap, createServerEnv };
