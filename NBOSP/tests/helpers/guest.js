@@ -35,10 +35,12 @@
 
 const vm = require('vm');
 const path = require('path');
+const fs = require('fs');
 const { webcrypto } = require('crypto');
 
 const env = require('./env');
 const { AppSandbox, AppPermissionManager } = env;
+const NBOSP = path.join(__dirname, '..', '..');
 
 const INTERNAL = AppSandbox._internal;
 
@@ -57,9 +59,12 @@ function makeRichNode(tag) {
     addEventListener(type, fn) { (handlers[type] ||= []).push(fn); },
     removeEventListener() {},
     setAttribute(k, v) { (node.attrs ||= {})[k] = String(v); },
+    getAttribute(k) { return node.attrs ? (node.attrs[k] ?? null) : null; },
     removeAttribute(k) { if (node.attrs) delete node.attrs[k]; },
+    querySelector: () => null,
+    querySelectorAll: () => [],
     remove() { node.removed = true; },
-    focus() {}, select() {},
+    focus() {}, select() {}, click() {},
     classList: {
       add(...c) { node.classListStore = new Set([...(node.classListStore || []), ...c]); },
       remove(...c) { for (const x of c) node.classListStore?.delete(x); },
@@ -146,6 +151,23 @@ function makeEmitter() {
 
 if (!global.OS.events) global.OS.events = makeEmitter();
 
+// Browsers expose requestAnimationFrame; the SystemDialogs picker uses it
+// to focus its grid after rendering.
+if (typeof global.requestAnimationFrame !== 'function') {
+  global.requestAnimationFrame = (fn) => setTimeout(fn, 16);
+}
+
+// ── real SystemDialogs service (the production picker) ──
+// Loaded with require injected so the service's Node fs/path usage works;
+// it attaches window.SystemDialogs, exactly as the shell does. nova:files:*
+// and nova:sysdialog:* route here in production.
+try {
+  const svcSrc = fs.readFileSync(path.join(NBOSP, 'js', 'apps', 'system-dialogs', 'service.js'), 'utf8');
+  new Function('require', 'module', 'exports', svcSrc)(require, { exports: {} }, {});
+} catch (e) {
+  console.error('[guest] SystemDialogs service failed to load:', e);
+}
+
 // ── guest-side DOM classes ──
 // The capability shim patches Document.prototype.createElement,
 // Element.prototype.innerHTML and HTMLAnchorElement.prototype.click, so the
@@ -183,6 +205,8 @@ function makeGuestNode(tag) {
     setAttribute(k, v) { (node.attrs ||= {})[k] = String(v); },
     getAttribute(k) { return node.attrs ? (node.attrs[k] ?? null) : null; },
     removeAttribute(k) { if (node.attrs) delete node.attrs[k]; },
+    querySelector: () => null,
+    querySelectorAll: () => [],
     remove() { node.removed = true; },
     focus() {}, select() {}, click() {},
     classList: {

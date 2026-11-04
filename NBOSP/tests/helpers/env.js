@@ -173,9 +173,28 @@ global.fetch = function stubFetch(url, opts) {
   if (u === '/api/security/settings') return jsonResponse(200, { success: true, data: { _meta: { adminMode: true } } });
   if (u.startsWith('/api/security/audit')) return jsonResponse(200, { success: true, data: [], pagination: {}, statistics: {} });
   if (u.startsWith('/api/admin')) return jsonResponse(200, { success: true, data: {} });
-  if (u.includes('/api/proxy')) return jsonResponse(200, { hello: 'proxied-world' });
+  // Mirrors the REAL /api/proxy response contract (server/proxies.js):
+  // { status, statusText, headers, body, bodyEncoding } — the sandbox's
+  // external-fetch path reads exactly these fields.
+  if (u.includes('/api/proxy')) return jsonResponse(200, {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ hello: 'world' }),
+    bodyEncoding: 'utf8',
+  });
   if (u.startsWith('https://ok.example.com') || u.startsWith('http://ok.example.com') || u.startsWith('http://127.0.0.1')) {
     return jsonResponse(200, { hello: 'world' });
+  }
+  // The guest simulator's own serve host — a self-file fetch from inside a
+  // sandbox (native path, no net permission) lands here.
+  if (u.startsWith('https://apps.sandbox.invalid/')) {
+    return Promise.resolve({
+      ok: true, status: 200, statusText: 'OK',
+      headers: { get: (h) => (String(h).toLowerCase() === 'content-type' ? 'text/html' : null) },
+      text: () => Promise.resolve('<!DOCTYPE html><html><body>app entry</body></html>'),
+      json: () => Promise.reject(new TypeError('not json')),
+    });
   }
   return Promise.reject(new TypeError('stubFetch: no route for ' + u));
 };
@@ -193,6 +212,12 @@ global.WebSocket = class StubWebSocket {
   addEventListener() {}
   removeEventListener() {}
 };
+// Static readyState constants — the real WebSocket class exposes them and
+// handleNetWsSend compares against WebSocket.OPEN.
+global.WebSocket.CONNECTING = 0;
+global.WebSocket.OPEN = 1;
+global.WebSocket.CLOSING = 2;
+global.WebSocket.CLOSED = 3;
 
 // ── entity factories ──
 

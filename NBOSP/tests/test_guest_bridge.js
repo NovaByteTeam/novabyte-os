@@ -334,10 +334,14 @@ const DOC_CHANNELS = [
   ['nova:appearance:unsubscribe', {}],
   ['nova:wallpaper:set', { key: 'wallpaperId', value: 'wp-1' }],
   ['nova:ready', {}],
-  ['nova:share', { title: 't', text: 'x' }],
+  // Interactive channels: verified with a real dialog that the probe
+  // dismisses, proving the channel answers with { cancelled: true } rather
+  // than hanging (their legitimate open-ended wait is the 10-minute
+  // interactive timeout).
+  ['nova:share', { title: 't', text: 'x' }, 'dismiss-share'],
   ['nova:open-url', { url: 'https://example.com/' }],
   ['nova:open-with', { fileId: 'nope' }],
-  ['nova:download', { filename: 'f.txt', mimeType: 'text/plain', base64Data: 'aGk=' }],
+  ['nova:download', { filename: 'f.txt', mimeType: 'text/plain', base64Data: 'aGk=' }, 'dismiss-dialog'],
   ['nova:context-menu:show', { x: 10, y: 10, items: [{ label: 'A' }] }],
   ['nova:context-menu:hide', {}],
   ['nova:overlay:show', { html: '<b>x</b>' }],
@@ -350,8 +354,23 @@ async function ga4() {
 
   const g = await freshGuest('com.test.audit.g4');
   let answered = 0, hungOrCodeless = [];
-  for (const [type, payload] of DOC_CHANNELS) {
-    const r = await guestCall(g, type, payload);
+  for (const entry of DOC_CHANNELS) {
+    const [type, payload, interactive] = entry;
+    const callPromise = g.nova.ipc(type, payload);
+    // Interactive channels open a real dialog a human would answer; dismiss
+    // it like a user cancelling, which resolves the call with cancelled:true.
+    if (interactive === 'dismiss-share') {
+      await sleep(150);
+      const cancelBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Cancel');
+      if (cancelBtn) cancelBtn.__fire('click');
+    } else if (interactive === 'dismiss-dialog') {
+      await sleep(150);
+      const cancelBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Cancel');
+      if (cancelBtn) cancelBtn.__fire('click');
+    }
+    let r;
+    try { r = { ok: true, value: await settle(callPromise, 6000) }; }
+    catch (e) { r = { ok: false, error: e }; }
     if (r.ok) { answered++; continue; }
     const e = r.error || {};
     if (e.code && typeof e.code === 'string' && e.message && typeof e.message === 'string') { answered++; continue; }
@@ -685,6 +704,264 @@ async function ga8() {
 
 // ════════════════════════════════ GA9 ══════════════════════════════════
 
+// ── GA10: transparent network bridging (the path real apps use) ──
+
+async function ga10() {
+  section('[GA10] transparent network bridging — window.fetch / XHR');
+
+  const appId = 'com.test.audit.g10';
+  const g = await freshGuest(appId);
+
+  // fetch() with no net grant rejects with PERMISSION_DENIED (bridged,
+  // not native — a native fetch would hit stubFetch's no-route TypeError).
+  let fetchErr = null;
+  try { await settle(g.window.fetch('https://ok.example.com/x')); } catch (e) { fetchErr = e; }
+  check('window.fetch without net grant rejects PERMISSION_DENIED', fetchErr && fetchErr.code === 'PERMISSION_DENIED', JSON.stringify(fetchErr && fetchErr.code));
+
+  // With net:external it resolves a real Response through the bridge.
+  await grant('net:external', appId);
+  const res = await settle(g.window.fetch('https://ok.example.com/x'));
+  check('window.fetch with net:external resolves a Response', res && typeof res === 'object' && typeof res.json === 'function', typeof res);
+  const body = await settle(res.json());
+  check('bridged fetch body round-trips (json)', body && body.hello === 'world', JSON.stringify(body));
+  await revoke('net:external', appId);
+
+  // Internal destination with only net:external is denied; with
+  // net:internal it works (the MAC row now allows either grant through).
+  await grant('net:external', appId);
+  let internalErr = null;
+  try { await settle(g.window.fetch('http://127.0.0.1/internal')); } catch (e) { internalErr = e; }
+  check('internal URL with only net:external rejects PERMISSION_DENIED', internalErr && internalErr.code === 'PERMISSION_DENIED', JSON.stringify(internalErr && internalErr.code));
+  await revoke('net:external', appId);
+  await grant('net:internal', appId);
+  const internalRes = await settle(g.window.fetch('http://127.0.0.1/internal'));
+  const internalBody = await settle(internalRes.json());
+  check('internal URL with net:internal resolves (MAC any-of fix)', internalBody && internalBody.hello === 'world', JSON.stringify(internalBody));
+  await revoke('net:internal', appId);
+
+  // Self-file exemption: fetching one of the app's own registered files
+  // under its serve prefix needs no permission and uses the native path.
+  const ownUrl = g.window.location.href;
+  let selfErr = null;
+  let selfRes = null;
+  try { selfRes = await settle(g.window.fetch(ownUrl), 4000); } catch (e) { selfErr = e; }
+  check('self-file fetch needs no net permission (native path)', !selfErr, JSON.stringify(selfErr && selfErr.message));
+  void selfRes;
+
+  // XHR through the bridge: permission-gated the same way.
+  await grant('net:external', appId);
+  const xhrResult = await new Promise((resolve) => {
+    let failedWith = null;
+    try {
+      const xhr = new g.window.XMLHttpRequest();
+      xhr.open('GET', 'https://ok.example.com/x');
+      xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+      xhr.onerror = () => resolve({ error: 'network' });
+      xhr.onabort = () => resolve({ error: 'abort' });
+      setTimeout(() => resolve({ error: 'timeout', failedWith }), 4000);
+      xhr.send();
+    } catch (e) {
+      resolve({ error: String(e && e.message || e), failedWith });
+    }
+  });
+  check('XMLHttpRequest bridged fetch resolves with status 200', xhrResult && xhrResult.status === 200, JSON.stringify(xhrResult));
+  check('XMLHttpRequest body round-trips', xhrResult && /world/.test(String(xhrResult.text || '')), JSON.stringify(xhrResult && xhrResult.text));
+  await revoke('net:external', appId);
+
+  const xhrDenied = await new Promise((resolve) => {
+    try {
+      const xhr = new g.window.XMLHttpRequest();
+      xhr.open('GET', 'https://ok.example.com/x');
+      xhr.onload = () => resolve({ status: xhr.status });
+      xhr.onerror = () => resolve({ error: 'network' });
+      setTimeout(() => resolve({ error: 'timeout' }), 4000);
+      xhr.send();
+    } catch (e) { resolve({ error: String(e && e.message || e) }); }
+  });
+  check('XMLHttpRequest without grant fails (not silently succeeds)', xhrDenied && (xhrDenied.error || xhrDenied.status !== 200), JSON.stringify(xhrDenied));
+
+  g.teardown();
+}
+
+// ── GA11: websocket wrapper, share sheet, file picker (real dialogs) ──
+
+async function ga11() {
+  section('[GA11] websocket wrapper, share sheet, file picker — real dialogs');
+
+  const appId = 'com.test.audit.g11';
+  const g = await freshGuest(appId);
+
+  // WebSocket without the grant.
+  let wsErr = null;
+  try { await settle(g.nova.websocket('wss://ws.example.com/')); } catch (e) { wsErr = e; }
+  check('websocket without net:websocket rejects PERMISSION_DENIED', wsErr && wsErr.code === 'PERMISSION_DENIED', JSON.stringify(wsErr && wsErr.code));
+
+  // With the grant: open → message → send → close through the wrapper.
+  await grant('net:websocket', appId);
+  const ws = await settle(g.nova.websocket('wss://ws.example.com/'));
+  check('websocket wrapper resolves a handle with wsId', ws && !!ws.wsId && typeof ws.send === 'function', JSON.stringify(ws && ws.wsId));
+  let message = null;
+  ws.onMessage((envelope) => { message = envelope; });
+  // Host StubWebSocket echoes nothing by itself; drive the guest-visible
+  // event path by having the host push through ws:send and reading state.
+  const sendRes = await settle(ws.send('hello-socket'));
+  check('ws.send resolves through the bridge', !sendRes.error, JSON.stringify(sendRes && sendRes.error));
+  const closeRes = await settle(ws.close(1000, 'done'));
+  check('ws.close resolves through the bridge', !closeRes.error, JSON.stringify(closeRes && closeRes.error));
+  await revoke('net:websocket', appId);
+  void message;
+
+  // Share sheet — a REAL host dialog; click Copy like a user.
+  const shareP = settle(g.nova.share({ title: 'Share me', text: 'Some text' }), 6000);
+  await sleep(150);
+  const copyBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Copy');
+  check('share sheet shows a Copy action', !!copyBtn);
+  if (copyBtn) copyBtn.__fire('click');
+  const shared = await shareP;
+  check('share resolves { cancelled: false, action: "Copy" }', shared && shared.cancelled === false && shared.action === 'Copy', JSON.stringify(shared));
+
+  // Share cancel path.
+  const shareP2 = settle(g.nova.share({ text: 'Again' }), 6000);
+  await sleep(150);
+  const cancelBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Cancel');
+  check('second share sheet shows Cancel', !!cancelBtn);
+  if (cancelBtn) cancelBtn.__fire('click');
+  const shared2 = await shareP2;
+  check('share cancel resolves { cancelled: true }', shared2 && shared2.cancelled === true, JSON.stringify(shared2));
+
+  // Invalid share payloads reject INVALID_ARGS (no dialog).
+  let shareErr = null;
+  try { await settle(g.nova.share({ url: 'ftp://nope.example.com/x' })); } catch (e) { shareErr = e; }
+  check('share with non-HTTP(S) url rejects INVALID_ARGS', shareErr && shareErr.code === 'INVALID_ARGS', JSON.stringify(shareErr && shareErr.code));
+
+  // File picker (nova:files:open) — the REAL production SystemDialogs
+  // service browsing a REAL directory, clicked through like a user.
+  const osMod = require('os');
+  const pickerDir = fs.mkdtempSync(path.join(osMod.tmpdir(), 'nova-guest-picker-'));
+  fs.writeFileSync(path.join(pickerDir, 'photo.jpg'), 'jpeg-bytes');
+  fs.writeFileSync(path.join(pickerDir, 'notes.txt'), 'plain text notes');
+
+  const openP = settle(g.nova.files.open({
+    title: 'Pick one', startPath: pickerDir, accept: ['image/jpeg'],
+  }), 8000);
+  await sleep(250);
+  const photoTile = findInTree(global.document.body, (n) => typeof n.getAttribute === 'function' && n.getAttribute('aria-label') === 'photo.jpg');
+  check('real picker lists the image file', !!photoTile);
+  if (photoTile) photoTile.__fire('click');
+  await sleep(80);
+  const openBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Open');
+  check('picker Open button enabled after selection', !!openBtn && openBtn.disabled === false);
+  if (openBtn) openBtn.__fire('click');
+  const opened = await openP;
+  check('files.open resolves the picked image as base64',
+    opened && opened.cancelled === false && opened.file && opened.file.name === 'photo.jpg'
+      && opened.file.content === Buffer.from('jpeg-bytes').toString('base64')
+      && opened.file.encoding === 'base64',
+    JSON.stringify(opened).slice(0, 220));
+
+  // Text file pick returns plain content (no encoding marker).
+  const openTxt = settle(g.nova.files.open({
+    title: 'Pick text', startPath: pickerDir, accept: ['.txt'],
+  }), 8000);
+  await sleep(250);
+  const txtTile = findInTree(global.document.body, (n) => typeof n.getAttribute === 'function' && n.getAttribute('aria-label') === 'notes.txt');
+  if (txtTile) txtTile.__fire('click');
+  await sleep(80);
+  const openBtn2 = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Open');
+  if (openBtn2) openBtn2.__fire('click');
+  const openedTxt = await openTxt;
+  check('files.open resolves the picked text file as content',
+    openedTxt && openedTxt.cancelled === false && openedTxt.file && openedTxt.file.content === 'plain text notes' && !openedTxt.file.encoding,
+    JSON.stringify(openedTxt).slice(0, 220));
+
+  // Picker cancel path.
+  const openP2 = settle(g.nova.files.open({ title: 'Cancel me', startPath: pickerDir }), 8000);
+  await sleep(250);
+  const pickerCancel = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Cancel');
+  check('picker shows Cancel', !!pickerCancel);
+  if (pickerCancel) pickerCancel.__fire('click');
+  const opened2 = await openP2;
+  check('files.open cancel resolves { cancelled: true }', opened2 && opened2.cancelled === true, JSON.stringify(opened2));
+
+  // Save picker: pick a destination, verify the real file lands on disk.
+  const saveP = settle(g.nova.files.save({
+    title: 'Export', filename: 'exported.txt', startPath: pickerDir,
+    mimeType: 'text/plain', content: 'Exported content',
+  }), 8000);
+  await sleep(250);
+  const saveBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Save');
+  check('save picker shows Save (enabled by suggestedName)', !!saveBtn && saveBtn.disabled === false);
+  if (saveBtn) saveBtn.__fire('click');
+  const saved = await saveP;
+  const savedPath = saved && saved.file && saved.file.path;
+  const onDisk = savedPath ? fs.readFileSync(savedPath, 'utf8') : null;
+  check('files.save writes the content to the real destination',
+    saved && saved.cancelled === false && onDisk === 'Exported content',
+    JSON.stringify(saved).slice(0, 200) + ' disk=' + JSON.stringify(onDisk));
+
+  fs.rmSync(pickerDir, { recursive: true, force: true });
+
+  g.teardown();
+}
+
+// ── GA12: requestPermission rate limiting + notification actions ──
+
+async function ga12() {
+  section('[GA12] requestPermission rate limiting and notification actions');
+
+  const appId = 'com.test.audit.g12';
+  const g = await freshGuest(appId);
+
+  // The doc: 3 prompts per rolling 60s per appId:permission pair, then
+  // auto-deny with no dialog; cooldown doubles per consecutive denial.
+  const results = [];
+  for (let i = 0; i < 4; i++) {
+    const p = settle(g.nova.requestPermission('device:geolocation', 'reason ' + i), 5000);
+    await sleep(120);
+    const denyBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Deny');
+    if (denyBtn) { denyBtn.__fire('click'); results.push(await p); }
+    else { results.push(await p); }
+  }
+  check('four rapid requests all resolve granted:false (3 dialogs + 1 auto-deny)',
+    results.length === 4 && results.every((r) => r && r.granted === false),
+    JSON.stringify(results));
+
+  // Rate-limit probe channel reports the state.
+  const limited = await guestCall(g, 'nova:permission-rate-limited', { permission: 'device:geolocation' });
+  check('permission-rate-limited reports limited after denial streak', limited.ok && limited.value && limited.value.limited === true, JSON.stringify(limited.value));
+
+  // Notification action queue through the guest.
+  await grant('device:notifications', appId);
+  await guestCall(g, 'nova:notifications:createChannel', { id: 'act', name: 'Act' });
+  const posted = await guestCall(g, 'nova:notifications:post', {
+    channelId: 'act', title: 'Do', body: 'Something',
+    actions: [{ id: 'go', label: 'Go' }],
+  });
+  check('post with actions resolves', posted.ok, JSON.stringify(posted.error && posted.error.code));
+
+  // Empty queue shape before any tap.
+  const empty = await guestCall(g, 'nova:notifications:consumeActions', {});
+  check('consumeActions on empty queue resolves a list', empty.ok && Array.isArray(empty.value && (empty.value.actions || empty.value)), JSON.stringify(empty.value));
+
+  // Toast action tap: find the toast's Go button (toasts mount into the
+  // #toast-container portal, not directly under body) and tap it.
+  const toastRoot = global.document.getElementById('toast-container');
+  const goBtn = findInTree(toastRoot, (n) => n.tagName === 'BUTTON' && n.textContent === 'Go');
+  check('posted action renders a tappable toast button', !!goBtn);
+  if (goBtn) goBtn.__fire('click');
+  await sleep(200);
+  const consumed = await guestCall(g, 'nova:notifications:consumeActions', {});
+  const actions = consumed.value && (consumed.value.actions || consumed.value);
+  check('tapped action is delivered to the app queue', Array.isArray(actions) && actions.length === 1 && actions[0].actionId === 'go' && actions[0].label === 'Go', JSON.stringify(actions));
+  const consumedAgain = await guestCall(g, 'nova:notifications:consumeActions', {});
+  const actionsAgain = consumedAgain.value && (consumedAgain.value.actions || consumedAgain.value);
+  check('consumeActions acknowledges (queue drains)', Array.isArray(actionsAgain) && actionsAgain.length === 0, JSON.stringify(actionsAgain));
+
+  await revoke('device:notifications', appId);
+  g.teardown();
+}
+
+
 async function ga9() {
   section('[GA9] doc parity — NOVAAPP.md vs runtime');
 
@@ -737,6 +1014,7 @@ const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1]
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
+  GA10: ga10, GA11: ga11, GA12: ga12,
 };
 
 (async () => {
