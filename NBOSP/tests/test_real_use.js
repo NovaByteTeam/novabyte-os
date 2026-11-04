@@ -749,7 +749,7 @@ async function r7() {
   const reply = await call('nova:ipc:reply', { callId, result: { echoed: 'hello' } }, actx);
   check('reply accepted from the target sandbox', reply.result?.success === true, code(reply));
   const invokeRes = await invokePromise;
-  check('invoker received the round-trip result', invokeRes.result?.result?.echoed === 'hello', JSON.stringify(invokeRes.result || invokeRes.error));
+  check('invoker received the round-trip result', invokeRes.result?.echoed === 'hello', JSON.stringify(invokeRes.result || invokeRes.error));
 
   // Manifest gate: B invoking an endpoint A doesn't export.
   const notFound = await call('nova:ipc:invoke', { targetAppId: A.id, endpoint: 'service:reverse', data: {} }, bctx);
@@ -797,7 +797,7 @@ async function r7() {
   const realReply = await call('nova:ipc:reply', { callId: spoofCallId, result: { echoed: 'spoof-me' } }, actx);
   check('the real target still resolves it', realReply.result?.success === true, code(realReply));
   const spoofOutcome = await spoofInvoke;
-  check('spoofed answer never reached the invoker', spoofOutcome.result?.result?.echoed === 'spoof-me' && spoofOutcome.result?.result?.hacked === undefined, JSON.stringify(spoofOutcome.result || spoofOutcome.error));
+  check('spoofed answer never reached the invoker', spoofOutcome.result?.echoed === 'spoof-me' && spoofOutcome.result?.hacked === undefined, JSON.stringify(spoofOutcome.result || spoofOutcome.error));
 
   // Rate limit: 20 invokes/min per app, enforced BEFORE endpoint resolution
   // (so a burst against a bogus endpoint still trips it without leaving 20

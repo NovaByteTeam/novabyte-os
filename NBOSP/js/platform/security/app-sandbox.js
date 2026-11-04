@@ -570,8 +570,14 @@ const AppSandbox = (() => {
       'nova:mail:session': ['mail:write'],
       'nova:mail:send': ['mail:send'],
       'nova:mail:delete': ['mail:delete'],
-      // Network.
-      'nova:net:fetch': ['net:external'],
+      // Network. ANY-of: the handler classifies the destination — internal
+      // hosts require net:internal, everything else net:external — so the
+      // MAC front door must accept either grant and let the handler decide,
+      // exactly like the path-dependent fs:* rows. Requiring net:external
+      // alone (the old row) locked internal-only apps out of their own
+      // internal hosts entirely: MAC denied the call before the handler's
+      // correct per-destination check could run.
+      'nova:net:fetch': ['net:internal', 'net:external'],
       'nova:net:websocket': ['net:websocket'],
       // Devices.
       'nova:device:geolocation': ['device:geolocation'],
@@ -1858,6 +1864,46 @@ const AppSandbox = (() => {
     return '/data/' + appDataSegment(appId) + p.slice('/data'.length);
   }
 
+  // Lazily create the caller's OWN /data/<appId>/… ancestor folders
+  // (mkdir -p semantics), so a write like nova:fs:write('/data/notes/todo.txt')
+  // — or the documented appdata.write('notes/todo.txt', …) example — works
+  // without the app pre-creating every folder. The app's own subtree is
+  // private to it: auto-creating missing folders there has no security
+  // impact and removes a whole class of first-run NOT_FOUND failures for
+  // apps installed through paths that don't run the AppDirs bootstrap
+  // (e.g. programmatic nova:app:install, fresh profiles).
+  //
+  // ONLY the caller-relative own subtree is touched: the path must already
+  // have been through rewriteDataPath/expandLogicalFsPath so its /data/
+  // segment is the caller's own id. A missing parent anywhere else (shared
+  // tree) returns null and the caller keeps its NOT_FOUND behavior.
+  //
+  // Returns the folder node for the deepest existing-or-created ancestor,
+  // or null when the path is outside the caller's own subtree or a
+  // same-named non-folder node blocks the way.
+  async function ensureOwnAppDataAncestors(resolvedPath, appId) {
+    const ownRoot = '/data/' + appDataSegment(appId);
+    if (resolvedPath !== ownRoot && !resolvedPath.startsWith(ownRoot + '/')) return null;
+    let cursor = FS.getByPath('/data');
+    if (!cursor || cursor.type !== 'folder') {
+      try { cursor = await FS.createFolder(FS.rootId, 'data'); } catch { return null; }
+    }
+    // Walk from the app segment down to the full path, creating missing
+    // folders. Bail out (null) if a same-named non-folder node exists —
+    // that's a genuinely invalid parent path, not a missing one.
+    const segments = resolvedPath.slice('/data/'.length).split('/').filter(Boolean);
+    for (const seg of segments) {
+      const next = FS.listDir(cursor.id).find((n) => n.name === seg);
+      if (next) {
+        if (next.type !== 'folder') return null;
+        cursor = next;
+      } else {
+        try { cursor = await FS.createFolder(cursor.id, seg); } catch { return null; }
+      }
+    }
+    return cursor && cursor.type === 'folder' ? cursor : null;
+  }
+
   // File dialog
 
   // Show a file open/save dialog. The dialog is a custom overlay so it matches
@@ -2349,7 +2395,15 @@ const AppSandbox = (() => {
     const parts = resolvedPath.split('/').filter(Boolean);
     const fileName = parts.pop();
     const parentPath = '/' + parts.join('/');
-    const parent = parts.length > 0 ? FS.getByPath(parentPath) : FS.files.get(FS.rootId);
+    let parent = parts.length > 0 ? FS.getByPath(parentPath) : FS.files.get(FS.rootId);
+    if (!parent && parts.length > 0) {
+      // Missing parents inside the caller's OWN /data/<appId>/ subtree are
+      // auto-created (see ensureOwnAppDataAncestors) so the documented
+      // first-write flows work without a prior mkdir. Shared-tree paths
+      // keep the NOT_FOUND below — the host must not silently grow folders
+      // outside an app's private subtree.
+      parent = await ensureOwnAppDataAncestors(parentPath, app.id);
+    }
     if (!parent || parent.type !== 'folder') {
       return respondError(webview, 'nova:fs:write', requestId, 'NOT_FOUND', 'Parent folder not found');
     }
@@ -2437,6 +2491,13 @@ const AppSandbox = (() => {
     let parent;
     if (resolvedPath) {
       parent = FS.getByPath(resolvedPath);
+      if (!parent) {
+        // mkdir '/data/' on a fresh install: the app's own root may not
+        // exist yet (AppDirs only bootstraps system packages). Create the
+        // caller-relative ancestors rather than failing NOT_FOUND on the
+        // app's very first mkdir.
+        parent = await ensureOwnAppDataAncestors(resolvedPath, app.id);
+      }
     } else {
       parent = FS.files.get(FS.rootId);
     }
@@ -5609,7 +5670,16 @@ const AppSandbox = (() => {
     if (outcome.error) {
       return respondError(webview, 'nova:ipc:invoke', requestId, 'REMOTE_ERROR', outcome.error);
     }
-    return respond(webview, 'nova:ipc:invoke', requestId, { result: outcome.result });
+    // Respond with the provider's own return value as the result, NOT a
+    // { result: … } wrapper around it. The guest-side shim merges msg.result
+    // onto the response's top level AND exposes it as response.result, so a
+    // wrapper here made apps read response.result.result — one level deeper
+    // than the documented `const response = await nova.ipc.call(…);
+    // response.result` contract (NOVAAPP.md, Inter-app communication).
+    // A primitive or null provider return round-trips as response.result
+    // unchanged; an object return additionally spreads its fields onto the
+    // top level, same as every other handler.
+    return respond(webview, 'nova:ipc:invoke', requestId, outcome.result);
   }
 
   function handleAppIpcReply({ payload, requestId, app, webview, sandbox }) {
@@ -7463,12 +7533,23 @@ const AppSandbox = (() => {
       // host-initiated read that doesn't land in the visible log stream
       // the way console.log broadcasts do.
       const { type, requestId } = data;
-      if (typeof type !== 'string'
-        || (!Object.prototype.hasOwnProperty.call(API_HANDLERS, type) && !GUEST_FORBIDDEN_IPC_APIS.has(type))) {
-        log('warn', `Rejected IPC message with unknown/disallowed type from ${app?.id || 'unknown app'}: ${String(type)}`);
-        return;
-      }
+      // requestId must be validated BEFORE the type check can answer: an
+      // unknown type is answered with UNKNOWN_API, and a response needs a
+      // routable requestId to land on. A typeless or id-less message can't
+      // be answered at all — dropped as before.
+      if (typeof type !== 'string' || !type) return;
       if (typeof requestId !== 'string' || !requestId) return;
+      if (!Object.prototype.hasOwnProperty.call(API_HANDLERS, type) && !GUEST_FORBIDDEN_IPC_APIS.has(type)) {
+        // Unknown endpoint (e.g. a typo'd channel name). Historically this
+        // was dropped silently, which left the guest's pending ipc() promise
+        // hanging until the bridge timeout — a 30s wait ending in a generic
+        // TypeError with no error code. The documented contract (NOVAAPP.md
+        // error-code table) says a typo rejects with UNKNOWN_API, so answer
+        // it: the guest gets an immediate, code-carrying rejection while the
+        // unknown type still never reaches a handler.
+        log('warn', `Rejected IPC message with unknown type from ${app?.id || 'unknown app'}: ${type}`);
+        return respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
+      }
 
       // Deliberately NOT { mainWorld: true } — window.__novaOutboxPull now
       // lives inside the isolated-world transport script (see
@@ -8628,7 +8709,19 @@ const AppSandbox = (() => {
     onEvent: function(eventName, callback) {
       if (!eventListeners[eventName]) eventListeners[eventName] = [];
       eventListeners[eventName].push(callback);
-      return ipc('nova:events:subscribe', { event: eventName });
+      // Subscribe ONCE per event name. The host holds a single
+      // subscription per sandbox and pushes each occurrence to this
+      // document, where the shim fans it out to every registered callback
+      // (the eventListeners array above). Re-sending nova:events:subscribe
+      // for each added listener made the host reject every call after the
+      // first with ALREADY_SUBSCRIBED — the new listener never fired and
+      // the returned promise rejected (an unhandled rejection in any app
+      // that didn't .catch() it, since onEvent is addEventListener-shaped
+      // and callers expect stacking listeners to work).
+      if (eventListeners[eventName].length === 1) {
+        return ipc('nova:events:subscribe', { event: eventName });
+      }
+      return Promise.resolve({ success: true, subscribed: eventName });
     },
     // system:background scheduled-wake support. The host only ever spins
     // up a sandbox for a wake cycle if the app holds system:background —

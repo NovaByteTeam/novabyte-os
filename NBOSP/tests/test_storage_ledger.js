@@ -171,7 +171,7 @@ check('70 KB payload forwarded (legacy 64 KB would reject)', !!forwarded, forwar
 if (forwarded) {
   await call('nova:ipc:reply', { callId: forwarded.requestId, result: { echo: true } }, { appId: 'ipcTarget', sandbox: targetSandbox, webview: targetWv });
   const done = await invokePromise;
-  check('invoke completed after reply', done.result?.result?.echo === true, JSON.stringify(done.result ?? done.error));
+  check('invoke completed after reply', done.result?.echo === true, JSON.stringify(done.result ?? done.error));
 } else {
   await invokePromise.catch(() => {});
 }

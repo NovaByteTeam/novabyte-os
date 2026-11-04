@@ -463,7 +463,7 @@ await window.nova.overlay.hide();
 
 Overlay HTML is sanitized and runs in a script-disabled frame with network access blocked; scripts and inline event handlers in the markup are not run. The `onEvent` callback receives `click`, `input`, `change`, `submit`, or `keydown` events with the `action`/`field` value and relevant input `value`, checkbox `checked`, or key `key`. `show()` resolves with `{ success: true, overlayId }`.
 
-For simple native-style menus, use `window.nova.contextMenu.show()`. Coordinates are client coordinates in the app viewport, such as `event.clientX` and `event.clientY`. Its Promise resolves with `{ cancelled: false, index }` after selection or `{ cancelled: true, index: null }` when dismissed:
+For simple native-style menus, use `window.nova.contextMenu.show()`. Like `overlay.show()` it renders in a host layer, so it requires the same `sandbox:nested-webview` grant (and the `allowNestedWebview` manifest opt-in). Coordinates are client coordinates in the app viewport, such as `event.clientX` and `event.clientY`. Its Promise resolves with `{ cancelled: false, index }` after selection or `{ cancelled: true, index: null }` when dismissed:
 
 ```javascript
 viewport.addEventListener('contextmenu', async event => {
@@ -555,7 +555,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-41 permissions across 10 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+37 permissions across 10 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -734,6 +734,10 @@ if (budget - usage < 64 * 1024) pruneOldData();
 // 'appdata:' — YOUR own /data/<appId>/ subtree. Always caller-scoped.
 await window.novaOS.fs.appdata.write('notes/todo.txt', 'hello');
 const listing = await window.novaOS.fs.appdata.list('notes');
+// appdata.read resolves the same file record nova:fs:read returns:
+// { data, mimeType, name, size, id, path, modified, created }.
+const file = await window.novaOS.fs.appdata.read('notes/todo.txt');
+console.log(file.data);
 
 // 'shared:' / 'media:' — the shared tree (Documents, Downloads, …) under
 // the same permission rules as raw paths: media grants, user-picked files,
@@ -854,7 +858,7 @@ const unsubscribe = await window.nova.appearance.onChange(appearance => {
 unsubscribe();
 ```
 
-The API deliberately does not expose unrelated OS settings. `set` accepts only the supported appearance fields and validated values; it does not require `system:settings`. `onChange` calls the callback immediately with the current snapshot, then on each change. Updates are rate-limited to 10 per minute.
+The API deliberately does not expose unrelated OS settings. `set` accepts only the supported appearance fields and validated values; it does not require `system:settings`. Valid values: `theme` must be one of the OS theme ids — `'nova-dark'`, `'nova-light'`, `'nord'`, `'dracula'`, `'catppuccin'`, `'tokyo-night'`, `'gruvbox'` (an unknown theme rejects with `INVALID_ARGS`); `accentColor` is a `#rrggbb` hex string or `null`; `highContrast`, `reduceMotion`, and `transparentSurfaces` are booleans. `onChange` calls the callback immediately with the current snapshot, then on each change. Updates are rate-limited to 10 per minute.
 
 ```javascript
 await window.nova.appearance.set({
@@ -920,11 +924,13 @@ The filesystem is scoped by ownership and user choice:
 - Apps cannot delete the filesystem root, `/data`, or the Trash folder. App-owned files remain private while in Trash.
 
 ```javascript
-// Read a file in your app's own storage (no permission required)
-const { content, size, modified } = await window.nova.ipc('nova:fs:read', { path: '/data/notes.txt' });
+// Read a file in your app's own storage (no permission required).
+// The file's bytes come back in `data` (the picker APIs use `file.content`).
+const { data, size, modified } = await window.nova.ipc('nova:fs:read', { path: '/data/notes.txt' });
 
 // Read shared media only after declaring the matching permission
 const image = await window.nova.ipc('nova:fs:read', { path: '/Pictures/photo.png' });
+// image.data is the content; image.mimeType / name / size / id / path too.
 
 // List your app's files (no permission required)
 const { files } = await window.nova.ipc('nova:fs:list', { path: '/data/' });
@@ -934,7 +940,10 @@ const { files } = await window.nova.ipc('nova:fs:list', { path: '/data/' });
 const { stat } = await window.nova.ipc('nova:fs:stat', { path: '/Pictures/photo.png' });
 // stat: { id, name, type, mimeType, size, path, parentId, created, modified, accessed, tags }
 
-// Write under your app's data (no permission required)
+// Write under your app's data (no permission required). Missing parent
+// folders inside your own /data/ subtree are created automatically
+// (mkdir -p semantics) — 'notes/deep/todo.txt' works without a prior
+// mkdir. Missing parents in the SHARED tree still fail with NOT_FOUND.
 await window.nova.ipc('nova:fs:write', { path: '/data/notes.txt', content: 'Hello' });
 
 // Create a folder under your app root; omit path for app root.
@@ -1283,11 +1292,11 @@ Reading and writing OS settings are gated by **different** permissions, and both
 // Requires system:info
 const { value } = await window.nova.ipc('nova:settings:get', { key: 'theme' });
 
-// Requires system:settings
-await window.nova.ipc('nova:settings:set', { key: 'theme', value: 'dark' });
+// Requires system:settings (theme values follow the OS theme ids, e.g. 'nord')
+await window.nova.ipc('nova:settings:set', { key: 'theme', value: 'nord' });
 ```
 
-Security-sensitive material — `lockPin`, `pinSalt`, `biometricCredentialId`, `bootPassword`, `lockoutUntil`, `wrongPinCount` — is not in the readable allowlist and never reachable through this API, so holding `system:info` can't read the user's PIN hash and holding `system:settings` can't reset lockout state. Calls for any other unlisted key fail with `INVALID_ARGS`.
+Security-sensitive material — `lockPin`, `pinSalt`, `biometricCredentialId`, `bootPassword`, `lockoutUntil`, `wrongPinCount` — is not in the readable allowlist and never reachable through this API, so holding `system:info` can't read the user's PIN hash and holding `system:settings` can't reset lockout state. Calls for any other unlisted key fail with `PERMISSION_DENIED` ("not readable/writable by apps") — the allowlist is a scope boundary, not an argument-format check.
 
 For appearance customization, prefer `window.nova.appearance.set(...)`: it changes only validated theme/accent/accessibility preferences.
 
@@ -1310,7 +1319,7 @@ Calling `nova.ipc('nova:events:unsubscribe', { event: 'system:themeChanged' })` 
 | Event | Fires when | Permission |
 |---|---|---|
 | `system:notification` | A system notification is shown | `system:events` |
-| `system:volumeChanged` | Volume is changed | `system:events` |
+| `system:volumeChanged` | Volume is changed | — |
 | `system:themeChanged` | Light/dark theme is switched | — |
 | `system:workspaceChanged` | The active workspace changes | — |
 | `system:power` | Power state changes (battery/charging) | — |
@@ -1465,6 +1474,16 @@ Both picker channels are on the same interactive, long-timeout tier as `nova:dow
 | `UNVERIFIED` | `nova:app:install` rejected an unsigned or trust-store-unverified package — a correct, fail-closed rejection |
 | `GEOLOCATION_ERROR` | The browser's geolocation API itself failed or timed out (separate from `PERMISSION_DENIED`, which means the app-level grant was missing) |
 | `CLIPBOARD_UNAVAILABLE` | The system clipboard could not be written/read |
+| `INVALID_EVENT` | A calendar write was malformed (needs a title and a `YYYY-MM-DD` date) |
+| `INVALID_CONTACT` | A contact write was malformed (needs an id and a name) |
+| `INVALID_ID` / `INVALID_STATE` / `INVALID_OPERATION` | Malformed ids, wrong object state, or an operation the target doesn't support (e.g. writing to a folder) |
+| `UNSUPPORTED_TYPE` | A value's MIME type is not supported by that channel |
+| `POLICY_BLOCKED` | A kiosk/system policy blocked the change (e.g. wallpaper locked) |
+| `PROTECTED_LOCATION` | The target is a system filesystem root (`/`, `/data`, Trash) that apps cannot mutate |
+| `FILE_TOO_LARGE` / `PAYLOAD_TOO_LARGE` | A file or request payload exceeded its size cap (files 10 MB, IPC payloads the app's `ipcPayloadBytes` budget) |
+| `ALREADY_INSTALLED` / `NOT_UNINSTALLABLE` / `UNTRUSTED` / `TAMPERED` / `INVALID_PACKAGE` / `MALICIOUS_PACKAGE` | Package install/uninstall validation failures — all fail-closed; install those manually through App Manager instead |
+| `DIALOG_ERROR` / `PICKER_ERROR` / `SHARE_FAILED` / `RENDER_FAILED` / `SANITIZE_FAILED` | A host-side dialog, picker, share sheet, or render/sanitize step failed internally |
+| `WRITE_ERROR` | A disk write failed (a distinct code from `IO_ERROR`, which covers save-dialog failures) |
 | `INTERNAL_ERROR` | An unexpected host-side handler failure |
 
 ---

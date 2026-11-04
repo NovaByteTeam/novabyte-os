@@ -148,7 +148,7 @@ const MATRIX = [
   ['nova:mail:send', ['mail:send'], {}],
   ['nova:mail:delete', ['mail:delete'], {}],
 
-  ['nova:net:fetch', ['net:external'], { url: 'https://ok.example.com/x' }],
+  ['nova:net:fetch', ['net:internal', 'net:external'], { url: 'https://ok.example.com/x' }],
   ['nova:net:websocket', ['net:websocket'], { url: 'wss://ok.example.com/x' }],
 
   ['nova:device:geolocation', ['device:geolocation'], {}],
@@ -506,7 +506,7 @@ async function p9() {
     await call('nova:ipc:reply', { callId: fwd.requestId, result: { pong: 2 } }, { app: b, sandbox: sb, webview: sb.webview, requestId: 'reply-1' });
   }
   r = await invokePromise;
-  check('invoke returns target result', r.result?.result?.pong === 2, JSON.stringify(r.result) + ' / ' + code(r));
+  check('invoke returns target result', r.result?.pong === 2, JSON.stringify(r.result) + ' / ' + code(r));
 
   // Reply spoofing: reply to a dead callId.
   r = await call('nova:ipc:reply', { callId: 'deadbeef', result: {} }, { app: b, sandbox: sb, webview: sb.webview });
