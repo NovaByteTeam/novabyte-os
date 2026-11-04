@@ -15,6 +15,7 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
     vi.clearAllMocks();
     vi.doMock('@noble/hashes', () => nobleHashesMock);
     globalThis.AppRegistry = {
+      getApp: vi.fn(() => null),
       registerApp: vi.fn((config) => config),
       unregisterApp: vi.fn(() => false),
     };
@@ -29,7 +30,18 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
           publicKey: { type: 'public', algorithm: { name: 'Ed25519' } },
           privateKey: { type: 'private', algorithm: { name: 'Ed25519' } },
         }),
-        digest: vi.fn().mockResolvedValue(new Uint8Array(32).fill(0xCD)),
+        // Input-dependent digest: a constant mock made every hash identical,
+        // so integrity checks could never detect tampering and the
+        // "rejects tampered file content" assertions always failed. This
+        // folds the input into a deterministic 32-byte digest instead —
+        // same bytes in, same hash out; different bytes, different hash.
+        digest: vi.fn(async (_algo, data) => {
+          const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+          const out = new Uint8Array(32);
+          for (let i = 0; i < bytes.length; i++) out[i % 32] = (out[i % 32] ^ bytes[i]) & 0xFF;
+          out[31] = (out[31] ^ bytes.length) & 0xFF;
+          return out.buffer;
+        }),
       },
     };
   });
@@ -249,7 +261,14 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       const sig = await signPackage(pkg, fakePrivateJwk, { method: 'ed25519' });
       expect(typeof sig).toBe('string');
       expect(sig.length).toBeGreaterThan(0);
-      expect(pkg.signing?.method).toBe('ed25519');
+      // signPackage is a pure primitive — it does not mutate the envelope;
+      // createPackage is what records the method on pkg.signing.
+      const signed = await createPackage(validManifest, {}, {
+        signingKey: fakePrivateJwk, signingMethod: 'ed25519',
+      });
+      expect(signed.signing?.method).toBe('ed25519');
+      expect(typeof signed.signature).toBe('string');
+      expect(signed.signature.length).toBeGreaterThan(0);
     });
 
     it('verifies a package against a public key with explicit method', async () => {
@@ -539,7 +558,12 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       const sig = await AppPackage.signPackage(pkg, fakePrivateJwk, { method: 'ed25519' });
       expect(typeof sig).toBe('string');
       expect(sig.length).toBeGreaterThan(0);
-      expect(pkg.signing?.method).toBe('ed25519');
+      // signPackage is a pure primitive — createPackage records the method.
+      const signed = await AppPackage.createPackage(validManifest, {}, {
+        signingKey: fakePrivateJwk, signingMethod: 'ed25519',
+      });
+      expect(signed.signing?.method).toBe('ed25519');
+      expect(typeof signed.signature).toBe('string');
     });
 
     it('verifies a package against a public key with explicit method', async () => {

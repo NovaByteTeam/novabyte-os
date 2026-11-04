@@ -940,7 +940,14 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             // CURRENT state rather than a stale install-time snapshot.
             let launchIntegrityStatus = 'unavailable'; // 'ok' | 'failed' | 'unavailable'
             let launchMismatchedFiles = [];
-            if (appData.integrity && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
+            // Same 'none'/missing-digest gate as the install path: a package
+            // that never recorded hashes has nothing to re-verify, and
+            // verifyIntegrity() now fails those closed — reporting
+            // 'unavailable' here keeps Studio-default (None) packages from
+            // tripping the tamper dialog on every launch.
+            if (appData.integrity && appData.integrity.method && appData.integrity.method !== 'none'
+              && appData.integrity.payloadHash
+              && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
                 // Reconstruct the same pkg shape the install path verifies
                 // against (manifest + files + signature + integrity), not a
                 // narrower subset — AppPackage's internals aren't in this
@@ -2410,7 +2417,14 @@ registerApp({
             // in its own step further down, with its own harder confirmation.
             let integrityStatus = 'unavailable'; // 'ok' | 'failed' | 'unavailable'
             let mismatchedFiles = [];
-            if (pkg.integrity && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
+            // A block recorded with method 'none' (or without a payload
+            // digest) has no hashes to compare — verifyIntegrity() now fails
+            // it closed, so gate the status on a real recorded method here
+            // and keep reporting 'unavailable' (never hashed) rather than
+            // 'failed' (tampered) for those packages.
+            if (pkg.integrity && pkg.integrity.method && pkg.integrity.method !== 'none'
+              && pkg.integrity.payloadHash
+              && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
               try {
                 const integrityOk = await AppPackage.verifyIntegrity(pkg);
                 integrityStatus = integrityOk ? 'ok' : 'failed';
