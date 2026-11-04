@@ -801,6 +801,59 @@ Envelope payloads can be large (they contain your whole namespace), so persist t
 
 ---
 
+## Platform API v2 — `window.novaOS` (completed facade)
+
+`window.novaOS` is the additive, modern API surface. It started as a small facade (storage, fs roots) and now covers the high-frequency surfaces in full. Everything it does is **pure sugar over the existing v1 channels**: same payloads, same return records, same error codes, same permission gates, same host-side checks. Nothing in the facade bypasses, re-implements, or relaxes the host boundary.
+
+Detect a surface before using it — capabilities are a runtime feature statement, not a permission state:
+
+```javascript
+if (window.novaOS.capabilities.has('fs.v2')) {
+  await window.novaOS.fs.write('appdata:/notes/todo.txt', 'hello');
+}
+```
+
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`. New capabilities may be added in future runtimes; existing names are never removed.
+
+| Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
+| --- | --- | --- | --- |
+| `storage` | `get set remove clear keys usage` | `nova:storage:*` | none — always your own namespace |
+| `fs` | `read write list stat mkdir rename move remove` + `appdata.*` / `shared.*` roots | `nova:fs:*` | same path rules as raw `nova:fs:*` |
+| `clipboard` | `readText() → text\|null`, `writeText(text)` | `nova:clipboard:*` | `clipboard:read` / `clipboard:write` |
+| `notifications` | `show post createChannel cancel cancelAll clear consumeActions` | `nova:notifications:*` | `device:notifications` |
+| `window` | `close minimize maximize setTitle resize getState` | `nova:window:*` | none |
+| `dialog` | `pickOpen(options)`, `pickSave(options)` | `nova:sysdialog:*` / `nova:dialog:*` | none — user-mediated |
+| `app` | `info list launch openUrl share openWith` | `nova:app:*`, `nova:open-url`, `nova:share`, `nova:open-with` | same as wrapped channel |
+| `data` | `export import backup restore` | `nova:data:*` | `data:export` / `data:backup` |
+
+Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
+
+```javascript
+// Clipboard roundtrip (needs clipboard:read + clipboard:write).
+await window.novaOS.clipboard.writeText('copied');
+const text = await window.novaOS.clipboard.readText();
+
+// Window controls (no permission).
+await window.novaOS.window.setTitle('My App');
+const { width, height, maximized } = await window.novaOS.window.getState();
+
+// Dialog — one pair of methods for both historical pickers.
+// style: 'styled' (default) → the OS-styled picker (nova:sysdialog:*);
+// style: 'system' → the plain picker (nova:dialog:*). Both are
+// user-mediated: your app only ever receives what the user picked.
+const picked = await window.novaOS.dialog.pickOpen({ accept: '.json', multiple: false });
+const target = await window.novaOS.dialog.pickSave({ defaultName: 'out.txt', style: 'system' });
+
+// App management + intents (same gates as nova:app:*).
+const { id } = await window.novaOS.app.info();
+await window.novaOS.app.launch('com.example.other');
+await window.novaOS.app.share({ title: 'Look', text: 'shared text' });
+```
+
+The `dialog` facade deserves one explicit note: it exists precisely because the two picker families (`nova:dialog:*` plain, `nova:sysdialog:*` styled) predate the v2 facade and remain separately available for compatibility. New apps should use `novaOS.dialog` and stop caring which picker family runs underneath; the raw channels stay unchanged either way.
+
+---
+
 ## IPC API — `window.nova`
 
 Apps communicate with the OS via `window.nova.ipc(type, payload)`, injected automatically before your app's script runs:
@@ -1693,3 +1746,11 @@ The `.novaapp` format is used by NovaByte OS and compatible NBOSP forks. Runtime
 Existing `.novaapp` APIs remain available to apps that already use them. When NovaByte adds different behavior, it ships through a new API (like the `window.novaOS` v2 facade) so existing apps keep working.
 
 This does not mean bugs or security issues are left unfixed. NovaByte may fix an existing API when it has a genuine bug or vulnerability, while taking care not to break apps that rely on it.
+
+The working rules, spelled out:
+
+1. **The v1 channel surface is frozen.** Every `nova:*` channel documented here keeps its payload shape, response object, error codes, and permission gate forever. Tests assert this on every change (the guest-bridge audit runs the documented raw-channel probe against the real dispatcher).
+2. **New behavior ships as new API, never as a change to old API.** A better version of an existing capability appears as a new channel or a new facade method (see [Platform API v2](#platform-api-v2--windownovaos-completed-facade)); the old one stays byte-compatible.
+3. **Facades are sugar, not replacements.** Each `window.novaOS.*` facade wraps one or more v1 channels 1:1 — the facade and the channel cannot drift apart, because the facade makes the same call through the same bridge.
+4. **Feature detection is `window.novaOS.capabilities.has(name)`.** Version your probes off capability names, not off `novaOS.apiVersion` or user-agent sniffing. Capability names are added over time and never removed or reused for different meanings.
+5. **Removal is not a thing.** Channels are not removed or repurposed in major OS versions; at most they stop being *documented as recommended* when a facade supersedes them — which is always stated next to the facade (see the `dialog` facade note for the pattern).

@@ -8260,6 +8260,13 @@ const AppSandbox = (() => {
   // Source for the additive, modern app-facing API. Keep the facade thin: all
   // operations still go through the existing IPC bridge and host-side handlers,
   // which preserve per-app isolation, validation, quotas, and permission checks.
+  //
+  // Facade completion policy (documented in NOVAAPP.md under "API versions
+  // and backward compatibility"): every facade here is pure sugar over an
+  // existing channel — the v1 channel, its payload, its response object,
+  // its error codes, and its permission gate are all UNCHANGED. The v1
+  // surface is frozen; anything genuinely new ships as a new channel with
+  // its own facade method, never as a behavior change to an old one.
   // This is source text because the code runs inside each sandboxed app document.
   function buildNovaOSFacadeSource(maxHttpBodyBytes) {
     const bodyCap = Number(maxHttpBodyBytes) >= 64 * 1024 ? Math.floor(Number(maxHttpBodyBytes)) : 6 * 1024 * 1024;
@@ -8271,7 +8278,19 @@ const AppSandbox = (() => {
   // every request, so these guest-side checks are just early failures.
   const __NOVA_MAX_BODY_BYTES__ = ${bodyCap};
   const NOVAOS_SUPPORTED_CAPABILITIES = Object.freeze({
+    // One capability per v2 facade surface. These mean "this runtime ships
+    // this facade" — feature detection, NOT permission state (an app must
+    // still hold the underlying grant for gated surfaces; the capability
+    // tells it whether to bother probing the API at all). New facades add
+    // names here; existing names are never removed.
     'storage.v2': true,
+    'fs.v2': true,
+    'clipboard.v2': true,
+    'notifications.v2': true,
+    'window.v2': true,
+    'dialogs.v2': true,
+    'app.v2': true,
+    'data.v2': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -8324,6 +8343,35 @@ const AppSandbox = (() => {
     // the shared tree under the same permission rules as raw paths —
     // ownership and grant checks happen on every call host-side.
     fs: Object.freeze({
+      // Full facade over the raw nova:fs:* channels — same caller-relative
+      // paths (appdata:/shared:/media: roots accepted), same permission
+      // rules, same file records and error codes. Pure sugar: nothing here
+      // bypasses or re-implements the host-side path rewriting, MAC checks,
+      // or quotas — the host handler is still the only boundary.
+      read: function(path) {
+        return ipc('nova:fs:read', { path: path });
+      },
+      write: function(path, content) {
+        return ipc('nova:fs:write', { path: path, content: content });
+      },
+      list: function(path) {
+        return ipc('nova:fs:list', { path: path });
+      },
+      stat: function(path) {
+        return ipc('nova:fs:stat', { path: path });
+      },
+      mkdir: function(path, name) {
+        return ipc('nova:fs:mkdir', { path: path, name: name });
+      },
+      rename: function(path, name) {
+        return ipc('nova:fs:rename', { path: path, name: name });
+      },
+      move: function(path, destPath) {
+        return ipc('nova:fs:move', { path: path, destPath: destPath });
+      },
+      remove: function(path) {
+        return ipc('nova:fs:delete', { path: path });
+      },
       appdata: Object.freeze({
         list: function(path) {
           return ipc('nova:fs:list', { path: 'appdata:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
@@ -8346,6 +8394,117 @@ const AppSandbox = (() => {
           return ipc('nova:fs:read', { path: 'shared:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
         },
       }),
+    }),
+    // Clipboard facade. readText() normalizes to the text itself (null when
+    // nothing is readable — matches nova:clipboard:read's null text field);
+    // writeText() resolves undefined. Permission behavior is identical to
+    // the raw channels (clipboard:read / clipboard:write, host-checked).
+    clipboard: Object.freeze({
+      readText: function() {
+        return ipc('nova:clipboard:read', {}).then(function(result) {
+          return result && Object.prototype.hasOwnProperty.call(result, 'text') ? result.text : null;
+        });
+      },
+      writeText: function(text) {
+        return ipc('nova:clipboard:write', { text: text }).then(function() {});
+      },
+    }),
+    // Notifications facade — 1:1 with the v1 channels, same permission gate
+    // (device:notifications), same rate limits, same payloads. Mutations
+    // resolve undefined; show/post return the raw response (which may be an
+    // UNAVAILABLE/RATE_LIMITED error rejection exactly like v1).
+    notifications: Object.freeze({
+      show: function(options) {
+        return ipc('nova:notifications:show', options || {});
+      },
+      post: function(options) {
+        return ipc('nova:notifications:post', options || {});
+      },
+      createChannel: function(id, name, importance) {
+        return ipc('nova:notifications:createChannel', { id: id, name: name, importance: importance });
+      },
+      cancel: function(id) {
+        return ipc('nova:notifications:cancel', { id: id });
+      },
+      cancelAll: function() {
+        return ipc('nova:notifications:cancelAll', {}).then(function() {});
+      },
+      clear: function() {
+        return ipc('nova:notifications:clear', {}).then(function() {});
+      },
+      consumeActions: function() {
+        return ipc('nova:notifications:consumeActions', {});
+      },
+    }),
+    // Window facade — the same controls nova:window:* offers. Mutations
+    // resolve undefined; getState() returns the normalized state record
+    // (the raw response minus its success flag). Host-side clamps are
+    // unchanged: the host still caps titles and dimensions.
+    window: Object.freeze({
+      close: function() { return ipc('nova:window:close', {}).then(function() {}); },
+      minimize: function() { return ipc('nova:window:minimize', {}).then(function() {}); },
+      maximize: function() { return ipc('nova:window:maximize', {}).then(function() {}); },
+      setTitle: function(title) { return ipc('nova:window:setTitle', { title: title }).then(function() {}); },
+      resize: function(width, height) {
+        return ipc('nova:window:resize', { width: width, height: height }).then(function() {});
+      },
+      getState: function() {
+        return ipc('nova:window:getState', {}).then(function(result) {
+          return {
+            id: result.id, x: result.x, y: result.y,
+            width: result.width, height: result.height,
+            maximized: !!result.maximized, minimized: !!result.minimized,
+          };
+        });
+      },
+    }),
+    // Dialog facade — unifies the two historical pickers behind one pair of
+    // methods. style: 'styled' (default) uses the OS-styled picker
+    // (nova:sysdialog:*); style: 'system' uses the plain picker
+    // (nova:dialog:*). Both are user-mediated: the app only ever gets what
+    // the user actively picked, so no permission gates either path.
+    // Extra options (accept, multiple, defaultName, …) pass through
+    // unchanged; the style key itself is stripped before sending.
+    dialog: Object.freeze({
+      pickOpen: function(options) {
+        const opts = options || {};
+        const payload = Object.assign({}, opts);
+        delete payload.style;
+        if (opts.style === 'system') return ipc('nova:dialog:open', payload);
+        return ipc('nova:sysdialog:open', payload);
+      },
+      pickSave: function(options) {
+        const opts = options || {};
+        const payload = Object.assign({}, opts);
+        delete payload.style;
+        if (opts.style === 'system') return ipc('nova:dialog:save', payload);
+        return ipc('nova:sysdialog:save', payload);
+      },
+    }),
+    // App facade — info/list/launch plus the user-mediated intents. Same
+    // permission gates as the raw channels (list/install need system:apps,
+    // launch needs system:app-launch or system:apps, share/openUrl/openWith
+    // are user-mediated and ungated).
+    app: Object.freeze({
+      info: function() { return ipc('nova:app:info', {}); },
+      list: function() { return ipc('nova:app:list', {}); },
+      launch: function(appId, options) {
+        return ipc('nova:app:launch', { appId: appId, options: options || {} });
+      },
+      openUrl: function(url) { return ipc('nova:open-url', { url: url }); },
+      share: function(data) { return ipc('nova:share', data || {}); },
+      openWith: function(fileId) { return ipc('nova:open-with', { fileId: fileId }); },
+    }),
+    // Data portability facade — thin sugar over nova:data:* (see the
+    // Data portability chapter; envelopes are checksummed and pinned to
+    // the calling appId host-side).
+    data: Object.freeze({
+      export: function(options) { return ipc('nova:data:export', options || {}); },
+      import: function(envelope) { return ipc('nova:data:import', { envelope: envelope }); },
+      backup: function() { return ipc('nova:data:backup', {}); },
+      restore: function(envelope, options) {
+        return ipc('nova:data:restore', Object.assign({ envelope: envelope }, options || {}));
+      },
     }),
   });`;
   }

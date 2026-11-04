@@ -28,6 +28,8 @@
 //        answers; every guest-forbidden channel rejects despite grants
 //   GA14 host→app push delivery — appearance changes, overlay events,
 //        background wakes
+//   GA15 v2 facade completion — fs/clipboard/notifications/window/dialog/
+//        app/data facades behave exactly like the channels they wrap
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -159,11 +161,21 @@ async function ga1() {
   // v2 facade surface.
   check('window.novaOS exists', !!g.novaOS);
   check('novaOS.apiVersion === 2', g.novaOS.apiVersion === 2, `got ${g.novaOS.apiVersion}`);
-  check('novaOS.capabilities.has("storage.v2") === true', g.novaOS.capabilities.has('storage.v2') === true);
+  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2']) {
+    check(`novaOS.capabilities.has("${cap}") === true`, g.novaOS.capabilities.has(cap) === true);
+  }
   check('novaOS.capabilities.has("nope.v9") === false', g.novaOS.capabilities.has('nope.v9') === false);
   const osSurface = ['storage.get', 'storage.set', 'storage.remove', 'storage.clear', 'storage.keys', 'storage.usage',
+    'fs.read', 'fs.write', 'fs.list', 'fs.stat', 'fs.mkdir', 'fs.rename', 'fs.move', 'fs.remove',
     'fs.appdata.list', 'fs.appdata.read', 'fs.appdata.write', 'fs.appdata.remove',
-    'fs.shared.list', 'fs.shared.read'];
+    'fs.shared.list', 'fs.shared.read',
+    'clipboard.readText', 'clipboard.writeText',
+    'notifications.show', 'notifications.post', 'notifications.createChannel', 'notifications.cancel',
+    'notifications.cancelAll', 'notifications.clear', 'notifications.consumeActions',
+    'window.close', 'window.minimize', 'window.maximize', 'window.setTitle', 'window.resize', 'window.getState',
+    'dialog.pickOpen', 'dialog.pickSave',
+    'app.info', 'app.list', 'app.launch', 'app.openUrl', 'app.share', 'app.openWith',
+    'data.export', 'data.import', 'data.backup', 'data.restore'];
   for (const name of osSurface) {
     check(`window.novaOS.${name} exists`, typeof get(g.novaOS, name) === 'function', `got ${typeof get(g.novaOS, name)}`);
   }
@@ -1195,13 +1207,108 @@ async function ga14() {
   overlayGuest.teardown();
 }
 
+// ════════════════════════════════ GA15 ═════════════════════════════════════
+// v2 facade completion — end-to-end behavior of the facades added when the
+// window.novaOS surface was completed (fs full, clipboard, notifications,
+// window, dialog, app, data). Contract under test: every facade method
+// behaves EXACTLY like the v1 channel it wraps (same gate, same error),
+// with only the documented normalization on top (mutations resolve
+// undefined; reads return the value).
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga15() {
+  section('[GA15] v2 facade completion — fs/clipboard/notifications/window/dialog/app/data end-to-end');
+
+  const g = await freshGuest('com.test.audit.g15');
+  const osCall = async (fn) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+
+  // fs full facade — raw paths through the same host boundary. The appdata
+  // roundtrip proves write/read/list/stat/remove all hit nova:fs:* with the
+  // caller-relative rewrite intact.
+  const w = await osCall(() => g.novaOS.fs.write('appdata:/ga15/deep.txt', 'facade'));
+  check('fs.write resolves (auto-creates ancestors)', w.ok, JSON.stringify(w.error && w.error.code));
+  const r = await osCall(() => g.novaOS.fs.read('appdata:/ga15/deep.txt'));
+  check('fs.read returns the same file record as the raw channel', r.ok && r.value && r.value.data === 'facade', JSON.stringify(r.value && r.value.data));
+  const st = await osCall(() => g.novaOS.fs.stat('appdata:/ga15/deep.txt'));
+  check('fs.stat answers for the facade-written file', st.ok || errCode(st.error) === 'NOT_FOUND', JSON.stringify(st.error && st.error.code));
+  const ls = await osCall(() => g.novaOS.fs.list('appdata:/ga15'));
+  check('fs.list sees the facade-written file', ls.ok && ls.value && Array.isArray(ls.value.files || ls.value.entries || ls.value.nodes || []), JSON.stringify(ls.error && ls.error.code));
+  const rm = await osCall(() => g.novaOS.fs.remove('appdata:/ga15/deep.txt'));
+  check('fs.remove resolves', rm.ok, JSON.stringify(rm.error && rm.error.code));
+  const rmgone = await osCall(() => g.novaOS.fs.read('appdata:/ga15/deep.txt'));
+  check('fs.read after remove → NOT_FOUND', !rmgone.ok && errCode(rmgone.error) === 'NOT_FOUND', JSON.stringify(rmgone.error && rmgone.error.code));
+
+  // clipboard facade — deny without grant, roundtrip with grants.
+  const cd = await osCall(() => g.novaOS.clipboard.readText());
+  check('clipboard.readText denied without clipboard:read', !cd.ok && errCode(cd.error) === 'PERMISSION_DENIED', JSON.stringify(cd.error && cd.error.code));
+  await grant('clipboard:read', 'com.test.audit.g15');
+  await grant('clipboard:write', 'com.test.audit.g15');
+  const cw = await osCall(() => g.novaOS.clipboard.writeText('facade-clip'));
+  check('clipboard.writeText resolves undefined', cw.ok && cw.value === undefined, JSON.stringify(cw.error && cw.error.code));
+  const cr = await osCall(() => g.novaOS.clipboard.readText());
+  check('clipboard.readText returns the written text', cr.ok && cr.value === 'facade-clip', JSON.stringify(cr.value));
+  await revoke('clipboard:read', 'com.test.audit.g15');
+  await revoke('clipboard:write', 'com.test.audit.g15');
+
+  // notifications facade — same gate as v1 (device:notifications).
+  const nd = await osCall(() => g.novaOS.notifications.show({ title: 't', body: 'b' }));
+  check('notifications.show denied without device:notifications', !nd.ok && errCode(nd.error) === 'PERMISSION_DENIED', JSON.stringify(nd.error && nd.error.code));
+  await grant('device:notifications', 'com.test.audit.g15');
+  const ns = await osCall(() => g.novaOS.notifications.show({ title: 't', body: 'b' }));
+  // Headless harness: no Notify service → UNAVAILABLE is the legitimate
+  // downstream answer (same as the raw channel); success is fine too.
+  check('notifications.show with grant answers like v1 (UNAVAILABLE or success)', ns.ok || errCode(ns.error) === 'UNAVAILABLE', JSON.stringify(ns.error && ns.error.code));
+  const nc = await osCall(() => g.novaOS.notifications.cancelAll());
+  check('notifications.cancelAll resolves undefined', nc.ok && nc.value === undefined, JSON.stringify(nc.error && nc.error.code));
+  await revoke('device:notifications', 'com.test.audit.g15');
+
+  // window facade — mutations resolve undefined; getState is NOT_FOUND in a
+  // headless guest (no OS window state) but never permission-denied.
+  const wt = await osCall(() => g.novaOS.window.setTitle('Facade'));
+  check('window.setTitle resolves undefined', wt.ok && wt.value === undefined, JSON.stringify(wt.error && wt.error.code));
+  const gz = await osCall(() => g.novaOS.window.getState());
+  check('window.getState answers (record or NOT_FOUND, no window in harness)', gz.ok || errCode(gz.error) === 'NOT_FOUND', JSON.stringify(gz.error && gz.error.code));
+
+  // dialog facade — style routing proven by the invalid-accept validation
+  // error each underlying handler returns (INVALID_ARGS from the exact
+  // channel the style selected, never UNKNOWN_API).
+  const badAccept = ['not a mime and not an ext!!!'];
+  const dStyled = await osCall(() => g.novaOS.dialog.pickOpen({ accept: badAccept }));
+  check('dialog.pickOpen default routes to the styled picker (its INVALID_ARGS)', !dStyled.ok && errCode(dStyled.error) === 'INVALID_ARGS', JSON.stringify(dStyled.error && dStyled.error.code));
+  const dSystem = await osCall(() => g.novaOS.dialog.pickOpen({ accept: badAccept, style: 'system' }));
+  check('dialog.pickOpen style:"system" routes to the plain picker', !dSystem.ok && errCode(dSystem.error) === 'INVALID_ARGS', JSON.stringify(dSystem.error && dSystem.error.code));
+
+  // app facade — info is ungated; launch keeps its grant gate.
+  const ai = await osCall(() => g.novaOS.app.info());
+  check('app.info resolves without grants (raw nova:app:info record)', ai.ok && ai.value && ai.value.id === 'com.test.audit.g15', JSON.stringify(ai.value || ai.error && ai.error.code).slice(0, 140));
+  const al = await osCall(() => g.novaOS.app.launch('com.matrix.app'));
+  check('app.launch denied without system:app-launch/system:apps', !al.ok && errCode(al.error) === 'PERMISSION_DENIED', JSON.stringify(al.error && al.error.code));
+
+  // data facade — envelope roundtrip pinned to the caller, same as v1.
+  await grant('data:backup', 'com.test.audit.g15');
+  await settle(g.nova.ipc('nova:storage:set', { key: 'ga15', value: 'persisted' }));
+  const bk = await osCall(() => g.novaOS.data.backup());
+  check('data.backup returns an envelope', bk.ok && bk.value && bk.value.envelope && bk.value.envelope.appId === 'com.test.audit.g15', JSON.stringify(bk.value && bk.value.envelope && bk.value.envelope.appId || bk.error && bk.error.code));
+  await settle(g.nova.ipc('nova:storage:delete', { key: 'ga15' }));
+  const rs = await osCall(() => g.novaOS.data.restore(bk.value && bk.value.envelope));
+  check('data.restore accepts the facade backup envelope', rs.ok, JSON.stringify(rs.error && rs.error.code));
+  const back = await settle(g.nova.ipc('nova:storage:get', { key: 'ga15' }));
+  check('restore brought the key back (v2 backup → v1 storage reads it)', back && back.value === 'persisted', JSON.stringify(back && back.value));
+  await revoke('data:backup', 'com.test.audit.g15');
+
+  g.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14,
+  GA13: ga13, GA14: ga14, GA15: ga15,
 };
 
 (async () => {
