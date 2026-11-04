@@ -755,6 +755,15 @@ await window.nova.ipc('nova:fs:read', { path: 'shared:/Downloads/report.txt' });
 
 `appdata:/someOtherApp/…` is not an escape: the caller-relative rewrite happens after scheme expansion, so it still lands in **your own** subtree.
 
+**Indexed media.** `window.novaOS.media.query()` returns shared image, audio, or video metadata from NovaByte's MediaStore index. Querying requires a matching `fs:read:images`, `fs:read:audio`, or `fs:read:video` grant, `fs:metadata`, or `fs:access`; each returned item is filtered through the same metadata permissions. The returned `path` is a `media:` path. Read its bytes separately through `window.novaOS.fs.read()`, which applies the usual per-file read grant and audit:
+
+```javascript
+const { files } = await window.novaOS.media.query({ type: 'image', limit: 100 });
+const image = files.length ? await window.novaOS.fs.read(files[0].path) : null;
+```
+
+Supported query types are `image`, `audio`, `video`, and `all`. Results include `id`, `name`, `type`, `mimeType`, `size`, `created`, `modified`, and `path`; queries accept a bounded `limit` and `offset`.
+
 **Shared-access audit.** Reads and writes outside your own `appdata:` subtree (shared files via grants, user-picked files) are logged to the ledger and surfaced in **Settings → Privacy & Security → File Access Audit**. Apps that stay inside their own sandbox generate no audit entries.
 
 **Accounting.** Bytes written/read and request counts are tracked per app (storage sets, fs writes, fetch bodies) and power the **Settings → Storage → Per-App Storage** dashboard. Quotas are enforced by the system regardless of what the app does.

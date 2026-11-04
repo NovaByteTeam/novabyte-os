@@ -34,8 +34,6 @@
     weba: 'audio/webm',
     webm: 'audio/webm',
   });
-  const AUDIO_FOLDER = 'music';
-
   const DEFAULT_VOLUME = 1;
 
   // Volume changes can fire dozens of input events per second while the
@@ -165,8 +163,6 @@
       const linuxNative = typeof process !== 'undefined' && process.platform === 'linux'
         && FS?.backend === 'linux-native';
       const nativeFs = linuxNative ? require('fs').promises : null;
-      const nativePath = linuxNative ? require('path') : null;
-      const nativeOs = linuxNative ? require('os') : null;
       const prefs = loadPrefs(PREFS_KEY);
 
       const root = createEl('div', {
@@ -634,52 +630,28 @@
         );
       }
 
-      function scanVirtualFolder(folderId, found) {
-        for (const file of FS.listDir(folderId)) {
-          if (file.type === 'folder') scanVirtualFolder(file.id, found);
-          else if (isAudioFile(file)) found.push(file);
+      let libraryScanVersion = 0;
+      function queryAllMedia() {
+        const found = [];
+        for (let offset = 0; offset < 5000; offset += 500) {
+          const page = window.NovaByteMediaStore.query({ type: 'audio', limit: 500, offset });
+          found.push(...page);
+          if (page.length < 500) break;
         }
-      }
-
-      async function scanNativeFolder(folderPath, found) {
-        let entries;
-        try {
-          entries = await nativeFs.readdir(folderPath, { withFileTypes: true });
-        } catch (err) {
-          if (err.code === 'ENOENT') return;
-          throw err;
-        }
-        for (const entry of entries) {
-          if (entry.name.startsWith('.')) continue;
-          const fullPath = nativePath.join(folderPath, entry.name);
-          if (entry.isDirectory()) {
-            await scanNativeFolder(fullPath, found);
-          } else if (entry.isFile()) {
-            const file = {
-              id: fullPath,
-              name: entry.name,
-              type: 'file',
-              parentId: folderPath,
-              content: null,
-              mimeType: mimeFromName(entry.name),
-            };
-            if (isAudioFile(file)) found.push(file);
-          }
-        }
+        return found;
       }
 
       async function scanLibrary() {
+        const scanVersion = ++libraryScanVersion;
         try {
-          const found = [];
-          const musicFolder = FS?.specialFolders?.[AUDIO_FOLDER];
-          if (nativeFs) {
-            const folderPath = typeof musicFolder === 'string'
-              ? musicFolder
-              : nativePath.join(nativeOs.homedir(), 'Music');
-            await scanNativeFolder(folderPath, found);
-          } else if (musicFolder) {
-            scanVirtualFolder(musicFolder, found);
-          }
+          if (!window.NovaByteMediaStore?.query) throw new Error('NovaByte MediaStore is unavailable');
+          const found = queryAllMedia()
+            .map(item => FS.files.get(item.id) || {
+              ...item,
+              type: 'file',
+              content: null,
+              parentId: null,
+            });
 
           // A file opened from Files is a user-picked item and may live outside
           // Music; include only that explicit intent in addition to the library.
@@ -689,6 +661,7 @@
           }
           found.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
+          if (scanVersion !== libraryScanVersion) return;
           tracks.length = 0;
           for (const track of found) tracks.push(track);
         } catch (err) {
@@ -881,6 +854,17 @@
         // Cancel any pending volume autosave.
         if (volumeSaveTimer) clearTimeout(volumeSaveTimer);
       });
+      if (typeof OS !== 'undefined' && OS.events?.on) {
+        const refreshLibrary = () => { void scanLibrary(); };
+        for (const event of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+          OS.events.on(event, refreshLibrary);
+        }
+        state.cleanups.push(() => {
+          for (const event of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+            OS.events.off?.(event, refreshLibrary);
+          }
+        });
+      }
 
       // ---- Initial render ----
       scanLibrary();

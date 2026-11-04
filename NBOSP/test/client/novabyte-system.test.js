@@ -66,6 +66,13 @@ describe('NovaByte System settings coordinator', () => {
     expect(api.settings.set('theme', 'nord')).toBe(true);
     expect(cache.theme).toBe('nord');
     expect(emitted).toContainEqual({ key: 'theme', value: 'nord' });
+    expect(api.settings.set('doNotDisturb', true)).toBe(true);
+    expect(api.settings.get('doNotDisturb')).toBe(true);
+    expect(api.settings.set('customWallpaperName', 'wallpaper.png')).toBe(true);
+    expect(api.settings.get('customWallpaperName')).toBe('wallpaper.png');
+    expect(api.settings.set('customWallpaperName', null)).toBe(true);
+    expect(() => api.settings.set('doNotDisturb', 'true')).toThrow(/Invalid value/);
+    expect(() => api.settings.set('customWallpaperName', '')).toThrow(/Invalid value/);
     expect(() => api.settings.set('theme', 'unknown')).toThrow(/Invalid value/);
     expect(() => api.settings.set('timezone', 'not/a-timezone')).toThrow(/Invalid value/);
     expect(() => api.settings.get('lockPin')).toThrow(/not readable/);

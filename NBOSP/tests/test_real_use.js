@@ -648,6 +648,23 @@ async function r6() {
 
   // Scoped media grant: images only.
   await PM.grantPermission('fs:read:images', gallery.id);
+  global.window.NovaByteMediaStore = {
+    query: ({ type }) => [img, vid]
+      .filter(node => type === 'all' || type === (node.mimeType.startsWith('image/') ? 'image' : 'video'))
+      .map(node => ({
+        id: node.id,
+        name: node.name,
+        type: node.mimeType.startsWith('image/') ? 'image' : 'video',
+        mimeType: node.mimeType,
+        path: `media:${fs.getPath(node.id)}`,
+      })),
+  };
+  const mediaQuery = await call('nova:media:query', { type: 'all' }, ctx);
+  check(
+    'MediaStore query returns only media metadata covered by the app grant',
+    mediaQuery.result?.files?.map(file => file.name).join(',') === 'sunset.png',
+    JSON.stringify(mediaQuery.result?.files)
+  );
   const imgRead = await call('nova:fs:read', { path: '/Documents/Pictures/sunset.png' }, ctx);
   check('image readable with fs:read:images', imgRead.result?.success === true && imgRead.result?.data === 'PNGDATA', code(imgRead));
   const vidRead = await call('nova:fs:read', { path: '/Documents/Pictures/clip.mp4' }, ctx);
@@ -663,6 +680,7 @@ async function r6() {
   const listPics = await call('nova:fs:read', { path: '/Documents/Pictures' }, ctx);
   const listedNames = (listPics.result?.children || []).map((f) => f.name).sort();
   check('listing shows only metadata-visible children', listedNames.join(',') === 'sunset.png', listedNames.join(','));
+  delete global.window.NovaByteMediaStore;
 
   // Metadata grant widens stat/list but still not contents.
   await PM.grantPermission('fs:metadata', gallery.id);

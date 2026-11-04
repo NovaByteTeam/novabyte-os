@@ -124,6 +124,7 @@ const MATRIX = [
   ['nova:push:unregister', ['push:receive'], {}],
   ['nova:fs:stat', ['fs:metadata', 'fs:access'], { path: '/Documents/a.txt' }],
   ['nova:fs:read', ['fs:access', 'fs:metadata', 'fs:read:images'], { path: '/Documents/a.txt' }],
+  ['nova:media:query', ['fs:metadata', 'fs:access', 'fs:read:images'], { type: 'image' }],
 
   ['nova:notifications:show', ['device:notifications'], { title: 't', body: 'b' }],
   ['nova:notifications:clear', ['device:notifications'], {}],

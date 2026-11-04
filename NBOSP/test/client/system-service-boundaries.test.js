@@ -46,6 +46,7 @@ describe('built-in service boundaries', () => {
       'com.nbosp.service.system-webview',
       'com.nbosp.service.easteregg',
       'com.nbosp.service.search-index',
+      'com.nbosp.service.media-store',
       'com.nbosp.service.downloads-history',
     ];
     const runtimeServices = JSON.parse(readWorkspaceFile('../../js/apps/system-service-manifest.json'));
@@ -242,6 +243,7 @@ describe('built-in service boundaries', () => {
       '../../js/apps/network-activity-log/service.js',
       '../../js/apps/debug-overlay/service.js',
       '../../js/apps/search-index/service.js',
+      '../../js/apps/media-store/service.js',
       '../../js/apps/downloads-history/service.js',
       '../../js/apps/system-webview/service.js',
       '../../js/apps/system-events/service.js',
@@ -258,9 +260,19 @@ describe('built-in service boundaries', () => {
     expect(window.DebugOverlay).toBeDefined();
     expect(window.NetworkLog).toBeDefined();
     expect(window.SearchIndex).toBeDefined();
+    expect(window.NovaByteMediaStore).toBeDefined();
     expect(window.Downloads).toBeDefined();
     expect(window.AppLoaderOptimizer).toBeDefined();
     expect(window.NovaSystemWebview).toBeDefined();
+  });
+
+  it('exposes indexed media metadata through the existing scoped filesystem permissions', () => {
+    const sandboxSource = readWorkspaceFile('../../js/platform/security/app-sandbox.js');
+    expect(sandboxSource).toContain("'nova:media:query': handleMediaQuery");
+    expect(sandboxSource).toContain("'nova:media:query': null");
+    expect(sandboxSource).toContain("AppPermissionManager.isGranted('fs:metadata', app.id)");
+    expect(sandboxSource).toContain('canReadMetadata(node, app.id, sandbox)');
+    expect(sandboxSource).toContain("ipc('nova:media:query', options || {})");
   });
 
   it('keeps the network activity log bounded and observable outside the Browser app', () => {

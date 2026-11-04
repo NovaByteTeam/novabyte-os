@@ -108,6 +108,39 @@ registerApp({
       { action: 'Quick Commands',    key: 'Ctrl+K'       }
     ];
 
+    function getThirdPartyHomeApp() {
+      const activeHomeAppId = window.__NOVA_ACTIVE_HOME_APP_ID__;
+      const homeAppId = typeof activeHomeAppId === 'string' && activeHomeAppId
+        ? activeHomeAppId
+        : typeof DefaultApps !== 'undefined' ? DefaultApps.getDefault('home') : null;
+      if (!homeAppId || homeAppId === 'com.nbosp.launcher') return null;
+      return {
+        id: homeAppId,
+        name: (typeof OS !== 'undefined' && OS.apps?.[homeAppId]?.name) || homeAppId
+      };
+    }
+
+    function createThirdPartyLauncherNotice(homeApp) {
+      const notice = createEl('div', {
+        role: 'status',
+        style: 'padding:10px 12px;margin:0 0 12px;background:var(--accent-muted,rgba(88,166,255,0.12));border:1px solid var(--accent);border-radius:8px;color:var(--text-primary);font-size:12px;'
+      });
+      notice.textContent = `${homeApp.name} is your active third-party launcher. These controls only apply to NovaByte Launcher.`;
+      return notice;
+    }
+
+    function disableBundledLauncherControls(group, homeApp) {
+      if (!homeApp) return;
+      for (const control of group.querySelectorAll('button, input, select')) {
+        control.disabled = true;
+      }
+      for (const row of group.querySelectorAll('.nook-row, .nook-toggle-row')) {
+        row.style.opacity = '0.55';
+      }
+      group.setAttribute('aria-disabled', 'true');
+      group.insertBefore(createThirdPartyLauncherNotice(homeApp), group.children[1] || null);
+    }
+
     const PERM_LABELS = {
       'fs:access': 'Manage all files (special access)', 'fs:metadata': 'Read shared file metadata', 'fs:watch': 'File change alerts',
       'fs:read:images': 'Read shared images', 'fs:read:video': 'Read shared videos', 'fs:read:audio': 'Read shared audio',
@@ -1660,6 +1693,7 @@ registerApp({
         sizeRow.appendChild(btn);
       }
       clockGroup.appendChild(sizeRow);
+      disableBundledLauncherControls(clockGroup, getThirdPartyHomeApp());
 
       mainContent.appendChild(clockGroup);
     }
@@ -1743,6 +1777,7 @@ registerApp({
         row.appendChild(btn);
         iconSizeGroup.appendChild(row);
       }
+      disableBundledLauncherControls(iconSizeGroup, getThirdPartyHomeApp());
       mainContent.appendChild(iconSizeGroup);
     }
 
@@ -3005,6 +3040,8 @@ registerApp({
     // Shortcuts
     function renderShortcuts() {
       mainContent.appendChild(createEl('h2', { textContent: 'Keyboard Shortcuts', style: { marginBottom: '20px' } }));
+      const thirdPartyHomeApp = getThirdPartyHomeApp();
+      if (thirdPartyHomeApp) mainContent.appendChild(createThirdPartyLauncherNotice(thirdPartyHomeApp));
 
       const searchWrapper = createEl('div', { className: 'nook-shortcuts-search' });
       const search        = createEl('input', { id: 'shortcuts-search-input', name: 'shortcuts-search', placeholder: 'Search shortcuts...', type: 'search' });
@@ -3087,6 +3124,12 @@ registerApp({
         keyTd.appendChild(keySpan);
         const rebindTd = createEl('td');
         const btn = createEl('button', { className: 'btn btn-sm nook-rebind-btn', textContent: 'Rebind' });
+        const launcherOnlyShortcut = ['Open Launchpad', 'Show Desktop'].includes(s.action);
+        if (thirdPartyHomeApp && launcherOnlyShortcut) {
+          btn.disabled = true;
+          row.style.opacity = '0.55';
+          row.setAttribute('aria-disabled', 'true');
+        }
         btn.addEventListener('click', async () => {
           const newKey = await captureKeyBinding(s.action);
           if (!isAlive()) return;

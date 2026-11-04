@@ -26,7 +26,7 @@
     'highContrast', 'keyboardLayout', 'osVersion', 'prohibitWallpaperChange',
     'reduceMotion', 'region', 'removeTransparency', 'rootAccessEnabled',
     'showTaskbarClock', 'taskbarSize', 'theme', 'timezone', 'username',
-    'wallpaperId', 'customWallpaper',
+    'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb',
   ]);
   const protectedImportKeys = new Set([
     'devMode', 'rootAccessEnabled', 'lockPin', 'pinSalt',
@@ -61,6 +61,10 @@
     ['customWallpaper', value => value === null ||
       (typeof value === 'string' && value.length <= 5_500_000 &&
         /^data:image\/(?:png|jpe?g|webp|gif|bmp|x-ms-bmp|svg\+xml);base64,[a-z\d+/]+=*$/i.test(value))],
+    ['customWallpaperName', value => value === null ||
+      (typeof value === 'string' && value.length > 0 && value.length <= 255 &&
+        !/[\u0000-\u001f\u007f]/.test(value))],
+    ['doNotDisturb', value => typeof value === 'boolean'],
     ['showTaskbarClock', value => typeof value === 'boolean'],
     ['taskbarSize', value => value === 'compact' || value === 'normal' || value === 'large'],
     ['reduceMotion', value => typeof value === 'boolean'],

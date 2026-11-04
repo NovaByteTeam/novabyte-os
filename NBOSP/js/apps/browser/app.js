@@ -1944,8 +1944,13 @@ registerApp({
     // characters, and truncate to MAX_DL_NAME_LEN. Returns a non-empty name.
     function sanitizeDownloadName(rawName) {
       const base = (() => {
-        try { return decodeURIComponent(new URL(rawName).pathname.split('/').pop()); }
-        catch { return ''; }
+        try {
+          const parsed = new URL(rawName);
+          if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+          return decodeURIComponent(parsed.pathname.split('/').pop());
+        } catch {
+          return String(rawName || '').split(/[\\/]/).pop();
+        }
       })() || ('download_' + Date.now());
       const cleaned = base.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
       return cleaned.length > MAX_DL_NAME_LEN ? cleaned.slice(0, MAX_DL_NAME_LEN) : cleaned;
@@ -2008,20 +2013,36 @@ registerApp({
 
     // Chromium's own download would open the host's native chooser, so the
     // permission handler denies it and routes the URL here for the OS Save As.
-    async function saveDownloadViaDialog(url) {
-      if (!url || !/^https?:\/\//i.test(url)) return;
-      const rawName = sanitizeDownloadName(url);
+    async function saveDownloadViaDialog(url, requestedName, title = 'Save As') {
+      const isDataImage = /^data:image\/[a-z0-9.+-]+(?:;[^,]*)?,/i.test(url || '');
+      if (!url || (!/^https?:\/\//i.test(url) && !isDataImage)) {
+        Notify.show({ title: 'Download failed', body: 'This image URL cannot be saved directly.', type: 'error', appName: 'Downloads' });
+        return;
+      }
+      const rawName = sanitizeDownloadName(requestedName || url);
       const suggestedName = rawName.includes('.') ? rawName : rawName + '.bin';
-      const picked = await SystemDialogs.save({ title: 'Save As', suggestedName });
+      const picked = await SystemDialogs.save({ title, suggestedName });
       if (!picked) return;
       if (!picked.path) {
         Notify.show({ title: 'Download failed', body: 'Save As did not return a file path.', type: 'error', appName: 'Downloads' });
         return;
       }
-      const entry = window.Downloads?.add(picked.name, url, 0, '');
+      const entry = window.Downloads?.add(picked.name, isDataImage ? '' : url, 0, '');
       if (entry) window.Downloads.setStatus(entry.id, 'downloading');
       try {
-        const bytes = await streamUrlToFile(url, picked.path);
+        let bytes;
+        if (isDataImage) {
+          const comma = url.indexOf(',');
+          const metadata = url.slice(5, comma);
+          const payload = url.slice(comma + 1);
+          const data = /;base64/i.test(metadata)
+            ? Buffer.from(payload, 'base64')
+            : Buffer.from(decodeURIComponent(payload), 'utf8');
+          await require('fs').promises.writeFile(picked.path, data);
+          bytes = data.length;
+        } else {
+          bytes = await streamUrlToFile(url, picked.path);
+        }
         if (entry) window.Downloads.setStatus(entry.id, 'done', bytes);
         Notify.show({ title: 'Download complete', body: picked.name, type: 'success', appName: 'Downloads' });
       } catch (err) {
@@ -3517,6 +3538,29 @@ registerApp({
         navigate(url);
       }
 
+      function _ctxSaveImageAs(ctx) {
+        const src = ctx?.imgSrc || '';
+        if (!src) return;
+        let imageName = ctx.imgAlt;
+        if (!imageName && !src.startsWith('data:image/')) {
+          try { imageName = decodeURIComponent(new URL(src).pathname.split('/').pop()); }
+          catch { imageName = ''; }
+        }
+        if (!/\.[a-z\d]{2,8}$/i.test(imageName || '')) {
+          const extension = (() => {
+            try { return new URL(src).pathname.split('.').pop().match(/^[a-z\d]{2,8}$/i)?.[0]; }
+            catch { return null; }
+          })();
+          const dataExtension = /^data:image\/(jpeg|png|gif|webp|bmp|svg\+xml)(?:;|,)/i.exec(src)?.[1]
+            ?.replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+          imageName = (imageName || 'image') + '.' + (extension || dataExtension || 'png');
+        }
+        saveDownloadViaDialog(src, imageName, 'Save Image As').catch(error => {
+          console.error('[NB Browser] Could not save image:', error);
+          Notify.show({ title: 'Image save failed', body: error?.message || 'Could not save this image.', type: 'error', appName: 'Browser' });
+        });
+      }
+
       function _ctxOpenSourceInNewTab(sourceUrl, sourceText) {
         const sourceTabId = nextTabId++;
         const sourcePage = createEl('div', {
@@ -3665,6 +3709,7 @@ registerApp({
         if (hasImg) {
           items.push({ label: 'Open Image in New Tab', action: () => _ctxOpenInNewTab(ctx.imgSrc) });
           items.push({ label: 'Copy Image Address',    action: () => _ctxCopyText(ctx.imgSrc) });
+          items.push({ label: 'Save Image As\u2026', action: () => _ctxSaveImageAs(ctx) });
           items.push({ separator: true });
         }
 
@@ -3697,7 +3742,7 @@ registerApp({
         if (pageUrl && /^https?:/i.test(pageUrl)) {
           items.push({ label: 'Copy Page URL', action: () => _ctxCopyText(pageUrl) });
         }
-        items.push({ label: 'Save as\u2026', action: () => _ctxSavePageAs(wv, pageUrl) });
+        items.push({ label: 'Save Page As\u2026', action: () => _ctxSavePageAs(wv, pageUrl) });
         items.push({ label: 'Print\u2026', action: () => {
           try { wv.executeScript({ code: 'window.print()' }); } catch { /* ignore */ }
         }});

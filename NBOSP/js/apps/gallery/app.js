@@ -21,8 +21,6 @@ registerApp({
     const linuxNative = typeof process !== 'undefined' && process.platform === 'linux'
       && FS?.backend === 'linux-native';
     const nativeFs = linuxNative ? require('fs').promises : null;
-    const nativePath = linuxNative ? require('path') : null;
-    const nativeOs = linuxNative ? require('os') : null;
 
     // ── Root ────────────────────────────────────────────────────────────────
     const root = createEl('div', { style: 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);overflow:hidden;' });
@@ -172,45 +170,6 @@ registerApp({
       }
     }
 
-    function scanVirtualFolder(folderId, found) {
-      for (const file of FS.listDir(folderId)) {
-        if (file.type === 'folder') scanVirtualFolder(file.id, found);
-        else if (file.type === 'file' && (
-          file.mimeType?.startsWith('image/') || IMG_EXTS.has((file.name || '').split('.').pop().toLowerCase())
-        )) found.push(file);
-      }
-    }
-
-    async function scanNativeFolder(folderPath, found) {
-      let entries;
-      try {
-        entries = await nativeFs.readdir(folderPath, { withFileTypes: true });
-      } catch (error) {
-        if (error.code === 'ENOENT') return;
-        throw error;
-      }
-      for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue;
-        const fullPath = nativePath.join(folderPath, entry.name);
-        if (entry.isDirectory()) {
-          await scanNativeFolder(fullPath, found);
-        } else if (entry.isFile()) {
-          const ext = entry.name.split('.').pop().toLowerCase();
-          if (IMG_EXTS.has(ext)) {
-            found.push({
-              id: fullPath,
-              name: entry.name,
-              type: 'file',
-              parentId: folderPath,
-              content: null,
-              mimeType: IMG_MIME[ext] || 'image/png',
-              modified: 0,
-            });
-          }
-        }
-      }
-    }
-
     // ── Lightbox helpers ─────────────────────────────────────────────────────
     function setLbNavState() {
       const atStart = lbIdx <= 0;
@@ -265,19 +224,28 @@ registerApp({
     content.addEventListener('keydown', onKey);
 
     // ── render ───────────────────────────────────────────────────────────────
+    function queryAllMedia() {
+      const found = [];
+      for (let offset = 0; offset < 5000; offset += 500) {
+        const page = window.NovaByteMediaStore.query({ type: 'image', limit: 500, offset });
+        found.push(...page);
+        if (page.length < 500) break;
+      }
+      return found;
+    }
+
     async function render() {
       const version = ++renderVersion;
       const next = [];
       try {
-        const picturesFolder = FS?.specialFolders?.pictures;
-        if (nativeFs) {
-          const folderPath = typeof picturesFolder === 'string'
-            ? picturesFolder
-            : nativePath.join(nativeOs.homedir(), 'Pictures');
-          await scanNativeFolder(folderPath, next);
-        } else if (picturesFolder) {
-          scanVirtualFolder(picturesFolder, next);
-        }
+        if (!window.NovaByteMediaStore?.query) throw new Error('NovaByte MediaStore is unavailable');
+        next.push(...queryAllMedia()
+          .map(item => FS.files.get(item.id) || {
+            ...item,
+            type: 'file',
+            content: null,
+            parentId: null,
+          }));
         const openedFile = state.fileId ? FS?.files?.get(state.fileId) : null;
         if (openedFile?.type === 'file' && (
           openedFile.mimeType?.startsWith('image/') ||
@@ -384,6 +352,17 @@ registerApp({
 
     // ── Cleanup ──────────────────────────────────────────────────────────────
     state.cleanups = state.cleanups || [];
+    if (typeof OS !== 'undefined' && OS.events?.on) {
+      const refreshLibrary = () => { void render(); };
+      for (const event of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+        OS.events.on(event, refreshLibrary);
+      }
+      state.cleanups.push(() => {
+        for (const event of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+          OS.events.off?.(event, refreshLibrary);
+        }
+      });
+    }
     state.cleanups.push(() => {
       content.removeEventListener('keydown', onKey);
       for (const url of blobCache.values()) URL.revokeObjectURL(url);

@@ -639,6 +639,7 @@ const AppSandbox = (() => {
       'nova:fs:write': null,
       'nova:fs:delete': null,
       'nova:fs:list': null,
+      'nova:media:query': null,
       'nova:fs:mkdir': null,
       'nova:fs:stat': null,
       'nova:fs:rename': null,
@@ -2516,6 +2517,42 @@ const AppSandbox = (() => {
         size: c.size, modified: c.modified, created: c.created,
       })),
     });
+  }
+
+  async function handleMediaQuery({ payload, requestId, app, webview, sandbox }) {
+    const type = payload?.type || 'all';
+    const permissionForType = {
+      image: 'fs:read:images',
+      audio: 'fs:read:audio',
+      video: 'fs:read:video',
+    };
+    if (!['all', 'image', 'audio', 'video'].includes(type)) {
+      return respondError(webview, 'nova:media:query', requestId, 'INVALID_ARGS', 'type must be all, image, audio, or video');
+    }
+
+    const hasMetadata = AppPermissionManager.isGranted('fs:metadata', app.id);
+    const readableTypes = type === 'all' ? Object.values(permissionForType) : [permissionForType[type]];
+    if (!hasMetadata && !hasFsAccess(app.id) &&
+        !readableTypes.some(permission => AppPermissionManager.isGranted(permission, app.id))) {
+      return respondError(webview, 'nova:media:query', requestId, 'PERMISSION_DENIED', 'Media queries require a matching media-read grant, fs:metadata, or fs:access');
+    }
+
+    const mediaStore = window.NovaByteMediaStore;
+    if (!mediaStore || typeof mediaStore.query !== 'function') {
+      return respondError(webview, 'nova:media:query', requestId, 'UNAVAILABLE', 'NovaByte MediaStore is unavailable');
+    }
+    const indexed = mediaStore.query({
+      type,
+      offset: payload?.offset,
+      limit: payload?.limit,
+    });
+    const files = indexed.filter(file => {
+      const node = FS.files.get(file.id);
+      return node?.type === 'file'
+        && resolveFile({ id: file.id }, app.id)
+        && canReadMetadata(node, app.id, sandbox);
+    });
+    return respond(webview, 'nova:media:query', requestId, { files });
   }
 
   async function handleFsMkdir({ payload, requestId, app, webview }) {
@@ -8677,6 +8714,7 @@ const AppSandbox = (() => {
     'nova:secrets:keys': handleSecretsKeys,
     'nova:fs:delete': handleFsDelete,
     'nova:fs:list': handleFsList,
+    'nova:media:query': handleMediaQuery,
     'nova:fs:mkdir': handleFsMkdir,
     'nova:fs:stat': handleFsStat,
     'nova:fs:rename': handleFsRename,
@@ -8772,6 +8810,7 @@ const AppSandbox = (() => {
   const ISOLATED_PROCESS_API_TYPES = new Set([
     'nova:ready', 'nova:app:info',
     'nova:fs:read', 'nova:fs:write', 'nova:fs:delete', 'nova:fs:list',
+    'nova:media:query',
     'nova:fs:mkdir', 'nova:fs:stat', 'nova:fs:rename', 'nova:fs:move',
     'nova:fs:watch', 'nova:fs:unwatch',
     'nova:alarms:create', 'nova:alarms:clear', 'nova:alarms:getAll',
@@ -9621,6 +9660,13 @@ const AppSandbox = (() => {
           return ipc('nova:fs:read', { path: 'shared:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
         },
       }),
+    }),
+    // Indexed shared media metadata. File bytes must still be read through
+    // fs.read(), which applies the usual per-file media permission checks.
+    media: Object.freeze({
+      query: function(options) {
+        return ipc('nova:media:query', options || {});
+      },
     }),
     // Clipboard facade. readText() normalizes to the text itself (null when
     // nothing is readable — matches nova:clipboard:read's null text field);
