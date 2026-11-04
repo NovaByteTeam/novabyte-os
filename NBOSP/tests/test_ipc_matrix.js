@@ -130,12 +130,14 @@ const MATRIX = [
   ['nova:clipboard:write', ['clipboard:write'], { text: 'x' }],
 
   ['nova:app:launch', ['system:app-launch', 'system:apps'], { appId: 'com.other.app' }],
-  ['nova:home:apps:launch', ['system:app-launch', 'system:apps'], { appId: 'com.other.app' }, { sandbox: { homeSurface: true } }],
+  // Home-surface rows are context-dependent (Home-caller + always-launchable
+  // Settings/App Manager), so they are advisory: the handler is the boundary.
+  ['nova:home:apps:launch', null, { appId: 'com.nbosp.settings' }, { sandbox: { homeSurface: true } }],
   ['nova:app:list', ['system:apps'], {}],
   ['nova:app:install', ['system:apps'], {}],
   ['nova:app:uninstall', ['system:apps'], {}],
   ['nova:app:openDefaultAppsSettings', ['system:apps'], {}],
-  ['nova:home:openDefaultAppsSettings', ['system:apps'], {}, { sandbox: { homeSurface: true } }],
+  ['nova:home:openDefaultAppsSettings', null, {}, { sandbox: { homeSurface: true } }],
 
   ['nova:admin:audit', ['admin:audit'], {}],
   ['nova:admin:system', ['admin:system'], {}],

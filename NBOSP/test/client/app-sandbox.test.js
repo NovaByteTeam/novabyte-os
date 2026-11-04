@@ -358,6 +358,8 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       { id: 'com.test.other', name: 'Other App', icon: 'box' },
     ]);
     vi.stubGlobal('DefaultApps', { getDefault: () => 'com.test.home' });
+    // The handler reads OS.settings.get('devMode') for the devOnly filter.
+    vi.stubGlobal('OS', { settings: { get: () => false } });
 
     try {
       await AppSandbox._internal.handleAPICall(
@@ -610,7 +612,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       vi.unstubAllGlobals();
     }
 
-    expect(callerResponses[0].result).toEqual({ result: { id: 'contact-1' } });
+    expect(callerResponses[0].result).toEqual({ id: 'contact-1' });
   });
 
   it('requires exported endpoints and receiver actions to be declared before registration', async () => {
@@ -1632,7 +1634,9 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
           ],
         },
         'context-menu-select',
-        { id: 'third-party.app' },
+        // sandbox:nested-webview is a double gate: manifest opt-in (the
+        // permissions declaration) plus the user grant.
+        { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
         {
           getBoundingClientRect: () => ({ left: 100, top: 50 }),
           __directResponder: message => responses.push(message),
@@ -1736,7 +1740,8 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       'nova:context-menu:show',
       { x: 1, y: 2, items: [{ label: 'Open' }] },
       'context-menu-cancel',
-      { id: 'third-party.app' },
+      // sandbox:nested-webview is a double gate: manifest opt-in plus grant.
+      { id: 'third-party.app', manifest: { permissions: ['sandbox:nested-webview'] } },
       { getBoundingClientRect: () => ({ left: 0, top: 0 }), __directResponder: vi.fn() },
       sandbox
     );
@@ -2000,6 +2005,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
             if (name === 'partition') partitions.push(value);
           },
           addEventListener: (name, callback) => listeners.set(name, callback),
+          removeEventListener: vi.fn(),
           remove: vi.fn(),
           clearData: vi.fn((_options, _types, callback) => callback()),
           set src(value) {
@@ -2157,6 +2163,10 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     const responses = [];
     const binaryBody = 'iVBORw0KGgo=';
     vi.stubGlobal('AppPermissionManager', { isGranted: () => true });
+    // resolveAndClassifyUrl resolves against window.location.origin, and
+    // authedJsonFetch reads the CSRF token from the page's meta tag.
+    vi.stubGlobal('window', { location: { origin: 'https://novabyte.test' } });
+    vi.stubGlobal('document', { querySelector: () => null });
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       status: 200,
       statusText: 'OK',
@@ -2287,7 +2297,17 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       revokePermission: vi.fn(),
       resetPermission: vi.fn(),
     });
-    vi.stubGlobal('localStorage', { getItem: () => null, setItem: saveItem, removeItem: vi.fn() });
+    // Node ≥22 may expose localStorage as a non-configurable global, which
+    // vi.stubGlobal cannot redefine — fall back to spying on the live one.
+    const lsDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    const lsSpies = [];
+    if (lsDescriptor && lsDescriptor.configurable === false) {
+      lsSpies.push(vi.spyOn(globalThis.localStorage, 'getItem').mockReturnValue(null));
+      lsSpies.push(vi.spyOn(globalThis.localStorage, 'setItem').mockImplementation(saveItem));
+      lsSpies.push(vi.spyOn(globalThis.localStorage, 'removeItem').mockReturnValue());
+    } else {
+      vi.stubGlobal('localStorage', { getItem: () => null, setItem: saveItem, removeItem: vi.fn() });
+    }
 
     try {
       for (let i = 0; i < forbidden.length; i++) {
@@ -2304,6 +2324,7 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
       }
     } finally {
       vi.unstubAllGlobals();
+      for (const spy of lsSpies) spy.mockRestore();
     }
 
     expect(responses).toHaveLength(forbidden.length);
@@ -2350,7 +2371,10 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(shim).toContain("const propertyHandler = xhr['on' + type]");
     expect(shim).toContain('headerLines.join(\'\\r\\n\')');
     expect(shim).toContain("responseType === 'arraybuffer'");
-    expect(shim).toContain('XHR request body exceeds the 6 MiB limit');
+    // The body cap is baked in from the app's httpBodyBytes ledger budget
+    // (default 6 MiB) — the message is computed, not a fixed literal.
+    expect(shim).toContain('__NOVA_MAX_BODY_BYTES__');
+    expect(shim).toContain("'XHR request body exceeds the '");
     expect(shim).toContain("bodyEncoding: encodedBody.bodyEncoding");
   });
 

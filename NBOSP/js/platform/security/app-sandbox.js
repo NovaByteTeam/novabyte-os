@@ -557,8 +557,16 @@ const AppSandbox = (() => {
       'nova:app:install': ['system:apps'],
       'nova:app:uninstall': ['system:apps'],
       'nova:app:openDefaultAppsSettings': ['system:apps'],
-      'nova:home:apps:launch': ['system:app-launch', 'system:apps'],
-      'nova:home:openDefaultAppsSettings': ['system:apps'],
+      // nova:home:apps:launch and nova:home:openDefaultAppsSettings are
+      // context-dependent, NOT context-free permission gates: both are
+      // restricted to the currently selected Home app (isActiveHomeCaller),
+      // and Home may always launch Settings/App Manager with no grant at
+      // all (documented — the whole point of the Home surface). Requiring
+      // system:app-launch/system:apps here denied those documented
+      // grant-free Home flows at the MAC front door before the handler's
+      // own caller/target checks could run; the handler stays the boundary.
+      'nova:home:apps:launch': null,
+      'nova:home:openDefaultAppsSettings': null,
       // Admin — also a neverallow target: rows here must never be weakened.
       'nova:admin:audit': ['admin:audit'],
       'nova:admin:system': ['admin:system'],

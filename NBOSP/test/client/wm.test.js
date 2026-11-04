@@ -605,7 +605,9 @@ describe('WM (js/apps/shell-ui/wm.js)', () => {
       wm.toggleMaximize(state.id);
       expect(state.element.classList.add).toHaveBeenCalledWith('maximized');
       wm.toggleMaximize(state.id);
-      expect(state.element.classList.add).toHaveBeenCalledWith('window-restoring');
+      // Un-maximizing eases back with the 'unmaximizing' transition class
+      // (the old 'window-restoring' keyframe fought the inline-style snap).
+      expect(state.element.classList.add).toHaveBeenCalledWith('unmaximizing');
     });
 
     it('does nothing for unknown id', () => {
@@ -778,10 +780,16 @@ describe('WM (js/apps/shell-ui/wm.js)', () => {
       const wm = requireWM();
       wm.init();
       const state = wm.createWindow('nook');
-      const container = document.getElementById('taskbar-apps');
-      const fragSpy = vi.spyOn(document, 'createDocumentFragment');
-      expect(() => wm.updateTaskbar()).not.toThrow();
-      expect(fragSpy).toHaveBeenCalled();
+      // Taskbar rendering now lives in the shell's taskbar module, which
+      // registers window.updateTaskbar; wm.updateTaskbar delegates to it.
+      const delegated = vi.fn();
+      globalThis.window.updateTaskbar = delegated;
+      try {
+        expect(() => wm.updateTaskbar()).not.toThrow();
+        expect(delegated).toHaveBeenCalled();
+      } finally {
+        delete globalThis.window.updateTaskbar;
+      }
     });
 
     it('marks active button when window is focused', () => {

@@ -347,7 +347,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
     const createWindow = vi.fn(() => ({ id: 'win1' }));
     globalThis.WM = { createWindow };
     mockOS.openMailto('mailto:alice@example.com?subject=Hello&body=World&cc=bob@example.com&bcc=carol@example.com');
-    expect(createWindow).toHaveBeenCalledWith('nbosp-email', {
+    expect(createWindow).toHaveBeenCalledWith('com.nbosp.email', {
       compose: {
         to: 'alice@example.com',
         subject: 'Hello',
@@ -364,7 +364,7 @@ describe('registry.js — OS.openUrl, OS.openMailto, and WebAppManager', () => {
     const createWindow = vi.fn(() => ({ id: 'win1' }));
     globalThis.WM = { createWindow };
     mockOS.openMailto('mailto:alice@example.com');
-    expect(createWindow).toHaveBeenCalledWith('nbosp-email', {
+    expect(createWindow).toHaveBeenCalledWith('com.nbosp.email', {
       compose: { to: 'alice@example.com', subject: '', body: '', cc: '', bcc: '' },
     });
   });
