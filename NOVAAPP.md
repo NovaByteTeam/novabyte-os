@@ -634,11 +634,14 @@ Required medium-or-higher-risk permissions are prompted for at launch, but a den
 
 ### Requesting a permission at runtime
 
-Use the `window.nova.requestPermission` convenience wrapper (or call `nova.ipc('nova:request-permission', ...)` directly — they're equivalent):
+Use the `window.nova.requestPermission` convenience wrapper (or call `nova.ipc('nova:request-permission', ...)` directly — they're equivalent). The v2 form is `novaOS.permissions.request(permission, reason?)`, which resolves the granted boolean directly; `novaOS.permissions.checkRateLimited(permission)` is the cooldown peek below:
 
 ```javascript
 const { granted } = await window.nova.requestPermission('fs:read:images', 'Needed to display shared images.');
 console.log(granted); // true or false
+
+// v2 equivalent:
+const grantedV2 = await window.novaOS.permissions.request('fs:read:images', 'Needed to display shared images.');
 ```
 
 `permanent` defaults to `true` (grant persists) unless explicitly set to `false`. The wrapper doesn't expose it — for a one-time, non-persistent grant, call `nova.ipc` directly:
@@ -662,7 +665,7 @@ Every call to `requestPermission` shows a live dialog again, even if the permiss
 
 Your app can't distinguish "the user clicked deny" from "auto-denied by the rate limiter" — both resolve `granted: false`.
 
-To check cooldown status without triggering a prompt, use the `nova:permission-rate-limited` channel:
+To check cooldown status without triggering a prompt, use the `nova:permission-rate-limited` channel (or `novaOS.permissions.checkRateLimited(permission)` in v2 — same record):
 
 ```javascript
 const status = await window.nova.ipc('nova:permission-rate-limited', {
@@ -820,7 +823,7 @@ Envelope payloads can be large (they contain your whole namespace), so persist t
 
 ## Platform API v2 — `window.novaOS` (completed facade)
 
-`window.novaOS` is the additive, modern API surface. It started as a small facade (storage, fs roots) and now covers the high-frequency surfaces in full. Everything it does is **pure sugar over the existing v1 channels**: same payloads, same return records, same error codes, same permission gates, same host-side checks. Nothing in the facade bypasses, re-implements, or relaxes the host boundary.
+`window.novaOS` is the additive, modern API surface. It started as a small facade (storage, fs roots) and now covers **every v1 channel family** in full — nothing with a raw `nova:...` channel is left facade-less. Everything it does is **pure sugar over the existing v1 channels**: same payloads, same return records, same error codes, same permission gates, same host-side checks. Nothing in the facade bypasses, re-implements, or relaxes the host boundary.
 
 Detect a surface before using it — capabilities are a runtime feature statement, not a permission state:
 
@@ -830,7 +833,7 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, and the v2 sugar over the frozen settings/ready channels, `settings.v2` and `ready.v2`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, and the v2 sugar over the remaining frozen channels: `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
@@ -850,6 +853,15 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `push` | `register()`, `unregister()`, `onMessage(cb)` | `nova:push:*` + push: `nova:push:message` | `push:receive` |
 | `settings` | `get(key)`, `set(key, value)` | `nova:settings:get` / `nova:settings:set` | `system:info` (read) / `system:settings` (write; wallpaper keys exempt) |
 | `ready` | `get()` → `{ appId, permissions, optionalPermissions, osVersion, securityPatch, username }` | `nova:ready` | none |
+| `events` | `on(name, cb)` → off, `subscribe(name)`, `unsubscribe(name)` | `nova:events:*` + push: `nova:events:event` | allowlist; `system:events` (+ domain read) for sensitive events |
+| `geolocation` | `getCurrentPosition(options?)` → `{ coords, timestamp }` | `nova:device:geolocation` | `device:geolocation` |
+| `media` | `checkCamera()`, `checkMicrophone()`, `getUserMedia(constraints)` | `nova:device:camera`, `nova:device:microphone` | `device:camera` / `device:microphone` |
+| `calendar` | `list()` → events, `save(event)` → record, `remove(id)` → bool | `nova:calendar:*` | `calendar:read` / `calendar:write` / `calendar:delete` |
+| `contacts` | `list()` → contacts, `save(contact)` → record, `remove(id)` → bool | `nova:contacts:*` | `contacts:read` / `contacts:write` / `contacts:delete` |
+| `mail` | `connect disconnect restore account folders messages message search preview markRead move send remove openLink` | `nova:mail:*`, `nova:email:open-link` | `mail:read` / `mail:write` / `mail:send` / `mail:delete` |
+| `admin` | `auditQuery systemGet systemSet usersList usersRevoke appsList` | `nova:admin:*` | `admin:*` + machine admin mode |
+| `background` | `stayAlive(enabled?)` → `{ enabled }`, `wakeDone()`, `onWake(cb)` → off | `nova:background:stay-alive`, `nova:background:wake-done` + push: `nova:background:wake` | `system:background:live` (stayAlive); wakes gated host-side by `system:background` |
+| `permissions` | `request(permission, reason?)` → bool, `checkRateLimited(permission)` → status | `nova:request-permission`, `nova:permission-rate-limited` | none — requesting grants is the point |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -883,6 +895,15 @@ await window.novaOS.badge.set(3);
 const theme = await window.novaOS.settings.get('theme');
 await window.novaOS.settings.set('accentColor', '#3366ff');
 const { appId, permissions } = await window.novaOS.ready.get();
+
+// The full-coverage sugar over the remaining v1 families — same gates,
+// normalized results only (each is detailed in its own chapter below).
+const off = await window.novaOS.events.on('system:themeChanged', (data) => {});
+const { coords, timestamp } = await window.novaOS.geolocation.getCurrentPosition();
+const stream = await window.novaOS.media.getUserMedia({ video: true });
+const events = await window.novaOS.calendar.list();
+const granted = await window.novaOS.permissions.request('device:geolocation', 'Show nearby stores');
+const { enabled } = await window.novaOS.background.stayAlive();
 ```
 
 The `dialog` facade deserves one explicit note: it exists precisely because the two picker families (`nova:dialog:*` plain, `nova:sysdialog:*` styled) predate the v2 facade and remain separately available for compatibility. New apps should use `novaOS.dialog` and stop caring which picker family runs underneath; the raw channels stay unchanged either way.
@@ -1271,6 +1292,8 @@ The returned promise resolves once the connection is open — from the host's `o
 
 ### Geolocation — `nova:device:geolocation`
 
+Also available as `novaOS.geolocation.getCurrentPosition(options?)` (v2) — same permission, same options, resolves `{ coords, timestamp }`.
+
 ```javascript
 // Requires device:geolocation
 const { coords, timestamp } = await window.nova.ipc('nova:device:geolocation', {
@@ -1280,6 +1303,8 @@ const { coords, timestamp } = await window.nova.ipc('nova:device:geolocation', {
 ```
 
 ### Camera / Microphone — `window.nova.getUserMedia`
+
+Also available as `novaOS.media` (v2): `checkCamera()` / `checkMicrophone()` resolve `true` when the app-level grant is held, and `getUserMedia(constraints)` behaves exactly like the wrapper below.
 
 A live `MediaStream` can't cross the IPC bridge — `nova:device:camera`/`nova:device:microphone` are authorization-only checks. Use the wrapper; it checks the app-level permission first, then calls the real `navigator.mediaDevices.getUserMedia()` in your own document (which still goes through the browser's own permission gate):
 
@@ -1296,6 +1321,8 @@ try {
 
 ### Calendar — `nova:calendar:*` / `window.nova.calendar`
 
+Also available as `novaOS.calendar` (v2): `list()` resolves the events array, `save(event)` the host-normalized record, `remove(id)` a `removed` boolean. Same gates.
+
 Reads and writes the **same shared calendar data** the built-in Calendar app uses — not an isolated per-app store.
 
 ```javascript
@@ -1310,6 +1337,8 @@ await window.nova.calendar.remove('my-event');
 ```
 
 ### Contacts — `nova:contacts:*` / `window.nova.contacts`
+
+Also available as `novaOS.contacts` (v2): same three methods and gates as Calendar.
 
 Same shared-data model as Calendar — reads/writes the real Contacts app's data.
 
@@ -1378,6 +1407,8 @@ This call only opens Settings to the right place — it never changes the user's
 
 ### Admin — `nova:admin:*` / `window.nova.admin`
 
+Also available as `novaOS.admin` (v2) — the same six methods 1:1; the dual gate (per-app grant **and** machine admin mode) is unchanged, records pass through unnormalized.
+
 Requires **both** the relevant `admin:*` grant *and* the machine's local admin-mode flag (Settings → Privacy & Security → Admin Access, off by default). If the machine isn't in admin mode, calls reject with a message saying so — that's a correct denial, not a bug.
 
 ```javascript
@@ -1401,6 +1432,8 @@ const { apps } = await window.nova.admin.appsList();
 ```
 
 ### Mail — `nova:mail:*` / `window.nova.mail`
+
+Also available as `novaOS.mail` (v2) — the same fourteen methods 1:1, same per-action gates, records pass through unnormalized.
 
 All mail calls act on the host Email app's mail session. If nothing is connected, calls reject with a clear "no email account connected" error. Two ways to get there:
 
@@ -1651,6 +1684,22 @@ window.nova.onEvent('system:themeChanged', (data) => {
 });
 ```
 
+Or the v2 facade, which adds stacking listeners over one host subscription, an unsubscribe function, and tolerance for subscriptions another surface already made:
+
+```javascript
+const off = await window.novaOS.events.on('system:themeChanged', (data) => {
+  console.log('theme changed:', data);
+});
+// ...later:
+await off(); // removes this listener; unsubscribes host-side when the last one goes
+
+// Raw equivalents for manual control (same channels, same errors):
+await window.novaOS.events.subscribe('system:themeChanged');
+await window.novaOS.events.unsubscribe('system:themeChanged');
+```
+
+The two surfaces coexist: the host holds a single subscription per sandbox per event name, and each push fans out to the v1 listeners and the v2 listeners independently.
+
 Calling `nova.ipc('nova:events:unsubscribe', { event: 'system:themeChanged' })` directly also works.
 
 **Event names are restricted to a fixed allowlist** — subscribing to any other name fails with `INVALID_ARGS`. Common appearance, volume, workspace, power, and network change events require no permission; notifications, app inventory/lifecycle events, and mail/calendar/contact events require `system:events`, and the mail/calendar/contact ones additionally require their domain read permission:
@@ -1699,6 +1748,13 @@ window.nova.onBackgroundWake((info) => {
   // Optional: signal done early so the host doesn't wait out the deadline.
   window.nova.backgroundWakeDone();
 });
+
+// v2 equivalent: novaOS.background — same push, plus an unsubscribe
+// function for the wake handler and an undefined-resolving wakeDone().
+const offWake = window.novaOS.background.onWake((info) => {
+  doQuickSync();
+  window.novaOS.background.wakeDone();
+});
 ```
 
 If you never call `backgroundWakeDone()`, the host waits out `deadlineMs` and tears the sandbox down anyway.
@@ -1711,6 +1767,10 @@ Holding the permission is **not** enough by itself — your app must explicitly 
 // Requires system:background:live
 const { enabled } = await window.nova.stayAliveInBackground();
 // Call again with `false` to opt out before the window closes.
+
+// v2 equivalent — same channel, resolves the enabled state either way:
+await window.novaOS.background.stayAlive();
+await window.novaOS.background.stayAlive(false);
 ```
 
 Once opted in, closing the window keeps the app running. The user sees a one-time toast plus a persistent, non-dismissible notification entry with a **Terminate** button — the only way the process stops short of the app exiting on its own. Reopening the app from the launcher reattaches the existing running instance (same process, same in-memory state) and clears the pinned entry; closing it again re-backgrounds the app without calling `stayAliveInBackground()` a second time.

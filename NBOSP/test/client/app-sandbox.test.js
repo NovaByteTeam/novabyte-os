@@ -333,6 +333,270 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     await expect(sandboxWindow.novaOS.ready.get()).rejects.toBe(hostError);
   });
 
+  it('exposes the full-coverage v2 facades with capabilities and frozen namespaces', () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, vi.fn());
+
+    const api = sandboxWindow.novaOS;
+    for (const cap of ['events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2']) {
+      expect(api.capabilities.has(cap)).toBe(true);
+    }
+    expect(api.capabilities.has('events.v3')).toBe(false);
+    for (const area of ['events', 'geolocation', 'media', 'calendar', 'contacts', 'mail', 'admin', 'background', 'permissions']) {
+      expect(Object.isFrozen(api[area])).toBe(true);
+    }
+    // Full method surface of the new areas.
+    expect(Object.keys(api.events).sort()).toEqual(['on', 'subscribe', 'unsubscribe']);
+    expect(Object.keys(api.geolocation).sort()).toEqual(['getCurrentPosition']);
+    expect(Object.keys(api.media).sort()).toEqual(['checkCamera', 'checkMicrophone', 'getUserMedia']);
+    expect(Object.keys(api.calendar).sort()).toEqual(['list', 'remove', 'save']);
+    expect(Object.keys(api.contacts).sort()).toEqual(['list', 'remove', 'save']);
+    expect(Object.keys(api.mail).sort()).toEqual(['account', 'connect', 'disconnect', 'folders', 'markRead', 'message', 'messages', 'move', 'openLink', 'preview', 'remove', 'restore', 'search', 'send']);
+    expect(Object.keys(api.admin).sort()).toEqual(['appsList', 'auditQuery', 'systemGet', 'systemSet', 'usersList', 'usersRevoke']);
+    expect(Object.keys(api.background).sort()).toEqual(['onWake', 'stayAlive', 'wakeDone']);
+    expect(Object.keys(api.permissions).sort()).toEqual(['checkRateLimited', 'request']);
+  });
+
+  it('exposes the novaOS v2 events facade with a host-subscription lifecycle', async () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      return Promise.resolve({ success: true, subscribed: payload.event });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+    const api = sandboxWindow.novaOS;
+
+    // First on() subscribes host-side once; further listeners stack silently.
+    const cb1 = vi.fn(); const cb2 = vi.fn();
+    const off1 = await api.events.on('system:themeChanged', cb1);
+    const off2 = await api.events.on('system:themeChanged', cb2);
+    expect(calls).toEqual([{ type: 'nova:events:subscribe', payload: { event: 'system:themeChanged' } }]);
+
+    // off() only unsubscribes when the LAST listener for the name goes.
+    expect(typeof off1).toBe('function');
+    await off1();
+    expect(calls.length).toBe(1);
+    await off2();
+    expect(calls).toEqual([
+      { type: 'nova:events:subscribe', payload: { event: 'system:themeChanged' } },
+      { type: 'nova:events:unsubscribe', payload: { event: 'system:themeChanged' } },
+    ]);
+
+    // A refused subscription rejects AND does not leave the listener registered.
+    const refusingIpc = vi.fn((type) => {
+      if (type === 'nova:events:subscribe') {
+        return Promise.reject(Object.assign(new Error('not allowed'), { code: 'PERMISSION_DENIED' }));
+      }
+      return Promise.resolve({ success: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, refusingIpc);
+    await expect(sandboxWindow.novaOS.events.on('mail:new', vi.fn())).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(refusingIpc.mock.calls.length).toBe(1);
+
+    // ALREADY_SUBSCRIBED (raw subscribe() ran first) is tolerated by on().
+    const alreadyIpc = vi.fn((type) => {
+      if (type === 'nova:events:subscribe') {
+        return Promise.reject(Object.assign(new Error('Already subscribed'), { code: 'ALREADY_SUBSCRIBED' }));
+      }
+      return Promise.resolve({ success: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, alreadyIpc);
+    const off3 = await sandboxWindow.novaOS.events.on('system:volumeChanged', vi.fn());
+    expect(typeof off3).toBe('function');
+
+    // Raw subscribe/unsubscribe stay available for manual control.
+    const rawApi = { nova: { ipc: vi.fn() } };
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(rawApi, vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      return Promise.resolve({ success: true });
+    }));
+    await rawApi.novaOS.events.subscribe('system:power');
+    await rawApi.novaOS.events.unsubscribe('system:power');
+    expect(calls.slice(-2)).toEqual([
+      { type: 'nova:events:subscribe', payload: { event: 'system:power' } },
+      { type: 'nova:events:unsubscribe', payload: { event: 'system:power' } },
+    ]);
+    await expect(rawApi.novaOS.events.on('system:power', 'not a function')).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('exposes novaOS v2 geolocation and media facades with normalized results', async () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const coords = { latitude: 52.52, longitude: 13.405, accuracy: 21 };
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      if (type === 'nova:device:geolocation') return Promise.resolve({ success: true, coords, timestamp: 1730000000000 });
+      return Promise.resolve({ success: true, authorized: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+    const api = sandboxWindow.novaOS;
+
+    // Geolocation — success flag stripped, options pass through.
+    const pos = await api.geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 5000 });
+    expect(pos).toEqual({ coords, timestamp: 1730000000000 });
+    expect(calls[0]).toEqual({ type: 'nova:device:geolocation', payload: { options: { enableHighAccuracy: true, timeout: 5000 } } });
+    await api.geolocation.getCurrentPosition();
+    expect(calls[1].payload).toEqual({ options: {} });
+
+    // Media — authorization-only checks resolve true; PERMISSION_DENIED and
+    // other host errors reject unchanged.
+    await expect(api.media.checkCamera()).resolves.toBe(true);
+    await expect(api.media.checkMicrophone()).resolves.toBe(true);
+
+    // getUserMedia — requires at least one of video/audio, then runs the
+    // app-level checks before touching the browser API (which test/setup.js
+    // provides as a controllable stub).
+    await expect(api.media.getUserMedia({})).rejects.toBeInstanceOf(TypeError);
+    // Two geolocation fixes + one camera check + one microphone check so far;
+    // getUserMedia({}) rejected before making any call of its own.
+    expect(fakeIpc.mock.calls.filter((c) => c[0].startsWith('nova:device:')).length).toBe(4);
+
+    // Full path with both checks passing: the stubbed browser API receives
+    // the constraints and its stream comes back through the facade.
+    const stream = { kind: 'MediaStream' };
+    navigator.mediaDevices.getUserMedia.mockReturnValueOnce(Promise.resolve(stream));
+    await expect(api.media.getUserMedia({ video: true, audio: true })).resolves.toBe(stream);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ video: true, audio: true });
+    expect(fakeIpc.mock.calls.filter((c) => c[0] === 'nova:device:camera').length).toBe(2);
+    expect(fakeIpc.mock.calls.filter((c) => c[0] === 'nova:device:microphone').length).toBe(2);
+
+    // An app-level denial rejects before the browser API is ever reached.
+    const denied = Object.assign(new Error('device:camera permission required'), { code: 'PERMISSION_DENIED' });
+    const deniedIpc = vi.fn((type) => type === 'nova:device:camera' ? Promise.reject(denied) : Promise.resolve({ success: true }));
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, deniedIpc);
+    const callsBefore = navigator.mediaDevices.getUserMedia.mock.calls.length;
+    await expect(sandboxWindow.novaOS.media.getUserMedia({ video: true })).rejects.toBe(denied);
+    expect(navigator.mediaDevices.getUserMedia.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('exposes novaOS v2 calendar and contacts facades with normalized records', async () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const savedEvent = { id: 'evt_1', title: 'Sync', date: '2026-11-05' };
+    const savedContact = { id: 'c_1', name: 'Ada', email: '', phone: '', notes: '' };
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      if (type === 'nova:calendar:read') return Promise.resolve({ success: true, events: [savedEvent] });
+      if (type === 'nova:calendar:write') return Promise.resolve({ success: true, event: savedEvent });
+      if (type === 'nova:calendar:delete') return Promise.resolve({ success: true, removed: true });
+      if (type === 'nova:contacts:read') return Promise.resolve({ success: true, contacts: [savedContact] });
+      if (type === 'nova:contacts:write') return Promise.resolve({ success: true, contact: savedContact });
+      if (type === 'nova:contacts:delete') return Promise.resolve({ success: true, removed: false });
+      return Promise.resolve({ success: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+    const api = sandboxWindow.novaOS;
+
+    expect(await api.calendar.list()).toEqual([savedEvent]);
+    expect(await api.calendar.save({ title: 'Sync', date: '2026-11-05' })).toEqual(savedEvent);
+    expect(await api.calendar.remove('evt_1')).toBe(true);
+    expect(await api.contacts.list()).toEqual([savedContact]);
+    expect(await api.contacts.save({ name: 'Ada' })).toEqual(savedContact);
+    expect(await api.contacts.remove('c_1')).toBe(false);
+
+    expect(calls).toEqual([
+      { type: 'nova:calendar:read', payload: {} },
+      { type: 'nova:calendar:write', payload: { event: { title: 'Sync', date: '2026-11-05' } } },
+      { type: 'nova:calendar:delete', payload: { id: 'evt_1' } },
+      { type: 'nova:contacts:read', payload: {} },
+      { type: 'nova:contacts:write', payload: { contact: { name: 'Ada' } } },
+      { type: 'nova:contacts:delete', payload: { id: 'c_1' } },
+    ]);
+
+    const hostError = Object.assign(new Error('calendar:read permission required'), { code: 'PERMISSION_DENIED' });
+    const deniedIpc = vi.fn(() => Promise.reject(hostError));
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, deniedIpc);
+    await expect(sandboxWindow.novaOS.calendar.list()).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.contacts.save({ name: 'Ada' })).rejects.toBe(hostError);
+  });
+
+  it('exposes novaOS v2 mail and admin facades as raw passthroughs', async () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      return Promise.resolve({ success: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+    const api = sandboxWindow.novaOS;
+
+    await api.mail.connect({ host: 'imap.example.com', user: 'a@b.c', pass: 'x', type: 'imap' });
+    await api.mail.messages({ folder: 'INBOX', limit: 20 });
+    await api.mail.message('42', 'INBOX');
+    await api.mail.markRead(['42'], 'INBOX');
+    await api.mail.move(['42'], 'Archive', 'INBOX');
+    await api.mail.send({ to: 'x@y.z', smtpHost: 'smtp.example.com' });
+    await api.mail.remove(['42'], 'INBOX');
+    await api.mail.openLink('https://example.com');
+
+    await api.admin.auditQuery({ limit: 10 });
+    await api.admin.systemGet();
+    await api.admin.systemSet({ lockScreen: true });
+    await api.admin.usersRevoke('sess_9');
+
+    expect(calls).toEqual([
+      { type: 'nova:mail:session', payload: { action: 'connect', account: { host: 'imap.example.com', user: 'a@b.c', pass: 'x', type: 'imap' } } },
+      { type: 'nova:mail:read', payload: { action: 'messages', folder: 'INBOX', limit: 20 } },
+      { type: 'nova:mail:read', payload: { action: 'message', uid: '42', folder: 'INBOX' } },
+      { type: 'nova:mail:write', payload: { action: 'batch', op: 'read', uids: ['42'], folder: 'INBOX' } },
+      { type: 'nova:mail:write', payload: { action: 'batch', op: 'move', uids: ['42'], dest: 'Archive', folder: 'INBOX' } },
+      { type: 'nova:mail:send', payload: { to: 'x@y.z', smtpHost: 'smtp.example.com' } },
+      { type: 'nova:mail:delete', payload: { uids: ['42'], folder: 'INBOX' } },
+      { type: 'nova:email:open-link', payload: { url: 'https://example.com' } },
+      { type: 'nova:admin:audit', payload: { limit: 10 } },
+      { type: 'nova:admin:system', payload: { action: 'get' } },
+      { type: 'nova:admin:system', payload: { action: 'set', settings: { lockScreen: true } } },
+      { type: 'nova:admin:users', payload: { action: 'revoke', sessionId: 'sess_9' } },
+    ]);
+  });
+
+  it('exposes novaOS v2 background and permissions facades', async () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      if (type === 'nova:background:stay-alive') return Promise.resolve({ success: true, enabled: payload.enabled });
+      if (type === 'nova:request-permission') return Promise.resolve({ granted: true });
+      if (type === 'nova:permission-rate-limited') return Promise.resolve({ rateLimited: true, retryAfterMs: 30000 });
+      return Promise.resolve({ success: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+    const api = sandboxWindow.novaOS;
+
+    // Background — stayAlive defaults to enabling, resolves the enabled state.
+    expect(await api.background.stayAlive()).toEqual({ enabled: true });
+    expect(await api.background.stayAlive(false)).toEqual({ enabled: false });
+    expect(await api.background.wakeDone()).toBeUndefined();
+    expect(typeof api.background.onWake(vi.fn())).toBe('function');
+    await expect(api.background.onWake('nope')).rejects.toBeInstanceOf(TypeError);
+
+    // Permissions — request resolves the granted boolean; the cooldown peek
+    // passes the raw status record through.
+    expect(await api.permissions.request('device:geolocation')).toBe(true);
+    expect(await api.permissions.request('device:camera', 'Video calls')).toBe(true);
+    expect(await api.permissions.checkRateLimited('device:camera')).toEqual({ rateLimited: true, retryAfterMs: 30000 });
+
+    expect(calls).toEqual([
+      { type: 'nova:background:stay-alive', payload: { enabled: true } },
+      { type: 'nova:background:stay-alive', payload: { enabled: false } },
+      { type: 'nova:background:wake-done', payload: {} },
+      { type: 'nova:request-permission', payload: { permission: 'device:geolocation', reason: undefined } },
+      { type: 'nova:request-permission', payload: { permission: 'device:camera', reason: 'Video calls' } },
+      { type: 'nova:permission-rate-limited', payload: { permission: 'device:camera' } },
+    ]);
+
+    const hostError = Object.assign(new Error('denied'), { code: 'PERMISSION_DENIED' });
+    const deniedIpc = vi.fn(() => Promise.reject(hostError));
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, deniedIpc);
+    await expect(sandboxWindow.novaOS.background.stayAlive()).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.permissions.request('device:camera')).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.geolocation.getCurrentPosition()).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.mail.folders()).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.admin.appsList()).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.events.subscribe('system:power')).rejects.toBe(hostError);
+  });
+
   it('mediates permitted nested webviews through the host sibling bridge', () => {
     const shim = AppSandbox._internal.buildCapabilityShim(true);
     const script = shim.slice(shim.indexOf('<script>') + 8, shim.lastIndexOf('</script>'));

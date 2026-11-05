@@ -43,6 +43,10 @@
 //        (live / wake-queued / notify+queue), queue bound, revocation door
 //   GA22 settings + ready v2 facades — same gates as nova:settings:*/
 //        nova:ready, allowlist bounds, normalized handshake snapshot
+//   GA23 full-coverage v2 facades — events (on/off lifecycle, v1+v2
+//        coexistence), geolocation, media, calendar, contacts, mail,
+//        admin, background, permissions — same gates as the frozen
+//        channels, normalized results only
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -174,7 +178,7 @@ async function ga1() {
   // v2 facade surface.
   check('window.novaOS exists', !!g.novaOS);
   check('novaOS.apiVersion === 2', g.novaOS.apiVersion === 2, `got ${g.novaOS.apiVersion}`);
-  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1', 'fsWatch.v1', 'alarms.v1', 'secrets.v1', 'shareTarget.v1', 'push.v1', 'settings.v2', 'ready.v2']) {
+  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1', 'fsWatch.v1', 'alarms.v1', 'secrets.v1', 'shareTarget.v1', 'push.v1', 'settings.v2', 'ready.v2', 'events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2']) {
     check(`novaOS.capabilities.has("${cap}") === true`, g.novaOS.capabilities.has(cap) === true);
   }
   check('novaOS.capabilities.has("nope.v9") === false', g.novaOS.capabilities.has('nope.v9') === false);
@@ -191,7 +195,19 @@ async function ga1() {
     'data.export', 'data.import', 'data.backup', 'data.restore',
     'locale.get', 'badge.set', 'badge.clear',
     'push.register', 'push.unregister', 'push.onMessage',
-    'settings.get', 'settings.set', 'ready.get'];
+    'settings.get', 'settings.set', 'ready.get',
+    'events.on', 'events.subscribe', 'events.unsubscribe',
+    'geolocation.getCurrentPosition',
+    'media.checkCamera', 'media.checkMicrophone', 'media.getUserMedia',
+    'calendar.list', 'calendar.save', 'calendar.remove',
+    'contacts.list', 'contacts.save', 'contacts.remove',
+    'mail.connect', 'mail.disconnect', 'mail.restore', 'mail.account', 'mail.folders',
+    'mail.messages', 'mail.message', 'mail.search', 'mail.preview', 'mail.markRead',
+    'mail.move', 'mail.send', 'mail.remove', 'mail.openLink',
+    'admin.auditQuery', 'admin.systemGet', 'admin.systemSet', 'admin.usersList',
+    'admin.usersRevoke', 'admin.appsList',
+    'background.stayAlive', 'background.wakeDone', 'background.onWake',
+    'permissions.request', 'permissions.checkRateLimited'];
   for (const name of osSurface) {
     check(`window.novaOS.${name} exists`, typeof get(g.novaOS, name) === 'function', `got ${typeof get(g.novaOS, name)}`);
   }
@@ -1933,13 +1949,215 @@ async function ga22() {
   g.teardown();
 }
 
+// ════════════════════════════════ GA23 ═════════════════════════════════════
+// Full-coverage v2 facades — events, geolocation, media, calendar, contacts,
+// mail, admin, background, permissions. Pure sugar over the frozen v1
+// channels: identical permission gates and error codes, normalized results
+// only, and the push surfaces (events, wakes) fan out to v1 and v2
+// listeners independently from the same host subscription.
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function ga23() {
+  section('[GA23] full-coverage v2 facades (events, device, calendar, contacts, mail, admin, background, permissions)');
+  const appId23 = 'com.test.audit.g23';
+  const g = await freshGuest(appId23);
+  const osCall = async (fn) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+
+  // ── events.on / off — public event, no permission needed ──
+  const seen23 = [];
+  const offTheme = await settle(g.novaOS.events.on('system:themeChanged', (d) => seen23.push(d)));
+  check('events.on subscribes a public event with no permission', typeof offTheme === 'function', 'off not a function');
+  env.state.OS.events.emit('system:themeChanged', { theme: 'nord' });
+  await sleep(150);
+  check('events.on listener receives the pushed event', seen23.length === 1 && seen23[0].theme === 'nord', JSON.stringify(seen23));
+
+  // Stacking a second listener — one host subscription, both fire.
+  const seen23b = [];
+  const offTheme2 = await settle(g.novaOS.events.on('system:themeChanged', (d) => seen23b.push(d)));
+  env.state.OS.events.emit('system:themeChanged', { theme: 'light' });
+  await sleep(150);
+  check('stacked v2 listeners both fire over one subscription', seen23.length === 2 && seen23b.length === 1, JSON.stringify([seen23.length, seen23b.length]));
+
+  // v1 + v2 coexistence: the host holds ONE subscription per name; while v1
+  // listeners exist the facade neither re-subscribes nor unsubscribes under
+  // them — both surfaces receive the same pushes independently.
+  let v1Got = null;
+  g.nova.onEvent('system:network', (d) => { v1Got = d; });
+  await sleep(50); // let the v1 subscribe round-trip land before emitting
+  const seen23v2 = [];
+  const offNet = await settle(g.novaOS.events.on('system:network', (d) => seen23v2.push(d)));
+  env.state.OS.events.emit('system:network', { online: true });
+  await sleep(150);
+  check('v1 onEvent still fires alongside the v2 facade', v1Got && v1Got.online === true, JSON.stringify(v1Got));
+  check('v2 events.on fires for the same push', seen23v2.length === 1 && seen23v2[0].online === true, JSON.stringify(seen23v2));
+
+  // off() removes only its own callback (the remaining listener keeps
+  // receiving); a v1 listener keeps receiving after the v2 off() too.
+  await settle(offTheme2());
+  env.state.OS.events.emit('system:themeChanged', { theme: 'midnight' });
+  await sleep(150);
+  check('off() stops its listener only', seen23.length === 3 && seen23b.length === 1, JSON.stringify([seen23.length, seen23b.length]));
+  await settle(offNet());
+  env.state.OS.events.emit('system:network', { online: false });
+  await sleep(150);
+  check('v1 listener still receives after v2 off() (no unsubscribe out from under v1)', v1Got && v1Got.online === false, JSON.stringify(v1Got));
+  // Full lifecycle on a fresh name with no v1 involvement: the LAST v2 off()
+  // unsubscribes host-side, so a raw subscribe succeeds again afterwards.
+  const offFresh = await settle(g.novaOS.events.on('system:workspaceChanged', () => {}));
+  await settle(offFresh());
+  const resub = await osCall(() => g.novaOS.events.subscribe('system:workspaceChanged'));
+  check('last v2 off() with no v1 listeners unsubscribed host-side', resub.ok, JSON.stringify(resub.error && resub.error.code));
+  await osCall(() => g.novaOS.events.unsubscribe('system:workspaceChanged'));
+
+  // Sensitive events need system:events; a refused subscription must not
+  // leave the listener registered (a later granted on() works normally).
+  const deniedEv = await osCall(() => g.novaOS.events.on('app:installed', () => {}));
+  check('events.on denied without system:events', !deniedEv.ok && errCode(deniedEv.error) === 'PERMISSION_DENIED', JSON.stringify(deniedEv.error && deniedEv.error.code));
+  await grant('system:events', appId23);
+  let installGot = null;
+  const offInstall = await settle(g.novaOS.events.on('app:installed', (d) => { installGot = d; }));
+  env.state.OS.events.emit('app:installed', { appId: 'com.x.y' });
+  await sleep(150);
+  check('events.on delivers after the grant', installGot && installGot.appId === 'com.x.y', JSON.stringify(installGot));
+  await settle(offInstall());
+  await revoke('system:events', appId23);
+
+  // ALREADY_SUBSCRIBED tolerance: raw subscribe first, on() still resolves.
+  await osCall(() => g.novaOS.events.subscribe('system:power'));
+  let powerGot = null;
+  const offPower = await settle(g.novaOS.events.on('system:power', (d) => { powerGot = d; }));
+  check('events.on tolerates an existing subscription (ALREADY_SUBSCRIBED)', typeof offPower === 'function', 'on() rejected');
+  env.state.OS.events.emit('system:power', { charging: true });
+  await sleep(150);
+  check('event delivered through the tolerated subscription', powerGot && powerGot.charging === true, JSON.stringify(powerGot));
+  await settle(offPower());
+
+  // ── geolocation — the harness host exposes no provider, so with the
+  // grant the call fails closed with UNAVAILABLE (never a hang) ──
+  const geoDenied = await osCall(() => g.novaOS.geolocation.getCurrentPosition());
+  check('geolocation denied without device:geolocation', !geoDenied.ok && errCode(geoDenied.error) === 'PERMISSION_DENIED', JSON.stringify(geoDenied.error && geoDenied.error.code));
+  await grant('device:geolocation', appId23);
+  const geoOk = await osCall(() => g.novaOS.geolocation.getCurrentPosition({ enableHighAccuracy: true }));
+  check('geolocation with the grant reaches the provider gate (UNAVAILABLE in harness)', !geoOk.ok && errCode(geoOk.error) === 'UNAVAILABLE', JSON.stringify(geoOk.error && geoOk.error.code));
+  await revoke('device:geolocation', appId23);
+
+  // ── media (authorization-only channels) ──
+  const camDenied = await osCall(() => g.novaOS.media.checkCamera());
+  check('media.checkCamera denied without device:camera', !camDenied.ok && errCode(camDenied.error) === 'PERMISSION_DENIED', JSON.stringify(camDenied.error && camDenied.error.code));
+  const micDenied = await osCall(() => g.novaOS.media.checkMicrophone());
+  check('media.checkMicrophone denied without device:microphone', !micDenied.ok && errCode(micDenied.error) === 'PERMISSION_DENIED', JSON.stringify(micDenied.error && micDenied.error.code));
+  await grant('device:camera', appId23);
+  await grant('device:microphone', appId23);
+  const camOk = await osCall(() => g.novaOS.media.checkCamera());
+  check('media.checkCamera resolves true with the grant', camOk.ok && camOk.value === true, JSON.stringify(camOk.value));
+  const micOk = await osCall(() => g.novaOS.media.checkMicrophone());
+  check('media.checkMicrophone resolves true with the grant', micOk.ok && micOk.value === true, JSON.stringify(micOk.value));
+  await revoke('device:camera', appId23);
+  await revoke('device:microphone', appId23);
+
+  // ── calendar / contacts (shared host stores) ──
+  try { global.localStorage.removeItem('nova_calendar'); } catch (_) {}
+  try { global.localStorage.removeItem('nova_contacts'); } catch (_) {}
+  const calDenied = await osCall(() => g.novaOS.calendar.list());
+  check('calendar.list denied without calendar:read', !calDenied.ok && errCode(calDenied.error) === 'PERMISSION_DENIED', JSON.stringify(calDenied.error && calDenied.error.code));
+  const conDenied = await osCall(() => g.novaOS.contacts.save({ name: 'X' }));
+  check('contacts.save denied without contacts:write', !conDenied.ok && errCode(conDenied.error) === 'PERMISSION_DENIED', JSON.stringify(conDenied.error && conDenied.error.code));
+  for (const p of ['calendar:read', 'calendar:write', 'calendar:delete', 'contacts:read', 'contacts:write', 'contacts:delete']) await grant(p, appId23);
+  const calEmpty = await osCall(() => g.novaOS.calendar.list());
+  check('calendar.list resolves an array', calEmpty.ok && Array.isArray(calEmpty.value) && calEmpty.value.length === 0, JSON.stringify(calEmpty.value));
+  const savedEv = await osCall(() => g.novaOS.calendar.save({ title: 'Audit sync', date: '2026-11-05' }));
+  check('calendar.save returns the host-normalized record (id assigned)', savedEv.ok && savedEv.value && typeof savedEv.value.id === 'string' && savedEv.value.title === 'Audit sync', JSON.stringify(savedEv.value));
+  const calList = await osCall(() => g.novaOS.calendar.list());
+  check('calendar.list sees the saved event', calList.ok && calList.value.length === 1 && calList.value[0].id === savedEv.value.id, JSON.stringify(calList.value));
+  const calBad = await osCall(() => g.novaOS.calendar.save({ title: '' }));
+  check('calendar.save rejects an invalid event (INVALID_EVENT)', !calBad.ok && errCode(calBad.error) === 'INVALID_EVENT', JSON.stringify(calBad.error && calBad.error.code));
+  const calDel = await osCall(() => g.novaOS.calendar.remove(savedEv.value && savedEv.value.id));
+  check('calendar.remove resolves whether anything was removed', calDel.ok && calDel.value === true, JSON.stringify(calDel.value));
+  const calDel2 = await osCall(() => g.novaOS.calendar.remove('nope-nope'));
+  check('calendar.remove of a missing id resolves false', calDel2.ok && calDel2.value === false, JSON.stringify(calDel2.value));
+  const savedCon = await osCall(() => g.novaOS.contacts.save({ name: 'Ada Lovelace', email: 'ada@example.com' }));
+  check('contacts.save returns the normalized contact', savedCon.ok && savedCon.value && typeof savedCon.value.id === 'string' && savedCon.value.name === 'Ada Lovelace', JSON.stringify(savedCon.value));
+  const conList = await osCall(() => g.novaOS.contacts.list());
+  check('contacts.list sees the saved contact', conList.ok && conList.value.length === 1 && conList.value[0].email === 'ada@example.com', JSON.stringify(conList.value));
+  const conDel = await osCall(() => g.novaOS.contacts.remove(savedCon.value && savedCon.value.id));
+  check('contacts.remove resolves the removed flag', conDel.ok && conDel.value === true, JSON.stringify(conDel.value));
+  for (const p of ['calendar:read', 'calendar:write', 'calendar:delete', 'contacts:read', 'contacts:write', 'contacts:delete']) await revoke(p, appId23);
+  try { global.localStorage.removeItem('nova_calendar'); } catch (_) {}
+  try { global.localStorage.removeItem('nova_contacts'); } catch (_) {}
+
+  // ── mail / admin — deny paths + the admin-mode half of the dual gate
+  // (the services themselves are covered by the raw-channel suites) ──
+  const mailDenied = await osCall(() => g.novaOS.mail.folders());
+  check('mail.folders denied without mail:read', !mailDenied.ok && errCode(mailDenied.error) === 'PERMISSION_DENIED', JSON.stringify(mailDenied.error && mailDenied.error.code));
+  const adminDenied = await osCall(() => g.novaOS.admin.appsList());
+  check('admin.appsList denied without admin:apps', !adminDenied.ok && errCode(adminDenied.error) === 'PERMISSION_DENIED', JSON.stringify(adminDenied.error && adminDenied.error.code));
+  await grant('admin:apps', appId23);
+  const adminMode = await osCall(() => g.novaOS.admin.appsList());
+  // The harness env reports admin mode ON, so with the grant the full dual
+  // gate passes and the apps record comes through unnormalized.
+  check('admin.appsList passes the dual gate (grant + admin mode) and returns the apps record',
+    adminMode.ok && adminMode.value && Array.isArray(adminMode.value.apps), JSON.stringify(adminMode.error && adminMode.error.code));
+  await revoke('admin:apps', appId23);
+
+  // ── background ──
+  const stayDenied = await osCall(() => g.novaOS.background.stayAlive());
+  check('background.stayAlive denied without system:background:live', !stayDenied.ok && errCode(stayDenied.error) === 'PERMISSION_DENIED', JSON.stringify(stayDenied.error && stayDenied.error.code));
+  await grant('system:background:live', appId23);
+  const stayOk = await osCall(() => g.novaOS.background.stayAlive());
+  check('background.stayAlive resolves the enabled state', stayOk.ok && stayOk.value && stayOk.value.enabled === true, JSON.stringify(stayOk.value));
+  const stayOff = await osCall(() => g.novaOS.background.stayAlive(false));
+  check('background.stayAlive(false) opts back out', stayOff.ok && stayOff.value && stayOff.value.enabled === false, JSON.stringify(stayOff.value));
+  await revoke('system:background:live', appId23);
+  const wakeOk = await osCall(() => g.novaOS.background.wakeDone());
+  check('background.wakeDone resolves (ungated)', wakeOk.ok, JSON.stringify(wakeOk.error && wakeOk.error.code));
+  // onWake handlers receive the same push the v1 handler gets; off() stops
+  // only its own registration.
+  let wakeGot = null; let wakeGot2 = null;
+  const offWake = g.novaOS.background.onWake((info) => { wakeGot = info; });
+  g.novaOS.background.onWake((info) => { wakeGot2 = info; });
+  INTERNAL.respond(g.webview, 'nova:background:wake', INTERNAL.generateRequestId(), { reason: 'scheduled-wake' });
+  await sleep(120);
+  check('background.onWake handlers receive the wake push', wakeGot && wakeGot.reason === 'scheduled-wake' && wakeGot2 && wakeGot2.reason === 'scheduled-wake', JSON.stringify([wakeGot, wakeGot2]));
+  offWake();
+  INTERNAL.respond(g.webview, 'nova:background:wake', INTERNAL.generateRequestId(), { reason: 'second-wake' });
+  await sleep(120);
+  check('off() stops only its own wake handler', wakeGot && wakeGot.reason === 'scheduled-wake' && wakeGot2 && wakeGot2.reason === 'second-wake', JSON.stringify([wakeGot && wakeGot.reason, wakeGot2 && wakeGot2.reason]));
+  // v1 + v2 wake coexistence: both surfaces receive the same push.
+  let v1Wake = null; let v2Wake = null;
+  g.nova.onBackgroundWake((info) => { v1Wake = info; });
+  const offWake2 = g.novaOS.background.onWake((info) => { v2Wake = info; });
+  INTERNAL.respond(g.webview, 'nova:background:wake', INTERNAL.generateRequestId(), { reason: 'third-wake' });
+  await sleep(120);
+  check('v1 and v2 wake handlers both receive the same push', v1Wake && v1Wake.reason === 'third-wake' && v2Wake && v2Wake.reason === 'third-wake', JSON.stringify([v1Wake && v1Wake.reason, v2Wake && v2Wake.reason]));
+  offWake2();
+
+  // ── permissions — real dialog, real grant (secrets:store is untouched
+  // elsewhere in this section, so no cooldown can pre-answer it) ──
+  const reqP = g.novaOS.permissions.request('secrets:store', 'GA23 audit');
+  await sleep(120);
+  const allowBtn = findInTree(global.document.body, (n) => n.tagName === 'BUTTON' && n.textContent === 'Allow');
+  check('permissions.request shows a real dialog', !!allowBtn, 'no Allow button found in host DOM');
+  if (allowBtn) allowBtn.__fire('click');
+  const reqResult = await settle(reqP, 4000);
+  check('permissions.request resolves the granted boolean (true)', reqResult === true, JSON.stringify(reqResult));
+  check('the grant actually took effect', PM.isGranted('secrets:store', appId23) === true);
+  await revoke('secrets:store', appId23);
+  const cooldown = await osCall(() => g.novaOS.permissions.checkRateLimited('secrets:store'));
+  check('permissions.checkRateLimited answers without triggering a prompt', cooldown.ok && cooldown.value && typeof cooldown.value === 'object', JSON.stringify(cooldown.value !== undefined ? cooldown.value : (cooldown.error && cooldown.error.code)));
+
+  g.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20, GA21: ga21, GA22: ga22,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20, GA21: ga21, GA22: ga22, GA23: ga23,
 };
 
 (async () => {

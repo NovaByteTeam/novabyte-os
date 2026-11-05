@@ -9545,7 +9545,33 @@ const AppSandbox = (() => {
     // same gates, same payloads, nothing new host-side.
     'settings.v2': true,
     'ready.v2': true,
+    // Full-coverage v2 sugar over the remaining frozen v1 channel families
+    // (events, device, calendar/contacts, mail, admin, background,
+    // permissions) — still pure sugar, still nothing new host-side.
+    'events.v2': true,
+    'geolocation.v2': true,
+    'media.v2': true,
+    'calendar.v2': true,
+    'contacts.v2': true,
+    'mail.v2': true,
+    'admin.v2': true,
+    'background.v2': true,
+    'permissions.v2': true,
   });
+  // Listener state for the v2 event-bus and background-wake facades.
+  // Deliberately separate from the v1 bridge's own collections
+  // (eventListeners / backgroundWakeListeners — frozen window.nova surface):
+  // the push dispatch fans out to both independently, and each side manages
+  // only its own callbacks. __v1EventListeners lets the events facade
+  // coordinate with v1 listeners when this source is embedded in the full
+  // capability shim (always, in a real sandbox): the host holds ONE
+  // subscription per sandbox per event name, so while v1 listeners exist
+  // for a name we neither re-subscribe (the host would answer
+  // ALREADY_SUBSCRIBED) nor host-unsubscribe out from under them. It is
+  // null when this source is evaluated standalone (the test harness).
+  const novaOSEventListeners = {}; // eventName -> [callback, ...]
+  const novaOSWakeListeners = [];
+  const __v1EventListeners = (typeof eventListeners === 'object' && eventListeners !== null) ? eventListeners : null;
   window.novaOS = Object.freeze({
     apiVersion: 2,
     capabilities: Object.freeze({
@@ -9939,6 +9965,218 @@ const AppSandbox = (() => {
         });
       },
     }),
+    // Event bus (nova:events:*) — OS-to-app push events; there is no
+    // app-to-app publish path (that's nova.ipc.broadcast, unchanged). on()
+    // stacks any number of listeners per event name over ONE host
+    // subscription (the host holds a single subscription per sandbox and
+    // the push dispatch fans out here), tolerates a subscription another
+    // surface already made (ALREADY_SUBSCRIBED), and returns an off()
+    // function that also unsubscribes host-side once the last listener
+    // for that name goes. subscribe()/unsubscribe() are the raw channels
+    // for manual control — subscribe rejects ALREADY_SUBSCRIBED when on()
+    // or a v1 onEvent listener already subscribed the name. The fixed
+    // event allowlist and its permission gates (system:events plus the
+    // domain read permission for the sensitive families) are unchanged.
+    events: Object.freeze({
+      on: function(eventName, callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        if (!novaOSEventListeners[eventName]) novaOSEventListeners[eventName] = [];
+        novaOSEventListeners[eventName].push(callback);
+        const v1HasListeners = !!(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length);
+        const needsSubscribe = novaOSEventListeners[eventName].length === 1 && !v1HasListeners;
+        const sub = needsSubscribe
+          ? ipc('nova:events:subscribe', { event: eventName }).then(null, function(error) {
+              if (error && error.code === 'ALREADY_SUBSCRIBED') {
+                return { success: true, subscribed: eventName };
+              }
+              // The host refused the subscription (allowlist miss,
+              // PERMISSION_DENIED, bus unavailable) — don't leave a
+              // listener registered for a subscription that will never fire.
+              const list = novaOSEventListeners[eventName] || [];
+              const index = list.indexOf(callback);
+              if (index >= 0) list.splice(index, 1);
+              if (list.length === 0) delete novaOSEventListeners[eventName];
+              throw error;
+            })
+          : Promise.resolve({ success: true, subscribed: eventName });
+        return sub.then(function() {
+          return function() {
+            const list = novaOSEventListeners[eventName] || [];
+            const index = list.indexOf(callback);
+            if (index >= 0) list.splice(index, 1);
+            if (list.length === 0 && !(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length)) {
+              delete novaOSEventListeners[eventName];
+              return ipc('nova:events:unsubscribe', { event: eventName }).then(function() {});
+            }
+            return undefined;
+          };
+        });
+      },
+      subscribe: function(eventName) { return ipc('nova:events:subscribe', { event: eventName }); },
+      unsubscribe: function(eventName) { return ipc('nova:events:unsubscribe', { event: eventName }).then(function() {}); },
+    }),
+    // Geolocation (device:geolocation) — one-shot position fix. Same
+    // PositionOptions payload as the raw channel (timeout, maximumAge,
+    // enableHighAccuracy — passed through as options), normalized to
+    // { coords, timestamp } (the raw response minus its success flag).
+    // There is deliberately no watchPosition: the v1 channel is one-shot
+    // by design and the facade does not invent host behavior.
+    geolocation: Object.freeze({
+      getCurrentPosition: function(options) {
+        return ipc('nova:device:geolocation', { options: options || {} }).then(function(result) {
+          return { coords: result.coords, timestamp: result.timestamp };
+        });
+      },
+    }),
+    // Media authorization (device:camera / device:microphone) — the raw
+    // channels are authorization-only checks (a MediaStream can't cross
+    // the IPC bridge), so checkCamera()/checkMicrophone() resolve true
+    // when the app-level grant is held and reject PERMISSION_DENIED when
+    // it isn't. getUserMedia(constraints) mirrors window.nova.getUserMedia:
+    // app-level checks first, then the real getUserMedia() in THIS
+    // document — the browser's own permission gate still runs separately
+    // when it is invoked (the permissionrequest 'media' branch).
+    media: Object.freeze({
+      checkCamera: function() { return ipc('nova:device:camera', {}).then(function() { return true; }); },
+      checkMicrophone: function() { return ipc('nova:device:microphone', {}).then(function() { return true; }); },
+      getUserMedia: function(constraints) {
+        constraints = constraints || {};
+        const needsCamera = !!constraints.video;
+        const needsMic = !!constraints.audio;
+        const checks = [];
+        if (needsCamera) checks.push(ipc('nova:device:camera', {}));
+        if (needsMic) checks.push(ipc('nova:device:microphone', {}));
+        if (checks.length === 0) {
+          return Promise.reject(new TypeError('getUserMedia requires at least one of video/audio in constraints'));
+        }
+        return Promise.all(checks).then(function() {
+          if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+            return Promise.reject(new TypeError('getUserMedia not available in this environment'));
+          }
+          return navigator.mediaDevices.getUserMedia(constraints);
+        });
+      },
+    }),
+    // Calendar/Contacts — the SAME shared stores the host Calendar and
+    // Contacts apps use (not per-app isolated data), so writes are visible
+    // to those apps and their change events fire exactly as before. list()
+    // returns the records array; save() returns the host-normalized record
+    // (ids are assigned host-side on create); remove() resolves whether
+    // anything was actually deleted. Error codes (INVALID_EVENT,
+    // INVALID_CONTACT, INVALID_ID, PERMISSION_DENIED) are unchanged.
+    calendar: Object.freeze({
+      list: function() {
+        return ipc('nova:calendar:read', {}).then(function(result) {
+          return result && Array.isArray(result.events) ? result.events : [];
+        });
+      },
+      save: function(event) {
+        return ipc('nova:calendar:write', { event: event }).then(function(result) {
+          return result && result.event ? result.event : result;
+        });
+      },
+      remove: function(id) {
+        return ipc('nova:calendar:delete', { id: id }).then(function(result) {
+          return !!(result && result.removed);
+        });
+      },
+    }),
+    contacts: Object.freeze({
+      list: function() {
+        return ipc('nova:contacts:read', {}).then(function(result) {
+          return result && Array.isArray(result.contacts) ? result.contacts : [];
+        });
+      },
+      save: function(contact) {
+        return ipc('nova:contacts:write', { contact: contact }).then(function(result) {
+          return result && result.contact ? result.contact : result;
+        });
+      },
+      remove: function(id) {
+        return ipc('nova:contacts:delete', { id: id }).then(function(result) {
+          return !!(result && result.removed);
+        });
+      },
+    }),
+    // Mail (nova:mail:* + nova:email:open-link) — reuses whatever account
+    // is connected in the host shell's Email app (session-scoped; fails
+    // UNAVAILABLE when nothing is connected). 1:1 with the v1 wrapper:
+    // same actions, same permission gate per action (mail:read/write/send/
+    // delete), and unnormalized records — mail responses are action-shaped
+    // (folders lists, message pages, preview tokens), so there is no
+    // single value to project out.
+    mail: Object.freeze({
+      connect: function(account) { return ipc('nova:mail:session', { action: 'connect', account: account || {} }); },
+      disconnect: function() { return ipc('nova:mail:session', { action: 'disconnect' }); },
+      restore: function() { return ipc('nova:mail:session', { action: 'restore' }); },
+      account: function() { return ipc('nova:mail:read', { action: 'account' }); },
+      folders: function() { return ipc('nova:mail:read', { action: 'folders' }); },
+      messages: function(options) { return ipc('nova:mail:read', Object.assign({ action: 'messages' }, options || {})); },
+      message: function(uid, folder) { return ipc('nova:mail:read', { action: 'message', uid: uid, folder: folder }); },
+      search: function(query, folder) { return ipc('nova:mail:read', { action: 'search', query: query, folder: folder }); },
+      preview: function(html) { return ipc('nova:mail:write', { action: 'preview', html: html }); },
+      markRead: function(uids, folder) { return ipc('nova:mail:write', { action: 'batch', op: 'read', uids: uids, folder: folder }); },
+      move: function(uids, dest, folder) { return ipc('nova:mail:write', { action: 'batch', op: 'move', uids: uids, dest: dest, folder: folder }); },
+      send: function(msg) { return ipc('nova:mail:send', msg || {}); }, // msg: { to, cc, bcc, subject, text, html, smtpHost, smtpPort }
+      remove: function(uids, folder) { return ipc('nova:mail:delete', { uids: uids, folder: folder }); },
+      openLink: function(url) { return ipc('nova:email:open-link', { url: url }); },
+    }),
+    // Admin (nova:admin:*) — the dual gate is unchanged: the per-app
+    // permission grant AND the machine's local admin flag set in Settings;
+    // granting an app admin:* never puts the machine in admin mode by
+    // itself. Records pass through unnormalized (audit responses carry
+    // pagination/statistics; system/users/apps shapes are action-specific).
+    admin: Object.freeze({
+      auditQuery: function(filters) { return ipc('nova:admin:audit', filters || {}); },
+      systemGet: function() { return ipc('nova:admin:system', { action: 'get' }); },
+      systemSet: function(settings) { return ipc('nova:admin:system', { action: 'set', settings: settings }); },
+      usersList: function() { return ipc('nova:admin:users', { action: 'list' }); },
+      usersRevoke: function(sessionId) { return ipc('nova:admin:users', { action: 'revoke', sessionId: sessionId }); },
+      appsList: function() { return ipc('nova:admin:apps', {}); },
+    }),
+    // Background execution — the three tiers are unchanged (system:background
+    // scheduled wakes, system:background:live stay-alive, system:autostart).
+    // stayAlive() opts THIS session into surviving window close — holding
+    // the grant alone is never enough — and resolves the resulting enabled
+    // state; call stayAlive(false) to opt back out before closing. wakeDone()
+    // ends a scheduled wake early so the host doesn't wait out the deadline
+    // (resolves undefined). onWake() registers a wake handler and returns an
+    // off() function — it fires only in sandboxes the host started FOR a
+    // wake cycle; the wake happening at all IS the system:background check
+    // having passed host-side.
+    background: Object.freeze({
+      stayAlive: function(enabled) {
+        return ipc('nova:background:stay-alive', { enabled: enabled !== false }).then(function(result) {
+          return { enabled: !!(result && result.enabled) };
+        });
+      },
+      wakeDone: function() { return ipc('nova:background:wake-done', {}).then(function() {}); },
+      onWake: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        novaOSWakeListeners.push(callback);
+        return function() {
+          const index = novaOSWakeListeners.indexOf(callback);
+          if (index >= 0) novaOSWakeListeners.splice(index, 1);
+        };
+      },
+    }),
+    // Permission requests — the runtime counterpart to the static manifest
+    // grants. request() surfaces the OS permission dialog (permanent by
+    // default, exactly like the raw channel) and resolves the granted
+    // boolean; the host silently denies re-asks while a denial cooldown is
+    // active. checkRateLimited() peeks at that cooldown WITHOUT triggering
+    // a prompt and returns the raw status record (the Permissions app uses
+    // the same shape for its "try again in Ns" display).
+    permissions: Object.freeze({
+      request: function(permission, reason) {
+        return ipc('nova:request-permission', { permission: permission, reason: reason }).then(function(result) {
+          return !!(result && result.granted);
+        });
+      },
+      checkRateLimited: function(permission) {
+        return ipc('nova:permission-rate-limited', { permission: permission });
+      },
+    }),
   });`;
   }
 
@@ -10165,6 +10403,13 @@ const AppSandbox = (() => {
       for (let j = 0; j < listeners.length; j++) {
         try { listeners[j](msg.result.data); } catch (_) {}
       }
+      // The v2 events facade (novaOS.events.on) keeps its own listener map
+      // (declared by the embedded facade source below) — fan out to it too,
+      // so v1 and v2 subscribers both receive every push independently.
+      const v2EventListeners = novaOSEventListeners[msg.result.event] || [];
+      for (let j = 0; j < v2EventListeners.length; j++) {
+        try { v2EventListeners[j](msg.result.data); } catch (_) {}
+      }
       return;
     }
 
@@ -10206,6 +10451,12 @@ const AppSandbox = (() => {
     if (msg.type === 'nova:background:wake:response') {
       for (let w = 0; w < backgroundWakeListeners.length; w++) {
         try { backgroundWakeListeners[w](msg.result || {}); } catch (_) {}
+      }
+      // v2 wake handlers (novaOS.background.onWake) — same push, fanned out
+      // to the facade's own listener array (declared by the embedded facade
+      // source below) independently of the v1 registrations.
+      for (let w = 0; w < novaOSWakeListeners.length; w++) {
+        try { novaOSWakeListeners[w](msg.result || {}); } catch (_) {}
       }
       return;
     }
