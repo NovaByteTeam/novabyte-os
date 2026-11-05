@@ -253,5 +253,10 @@
     "id": "com.nbosp.service.media-store",
     "file": "js/apps/com.nbosp.service.media-store.novaapp",
     "cacheKey": "e7a10242338f2fb2462939b246705e606a80dacd83bae8cb1ebe7c5f6ce801c7"
+  },
+  {
+    "id": "com.nbosp.novareg",
+    "file": "js/apps/com.nbosp.novareg.novaapp",
+    "cacheKey": "b93f73d730fe9821cadd426e964aea95cc686529a635501ab342dc3c116b8013"
   }
 ]
