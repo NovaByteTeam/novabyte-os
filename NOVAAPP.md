@@ -557,7 +557,7 @@ Permissions are declared in `manifest.json` and checked before the app loads. Lo
 
 ### Full permission list
 
-49 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
+52 permissions across 11 categories, mirroring `app-permission-manager.js` exactly — these are the only strings `validateManifest` recognizes without a warning.
 
 The three Sandbox permissions have additional manifest opt-ins: `sandbox:nested-webview` requires the top-level `allowNestedWebview` field (or its declaration in `permissions`), `sandbox:same-origin` requires `sandbox.allowSameOrigin`, and `sandbox:escape-popups` requires `allowPopupsToEscapeSandbox`.
 
@@ -611,6 +611,9 @@ Filesystem permissions follow scoped-storage rules: app-owned files need no gran
 | `system:schedule` | System | Medium | Schedule named alarms your running app reacts to — never self-launching while closed (see [Named alarms](#named-alarms--novaalarms--novaosalarms)) |
 | `system:share-target` | System | Medium | Be offered as a destination in the share sheet and receive what the user sends (see [Share target](#share-target--systemshare-target--novaosshareoninbound)) |
 | `push:receive` | System | Medium | Receive push messages from the app's own backend through the OS push service (see [Push delivery](#push-delivery--pushreceive--novaospush)) |
+| `registry.read` | System | Low | Read the NovaByte Registry — OS and app config facts (the `HKNS/security` subtree stays blocked without `registry.system`; see [NovaByte Registry](#novabyte-registry--novareg--windownovaregistry)) |
+| `registry.write` | System | Medium | Store settings in your app's own `HKNA/<your-app-id>/` registry subtree — quota'd, user-visible in the NovaReg editor |
+| `registry.system` | System | Critical | Full Registry access: every hive, including the `HKNS` system keys and the `HKNS/security` subtree the OS boots from |
 | `admin:apps` | Admin | High | Fleet/security audit tools — see actual grants per app, not just declared ones (needs admin mode) |
 | `admin:users` | Admin | Critical | Session monitors, force-logout tools (needs admin mode) |
 | `admin:system` | Admin | Critical | Security-policy dashboards, lockout/IP-block tuning (needs admin mode) |
@@ -833,7 +836,7 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, and the v2 sugar over the remaining frozen channels: `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`, `net.v2`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, `registry.v1`, and the v2 sugar over the remaining frozen channels: `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`, `net.v2`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
@@ -863,6 +866,7 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `background` | `stayAlive(enabled?)` → `{ enabled }`, `wakeDone()`, `onWake(cb)` → off | `nova:background:stay-alive`, `nova:background:wake-done` + push: `nova:background:wake` | `system:background:live` (stayAlive); wakes gated host-side by `system:background` |
 | `permissions` | `request(permission, reason?)` → bool, `checkRateLimited(permission)` → status | `nova:request-permission`, `nova:permission-rate-limited` | none — requesting grants is the point |
 | `net` | `websocket(url, protocols?)` → handle `{ wsId, readyState, onMessage, onError, onClose, send, close }` | `nova:net:websocket`, `nova:net:ws:send`, `nova:net:ws:close` + pushes `nova:net:ws:message` / `ws:error` / `ws:close` | `net:websocket` (+ `net:internal` for private/first-party hosts) |
+| `registry` | `get(path)` → value\|undefined, `stat(path)`, `set(path, value, type?)`, `remove(path, {recursive}?)`, `list(path)`, `export(path)`, `import(path, data)`, `watch(path, cb)` → off | `nova:reg:*` + push: `nova:reg:changed` | `registry.read` (get/stat/list/export/watch) / `registry.write` (set/remove/import) + per-hive rules — see [NovaByte Registry](#novabyte-registry--novareg--windownovaregistry) |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -1734,6 +1738,46 @@ Feature-detect with `window.novaOS.capabilities.has('settings.v2')`.
 
 For data scoped to your own app, use [Storage](#storage) instead.
 
+### NovaByte Registry — `nova:reg:*` / `window.novaOS.registry`
+
+Requires `registry.read` (System / Low) to read, `registry.write` (System / Medium) to write. The registry is the OS's hierarchical configuration database — the thing the shell itself boots from — so writes are **per-hive** and enforced host-side on every call:
+
+| Hive | What lives there | Who may write |
+|---|---|---|
+| `HKNS` | NovaSystem — shell config (`HKNS/shell/theme`, `HKNS/shell/accentColor`, `HKNS/shell/wallpaper`), security policy under `HKNS/security/...` | System apps only (never `HKNS/security` without `registry.system`) |
+| `HKNU` | NovaUser — per-user preferences | `registry.system` only |
+| `HKNA` | NovaApps — one subtree per app: `HKNA/<your-app-id>/...` | Your app alone, inside its own subtree |
+| `HKND` | NovaDev — developer scratch space | `registry.write` while Developer Mode is ON |
+
+`registry.system` (System / Critical) reads and writes everything, but Developer Mode still gates `HKND`. Reading is broad for any `registry.read` holder — config facts are not per-app private state — except `HKNS/security/...`, which needs `registry.system` even to read.
+
+A path names **keys** and ends in a **value**: `HKNS/shell/wallpaper` is the value `wallpaper` under key `shell`. Values are typed — `REG_SZ` (string), `REG_BOOL`, `REG_DWORD` (uint32), `REG_QWORD` (non-negative safe integer), `REG_JSON` (any JSON value), `REG_BINARY` (base64 string) — and the type is validated host-side on every write. Omitting the type on `set` auto-detects it. The engine quotas everything (16-segment paths, 256 KB per value, per-hive caps), persists every hive atomically, and quarantines a corrupt hive file instead of failing the boot.
+
+```javascript
+// Requires registry.read
+const wallpaper = await window.novaOS.registry.get('HKNS/shell/wallpaper'); // 'stock-blue' or undefined
+const stat = await window.novaOS.registry.stat('HKNS/shell/theme');  // { found, path, type, data }
+const shell = await window.novaOS.registry.list('HKNS/shell');       // { path, keys: [...], values: {...} }
+const dump  = await window.novaOS.registry.export('HKNA');           // whole-subtree plain object
+
+// Requires registry.write — stores under YOUR app's subtree
+await window.novaOS.registry.set('HKNA/com.example.player/volume', 80, 'REG_DWORD');
+await window.novaOS.registry.set('HKNA/com.example.player/lastPlaylist', { tracks: [1, 7, 9] }); // auto REG_JSON
+await window.novaOS.registry.remove('HKNA/com.example.player/volume');
+
+// Watch for changes (watching is reading — same grant as the event)
+const off = await window.novaOS.registry.watch('HKNS/shell', (change) => {
+  console.log('registry changed:', change.path, change.type, change.value);
+});
+await off(); // stop watching
+```
+
+Change notifications ride the event bus as `nova:reg:changed` (see [Event bus](#event-bus--novaevents)): the payload is `{ path, type, value, appId, source }`, one event per committed write/delete/import. `watch(path, cb)` is the facade's prefix-filtered sugar over that event, so it holds exactly the grants subscribing to it needs.
+
+Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, `HKNS/shell/wallpaper`) by a **system app** apply live — the OS copies them into the matching settings keys and the desktop re-applies immediately. Apps should treat their `HKNA` subtree as their supported config surface: it persists across updates, is visible to the user in the NovaReg editor (Developer Mode), and survives alongside the app's own storage. Error codes: `INVALID_ARGS` (bad path), `INVALID_VALUE` (type mismatch), `QUOTA_EXCEEDED` (size/node caps), `NOT_FOUND`, `SUBTREE_NOT_EMPTY` (delete a non-empty key without `recursive: true`), `PERMISSION_DENIED`.
+
+Feature-detect with `window.novaOS.capabilities.has('registry.v1')`.
+
 ### Ready snapshot — `window.novaOS.ready`
 
 `novaOS.ready.get()` is the v2 view of the `nova:ready` handshake — the same authenticated payload the runtime delivers automatically on load, with no permission gate:
@@ -1774,7 +1818,7 @@ The two surfaces coexist: the host holds a single subscription per sandbox per e
 
 Calling `nova.ipc('nova:events:unsubscribe', { event: 'system:themeChanged' })` directly also works.
 
-**Event names are restricted to a fixed allowlist** — subscribing to any other name fails with `INVALID_ARGS`. Common appearance, volume, workspace, power, and network change events require no permission; notifications, app inventory/lifecycle events, and mail/calendar/contact events require `system:events`, and the mail/calendar/contact ones additionally require their domain read permission. The three WebSocket push events require `net:websocket` alone (no `system:events`) and are delivered only to the app that owns the socket (see [WebSocket](#websocket--novanetwebsocket--windownovawebsocket)):
+**Event names are restricted to a fixed allowlist** — subscribing to any other name fails with `INVALID_ARGS`. Common appearance, volume, workspace, power, and network change events require no permission; notifications, app inventory/lifecycle events, and mail/calendar/contact events require `system:events`, and the mail/calendar/contact ones additionally require their domain read permission. The three WebSocket push events require `net:websocket` alone (no `system:events`) and are delivered only to the app that owns the socket (see [WebSocket](#websocket--novanetwebsocket--windownovawebsocket)). The registry change event requires `registry.read` alone — the same grant reading the registry needs (see [NovaByte Registry](#novabyte-registry--novareg--windownovaregistry)):
 
 | Event | Fires when | Permission |
 |---|---|---|
@@ -1795,6 +1839,7 @@ Calling `nova.ipc('nova:events:unsubscribe', { event: 'system:themeChanged' })` 
 | `nova:net:ws:message` | A socket opened by this app received a message (raw `nova:net:websocket` data plane) | `net:websocket` |
 | `nova:net:ws:error` | A socket opened by this app errored | `net:websocket` |
 | `nova:net:ws:close` | A socket opened by this app closed | `net:websocket` |
+| `nova:reg:changed` | A registry value was written, deleted, or imported (`{ path, type, value, appId, source }` — see [NovaByte Registry](#novabyte-registry--novareg--windownovaregistry)) | `registry.read` |
 
 The bus is OS-to-app only — there is no event for arbitrary custom app-to-app messaging (use [Inter-app communication](#inter-app-communication) instead).
 
