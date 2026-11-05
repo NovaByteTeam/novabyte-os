@@ -1,6 +1,0 @@
-{
-  "protected": [],
-  "upstream": "NovaByteOfficial/novabyte-os:v1",
-  "upstreamCoreServices": "NovaByteOfficial/novabyte-os:v1",
-  "coreServicesTagPrefix": "cs-"
-}
