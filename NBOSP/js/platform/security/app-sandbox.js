@@ -666,6 +666,18 @@ const AppSandbox = (() => {
       // sees one.
       'nova:push:register': ['push:receive'],
       'nova:push:unregister': ['push:receive'],
+      // NovaByte Registry — reads (get/list/export) are registry.read,
+      // writes (set/delete/import) are registry.write. The handler adds the
+      // per-hive rules the flat grant can't express: apps write only their
+      // own HKNA/<appId>/ subtree, HKNS writes need a system app, HKNU needs
+      // registry.system, HKND additionally needs Developer Mode, and the
+      // HKNS/security subtree needs registry.system on top of either grant.
+      'nova:reg:get': ['registry.read'],
+      'nova:reg:list': ['registry.read'],
+      'nova:reg:export': ['registry.read'],
+      'nova:reg:set': ['registry.write'],
+      'nova:reg:delete': ['registry.write'],
+      'nova:reg:import': ['registry.write'],
     });
 
     // Families with NO grant-coupled endpoints: every endpoint in them is
@@ -3008,6 +3020,200 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:wallpaper:set', requestId, 'INVALID_ARGS', "key must be 'wallpaperId' or 'customWallpaper'");
     }
     return handleSettingsSetWithType({ payload, requestId, app, webview }, 'nova:wallpaper:set');
+  }
+
+  // ── NovaByte Registry (nova:reg:*) ───────────────────────────────
+  //
+  // The engine (window.NovaRegistry — js/platform/core/nova-registry.js)
+  // owns storage, typing, quotas and the change events; these handlers own
+  // the SECURITY rules on top:
+  //
+  //   read (registry.read)   — every hive EXCEPT the HKNS/security/**
+  //                            subtree, which needs registry.system.
+  //   write (registry.write) — only the caller's own HKNA/<app.id>/**
+  //                            subtree. System apps may also write HKNS
+  //                            (still never HKNS/security without
+  //                            registry.system). HKNU needs registry.system.
+  //                            HKND additionally requires Developer Mode.
+  //   registry.system        — full access everywhere (devMode still gates
+  //                            HKND: it is a dev scratch hive by
+  //                            definition).
+  //
+  // The MAC front door (SEED_ENDPOINT_GRANTS) already required the flat
+  // grant before we run; these checks are the context-dependent half.
+  // Watching is reading: nova:reg:changed is gated on registry.read via
+  // EVENT_DOMAIN_PERMISSIONS, and the v2 facade builds registry.watch() on
+  // the events bus rather than a separate channel family.
+  //
+  // The channels are deliberately NOT in ISOLATED_PROCESS_API_TYPES: the
+  // registry engine lives in the OS page, and background/isolated processes
+  // have no business mutating live OS config.
+
+  function regEngine() {
+    return (typeof window !== 'undefined' && window.NovaRegistry) || null;
+  }
+
+  function regReadDeniedReason(app, parsed) {
+    if (AppPermissionManager.isGranted('registry.system', app.id)) return null;
+    if (!AppPermissionManager.isGranted('registry.read', app.id)) return 'registry.read permission required';
+    if (parsed.hive === 'HKNS' && parsed.segments[0] === 'security') {
+      return 'HKNS/security is only readable with registry.system';
+    }
+    return null;
+  }
+
+  function regWriteDeniedReason(app, parsed) {
+    if (AppPermissionManager.isGranted('registry.system', app.id)) {
+      if (parsed.hive === 'HKND' && OS?.settings?.get('devMode') !== true) {
+        return 'HKND requires Developer Mode';
+      }
+      return null;
+    }
+    if (!AppPermissionManager.isGranted('registry.write', app.id)) return 'registry.write permission required';
+    if (parsed.hive === 'HKNA') {
+      if (parsed.segments[0] !== app.id) return 'apps may only write their own HKNA/<appId>/ subtree';
+      return null;
+    }
+    if (parsed.hive === 'HKNS') {
+      if (app.system !== true) return 'writing HKNS requires a system app';
+      if (parsed.segments[0] === 'security') return 'HKNS/security is only writable with registry.system';
+      return null;
+    }
+    if (parsed.hive === 'HKNU') return 'writing HKNU requires registry.system';
+    if (parsed.hive === 'HKND') {
+      if (OS?.settings?.get('devMode') !== true) return 'HKND requires Developer Mode';
+      return null;
+    }
+    return 'unsupported hive';
+  }
+
+  function regParseOrError(webview, type, requestId, rawPath) {
+    const engine = regEngine();
+    if (!engine) {
+      respondError(webview, type, requestId, 'UNAVAILABLE', 'Registry service not available');
+      return null;
+    }
+    const parsed = engine._internal.parsePath(rawPath);
+    if (parsed.error) {
+      respondError(webview, type, requestId, parsed.error, parsed.message);
+      return null;
+    }
+    return parsed;
+  }
+
+  function regEngineError(webview, type, requestId, err) {
+    const code = err && typeof err.code === 'string' ? err.code : 'INTERNAL_ERROR';
+    respondError(webview, type, requestId, code, err?.message || 'Registry operation failed');
+  }
+
+  async function handleRegGet({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:get';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    if (parsed.segments.length < 1) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'path must name a value (a bare key path has no value)');
+    }
+    const denied = regReadDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const entry = regEngine().stat(parsed.path);
+      if (!entry) return respond(webview, TYPE, requestId, { found: false, path: parsed.path });
+      return respond(webview, TYPE, requestId, {
+        found: true, path: parsed.path, type: entry.type, data: entry.data, lastModified: entry.lastModified,
+      });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegSet({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:set';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    if (parsed.segments.length < 1) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'path must name a value');
+    }
+    const denied = regWriteDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    if (!Object.prototype.hasOwnProperty.call(payload ?? {}, 'value')) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'value is required (null is only valid for REG_JSON)');
+    }
+    let committed;
+    try {
+      committed = regEngine().set(parsed.path, payload.value, {
+        type: typeof payload.type === 'string' ? payload.type : undefined,
+        appId: app.id,
+        source: 'app',
+      });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+    // Registry → settings live-apply: a system write to a mapped shell path
+    // goes through OS.settings.set so the existing 'settings:changed'
+    // fan-out applies it immediately (wallpaper/theme/accent). The settings
+    // mirror in the engine copies it straight back — the identical-value
+    // dedupe turns that into a no-op, so nothing loops.
+    const settingsKey = regEngine().SETTINGS_PATH_TO_KEY[parsed.path];
+    if (settingsKey && typeof OS?.settings?.set === 'function') {
+      try { OS.settings.set(settingsKey, committed.data); } catch (err) {
+        log('error', `Failed to apply registry value to setting '${settingsKey}'`, err);
+      }
+    }
+    return respond(webview, TYPE, requestId, { success: true, path: committed.path, type: committed.type });
+  }
+
+  async function handleRegDelete({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:delete';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    if (parsed.segments.length < 1) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'path must name a value or key');
+    }
+    const denied = regWriteDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const result = regEngine().remove(parsed.path, {
+        recursive: payload?.recursive === true,
+        appId: app.id,
+        source: 'app',
+      });
+      return respond(webview, TYPE, requestId, { success: true, path: result.path, removed: result.removed });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegList({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:list';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    const denied = regReadDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const listing = regEngine().list(parsed.path);
+      if (!listing) return respondError(webview, TYPE, requestId, 'NOT_FOUND', `no such key: ${parsed.path}`);
+      return respond(webview, TYPE, requestId, listing);
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegExport({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:export';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    const denied = regReadDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      return respond(webview, TYPE, requestId, { path: parsed.path, data: regEngine().export(parsed.path) });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegImport({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:import';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    if (parsed.segments.length < 1) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'import needs a target key path');
+    }
+    const denied = regWriteDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const result = regEngine().import(parsed.path, payload?.data, { appId: app.id, source: 'app' });
+      return respond(webview, TYPE, requestId, { success: true, path: result.path, merged: result.merged });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
   }
 
   async function handleNestedWebview({ payload, requestId, app, webview, sandbox }) {
@@ -5673,6 +5879,14 @@ const AppSandbox = (() => {
     //      to another app (WS_PUSH_EVENT_NAMES filter). Subscribers only
     //      ever hear their own sockets.
     'nova:net:ws:message', 'nova:net:ws:error', 'nova:net:ws:close',
+    // NovaByte Registry change notifications. The engine (nova-registry.js)
+    // emits one event per committed write/delete/import with the value path,
+    // type, value, and the writing app's id. Registry config facts are not
+    // per-app private state — every registry reader may hear that something
+    // changed — but subscribing is still gated on registry.read (the same
+    // grant reading needs — see EVENT_DOMAIN_PERMISSIONS below), so only
+    // apps that could have polled the store get push instead of poll.
+    'nova:reg:changed',
   ]);
   // The subscribable WebSocket push names — used by the same-app delivery
   // filter in handleEventsSubscribe. Kept as its own set so adding a future
@@ -5700,6 +5914,9 @@ const AppSandbox = (() => {
     ['nova:net:ws:message', 'net:websocket'],
     ['nova:net:ws:error', 'net:websocket'],
     ['nova:net:ws:close', 'net:websocket'],
+    // Registry change events gate on the same grant reading the registry
+    // needs — watching is reading, exactly like fs:watch vs nova:fs:read.
+    ['nova:reg:changed', 'registry.read'],
   ]);
 
   // Legacy OS-wide default; the live cap is per-app via the ledger budget
@@ -8829,6 +9046,12 @@ const AppSandbox = (() => {
     'nova:settings:get': handleSettingsGet,
     'nova:settings:set': handleSettingsSet,
     'nova:wallpaper:set': handleWallpaperSet,
+    'nova:reg:get': handleRegGet,
+    'nova:reg:set': handleRegSet,
+    'nova:reg:delete': handleRegDelete,
+    'nova:reg:list': handleRegList,
+    'nova:reg:export': handleRegExport,
+    'nova:reg:import': handleRegImport,
     'nova:request-permission': handleRequestPermission,
     'nova:permission-rate-limited': handlePermissionRateLimited,
     'nova:window:close': handleWindowClose,
@@ -9739,6 +9962,8 @@ const AppSandbox = (() => {
     'background.v2': true,
     'permissions.v2': true,
     'net.v2': true,
+    // NovaByte Registry — nova:reg:* channels + the nova:reg:changed event.
+    'registry.v1': true,
   });
   // Listener state for the v2 event-bus, background-wake, and net facades.
   // Deliberately separate from the v1 bridge's own collections
@@ -9760,6 +9985,47 @@ const AppSandbox = (() => {
   // entries (a wsId's entry goes when its close push arrives).
   const novaOSWsListeners = {};
   const __v1EventListeners = (typeof eventListeners === 'object' && eventListeners !== null) ? eventListeners : null;
+  // Shared subscription machinery for the events facade AND registry.watch()
+  // (which is v2 sugar over the 'nova:reg:changed' event with a guest-side
+  // prefix filter). Stacks any number of listeners per event name over ONE
+  // host subscription, tolerates an existing subscription, and returns an
+  // off() function that also unsubscribes host-side once the last listener
+  // for the name goes. (Body moved verbatim out of the events facade so
+  // both surfaces share it.)
+  function novaOSEventOn(eventName, callback) {
+    if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+    if (!novaOSEventListeners[eventName]) novaOSEventListeners[eventName] = [];
+    novaOSEventListeners[eventName].push(callback);
+    const v1HasListeners = !!(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length);
+    const needsSubscribe = novaOSEventListeners[eventName].length === 1 && !v1HasListeners;
+    const sub = needsSubscribe
+      ? ipc('nova:events:subscribe', { event: eventName }).then(null, function(error) {
+          if (error && error.code === 'ALREADY_SUBSCRIBED') {
+            return { success: true, subscribed: eventName };
+          }
+          // The host refused the subscription (allowlist miss,
+          // PERMISSION_DENIED, bus unavailable) — don't leave a
+          // listener registered for a subscription that will never fire.
+          const list = novaOSEventListeners[eventName] || [];
+          const index = list.indexOf(callback);
+          if (index >= 0) list.splice(index, 1);
+          if (list.length === 0) delete novaOSEventListeners[eventName];
+          throw error;
+        })
+      : Promise.resolve({ success: true, subscribed: eventName });
+    return sub.then(function() {
+      return function() {
+        const list = novaOSEventListeners[eventName] || [];
+        const index = list.indexOf(callback);
+        if (index >= 0) list.splice(index, 1);
+        if (list.length === 0 && !(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length)) {
+          delete novaOSEventListeners[eventName];
+          return ipc('nova:events:unsubscribe', { event: eventName }).then(function() {});
+        }
+        return undefined;
+      };
+    });
+  }
   window.novaOS = Object.freeze({
     apiVersion: 2,
     capabilities: Object.freeze({
@@ -10196,40 +10462,7 @@ const AppSandbox = (() => {
     // event allowlist and its permission gates (system:events plus the
     // domain read permission for the sensitive families) are unchanged.
     events: Object.freeze({
-      on: function(eventName, callback) {
-        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
-        if (!novaOSEventListeners[eventName]) novaOSEventListeners[eventName] = [];
-        novaOSEventListeners[eventName].push(callback);
-        const v1HasListeners = !!(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length);
-        const needsSubscribe = novaOSEventListeners[eventName].length === 1 && !v1HasListeners;
-        const sub = needsSubscribe
-          ? ipc('nova:events:subscribe', { event: eventName }).then(null, function(error) {
-              if (error && error.code === 'ALREADY_SUBSCRIBED') {
-                return { success: true, subscribed: eventName };
-              }
-              // The host refused the subscription (allowlist miss,
-              // PERMISSION_DENIED, bus unavailable) — don't leave a
-              // listener registered for a subscription that will never fire.
-              const list = novaOSEventListeners[eventName] || [];
-              const index = list.indexOf(callback);
-              if (index >= 0) list.splice(index, 1);
-              if (list.length === 0) delete novaOSEventListeners[eventName];
-              throw error;
-            })
-          : Promise.resolve({ success: true, subscribed: eventName });
-        return sub.then(function() {
-          return function() {
-            const list = novaOSEventListeners[eventName] || [];
-            const index = list.indexOf(callback);
-            if (index >= 0) list.splice(index, 1);
-            if (list.length === 0 && !(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length)) {
-              delete novaOSEventListeners[eventName];
-              return ipc('nova:events:unsubscribe', { event: eventName }).then(function() {});
-            }
-            return undefined;
-          };
-        });
-      },
+      on: function(eventName, callback) { return novaOSEventOn(eventName, callback); },
       subscribe: function(eventName) { return ipc('nova:events:subscribe', { event: eventName }); },
       unsubscribe: function(eventName) { return ipc('nova:events:unsubscribe', { event: eventName }).then(function() {}); },
     }),
@@ -10402,6 +10635,43 @@ const AppSandbox = (() => {
             send: function(data) { return ipc('nova:net:ws:send', { wsId: wsId, data: data }); },
             close: function(code, reason) { return ipc('nova:net:ws:close', { wsId: wsId, code: code, reason: reason }); },
           };
+        });
+      },
+    }),
+    // NovaByte Registry (nova:reg:* + nova:reg:changed) — the typed OS
+    // config store. get() resolves the stored value directly, or undefined
+    // when the path is absent (stat() returns the full { found, type, data
+    // } record). set()/remove()/import() enforce the per-hive rules
+    // host-side: apps write only their own HKNA/<app.id>/ subtree, HKNS
+    // writes need a system app, HKNU needs registry.system, HKND needs
+    // Developer Mode, and HKNS/security needs registry.system everywhere.
+    // watch() is sugar over nova:events:subscribe('nova:reg:changed') with
+    // a guest-side prefix filter, so it holds the same grants subscribing
+    // to that event needs (registry.read) — watching is reading. The off()
+    // function it resolves stops the listener AND the host subscription
+    // once the last one for the event goes.
+    registry: Object.freeze({
+      get: function(path) {
+        return ipc('nova:reg:get', { path: path }).then(function(result) {
+          return result && result.found ? result.data : undefined;
+        });
+      },
+      stat: function(path) { return ipc('nova:reg:get', { path: path }); },
+      set: function(path, value, type) {
+        return ipc('nova:reg:set', { path: path, value: value, type: type });
+      },
+      remove: function(path, options) {
+        return ipc('nova:reg:delete', { path: path, recursive: !!(options && options.recursive) });
+      },
+      list: function(path) { return ipc('nova:reg:list', { path: path }); },
+      export: function(path) { return ipc('nova:reg:export', { path: path }); },
+      import: function(path, data) { return ipc('nova:reg:import', { path: path, data: data }); },
+      watch: function(path, callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        const prefix = String(path || '');
+        return novaOSEventOn('nova:reg:changed', function(data) {
+          const changed = String((data && data.path) || '').split('\\\\').join('/');
+          if (!prefix || changed === prefix || changed.indexOf(prefix + '/') === 0) callback(data);
         });
       },
     }),

@@ -126,6 +126,16 @@ const AppPermissionManager = (() => {
     // context, comparable risk to allow-same-origin, with none of the same
     // gating. See app-sandbox.js.
     SANDBOX_ESCAPE_POPUPS : 'sandbox:escape-popups',
+    // NovaByte Registry — the typed hierarchical config store the OS reads
+    // at boot. read is 'low' (config facts; the HKNS/security subtree is
+    // still blocked without registry.system), write is 'medium' (the app may
+    // persist config into its OWN HKNA/<appId>/ subtree — quota'd, visible
+    // to the user in the NovaReg editor), system is 'critical' (read/write
+    // everywhere INCLUDING the system and security keys the OS itself runs
+    // on — effectively root for configuration).
+    REGISTRY_READ    : 'registry.read',
+    REGISTRY_WRITE   : 'registry.write',
+    REGISTRY_SYSTEM  : 'registry.system',
   });
 
   const PERMISSION_CATEGORIES = Object.freeze({
@@ -225,6 +235,13 @@ const AppPermissionManager = (() => {
     // to allow-same-origin." See sanitizeSandboxAttr() in app-sandbox.js for
     // the actual gate this backs.
     'sandbox:escape-popups': { category: 'sandbox', risk: 'high', label: 'Open unrestricted popup windows' },
+    // See REGISTRY_* above — reads are config facts ('low'), writes land in
+    // the app's own quota'd namespace ('medium'), full-store access includes
+    // the keys the OS boots from ('critical'). Per-hive rules are enforced
+    // by the nova:reg:* handlers in app-sandbox.js.
+    'registry.read'     : { category: 'system', risk: 'low',      label: 'Read the NovaByte Registry' },
+    'registry.write'    : { category: 'system', risk: 'medium',   label: 'Store settings in the NovaByte Registry' },
+    'registry.system'   : { category: 'system', risk: 'critical', label: 'Full Registry access, including system keys' },
   });
 
   const STORAGE_KEY = 'nova_app_permissions';

@@ -44,6 +44,7 @@ const AppRegistry = (() => {
     'system:badge', 'system:schedule', 'system:share-target',
     'system:background', 'system:background:live', 'system:autostart',
     'push:receive',
+    'registry.read', 'registry.write', 'registry.system',
     'sandbox:nested-webview', 'sandbox:same-origin', 'sandbox:escape-popups',
     'admin:apps', 'admin:users', 'admin:system', 'admin:audit',
   ]);
@@ -109,6 +110,7 @@ const AppRegistry = (() => {
     'com.nbosp.events',
     'com.nbosp.inspector',
     'com.nbosp.modules',
+    'com.nbosp.novareg',
     'com.nbosp.packages',
     'com.nbosp.perf',
     'com.nbosp.permissions',
