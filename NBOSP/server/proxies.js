@@ -1,27 +1,7 @@
 const rateLimit = require('express-rate-limit');
 const { isTrustedSystemAppRequest } = require('./rate-limit-auth');
 const dns = require('dns');
-const fs = require('fs');
-const path = require('path');
 const ServerEventLog = require('./core/server-event-log');
-const { getRuntimeDataDir } = require('../scripts/runtime-data-dir');
-
-// TEMPORARY DEBUG LOGGING — remove once the net:external / proxy issue is
-// diagnosed. ServerEventLog is intentionally in-memory only (see
-// server-event-log.js), so this appends the same detail to a plain file
-// for post-mortem inspection across restarts.
-// Switched from fs.appendFileSync to fs.appendFile: the sync version blocks
-// the event loop for the duration of the disk write on every single proxy
-// request (this fires on every reject, every fetch attempt, every redirect
-// hop) — under the proxy's own rate limit of 300/min that's real, avoidable
-// stall time for every other concurrent request on the same process. Errors
-// are swallowed the same way the old version did (best-effort only, never
-// let debug logging break the request) — just async now instead of sync.
-const DEBUG_LOG_PATH = path.join(getRuntimeDataDir(path.resolve(__dirname, '..')), 'server.log');
-function debugLog(label, details) {
-    const line = `[${new Date().toISOString()}] ${label} ${JSON.stringify(details)}\n`;
-    fs.appendFile(DEBUG_LOG_PATH, line, () => {});
-}
 
 // ── Frame-Embed Check Proxy ────────────────────────────────────────────────
 // Resolves whether a URL can be embedded in an <iframe> by inspecting the
@@ -301,27 +281,61 @@ function _isPrivateIpAddr(ip) {
 const _dnsPrivateCache = new Map();
 const _DNS_TTL = 30_000;
 
-// Resolves hostname -> { private, address, family } and caches the result.
-// address/family are needed downstream so the actual network connection can
-// be pinned to the exact IP we validated (see _pinnedFetch), instead of
-// letting fetch() re-resolve the hostname itself. Re-resolving is what opens
-// the DNS-rebinding TOCTOU gap: validation lookup returns a public IP, then
-// the fetch's own lookup (attacker-controlled DNS, low TTL) returns a
-// private one moments later.
+// Resolves hostname -> { private, addresses, address, family } and caches the
+// result. `addresses` holds every public resolved endpoint (IPv4 entries
+// first) so the actual network connection can be pinned to an IP we validated
+// (see _pinnedFetch), instead of letting fetch() re-resolve the hostname
+// itself. Re-resolving is what opens the DNS-rebinding TOCTOU gap: validation
+// lookup returns a public IP, then the fetch's own lookup (attacker-controlled
+// DNS, low TTL) returns a private one moments later.
+//
+// `address`/`family` mirror addresses[0] for backward compatibility with
+// callers that only want "the" resolved endpoint.
+//
+// All-addresses matters in practice: Node's lookup previously returned ONE
+// address in OS preference (verbatim) order, which on dual-stack hosts is
+// frequently an IPv6 address. On machines without a working IPv6 route the
+// pinned connect to that address always throws and every proxied request
+// 502s even though the IPv4 path is fine. Resolving everything, validating
+// everything, and trying candidates in order keeps the SSRF guarantees while
+// surviving single-stack breakage. If ANY resolved address is private the
+// host fails closed (multi-address DNS is a known SSRF dodge).
 async function _dnsResolvePrivate(hostname) {
-    if (!hostname || typeof hostname !== 'string') return { private: true, address: null, family: null };
+    const failClosed = { private: true, address: null, family: null, addresses: [] };
+    if (!hostname || typeof hostname !== 'string') return failClosed;
     const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (_isPrivateHost(h)) return { private: true, address: null, family: null };
+    if (_isPrivateHost(h)) return failClosed;
 
     const cached = _dnsPrivateCache.get(h);
     if (cached && Date.now() - cached.ts < _DNS_TTL) return cached;
 
     let result;
     try {
-        const { address, family } = await dns.promises.lookup(h);
-        result = { private: _isPrivateIpAddr(address), address, family, ts: Date.now() };
+        const all = await dns.promises.lookup(h, { all: true, verbatim: true });
+        const seen = new Set();
+        const uniq = [];
+        for (const entry of all) {
+            if (!entry || seen.has(entry.address)) continue;
+            seen.add(entry.address);
+            uniq.push({ address: entry.address, family: entry.family });
+        }
+        const anyPrivate = uniq.length === 0 || uniq.some((a) => _isPrivateIpAddr(a.address));
+        // A blocked host exposes nothing usable — same contract as the other
+        // fail-closed paths (empty lookup, DNS error): addresses stays empty.
+        const candidates = anyPrivate
+            ? []
+            : uniq
+                .filter((a) => !_isPrivateIpAddr(a.address))
+                .sort((a, b) => (a.family === 4 ? -1 : 1) - (b.family === 4 ? -1 : 1));
+        result = {
+            private: anyPrivate,
+            address: candidates[0] ? candidates[0].address : null,
+            family: candidates[0] ? candidates[0].family : null,
+            addresses: candidates,
+            ts: Date.now(),
+        };
     } catch {
-        result = { private: true, address: null, family: null, ts: Date.now() }; // fail closed on DNS error
+        result = { ...failClosed, ts: Date.now() }; // fail closed on DNS error
     }
 
     _dnsPrivateCache.set(h, result);
@@ -348,10 +362,26 @@ async function _dnsCheckPrivate(hostname) {
 // connect-time lookup, not the URL). If dnsResult indicates an
 // invalid/private/unresolved address, this throws rather than silently
 // falling back to fetch's own resolver.
-const { Agent, fetch: undiciFetch } = require('undici');
+// Lazy undici access: _pinnedAgent/_pinnedFetch read these off the undici
+// module object at CALL time instead of destructuring at module load. Two
+// reasons: the module doesn't pay undici's load cost until the first real
+// outbound request, and the vitest suite can inject fakes by stubbing
+// properties on the shared undici singleton (destructured load-time bindings
+// would be impossible to intercept).
+let _undici = null;
+function undiciModules() {
+    if (!_undici) _undici = require('undici');
+    return _undici;
+}
+// Per-attempt connect budget. Keeps a candidate list of 2-3 addresses inside
+// the proxy's 30 s total timeout: a dead first candidate costs at most 8 s
+// before we fall through to the next validated address.
+const PINNED_CONNECT_TIMEOUT_MS = 8000;
 function _pinnedAgent(pinnedAddress, family) {
+    const { Agent } = undiciModules();
     return new Agent({
         connect: {
+            timeout: PINNED_CONNECT_TIMEOUT_MS,
             lookup: (_hostname, _opts, cb) => {
                 cb(null, [{ address: pinnedAddress, family: family === 6 ? 6 : 4 }]);
             },
@@ -366,15 +396,37 @@ function _pinnedAgent(pinnedAddress, family) {
 // connect to something else later). One agent per request, closed right
 // after, is the correct trade-off here — not a missed pooling optimization.
 async function _pinnedFetch(urlString, opts, dnsResult) {
-    if (!dnsResult || dnsResult.private || !dnsResult.address) {
+    if (!dnsResult || dnsResult.private) {
         throw Object.assign(new Error('Refusing to fetch unvalidated/private address'), { code: 'SSRF_BLOCKED' });
     }
-    const agent = _pinnedAgent(dnsResult.address, dnsResult.family);
-    try {
-        return await undiciFetch(urlString, { ...opts, dispatcher: agent });
-    } finally {
-        agent.close().catch(() => {});
+    const candidates = Array.isArray(dnsResult.addresses) && dnsResult.addresses.length
+        ? dnsResult.addresses
+        : (dnsResult.address ? [{ address: dnsResult.address, family: dnsResult.family }] : []);
+    if (!candidates.length) {
+        throw Object.assign(new Error('Refusing to fetch unvalidated/private address'), { code: 'SSRF_BLOCKED' });
     }
+    // Try each validated IP in order (IPv4 first). A pinned connect to one
+    // address can still fail (no IPv6 route, firewall, dead edge) — falling
+    // through to the next validated address for the SAME host keeps the
+    // SSRF pinning guarantee (every candidate came from the same validated
+    // lookup) while surviving single-stack breakage.
+    //
+    // Only connection-setup failures reach this catch: once undici's fetch
+    // resolves, mid-read errors throw at body-consumption time in the route
+    // handler, never here — so falling through cannot duplicate a request
+    // that already reached the wire.
+    let lastErr;
+    for (const candidate of candidates) {
+        const agent = _pinnedAgent(candidate.address, candidate.family);
+        try {
+            return await undiciModules().fetch(urlString, { ...opts, dispatcher: agent });
+        } catch (err) {
+            lastErr = err;
+        } finally {
+            agent.close().catch(() => {});
+        }
+    }
+    throw lastErr;
 }
 
 const appProxyLimiter = rateLimit({
@@ -389,26 +441,21 @@ const appProxyLimiter = rateLimit({
 function setupAppNetworkProxy(app) {
     app.post('/api/proxy', appProxyLimiter, requireSession, async (req, res) => {
         const { url: rawUrl, method: rawMethod, headers: reqHeaders, body: reqBody, bodyEncoding = 'utf8' } = req.body ?? {};
-        debugLog('PROXY_REQUEST_IN', { rawUrl, rawMethod });
 
         // Validate URL
         if (!rawUrl || typeof rawUrl !== 'string') {
-            debugLog('PROXY_REJECT_NO_URL', { rawUrl });
             return res.status(400).json({ error: 'url is required' });
         }
         let urlObj;
         try { urlObj = new URL(rawUrl); }
         catch (_) {
-            debugLog('PROXY_REJECT_INVALID_URL', { rawUrl });
             return res.status(400).json({ error: 'Invalid URL' });
         }
 
         if (!['http:', 'https:'].includes(urlObj.protocol)) {
-            debugLog('PROXY_REJECT_PROTOCOL', { rawUrl, protocol: urlObj.protocol });
             return res.status(400).json({ error: 'Only http and https URLs are supported' });
         }
         if (_isPrivateHost(urlObj.hostname)) {
-            debugLog('PROXY_REJECT_PRIVATE_HOST', { hostname: urlObj.hostname });
             ServerEventLog.log({
                 app: 'AppNetworkProxy',
                 severity: 'warn',
@@ -421,7 +468,6 @@ function setupAppNetworkProxy(app) {
         // pinned to it (see loop below) instead of re-resolving the hostname.
         let dnsResult = await _dnsResolvePrivate(urlObj.hostname);
         if (dnsResult.private) {
-            debugLog('PROXY_REJECT_DNS_PRIVATE', { hostname: urlObj.hostname });
             ServerEventLog.log({
                 app: 'AppNetworkProxy',
                 severity: 'warn',
@@ -524,21 +570,17 @@ function setupAppNetworkProxy(app) {
                 }, dnsResult);
             } catch (err) {
                 clearTimeout(timer);
-                debugLog('PROXY_FETCH_THREW', {
-                    hostname: urlObj.hostname,
-                    currentUrl,
-                    message: err.message,
-                    code: err.code || (err.cause && err.cause.code) || null,
-                    causeMessage: err.cause && err.cause.message,
-                    stack: err.stack,
-                });
+                const errCode = err.code || (err.cause && err.cause.code) || null;
                 ServerEventLog.log({
                     app: 'AppNetworkProxy',
                     severity: 'error',
                     message: `Network error proxying ${urlObj.hostname}: ${err.message}`,
-                    data: { hostname: urlObj.hostname, error: err.message },
+                    data: { hostname: urlObj.hostname, error: err.message, code: errCode, url: currentUrl },
                 });
-                return res.status(502).json({ error: `Network error: ${err.message}` });
+                // Surface the underlying cause code so callers (and the app
+                // developer's console) can tell a dead IPv6 route from a TLS
+                // failure from a timeout without server-side log access.
+                return res.status(502).json({ error: `Network error: ${err.message}`, code: errCode });
             } finally {
                 clearTimeout(timer);
             }
@@ -560,10 +602,8 @@ function setupAppNetworkProxy(app) {
         }
 
         if (!resp) {
-            debugLog('PROXY_TOO_MANY_REDIRECTS', { hostname: urlObj.hostname });
             return res.status(502).json({ error: 'Too many redirects' });
         }
-        debugLog('PROXY_FETCH_OK', { hostname: urlObj.hostname, status: resp.status });
 
         // Read response body with size cap
         const chunks = [];
@@ -749,4 +789,12 @@ module.exports = {
     setupFrameCheckProxy,
     setupAppNetworkProxy,
     setupEmailImageProxy,
+    // Test-only access to the SSRF primitives (vitest mocks dns/undici).
+    _internal: {
+        _isPrivateHost,
+        _isPrivateIpAddr,
+        _dnsResolvePrivate,
+        _pinnedFetch,
+        _dnsPrivateCache,
+    },
 };
