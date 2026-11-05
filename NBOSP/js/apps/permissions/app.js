@@ -97,24 +97,11 @@ registerApp({
     const scroll = createEl('div', { style: 'flex:1;overflow:auto;padding:16px;' });
     content.appendChild(scroll);
 
-    // Legacy vfs:* names are never in PERMISSION_CATEGORIES (which only has
-    // fs:* keys), so resolve them first — mirrors LEGACY_PERMISSION_ALIASES
-    // in app-registry.js. Without this, any app that still declares vfs:*
-    // in its manifest shows a blank label and silently falls through to
-    // 'low' risk, which is wrong for e.g. vfs:access → fs:access (critical).
-    const LEGACY_VFS_ALIASES = {
-      'vfs:access':   'fs:access',
-      'vfs:read':     'fs:access',
-      'vfs:write':    'fs:access',
-      'vfs:delete':   'fs:access',
-      'vfs:metadata': 'fs:metadata',
-    };
     function riskBadge(permission) {
-      const resolved = LEGACY_VFS_ALIASES[permission] ?? permission;
-      const cat = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES[resolved] : null;
-      const risk = cat?.risk ?? 'unknown';
-      const label = cat?.label ?? resolved;
-      return { risk, label, color: RISK_COLORS[risk] ?? '#888' };
+      const cat = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES[permission] : null;
+      const risk = cat?.risk ?? 'low';
+      const label = cat?.label ?? permission;
+      return { risk, label, color: RISK_COLORS[risk] || RISK_COLORS.low };
     }
 
     // window.AppPermissionsMap (from app-permissions-bootstrap.js) is the

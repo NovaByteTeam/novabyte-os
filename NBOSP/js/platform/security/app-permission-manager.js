@@ -244,6 +244,18 @@ const AppPermissionManager = (() => {
     'registry.system'   : { category: 'system', risk: 'critical', label: 'Full Registry access, including system keys' },
   });
 
+  // Legacy vfs:* permission names from the pre-fs era. Mirrors
+  // LEGACY_PERMISSION_ALIASES in app-registry.js (which translates at install
+  // time) — this copy covers the runtime path: an app calling
+  // nova:request-permission with a vfs:* name bypasses the registry entirely.
+  const LEGACY_PERMISSION_ALIASES = Object.freeze({
+    'vfs:access':   'fs:access',
+    'vfs:read':     'fs:access',
+    'vfs:write':    'fs:access',
+    'vfs:delete':   'fs:access',
+    'vfs:metadata': 'fs:metadata',
+  });
+
   const STORAGE_KEY = 'nova_app_permissions';
   const SWEEP_KEY   = 'nova_perm_last_sweep';
   const UNUSED_DAYS = 30;
@@ -632,6 +644,11 @@ const AppPermissionManager = (() => {
   // Single permission request
 
   async function requestPermission(permission, appId, options = {}) {
+    // Translate legacy vfs:* names before any lookup — an app calling
+    // nova:request-permission with a vfs:* name bypasses the registry
+    // translation that happens at install time, so without this the dialog
+    // shows a blank label and falls through to 'low' risk.
+    permission = LEGACY_PERMISSION_ALIASES[permission] ?? permission;
     assertValidAppId(appId);
     if (PERMISSION_CATEGORIES[permission]?.specialAccess) return false;
     if (permission === PERMISSION_TYPES.SYSTEM_ROOT && !isRootModeEnabled()) return false;
