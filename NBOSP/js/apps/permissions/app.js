@@ -108,7 +108,6 @@ registerApp({
       'vfs:write':    'fs:access',
       'vfs:delete':   'fs:access',
       'vfs:metadata': 'fs:metadata',
-      'vfs:metedata': 'fs:metadata',
     };
     function riskBadge(permission) {
       const resolved = LEGACY_VFS_ALIASES[permission] ?? permission;
