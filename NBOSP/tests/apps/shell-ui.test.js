@@ -192,6 +192,12 @@ globalThis.FS = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+// wm.js reads disabled apps through RegistryPrefs (registry-backed); with
+// no window.NovaRegistry in this realm it falls back to the legacy
+// localStorage keys the tests below seed.
+import RegistryPrefs from '../../js/platform/core/registry-prefs.js';
+window.RegistryPrefs = RegistryPrefs;
+
 const requireWM = () => {
   vi.resetModules();
   require('../../js/apps/shell-ui/wm.js');

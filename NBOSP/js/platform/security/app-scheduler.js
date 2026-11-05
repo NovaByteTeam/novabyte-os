@@ -139,7 +139,8 @@ const AppScheduler = (() => {
 
     let disabled = [];
     try {
-      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+      disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : [];
     } catch {
       // Corrupt value — treat as none disabled rather than failing eligibility
       // for every app.
@@ -338,7 +339,7 @@ const AppScheduler = (() => {
     if (!AppPermissionManager.isGranted('system:background', appId)) return false;
     let disabled = [];
     try {
-      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : [];
     } catch {
       disabled = [];
     }

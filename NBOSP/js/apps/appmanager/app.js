@@ -1380,22 +1380,21 @@ registerApp({
 
     function getPinned() { return OS.settings.get('pinnedApps') || []; }
     function getDisabled() {
-      try {
-        const raw = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
-        return raw.map(x => typeof x === 'string' ? x : x?.id).filter(Boolean);
-      }
+      // Registry-backed (HKNU/apps/disabled) — RegistryPrefs normalizes both
+      // legacy entry shapes (id strings and { id } objects).
+      try { return (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : []; }
       catch { return []; }
     }
     function setDisabled(list) {
-      try { localStorage.setItem('nova_disabled_apps', JSON.stringify(list)); }
+      try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setDisabledApps) RegistryPrefs.setDisabledApps(list); }
       catch { /* quota */ }
     }
     function getBootApps() {
-      try { return JSON.parse(localStorage.getItem('nova_boot_apps') || '[]'); }
+      try { return (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.bootApps) ? RegistryPrefs.bootApps() : []; }
       catch { return []; }
     }
     function setBootApps(list) {
-      try { localStorage.setItem('nova_boot_apps', JSON.stringify(list)); }
+      try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setBootApps) RegistryPrefs.setBootApps(list); }
       catch { /* quota */ }
     }
 
@@ -1611,9 +1610,9 @@ registerApp({
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
       // Developer tools and the built-in launcher can be inspected on demand.
-      let showHiddenApps = localStorage.getItem('nova_show_hidden_apps') === '1' ||
-        (localStorage.getItem('nova_show_hidden_apps') === null &&
-          localStorage.getItem('nova_show_system_apps') === '1');
+      // Registry-backed (HKNU/apps/showHidden) — RegistryPrefs preserves the
+      // legacy '1'/'0' encoding and the old nova_show_system_apps default.
+      let showHiddenApps = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.showHiddenApps) ? RegistryPrefs.showHiddenApps() : false;
       const showHiddenChk = createEl('input', {
         type: 'checkbox', id: 'app-manager-show-hidden',
         style: 'width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;'
@@ -1626,7 +1625,7 @@ registerApp({
       showHiddenChk.checked = showHiddenApps;
       showHiddenChk.addEventListener('change', () => {
         showHiddenApps = showHiddenChk.checked;
-        try { localStorage.setItem('nova_show_hidden_apps', showHiddenApps ? '1' : '0'); } catch {}
+        try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setShowHiddenApps) RegistryPrefs.setShowHiddenApps(showHiddenApps); } catch {}
         renderList();
       }, listenerOpts);
       const showHiddenWrap = createEl('div', {

@@ -91,7 +91,8 @@ const WM = window.WM = (() => {
       appId = window.NovaAppIdAliases?.canonicalize(appId) || appId;
 
       const disabled = (() => {
-        try { return JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); }
+        // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+        try { return (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : []; }
         catch { return []; }
       })();
       if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {

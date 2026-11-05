@@ -3,6 +3,7 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 
 const initSource = readFileSync(new URL('../../../js/core/core/init.js', import.meta.url), 'utf8');
+const prefsSource = readFileSync(new URL('../../../js/platform/core/registry-prefs.js', import.meta.url), 'utf8');
 const recoverySource = readFileSync(new URL('../../../os/board/nbosp/nbosp-recovery', import.meta.url), 'utf8');
 
 const REQUEST_FILE = '/home/nbosp/.config/novabyte/recovery-request';
@@ -46,6 +47,9 @@ function load({ platform = 'linux', home = '/home/nbosp', store = {}, hasPower =
   };
   context.window = context;
   context.window.addEventListener = (type, fn) => { listeners[type] = fn; };
+  // registry-prefs.js first — init.js reads/writes disabled apps through it
+  // (with no window in this context it takes the legacy localStorage path).
+  runInNewContext(prefsSource, context);
   runInNewContext(initSource, context);
   return { context, store, writes, execs, bootScreen, listeners };
 }

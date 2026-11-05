@@ -181,8 +181,10 @@
       accepted.push([key, value]);
     }
 
-    const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
-    const writes = [];
+    // Every import lands through storedSettings.set — registry-backed since
+    // the settings shim became the persistence path, so imported values are
+    // committed to their hive (atomic + audited) and fanned out through
+    // 'settings:changed' exactly like a manual change.
     const imported = [];
     for (const [key, value] of accepted) {
       if (validators.has(key)) {
@@ -190,18 +192,10 @@
           skipped.push(key);
           continue;
         }
-      } else if (isLinux) {
-        storedSettings.set(key, value);
       } else {
-        storedSettings._cache[key] = value;
-        writes.push(OS.workers.fs.call('putSetting', key, value));
+        storedSettings.set(key, value);
       }
       imported.push(key);
-    }
-    const results = await Promise.allSettled(writes);
-    const failedWrites = results.filter(result => result.status === 'rejected');
-    if (failedWrites.length) {
-      throw new Error(`Failed to persist ${failedWrites.length} imported system setting(s)`);
     }
     OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
     return { imported, skipped };

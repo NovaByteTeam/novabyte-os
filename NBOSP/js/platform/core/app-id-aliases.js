@@ -61,27 +61,50 @@
         }
       }
 
+      const remapIdList = (current) => current.map(item => {
+        if (typeof item === 'string') return canonicalize(item);
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+        const updated = { ...item };
+        for (const field of ['id', 'appId']) {
+          if (typeof updated[field] === 'string') updated[field] = canonicalize(updated[field]);
+        }
+        return updated;
+      });
+
+      // Legacy localStorage copies — pre-registry installs may still hold
+      // values here; the registry is the live store now but these are kept
+      // consistent so a later adoption can't resurrect stale ids.
       for (const key of ['nova_boot_apps', 'nova_disabled_apps']) {
         try {
           const raw = storage.getItem(key);
           if (raw === null) continue;
           const current = JSON.parse(raw);
           if (!Array.isArray(current)) continue;
-          const next = current.map(item => {
-            if (typeof item === 'string') return canonicalize(item);
-            if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
-            const updated = { ...item };
-            for (const field of ['id', 'appId']) {
-              if (typeof updated[field] === 'string') updated[field] = canonicalize(updated[field]);
-            }
-            return updated;
-          });
+          const next = remapIdList(current);
           if (JSON.stringify(next) !== JSON.stringify(current)) {
             storage.setItem(key, JSON.stringify(next));
             changed = true;
           }
         } catch (error) {
           console.error(`[BOOT] Failed migrating legacy app IDs in ${key}:`, error);
+        }
+      }
+
+      // Registry paths — the live stores for both lists (RegistryPrefs).
+      const reg = (typeof window !== 'undefined' && window.NovaRegistry) || null;
+      if (reg && typeof reg.get === 'function') {
+        for (const path of ['HKNU/apps/disabled', 'HKNU/apps/boot']) {
+          try {
+            const current = reg.get(path);
+            if (!Array.isArray(current)) continue;
+            const next = remapIdList(current);
+            if (JSON.stringify(next) !== JSON.stringify(current)) {
+              reg.set(path, next, { type: 'REG_JSON', source: 'app-id-alias-migration' });
+              changed = true;
+            }
+          } catch (error) {
+            console.error(`[BOOT] Failed migrating legacy app IDs in ${path}:`, error);
+          }
         }
       }
       return changed;

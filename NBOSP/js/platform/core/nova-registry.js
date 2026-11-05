@@ -81,22 +81,115 @@ const NovaRegistry = (() => {
     MAX_SNAPSHOTS_PER_HIVE: 3,
   });
 
-  // OS.settings keys mirrored into the registry. settings:changed copies
-  // settings → registry (attachSettingsMirror); a system writer committing
-  // HKNS/shell/* through nova:reg:set copies registry → settings so the
-  // existing 'settings:changed' fan-out applies the change live. Keys that
-  // are not mapped (customWallpaper — a multi-megabyte data URL — and
-  // friends) never enter the registry.
+  // OS.settings keys that live in the registry. Since the registry became
+  // the source of truth for OS configuration (the settings shim in
+  // platform/core/settings-shim.js writes OS.settings straight through to
+  // these paths and hydrates its cache from them at boot), this table is the
+  // canonical key ↔ path schema:
+  //
+  //   HKNS/shell/*    — machine look & feel seeded at boot (theme, accent,
+  //                     wallpaper) — system writers only
+  //   HKNS/system/*   — machine state (osVersion, devMode)
+  //   HKNS/security/* — credentials and policy (lockPin, pinSalt, dev policy)
+  //   HKNU/desktop/*  — per-user shell layout (dock pins)
+  //   HKNU/shell/*    — per-user shell prefs (default apps)
+  //   HKNU/settings/* — every other per-user preference (settingsPathFor
+  //                     files unmapped keys here automatically)
+  //
+  // customWallpaper is deliberately absent (SETTINGS_EXCLUDED_KEYS): a
+  // multi-megabyte data URL would blow the per-value size quota, so it keeps
+  // riding the legacy persistence channel.
   const SETTINGS_KEY_TO_PATH = Object.freeze({
+    // mapped shell & desktop keys
     theme: 'HKNS/shell/theme',
     accentColor: 'HKNS/shell/accentColor',
     wallpaperId: 'HKNS/shell/wallpaper',
     pinnedApps: 'HKNU/desktop/pins',
     defaultApps: 'HKNU/shell/defaultApps',
+    // system (machine-scoped) keys
+    osVersion: 'HKNS/system/osVersion',
+    devMode: 'HKNS/system/devMode',
+    // security keys
+    lockPin: 'HKNS/security/lockPin',
+    pinSalt: 'HKNS/security/pinSalt',
+    bootPassword: 'HKNS/security/bootPassword',
+    biometricCredentialId: 'HKNS/security/biometricCredentialId',
+    rootAccessEnabled: 'HKNS/security/rootAccessEnabled',
+    prohibitWallpaperChange: 'HKNS/security/policy/prohibitWallpaperChange',
+    // per-user preferences
+    clockFormat: 'HKNU/settings/clockFormat',
+    dateFormat: 'HKNU/settings/dateFormat',
+    fontSize: 'HKNU/settings/fontSize',
+    taskbarStyle: 'HKNU/settings/taskbarStyle',
+    wallpaper: 'HKNU/settings/wallpaper',
+    windowRadius: 'HKNU/settings/windowRadius',
+    animSpeed: 'HKNU/settings/animSpeed',
+    iconSize: 'HKNU/settings/iconSize',
+    autoLock: 'HKNU/settings/autoLock',
+    searchEngine: 'HKNU/settings/searchEngine',
+    proxyUrl: 'HKNU/settings/proxyUrl',
+    username: 'HKNU/settings/username',
+    region: 'HKNU/settings/region',
+    keyboardLayout: 'HKNU/settings/keyboardLayout',
+    timezone: 'HKNU/settings/timezone',
+    highContrast: 'HKNU/settings/highContrast',
+    removeTransparency: 'HKNU/settings/removeTransparency',
+    reduceMotion: 'HKNU/settings/reduceMotion',
+    cursorSize: 'HKNU/settings/cursorSize',
+    showTaskbarClock: 'HKNU/settings/showTaskbarClock',
+    taskbarSize: 'HKNU/settings/taskbarSize',
+    doNotDisturb: 'HKNU/settings/doNotDisturb',
+    debugOverlayVisible: 'HKNU/settings/debugOverlayVisible',
+    customWallpaperName: 'HKNU/settings/customWallpaperName',
   });
   const SETTINGS_PATH_TO_KEY = Object.freeze(
     Object.fromEntries(Object.entries(SETTINGS_KEY_TO_PATH).map(([key, path]) => [path, key]))
   );
+
+  // Settings keys that never enter the registry (oversized payloads).
+  const SETTINGS_EXCLUDED_KEYS = Object.freeze(new Set(['customWallpaper']));
+
+  // Path prefixes that map back to a settings key for the generic
+  // HKNU/settings/* / HKNS/{settings,system,security[\/policy]}/* areas.
+  // Longest prefixes first: 'HKNS/security/policy/' must win over
+  // 'HKNS/security/'.
+  const SETTINGS_PATH_PREFIXES = Object.freeze([
+    'HKNU/settings/',
+    'HKNS/settings/',
+    'HKNS/system/',
+    'HKNS/security/policy/',
+    'HKNS/security/',
+  ]);
+
+  // Resolves a settings key to its registry path. Explicitly mapped keys
+  // win; excluded keys return null (never stored in the registry); anything
+  // else is treated as a per-user preference under HKNU/settings/. Path
+  // separators inside the key are flattened so arbitrary runtime keys can
+  // never escape the settings area.
+  function settingsPathFor(key) {
+    if (Object.prototype.hasOwnProperty.call(SETTINGS_KEY_TO_PATH, key)) {
+      return SETTINGS_KEY_TO_PATH[key];
+    }
+    if (SETTINGS_EXCLUDED_KEYS.has(key)) return null;
+    return 'HKNU/settings/' + String(key).replace(/[\\/]/g, '_');
+  }
+
+  // Inverse of settingsPathFor: maps a registry path back to the settings
+  // key it drives, or null when the path is not settings-backed. Used by the
+  // settings shim to sync external registry writes (NovaReg, reg CLI, app
+  // IPC) into OS.settings and re-emit 'settings:changed'.
+  function pathToSettingsKey(path) {
+    if (Object.prototype.hasOwnProperty.call(SETTINGS_PATH_TO_KEY, path)) {
+      return SETTINGS_PATH_TO_KEY[path];
+    }
+    if (typeof path !== 'string') return null;
+    for (const prefix of SETTINGS_PATH_PREFIXES) {
+      if (path.startsWith(prefix) && path.length > prefix.length) {
+        return path.slice(prefix.length);
+      }
+    }
+    return null;
+  }
 
   // Seed-once defaults (merge-only: an existing value is never clobbered).
   const BOOT_DEFAULTS = Object.freeze({
@@ -771,9 +864,12 @@ const NovaRegistry = (() => {
       // following, so removing a link path removes the link, not the target.
       const parentSegments = parsed.segments.slice(0, -1);
       const name = parsed.segments[parsed.segments.length - 1];
-      const parent = parentSegments.length
-        ? resolveNode({ [parsed.hive]: root }, parsed.hive, parentSegments, { followLinks: true }).node
-        : root;
+      // resolveNode returns null for a missing parent key — treat that like
+      // any other absent target (NOT_FOUND) instead of dereferencing null.
+      const resolvedParent = parentSegments.length
+        ? resolveNode({ [parsed.hive]: root }, parsed.hive, parentSegments, { followLinks: true })
+        : { node: root };
+      const parent = resolvedParent ? resolvedParent.node : null;
       if (!parent) throw regError('NOT_FOUND', `no such key: ${parsed.path}`);
       if (Object.prototype.hasOwnProperty.call(parent.values, name)) {
         delete parent.values[name];
@@ -816,9 +912,11 @@ const NovaRegistry = (() => {
     commitMutation(parsed.hive, (root) => {
       const parentSegments = parsed.segments.slice(0, -1);
       const oldName = parsed.segments[parsed.segments.length - 1];
-      const parent = parentSegments.length
-        ? resolveNode({ [parsed.hive]: root }, parsed.hive, parentSegments, { followLinks: true }).node
-        : root;
+      // Same null-guard as remove(): a missing parent is NOT_FOUND.
+      const resolvedParent = parentSegments.length
+        ? resolveNode({ [parsed.hive]: root }, parsed.hive, parentSegments, { followLinks: true })
+        : { node: root };
+      const parent = resolvedParent ? resolvedParent.node : null;
       if (!parent) throw regError('NOT_FOUND', `no such key: ${parsed.path}`);
       if (Object.prototype.hasOwnProperty.call(parent.values, oldName)) {
         if (parent.values[name] || parent.keys[name]) throw regError('NAME_CONFLICT', `'${name}' already exists under this key`);
@@ -1149,9 +1247,47 @@ const NovaRegistry = (() => {
     return migrated;
   }
 
+  // One-time ADOPTION of legacy settings into their LIVE registry paths —
+  // this is the migration that makes the registry the source of truth.
+  // Where migrateLegacySettings only snapshots pre-registry prefs into
+  // HKNU/legacy for reference, adoptLegacySettings writes every provided key
+  // through settingsPathFor() so OS.settings hydrates from real values on
+  // the next boot. Adopted values intentionally override boot seeds (the
+  // user's chosen theme beats the seeded default). Guarded by
+  // HKND/_migration/registrySourceDone so it runs exactly once. Values that
+  // fail validation are skipped with a warning — one bad key never aborts
+  // the adoption.
+  function adoptLegacySettings(getSetting, keys, options = {}) {
+    ensureReady();
+    if (typeof getSetting !== 'function' || !Array.isArray(keys)) return 0;
+    if (stat('HKND/_migration/registrySourceDone') !== null) return 0;
+    let adopted = 0;
+    batch(() => {
+      for (const key of keys) {
+        if (typeof key !== 'string' || !key.trim()) continue;
+        const path = settingsPathFor(key);
+        if (!path) continue; // excluded (oversized) keys keep their legacy channel
+        let value;
+        try { value = getSetting(key); } catch (_) { continue; }
+        if (value === undefined) continue;
+        try {
+          set(path, value, { source: 'legacy-adopt' });
+          adopted += 1;
+        } catch (err) {
+          logWarn(`failed to adopt legacy setting '${key}' into ${path}`, err);
+        }
+      }
+      set('HKND/_migration/registrySourceDone', Date.now(), { type: 'REG_QWORD', source: 'legacy-adopt' });
+    });
+    return adopted;
+  }
+
   // settings → registry mirror. Idempotent; the engine dedupes writes whose
   // value did not change, so the mirror can never loop against the
-  // registry → settings copy the sandbox handler performs for system writes.
+  // settings shim's nova:reg:changed fan-out. KEPT for compatibility only —
+  // since the registry became the source of truth, boot no longer attaches
+  // it (the settings shim covers both directions); recovery tooling may
+  // still use it.
   function attachSettingsMirror(settings, events) {
     ensureReady();
     if (state.mirrorAttached) return true;
@@ -1230,6 +1366,9 @@ const NovaRegistry = (() => {
     LIMITS,
     SETTINGS_KEY_TO_PATH,
     SETTINGS_PATH_TO_KEY,
+    SETTINGS_EXCLUDED_KEYS,
+    settingsPathFor,
+    pathToSettingsKey,
     BOOT_DEFAULTS,
     init,
     get,
@@ -1254,6 +1393,7 @@ const NovaRegistry = (() => {
     deleteSnapshot,
     ensureDefaults,
     migrateLegacySettings,
+    adoptLegacySettings,
     expand: expandString,
     attachSettingsMirror,
     hiveSnapshot,

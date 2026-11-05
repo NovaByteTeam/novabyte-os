@@ -97,7 +97,7 @@ describe('NovaByte System settings coordinator', () => {
   });
 
   it('filters protected and invalid values during import and export', async () => {
-    const { api, cache, persisted } = createSystem();
+    const { api, cache, persisted, emitted } = createSystem();
 
     const result = await api.settings.import({
       theme: 'dracula',
@@ -115,7 +115,11 @@ describe('NovaByte System settings coordinator', () => {
     });
     expect(cache.theme).toBe('dracula');
     expect(cache.pinnedApps).toEqual(['com.nbosp.files']);
-    expect(persisted).toContainEqual(['putSetting', 'pinnedApps', ['com.nbosp.files']]);
+    // Import persists through storedSettings.set (registry-backed) — no
+    // direct worker-store writes anymore.
+    expect(persisted).toEqual([]);
+    expect(emitted).toContainEqual({ key: 'theme', value: 'dracula' });
+    expect(emitted).toContainEqual({ key: 'pinnedApps', value: ['com.nbosp.files'] });
     expect(api.settings.exportSnapshot()).not.toHaveProperty('lockPin');
     expect(api.settings.exportSnapshot()).not.toHaveProperty('pinSalt');
   });

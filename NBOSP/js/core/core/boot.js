@@ -129,31 +129,10 @@ const Boot = {
     };
   },
 
-  /** @private Mirror web-build OS.settings writes to its legacy app data store. */
-  _patchSettingsSet() {
-    if (typeof process !== 'undefined' && process.platform === 'linux') return;
-    const _orig = OS.settings.set.bind(OS.settings);
-    let _prefsFileId = null; // cached after first successful lookup
-    OS.settings.set = function settingSet(key, value) {
-      _orig(key, value);
-      const folderId = window.AppDirs?.getAppDataPath?.('com.nbosp.settings', 'shared_prefs');
-      if (!folderId) return;
-      const content = JSON.stringify(OS.settings._cache, null, 2);
-      if (_prefsFileId) {
-        FS.writeFile(_prefsFileId, content).catch(() => {});
-      } else {
-        const existing = FS.listDir(folderId).find(f => f.name === 'prefs.json' && f.type === 'file');
-        if (existing) {
-          _prefsFileId = existing.id;
-          FS.writeFile(_prefsFileId, content).catch(() => {});
-        } else {
-          FS.createFile(folderId, 'prefs.json', content, 'application/json')
-            .then(f => { if (f?.id) _prefsFileId = f.id; })
-            .catch(() => {});
-        }
-      }
-    };
-  },
+  // (The web-build prefs.json mirror was removed: OS.settings persists
+  // through the NovaByte Registry now — see settings-shim.js — so a second
+  // copy of every setting in the app's shared_prefs would just be a stale
+  // shadow of the truth.)
 
   // ── Public Stage Methods ───────────────────────────────────────
   // Override any of these on the Boot object before boot() is called.
@@ -181,6 +160,17 @@ const Boot = {
     }
     OS.workers.search = createWorker(SEARCH_WORKER_CODE, 'search');
     OS.workers.crypto = createWorker(CRYPTO_WORKER_CODE, 'crypto');
+
+    // The NovaByte Registry is the configuration source of truth: open the
+    // hives and attach the settings shim BEFORE OS.settings.load(), so the
+    // settings cache hydrates from the registry and the legacy settings
+    // store is adopted exactly once. Fail-soft — when the registry is
+    // unavailable the shim never attaches and OS.settings keeps its
+    // original behaviour; when Safe Mode asks for a throwaway session the
+    // shim's volatile flag keeps every change out of persistence.
+    const reg = Boot.initNovaRegistry();
+    if (reg && window.NovaSettingsShim) window.NovaSettingsShim.attach(OS, reg);
+    OS.settings.volatile = isSafeMode === true;
 
     await OS.settings.load().then(() => {
       if (isSafeMode && typeof OS.settings.applySafeModeDefaults === 'function') {
@@ -223,7 +213,6 @@ const Boot = {
     }
 
     Boot._markRuntimeReady();
-    Boot._patchSettingsSet();
   },
 
   migrateLegacyAppIds() {
@@ -281,22 +270,14 @@ const Boot = {
     return window.WallpaperService?.apply(sGet) ?? false;
   },
 
-  // Legacy (unmapped) settings keys imported once into HKNU/legacy on
-  // first registry boot — the registry gains a per-user snapshot of
-  // pre-registry prefs; OS.settings stays the live source of truth for
-  // these keys (they are deliberately NOT mirrored both ways).
-  const LEGACY_SETTINGS_KEYS = Object.freeze([
-    'clockFormat', 'dateFormat', 'fontSize', 'taskbarStyle', 'windowRadius',
-    'animSpeed', 'iconSize', 'autoLock', 'searchEngine', 'proxyUrl',
-    'username', 'region', 'keyboardLayout', 'timezone',
-  ]);
-
   /**
-   * Load the NovaByte Registry before the shell reads any config: open the
-   * hives, seed-once the boot defaults, attach the settings ↔ registry
-   * mirror, and (once) import legacy settings. Every step is fail-soft — a
-   * missing or broken registry must never block boot; the shell simply
-   * falls back to OS.settings.
+   * Load the NovaByte Registry before anything reads or writes config:
+   * open the hives and seed-once the boot defaults. Called from
+   * initSubsystems ahead of OS.settings.load() — the settings shim (when
+   * present) attaches right after and turns OS.settings into a registry
+   * client that also adopts the legacy settings store exactly once. Every
+   * step is fail-soft — a missing or broken registry must never block
+   * boot; the shell simply keeps the legacy settings behaviour.
    * @returns {Object|null} the engine, or null when unavailable
    */
   initNovaRegistry() {
@@ -305,43 +286,12 @@ const Boot = {
     try {
       reg.init({ settings: OS.settings, events: OS.events, logger: OS.logger });
       const seeded = reg.ensureDefaults(reg.BOOT_DEFAULTS);
-      reg.attachSettingsMirror(OS.settings, OS.events);
-      let migrated = 0;
-      try {
-        migrated = reg.migrateLegacySettings((key) => OS.settings.get(key), LEGACY_SETTINGS_KEYS);
-      } catch (err) {
-        console.warn('[BOOT] Registry legacy import skipped:', err);
-      }
       if (seeded > 0) console.info(`[BOOT] NovaByte Registry seeded ${seeded} default value(s)`);
-      if (migrated > 0) console.info(`[BOOT] NovaByte Registry imported ${migrated} legacy setting(s) into HKNU/legacy`);
       return reg;
     } catch (err) {
       console.warn('[BOOT] NovaByte Registry unavailable:', err);
       return null;
     }
-  },
-
-  /**
-   * Wrap the settings getter so mapped shell keys prefer the live registry
-   * value and fall back to OS.settings (then code defaults) when the key is
-   * absent. This is what makes the shell registry-driven without making the
-   * registry a boot dependency.
-   * @param {Function} sGet — bound OS.settings.get
-   * @returns {Function}
-   */
-  wrapSettingsWithRegistry(sGet) {
-    const reg = window.NovaRegistry;
-    if (!reg || typeof reg.get !== 'function' || !reg.SETTINGS_KEY_TO_PATH) return sGet;
-    const map = reg.SETTINGS_KEY_TO_PATH;
-    return function registryFirstGet(key) {
-      if (Object.prototype.hasOwnProperty.call(map, key)) {
-        try {
-          const value = reg.get(map[key]);
-          if (value !== undefined) return value;
-        } catch (err) { /* fall through to settings */ }
-      }
-      return sGet(key);
-    };
   },
 
   /**
@@ -508,12 +458,12 @@ async function boot() {
   Storage.remove(KEYS.ATTEMPTS);
 
   // 7. Settings & UI ───────────────────────────────────────────────
-  // The registry loads first; the getter below prefers live registry values
-  // for mapped shell keys (theme/accent/wallpaper) with OS.settings as the
-  // fallback, so the desktop boots registry-driven but never registry-
-  // dependent.
-  Boot.initNovaRegistry();
-  const sGet = Boot.wrapSettingsWithRegistry(Boot.applyOSVars());
+  // OS.settings is registry-backed by now (initSubsystems opened the hives
+  // and attached the settings shim before load()), so a plain read already
+  // serves the live registry value — the entire desktop runs off the
+  // NovaByte Registry, and NovaReg edits apply live through the shim's
+  // change fan-out.
+  const sGet = Boot.applyOSVars();
   Boot.applyThemeAndVars(sGet);
   Boot.applyWallpaper(sGet);
   Boot.applyAccessibility(sGet);
@@ -1020,18 +970,19 @@ async function startConfiguredHomeApp() {
   }
 
   /**
-   * Launch every app the user has opted into "start at boot" (nova_boot_apps,
-   * set via App Manager's boot toggle — see the App Manager package's getBootApps/
-   * setBootApps) AND that separately holds the system:autostart grant.
+   * Launch every app the user has opted into "start at boot" (the registry
+   * boot list, HKNU/apps/boot via RegistryPrefs — App Manager's boot toggle
+   * writes it) AND that separately holds the system:autostart grant.
    *
    * Both conditions matter and neither substitutes for the other:
-   *  - nova_boot_apps is the user's own preference ("open this for me"),
-   *    stored per-app, not a security boundary — a malicious app can't get
-   *    itself into this list, only the user's own App Manager toggle does.
+   *  - the boot list (HKNU/apps/boot via RegistryPrefs) is the user's own
+   *    preference ("open this for me"), stored per-app, not a security
+   *    boundary — a malicious app can't get itself into this list, only the
+   *    user's own App Manager toggle does.
    *  - system:autostart is the permission grant. An app the user asked to
    *    autostart still needs to actually hold the grant, same as any other
    *    permission — a boot-list entry is not itself authorization. This
-   *    also protects against nova_boot_apps having been populated by some
+   *    also protects against the boot list having been populated by some
    *    older/different mechanism before this permission existed; a stale
    *    boot-list entry alone is never enough to launch something.
    *
@@ -1048,9 +999,11 @@ async function startConfiguredHomeApp() {
   function launchAutostartApps() {
     if (OS.lockPin) return;
 
+    // Both lists are registry-backed (HKNU/apps/boot, HKNU/apps/disabled)
+    // via RegistryPrefs — the legacy localStorage keys are adopted once.
     let bootAppIds;
     try {
-      bootAppIds = JSON.parse(localStorage.getItem('nova_boot_apps') || '[]');
+      bootAppIds = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.bootApps) ? RegistryPrefs.bootApps() : [];
     } catch {
       bootAppIds = [];
     }
@@ -1058,9 +1011,7 @@ async function startConfiguredHomeApp() {
 
     let disabled;
     try {
-      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]')
-        .map(x => (typeof x === 'string' ? x : x?.id))
-        .filter(Boolean);
+      disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : [];
     } catch {
       disabled = [];
     }
@@ -1096,7 +1047,7 @@ async function startConfiguredHomeApp() {
     }
 
     if (staleEntryRemoved) {
-      try { localStorage.setItem('nova_boot_apps', JSON.stringify(bootAppIds)); } catch { /* quota */ }
+      try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setBootApps) RegistryPrefs.setBootApps(bootAppIds); } catch { /* quota */ }
     }
   }
 

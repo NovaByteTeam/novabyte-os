@@ -1578,10 +1578,10 @@ const AppDirs = {
     'nova_music_prefs':       { pkg: 'com.nbosp.music',       subdir: 'shared_prefs', file: 'prefs.json' },
     'nova_installed_apps':    { pkg: 'com.nbosp.appmanager',  subdir: 'databases',    file: 'packages.json' },
 
-    // App Manager — install log, disabled-apps list, boot-apps list
+    // App Manager — install log (the disabled/boot lists moved into the
+    // NovaByte Registry — HKNU/apps/* via RegistryPrefs — so there is no
+    // localStorage key left to mirror).
     'nova_appmanager_log':    { pkg: 'com.nbosp.appmanager',  subdir: 'databases',    file: 'install-log.json' },
-    'nova_disabled_apps':     { pkg: 'com.nbosp.appmanager',  subdir: 'shared_prefs', file: 'disabled-apps.json' },
-    'nova_boot_apps':         { pkg: 'com.nbosp.appmanager',  subdir: 'shared_prefs', file: 'boot-apps.json' },
 
     // Browser — settings, bookmarks, history
     'nbosp_browser_settings': { pkg: 'com.nbosp.browser',     subdir: 'shared_prefs', file: 'settings.json' },
@@ -1600,8 +1600,8 @@ const AppDirs = {
     // Permissions — event-log read cutoff
     'nbosp_permissions_log_cutoff': { pkg: 'com.nbosp.permissions', subdir: 'shared_prefs', file: 'log-cutoff.json' },
 
-    // Settings — custom keyboard shortcuts
-    'novabyte-shortcuts':     { pkg: 'com.nbosp.settings',    subdir: 'shared_prefs', file: 'shortcuts.json' },
+    // Settings — custom keyboard shortcuts moved into the NovaByte Registry
+    // (HKNU/shell/shortcuts via RegistryPrefs); no localStorage key to mirror.
   },
 
   getAppDataPath(appIdOrPkg, subdir) {

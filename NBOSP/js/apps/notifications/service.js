@@ -58,13 +58,45 @@ function slugOk(value, maxLen) {
     && /^[a-zA-Z0-9_-]+$/.test(value);
 }
 
-const channelDefs = loadJsonStore(CHANNELS_STORAGE_KEY, {});
-const channelOverrides = loadJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, {});
+let channelDefs = null;
+let channelOverrides = null;
 const pendingActionQueue = loadJsonStore(PENDING_ACTIONS_STORAGE_KEY, []);
+
+// Channels and overrides live in the registry through RegistryPrefs — but
+// this service may evaluate before the registry boots, so the stores
+// hydrate lazily on first use (the localStorage fallback keeps pre-registry
+// values visible; RegistryPrefs adopts them into the hive on first access).
+function ensureNotifStores() {
+  if (channelDefs !== null && channelOverrides !== null) return;
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.notifChannels) {
+    try {
+      channelDefs = RegistryPrefs.notifChannels();
+      channelOverrides = RegistryPrefs.notifChannelOverrides();
+      return;
+    } catch (_) { /* fall through to localStorage */ }
+  }
+  channelDefs = loadJsonStore(CHANNELS_STORAGE_KEY, {});
+  channelOverrides = loadJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, {});
+}
+
+function persistChannels() {
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setNotifChannels) {
+    try { RegistryPrefs.setNotifChannels(channelDefs); return; } catch (_) { /* legacy below */ }
+  }
+  persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+}
+
+function persistChannelOverrides() {
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setNotifChannelOverrides) {
+    try { RegistryPrefs.setNotifChannelOverrides(channelOverrides); return; } catch (_) { /* legacy below */ }
+  }
+  persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
+}
 
 // Register (or update) a channel. Returns { created, channel } or null when
 // the definition is invalid or the per-app cap is hit.
 function ensureChannelForApp(appId, def, { declaredBy = 'runtime' } = {}) {
+  ensureNotifStores();
   if (!appId || !def || !slugOk(def.id, MAX_NOTIF_KEY_LEN)) return null;
   const name = typeof def.name === 'string' && def.name.trim()
     ? def.name.trim().slice(0, 60)
@@ -82,13 +114,13 @@ function ensureChannelForApp(appId, def, { declaredBy = 'runtime' } = {}) {
     // Android parity: name/description stay updatable, importance is locked.
     existing.name = name;
     existing.description = description;
-    persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+    persistChannels();
     return { created: false, channel: existing };
   }
   if (Object.keys(channelDefs[appId]).length >= MAX_CHANNELS_PER_APP) return null;
   const channel = { id: def.id, name, description, importance, declaredBy, createdAt: Date.now() };
   channelDefs[appId][def.id] = channel;
-  persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+  persistChannels();
   return { created: true, channel };
 }
 
@@ -109,6 +141,7 @@ function ensureDeclaredChannels(appId, manifest) {
 // unknown channels; blocked:true when the user muted it (importance 'none'
 // or enabled:false) and the notification should be silently dropped.
 function getChannelForApp(appId, channelId) {
+  ensureNotifStores();
   if (!appId || !slugOk(channelId, MAX_NOTIF_KEY_LEN)) return null;
   const def = channelDefs[appId]?.[channelId];
   if (!def) return null;
@@ -166,6 +199,7 @@ function consumeActionsForApp(appId) {
 // with it (Android removes channels on uninstall too).
 function dropNotificationAppState(appId) {
   if (!appId) return;
+  ensureNotifStores();
   let changed = false;
   if (channelDefs[appId]) { delete channelDefs[appId]; changed = true; }
   for (const key of Object.keys(channelOverrides)) {
@@ -178,8 +212,8 @@ function dropNotificationAppState(appId) {
     changed = true;
   }
   if (changed) {
-    persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
-    persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
+    persistChannels();
+    persistChannelOverrides();
     persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
   }
 }
@@ -369,6 +403,7 @@ const Notify = {
   // permission-model work; the store is live now so no migration is needed
   // later. Pass null to clear an override.
   setChannelOverride(appId, channelId, override) {
+    ensureNotifStores();
     if (!appId || !slugOk(channelId, MAX_NOTIF_KEY_LEN) || !channelDefs[appId]?.[channelId]) return false;
     const key = `${appId}|${channelId}`;
     if (override === null) {
@@ -381,11 +416,12 @@ const Notify = {
       }
       channelOverrides[key] = clean;
     }
-    persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
+    persistChannelOverrides();
     return true;
   },
 
   listChannels(appId) {
+    ensureNotifStores();
     if (!appId) return [];
     return Object.keys(channelDefs[appId] || {})
       .map(id => getChannelForApp(appId, id))
@@ -396,6 +432,7 @@ const Notify = {
   // wiped from channelDefs on uninstall, so everything listed here is live.
   // Used by the Settings > Notifications channel UI.
   listAppsWithChannels() {
+    ensureNotifStores();
     return Object.keys(channelDefs)
       .filter(id => channelDefs[id] && Object.keys(channelDefs[id]).length > 0);
   },

@@ -694,3 +694,80 @@ describe('NovaByte Registry engine v2 — legacy settings import', () => {
     expect(Reg.stat('HKND/_migration/legacySettingsDone')).not.toBeNull();
   });
 });
+
+describe('NovaByte Registry engine v2 — settings schema & legacy adoption', () => {
+  let Reg, bus;
+  beforeEach(() => {
+    ({ Reg, bus } = freshRegistry());
+  });
+
+  it('maps every OS settings key to its canonical hive path', () => {
+    expect(Reg.SETTINGS_KEY_TO_PATH.theme).toBe('HKNS/shell/theme');
+    expect(Reg.SETTINGS_KEY_TO_PATH.pinnedApps).toBe('HKNU/desktop/pins');
+    expect(Reg.SETTINGS_KEY_TO_PATH.defaultApps).toBe('HKNU/shell/defaultApps');
+    expect(Reg.SETTINGS_KEY_TO_PATH.osVersion).toBe('HKNS/system/osVersion');
+    expect(Reg.SETTINGS_KEY_TO_PATH.devMode).toBe('HKNS/system/devMode');
+    expect(Reg.SETTINGS_KEY_TO_PATH.lockPin).toBe('HKNS/security/lockPin');
+    expect(Reg.SETTINGS_KEY_TO_PATH.pinSalt).toBe('HKNS/security/pinSalt');
+    expect(Reg.SETTINGS_KEY_TO_PATH.prohibitWallpaperChange).toBe('HKNS/security/policy/prohibitWallpaperChange');
+    expect(Reg.SETTINGS_KEY_TO_PATH.clockFormat).toBe('HKNU/settings/clockFormat');
+    expect(Reg.SETTINGS_KEY_TO_PATH.username).toBe('HKNU/settings/username');
+  });
+
+  it('resolves paths: mapped keys win, excluded keys return null, unknown keys file under HKNU/settings', () => {
+    expect(Reg.settingsPathFor('theme')).toBe('HKNS/shell/theme');
+    expect(Reg.settingsPathFor('pinnedApps')).toBe('HKNU/desktop/pins');
+    expect(Reg.settingsPathFor('lockPin')).toBe('HKNS/security/lockPin');
+    expect(Reg.settingsPathFor('customWallpaper')).toBeNull();
+    expect(Reg.SETTINGS_EXCLUDED_KEYS.has('customWallpaper')).toBe(true);
+    expect(Reg.settingsPathFor('someFuturePref')).toBe('HKNU/settings/someFuturePref');
+    // Path separators in runtime keys can never escape the settings area.
+    expect(Reg.settingsPathFor('weird/key')).toBe('HKNU/settings/weird_key');
+  });
+
+  it('maps registry paths back to settings keys, including the generic areas', () => {
+    expect(Reg.pathToSettingsKey('HKNS/shell/theme')).toBe('theme');
+    expect(Reg.pathToSettingsKey('HKNS/shell/wallpaper')).toBe('wallpaperId');
+    expect(Reg.pathToSettingsKey('HKNU/desktop/pins')).toBe('pinnedApps');
+    expect(Reg.pathToSettingsKey('HKNU/settings/clockFormat')).toBe('clockFormat');
+    expect(Reg.pathToSettingsKey('HKNS/system/osVersion')).toBe('osVersion');
+    expect(Reg.pathToSettingsKey('HKNS/security/pinSalt')).toBe('pinSalt');
+    expect(Reg.pathToSettingsKey('HKNS/security/policy/prohibitWallpaperChange')).toBe('prohibitWallpaperChange');
+    // Non-settings paths return null (app config, links, unknown areas).
+    expect(Reg.pathToSettingsKey('HKNA/com.app/volume')).toBeNull();
+    expect(Reg.pathToSettingsKey('HKNS/shell/theme/subkey')).toBeNull();
+    expect(Reg.pathToSettingsKey('HKNU/settings')).toBeNull();
+  });
+
+  it('adopts legacy settings into their LIVE paths exactly once, overriding boot seeds', () => {
+    Reg.ensureDefaults(Reg.BOOT_DEFAULTS); // seeds theme 'nova-dark' first
+    const store = new Map([['theme', 'dracula'], ['clockFormat', '24h'], ['customWallpaper', 'data:huge'], ['pinnedApps', ['com.nbosp.files']]]);
+    const get = (key) => store.get(key);
+
+    const adopted = Reg.adoptLegacySettings(get, [...store.keys()]);
+    expect(adopted).toBe(3); // customWallpaper is excluded — never enters the hive
+    expect(Reg.get('HKNS/shell/theme')).toBe('dracula'); // adoption beats the seed
+    expect(Reg.get('HKNU/settings/clockFormat')).toBe('24h');
+    expect(Reg.get('HKNU/desktop/pins')).toEqual(['com.nbosp.files']);
+    expect(Reg.stat('HKNU/settings/customWallpaper')).toBeNull();
+    expect(Reg.stat('HKND/_migration/registrySourceDone')).not.toBeNull();
+
+    // Second boot: guard holds — later legacy edits are ignored.
+    store.set('theme', 'gruvbox');
+    expect(Reg.adoptLegacySettings(get, ['theme'])).toBe(0);
+    expect(Reg.get('HKNS/shell/theme')).toBe('dracula');
+  });
+
+  it('keeps adopting when one bad value throws — one key never aborts the batch', () => {
+    const get = (key) => { if (key === 'bad') throw new Error('unreadable'); return 'ok-' + key; };
+    expect(Reg.adoptLegacySettings(get, ['clockFormat', 'bad', 'username'])).toBe(2);
+    expect(Reg.get('HKNU/settings/clockFormat')).toBe('ok-clockFormat');
+    expect(Reg.get('HKNU/settings/username')).toBe('ok-username');
+    expect(Reg.stat('HKND/_migration/registrySourceDone')).not.toBeNull();
+  });
+
+  it('fails soft on missing parents: remove/rename throw NOT_FOUND instead of crashing', () => {
+    expect(() => Reg.remove('HKNU/ghost/child')).toThrow(/NOT_FOUND|no such key/);
+    expect(() => Reg.rename('HKNU/ghost/child', 'renamed')).toThrow(/NOT_FOUND|no such key/);
+  });
+});

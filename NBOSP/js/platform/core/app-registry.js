@@ -512,7 +512,8 @@ const AppRegistry = (() => {
    */
   async function launchApp(appId, content, state, options) {
     try {
-      const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+      const disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : [];
       if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
         console.warn('[AppRegistry] Launch blocked — disabled app:', appId);
         if (typeof EventLog !== 'undefined') {

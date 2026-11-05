@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetTestStorage } from '../../setup.js';
+import RegistryPrefs from '../../../js/platform/core/registry-prefs.js';
 
 // ── app-scheduler.js — Tier 1 scheduled background wakes ────────────────────
 // CJS module (module.exports = AppScheduler) that also attaches window.AppScheduler.
@@ -39,6 +40,10 @@ function setupWorld({ apps = {}, grants = {} } = {}) {
     dispatchBackgroundWake: vi.fn(() => true),
     destroy: vi.fn(),
   };
+  // Disabled-app reads go through RegistryPrefs (registry-backed); with no
+  // window.NovaRegistry in this realm it falls back to the legacy
+  // localStorage keys these tests seed.
+  globalThis.RegistryPrefs = RegistryPrefs;
   // The real NW.js/Chromium runtime provides Temporal; Node does not (yet).
   vi.stubGlobal('Temporal', { Now: { instant: () => ({ toString: () => '2026-01-01T00:00:00.000Z' }) } });
   return host;
@@ -65,6 +70,7 @@ describe('AppScheduler (js/platform/security/app-scheduler.js)', () => {
     delete globalThis.OS;
     delete globalThis.AppPermissionManager;
     delete globalThis.AppSandbox;
+    delete globalThis.RegistryPrefs;
   });
 
   describe('surface', () => {

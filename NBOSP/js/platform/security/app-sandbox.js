@@ -3186,17 +3186,11 @@ const AppSandbox = (() => {
         source: 'app',
       });
     } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
-    // Registry → settings live-apply: a system write to a mapped shell path
-    // goes through OS.settings.set so the existing 'settings:changed'
-    // fan-out applies it immediately (wallpaper/theme/accent). The settings
-    // mirror in the engine copies it straight back — the identical-value
-    // dedupe turns that into a no-op, so nothing loops.
-    const settingsKey = regEngine().SETTINGS_PATH_TO_KEY[parsed.path];
-    if (settingsKey && typeof OS?.settings?.set === 'function') {
-      try { OS.settings.set(settingsKey, committed.data); } catch (err) {
-        log('error', `Failed to apply registry value to setting '${settingsKey}'`, err);
-      }
-    }
+    // Registry → settings live-apply used to be duplicated here; since the
+    // settings shim (platform/core/settings-shim.js) subscribes to
+    // nova:reg:changed centrally, every external write — app or system —
+    // already syncs OS.settings and re-emits 'settings:changed'. Nothing
+    // more to do: the registry IS the source of truth.
     return respond(webview, TYPE, requestId, { success: true, path: committed.path, type: committed.type });
   }
 
@@ -4836,8 +4830,10 @@ const AppSandbox = (() => {
     if (settingsToRestore && typeof settingsToRestore === 'object' && typeof OS !== 'undefined' && OS.settings) {
       for (const [k, v] of Object.entries(settingsToRestore)) {
         try {
-          if (OS.settings._cache) OS.settings._cache[k] = v;
+          // set() routes through the registry-backed shim (persist + change
+          // fan-out); direct cache writes would bypass persistence.
           if (typeof OS.settings.set === 'function') OS.settings.set(k, v);
+          else if (OS.settings._cache) OS.settings._cache[k] = v;
         } catch (e) { log('warn', `OS.settings restore failed for ${k}:`, e); }
       }
     }
@@ -8042,8 +8038,10 @@ const AppSandbox = (() => {
 
   function appIsPushDisabled(appId) {
     try {
-      const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
-      return Array.isArray(disabled) && disabled.includes(appId);
+      // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+      return typeof RegistryPrefs !== 'undefined' && RegistryPrefs.isAppDisabled
+        ? RegistryPrefs.isAppDisabled(appId)
+        : false;
     } catch (_) { return false; }
   }
 
@@ -8162,7 +8160,7 @@ const AppSandbox = (() => {
     if (typeof OS === 'undefined' || !OS.apps) return [];
     if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted) return [];
     let disabled = [];
-    try { disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); } catch (_) { disabled = []; }
+    try { disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : []; } catch (_) { disabled = []; }
     return Object.values(OS.apps).filter((app) => app && app.id
       && !(Array.isArray(disabled) && disabled.includes(app.id))
       && AppPermissionManager.isGranted('push:receive', app.id));

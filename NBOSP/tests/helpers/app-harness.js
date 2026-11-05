@@ -21,6 +21,11 @@ import { JSDOM } from 'jsdom';
 
 const APPS_BASE = new URL('../../js/apps/', import.meta.url);
 const BASE_UTILS_URL = new URL('../../js/core/utils/base-utils.js', import.meta.url);
+// Platform prefs helper — index.html loads it globally, so every app harness
+// gets it too. Without window.NovaRegistry it falls back to the legacy
+// localStorage keys, matching the pre-registry behavior these tests wrote
+// their assertions against.
+const REGISTRY_PREFS_URL = new URL('../../js/platform/core/registry-prefs.js', import.meta.url);
 
 // Host-provided globals every window app may touch. Overridable per test via
 // the `stubs` option (keys listed here win unless overridden).
@@ -121,7 +126,7 @@ export async function loadWindowApp(appName, opts = {}) {
   installCommonStubs(dom.window, stubs);
   const registered = [];
   dom.window.registerApp = (config) => registered.push(config);
-  const extras = withBaseUtils ? [BASE_UTILS_URL] : [];
+  const extras = withBaseUtils ? [BASE_UTILS_URL, REGISTRY_PREFS_URL] : [REGISTRY_PREFS_URL];
   await evalScripts(dom, appBase, scripts, extras);
   return { dom, window: dom.window, document: dom.window.document, registered, app: registered[0] ?? null };
 }
@@ -143,7 +148,7 @@ export async function loadServiceApp(appName, opts = {}) {
   installCommonStubs(dom.window, stubs);
   const registered = [];
   dom.window.registerApp = (config) => registered.push(config);
-  const extras = withBaseUtils ? [BASE_UTILS_URL] : [];
+  const extras = withBaseUtils ? [BASE_UTILS_URL, REGISTRY_PREFS_URL] : [REGISTRY_PREFS_URL];
   await evalScripts(dom, appBase, scripts, extras);
   return { dom, window: dom.window, document: dom.window.document, registered };
 }

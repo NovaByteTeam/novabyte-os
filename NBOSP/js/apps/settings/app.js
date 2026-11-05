@@ -3057,10 +3057,11 @@ registerApp({
 
       const tbody = createEl('tbody');
 
-      // Parse custom shortcuts once — corrupt localStorage no longer crashes
+      // Parse custom shortcuts once — corrupt storage no longer crashes.
+      // Registry-backed (HKNU/shell/shortcuts) via RegistryPrefs.
       let customShortcuts;
-      try { customShortcuts = JSON.parse(localStorage.getItem('novabyte-shortcuts') || '{}'); }
-      catch (err) { devLog('novabyte-shortcuts parse failed:', err); customShortcuts = {}; }
+      try { customShortcuts = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.shortcuts) ? RegistryPrefs.shortcuts() : {}; }
+      catch (err) { devLog('custom shortcuts read failed:', err); customShortcuts = {}; }
 
       function captureKeyBinding(action) {
         return new Promise(resolve => {
@@ -3135,7 +3136,7 @@ registerApp({
           if (!isAlive()) return;
           if (newKey) {
             customShortcuts[s.action] = newKey;
-            localStorage.setItem('novabyte-shortcuts', JSON.stringify(customShortcuts));
+            try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setShortcuts) RegistryPrefs.setShortcuts(customShortcuts); } catch (err) { devLog('shortcut save failed:', err); }
             keySpan.textContent = newKey;
             // Update cached search text so the new binding is findable
             const idx = rows.indexOf(row);

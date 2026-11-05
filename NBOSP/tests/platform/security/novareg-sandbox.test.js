@@ -143,9 +143,10 @@ describe('nova:reg:* sandbox handlers', () => {
 
     const allowed = await call('nova:reg:set', { path: 'HKNS/shell/theme', value: 'dracula' }, systemApp);
     expect(allowed.result.success).toBe(true);
-    // The registry→settings mirror applies the change through OS.settings so
-    // the existing settings:changed fan-out repaints the shell live.
-    expect(settingsSet).toHaveBeenCalledWith('theme', 'dracula');
+    // The sandbox no longer copies into OS.settings — the settings shim
+    // subscribes to nova:reg:changed centrally, so the registry alone is
+    // the source of truth and the shell live-applies through the shim.
+    expect(settingsSet).not.toHaveBeenCalled();
     expect(NovaRegistry.get('HKNS/shell/theme')).toBe('dracula');
   });
 

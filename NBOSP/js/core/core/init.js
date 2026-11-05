@@ -206,12 +206,19 @@ document.addEventListener('DOMContentLoaded', function () {
       const appId = id ? (map[id] || id) : null;
       if (!appId) return;
 
-      const existing = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      const existing = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps)
+        ? RegistryPrefs.disabledApps()
+        : [];
       const withoutThisApp = existing.filter((entry) => entry.id !== appId);
-      localStorage.setItem('nova_disabled_apps', JSON.stringify([
+      const nextList = [
         ...withoutThisApp,
         { id: appId, reason: 'broken: ' + src, ts: Date.now() }
-      ]));
+      ];
+      // Registry-backed (HKNU/apps/disabled) — RegistryPrefs keeps the
+      // { id, reason, ts } entry shape the App Manager UI renders.
+      if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setDisabledApps) {
+        RegistryPrefs.setDisabledApps(nextList);
+      }
     } catch (e) { }
   }
 
