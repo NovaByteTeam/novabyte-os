@@ -263,6 +263,76 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(fakeIpc).toHaveBeenCalledWith('nova:storage:set', { key: 'large', value: 'value' });
   });
 
+  it('exposes novaOS v2 settings and ready facades with normalized results', async () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      if (type === 'nova:settings:get') {
+        return Promise.resolve(payload.key === 'theme'
+          ? { success: true, value: 'nord' }
+          : { success: true });
+      }
+      if (type === 'nova:ready') {
+        return Promise.resolve({
+          success: true,
+          appId: 'com.example.app',
+          permissions: ['system:info'],
+          optionalPermissions: [],
+          osVersion: '3.0.0',
+          securityPatch: '2026-01-01',
+          // username absent for non-system apps — normalized to null.
+        });
+      }
+      return Promise.resolve({ success: true });
+    });
+
+    const source = AppSandbox._internal.buildNovaOSFacadeSource();
+    expect(() => new Function('window', 'ipc', source)).not.toThrow();
+    new Function('window', 'ipc', source)(sandboxWindow, fakeIpc);
+
+    const api = sandboxWindow.novaOS;
+    expect(api.capabilities.has('settings.v2')).toBe(true);
+    expect(api.capabilities.has('ready.v2')).toBe(true);
+    expect(api.capabilities.has('settings.v3')).toBe(false);
+    expect(Object.isFrozen(api.settings)).toBe(true);
+    expect(Object.isFrozen(api.ready)).toBe(true);
+
+    // settings — raw value out, undefined resolution on mutations.
+    expect(await api.settings.get('theme')).toBe('nord');
+    expect(await api.settings.get('neverSet')).toBeUndefined();
+    expect(await api.settings.set('accentColor', '#112233')).toBeUndefined();
+
+    // ready — normalized handshake snapshot; absent username → null.
+    const snap = await api.ready.get();
+    expect(snap).toEqual({
+      appId: 'com.example.app',
+      permissions: ['system:info'],
+      optionalPermissions: [],
+      osVersion: '3.0.0',
+      securityPatch: '2026-01-01',
+      username: null,
+    });
+
+    expect(calls).toEqual([
+      { type: 'nova:settings:get', payload: { key: 'theme' } },
+      { type: 'nova:settings:get', payload: { key: 'neverSet' } },
+      { type: 'nova:settings:set', payload: { key: 'accentColor', value: '#112233' } },
+      { type: 'nova:ready', payload: {} },
+    ]);
+  });
+
+  it('preserves settings and ready bridge errors through novaOS v2', async () => {
+    const hostError = Object.assign(new Error('system:info permission required'), { code: 'PERMISSION_DENIED' });
+    const fakeIpc = vi.fn(() => Promise.reject(hostError));
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+
+    await expect(sandboxWindow.novaOS.settings.get('theme')).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.settings.set('theme', 'nord')).rejects.toBe(hostError);
+    await expect(sandboxWindow.novaOS.ready.get()).rejects.toBe(hostError);
+  });
+
   it('mediates permitted nested webviews through the host sibling bridge', () => {
     const shim = AppSandbox._internal.buildCapabilityShim(true);
     const script = shim.slice(shim.indexOf('<script>') + 8, shim.lastIndexOf('</script>'));

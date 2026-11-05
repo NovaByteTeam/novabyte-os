@@ -41,6 +41,8 @@
 //        queue-on-close and deliver-on-relaunch
 //   GA21 push delivery — token register/unregister, the delivery ladder
 //        (live / wake-queued / notify+queue), queue bound, revocation door
+//   GA22 settings + ready v2 facades — same gates as nova:settings:*/
+//        nova:ready, allowlist bounds, normalized handshake snapshot
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -172,7 +174,7 @@ async function ga1() {
   // v2 facade surface.
   check('window.novaOS exists', !!g.novaOS);
   check('novaOS.apiVersion === 2', g.novaOS.apiVersion === 2, `got ${g.novaOS.apiVersion}`);
-  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1', 'push.v1']) {
+  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1', 'fsWatch.v1', 'alarms.v1', 'secrets.v1', 'shareTarget.v1', 'push.v1', 'settings.v2', 'ready.v2']) {
     check(`novaOS.capabilities.has("${cap}") === true`, g.novaOS.capabilities.has(cap) === true);
   }
   check('novaOS.capabilities.has("nope.v9") === false', g.novaOS.capabilities.has('nope.v9') === false);
@@ -188,7 +190,8 @@ async function ga1() {
     'app.info', 'app.list', 'app.launch', 'app.openUrl', 'app.share', 'app.openWith',
     'data.export', 'data.import', 'data.backup', 'data.restore',
     'locale.get', 'badge.set', 'badge.clear',
-    'push.register', 'push.unregister', 'push.onMessage'];
+    'push.register', 'push.unregister', 'push.onMessage',
+    'settings.get', 'settings.set', 'ready.get'];
   for (const name of osSurface) {
     check(`window.novaOS.${name} exists`, typeof get(g.novaOS, name) === 'function', `got ${typeof get(g.novaOS, name)}`);
   }
@@ -1865,13 +1868,78 @@ async function ga21() {
   g2.teardown();
 }
 
+// ════════════════════════════════ GA22 ═════════════════════════════════════
+// Settings + ready v2 facades — pure sugar over nova:settings:get/set and
+// nova:ready. The channels themselves are frozen and covered elsewhere
+// (GA8 raw settings flows, R9 host-side); what's proven here is the facade
+// shape: identical permission gates, the raw value out of settings.get(),
+// undefined on mutations, and a normalized, side-effect-free ready snapshot.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function ga22() {
+  section('[GA22] settings + ready v2 facades');
+  const appId22 = 'com.test.audit.g22';
+  const g = await freshGuest(appId22);
+  const osCall = async (fn) => {
+    try { return { ok: true, value: await settle(fn(), 6000) }; }
+    catch (e) { return { ok: false, error: e }; }
+  };
+
+  // Ready — ungated, normalized snapshot.
+  const snap1 = await osCall(() => g.novaOS.ready.get());
+  check('ready.get resolves without any grant', snap1.ok, JSON.stringify(snap1.error && snap1.error.code));
+  check('ready snapshot carries appId + permission arrays',
+    snap1.ok && snap1.value.appId === appId22
+    && Array.isArray(snap1.value.permissions) && Array.isArray(snap1.value.optionalPermissions),
+    JSON.stringify(snap1.value));
+  check('ready snapshot carries OS identity',
+    snap1.ok && typeof snap1.value.osVersion === 'string' && snap1.value.securityPatch !== undefined,
+    JSON.stringify(snap1.value));
+  check('non-system app gets username: null', snap1.ok && snap1.value.username === null, JSON.stringify(snap1.value));
+  const snap2 = await osCall(() => g.novaOS.ready.get());
+  check('repeat ready.get is harmless (same shape, no re-delivery)',
+    snap2.ok && snap2.value.appId === appId22
+    && JSON.stringify(Object.keys(snap2.value)) === JSON.stringify(Object.keys(snap1.value)),
+    JSON.stringify(snap2.value));
+
+  // Settings — deny paths first (a fresh guest holds no grants).
+  const gd = await osCall(() => g.novaOS.settings.get('theme'));
+  check('settings.get denied without system:info', !gd.ok && errCode(gd.error) === 'PERMISSION_DENIED', JSON.stringify(gd.error && gd.error.code));
+  const sd = await osCall(() => g.novaOS.settings.set('theme', 'nord'));
+  check('settings.set denied without system:settings', !sd.ok && errCode(sd.error) === 'PERMISSION_DENIED', JSON.stringify(sd.error && sd.error.code));
+
+  // Read path with the grant: allowlisted key resolves to the raw value.
+  env.state.OS.settings.set('theme', 'nova-light');
+  await grant('system:info', appId22);
+  const got = await osCall(() => g.novaOS.settings.get('theme'));
+  check('settings.get resolves the raw stored value', got.ok && got.value === 'nova-light', JSON.stringify(got.value));
+  const osv = await osCall(() => g.novaOS.settings.get('osVersion'));
+  check('settings.get reads osVersion (read-allowlisted)', osv.ok, JSON.stringify(osv.error && osv.error.code));
+  const pin = await osCall(() => g.novaOS.settings.get('lockPin'));
+  check('settings.get cannot read credentials', !pin.ok && errCode(pin.error) === 'PERMISSION_DENIED', JSON.stringify(pin.error && pin.error.code));
+
+  // Write path with the grant: mutation resolves undefined and lands.
+  await grant('system:settings', appId22);
+  const put = await osCall(() => g.novaOS.settings.set('theme', 'nord'));
+  check('settings.set resolves undefined', put.ok && put.value === undefined, JSON.stringify(put.error && put.error.code));
+  check('settings.set actually applied host-side', env.state.OS.settings.get('theme') === 'nord');
+  const back = await osCall(() => g.novaOS.settings.get('theme'));
+  check('read-after-write returns the new value', back.ok && back.value === 'nord', JSON.stringify(back.value));
+  const devMode = await osCall(() => g.novaOS.settings.set('devMode', true));
+  check('settings.set cannot write devMode (write allowlist)', !devMode.ok && errCode(devMode.error) === 'PERMISSION_DENIED', JSON.stringify(devMode.error && devMode.error.code));
+
+  await revoke('system:info', appId22);
+  await revoke('system:settings', appId22);
+  g.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20, GA21: ga21,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20, GA21: ga21, GA22: ga22,
 };
 
 (async () => {

@@ -9541,6 +9541,10 @@ const AppSandbox = (() => {
     'secrets.v1': true,
     'shareTarget.v1': true,
     'push.v1': true,
+    // v2 sugar over frozen v1 channels (nova:settings:*, nova:ready) —
+    // same gates, same payloads, nothing new host-side.
+    'settings.v2': true,
+    'ready.v2': true,
   });
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -9887,6 +9891,52 @@ const AppSandbox = (() => {
           const index = pushListeners.indexOf(callback);
           if (index >= 0) pushListeners.splice(index, 1);
         };
+      },
+    }),
+    // Settings access — v2 sugar over nova:settings:get/set. The gates are
+    // the ones those channels always had, unchanged: reading requires
+    // system:info, writing requires system:settings (the wallpaper keys
+    // keep their write-grant exemption, still subject to the
+    // prohibitWallpaperChange policy toggle host-side), and both directions
+    // stay bound to the OS-owned key allowlists — credentials, osVersion,
+    // and devMode are unreachable no matter how this is called. get()
+    // resolves the raw stored value (undefined when the key is unset);
+    // set() resolves undefined. There is deliberately no list/subscribe
+    // surface here: the allowlist is deny-by-default, and settings-change
+    // events stay host-internal (use the appearance facade for the public
+    // appearance subset).
+    settings: Object.freeze({
+      get: function(key) {
+        return ipc('nova:settings:get', { key: key }).then(function(result) {
+          return result && Object.prototype.hasOwnProperty.call(result, 'value')
+            ? result.value
+            : undefined;
+        });
+      },
+      set: function(key, value) {
+        return ipc('nova:settings:set', { key: key, value: value }).then(function() {});
+      },
+    }),
+    // Ready-handshake snapshot — v2 sugar over nova:ready (ungated, same as
+    // the automatic handshake and the v1 app.getInfo()). Resolves this
+    // app's authenticated launch payload: its id, the permission grants
+    // actually in effect right now, and OS identity (username only for
+    // system-bundled apps — null otherwise). The automatic handshake on
+    // load keeps the delivery side effects (queued alarms, shares, and
+    // pushes flush right after it); this snapshot never delivers anything,
+    // and repeat calls are safe because those queues drain once.
+    ready: Object.freeze({
+      get: function() {
+        return ipc('nova:ready', {}).then(function(result) {
+          return {
+            appId: result && typeof result.appId === 'string' ? result.appId : null,
+            permissions: result && Array.isArray(result.permissions) ? result.permissions : [],
+            optionalPermissions: result && Array.isArray(result.optionalPermissions) ? result.optionalPermissions : [],
+            osVersion: result && result.osVersion != null ? result.osVersion : null,
+            securityPatch: result && result.securityPatch != null ? result.securityPatch : null,
+            username: result && typeof result.username === 'string' ? result.username : null,
+          };
+        });
       },
     }),
   });`;

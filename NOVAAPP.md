@@ -543,6 +543,8 @@ const info = await window.nova.ipc('nova:ready', {});
 console.log(info.permissions, info.optionalPermissions);
 ```
 
+The v2 facade exposes the same payload, normalized — `window.novaOS.ready.get()` resolves `{ appId, permissions, optionalPermissions, osVersion, securityPatch, username }` (see [Ready snapshot](#ready-snapshot--windownovaosready)).
+
 `window.fetch` and `XMLHttpRequest` inside your app are routed through the permission-checking bridge. `fetch()` remains the preferred API. The asynchronous `XMLHttpRequest` compatibility layer supports property callbacks and event listeners, string and supported binary/form request bodies (capped by the app's `httpBodyBytes` budget — 16 MiB by default), real CRLF response-header formatting, and text/JSON/ArrayBuffer/Blob response types. It intentionally rejects synchronous XHR. `timeout` raises timeout/loadend events in the guest but does not cancel the in-flight host request; incremental progress events, upload-target events, and credentialed XHR are not implemented. Use `fetch()` for new code.
 
 There is no `window.__novaPrivateStore` — for isolated, namespaced storage use `nova:storage:*` (see [Storage](#storage)), which is backed by the host, not raw `localStorage` inside the guest.
@@ -828,7 +830,7 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, and `shareTarget.v1`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, and the v2 sugar over the frozen settings/ready channels, `settings.v2` and `ready.v2`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
@@ -846,6 +848,8 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `secrets` | `set(key, value)`, `get(key)`, `delete(key)`, `keys()` | `nova:secrets:*` | `secrets:store` |
 | `share` | `onInbound(cb)` | push: `nova:share:inbound` | `system:share-target` |
 | `push` | `register()`, `unregister()`, `onMessage(cb)` | `nova:push:*` + push: `nova:push:message` | `push:receive` |
+| `settings` | `get(key)`, `set(key, value)` | `nova:settings:get` / `nova:settings:set` | `system:info` (read) / `system:settings` (write; wallpaper keys exempt) |
+| `ready` | `get()` → `{ appId, permissions, optionalPermissions, osVersion, securityPatch, username }` | `nova:ready` | none |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -873,6 +877,12 @@ await window.novaOS.app.share({ title: 'Look', text: 'shared text' });
 // Locale + badge (new host powers — see their own sections below).
 const { region, firstDayOfWeek } = await window.novaOS.locale.get();
 await window.novaOS.badge.set(3);
+
+// Settings (system:info to read, system:settings to write) + the ready
+// snapshot (no permission — see their own sections below).
+const theme = await window.novaOS.settings.get('theme');
+await window.novaOS.settings.set('accentColor', '#3366ff');
+const { appId, permissions } = await window.novaOS.ready.get();
 ```
 
 The `dialog` facade deserves one explicit note: it exists precisely because the two picker families (`nova:dialog:*` plain, `nova:sysdialog:*` styled) predate the v2 facade and remain separately available for compatibility. New apps should use `novaOS.dialog` and stop caring which picker family runs underneath; the raw channels stay unchanged either way.
@@ -1605,7 +1615,31 @@ Security-sensitive material — `lockPin`, `pinSalt`, `biometricCredentialId`, `
 
 For appearance customization, prefer `window.nova.appearance.set(...)`: it changes only validated theme/accent/accessibility preferences.
 
+The v2 facade is thin sugar over the same two channels — identical gates, identical allowlists, identical error codes:
+
+```javascript
+// Requires system:info — resolves the raw stored value (undefined when unset)
+const theme = await window.novaOS.settings.get('theme');
+
+// Requires system:settings — resolves undefined
+await window.novaOS.settings.set('theme', 'nord');
+```
+
+Feature-detect with `window.novaOS.capabilities.has('settings.v2')`.
+
 For data scoped to your own app, use [Storage](#storage) instead.
+
+### Ready snapshot — `window.novaOS.ready`
+
+`novaOS.ready.get()` is the v2 view of the `nova:ready` handshake — the same authenticated payload the runtime delivers automatically on load, with no permission gate:
+
+```javascript
+const snap = await window.novaOS.ready.get();
+// { appId, permissions, optionalPermissions, osVersion, securityPatch, username }
+// username is the OS username for system-bundled apps only; everyone else gets null.
+```
+
+It is a snapshot, not a re-handshake: the automatic handshake on load keeps the delivery side effects (queued alarms, inbound shares, and pushes flush right after it), while `ready.get()` only reads. Repeat calls are harmless — those queues drain once. Note the difference from `window.novaOS.app.info()`, which returns the `nova:app:info` record about your app's package; `ready.get()` returns your grants and the OS identity.
 
 ### Event bus — `nova:events:*`
 
