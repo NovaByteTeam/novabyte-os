@@ -8,8 +8,14 @@ const localYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.get
 const localHM = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
 // An event starting `minutes` from now, shaped exactly like calendar's store.
+// +30s guard: start is formatted as local HH:MM (seconds truncated), so the
+// parsed start can land up to a full minute earlier than requested. Without
+// the guard, Math.round(msUntil/60000) flips between e.g. "Starts in 5 min"
+// and "Starts in 4 min" depending on the wall clock's current second — a
+// real flake. Adding half a minute keeps the floored start inside the same
+// rounding bucket for every possible current-second value.
 function eventInMinutes(id, minutes, extra = {}) {
-  const start = new Date(Date.now() + minutes * 60000);
+  const start = new Date(Date.now() + minutes * 60000 + 30000);
   return { id, date: localYMD(start), timeStart: localHM(start), title: `Event ${id}`, ...extra };
 }
 
