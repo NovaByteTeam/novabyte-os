@@ -13,6 +13,12 @@
  *   HKNS/apps/push                         — push tokens + replay queues  (REG_JSON)
  *   HKNS/apps/pushDeviceId                 — stable push device id        (REG_SZ)
  *   HKNS/apps/store/updateIntervalMinutes  — Store update check interval  (REG_DWORD)
+ *   HKNS/apps/store/lastNotifiedAt         — per-app update-notified map  (REG_JSON)
+ *   HKNS/apps/webapps                      — installed web-app payload    (REG_JSON)
+ *   HKNS/apps/builtin                      — built-in app registry cache  (REG_JSON [])
+ *   HKNS/apps/share/inbound                — share-target handoff queue   (REG_JSON)
+ *   HKNS/security/meta/lastSweep           — last unused-permission sweep (REG_QWORD)
+ *   HKND/_migration/permsBootstrapped      — one-time permission seed mark (REG_QWORD)
  *
  * Every accessor reads and writes the NovaByte Registry when it is up and
  * silently falls back to the legacy localStorage channel when it is not —
@@ -36,6 +42,12 @@
     push: 'HKNS/apps/push',
     pushDeviceId: 'HKNS/apps/pushDeviceId',
     storeUpdateInterval: 'HKNS/apps/store/updateIntervalMinutes',
+    storeNotified: 'HKNS/apps/store/lastNotifiedAt',
+    webApps: 'HKNS/apps/webapps',
+    builtinMeta: 'HKNS/apps/builtin',
+    shareInbound: 'HKNS/apps/share/inbound',
+    permLastSweep: 'HKNS/security/meta/lastSweep',
+    permsBootstrapped: 'HKND/_migration/permsBootstrapped',
   });
 
   // The pre-registry localStorage keys, kept for one-time adoption and as
@@ -47,6 +59,12 @@
     push: 'nova_app_push',
     pushDeviceId: 'nova_push_device_id',
     storeUpdateInterval: 'nova_store_update_interval_minutes',
+    storeNotified: 'nova_store_update_notified',
+    webApps: 'nova_web_apps',
+    builtinMeta: 'nova_registry_meta',
+    shareInbound: 'nova_share_inbound',
+    permLastSweep: 'nova_perm_last_sweep',
+    permsBootstrapped: 'nova_perms_bootstrapped',
   });
 
   function reg() {
@@ -70,6 +88,13 @@
     } catch (_) { return fallback; }
   }
 
+  function readNumber(key, fallback) {
+    const raw = lsGet(key);
+    if (raw === null || raw === undefined) return fallback;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  }
+
   let adopted = false;
 
   // One-time import of the legacy localStorage state into their live
@@ -89,6 +114,12 @@
         [PATHS.push]: readJson(LEGACY_KEYS.push, null),
         [PATHS.pushDeviceId]: lsGet(LEGACY_KEYS.pushDeviceId),
         [PATHS.storeUpdateInterval]: readJson(LEGACY_KEYS.storeUpdateInterval, null),
+        [PATHS.storeNotified]: readJson(LEGACY_KEYS.storeNotified, null),
+        [PATHS.webApps]: readJson(LEGACY_KEYS.webApps, null),
+        [PATHS.builtinMeta]: readJson(LEGACY_KEYS.builtinMeta, null),
+        [PATHS.shareInbound]: readJson(LEGACY_KEYS.shareInbound, null),
+        [PATHS.permLastSweep]: readNumber(LEGACY_KEYS.permLastSweep, null),
+        [PATHS.permsBootstrapped]: lsGet(LEGACY_KEYS.permsBootstrapped) === '1' ? Date.now() : null,
       };
       r.batch(() => {
         for (const [path, value] of Object.entries(legacy)) {
@@ -96,7 +127,9 @@
           if (r.stat(path) !== null) continue;
           const type = path === PATHS.storeUpdateInterval
             ? 'REG_DWORD'
-            : path === PATHS.pushDeviceId ? 'REG_SZ' : 'REG_JSON';
+            : path === PATHS.pushDeviceId ? 'REG_SZ'
+            : (path === PATHS.permLastSweep || path === PATHS.permsBootstrapped) ? 'REG_QWORD'
+            : 'REG_JSON';
           r.set(path, value, { type, source: 'sysstate-import' });
         }
         r.set(MIGRATION_GUARD, Date.now(), { type: 'REG_QWORD', source: 'sysstate-import' });
@@ -209,6 +242,80 @@
     return writeState(PATHS.storeUpdateInterval, 'REG_DWORD', minutes, LEGACY_KEYS.storeUpdateInterval, String(minutes));
   }
 
+  // ── Store update-notified map (appId -> version) ────────────────────────
+
+  function storeNotified() {
+    const value = readState(PATHS.storeNotified, () => readJson(LEGACY_KEYS.storeNotified, null));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+
+  function setStoreNotified(map) {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return false;
+    return writeState(PATHS.storeNotified, 'REG_JSON', map, LEGACY_KEYS.storeNotified);
+  }
+
+  // ── Web apps (web-app-manager payload { version, apps }) ───────────────
+
+  function webApps() {
+    const value = readState(PATHS.webApps, () => readJson(LEGACY_KEYS.webApps, null));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+
+  function setWebApps(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    return writeState(PATHS.webApps, 'REG_JSON', payload, LEGACY_KEYS.webApps);
+  }
+
+  // ── Built-in app registry cache (app-registry records) ─────────────────
+
+  function builtinMeta() {
+    const value = readState(PATHS.builtinMeta, () => readJson(LEGACY_KEYS.builtinMeta, null));
+    return Array.isArray(value) ? value : null;
+  }
+
+  function setBuiltinMeta(list) {
+    if (!Array.isArray(list)) return false;
+    return writeState(PATHS.builtinMeta, 'REG_JSON', list, LEGACY_KEYS.builtinMeta);
+  }
+
+  // ── Share-target inbound handoff queue (app-sandbox) ───────────────────
+
+  function shareInbound() {
+    const value = readState(PATHS.shareInbound, () => readJson(LEGACY_KEYS.shareInbound, null));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+
+  function setShareInbound(state) {
+    if (!state || typeof state !== 'object' || Array.isArray(state)) return false;
+    return writeState(PATHS.shareInbound, 'REG_JSON', state, LEGACY_KEYS.shareInbound);
+  }
+
+  // ── Permission sweep bookkeeping + one-time bootstrap marker ───────────
+
+  function permLastSweep() {
+    const value = readState(PATHS.permLastSweep, () => readNumber(LEGACY_KEYS.permLastSweep, 0));
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  }
+
+  function setPermLastSweep(ts) {
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) return false;
+    return writeState(PATHS.permLastSweep, 'REG_QWORD', ts, LEGACY_KEYS.permLastSweep, String(ts));
+  }
+
+  function permsBootstrapped() {
+    const value = readState(PATHS.permsBootstrapped, () => null);
+    if (value !== null && value !== undefined) return true;
+    return lsGet(LEGACY_KEYS.permsBootstrapped) === '1';
+  }
+
+  function markPermsBootstrapped() {
+    const ok = writeState(PATHS.permsBootstrapped, 'REG_QWORD', Date.now(), LEGACY_KEYS.permsBootstrapped, '1');
+    // The legacy key is a shadow, not a fallback-only channel: the bootstrap
+    // must be recognised even when only one stratum survived.
+    lsSet(LEGACY_KEYS.permsBootstrapped, '1');
+    return ok;
+  }
+
   const api = {
     PATHS,
     LEGACY_KEYS,
@@ -224,6 +331,18 @@
     setPushDeviceId,
     storeUpdateInterval,
     setStoreUpdateInterval,
+    storeNotified,
+    setStoreNotified,
+    webApps,
+    setWebApps,
+    builtinMeta,
+    setBuiltinMeta,
+    shareInbound,
+    setShareInbound,
+    permLastSweep,
+    setPermLastSweep,
+    permsBootstrapped,
+    markPermsBootstrapped,
     ensureAdopted,
     // Test hook: forget the in-session adoption flag between suites.
     _internal: { resetAdopted() { adopted = false; } },

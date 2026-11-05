@@ -125,3 +125,66 @@ describe('registry system state (js/platform/core/registry-system-state.js)', ()
     expect(localStorage.getItem('nova_push_device_id')).toBe('device-fallback1');
   });
 });
+
+describe('registry system state — machine inventories and service bookkeeping', () => {
+  beforeEach(() => {
+    resetTestStorage();
+    RegistrySystemState._internal.resetAdopted();
+    withWindowRegistry(freshRegistry());
+  });
+
+  it('adopts the inventory/bookkeeping legacy keys exactly once', () => {
+    localStorage.setItem('nova_web_apps', JSON.stringify({ version: 2, apps: [{ id: 'web:example' }] }));
+    localStorage.setItem('nova_registry_meta', JSON.stringify([{ id: 'com.nbosp.clock' }]));
+    localStorage.setItem('nova_share_inbound', JSON.stringify({ version: 1, apps: { 'com.a': [] } }));
+    localStorage.setItem('nova_store_update_notified', JSON.stringify({ 'com.a': '1.2.0' }));
+    localStorage.setItem('nova_perm_last_sweep', '1700000000000');
+    localStorage.setItem('nova_perms_bootstrapped', '1');
+
+    expect(RegistrySystemState.webApps()).toEqual({ version: 2, apps: [{ id: 'web:example' }] });
+    expect(NovaRegistry.get('HKNS/apps/webapps').apps).toHaveLength(1);
+    expect(RegistrySystemState.builtinMeta()).toEqual([{ id: 'com.nbosp.clock' }]);
+    expect(RegistrySystemState.shareInbound()).toEqual({ version: 1, apps: { 'com.a': [] } });
+    expect(RegistrySystemState.storeNotified()).toEqual({ 'com.a': '1.2.0' });
+    expect(RegistrySystemState.permLastSweep()).toBe(1700000000000);
+    expect(RegistrySystemState.permsBootstrapped()).toBe(true);
+    expect(NovaRegistry.stat('HKND/_migration/permsBootstrapped')).not.toBeNull();
+  });
+
+  it('round-trips every inventory through the hive', () => {
+    expect(RegistrySystemState.setWebApps({ version: 3, apps: [{ id: 'web:x' }] })).toBe(true);
+    expect(RegistrySystemState.webApps().version).toBe(3);
+
+    expect(RegistrySystemState.setBuiltinMeta([{ id: 'com.nbosp.settings' }])).toBe(true);
+    expect(RegistrySystemState.builtinMeta()).toHaveLength(1);
+
+    expect(RegistrySystemState.setShareInbound({ version: 1, apps: { 'com.b': [{ title: 'hi' }] } })).toBe(true);
+    expect(RegistrySystemState.shareInbound().apps['com.b']).toHaveLength(1);
+
+    expect(RegistrySystemState.setStoreNotified({ 'com.b': '2.0.0' })).toBe(true);
+    expect(RegistrySystemState.storeNotified()['com.b']).toBe('2.0.0');
+
+    expect(RegistrySystemState.setPermLastSweep(1700000001000)).toBe(true);
+    expect(RegistrySystemState.permLastSweep()).toBe(1700000001000);
+    expect(NovaRegistry.get('HKNS/security/meta/lastSweep')).toBe(1700000001000);
+  });
+
+  it('marks the permission bootstrap once and stays marked', () => {
+    expect(RegistrySystemState.permsBootstrapped()).toBe(false);
+    expect(RegistrySystemState.markPermsBootstrapped()).toBe(true);
+    // Registry marker AND legacy shadow both set.
+    expect(NovaRegistry.stat('HKND/_migration/permsBootstrapped')).not.toBeNull();
+    expect(localStorage.getItem('nova_perms_bootstrapped')).toBe('1');
+    expect(RegistrySystemState.permsBootstrapped()).toBe(true);
+  });
+
+  it('rejects malformed inventory writes', () => {
+    expect(RegistrySystemState.setWebApps([1])).toBe(false);
+    expect(RegistrySystemState.setBuiltinMeta({ id: 'x' })).toBe(false);
+    expect(RegistrySystemState.setShareInbound([])).toBe(false);
+    expect(RegistrySystemState.setStoreNotified(null)).toBe(false);
+    expect(RegistrySystemState.setPermLastSweep('1700000001000')).toBe(false);
+    expect(RegistrySystemState.webApps()).toBeNull();
+    expect(RegistrySystemState.builtinMeta()).toBeNull();
+  });
+});

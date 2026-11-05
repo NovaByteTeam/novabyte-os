@@ -409,15 +409,31 @@ const AppPermissionManager = (() => {
   }
 
   // Run the sweep at most once per day, deferred so it doesn't block init.
+  // The last-sweep stamp is registry-backed (HKNS/security/meta/lastSweep);
+  // the legacy localStorage key is the fallback when no engine is up.
   function scheduleSweep() {
-    const storage = getLocalStorage();
-    if (!storage) return;
-    const last = Number.parseInt(storage.getItem(SWEEP_KEY) ?? '0', 10);
-    if (!Number.isNaN(last) && Date.now() - last < MS_PER_DAY) return;
-    storage.setItem(SWEEP_KEY, String(Date.now()));
-    setTimeout(() => {
+    const runSoon = () => setTimeout(() => {
       sweepExpiredGrants().catch(e => console.error('[AppPermissionManager] sweep failed:', e));
     }, 5000);
+
+    // Registry-backed stamp when the engine is up.
+    if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+      try {
+        const last = RegistrySystemState.permLastSweep() || 0;
+        if (Date.now() - last >= MS_PER_DAY) {
+          RegistrySystemState.setPermLastSweep(Date.now());
+          runSoon();
+        }
+        return;
+      } catch (e) { /* fall back to the legacy channel */ }
+    }
+
+    const storage = getLocalStorage();
+    if (!storage) return;
+    const legacyLast = Number.parseInt(storage.getItem(SWEEP_KEY) ?? '0', 10);
+    if (!Number.isNaN(legacyLast) && Date.now() - legacyLast < MS_PER_DAY) return;
+    storage.setItem(SWEEP_KEY, String(Date.now()));
+    runSoon();
   }
 
   // Initialization

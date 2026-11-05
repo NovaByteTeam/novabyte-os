@@ -1807,10 +1807,15 @@ Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, 
 | Push tokens + replay queues, device id | `HKNS/apps/push`, `HKNS/apps/pushDeviceId` | `registry-system-state.js` via the sandbox (`nova:push:*`) |
 | Store update check interval | `HKNS/apps/store/updateIntervalMinutes` | `registry-system-state.js` via the update service |
 | Boot machine state (safe mode, recovery flags, boot attempts, watchdog doc, Home-launch handoff) | `HKNS/system/boot/*` | `registry-boot-state.js` (RegistryBootState) |
+| Installed web apps (PWA payload) | `HKNS/apps/webapps` | `registry-system-state.js` via `web-app-manager.js` |
+| Built-in app cache (AppRegistry records) | `HKNS/apps/builtin` | `registry-system-state.js` via `app-registry.js` |
+| Inbound share-target queue | `HKNS/apps/share/inbound` | `registry-system-state.js` via the sandbox |
+| Update notifications sent (appId → version) | `HKNS/apps/store/lastNotifiedAt` | `registry-system-state.js` via the update service |
+| Permission sweep stamp | `HKNS/security/meta/lastSweep` | `registry-system-state.js` via the permission manager |
 | Built-in app config (music prefs, browser settings, textedit word-wrap, email accounts, clock alarms) | `HKNA/<app-id>/...` | `app-config.js` (NovaAppConfig) |
 | Dev-tool config (Event Viewer filters/views/alert rules) | `HKND/events/*` | the Events app directly |
 
-Adoption guards: settings store under `HKND/_migration/registrySourceDone`, platform prefs under `HKND/_migration/prefsDone`, system state under `HKND/_migration/sysStateDone`, boot state under `HKND/_migration/bootFlags`, per-app config per path under `HKND/_migration/appConfig`. An adoption never clobbers a value that already exists in the hive, so a stale localStorage shadow can never beat the registry.
+Adoption guards: settings store under `HKND/_migration/registrySourceDone`, platform prefs under `HKND/_migration/prefsDone`, system state under `HKND/_migration/sysStateDone`, boot state under `HKND/_migration/bootFlags`, per-app config per path under `HKND/_migration/appConfig`, and the first-boot permission pre-grant under `HKND/_migration/permsBootstrapped`. An adoption never clobbers a value that already exists in the hive, so a stale localStorage shadow can never beat the registry.
 
 What deliberately stays **out** of the registry (Windows keeps these out of the registry too): bulk app data (contacts, calendar events, downloads history, email drafts, browser bookmarks/history, dev-console history). `customWallpaper` stays on the legacy channel as well (oversized for a hive value).
 

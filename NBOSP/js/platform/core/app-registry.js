@@ -132,6 +132,12 @@ const AppRegistry = (() => {
   function _saveToStorage() {
     try {
       if (typeof localStorage === 'undefined' || !localStorage) return;
+      // Registry-first (HKNS/apps/builtin via RegistrySystemState); the
+      // localStorage key is the adoption source and the fail-soft fallback.
+      if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+        try { if (RegistrySystemState.setBuiltinMeta([...installedApps.values()])) return; }
+        catch (e) { console.warn('[AppRegistry] registry save failed; using localStorage:', e); }
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify([...installedApps.values()]));
     } catch (e) {
       if (e.name !== 'SecurityError') {
@@ -154,7 +160,16 @@ const AppRegistry = (() => {
         }
         return;
       }
-      const raw = localStorage.getItem(STORAGE_KEY);
+      // Registry-first hydration (HKNS/apps/builtin); the legacy key is the
+      // adoption source and the fail-soft fallback.
+      let raw = null;
+      if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+        try {
+          const list = RegistrySystemState.builtinMeta();
+          if (list) raw = JSON.stringify(list);
+        } catch (e) { /* fall through to localStorage */ }
+      }
+      if (raw === null) raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const apps = JSON.parse(raw);
       for (const app of apps) {

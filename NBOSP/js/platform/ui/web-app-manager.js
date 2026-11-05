@@ -282,6 +282,18 @@ function readFromStorage() {
     return { version: SCHEMA_VERSION, apps: [] };
   }
 
+  // Registry-first (HKNS/apps/webapps via RegistrySystemState); the legacy
+  // localStorage key below is the one-time adoption source and the
+  // fail-soft fallback when no engine is up.
+  if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+    try {
+      const payload = RegistrySystemState.webApps();
+      if (payload) return migrateStoredData(payload);
+    } catch (error) {
+      log.warn('registry read failed; falling back to localStorage:', error);
+    }
+  }
+
   let raw;
   try {
     raw = localStorage.getItem(STORAGE_KEY);
@@ -325,6 +337,16 @@ function writeToStorage(payload) {
     serialized = JSON.stringify(payload);
   } catch (error) {
     throw new StorageError('Failed to serialize web apps', { cause: error });
+  }
+
+  // Registry-first (HKNS/apps/webapps). The localStorage write below stays
+  // as the fallback + adoption source for installs without the engine.
+  if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+    try {
+      if (RegistrySystemState.setWebApps(payload)) return;
+    } catch (error) {
+      log.warn('registry write failed; falling back to localStorage:', error);
+    }
   }
 
   try {

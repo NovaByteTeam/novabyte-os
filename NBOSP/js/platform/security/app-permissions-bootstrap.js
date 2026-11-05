@@ -9,7 +9,9 @@
  *  1. Defines the canonical permission map for every built-in app,
  *     split into NORMAL (auto-grant, no prompt) and DANGEROUS (prompt).
  *  2. On first boot: silently pre-grants all NORMAL permissions for
- *     all built-in apps. Stores nova_perms_bootstrapped so this only
+ *     all built-in apps. Stores the marker in the registry
+ *     (HKND/_migration/permsBootstrapped via RegistrySystemState; legacy
+ *     nova_perms_bootstrapped key kept in step) so this only
  *     ever runs once.
  *  3. Wraps OS.apps[id].init with a permission gate — when WM calls
  *     app.init(), the wrapper checks/requests permissions first, then
@@ -153,7 +155,15 @@
         count++;
       }
     }
-    try { localStorage.setItem(BOOTSTRAP_KEY, '1'); } catch { /* sandboxed */ }
+    try {
+      // Registry-backed marker (HKND/_migration/permsBootstrapped via
+      // RegistrySystemState); the legacy key stays in step as the shadow.
+      if (typeof RegistrySystemState !== 'undefined' && typeof window !== 'undefined' && window.NovaRegistry) {
+        RegistrySystemState.markPermsBootstrapped();
+      } else {
+        localStorage.setItem(BOOTSTRAP_KEY, '1');
+      }
+    } catch { /* sandboxed */ }
     _log('Pre-granted ' + count + ' normal permission(s)');
   }
 
@@ -192,9 +202,17 @@
     // System writes can run while an app is focused, so that check blamed
     // unrelated apps; sandbox filesystem requests use their explicit app id.
 
-    // First boot: pre-grant normal permissions silently
+    // First boot: pre-grant normal permissions silently. The marker is
+    // registry-backed (HKND/_migration/permsBootstrapped); the legacy key is
+    // the adoption source and the fallback when no engine is up.
     let isFirstBoot = false;
-    try { isFirstBoot = localStorage.getItem(BOOTSTRAP_KEY) !== '1'; } catch { /* sandboxed */ }
+    try {
+      if (typeof RegistrySystemState !== 'undefined' && typeof window !== 'undefined' && window.NovaRegistry) {
+        isFirstBoot = !RegistrySystemState.permsBootstrapped();
+      } else {
+        isFirstBoot = localStorage.getItem(BOOTSTRAP_KEY) !== '1';
+      }
+    } catch { /* sandboxed */ }
 
     if (isFirstBoot) {
       await _bootstrapNormalPermissions();

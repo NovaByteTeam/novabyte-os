@@ -7633,6 +7633,14 @@ const AppSandbox = (() => {
   }
 
   function loadShareQueue() {
+    // Registry-first (HKNS/apps/share/inbound via RegistrySystemState); the
+    // localStorage key is the adoption source and the fail-soft fallback.
+    if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+      try {
+        const stored = RegistrySystemState.shareInbound();
+        if (stored && stored.apps && typeof stored.apps === 'object') return stored;
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       const parsed = JSON.parse(localStorage.getItem(SHARE_TARGET_QUEUE_KEY) || '{}');
       if (parsed && typeof parsed === 'object' && parsed.apps && typeof parsed.apps === 'object') return parsed;
@@ -7641,6 +7649,9 @@ const AppSandbox = (() => {
   }
 
   function saveShareQueue(state) {
+    if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+      try { if (RegistrySystemState.setShareInbound(state)) return; } catch (_) { /* fall through */ }
+    }
     try { localStorage.setItem(SHARE_TARGET_QUEUE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
   }
 

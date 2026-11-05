@@ -104,6 +104,14 @@
   }
 
   function getNotifiedVersions() {
+    // Registry-first (HKNS/apps/store/lastNotifiedAt); the localStorage key
+    // is the adoption source and the fail-soft fallback.
+    if (typeof window !== 'undefined' && window.RegistrySystemState?.storeNotified) {
+      try {
+        const stored = window.RegistrySystemState.storeNotified();
+        if (stored) return stored;
+      } catch (_) { /* fall through */ }
+    }
     try {
       const value = JSON.parse(localStorage.getItem(NOTIFIED_KEY) || '{}');
       return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -184,7 +192,11 @@
 
       if (notificationHistoryChanged) {
         try {
-          localStorage.setItem(NOTIFIED_KEY, JSON.stringify(notified));
+          if (typeof window !== 'undefined' && window.RegistrySystemState?.setStoreNotified) {
+            window.RegistrySystemState.setStoreNotified(notified);
+          } else {
+            localStorage.setItem(NOTIFIED_KEY, JSON.stringify(notified));
+          }
         } catch (error) {
           console.error('[StoreUpdateService] Could not save update notification history:', error);
         }
