@@ -189,16 +189,27 @@ registerApp({
     }
 
     // ── Persisted command history (↑/↓ navigation) ──────────────────────
-    // Scoped key to avoid collision with other apps' localStorage usage
-    // (calendar/contacts/etc. all write to their own plain-string keys via
-    // lsSave, confirmed in base-utils.js — there's no enforced namespace,
-    // so this app needs its own distinct key).
+    // Lives in the dev hive (HKND/console/history — same home as the Event
+    // Viewer's filters/views); the scoped localStorage key is the pre-
+    // registry seed and the fail-soft fallback.
     const HISTORY_KEY = 'nbosp_devconsole_history';
+    const HISTORY_REG_PATH = 'HKND/console/history';
     const MAX_HISTORY = 100;
+    function devReg() {
+      return (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+        ? window.NovaRegistry : null;
+    }
     let cmdHistory = [];
     try {
-      const raw = localStorage.getItem(HISTORY_KEY);
-      if (raw) cmdHistory = JSON.parse(raw);
+      const r = devReg();
+      let raw = null;
+      if (r) { try { raw = r.get(HISTORY_REG_PATH); } catch (_) { raw = null; } }
+      if (raw === null || raw === undefined) {
+        raw = localStorage.getItem(HISTORY_KEY);
+        if (raw) cmdHistory = JSON.parse(raw);
+      } else {
+        cmdHistory = raw;
+      }
       if (!Array.isArray(cmdHistory)) cmdHistory = [];
     } catch {
       cmdHistory = [];
@@ -208,6 +219,11 @@ registerApp({
 
     function saveHistory() {
       try {
+        const r = devReg();
+        if (r) {
+          try { r.set(HISTORY_REG_PATH, cmdHistory, { type: 'REG_JSON', source: 'devconsole' }); return; }
+          catch (_) { /* fall through to legacy */ }
+        }
         if (typeof lsSave === 'function') lsSave(HISTORY_KEY, cmdHistory);
         else localStorage.setItem(HISTORY_KEY, JSON.stringify(cmdHistory));
       } catch {

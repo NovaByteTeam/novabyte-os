@@ -34,12 +34,14 @@ registerApp({
 
     // Dev-tool config lives in the dev hive (HKND/events/* — same home as
     // the debug overlay position); localStorage is the pre-registry seed
-    // and the fail-soft fallback. Session history stays app state (LS).
+    // and the fail-soft fallback. Session history is bookkeeping, not bulk
+    // data, so it rides the same hive path (HKND/events/sessions).
     const VIEWS_STORAGE_KEY = 'nova_events_views';
     const ALERTS_STORAGE_KEY = 'nova_events_alerts';
     const SESSION_STORAGE_KEY = 'nova_events_sessions';
     const VIEWS_REG_PATH = 'HKND/events/views';
     const ALERTS_REG_PATH = 'HKND/events/alerts';
+    const SESSION_REG_PATH = 'HKND/events/sessions';
 
     let savedViews = [];
     let alertRules = [];
@@ -727,11 +729,11 @@ registerApp({
       const sid = getCurrentSessionId();
       currentSessionId = sid;
       try {
-        const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+        const sessions = readDevJson(SESSION_REG_PATH, SESSION_STORAGE_KEY, []);
         const existing = sessions.find(s => s.id === sid);
         if (!existing) {
           sessions.push({ id: sid, startedAt: Date.now(), eventCount: 0 });
-          localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions.slice(-20)));
+          writeDevJson(SESSION_REG_PATH, SESSION_STORAGE_KEY, sessions.slice(-20));
         }
       } catch {}
     }
@@ -761,7 +763,7 @@ registerApp({
 
     async function openCompareModal() {
       let sessions = [];
-      try { sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]'); } catch {}
+      try { sessions = readDevJson(SESSION_REG_PATH, SESSION_STORAGE_KEY, []); } catch {}
       if (sessions.length < 2) { await showModal('Compare sessions', 'Need at least 2 sessions recorded to compare.'); return; }
 
       const picker = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto;' });

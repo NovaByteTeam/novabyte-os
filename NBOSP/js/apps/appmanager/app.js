@@ -1277,7 +1277,7 @@ registerApp({
       'com.nbosp.sysaccess',
       'com.nbosp.launcher',
     ]);
-    const LOG_KEY = 'nova_appmanager_log';
+    const LOG_KEY = 'nova_appmanager_log'; // legacy seed + fallback; live path is HKND/appmanager/log
 
     // ── AbortController for clean teardown of all listeners ──
     const ac = new AbortController();
@@ -1365,7 +1365,17 @@ registerApp({
       }
     }
 
+    // Install log lives in the dev hive (HKND/appmanager/log); the scoped
+    // localStorage key is the pre-registry seed and the fail-soft fallback.
     function getLog() {
+      const r = (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+        ? window.NovaRegistry : null;
+      if (r) {
+        try {
+          const stored = r.get('HKND/appmanager/log');
+          if (stored !== undefined) return Array.isArray(stored) ? stored : [];
+        } catch { /* fall through to legacy */ }
+      }
       try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }
       catch { return []; }
     }
@@ -1374,7 +1384,15 @@ registerApp({
       const log = getLog();
       log.unshift({ ...entry, ts: Date.now() });
       if (log.length > 200) log.length = 200;
-      try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+      try {
+        const r = (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+          ? window.NovaRegistry : null;
+        if (r) {
+          try { r.set('HKND/appmanager/log', log, { type: 'REG_JSON', source: 'appmanager' }); return; }
+          catch { /* fall through to legacy */ }
+        }
+        localStorage.setItem(LOG_KEY, JSON.stringify(log));
+      }
       catch { /* quota — discard oldest silently */ }
     }
 

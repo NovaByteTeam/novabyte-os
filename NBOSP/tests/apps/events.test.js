@@ -34,7 +34,7 @@ function evt(over = {}) {
   };
 }
 
-async function loadEvents({ devMode = true, withEventLog = makeEventLog() } = {}) {
+async function loadEvents({ devMode = true, withEventLog = makeEventLog(), registry = null } = {}) {
   const showModal = vi.fn((title, body) => {
     const box = window.document.createElement('div');
     box.dataset.testModal = String(title);
@@ -56,6 +56,7 @@ async function loadEvents({ devMode = true, withEventLog = makeEventLog() } = {}
         Notify: { show: vi.fn() },
         showModal,
         showPrompt,
+        ...(registry ? { NovaRegistry: registry } : {}),
         ...(withEventLog ? { EventLog: withEventLog } : {}),
       },
     },
@@ -267,5 +268,21 @@ describe('Events app (js/apps/events)', () => {
     expect(sessions).toHaveLength(1);
     expect(sessions[0].id).toMatch(/^session_\d{4}-\d{2}-\d{2}_\d{4}$/);
     expect(typeof sessions[0].startedAt).toBe('number');
+  });
+
+  it('records sessions into HKND/events/sessions when the registry engine is up', async () => {
+    const store = new Map();
+    const registry = {
+      get: (p) => (store.has(p) ? JSON.parse(JSON.stringify(store.get(p))) : undefined),
+      set: (p, v) => { store.set(p, JSON.parse(JSON.stringify(v))); return true; },
+      stat: (p) => (store.has(p) ? { name: '(default)', type: 'REG_JSON' } : null),
+    };
+    const { window } = await loadEvents({ withEventLog: makeEventLog(), registry });
+    const sessions = store.get('HKND/events/sessions');
+    expect(Array.isArray(sessions)).toBe(true);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toMatch(/^session_\d{4}-\d{2}-\d{2}_\d{4}$/);
+    // The legacy key stays untouched while the hive is up.
+    expect(window.localStorage.getItem('nova_events_sessions')).toBeNull();
   });
 });

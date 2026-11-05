@@ -52,10 +52,26 @@ registerApp({
     // that hides everything before it. Persisted so it survives closing
     // and reopening the app, same storage pattern as modules.js.
     const LOG_CUTOFF_KEY = 'nbosp_permissions_log_cutoff';
+    const LOG_CUTOFF_REG_PATH = 'HKND/com.nbosp.permissions/logCutoff'; // live path; the LS key is the seed + fallback
+    function permsReg() {
+      return (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+        ? window.NovaRegistry : null;
+    }
     let logCutoff = 0;
-    try { logCutoff = Number(localStorage.getItem(LOG_CUTOFF_KEY)) || 0; } catch { /* best-effort */ }
+    try {
+      const r = permsReg();
+      let stored = null;
+      if (r) { try { stored = r.get(LOG_CUTOFF_REG_PATH); } catch { stored = null; } }
+      if (stored === null || stored === undefined) stored = Number(localStorage.getItem(LOG_CUTOFF_KEY)) || 0;
+      logCutoff = Number(stored) || 0;
+    } catch { /* best-effort */ }
     function saveLogCutoff() {
       try {
+        const r = permsReg();
+        if (r) {
+          try { r.set(LOG_CUTOFF_REG_PATH, logCutoff, { type: 'REG_QWORD', source: 'permissions-app' }); return; }
+          catch { /* fall through to legacy */ }
+        }
         if (typeof lsSave === 'function') lsSave(LOG_CUTOFF_KEY, logCutoff);
         else localStorage.setItem(LOG_CUTOFF_KEY, String(logCutoff));
       } catch { /* best-effort, same degrade-silently pattern as elsewhere */ }

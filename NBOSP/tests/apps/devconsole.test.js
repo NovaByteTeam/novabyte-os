@@ -183,4 +183,38 @@ describe('Console app (js/apps/devconsole)', () => {
     clearBtn.click();
     expect(output.textContent).toBe('');
   });
+
+  it('persists command history into HKND/console/history when the registry engine is up', async () => {
+    const store = new Map();
+    const registry = {
+      get: (p) => (store.has(p) ? JSON.parse(JSON.stringify(store.get(p))) : undefined),
+      set: (p, v) => { store.set(p, JSON.parse(JSON.stringify(v))); return true; },
+      stat: (p) => (store.has(p) ? { name: '(default)', type: 'REG_JSON' } : null),
+    };
+    const loaded = await loadWindowApp('devconsole', {
+      stubs: { extra: { OS: makeOS(true), Notify: { show: vi.fn() }, NovaRegistry: registry } },
+    });
+    const { app, window } = loaded;
+    const state = { cleanups: [] };
+    const content = initApp(app, { window, state });
+    await runCommand(window, content, 'hive one');
+    await runCommand(window, content, 'hive two');
+
+    const saved = store.get('HKND/console/history');
+    expect(Array.isArray(saved)).toBe(true);
+    expect(saved).toContain('hive one');
+    expect(saved).toContain('hive two');
+    // The legacy key stays untouched while the hive is up.
+    expect(window.localStorage.getItem(HISTORY_KEY)).toBeNull();
+
+    // A fresh app instance hydrates its history from the hive.
+    const second = await loadWindowApp('devconsole', {
+      stubs: { extra: { OS: makeOS(true), Notify: { show: vi.fn() }, NovaRegistry: registry } },
+    });
+    const state2 = { cleanups: [] };
+    const content2 = initApp(second.app, { window: second.window, state: state2 });
+    const input2 = content2.querySelector('textarea');
+    input2.dispatchEvent(new second.window.KeyboardEvent('keydown', { key: 'ArrowUp' }));
+    expect(input2.value).toBe('hive two');
+  });
 });

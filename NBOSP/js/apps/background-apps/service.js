@@ -45,7 +45,7 @@
 
   /* ---------------------------- Clock service ---------------------------- */
   if (!bgRoot.clock) {
-    const STATE_KEY = 'nbosp_clock_state_v2';
+    const STATE_KEY = 'nbosp_clock_state_v2'; // legacy seed + fallback; live path is HKNA/com.nbosp.clock/state
     const ALARMS_KEY = 'nbosp_clock_v1';
 
     const defaults = () => ({
@@ -54,7 +54,16 @@
       lastAlarmMinute: ''
     });
 
-    let state = safeJSONParse(localStorage.getItem(STATE_KEY), null) || defaults();
+    // Registry-backed (HKNA/com.nbosp.clock/state via NovaAppConfig); the
+    // localStorage key is the pre-registry seed and the fail-soft fallback.
+    let state = null;
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        state = window.NovaAppConfig.get('com.nbosp.clock', 'state', { legacyKey: STATE_KEY, fallback: null });
+      } catch (_) { state = null; }
+    }
+    if (state === null || state === undefined) state = safeJSONParse(localStorage.getItem(STATE_KEY), null);
+    if (!state || typeof state !== 'object') state = defaults();
 
     function normaliseState() {
       state.timer = state.timer || {};
@@ -76,6 +85,12 @@
 
     function persist() {
       normaliseState();
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          window.NovaAppConfig.set('com.nbosp.clock', 'state', state, { legacyKey: STATE_KEY });
+          return;
+        } catch (_) { /* fall through to legacy */ }
+      }
       lsSave(STATE_KEY, state);
     }
 

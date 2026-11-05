@@ -1812,8 +1812,8 @@ Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, 
 | Inbound share-target queue | `HKNS/apps/share/inbound` | `registry-system-state.js` via the sandbox |
 | Update notifications sent (appId → version) | `HKNS/apps/store/lastNotifiedAt` | `registry-system-state.js` via the update service |
 | Permission sweep stamp | `HKNS/security/meta/lastSweep` | `registry-system-state.js` via the permission manager |
-| Built-in app config (music prefs, browser settings, textedit word-wrap, email accounts, clock alarms) | `HKNA/<app-id>/...` | `app-config.js` (NovaAppConfig) |
-| Dev-tool config (Event Viewer filters/views/alert rules) | `HKND/events/*` | the Events app directly |
+| Built-in app config (music prefs, browser settings, textedit word-wrap, email accounts, clock alarms + clock timer/stopwatch state, modules manager list + safety overrides) | `HKNA/<app-id>/...` | `app-config.js` (NovaAppConfig) |
+| Dev-tool config (Event Viewer filters/views/alert rules/session history, dev Console history, App Manager install log, Permissions consent-log cutoff) | `HKND/events/*`, `HKND/console/history`, `HKND/appmanager/log`, `HKND/com.nbosp.permissions/logCutoff` | the owning dev apps directly |
 
 Adoption guards: settings store under `HKND/_migration/registrySourceDone`, platform prefs under `HKND/_migration/prefsDone`, system state under `HKND/_migration/sysStateDone`, boot state under `HKND/_migration/bootFlags`, per-app config per path under `HKND/_migration/appConfig`, and the first-boot permission pre-grant under `HKND/_migration/permsBootstrapped`. An adoption never clobbers a value that already exists in the hive, so a stale localStorage shadow can never beat the registry.
 
