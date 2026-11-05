@@ -1041,9 +1041,10 @@ async function ga9() {
   const mgrSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'js', 'platform', 'security', 'app-permission-manager.js'), 'utf8');
 
   // 1) The documented permission table matches the manager catalog exactly.
+  //    [a-z.:-] — dotted names like registry.read are real permissions too.
   const mgrBlock = mgrSrc.match(/const PERMISSION_TYPES = Object\.freeze\(\{([\s\S]*?)\n\s*\}\)/);
-  const mgrPerms = [...mgrBlock[1].matchAll(/:\s*'([a-z:-]+)'/g)].map((x) => x[1]);
-  const docRows = [...doc.matchAll(/^\| \`([a-z:-]+)\` \| (Filesystem|Apps|Network|Email|Calendar|Contacts|Device|Data|System|Admin|Sandbox) \|/gm)].map((x) => x[1]);
+  const mgrPerms = [...mgrBlock[1].matchAll(/:\s*'([a-z.:-]+)'/g)].map((x) => x[1]);
+  const docRows = [...doc.matchAll(/^\| \`([a-z.:-]+)\` \| (Filesystem|Apps|Network|Email|Calendar|Contacts|Device|Data|System|Admin|Sandbox) \|/gm)].map((x) => x[1]);
   check(`doc permission table (${docRows.length}) matches manager catalog (${mgrPerms.length})`,
     docRows.length === mgrPerms.length && docRows.every((p) => mgrPerms.includes(p)),
     `doc-only: ${docRows.filter((p) => !mgrPerms.includes(p)).join(',')} | mgr-only: ${mgrPerms.filter((p) => !docRows.includes(p)).join(',')}`);
@@ -1058,14 +1059,14 @@ async function ga9() {
   // system:events plus every domain grant the doc table's tiered rows
   // require (mail/calendar/contact events need their domain read; the
   // WebSocket push rows need net:websocket instead of system:events).
-  for (const p of ['system:events', 'mail:read', 'calendar:read', 'contacts:read', 'net:websocket']) {
+  for (const p of ['system:events', 'mail:read', 'calendar:read', 'contacts:read', 'net:websocket', 'registry.read']) {
     await grant(p, appId09);
   }
   // Event-table rows only, parsed inside the "### Event bus" section so the
   // permission and background-execution tables can't leak in.
   const eventSection = doc.match(/### Event bus[\s\S]*?(?=\n### )/);
   const docEvents = eventSection
-    ? [...eventSection[0].matchAll(/^\| \`((?:system|app|mail|calendar|contacts|nova:net:ws):[a-zA-Z:]+)\` \|/gm)].map((x) => x[1])
+    ? [...eventSection[0].matchAll(/^\| \`((?:system|app|mail|calendar|contacts|nova:net:ws|nova:reg):[a-zA-Z:]+)\` \|/gm)].map((x) => x[1])
     : [];
   let notSubscribable = [];
   for (const ev of docEvents) {

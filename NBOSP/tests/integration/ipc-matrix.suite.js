@@ -138,6 +138,16 @@ const MATRIX = [
 
   ['nova:settings:get', ['system:info'], { key: 'username' }],
   ['nova:settings:set', ['system:settings'], { key: 'theme', value: 'dark' }],
+  // NovaByte Registry rows: reads gate on registry.read, writes on
+  // registry.write. Paths stay inside HKNA/com.matrix.app/... so the
+  // P3 denied-rewrite (app id swapped) keeps every caller inside its OWN
+  // subtree — the denial is the MAC front door, never the per-hive rule.
+  ['nova:reg:get', ['registry.read'], { path: 'HKNA/com.matrix.app/volume' }],
+  ['nova:reg:list', ['registry.read'], { path: 'HKNA/com.matrix.app' }],
+  ['nova:reg:export', ['registry.read'], { path: 'HKNA/com.matrix.app' }],
+  ['nova:reg:set', ['registry.write'], { path: 'HKNA/com.matrix.app/volume', value: 80 }],
+  ['nova:reg:delete', ['registry.write'], { path: 'HKNA/com.matrix.app/volume' }],
+  ['nova:reg:import', ['registry.write'], { path: 'HKNA/com.matrix.app', data: { keys: {}, values: {} } }],
   ['nova:clipboard:read', ['clipboard:read'], {}],
   ['nova:clipboard:write', ['clipboard:write'], { text: 'x' }],
   // Locale is ungated (advisory) — no matrix row on purpose; P1 fuzzes it.

@@ -140,6 +140,43 @@ global.AppPermissionManager = AppPermissionManager;
 const AppSecrets = require(path.join(NBOSP, 'js/platform/security/app-secrets.js'));
 global.AppSecrets = AppSecrets;
 
+// ── load the real NovaByte Registry engine (window.NovaRegistry) ──
+// The nova:reg:* handlers resolve window.NovaRegistry at request time; give
+// them the REAL engine over an in-memory store so the matrix exercises the
+// full storage/quota path without touching disk (or the localStorage state
+// other suites assert on). resetHost() re-inits it, same as OS/FS.
+const regStore = new Map();
+const NovaRegistry = require(path.join(NBOSP, 'js/platform/core/nova-registry.js'));
+const registryEvents = {
+  _m: Object.create(null),
+  on(event, fn) { (this._m[event] = this._m[event] || []).push(fn); },
+  off(event, fn) {
+    const list = this._m[event];
+    if (list) { const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); }
+  },
+  emit(event, data) {
+    const list = (this._m[event] || []).slice();
+    for (const fn of list) { try { fn(data); } catch (_) {} }
+  },
+};
+const registryStorage = {
+  loadAll() {
+    const out = {};
+    for (const hive of NovaRegistry.HIVES) {
+      out[hive] = regStore.has(hive) ? JSON.parse(regStore.get(hive)) : null;
+    }
+    return out;
+  },
+  save(hive, data) { regStore.set(hive, JSON.stringify(data)); },
+};
+function resetRegistry() {
+  regStore.clear();
+  NovaRegistry.init({ storage: registryStorage, events: registryEvents, logger: console });
+}
+resetRegistry();
+global.window.NovaRegistry = NovaRegistry;
+global.__registryEvents = registryEvents;
+
 // ── load the real notifications service (sets window.Notify) ──
 const svcSource = fs.readFileSync(path.join(NBOSP, 'js/apps/notifications/service.js'), 'utf8');
 // Indirect eval runs it in global scope with the stubs above in place.
@@ -319,6 +356,7 @@ function resetHost() {
   global.OS = freshOS();
   global.FS = createFakeFS();
   global.EventLog.clear();
+  resetRegistry();
   for (const k of [...lsMap.keys()]) {
     if (k.startsWith('novaOS_notif')) lsMap.delete(k);
   }
@@ -326,7 +364,7 @@ function resetHost() {
 }
 
 module.exports = {
-  AppSandbox, AppPermissionManager, AppSecrets, Notify,
+  AppSandbox, AppPermissionManager, AppSecrets, Notify, NovaRegistry,
   makeApp, makeWebview, makeSandbox, call, grant, revoke, resetHost, registerActive,
   fetchCalls,
   state: {
