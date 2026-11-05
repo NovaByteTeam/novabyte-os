@@ -99,6 +99,21 @@ describe('nova:reg:* sandbox handlers', () => {
     expect(miss.result).toMatchObject({ found: false, path: 'HKNU/probe/nope' });
   });
 
+  it('lists a value path as a leaf instead of NOT_FOUND (list covers the get path space)', async () => {
+    grants.add('registry.read');
+    NovaRegistry.set('HKNS/shell/theme', 'nova-dark');
+
+    // A path that names a VALUE must list — get/stat accept it, so a plain
+    // list() used to fail with "no such key" for the exact same path.
+    const hit = await call('nova:reg:list', { path: 'HKNS/shell/theme' }, plainApp);
+    expect(hit.result).toMatchObject({ path: 'HKNS/shell/theme', keys: [] });
+    expect(hit.result.values.theme).toMatchObject({ type: 'REG_SZ', data: 'nova-dark' });
+
+    // Unknown paths still report NOT_FOUND.
+    const miss = await call('nova:reg:list', { path: 'HKNS/shell/ghost' }, plainApp);
+    expect(code(miss)).toBe('NOT_FOUND');
+  });
+
   it('blocks the HKNS/security subtree without registry.system, allows it with', async () => {
     grants.add('registry.read');
     NovaRegistry.set('HKNS/security/policy/prohibitWallpaperChange', false, { type: 'REG_BOOL' });

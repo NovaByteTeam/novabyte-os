@@ -977,10 +977,29 @@ const NovaRegistry = (() => {
   // Lists a KEY path (zero segments lists the hive root). Returns sorted key
   // names and a shallow copy of the values map. Link keys are followed: the
   // listing shows the target's content plus a `link` field naming it.
+  // get/set/stat also address the VALUE named by a path's last segment, so
+  // listing such a path must succeed too: it comes back as a leaf listing
+  // (no child keys, a values map holding just that entry) — the `reg query
+  // <path> /v <name>` behavior — instead of a spurious "no such key".
+  // Value wins when a key and a value share the last segment, matching
+  // resolveValueTarget so list() mirrors what get() on the path returns.
   function list(path) {
     ensureReady();
     const parsed = parsePath(path);
     if (parsed.error) throw regError(parsed.error, parsed.message);
+    const name = parsed.segments[parsed.segments.length - 1];
+    const parent = parsed.segments.length >= 1
+      ? resolveNode(state.hives, parsed.hive, parsed.segments.slice(0, -1), { followLinks: true })
+      : null;
+    if (parent && parent.node.values[name] !== undefined) {
+      const out = {
+        path: parsed.path,
+        keys: [],
+        values: JSON.parse(JSON.stringify({ [name]: parent.node.values[name] })),
+      };
+      if (parent.link) out.link = parent.link;
+      return out;
+    }
     const resolved = resolveNode(state.hives, parsed.hive, parsed.segments, { followLinks: true });
     if (!resolved) return null;
     const out = {

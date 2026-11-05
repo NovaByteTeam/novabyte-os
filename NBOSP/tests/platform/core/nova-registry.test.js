@@ -160,6 +160,33 @@ describe('NovaByte Registry engine (js/platform/core/nova-registry.js)', () => {
     expect(Reg.list('HKNU/missing')).toBeNull();
   });
 
+  it('lists a VALUE path as a leaf — list accepts every path get accepts', () => {
+    // get/set/stat address the value named by the last segment; list() used
+    // to refuse those paths with NOT_FOUND ("no such key"). It must mirror
+    // resolveValueTarget instead: same path space, value wins.
+    Reg.set('HKNS/shell/theme', 'nova-dark');
+    const leaf = Reg.list('HKNS/shell/theme');
+    expect(leaf.path).toBe('HKNS/shell/theme');
+    expect(leaf.keys).toEqual([]);
+    expect(leaf.values.theme).toMatchObject({ type: 'REG_SZ', data: 'nova-dark' });
+
+    // A KEY path still lists the whole node (child keys + value entries).
+    Reg.set('HKNS/shell/other', 1);
+    const key = Reg.list('HKNS/shell');
+    expect(key.keys).toEqual([]);
+    expect(Object.keys(key.values).sort()).toEqual(['other', 'theme']);
+
+    // A value reached through a link resolves like get() and names the link.
+    Reg.setLink('HKNU/alias', 'HKNS/shell');
+    const viaLink = Reg.list('HKNU/alias/theme');
+    expect(viaLink.values.theme.data).toBe('nova-dark');
+    expect(viaLink.link).toBe('HKNS/shell');
+
+    // Genuinely unknown paths stay null (NOT_FOUND at the IPC layer).
+    expect(Reg.list('HKNS/shell/ghost')).toBeNull();
+    expect(Reg.list('HKNS/shell/theme/deep')).toBeNull();
+  });
+
   it('exports and imports subtrees (merge semantics, imported wins)', () => {
     Reg.set('HKNA/com.a/src/one', '1');
     Reg.set('HKNA/com.a/src/two', '2');
