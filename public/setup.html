@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add Email Account - NovaByte Bridge</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+    .container { width: 100%; max-width: 480px; padding: 20px; position: relative; z-index: 100; }
+    .card {
+      background: rgba(22, 27, 34, 0.95);
+      border: 1px solid rgba(240, 246, 252, 0.1);
+      border-radius: 16px;
+      padding: 32px;
+      position: relative;
+      z-index: 1;
+    }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    .subtitle { color: rgba(255,255,255,0.5); margin-bottom: 24px; font-size: 14px; }
+    
+    .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+    .provider {
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 16px 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .provider:hover { background: rgba(255,255,255,0.12); }
+    .provider.selected { border-color: #58a6ff; background: rgba(88,166,255,0.15); }
+    .provider-icon { font-size: 28px; margin-bottom: 8px; }
+    .provider-name { font-size: 12px; font-weight: 500; }
+    .provider-auth { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 4px; }
+    
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    input { 
+      width: 100%; padding: 12px 16px; 
+      background: rgba(255,255,255,0.1); 
+      border: 1px solid rgba(255,255,255,0.15); 
+      border-radius: 8px; 
+      color: #fff; font-size: 14px;
+      outline: none; transition: border 0.15s;
+    }
+    input:focus { border-color: #58a6ff; }
+    input::placeholder { color: rgba(255,255,255,0.3); }
+    
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    
+    .btn {
+      width: 100%; padding: 14px;
+      background: #58a6ff;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      position: relative;
+      z-index: 10;
+      pointer-events: auto;
+    }
+    .btn:hover { background: #4393e6; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+    
+    .btn-secondary {
+      background: rgba(255,255,255,0.1);
+      margin-top: 12px;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+    
+    .error { color: #ff6b6b; font-size: 12px; margin-top: 8px; display: none; }
+    .success { color: #3fb950; font-size: 14px; margin-top: 16px; text-align: center; display: none; }
+    
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .hidden { display: none !important; }
+    
+    .info-box {
+      background: rgba(255,255,255,0.05);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: rgba(255,255,255,0.7);
+    }
+    .info-box a { color: #58a6ff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>📧 Add Email Account</h1>
+      <p class="subtitle">Connect your email via NovaByte Bridge</p>
+      
+      <!-- Provider Selection -->
+      <div id="step-provider">
+        <div class="provider-grid">
+          <div class="provider selected" data-provider="gmail">
+            <div class="provider-icon">📧</div>
+            <div class="provider-name">Gmail</div>
+            <div class="provider-auth">OAuth2</div>
+          </div>
+          <div class="provider" data-provider="outlook">
+            <div class="provider-icon">📨</div>
+            <div class="provider-name">Outlook</div>
+            <div class="provider-auth">OAuth2</div>
+          </div>
+          <div class="provider" data-provider="office365">
+            <div class="provider-icon">🏢</div>
+            <div class="provider-name">Microsoft</div>
+            <div class="provider-auth">OAuth2</div>
+          </div>
+          <div class="provider" data-provider="icloud">
+            <div class="provider-icon">☁️</div>
+            <div class="provider-name">iCloud</div>
+            <div class="provider-auth">App Password</div>
+          </div>
+          <div class="provider" data-provider="yahoo">
+            <div class="provider-icon">📮</div>
+            <div class="provider-name">Yahoo</div>
+            <div class="provider-auth">App Password</div>
+          </div>
+          <div class="provider" data-provider="proton">
+            <div class="provider-icon">🔒</div>
+            <div class="provider-name">Proton</div>
+            <div class="provider-auth">Bridge</div>
+          </div>
+        </div>
+        
+        <button class="btn" id="btn-oauth" onclick="startOAuth()">Continue with OAuth</button>
+        <button class="btn btn-secondary" id="btn-manual" onclick="showManualForm()">Use App Password / Manual</button>
+      </div>
+      
+      <!-- Manual / App Password Form -->
+      <div id="step-manual" class="hidden">
+        <div class="info-box" id="provider-info">
+          Enter your credentials to connect.
+        </div>
+        
+        <div class="form-group">
+          <label>Email Address</label>
+          <input type="email" id="input-email" placeholder="you@example.com">
+        </div>
+        
+        <div class="form-group" id="group-password">
+          <label>Password / App Password</label>
+          <input type="password" id="input-password" placeholder="Enter password">
+        </div>
+        
+        <div class="hidden" id="imap-fields">
+          <div class="row">
+            <div class="form-group">
+              <label>IMAP Host</label>
+              <input type="text" id="input-imap-host" placeholder="imap.example.com">
+            </div>
+            <div class="form-group">
+              <label>IMAP Port</label>
+              <input type="number" id="input-imap-port" value="993">
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>SMTP Host</label>
+              <input type="text" id="input-smtp-host" placeholder="smtp.example.com">
+            </div>
+            <div class="form-group">
+              <label>SMTP Port</label>
+              <input type="number" id="input-smtp-port" value="587">
+            </div>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>Account Name (optional)</label>
+          <input type="text" id="input-name" placeholder="My Email">
+        </div>
+        
+        <button class="btn" id="btn-connect">Connect Account</button>
+        <button class="btn btn-secondary" id="btn-back">← Back to Providers</button>
+        
+        <div class="error" id="error-msg"></div>
+        <div class="success" id="success-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedProvider = 'gmail';
+    const providers = {
+      gmail: { name: 'Gmail', oauth: true, imap: 'imap.gmail.com', smtp: 'smtp.gmail.com', info: 'Use your Google account. OAuth2 is secure and recommended.' },
+      outlook: { name: 'Outlook', oauth: true, imap: 'outlook.office365.com', smtp: 'smtp.office365.com', info: 'Use your Microsoft account. OAuth2 is secure and recommended.' },
+      office365: { name: 'Microsoft 365', oauth: true, imap: 'outlook.office365.com', smtp: 'smtp.office365.com', info: 'Use your Microsoft 365 work account.' },
+      icloud: { name: 'iCloud', oauth: false, imap: 'imap.mail.me.com', smtp: 'smtp.mail.me.com', info: 'Enable "Mail" in iCloud settings, then generate an app-specific password.' },
+      yahoo: { name: 'Yahoo', oauth: false, imap: 'imap.mail.yahoo.com', smtp: 'smtp.mail.yahoo.com', info: 'Generate an app password in your Yahoo account security settings.' },
+      proton: { name: 'Proton Mail', oauth: false, imap: '127.0.0.1', smtp: '127.0.0.1', imapPort: 1143, smtpPort: 1025, info: 'Run Proton Bridge locally. The IMAP/SMTP ports must be 1143/1025.' }
+    };
+    
+    // Provider selection
+    document.querySelectorAll('.provider').forEach(p => {
+      p.addEventListener('click', () => {
+        document.querySelectorAll('.provider').forEach(el => el.classList.remove('selected'));
+        p.classList.add('selected');
+        selectedProvider = p.dataset.provider;
+        updateProviderInfo();
+      });
+    });
+    
+    // Global error handler
+    window.onerror = function(msg, url, line, col, error) {
+        console.error('Global error:', msg, 'at line', line);
+        return false;
+    };
+    
+    // Check for required functions
+    console.log('Setup page loaded, checking functions...');
+    console.log('startOAuth:', typeof startOAuth);
+    console.log('showManualForm:', typeof showManualForm);
+    
+    // Button event listeners - add try-catch for debugging
+    const oauthBtn = document.getElementById('btn-oauth');
+    const manualBtn = document.getElementById('btn-manual');
+    
+    if (oauthBtn) {
+        oauthBtn.onclick = function() { console.log('OAuth button clicked'); startOAuth(); };  
+    } else {
+        console.error('OAuth button not found');
+    }
+    
+    if (manualBtn) {
+        manualBtn.onclick = function() { console.log('Manual button clicked'); showManualForm(); };
+    } else {
+        console.error('Manual button not found');
+    }
+    document.getElementById('btn-connect').addEventListener('click', () => { console.log('Connect clicked'); connectAccount(); });
+    document.getElementById('btn-back').addEventListener('click', () => { console.log('Back clicked'); backToProviders(); });
+    
+    // Listen for OAuth results from popup
+    window.addEventListener('message', async (event) => {
+      if (event.data && event.data.type === 'oauth-result') {
+        const result = event.data;
+        console.log('OAuth result received:', result);
+        
+        if (result.success) {
+          // OAuth succeeded - create the email account
+          await createOAuthAccount(result.provider, result.email);
+        } else {
+          showError('Authentication failed: ' + (result.error || 'Unknown error'));
+          document.getElementById('step-provider').classList.remove('hidden');
+        }
+      }
+    });
+    
+    // Check for existing OAuth result in localStorage (fallback on load)
+    (async () => {
+      try {
+        const stored = localStorage.getItem('oauth-result');
+        if (stored) {
+          const result = JSON.parse(stored);
+          localStorage.removeItem('oauth-result');
+          if (result.success) {
+            await createOAuthAccount(result.provider, result.email);
+          }
+        }
+      } catch (e) {}
+    })();
+
+    // Listen for localStorage changes from the OAuth popup (cross-tab)
+    window.addEventListener('storage', async (event) => {
+      if (event.key === 'oauth-result' && event.newValue) {
+        try {
+          const result = JSON.parse(event.newValue);
+          localStorage.removeItem('oauth-result');
+          if (result.success) {
+            await createOAuthAccount(result.provider, result.email);
+          } else {
+            showError('Authentication failed: ' + (result.error || 'Unknown error'));
+          }
+        } catch (e) {}
+      }
+    });
+    
+    // Create email account from OAuth result
+    async function createOAuthAccount(provider, email) {
+      document.getElementById('step-provider').innerHTML = `
+        <div class="info-box" style="text-align:center">
+          <p>🔗 Linking ${email} to NovaMail...</p>
+        </div>
+      `;
+      
+      try {
+        // Get OAuth tokens from backend
+        const tokenRes = await fetch('/api/auth/oauth/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ provider: provider })
+        });
+        
+        const tokenData = await tokenRes.json();
+        
+        if (tokenData.error) {
+          showError('Failed to get OAuth tokens: ' + tokenData.error);
+          return;
+        }
+        
+        // Map provider name to providerId
+        const providerMap = { 'google': 'gmail', 'microsoft': 'outlook' };
+        const providerId = providerMap[provider] || provider;
+        
+        // Create the email account
+        const accountRes = await fetch('/api/mail/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            emailAddress: email,
+            providerId: providerId,
+            name: email.split('@')[0],
+            accessToken: tokenData.accessToken,
+            refreshToken: tokenData.refreshToken,
+            authMethod: 'oauth',
+            tokenExpiry: tokenData.expiresAt
+          })
+        });
+        
+        const accountData = await accountRes.json();
+        
+        if (accountRes.ok) {
+          document.getElementById('success-msg').textContent = '✅ ' + email + ' connected successfully!';
+          document.getElementById('success-msg').style.display = 'block';
+          document.getElementById('error-msg').style.display = 'none';
+          
+          // Show continue button
+          document.getElementById('step-provider').innerHTML = `
+            <div class="info-box" style="text-align:center">
+              <p style="font-size:32px">✅</p>
+              <p>${email} connected!</p>
+            </div>
+            <button class="btn" onclick="window.location.href='/'">Continue to NovaByte OS</button>
+          `;
+        } else {
+          showError('Failed to create account: ' + (accountData.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error('Create account error:', err);
+        showError('Failed to connect account. Make sure you are logged in.');
+      }
+    }
+    
+    function updateProviderInfo() {
+      const provider = providers[selectedProvider];
+      document.getElementById('provider-info').textContent = provider.info;
+      
+      const passwordGroup = document.getElementById('group-password');
+      const imapFields = document.getElementById('imap-fields');
+      
+      if (selectedProvider === 'proton') {
+        passwordGroup.querySelector('label').textContent = 'Bridge Username / Password';
+        document.getElementById('input-imap-host').value = '127.0.0.1';
+        document.getElementById('input-imap-port').value = '1143';
+        document.getElementById('input-smtp-host').value = '127.0.0.1';
+        document.getElementById('input-smtp-port').value = '1025';
+        imapFields.classList.add('hidden');
+      } else if (provider.oauth) {
+        passwordGroup.classList.add('hidden');
+        imapFields.classList.add('hidden');
+      } else {
+        passwordGroup.classList.remove('hidden');
+        passwordGroup.querySelector('label').textContent = selectedProvider === 'icloud' || selectedProvider === 'yahoo' ? 'App Password' : 'Password';
+        document.getElementById('input-imap-host').value = provider.imap;
+        document.getElementById('input-smtp-host').value = provider.smtp;
+        imapFields.classList.remove('hidden');
+      }
+    }
+    
+    function startOAuth() {
+      const provider = providers[selectedProvider];
+      if (!provider.oauth) {
+        showManualForm();
+        return;
+      }
+      
+      // Show loading state
+      document.getElementById('step-provider').innerHTML = `
+        <div class="info-box" style="text-align:center">
+          <p>🔐 Connecting to ${provider.name}...</p>
+        </div>
+      `;
+      
+      // Get OAuth URL from backend - pass current URL as state for redirect after auth
+      const currentUrl = window.location.href;
+      fetch('/api/auth/' + selectedProvider + '?redirectUrl=' + encodeURIComponent(currentUrl), { credentials: 'include' })
+        .then(res => {
+          if (!res.ok) {
+            throw new Error('Failed to connect: ' + res.status + ' ' + res.statusText);
+          }
+          return res.json();
+        })
+        .then(data => {
+          if (data.error) {
+            showError(data.error + '. Please check your .env configuration.');
+            return;
+          }
+          if (!data.authUrl) {
+            showError('OAuth not configured. Please set GOOGLE_CLIENT_ID in .env file.');
+            return;
+          }
+          
+          // Open OAuth window with the actual Google/Microsoft auth URL
+          const width = 500, height = 600;
+          const left = (screen.width - width) / 2;
+          const top = (screen.height - height) / 2;
+          const oauthWindow = window.open(data.authUrl, '_blank', `width=${width},height=${height},left=${left},top=${top}`);
+          
+          // Show waiting message
+          document.getElementById('step-provider').innerHTML = `
+            <div class="info-box" style="text-align:center">
+              <p>⏳ Waiting for authentication...</p>
+              <p style="margin-top:8px">Complete authentication in the popup window, then return here.</p>
+            </div>
+            <button class="btn btn-secondary" onclick="location.reload()">← Back</button>
+          `;
+          
+          // Poll until popup closes then check localStorage for result
+          const pollInterval = setInterval(async () => {
+            if (oauthWindow.closed) {
+              clearInterval(pollInterval);
+              // Check localStorage in case the callback wrote a result
+              try {
+                const stored = localStorage.getItem('oauth-result');
+                if (stored) {
+                  const result = JSON.parse(stored);
+                  localStorage.removeItem('oauth-result');
+                  if (result.success) {
+                    await createOAuthAccount(result.provider, result.email);
+                    return;
+                  }
+                }
+              } catch (e) {}
+              // No result found — show a back button so the user can retry
+              document.getElementById('step-provider').innerHTML = `
+                <div class="info-box" style="text-align:center">
+                  <p>Authentication window closed. Did you complete sign-in?</p>
+                </div>
+                <button class="btn btn-secondary" onclick="location.reload()">← Try Again</button>
+              `;
+            }
+          }, 1000);
+        })
+        .catch(err => {
+          console.error('OAuth error:', err);
+          showError('Failed to connect. Make sure the backend is running.');
+        });
+    }
+    
+    function showManualForm() {
+      document.getElementById('step-provider').classList.add('hidden');
+      document.getElementById('step-manual').classList.remove('hidden');
+      updateProviderInfo();
+    }
+    
+    function backToProviders() {
+      document.getElementById('step-provider').classList.remove('hidden');
+      document.getElementById('step-manual').classList.add('hidden');
+      hideError();
+    }
+    
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+      document.getElementById('success-msg').style.display = 'none';
+    }
+    
+    function hideError() {
+      document.getElementById('error-msg').style.display = 'none';
+    }
+    
+    async function connectAccount() {
+      const email = document.getElementById('input-email').value.trim();
+      const password = document.getElementById('input-password').value.trim();
+      const name = document.getElementById('input-name').value.trim() || email.split('@')[0];
+      const imapHost = document.getElementById('input-imap-host').value.trim();
+      const imapPort = parseInt(document.getElementById('input-imap-port').value) || 993;
+      const smtpHost = document.getElementById('input-smtp-host').value.trim();
+      const smtpPort = parseInt(document.getElementById('input-smtp-port').value) || 587;
+      
+      if (!email) { showError('Please enter your email address'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showError('Please enter a valid email'); return; }
+      
+      const provider = providers[selectedProvider];
+      if (provider.oauth) {
+        showError('Please use OAuth for this provider');
+        return;
+      }
+      
+      // Show loading
+      const btn = document.getElementById('btn-connect');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Connecting...';
+      
+      try {
+        const response = await fetch('/api/mail/accounts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            email,
+            password,
+            name,
+            providerId: selectedProvider,
+            imapHost,
+            imapPort,
+            smtpHost,
+            smtpPort,
+            useSsl: true
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          document.getElementById('success-msg').textContent = '✅ Account connected successfully!';
+          document.getElementById('success-msg').style.display = 'block';
+          hideError();
+          
+          // Close after 2 seconds and refresh parent
+          setTimeout(() => {
+            if (window.opener) {
+              window.opener.location.reload();
+            }
+            window.close();
+          }, 1500);
+        } else {
+          showError(data.message || 'Failed to connect account');
+        }
+      } catch (err) {
+        showError('Connection failed: ' + err.message);
+      }
+      
+      btn.disabled = false;
+      btn.textContent = 'Connect Account';
+    }
+  </script>
+</body>
+</html>
