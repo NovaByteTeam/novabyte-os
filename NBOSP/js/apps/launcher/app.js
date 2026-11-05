@@ -292,12 +292,19 @@ function appendAppItem(app, grid) {
   targetGrid.appendChild(item);
 }
 
+// The installed-apps inventory is registry-backed (HKNS/apps/installed via
+// NovaAppPackageStore); the localStorage key is only the fail-soft fallback.
+function readInstalledApps() {
+  if (typeof window !== 'undefined' && window.NovaAppPackageStore?.loadRegistry) {
+    try { return window.NovaAppPackageStore.loadRegistry() || []; } catch { /* fall through */ }
+  }
+  try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
+}
+
 function showAppContextMenu(e, app) {
   const pinnedApps = OS.settings.get('pinnedApps') || [];
   const isPinned = pinnedApps.includes(app.id);
-  const storedApps = (() => {
-    try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
-  })();
+  const storedApps = readInstalledApps();
   const isUserApp = storedApps.some(a => a.id === app.id);
   const isSystemApp = storedApps.some(a => a.id === app.id && a.system === true);
 
@@ -1292,9 +1299,7 @@ function renderDesktopIcons() {
       e.preventDefault();
       const pinnedApps = OS.settings.get('pinnedApps') || [];
       const isPinned = pinnedApps.includes(app.id);
-      const storedApps = (() => {
-        try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
-      })();
+      const storedApps = readInstalledApps();
       const isUserApp = storedApps.some(a => a.id === app.id);
       const isSystemApp = storedApps.some(a => a.id === app.id && a.system === true);
       const items = [
@@ -1516,9 +1521,7 @@ function renderDesktopIcons() {
         );
       }
       if (isShortcut && shortcutData) {
-        const storedApps = (() => {
-          try { return JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); } catch { return []; }
-        })();
+        const storedApps = readInstalledApps();
         const isUserApp = storedApps.some(a => a.id === shortcutData.target);
         const isSystemApp = storedApps.some(a => a.id === shortcutData.target && a.system === true);
         const isWebApp = typeof shortcutData.target === 'string' && shortcutData.target.startsWith('webapp_');

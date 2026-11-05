@@ -922,7 +922,11 @@ async function startConfiguredHomeApp() {
   }
 
   async function loadInstalledNovaApps() {
-    const storedApps = Storage.get(KEYS.INSTALLED_APPS, []);
+    // The inventory is registry-backed (HKNS/apps/installed via the package
+    // store); the localStorage key is only the pre-registry fallback.
+    const storedApps = window.NovaAppPackageStore?.loadRegistry
+      ? NovaAppPackageStore.loadRegistry()
+      : Storage.get(KEYS.INSTALLED_APPS, []);
     const apps = window.NovaAppPackageStore?.hydrateApps
       ? await NovaAppPackageStore.hydrateApps(storedApps)
       : storedApps;
@@ -1101,12 +1105,8 @@ async function startConfiguredHomeApp() {
 
   function markAppRevokedInStorage(appId) {
     try {
-      const list = Storage.get(KEYS.INSTALLED_APPS, []);
-      const idx = list.findIndex(a => a.id === appId);
-      if (idx > -1 && !list[idx].revoked) {
-        list[idx] = { ...list[idx], revoked: true };
-        Storage.set(KEYS.INSTALLED_APPS, list);
-      }
+      // Registry-backed inventory first (HKNS/apps/installed); the legacy
+      // localStorage key is only touched when the package store is absent.
       if (window.NovaAppPackageStore?.saveRegistry && window.NovaAppPackageStore?.loadRegistry) {
         const reg = NovaAppPackageStore.loadRegistry();
         const ri = reg.findIndex(a => a.id === appId);
@@ -1114,6 +1114,13 @@ async function startConfiguredHomeApp() {
           reg[ri] = { ...reg[ri], revoked: true };
           NovaAppPackageStore.saveRegistry(reg);
         }
+        return;
+      }
+      const list = Storage.get(KEYS.INSTALLED_APPS, []);
+      const idx = list.findIndex(a => a.id === appId);
+      if (idx > -1 && !list[idx].revoked) {
+        list[idx] = { ...list[idx], revoked: true };
+        Storage.set(KEYS.INSTALLED_APPS, list);
       }
     } catch (e) {
       console.warn('[BOOT] Failed to persist revoked flag for', appId, e);

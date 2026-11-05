@@ -331,7 +331,14 @@ registerApp({
 
     // Storage
     function loadAccts() {
+      // Accounts live in the NovaByte Registry (HKNA/com.nbosp.email/accounts);
+      // the localStorage key is adopted once + kept as the fail-soft fallback.
+      // Passwords are never persisted — credCache holds them in-memory only.
       try {
+        if (typeof window !== 'undefined' && window.NovaAppConfig) {
+          const fromRegistry = window.NovaAppConfig.get('com.nbosp.email', 'accounts', { legacyKey: SK, fallback: null });
+          return Array.isArray(fromRegistry) ? fromRegistry : [];
+        }
         const raw = localStorage.getItem(SK);
         const parsed = raw ? JSON.parse(raw) : [];
         return Array.isArray(parsed) ? parsed : [];
@@ -344,7 +351,11 @@ registerApp({
       try {
         // Strip pass before persisting; credCache holds it in-memory only.
         const safe = accounts.map(({ pass: _omit, ...rest }) => rest);
-        localStorage.setItem(SK, JSON.stringify(safe));
+        if (typeof window !== 'undefined' && window.NovaAppConfig) {
+          window.NovaAppConfig.set('com.nbosp.email', 'accounts', safe, { legacyKey: SK });
+        } else {
+          localStorage.setItem(SK, JSON.stringify(safe));
+        }
         emailBg?.setAccounts?.(accounts);
       } catch (e) {
         // QuotaExceededError, SecurityError, etc. — don't let a storage

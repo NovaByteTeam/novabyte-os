@@ -4,7 +4,8 @@
 // and plays the selected track through a hidden <audio> element. Playback
 // state is mirrored in a now-playing bar with seek, volume, shuffle and
 // repeat controls. Preferences (shuffle, repeat, volume) persist across
-// sessions via localStorage.
+// sessions in the NovaByte Registry (HKNA/com.nbosp.music/prefs), adopted
+// from the legacy localStorage key.
 //
 // Host runtime is expected to provide these globals:
 //   registerApp, createEl, svgIcon, lsSave, Notify, FS, AppDirs.
@@ -99,6 +100,14 @@
   }
 
   function loadPrefs(key) {
+    // Prefs live in the NovaByte Registry (HKNA/com.nbosp.music/prefs);
+    // the localStorage key is adopted once + kept as the fail-soft fallback.
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        const value = window.NovaAppConfig.get('com.nbosp.music', 'prefs', { legacyKey: key, fallback: null });
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : {};
@@ -110,6 +119,12 @@
   }
 
   function savePrefs(key, prefs) {
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        window.NovaAppConfig.set('com.nbosp.music', 'prefs', prefs, { legacyKey: key });
+        return;
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       lsSave(key, prefs);
     } catch (err) {
@@ -353,7 +368,7 @@
           audio.volume = normalized;
           if (volSlider) volSlider.value = String(normalized);
           prefs.volume = normalized;
-          try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+          savePrefs(PREFS_KEY, prefs);
         });
       }
 

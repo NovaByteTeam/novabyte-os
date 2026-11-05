@@ -21,8 +21,16 @@ registerApp({
 
     const SK = 'nbosp_clock_v1';
 
+    // The alarm database lives in the NovaByte Registry
+    // (HKNA/com.nbosp.clock/alarms); the localStorage key is adopted once +
+    // kept as the fail-soft fallback. The background clock service reads
+    // the same registry path, so alarms keep working app-free.
     function loadDb() {
       try {
+        if (typeof window !== 'undefined' && window.NovaAppConfig) {
+          const fromRegistry = window.NovaAppConfig.get('com.nbosp.clock', 'alarms', { legacyKey: SK, fallback: null });
+          return fromRegistry && typeof fromRegistry === 'object' && !Array.isArray(fromRegistry) ? fromRegistry : {};
+        }
         return JSON.parse(localStorage.getItem(SK) || '{}');
       } catch {
         return {};
@@ -31,7 +39,11 @@ registerApp({
 
     function saveDb() {
       try {
-        localStorage.setItem(SK, JSON.stringify(db));
+        if (typeof window !== 'undefined' && window.NovaAppConfig) {
+          window.NovaAppConfig.set('com.nbosp.clock', 'alarms', db, { legacyKey: SK });
+        } else {
+          localStorage.setItem(SK, JSON.stringify(db));
+        }
       } catch {}
     }
 

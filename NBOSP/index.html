@@ -241,6 +241,14 @@
        notification channels, overlay position). Replaces the old
        nova_* localStorage keys; legacy values are adopted once. -->
   <script src="/js/platform/core/registry-prefs.js" defer></script>
+  <!-- Registry-backed system state (installed apps, permission grants,
+       background alarms, push subscriptions, Store update interval).
+       Replaces the remaining nova_* localStorage keys; legacy values are
+       adopted once. -->
+  <script src="/js/platform/core/registry-system-state.js" defer></script>
+  <!-- Per-app config accessor for built-in apps (HKNA/<appId>/...);
+       legacy localStorage keys are adopted once per path. -->
+  <script src="/js/platform/core/app-config.js" defer></script>
   <script src="/js/platform/security/app-permission-manager.js" defer></script>
   <script src="/js/platform/security/app-secrets.js" defer></script>
   <script src="/js/platform/security/root-broker.js" defer></script>

@@ -1386,6 +1386,9 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
       fs,
       settings: { theme: 'nord', username: 'alice' },
     });
+    window.localStorage.setItem('calendar_events_v2', JSON.stringify([{ id: 'evt1' }]));
+    // Clock alarms moved into the NovaByte Registry (HKNA/com.nbosp.clock/
+    // alarms) — the LS key must NOT be mirrored into the app folder anymore.
     window.localStorage.setItem('nbosp_clock_v1', JSON.stringify({ alarms: [{ time: '07:00' }] }));
 
     await AppDirs.bootstrap();
@@ -1409,9 +1412,14 @@ describe('Desktop shell (js/apps/shell-ui/desktop.js)', () => {
     expect(JSON.parse(filesAppInfo.content).name).toBe('Files');
 
     // localStorage LS_MAP sync → pretty-printed JSON in the right folder
-    const alarms = _findFile(fs, 'alarms.json');
-    expect(fs.getPath(alarms.id)).toBe('/data/com.nbosp.clock/databases/alarms.json');
-    expect(JSON.parse(alarms.content).alarms).toEqual([{ time: '07:00' }]);
+    const events = _findFile(fs, 'events.json');
+    expect(fs.getPath(events.id)).toBe('/data/com.nbosp.calendar/databases/events.json');
+    expect(JSON.parse(events.content)).toEqual([{ id: 'evt1' }]);
+
+    // registry-migrated keys have no mirror file (alarms live in the hive)
+    const clockDb = fs.getByPath('/data/com.nbosp.clock/databases');
+    const alarmMirror = (clockDb?.children || []).find(f => f.name === 'alarms.json');
+    expect(alarmMirror).toBeUndefined();
 
     // settings snapshot → prefs.json under com.nbosp.settings
     const prefs = _findFile(fs, 'prefs.json');

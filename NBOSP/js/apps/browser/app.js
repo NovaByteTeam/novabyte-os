@@ -209,13 +209,32 @@ registerApp({
     }
 
     // Settings storage — write-through cache + debounced persist.
+    // Settings live in the NovaByte Registry (HKNA/com.nbosp.browser/settings)
+    // via NovaAppConfig; the localStorage key is adopted once + kept as the
+    // fail-soft fallback. Bookmarks/history stay app data (localStorage).
     let _settingsCache = null;
     let _settingsSaveTimer = null;
+
+    function persistSettings(settings) {
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          window.NovaAppConfig.set('com.nbosp.browser', 'settings', settings, { legacyKey: ST_KEY });
+          return;
+        } catch (_) { /* fall through to legacy */ }
+      }
+      try { localStorage.setItem(ST_KEY, JSON.stringify(settings)); }
+      catch (err) { console.warn('[NB Browser] Failed to save settings:', err); }
+    }
 
     function loadSettings() {
       if (_settingsCache) return _settingsCache;
       try {
-        _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}');
+        if (typeof window !== 'undefined' && window.NovaAppConfig) {
+          const fromRegistry = window.NovaAppConfig.get('com.nbosp.browser', 'settings', { legacyKey: ST_KEY, fallback: null });
+          _settingsCache = fromRegistry && typeof fromRegistry === 'object' && !Array.isArray(fromRegistry) ? fromRegistry : {};
+        } else {
+          _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}');
+        }
         let migrated = false;
         if ('double_tap_zoom' in _settingsCache) {
           delete _settingsCache.double_tap_zoom;
@@ -232,8 +251,7 @@ registerApp({
           }
         }
         if (migrated) {
-          try { localStorage.setItem(ST_KEY, JSON.stringify(_settingsCache)); }
-          catch (err) { console.warn('[NB Browser] Could not migrate browser settings:', err); }
+          persistSettings(_settingsCache);
         }
       } catch (err) {
         console.error('[NB Browser] Settings cache corrupted, resetting:', err);
@@ -248,10 +266,7 @@ registerApp({
       s[key] = val;
       _settingsCache = s;
       clearTimeout(_settingsSaveTimer);
-      _settingsSaveTimer = setTimeout(() => {
-        try { localStorage.setItem(ST_KEY, JSON.stringify(s)); }
-        catch (err) { console.warn('[NB Browser] Failed to save settings:', err); }
-      }, DEBOUNCE_MS);
+      _settingsSaveTimer = setTimeout(() => persistSettings(s), DEBOUNCE_MS);
     }
 
     const getSetting = (key, def) => {
@@ -761,7 +776,7 @@ registerApp({
       clearTimeout(_bookmarksSaveTimer);
       clearTimeout(_historySaveTimer);
       try {
-        if (_settingsCache)  localStorage.setItem(ST_KEY, JSON.stringify(_settingsCache));
+        if (_settingsCache) persistSettings(_settingsCache);
         if (_bookmarksCache) localStorage.setItem(BK_KEY, JSON.stringify(_bookmarksCache));
         if (_historyCache)   localStorage.setItem(HX_KEY, JSON.stringify(_historyCache));
       } catch (err) {
@@ -4389,7 +4404,12 @@ registerApp({
             clearTimeout(_settingsSaveTimer);
             _settingsSaveTimer = null;
             try {
-              localStorage.removeItem(ST_KEY);
+              if (typeof window !== 'undefined' && window.NovaAppConfig) {
+                window.NovaAppConfig.remove('com.nbosp.browser', 'settings', { legacyKey: ST_KEY });
+              } else {
+                localStorage.removeItem(ST_KEY);
+              }
+              _settingsCache = null;
             } catch (err) {
               console.error('[NB Browser] Failed to reset settings:', err);
               Notify.show({ title: 'Settings not reset', body: err.message, type: 'error', appName: 'Browser' });

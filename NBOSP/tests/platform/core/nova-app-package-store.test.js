@@ -196,3 +196,74 @@ describe('NovaAppPackageStore (js/platform/core/nova-app-package-store.js)', () 
     expect(result).toBe(false);
   });
 });
+
+// ── Registry-backed inventory (HKNS/apps/installed) ───────────────────────
+// With the NovaByte Registry wired onto window (the shell always boots it),
+// loadRegistry/saveRegistry go through RegistrySystemState — the localStorage
+// key is only the pre-registry adoption source and fail-soft fallback.
+describe('NovaAppPackageStore — registry-backed inventory', () => {
+  // NOTE: the UMD modules assign their window.* globals at load time, so
+  // they are required INSIDE each test — requiring them at collection time
+  // would leak the globals into the localStorage-fallback tests above.
+  const REG_PATH = '../../../js/platform/core/nova-registry.js';
+  const STATE_PATH = '../../../js/platform/core/registry-system-state.js';
+
+  function memStorage(NovaRegistry) {
+    const map = new Map();
+    return {
+      loadAll() {
+        const out = {};
+        for (const name of [...NovaRegistry.HIVES, 'AUDIT', 'SNAPSHOTS']) {
+          out[name] = map.has(name) ? JSON.parse(map.get(name)) : null;
+        }
+        return out;
+      },
+      save(hive, data) { map.set(hive, JSON.stringify(data)); },
+    };
+  }
+
+  function wireRegistry() {
+    const NovaRegistry = require(REG_PATH);
+    const RegistrySystemState = require(STATE_PATH);
+    NovaRegistry._internal.resetState();
+    NovaRegistry.init({ storage: memStorage(NovaRegistry), events: null, logger: console });
+    window.NovaRegistry = NovaRegistry;
+    window.RegistrySystemState = RegistrySystemState;
+    return { NovaRegistry, RegistrySystemState };
+  }
+
+  afterEach(() => {
+    // Never leak the registry globals into other suites in this worker.
+    const RegistrySystemState = require(STATE_PATH);
+    delete window.NovaRegistry;
+    delete window.RegistrySystemState;
+    RegistrySystemState._internal.resetAdopted();
+  });
+
+  it('saveRegistry commits into HKNS/apps/installed and loadRegistry reads it back', () => {
+    const { NovaRegistry } = wireRegistry();
+    localStorage.setItem('nova_installed_apps', JSON.stringify([{ id: 'com.legacy.app', version: '1.0' }]));
+
+    const saved = window.NovaAppPackageStore.saveRegistry([{ id: 'com.new.app', version: '2.0', files: { 'a.txt': 'x' } }]);
+    expect(saved).toHaveLength(1);
+    expect(NovaRegistry.get('HKNS/apps/installed')).toEqual(saved);
+    // The legacy LS key is not the store anymore — writes go to the hive only.
+    expect(JSON.parse(localStorage.getItem('nova_installed_apps'))).toEqual([{ id: 'com.legacy.app', version: '1.0' }]);
+
+    expect(window.NovaAppPackageStore.loadRegistry()).toEqual(saved);
+  });
+
+  it('adopts the pre-registry localStorage inventory on first read', () => {
+    const { NovaRegistry } = wireRegistry();
+    localStorage.setItem('nova_installed_apps', JSON.stringify([{ id: 'com.upgrade.app', version: '9.1' }]));
+
+    expect(window.NovaAppPackageStore.loadRegistry()).toEqual([{ id: 'com.upgrade.app', version: '9.1' }]);
+    expect(NovaRegistry.get('HKNS/apps/installed')).toEqual([{ id: 'com.upgrade.app', version: '9.1' }]);
+  });
+
+  it('still works with plain localStorage when no registry exists', () => {
+    const saved = window.NovaAppPackageStore.saveRegistry([{ id: 'com.plain.app' }]);
+    expect(saved).toEqual([expect.objectContaining({ id: 'com.plain.app' })]);
+    expect(window.NovaAppPackageStore.loadRegistry()).toEqual(saved);
+  });
+});

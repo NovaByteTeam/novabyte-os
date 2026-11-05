@@ -325,11 +325,27 @@ const AppPermissionManager = (() => {
     }
   }
 
-  async function saveToStorage() {
+  // Grants persist in the NovaByte Registry (HKNS/security/appPermissions
+  // via RegistrySystemState); the localStorage key is the pre-registry
+  // adoption source and the fail-soft fallback when no engine is up.
+  function registryState() {
+    return typeof window !== 'undefined' && window ? window.RegistrySystemState : null;
+  }
+
+  function persistGrants() {
+    const grants = [...permissionGrants.values()];
+    const state = registryState();
+    if (state && typeof state.setAppPermissions === 'function') {
+      try {
+        state.setAppPermissions(grants);
+        return;
+      } catch (error) {
+        console.error('[AppPermissionManager] registry save failed:', error);
+      }
+    }
     const storage = getLocalStorage();
     if (!storage) return;
     try {
-      const grants = [...permissionGrants.values()];
       storage.setItem(STORAGE_KEY, JSON.stringify(grants));
     } catch (e) {
       if (e.name === 'SecurityError') return;
@@ -339,6 +355,10 @@ const AppPermissionManager = (() => {
       }
       console.error('[AppPermissionManager] save failed:', e);
     }
+  }
+
+  async function saveToStorage() {
+    persistGrants();
   }
 
   // 30-day unused-app expiry sweep
@@ -403,14 +423,26 @@ const AppPermissionManager = (() => {
   // Initialization
 
   function initialize() {
+    // Registry-first hydration (HKNS/security/appPermissions); the legacy
+    // localStorage key is the pre-registry adoption source and fallback.
+    let raw = null;
+    const state = registryState();
+    if (state && typeof state.appPermissions === 'function') {
+      try {
+        const fromRegistry = state.appPermissions();
+        if (Array.isArray(fromRegistry) && fromRegistry.length > 0) raw = JSON.stringify(fromRegistry);
+      } catch (_) { /* fall through to localStorage */ }
+    }
     const storage = getLocalStorage();
-    if (!storage) {
-      console.warn('[AppPermissionManager] localStorage unavailable — in-memory only');
-      return;
+    if (raw === null) {
+      if (!storage) {
+        console.warn('[AppPermissionManager] localStorage unavailable — in-memory only');
+        return;
+      }
+      try { raw = storage.getItem(STORAGE_KEY); } catch (_) { raw = null; }
     }
 
     try {
-      const raw = storage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         const grants = Array.isArray(parsed) ? parsed : [];
@@ -433,7 +465,7 @@ const AppPermissionManager = (() => {
         }
         if (migratedLegacyIds) {
           try {
-            storage.setItem(STORAGE_KEY, JSON.stringify([...permissionGrants.values()]));
+            persistGrants();
           } catch (error) {
             console.error('[AppPermissionManager] failed migrating legacy app IDs:', error);
           }

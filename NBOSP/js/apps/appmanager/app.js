@@ -1510,6 +1510,13 @@ registerApp({
     window.addEventListener('storage', e => {
       if (e.key === APPS_KEY) syncInstalledApps();
     });
+    // The inventory lives in HKNS/apps/installed now — live-sync on
+    // registry writes too (NovaReg, reg CLI, other windows).
+    if (window.OS?.events?.on) {
+      OS.events.on('nova:reg:changed', (event) => {
+        if (event && event.path === 'HKNS/apps/installed') syncInstalledApps();
+      });
+    }
 
     setInterval(syncInstalledApps, 2000);
 

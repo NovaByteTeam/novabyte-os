@@ -1941,7 +1941,7 @@ registerApp({
       }
 
       let novaApps = [];
-      try { novaApps = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); }
+      try { novaApps = (window.NovaAppPackageStore?.loadRegistry?.()) ?? JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); }
       catch (err) { devLog('nova_installed_apps parse failed:', err); novaApps = []; }
       const novaAppIds = new Set(novaApps.map(a => a.id));
 
@@ -2164,8 +2164,11 @@ registerApp({
           if (mgr.isGranted && mgr.isGranted('system:schedule', appId)) {
             let alarmCount = 0;
             try {
-              const state = JSON.parse(localStorage.getItem('nova_app_alarms') || '{"apps":{}}');
-              const rec = state.apps && state.apps[appId];
+              // Registry-backed (HKNS/apps/alarms); the localStorage key is
+              // the pre-registry fallback.
+              const state = (window.RegistrySystemState?.alarms?.())
+                ?? JSON.parse(localStorage.getItem('nova_app_alarms') || '{"apps":{}}');
+              const rec = state && state.apps && state.apps[appId];
               if (rec && rec.alarms) alarmCount = Object.keys(rec.alarms).length;
             } catch (_) {}
             liveCounts.push(alarmCount + (alarmCount === 1 ? ' alarm' : ' alarms'));
@@ -2898,7 +2901,7 @@ registerApp({
         if (app?.id) rootAppsById.set(app.id, app);
       }
       try {
-        const installedPackages = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+        const installedPackages = (window.NovaAppPackageStore?.loadRegistry?.()) ?? JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
         if (Array.isArray(installedPackages)) {
           for (const app of installedPackages) {
             if (app?.id && !rootAppsById.has(app.id)) rootAppsById.set(app.id, app);

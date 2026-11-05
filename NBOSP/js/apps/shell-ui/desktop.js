@@ -1037,7 +1037,10 @@ const AppDirs = {
     const legacySegment = id => String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     const knownIds = new Set(Object.values(this.PACKAGES));
     try {
-      const installed = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+      // Registry-backed inventory (HKNS/apps/installed) with the legacy
+      // localStorage key as fail-soft fallback.
+      const installed = (window.NovaAppPackageStore?.loadRegistry?.())
+        ?? JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
       if (Array.isArray(installed)) {
         for (const app of installed) {
           if (app && typeof app.id === 'string') {
@@ -1568,30 +1571,34 @@ const AppDirs = {
     }
   },
 
+  // localStorage keys mirrored into per-app data folders. Keys whose data
+  // moved into the NovaByte Registry are NOT listed — the hive files under
+  // the registry storage root are the durable copy, and mirroring a stale
+  // localStorage shadow would fight the registry:
+  //   nova_installed_apps        -> HKNS/apps/installed
+  //   nbosp_clock_v1             -> HKNA/com.nbosp.clock/alarms
+  //   nbosp_email_accts_v2       -> HKNA/com.nbosp.email/accounts
+  //   nova_music_prefs           -> HKNA/com.nbosp.music/prefs
+  //   nbosp_browser_settings     -> HKNA/com.nbosp.browser/settings
+  //   nova_events_{app_filters,views,alerts} -> HKND/events/*
+  //   (platform prefs -> HKNU/* via RegistryPrefs, see the note below)
   LS_MAP: {
     'calendar_events_v2':    { pkg: 'com.nbosp.calendar',    subdir: 'databases',    file: 'events.json' },
-    'nbosp_clock_v1':        { pkg: 'com.nbosp.clock',       subdir: 'databases',    file: 'alarms.json' },
-    'nbosp_email_accts_v2':  { pkg: 'com.nbosp.email',       subdir: 'databases',    file: 'accounts.json' },
     'nbosp_email_drafts_v1': { pkg: 'com.nbosp.email',       subdir: 'databases',    file: 'drafts.json' },
     'nova_downloads':         { pkg: 'com.nbosp.downloads',   subdir: 'databases',    file: 'history.json' },
     'nova_contacts':          { pkg: 'com.nbosp.contacts',    subdir: 'databases',    file: 'contacts.json' },
-    'nova_music_prefs':       { pkg: 'com.nbosp.music',       subdir: 'shared_prefs', file: 'prefs.json' },
-    'nova_installed_apps':    { pkg: 'com.nbosp.appmanager',  subdir: 'databases',    file: 'packages.json' },
 
     // App Manager — install log (the disabled/boot lists moved into the
     // NovaByte Registry — HKNU/apps/* via RegistryPrefs — so there is no
     // localStorage key left to mirror).
     'nova_appmanager_log':    { pkg: 'com.nbosp.appmanager',  subdir: 'databases',    file: 'install-log.json' },
 
-    // Browser — settings, bookmarks, history
-    'nbosp_browser_settings': { pkg: 'com.nbosp.browser',     subdir: 'shared_prefs', file: 'settings.json' },
+    // Browser — bookmarks, history (settings moved to HKNA/com.nbosp.browser/settings)
     'nbosp_browser_bookmarks':{ pkg: 'com.nbosp.browser',     subdir: 'databases',    file: 'bookmarks.json' },
     'nbosp_browser_history':  { pkg: 'com.nbosp.browser',     subdir: 'databases',    file: 'history.json' },
 
-    // Events (system log viewer) — filters, saved views, alert rules, sessions
-    'nova_events_app_filters':{ pkg: 'com.nbosp.events',      subdir: 'shared_prefs', file: 'filters.json' },
-    'nova_events_views':      { pkg: 'com.nbosp.events',      subdir: 'databases',    file: 'saved-views.json' },
-    'nova_events_alerts':     { pkg: 'com.nbosp.events',      subdir: 'databases',    file: 'alert-rules.json' },
+    // Events (system log viewer) — sessions only (filters, saved views and
+    // alert rules moved to HKND/events/*)
     'nova_events_sessions':   { pkg: 'com.nbosp.events',      subdir: 'databases',    file: 'sessions.json' },
 
     // Developer Console — command history

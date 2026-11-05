@@ -7675,9 +7675,12 @@ const AppSandbox = (() => {
   // right after nova:ready. Apps that must run brief work while fully
   // closed already have the right tool: system:background's scheduler wakes.
   //
-  // Alarm registry persists host-side (localStorage, the same store the
+  // Alarm registry persists host-side in the NovaByte Registry
+  // (HKNS/apps/alarms via RegistrySystemState — the same store the
   // permission manager uses) so alarms survive OS reboots; timers are
-  // rebuilt from persisted state at module load.
+  // rebuilt from persisted state at module load. The localStorage key is
+  // the pre-registry adoption source and the fail-soft fallback when no
+  // engine is up.
   const ALARMS_STORAGE_KEY = 'nova_app_alarms';
   const ALARMS_MAX_PER_APP = 32;
   const ALARMS_MIN_PERIOD_MINUTES = 15;
@@ -7686,7 +7689,20 @@ const AppSandbox = (() => {
   const ALARMS_QUEUE_MAX = 8;
   const alarmsTimers = new Map(); // `${appId}:${name}` -> timeoutId
 
+  function sysState() {
+    return typeof window !== 'undefined' && window ? window.RegistrySystemState : null;
+  }
+
   function loadAlarmState() {
+    const state = sysState();
+    if (state && typeof state.alarms === 'function') {
+      try {
+        const fromRegistry = state.alarms();
+        if (fromRegistry && typeof fromRegistry === 'object' && fromRegistry.apps && typeof fromRegistry.apps === 'object') {
+          return fromRegistry;
+        }
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       const raw = localStorage.getItem(ALARMS_STORAGE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
@@ -7696,6 +7712,10 @@ const AppSandbox = (() => {
   }
 
   function saveAlarmState(state) {
+    const sys = sysState();
+    if (sys && typeof sys.setAlarms === 'function') {
+      try { sys.setAlarms(state); return; } catch (_) { /* fall through to legacy */ }
+    }
     try { localStorage.setItem(ALARMS_STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
   }
 
@@ -7971,6 +7991,15 @@ const AppSandbox = (() => {
   const PUSH_BACKOFF_STEPS_MS = [1000, 2000, 5000, 15000];
 
   function loadPushState() {
+    const state = sysState();
+    if (state && typeof state.push === 'function') {
+      try {
+        const fromRegistry = state.push();
+        if (fromRegistry && typeof fromRegistry === 'object' && fromRegistry.tokens && typeof fromRegistry.tokens === 'object') {
+          return fromRegistry;
+        }
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       const raw = localStorage.getItem(PUSH_STORAGE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
@@ -7980,16 +8009,33 @@ const AppSandbox = (() => {
   }
 
   function savePushState(state) {
+    const sys = sysState();
+    if (sys && typeof sys.setPush === 'function') {
+      try { sys.setPush(state); return; } catch (_) { /* fall through to legacy */ }
+    }
     try { localStorage.setItem(PUSH_STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
   }
 
   function pushDeviceId() {
+    const sys = sysState();
+    if (sys && typeof sys.pushDeviceId === 'function') {
+      try {
+        const existing = sys.pushDeviceId();
+        if (existing && /^[\w-]{8,64}$/.test(existing)) return existing;
+      } catch (_) { /* fall through to generation */ }
+    }
     try {
       const existing = localStorage.getItem(PUSH_DEVICE_ID_KEY);
       if (existing && /^[\w-]{8,64}$/.test(existing)) return existing;
     } catch (_) { /* fall through to generation */ }
     const fresh = generatePushToken().slice(PUSH_TOKEN_PREFIX_LENGTH);
-    try { localStorage.setItem(PUSH_DEVICE_ID_KEY, fresh); } catch (_) { /* best-effort */ }
+    let stored = false;
+    if (sys && typeof sys.setPushDeviceId === 'function') {
+      try { stored = sys.setPushDeviceId(fresh); } catch (_) { stored = false; }
+    }
+    if (!stored) {
+      try { localStorage.setItem(PUSH_DEVICE_ID_KEY, fresh); } catch (_) { /* best-effort */ }
+    }
     return fresh;
   }
 
