@@ -413,6 +413,89 @@ describe('WM (js/apps/shell-ui/wm.js)', () => {
     });
   });
 
+  describe('Shell Bags (HKNU/shell/bags/windows/*)', () => {
+    // Minimal in-hive stub — wm only needs get/set.
+    function makeRegistry() {
+      const store = new Map();
+      return {
+        store,
+        get: (p) => (store.has(p) ? JSON.parse(JSON.stringify(store.get(p))) : undefined),
+        set: (p, v) => { store.set(p, JSON.parse(JSON.stringify(v))); return true; },
+      };
+    }
+
+    it('windowBag returns null when no registry engine is up', () => {
+      const wm = requireWM();
+      const had = window.NovaRegistry;
+      delete window.NovaRegistry;
+      try {
+        expect(wm.windowBag('nook')).toBeNull();
+        expect(wm.writeWindowBag('nook', { x: 1, y: 2, width: 3, height: 4 })).toBe(false);
+      } finally {
+        if (had) window.NovaRegistry = had;
+      }
+    });
+
+    it('round-trips a geometry rect through the hive and rejects garbage', () => {
+      const wm = requireWM();
+      const registry = makeRegistry();
+      const had = window.NovaRegistry;
+      window.NovaRegistry = registry;
+      try {
+        expect(wm.writeWindowBag('nook', { x: 42, y: 30, width: 640, height: 480 })).toBe(true);
+        expect(registry.store.get('HKNU/shell/bags/windows/nook')).toEqual({ x: 42, y: 30, width: 640, height: 480 });
+        expect(wm.windowBag('nook')).toEqual({ x: 42, y: 30, width: 640, height: 480 });
+
+        registry.store.set('HKNU/shell/bags/windows/nook', { x: 'far', y: -5, width: 0, height: NaN });
+        expect(wm.windowBag('nook')).toBeNull();
+        expect(wm.windowBag('')).toBeNull();
+      } finally {
+        if (had) window.NovaRegistry = had; else delete window.NovaRegistry;
+      }
+    });
+
+    it('closeWindow records the geometry and the next open restores it', async () => {
+      vi.useFakeTimers();
+      const registry = makeRegistry();
+      const had = window.NovaRegistry;
+      window.NovaRegistry = registry;
+      try {
+        const wm = requireWM();
+        wm.init();
+        const state = wm.createWindow('nook');
+        state.x = 123; state.y = 45;
+        wm.closeWindow(state.id);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(registry.store.get('HKNU/shell/bags/windows/nook')).toMatchObject({ x: 123, y: 45 });
+
+        // Next open (no explicit x/y) restores the bag instead of cascading.
+        const reopened = wm.createWindow('nook');
+        expect(reopened.x).toBe(123);
+        expect(reopened.y).toBe(45);
+        wm.closeWindow(reopened.id);
+        await vi.advanceTimersByTimeAsync(300);
+      } finally {
+        vi.useRealTimers();
+        if (had) window.NovaRegistry = had; else delete window.NovaRegistry;
+      }
+    });
+
+    it('explicit launch options still win over a stored bag', () => {
+      const wm = requireWM();
+      const registry = makeRegistry();
+      const had = window.NovaRegistry;
+      window.NovaRegistry = registry;
+      try {
+        wm.writeWindowBag('nook', { x: 42, y: 30, width: 640, height: 480 });
+        const state = wm.createWindow('nook', { x: 500, y: 200 });
+        expect(state.x).toBe(500);
+        expect(state.y).toBe(200);
+      } finally {
+        if (had) window.NovaRegistry = had; else delete window.NovaRegistry;
+      }
+    });
+  });
+
   describe('minimizeWindow / restoreWindow', () => {
     it('minimizeWindow sets minimized flag and clears focus', () => {
       const wm = requireWM();

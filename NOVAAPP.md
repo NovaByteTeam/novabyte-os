@@ -1801,6 +1801,7 @@ Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, 
 | Desktop pins / default apps | `HKNU/desktop/pins`, `HKNU/shell/defaultApps` | settings shim |
 | Disabled + autostart apps, show-hidden, shortcuts, notification channels | `HKNU/apps/*`, `HKNU/shell/*` | `registry-prefs.js` (RegistryPrefs) |
 | Debug overlay position | `HKND/overlay/position` | `registry-prefs.js` |
+| Shell Bags — per-app window placement, Files view mode + sort | `HKNU/shell/bags/windows/<app-id>`, `HKNU/shell/bags/files` | `wm.js` + the Files app directly (new persistence — no legacy channel; degrades to cascade/defaults when no engine is up) |
 | Installed `.novaapp` inventory | `HKNS/apps/installed` | `registry-system-state.js` via `nova-app-package-store.js` |
 | Permission grants | `HKNS/security/appPermissions` | `registry-system-state.js` via the permission manager |
 | Background alarm registry | `HKNS/apps/alarms` | `registry-system-state.js` via the sandbox (`nova:alarm:*`) |
@@ -1817,7 +1818,7 @@ Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, 
 
 Adoption guards: settings store under `HKND/_migration/registrySourceDone`, platform prefs under `HKND/_migration/prefsDone`, system state under `HKND/_migration/sysStateDone`, boot state under `HKND/_migration/bootFlags`, per-app config per path under `HKND/_migration/appConfig`, and the first-boot permission pre-grant under `HKND/_migration/permsBootstrapped`. An adoption never clobbers a value that already exists in the hive, so a stale localStorage shadow can never beat the registry.
 
-What deliberately stays **out** of the registry (Windows keeps these out of the registry too): bulk app data (contacts, calendar events, downloads history, email drafts, browser bookmarks/history, dev-console history). `customWallpaper` stays on the legacy channel as well (oversized for a hive value).
+What deliberately stays **out** of the registry (Windows keeps these out of the registry too): bulk app data (contacts, calendar events, downloads history, email drafts, browser bookmarks/history) and the Modules manager's reload history (whole previous file contents — documents, not config; its module list and safety overrides do live in `HKNA/com.nbosp.modules/*`). `customWallpaper` stays on the legacy channel as well (oversized for a hive value).
 
 **Boot state keeps two strata on purpose.** The hive (`HKNS/system/boot/*`) is authoritative from `boot()` step one — the engine opens before the watchdog consumes the flags. The legacy `nova_*` localStorage keys are kept in step as (a) the fail-soft fallback when the engine never comes up and (b) the handoff channel to the pre-boot recovery guard in `init.js`, which deliberately reads localStorage only: it runs before any core script can be trusted, and a broken registry is exactly what recovery is for. `boot()` re-checks the same flags through RegistryBootState, so a flag that only reached the hive still routes to recovery.
 

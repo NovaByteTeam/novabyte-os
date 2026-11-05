@@ -128,6 +128,33 @@
   }
 
   class FilesApp {
+    // ── Shell Bags (HKNU/shell/bags/files) ──────────────────────────
+    // View mode + sort remembered across sessions, the way Explorer
+    // remembers a folder's view. New persistence — no legacy channel: when
+    // the registry engine is down readViewBag() returns null and the
+    // defaults apply, so this degrades silently.
+    static FILES_BAG_PATH = 'HKNU/shell/bags/files';
+
+    static readViewBag() {
+      try {
+        const r = window.NovaRegistry;
+        if (!r || typeof r.get !== 'function') return null;
+        const bag = r.get(FilesApp.FILES_BAG_PATH);
+        if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return null;
+        return bag;
+      } catch { return null; }
+    }
+
+    persistViewState() {
+      try {
+        const r = window.NovaRegistry;
+        if (!r || typeof r.set !== 'function') return false;
+        r.set(FilesApp.FILES_BAG_PATH, { viewMode: this.viewMode, sortBy: this.sortBy, sortAsc: this.sortAsc },
+          { type: 'REG_JSON', source: 'shell-bags' });
+        return true;
+      } catch { return false; }
+    }
+
     constructor(content, state, options = {}) {
       this.content = content;
       this.state = state;
@@ -149,10 +176,19 @@
       this.timers = new Set();
       this.searchTimer = null;
 
-      // UI state
+      // UI state — view mode + sort are Shell Bags (HKNU/shell/bags/files):
+      // Explorer-"Bags" persistence so the Files app reopens the way the
+      // user left it. Validated against the allowed values; when the
+      // registry engine is down the defaults below simply apply.
       this.viewMode = 'icon';
       this.sortBy = 'name';
       this.sortAsc = true;
+      const filesBag = FilesApp.readViewBag();
+      if (filesBag) {
+        if (filesBag.viewMode === 'icon' || filesBag.viewMode === 'list') this.viewMode = filesBag.viewMode;
+        if (['name', 'size', 'mime', 'modified'].includes(filesBag.sortBy)) this.sortBy = filesBag.sortBy;
+        if (typeof filesBag.sortAsc === 'boolean') this.sortAsc = filesBag.sortAsc;
+      }
       this.selectedIds = new Set();
       this.clipboardOp = null;
       this.isRenaming = false;
@@ -165,6 +201,9 @@
       this.nav = { cwd: startFolder, history: [startFolder], historyIdx: 0 };
       // Exposed for the onDrop handler so it knows which folder to drop into.
       state._nav = this.nav;
+      // Exposed for tests and host tooling — the descriptor's init() creates
+      // the instance internally, so this is the only handle to it.
+      state.filesApp = this;
     }
 
     // setTimeout that auto-cancels on dispose.
@@ -306,6 +345,7 @@
         th.addEventListener('click', () => {
           if (this.sortBy === key) this.sortAsc = !this.sortAsc;
           else { this.sortBy = key; this.sortAsc = true; }
+          this.persistViewState();
           this.renderFiles();
         }, { signal: this.signal });
         listHeader.appendChild(th);
@@ -1109,13 +1149,13 @@
         items.push({ separator: true });
       }
       items.push(
-        { label: 'Sort by Name', action: () => { this.sortBy = 'name'; this.sortAsc = !this.sortAsc; this.renderFiles(); } },
-        { label: 'Sort by Size', action: () => { this.sortBy = 'size'; this.sortAsc = !this.sortAsc; this.renderFiles(); } },
-        { label: 'Sort by Type', action: () => { this.sortBy = 'mime'; this.sortAsc = !this.sortAsc; this.renderFiles(); } },
-        { label: 'Sort by Date', action: () => { this.sortBy = 'modified'; this.sortAsc = !this.sortAsc; this.renderFiles(); } },
+        { label: 'Sort by Name', action: () => { this.sortBy = 'name'; this.sortAsc = !this.sortAsc; this.persistViewState(); this.renderFiles(); } },
+        { label: 'Sort by Size', action: () => { this.sortBy = 'size'; this.sortAsc = !this.sortAsc; this.persistViewState(); this.renderFiles(); } },
+        { label: 'Sort by Type', action: () => { this.sortBy = 'mime'; this.sortAsc = !this.sortAsc; this.persistViewState(); this.renderFiles(); } },
+        { label: 'Sort by Date', action: () => { this.sortBy = 'modified'; this.sortAsc = !this.sortAsc; this.persistViewState(); this.renderFiles(); } },
         { separator: true },
-        { label: 'View: Icons', action: () => { this.viewMode = 'icon'; this.renderFiles(); } },
-        { label: 'View: List', action: () => { this.viewMode = 'list'; this.renderFiles(); } },
+        { label: 'View: Icons', action: () => { this.viewMode = 'icon'; this.persistViewState(); this.renderFiles(); } },
+        { label: 'View: List', action: () => { this.viewMode = 'list'; this.persistViewState(); this.renderFiles(); } },
         { separator: true },
         { label: 'Select All', action: () => this.selectAll() }
       );

@@ -16,7 +16,7 @@ function makeFS() {
   return fs;
 }
 
-async function loadFiles({ fs } = {}) {
+async function loadFiles({ fs, registry = null } = {}) {
   const showPromptValue = { current: null };
   const mocks = {
     Notify: { show: vi.fn() },
@@ -46,6 +46,7 @@ async function loadFiles({ fs } = {}) {
         WM: { createWindow: vi.fn() },
         openFileWithDefaultApp: mocks.openFileWithDefaultApp,
         renderDesktopIcons: mocks.renderDesktopIcons,
+        ...(registry ? { NovaRegistry: registry } : {}),
       },
     },
   });
@@ -342,5 +343,42 @@ describe('Files app (js/apps/files)', () => {
     items.find((i) => i.textContent.includes('Docs'))
       .dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
     expect(content.querySelector('#file-browser-path-input').value).toBe('/Docs');
+  });
+
+  it('restores the view bag (HKNU/shell/bags/files) on open and persists changes', async () => {
+    const store = new Map();
+    const registry = {
+      get: (p) => (store.has(p) ? JSON.parse(JSON.stringify(store.get(p))) : undefined),
+      set: (p, v) => { store.set(p, JSON.parse(JSON.stringify(v))); return true; },
+    };
+    store.set('HKNU/shell/bags/files', { viewMode: 'list', sortBy: 'size', sortAsc: false });
+
+    const { state, window } = await loadFiles({ registry });
+    const inst = state.filesApp;
+    expect(inst.viewMode).toBe('list');
+    expect(inst.sortBy).toBe('size');
+    expect(inst.sortAsc).toBe(false);
+
+    // Change the view through the context-menu action handler — persisted.
+    inst.viewMode = 'icon';
+    inst.sortAsc = true;
+    inst.persistViewState();
+    expect(store.get('HKNU/shell/bags/files')).toEqual({ viewMode: 'icon', sortBy: 'size', sortAsc: true });
+    expect(window.localStorage.getItem('nova_files_view')).toBeNull(); // no legacy shadow was ever created
+  });
+
+  it('falls back to defaults when the view bag is absent or malformed', async () => {
+    const store = new Map();
+    const registry = {
+      get: (p) => (store.has(p) ? JSON.parse(JSON.stringify(store.get(p))) : undefined),
+      set: (p, v) => { store.set(p, JSON.parse(JSON.stringify(v))); return true; },
+    };
+    store.set('HKNU/shell/bags/files', { viewMode: 'galaxy', sortBy: 42, sortAsc: 'yes' });
+
+    const { state } = await loadFiles({ registry });
+    // Invalid bag fields are ignored — defaults hold.
+    expect(state.filesApp.viewMode).toBe('icon');
+    expect(state.filesApp.sortBy).toBe('name');
+    expect(state.filesApp.sortAsc).toBe(true);
   });
 });
