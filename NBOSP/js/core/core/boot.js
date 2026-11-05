@@ -282,6 +282,51 @@ const Boot = {
   },
 
   /**
+   * Load the NovaByte Registry before the shell reads any config: open the
+   * hives, seed-once the boot defaults, and attach the settings ↔ registry
+   * mirror. Every step is fail-soft — a missing or broken registry must
+   * never block boot; the shell simply falls back to OS.settings.
+   * @returns {Object|null} the engine, or null when unavailable
+   */
+  initNovaRegistry() {
+    const reg = window.NovaRegistry;
+    if (!reg || typeof reg.init !== 'function') return null;
+    try {
+      reg.init({ settings: OS.settings, events: OS.events, logger: OS.logger });
+      const seeded = reg.ensureDefaults(reg.BOOT_DEFAULTS);
+      reg.attachSettingsMirror(OS.settings, OS.events);
+      if (seeded > 0) console.info(`[BOOT] NovaByte Registry seeded ${seeded} default value(s)`);
+      return reg;
+    } catch (err) {
+      console.warn('[BOOT] NovaByte Registry unavailable:', err);
+      return null;
+    }
+  },
+
+  /**
+   * Wrap the settings getter so mapped shell keys prefer the live registry
+   * value and fall back to OS.settings (then code defaults) when the key is
+   * absent. This is what makes the shell registry-driven without making the
+   * registry a boot dependency.
+   * @param {Function} sGet — bound OS.settings.get
+   * @returns {Function}
+   */
+  wrapSettingsWithRegistry(sGet) {
+    const reg = window.NovaRegistry;
+    if (!reg || typeof reg.get !== 'function' || !reg.SETTINGS_KEY_TO_PATH) return sGet;
+    const map = reg.SETTINGS_KEY_TO_PATH;
+    return function registryFirstGet(key) {
+      if (Object.prototype.hasOwnProperty.call(map, key)) {
+        try {
+          const value = reg.get(map[key]);
+          if (value !== undefined) return value;
+        } catch (err) { /* fall through to settings */ }
+      }
+      return sGet(key);
+    };
+  },
+
+  /**
    * Apply accessibility settings: high contrast and reduce motion.
    * @param {Function} sGet
    */
@@ -445,7 +490,12 @@ async function boot() {
   Storage.remove(KEYS.ATTEMPTS);
 
   // 7. Settings & UI ───────────────────────────────────────────────
-  const sGet = Boot.applyOSVars();
+  // The registry loads first; the getter below prefers live registry values
+  // for mapped shell keys (theme/accent/wallpaper) with OS.settings as the
+  // fallback, so the desktop boots registry-driven but never registry-
+  // dependent.
+  Boot.initNovaRegistry();
+  const sGet = Boot.wrapSettingsWithRegistry(Boot.applyOSVars());
   Boot.applyThemeAndVars(sGet);
   Boot.applyWallpaper(sGet);
   Boot.applyAccessibility(sGet);

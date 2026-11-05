@@ -224,6 +224,10 @@
 
   <script src="/js/platform/core/app-id-aliases.js" defer></script>
   <script src="/js/platform/core/app-registry.js" defer></script>
+  <!-- NovaByte Registry: OS config store (hives on disk, nova:reg:* IPC,
+       change events). Must load before boot.js so shell lookups can prefer
+       registry values over the OS.settings fallback. -->
+  <script src="/js/platform/core/nova-registry.js" defer></script>
   <script src="/js/platform/security/app-permission-manager.js" defer></script>
   <script src="/js/platform/security/app-secrets.js" defer></script>
   <script src="/js/platform/security/root-broker.js" defer></script>
