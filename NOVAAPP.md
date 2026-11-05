@@ -2135,6 +2135,27 @@ The working rules, spelled out:
 4. **Feature detection is `window.novaOS.capabilities.has(name)`.** Version your probes off capability names, not off `novaOS.apiVersion` or user-agent sniffing. Capability names are added over time and never removed or reused for different meanings.
 5. **Removal is not a thing.** Channels are not removed or repurposed in major OS versions; at most they stop being *documented as recommended* when a facade supersedes them — which is always stated next to the facade (see the `dialog` facade note for the pattern).
 
+### Test layout
+
+There is exactly one test root, `NBOSP/tests/`, and it mirrors the OS layout — a source file's test lives at the same relative path, and every app in `js/apps/` has its own dedicated test file:
+
+| Path | What lives there |
+| --- | --- |
+| `tests/core/<area>/<file>.test.js` | Mirrors `js/core/` (boot, kernel, init, fs, workers, base-utils, …) |
+| `tests/platform/<area>/<file>.test.js` | Mirrors `js/platform/` (sandbox, permission manager, registry, trust store, …) |
+| `tests/apps/<app>.test.js` | One test file per app folder in `js/apps/` (calculator, terminal, settings, wallpaper, …) |
+| `tests/server/`, `tests/email/` | Mirror the top-level `server/` and `email/` modules |
+| `tests/system/` | OS image build / installer / kiosk config |
+| `tests/integration/*.suite.js` | The nine whole-OS node audits (guest-bridge, ipc-matrix, mac-policy, legacy-vfs-compat, real-use, …) |
+| `tests/helpers/`, `tests/setup.js` | Shared fixtures and the vitest global setup (`app-harness.js` loads any app into a real JSDOM window the way the host does) |
+
+Two runners:
+
+- `npm test` — vitest over `tests/**/*.test.js` (unit + app + platform + server).
+- `npm run test:integration` — the nine node audit suites in `tests/integration/`, run sequentially by `run-all.js`; these boot the real dispatcher/sandbox and assert at the IPC-contract level, so they stay plain node scripts instead of vitest files.
+
+The app harness contract: `loadWindowApp(name)` loads a window app's `index.html` + `app.js` into JSDOM and captures what it passes to the host's global `registerApp()`; `initApp(app)` runs the real `init()` against a detached element exactly like the window manager does; `loadServiceApp(name)` loads a service's `service.js` and asserts on what it attaches to `window`. Host globals (`AppDirs`, the `nova` bridge with recorded calls, `novaOS`, `nw`, `fetch`) are stubbed in `app-harness.js` and overridable per test via `stubs`.
+
 ### Legacy vfs compatibility
 
 The earliest `.novaapp` packages predate the scoped-storage `fs` family. Their manifests declare the `vfs:*` permission family and their code dials the `nova:vfs:*` channels directly. Those names are still accepted through a background translation layer — old apps keep working without a repack, and the translation never weakens enforcement:
