@@ -338,23 +338,27 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, vi.fn());
 
     const api = sandboxWindow.novaOS;
-    for (const cap of ['events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2']) {
+    for (const cap of ['events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2', 'net.v2']) {
       expect(api.capabilities.has(cap)).toBe(true);
     }
     expect(api.capabilities.has('events.v3')).toBe(false);
-    for (const area of ['events', 'geolocation', 'media', 'calendar', 'contacts', 'mail', 'admin', 'background', 'permissions']) {
+    for (const area of ['events', 'geolocation', 'media', 'calendar', 'contacts', 'mail', 'admin', 'background', 'permissions', 'net']) {
       expect(Object.isFrozen(api[area])).toBe(true);
     }
     // Full method surface of the new areas.
     expect(Object.keys(api.events).sort()).toEqual(['on', 'subscribe', 'unsubscribe']);
     expect(Object.keys(api.geolocation).sort()).toEqual(['getCurrentPosition']);
-    expect(Object.keys(api.media).sort()).toEqual(['checkCamera', 'checkMicrophone', 'getUserMedia']);
+    // Merged media surface: the indexed-media query AND the device
+    // authorization checks live on one namespace (an earlier draft shipped
+    // them as two media keys, where the later one clobbered query()).
+    expect(Object.keys(api.media).sort()).toEqual(['checkCamera', 'checkMicrophone', 'getUserMedia', 'query']);
     expect(Object.keys(api.calendar).sort()).toEqual(['list', 'remove', 'save']);
     expect(Object.keys(api.contacts).sort()).toEqual(['list', 'remove', 'save']);
     expect(Object.keys(api.mail).sort()).toEqual(['account', 'connect', 'disconnect', 'folders', 'markRead', 'message', 'messages', 'move', 'openLink', 'preview', 'remove', 'restore', 'search', 'send']);
     expect(Object.keys(api.admin).sort()).toEqual(['appsList', 'auditQuery', 'systemGet', 'systemSet', 'usersList', 'usersRevoke']);
     expect(Object.keys(api.background).sort()).toEqual(['onWake', 'stayAlive', 'wakeDone']);
     expect(Object.keys(api.permissions).sort()).toEqual(['checkRateLimited', 'request']);
+    expect(Object.keys(api.net).sort()).toEqual(['websocket']);
   });
 
   it('exposes the novaOS v2 events facade with a host-subscription lifecycle', async () => {
@@ -595,6 +599,81 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     await expect(sandboxWindow.novaOS.mail.folders()).rejects.toBe(hostError);
     await expect(sandboxWindow.novaOS.admin.appsList()).rejects.toBe(hostError);
     await expect(sandboxWindow.novaOS.events.subscribe('system:power')).rejects.toBe(hostError);
+  });
+
+  it('exposes one merged novaOS media surface (query + device authorization)', async () => {
+    // Regression: an earlier draft shipped query() and the device checks as
+    // two separate media keys in the facade object — the later one silently
+    // clobbered query(). One surface, all four methods live.
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const files = [{ path: 'media:/Pictures/a.jpg', type: 'image' }];
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      if (type === 'nova:media:query') return Promise.resolve({ success: true, files });
+      return Promise.resolve({ success: true, authorized: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+    const api = sandboxWindow.novaOS;
+
+    expect(Object.isFrozen(api.media)).toBe(true);
+    await expect(api.media.query({ type: 'image', limit: 100 })).resolves.toEqual({ success: true, files });
+    await expect(api.media.checkCamera()).resolves.toBe(true);
+    await expect(api.media.checkMicrophone()).resolves.toBe(true);
+    await expect(api.media.getUserMedia({})).rejects.toBeInstanceOf(TypeError);
+
+    expect(calls).toEqual([
+      { type: 'nova:media:query', payload: { type: 'image', limit: 100 } },
+      { type: 'nova:device:camera', payload: {} },
+      { type: 'nova:device:microphone', payload: {} },
+    ]);
+  });
+
+  it('exposes novaOS v2 net.websocket facade with v1-identical semantics', async () => {
+    const sandboxWindow = { nova: { ipc: vi.fn() } };
+    const calls = [];
+    const fakeIpc = vi.fn((type, payload) => {
+      calls.push({ type, payload });
+      if (type === 'nova:net:websocket') return Promise.resolve({ success: true, wsId: 'ws_1', readyState: 1 });
+      return Promise.resolve({ success: true });
+    });
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, fakeIpc);
+    const api = sandboxWindow.novaOS;
+
+    expect(api.capabilities.has('net.v2')).toBe(true);
+    expect(Object.isFrozen(api.net)).toBe(true);
+
+    // Open resolves a handle once the host socket is OPEN; url and optional
+    // subprotocols pass through unchanged.
+    const handle = await api.net.websocket('wss://example.com/socket', 'chat');
+    expect(handle.wsId).toBe('ws_1');
+    expect(handle.readyState).toBe(1);
+    expect(typeof handle.send).toBe('function');
+    expect(typeof handle.close).toBe('function');
+    expect(calls[0]).toEqual({ type: 'nova:net:websocket', payload: { url: 'wss://example.com/socket', protocols: 'chat' } });
+
+    // Listener registration requires functions (consistent with events.on).
+    expect(() => handle.onMessage(() => {})).not.toThrow();
+    expect(() => handle.onError(() => {})).not.toThrow();
+    expect(() => handle.onClose(() => {})).not.toThrow();
+    expect(() => handle.onMessage('nope')).toThrow(TypeError);
+
+    // send/close carry the wsId + arguments through unchanged.
+    await handle.send('hello');
+    await handle.close(1000, 'done');
+    expect(calls[1]).toEqual({ type: 'nova:net:ws:send', payload: { wsId: 'ws_1', data: 'hello' } });
+    expect(calls[2]).toEqual({ type: 'nova:net:ws:close', payload: { wsId: 'ws_1', code: 1000, reason: 'done' } });
+
+    // A host response without a wsId can't be addressed — rejects.
+    const noIdIpc = vi.fn(() => Promise.resolve({ success: true }));
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, noIdIpc);
+    await expect(sandboxWindow.novaOS.net.websocket('wss://example.com/socket')).rejects.toThrow('resolved without a wsId');
+
+    // Host errors (PERMISSION_DENIED, INVALID_ARGS, ...) reject unchanged.
+    const denied = Object.assign(new Error('net:websocket permission required'), { code: 'PERMISSION_DENIED' });
+    const deniedIpc = vi.fn(() => Promise.reject(denied));
+    new Function('window', 'ipc', AppSandbox._internal.buildNovaOSFacadeSource())(sandboxWindow, deniedIpc);
+    await expect(sandboxWindow.novaOS.net.websocket('wss://example.com/socket')).rejects.toBe(denied);
   });
 
   it('mediates permitted nested webviews through the host sibling bridge', () => {

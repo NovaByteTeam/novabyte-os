@@ -178,7 +178,7 @@ async function ga1() {
   // v2 facade surface.
   check('window.novaOS exists', !!g.novaOS);
   check('novaOS.apiVersion === 2', g.novaOS.apiVersion === 2, `got ${g.novaOS.apiVersion}`);
-  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1', 'fsWatch.v1', 'alarms.v1', 'secrets.v1', 'shareTarget.v1', 'push.v1', 'settings.v2', 'ready.v2', 'events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2']) {
+  for (const cap of ['storage.v2', 'fs.v2', 'clipboard.v2', 'notifications.v2', 'window.v2', 'dialogs.v2', 'app.v2', 'data.v2', 'locale.v1', 'badge.v1', 'fsWatch.v1', 'alarms.v1', 'secrets.v1', 'shareTarget.v1', 'push.v1', 'settings.v2', 'ready.v2', 'events.v2', 'geolocation.v2', 'media.v2', 'calendar.v2', 'contacts.v2', 'mail.v2', 'admin.v2', 'background.v2', 'permissions.v2', 'net.v2']) {
     check(`novaOS.capabilities.has("${cap}") === true`, g.novaOS.capabilities.has(cap) === true);
   }
   check('novaOS.capabilities.has("nope.v9") === false', g.novaOS.capabilities.has('nope.v9') === false);
@@ -207,7 +207,7 @@ async function ga1() {
     'admin.auditQuery', 'admin.systemGet', 'admin.systemSet', 'admin.usersList',
     'admin.usersRevoke', 'admin.appsList',
     'background.stayAlive', 'background.wakeDone', 'background.onWake',
-    'permissions.request', 'permissions.checkRateLimited'];
+    'permissions.request', 'permissions.checkRateLimited', 'net.websocket'];
   for (const name of osSurface) {
     check(`window.novaOS.${name} exists`, typeof get(g.novaOS, name) === 'function', `got ${typeof get(g.novaOS, name)}`);
   }
@@ -2147,6 +2147,47 @@ async function ga23() {
   await revoke('secrets:store', appId23);
   const cooldown = await osCall(() => g.novaOS.permissions.checkRateLimited('secrets:store'));
   check('permissions.checkRateLimited answers without triggering a prompt', cooldown.ok && cooldown.value && typeof cooldown.value === 'object', JSON.stringify(cooldown.value !== undefined ? cooldown.value : (cooldown.error && cooldown.error.code)));
+
+  // ── net.websocket — v2 handle over the same socket machinery the v1
+  // wrapper uses (GA11 covers the wrapper itself) ──
+  const wsDenied = await osCall(() => g.novaOS.net.websocket('wss://ws.example.com/'));
+  check('net.websocket denied without net:websocket', !wsDenied.ok && errCode(wsDenied.error) === 'PERMISSION_DENIED', JSON.stringify(wsDenied.error && wsDenied.error.code));
+
+  await grant('net:websocket', appId23);
+  const v2wsOpen = await osCall(() => g.novaOS.net.websocket('wss://ws.example.com/'));
+  check('net.websocket resolves a handle with wsId',
+    v2wsOpen.ok && v2wsOpen.value && !!v2wsOpen.value.wsId && typeof v2wsOpen.value.send === 'function' && typeof v2wsOpen.value.close === 'function',
+    JSON.stringify(v2wsOpen.error && v2wsOpen.error.code));
+  const v2ws = v2wsOpen.value;
+  const v2got = { message: null, error: null, close: null };
+  v2ws.onMessage((m) => { v2got.message = m; });
+  v2ws.onError((m) => { v2got.error = m; });
+  v2ws.onClose((m) => { v2got.close = m; });
+  // A push for this wsId reaches the facade's listeners even though no v1
+  // handle was ever created for this socket (independent fan-out).
+  INTERNAL.respond(g.webview, 'nova:net:ws:message', INTERNAL.generateRequestId(), { wsId: v2ws.wsId, data: 'hello-v2' });
+  await sleep(120);
+  check('net.websocket onMessage receives the ws push', v2got.message && v2got.message.data === 'hello-v2', JSON.stringify(v2got.message));
+  // send round-trips through the bridge.
+  const v2send = await osCall(() => v2ws.send('ping-v2'));
+  check('net.websocket send resolves through the bridge', v2send.ok, JSON.stringify(v2send.error && v2send.error.code));
+  // v1 + v2 coexistence on separate sockets: each surface only sees its own.
+  const v1ws = await settle(g.nova.websocket('wss://ws.example.com/'));
+  let v1msg = null;
+  v1ws.onMessage((m) => { v1msg = m; });
+  INTERNAL.respond(g.webview, 'nova:net:ws:message', INTERNAL.generateRequestId(), { wsId: v1ws.wsId, data: 'for-v1' });
+  await sleep(120);
+  check('v1 wrapper handle receives its own socket push', v1msg && v1msg.data === 'for-v1', JSON.stringify(v1msg));
+  check('v2 listener does not receive another socket push', v2got.message && v2got.message.data === 'hello-v2', JSON.stringify(v2got.message && v2got.message.data));
+  // close push fires the facade's onClose and retires the wsId: later pushes
+  // for the same wsId go nowhere.
+  INTERNAL.respond(g.webview, 'nova:net:ws:close', INTERNAL.generateRequestId(), { wsId: v2ws.wsId, code: 1000, reason: 'done', clean: true });
+  await sleep(120);
+  check('net.websocket onClose receives the close push', v2got.close && v2got.close.code === 1000, JSON.stringify(v2got.close));
+  INTERNAL.respond(g.webview, 'nova:net:ws:message', INTERNAL.generateRequestId(), { wsId: v2ws.wsId, data: 'after-close' });
+  await sleep(120);
+  check('no v2 delivery after the close push', v2got.message && v2got.message.data === 'hello-v2', JSON.stringify(v2got.message && v2got.message.data));
+  await revoke('net:websocket', appId23);
 
   g.teardown();
 }

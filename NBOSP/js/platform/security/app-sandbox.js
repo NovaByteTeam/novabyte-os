@@ -9547,7 +9547,8 @@ const AppSandbox = (() => {
     'ready.v2': true,
     // Full-coverage v2 sugar over the remaining frozen v1 channel families
     // (events, device, calendar/contacts, mail, admin, background,
-    // permissions) — still pure sugar, still nothing new host-side.
+    // permissions, websocket) — still pure sugar, still nothing new
+    // host-side.
     'events.v2': true,
     'geolocation.v2': true,
     'media.v2': true,
@@ -9557,8 +9558,9 @@ const AppSandbox = (() => {
     'admin.v2': true,
     'background.v2': true,
     'permissions.v2': true,
+    'net.v2': true,
   });
-  // Listener state for the v2 event-bus and background-wake facades.
+  // Listener state for the v2 event-bus, background-wake, and net facades.
   // Deliberately separate from the v1 bridge's own collections
   // (eventListeners / backgroundWakeListeners — frozen window.nova surface):
   // the push dispatch fans out to both independently, and each side manages
@@ -9571,6 +9573,12 @@ const AppSandbox = (() => {
   // null when this source is evaluated standalone (the test harness).
   const novaOSEventListeners = {}; // eventName -> [callback, ...]
   const novaOSWakeListeners = [];
+  // Per-socket listeners for the v2 net facade (novaOS.net.websocket) —
+  // wsId -> { message: [...], error: [...], close: [...] }. Separate from
+  // the v1 wrapper's wsEventListeners for the same reason as above: the
+  // push dispatch fans out to both, and each surface manages only its own
+  // entries (a wsId's entry goes when its close push arrives).
+  const novaOSWsListeners = {};
   const __v1EventListeners = (typeof eventListeners === 'object' && eventListeners !== null) ? eventListeners : null;
   window.novaOS = Object.freeze({
     apiVersion: 2,
@@ -9703,11 +9711,41 @@ const AppSandbox = (() => {
         },
       }),
     }),
-    // Indexed shared media metadata. File bytes must still be read through
-    // fs.read(), which applies the usual per-file media permission checks.
+    // Indexed shared media metadata (nova:media:query). File bytes must
+    // still be read through fs.read(), which applies the usual per-file
+    // media permission checks. The device media-authorization checks live
+    // on this surface too (device:camera / device:microphone) — the raw
+    // channels are authorization-only (a MediaStream can't cross the IPC
+    // bridge), so checkCamera()/checkMicrophone() resolve true when the
+    // app-level grant is held and reject PERMISSION_DENIED when it isn't.
+    // getUserMedia(constraints) mirrors window.nova.getUserMedia:
+    // app-level checks first, then the real getUserMedia() in THIS
+    // document — the browser's own permission gate still runs separately
+    // when it is invoked (the permissionrequest 'media' branch). One
+    // merged media surface: an earlier draft shipped these as two
+    // media keys, where the later one silently clobbered query().
     media: Object.freeze({
       query: function(options) {
         return ipc('nova:media:query', options || {});
+      },
+      checkCamera: function() { return ipc('nova:device:camera', {}).then(function() { return true; }); },
+      checkMicrophone: function() { return ipc('nova:device:microphone', {}).then(function() { return true; }); },
+      getUserMedia: function(constraints) {
+        constraints = constraints || {};
+        const needsCamera = !!constraints.video;
+        const needsMic = !!constraints.audio;
+        const checks = [];
+        if (needsCamera) checks.push(ipc('nova:device:camera', {}));
+        if (needsMic) checks.push(ipc('nova:device:microphone', {}));
+        if (checks.length === 0) {
+          return Promise.reject(new TypeError('getUserMedia requires at least one of video/audio in constraints'));
+        }
+        return Promise.all(checks).then(function() {
+          if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+            return Promise.reject(new TypeError('getUserMedia not available in this environment'));
+          }
+          return navigator.mediaDevices.getUserMedia(constraints);
+        });
       },
     }),
     // Clipboard facade. readText() normalizes to the text itself (null when
@@ -10028,35 +10066,6 @@ const AppSandbox = (() => {
         });
       },
     }),
-    // Media authorization (device:camera / device:microphone) — the raw
-    // channels are authorization-only checks (a MediaStream can't cross
-    // the IPC bridge), so checkCamera()/checkMicrophone() resolve true
-    // when the app-level grant is held and reject PERMISSION_DENIED when
-    // it isn't. getUserMedia(constraints) mirrors window.nova.getUserMedia:
-    // app-level checks first, then the real getUserMedia() in THIS
-    // document — the browser's own permission gate still runs separately
-    // when it is invoked (the permissionrequest 'media' branch).
-    media: Object.freeze({
-      checkCamera: function() { return ipc('nova:device:camera', {}).then(function() { return true; }); },
-      checkMicrophone: function() { return ipc('nova:device:microphone', {}).then(function() { return true; }); },
-      getUserMedia: function(constraints) {
-        constraints = constraints || {};
-        const needsCamera = !!constraints.video;
-        const needsMic = !!constraints.audio;
-        const checks = [];
-        if (needsCamera) checks.push(ipc('nova:device:camera', {}));
-        if (needsMic) checks.push(ipc('nova:device:microphone', {}));
-        if (checks.length === 0) {
-          return Promise.reject(new TypeError('getUserMedia requires at least one of video/audio in constraints'));
-        }
-        return Promise.all(checks).then(function() {
-          if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-            return Promise.reject(new TypeError('getUserMedia not available in this environment'));
-          }
-          return navigator.mediaDevices.getUserMedia(constraints);
-        });
-      },
-    }),
     // Calendar/Contacts — the SAME shared stores the host Calendar and
     // Contacts apps use (not per-app isolated data), so writes are visible
     // to those apps and their change events fire exactly as before. list()
@@ -10175,6 +10184,45 @@ const AppSandbox = (() => {
       },
       checkRateLimited: function(permission) {
         return ipc('nova:permission-rate-limited', { permission: permission });
+      },
+    }),
+    // WebSocket (nova:net:websocket + ws:send/ws:close) — 1:1 with the v1
+    // window.nova.websocket() wrapper: open resolves only once the host's
+    // socket is OPEN (the host answers nova:net:websocket from its onopen
+    // handler, so a connection that never opens surfaces as the shim's
+    // generic IPC timeout rather than a specific failure reason — same as
+    // v1), and the handle registers message/error/close callbacks per
+    // wsId. Push delivery fans out to this facade's own registry
+    // (novaOSWsListeners above) independently of the v1 wrapper's, so each
+    // surface only sees callbacks registered through itself. Same gates,
+    // same URL rules (ws:/wss: only, no embedded credentials, no
+    // cloud-metadata literals; net:internal additionally required for
+    // private and first-party destinations), same error codes.
+    net: Object.freeze({
+      websocket: function(url, protocols) {
+        return ipc('nova:net:websocket', { url: url, protocols: protocols }).then(function(res) {
+          const wsId = res && res.wsId;
+          if (!wsId) throw new Error('nova:net:websocket resolved without a wsId');
+          novaOSWsListeners[wsId] = { message: [], error: [], close: [] };
+          return {
+            wsId: wsId,
+            readyState: res.readyState,
+            onMessage: function(cb) {
+              if (typeof cb !== 'function') throw new TypeError('callback must be a function');
+              novaOSWsListeners[wsId].message.push(cb);
+            },
+            onError: function(cb) {
+              if (typeof cb !== 'function') throw new TypeError('callback must be a function');
+              novaOSWsListeners[wsId].error.push(cb);
+            },
+            onClose: function(cb) {
+              if (typeof cb !== 'function') throw new TypeError('callback must be a function');
+              novaOSWsListeners[wsId].close.push(cb);
+            },
+            send: function(data) { return ipc('nova:net:ws:send', { wsId: wsId, data: data }); },
+            close: function(code, reason) { return ipc('nova:net:ws:close', { wsId: wsId, code: code, reason: reason }); },
+          };
+        });
       },
     }),
   });`;
@@ -10424,18 +10472,31 @@ const AppSandbox = (() => {
     // sent with a fresh requestId that was never registered in
     // pendingRequests, so without this branch they'd hit the
     // "!entry -> return" fallthrough below and silently vanish.
-    // Dispatched to listeners registered per-wsId via window.nova.websocket().
+    // Dispatched to listeners registered per-wsId via window.nova.websocket()
+    // and, independently, via the v2 net facade (novaOS.net.websocket) —
+    // each surface only ever sees callbacks registered through itself.
     if ((msg.type === 'nova:net:ws:message:response' || msg.type === 'nova:net:ws:error:response' || msg.type === 'nova:net:ws:close:response')
         && msg.result && msg.result.wsId) {
+      const kind = msg.type === 'nova:net:ws:message:response' ? 'message'
+        : msg.type === 'nova:net:ws:error:response' ? 'error' : 'close';
       const wsListeners = wsEventListeners[msg.result.wsId];
       if (wsListeners) {
-        const kind = msg.type === 'nova:net:ws:message:response' ? 'message'
-          : msg.type === 'nova:net:ws:error:response' ? 'error' : 'close';
         const cbs = wsListeners[kind] || [];
         for (let k = 0; k < cbs.length; k++) {
           try { cbs[k](msg.result); } catch (_) {}
         }
         if (kind === 'close') delete wsEventListeners[msg.result.wsId];
+      }
+      // v2 net facade listeners — same push, its own registry, so a socket
+      // opened through novaOS.net.websocket delivers to facade callbacks
+      // even when no v1 handle was ever created for that wsId.
+      const v2WsListeners = novaOSWsListeners[msg.result.wsId];
+      if (v2WsListeners) {
+        const v2Cbs = v2WsListeners[kind] || [];
+        for (let k = 0; k < v2Cbs.length; k++) {
+          try { v2Cbs[k](msg.result); } catch (_) {}
+        }
+        if (kind === 'close') delete novaOSWsListeners[msg.result.wsId];
       }
       return;
     }

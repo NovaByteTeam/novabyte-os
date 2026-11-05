@@ -833,7 +833,7 @@ if (window.novaOS.capabilities.has('fs.v2')) {
 }
 ```
 
-Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, and the v2 sugar over the remaining frozen channels: `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`. New capabilities may be added in future runtimes; existing names are never removed.
+Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.v2`, `window.v2`, `dialogs.v2`, `app.v2`, `data.v2`, plus the newer host-side powers `locale.v1`, `badge.v1`, `fsWatch.v1`, `alarms.v1`, `secrets.v1`, `shareTarget.v1`, `push.v1`, and the v2 sugar over the remaining frozen channels: `settings.v2`, `ready.v2`, `events.v2`, `geolocation.v2`, `media.v2`, `calendar.v2`, `contacts.v2`, `mail.v2`, `admin.v2`, `background.v2`, `permissions.v2`, `net.v2`. New capabilities may be added in future runtimes; existing names are never removed.
 
 | Facade | Methods | Wraps (unchanged) | Permission (unchanged) |
 | --- | --- | --- | --- |
@@ -855,13 +855,14 @@ Current capability names: `storage.v2`, `fs.v2`, `clipboard.v2`, `notifications.
 | `ready` | `get()` → `{ appId, permissions, optionalPermissions, osVersion, securityPatch, username }` | `nova:ready` | none |
 | `events` | `on(name, cb)` → off, `subscribe(name)`, `unsubscribe(name)` | `nova:events:*` + push: `nova:events:event` | allowlist; `system:events` (+ domain read) for sensitive events |
 | `geolocation` | `getCurrentPosition(options?)` → `{ coords, timestamp }` | `nova:device:geolocation` | `device:geolocation` |
-| `media` | `checkCamera()`, `checkMicrophone()`, `getUserMedia(constraints)` | `nova:device:camera`, `nova:device:microphone` | `device:camera` / `device:microphone` |
+| `media` | `query(options)` → MediaStore index, `checkCamera()`, `checkMicrophone()`, `getUserMedia(constraints)` | `nova:media:query`, `nova:device:camera`, `nova:device:microphone` | query: matching media read grant / `fs:metadata` / `fs:access`; checks: `device:camera` / `device:microphone` |
 | `calendar` | `list()` → events, `save(event)` → record, `remove(id)` → bool | `nova:calendar:*` | `calendar:read` / `calendar:write` / `calendar:delete` |
 | `contacts` | `list()` → contacts, `save(contact)` → record, `remove(id)` → bool | `nova:contacts:*` | `contacts:read` / `contacts:write` / `contacts:delete` |
 | `mail` | `connect disconnect restore account folders messages message search preview markRead move send remove openLink` | `nova:mail:*`, `nova:email:open-link` | `mail:read` / `mail:write` / `mail:send` / `mail:delete` |
 | `admin` | `auditQuery systemGet systemSet usersList usersRevoke appsList` | `nova:admin:*` | `admin:*` + machine admin mode |
 | `background` | `stayAlive(enabled?)` → `{ enabled }`, `wakeDone()`, `onWake(cb)` → off | `nova:background:stay-alive`, `nova:background:wake-done` + push: `nova:background:wake` | `system:background:live` (stayAlive); wakes gated host-side by `system:background` |
 | `permissions` | `request(permission, reason?)` → bool, `checkRateLimited(permission)` → status | `nova:request-permission`, `nova:permission-rate-limited` | none — requesting grants is the point |
+| `net` | `websocket(url, protocols?)` → handle `{ wsId, readyState, onMessage, onError, onClose, send, close }` | `nova:net:websocket`, `nova:net:ws:send`, `nova:net:ws:close` + pushes `nova:net:ws:message` / `ws:error` / `ws:close` | `net:websocket` (+ `net:internal` for private/first-party hosts) |
 
 Normalization rules, and nothing more: mutation methods resolve `undefined`; reads return the value directly (e.g. `clipboard.readText()` → the text or `null`, `window.getState()` → the state record without its `success` flag). Everything else — file records, envelopes, notification responses, error rejections with `.code`/`.message` — is exactly the object the wrapped channel returns. Permission denials reject with `PERMISSION_DENIED` exactly as they do over raw `window.nova.ipc`.
 
@@ -1289,6 +1290,8 @@ ws.close(1000, 'done');
 > **Don't skip this:** `onMessage`'s callback argument is `{wsId, data}`, not the raw payload. Treating it as the bare message means everything connects with no errors while your handler never fires.
 
 The returned promise resolves once the connection is open — from the host's `onopen` handler only. There is no host-side rejection path if the connection never opens (bad host, refused connection, TLS failure): the call sits until the bridge timeout fires with a generic timeout error. Treat that timeout as a real connection failure.
+
+Also available as `novaOS.net.websocket(url, protocols?)` (v2, capability `net.v2`) — the same wrapper under a modern name: same gates, same `{ wsId, data }` envelope shape on `onMessage`, same open-only resolution and timeout-on-never-opens behavior, and callbacks registered through it see only pushes for sockets opened through it (the v1 wrapper and the v2 facade keep independent listener registries; a socket opened through one surface never delivers to the other's callbacks).
 
 ### Geolocation — `nova:device:geolocation`
 
