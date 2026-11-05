@@ -97,11 +97,25 @@ registerApp({
     const scroll = createEl('div', { style: 'flex:1;overflow:auto;padding:16px;' });
     content.appendChild(scroll);
 
+    // Legacy vfs:* names are never in PERMISSION_CATEGORIES (which only has
+    // fs:* keys), so resolve them first — mirrors LEGACY_PERMISSION_ALIASES
+    // in app-registry.js. Without this, any app that still declares vfs:*
+    // in its manifest shows a blank label and silently falls through to
+    // 'low' risk, which is wrong for e.g. vfs:access → fs:access (critical).
+    const LEGACY_VFS_ALIASES = {
+      'vfs:access':   'fs:access',
+      'vfs:read':     'fs:access',
+      'vfs:write':    'fs:access',
+      'vfs:delete':   'fs:access',
+      'vfs:metadata': 'fs:metadata',
+      'vfs:metedata': 'fs:metadata',
+    };
     function riskBadge(permission) {
-      const cat = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES[permission] : null;
-      const risk = cat?.risk ?? 'low';
-      const label = cat?.label ?? permission;
-      return { risk, label, color: RISK_COLORS[risk] || RISK_COLORS.low };
+      const resolved = LEGACY_VFS_ALIASES[permission] ?? permission;
+      const cat = managerAvailable ? AppPermissionManager.PERMISSION_CATEGORIES[resolved] : null;
+      const risk = cat?.risk ?? 'unknown';
+      const label = cat?.label ?? resolved;
+      return { risk, label, color: RISK_COLORS[risk] ?? '#888' };
     }
 
     // window.AppPermissionsMap (from app-permissions-bootstrap.js) is the
@@ -333,15 +347,6 @@ registerApp({
         header.appendChild(left);
         header.appendChild(createEl('span', { textContent: status, style: `font-size:11px;color:${statusColor};border:1px solid ${statusColor};border-radius:3px;padding:1px 6px;flex-shrink:0;text-transform:uppercase;` }));
         row.appendChild(header);
-
-        if (grant) {
-          const meta = createEl('div', { style: 'font-size:10px;color:var(--text-muted);margin-top:6px;font-family:monospace;' });
-          const bits = [`granted: ${grant.grantedAt ? new Date(grant.grantedAt).toLocaleString() : '—'}`];
-          if (grant.lastUsed) bits.push(`last used: ${new Date(grant.lastUsed).toLocaleString()}`);
-          bits.push(grant.permanent ? 'permanent' : `expires: ${grant.expiresAt ? new Date(grant.expiresAt).toLocaleString() : '—'}`);
-          meta.textContent = bits.join(' · ');
-          row.appendChild(meta);
-        }
 
         if (managerAvailable) {
           const actions = createEl('div', { style: 'display:flex;gap:6px;margin-top:8px;' });
