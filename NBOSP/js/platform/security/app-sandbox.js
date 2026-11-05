@@ -3033,11 +3033,20 @@ const AppSandbox = (() => {
   //   write (registry.write) — only the caller's own HKNA/<app.id>/**
   //                            subtree. System apps may also write HKNS
   //                            (still never HKNS/security without
-  //                            registry.system). HKNU needs registry.system.
-  //                            HKND additionally requires Developer Mode.
+  //                            registry.system). HKNU needs registry.system
+  //                            OR a matching declared registryScopes.write
+  //                            prefix (manifest-declared designated user
+  //                            keys). HKND additionally requires Developer
+  //                            Mode.
   //   registry.system        — full access everywhere (devMode still gates
   //                            HKND: it is a dev scratch hive by
   //                            definition).
+  //
+  // On top of the hive rules, per-key ACLs from the engine (setAcl) are
+  // evaluated for every caller without registry.system: any ACL chain that
+  // covers the path must grant the actor (the calling app id, or '*') the
+  // needed right. Bare key paths address the key's default value — the
+  // engine resolves that, the handlers just stop rejecting them.
   //
   // The MAC front door (SEED_ENDPOINT_GRANTS) already required the flat
   // grant before we run; these checks are the context-dependent half.
@@ -3059,7 +3068,40 @@ const AppSandbox = (() => {
     if (parsed.hive === 'HKNS' && parsed.segments[0] === 'security') {
       return 'HKNS/security is only readable with registry.system';
     }
-    return null;
+    return regAclDenied(app, parsed, 'read');
+  }
+
+  // Manifest-declared registry scopes: registryScopes.write may name
+  // designated prefixes that unlock HKNU writes without registry.system
+  // (and document intended HKNA usage). Scopes can never unlock HKNS
+  // (including HKNS/security) or another app's HKNA subtree — those stay
+  // exactly where the base rules put them. registryScopes.read is
+  // advisory: reads are already broad, and HKNS/security is never
+  // scope-grantable.
+  function regScopeAllows(app, parsed, mode) {
+    const scopes = app?.registryScopes?.[mode];
+    if (!Array.isArray(scopes) || !scopes.length) return false;
+    if (parsed.hive === 'HKNS') return false; // system hive is never scope-grantable
+    if (parsed.hive === 'HKND') return false; // dev scratch stays devMode-gated
+    if (parsed.hive === 'HKNA' && mode === 'write' && parsed.segments[0] !== app.id) return false;
+    const engine = regEngine();
+    if (!engine) return false;
+    return scopes.some((raw) => {
+      if (typeof raw !== 'string') return false;
+      const scope = engine._internal.parsePath(raw);
+      if (scope.error) return false;
+      return parsed.path === scope.path || parsed.path.startsWith(scope.path + '/');
+    });
+  }
+
+  // Engine-side per-key ACL evaluation. No ACL chain → granted (the engine
+  // stays policy-neutral); any covering chain → the actor (calling app id
+  // or '*') must hold the right.
+  function regAclDenied(app, parsed, need) {
+    const engine = regEngine();
+    if (!engine || typeof engine.checkAccess !== 'function') return null;
+    const verdict = engine.checkAccess(parsed.path, app.id, need);
+    return verdict.granted ? null : `key ACL denies ${need}: ${verdict.reason}`;
   }
 
   function regWriteDeniedReason(app, parsed) {
@@ -3072,17 +3114,20 @@ const AppSandbox = (() => {
     if (!AppPermissionManager.isGranted('registry.write', app.id)) return 'registry.write permission required';
     if (parsed.hive === 'HKNA') {
       if (parsed.segments[0] !== app.id) return 'apps may only write their own HKNA/<appId>/ subtree';
-      return null;
+      return regAclDenied(app, parsed, 'write');
     }
     if (parsed.hive === 'HKNS') {
       if (app.system !== true) return 'writing HKNS requires a system app';
       if (parsed.segments[0] === 'security') return 'HKNS/security is only writable with registry.system';
-      return null;
+      return regAclDenied(app, parsed, 'write');
     }
-    if (parsed.hive === 'HKNU') return 'writing HKNU requires registry.system';
+    if (parsed.hive === 'HKNU') {
+      if (regScopeAllows(app, parsed, 'write')) return null;
+      return 'writing HKNU requires registry.system';
+    }
     if (parsed.hive === 'HKND') {
       if (OS?.settings?.get('devMode') !== true) return 'HKND requires Developer Mode';
-      return null;
+      return regAclDenied(app, parsed, 'write');
     }
     return 'unsupported hive';
   }
@@ -3110,17 +3155,16 @@ const AppSandbox = (() => {
     const TYPE = 'nova:reg:get';
     const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
     if (!parsed) return;
-    if (parsed.segments.length < 1) {
-      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'path must name a value (a bare key path has no value)');
-    }
+    // A bare key path is fine here: since engine v2 it addresses the key's
+    // default value (found: false when unset), Windows-style.
     const denied = regReadDeniedReason(app, parsed);
     if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
     try {
       const entry = regEngine().stat(parsed.path);
       if (!entry) return respond(webview, TYPE, requestId, { found: false, path: parsed.path });
-      return respond(webview, TYPE, requestId, {
-        found: true, path: parsed.path, type: entry.type, data: entry.data, lastModified: entry.lastModified,
-      });
+      const out = { found: true, path: parsed.path, type: entry.type, data: entry.data, lastModified: entry.lastModified };
+      if (entry.type === 'REG_EXPAND_SZ' && typeof entry.expanded === 'string') out.expanded = entry.expanded;
+      return respond(webview, TYPE, requestId, out);
     } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
   }
 
@@ -3128,9 +3172,7 @@ const AppSandbox = (() => {
     const TYPE = 'nova:reg:set';
     const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
     if (!parsed) return;
-    if (parsed.segments.length < 1) {
-      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'path must name a value');
-    }
+    // A bare key path writes the key's default value (engine v2).
     const denied = regWriteDeniedReason(app, parsed);
     if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
     if (!Object.prototype.hasOwnProperty.call(payload ?? {}, 'value')) {

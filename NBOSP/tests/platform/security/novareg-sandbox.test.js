@@ -221,4 +221,90 @@ describe('nova:reg:* sandbox handlers', () => {
       appId: 'com.probe.app',
     });
   });
+
+  it('addresses a key default value through the bridge (bare key path)', async () => {
+    grants.add('registry.read');
+    grants.add('registry.write');
+
+    // A real KEY first (a value write under it), so the bare path below
+    // addresses that key's default value — the engine is value-first when
+    // no key exists at the path.
+    NovaRegistry.set('HKNA/com.probe.app/agent/version', 1, { type: 'REG_DWORD' });
+
+    const miss = await call('nova:reg:get', { path: 'HKNA/com.probe.app/agent' }, plainApp);
+    expect(miss.result).toMatchObject({ found: false, path: 'HKNA/com.probe.app/agent' });
+
+    const set = await call('nova:reg:set', { path: 'HKNA/com.probe.app/agent', value: 'probe/1.0' }, plainApp);
+    expect(set.result).toMatchObject({ success: true, type: 'REG_SZ' });
+
+    const hit = await call('nova:reg:get', { path: 'HKNA/com.probe.app/agent' }, plainApp);
+    expect(hit.result).toMatchObject({ found: true, data: 'probe/1.0' });
+    // Explicit (default) segment addresses the same value; the child is intact.
+    const explicit = await call('nova:reg:get', { path: 'HKNA/com.probe.app/agent/(default)' }, plainApp);
+    expect(explicit.result).toMatchObject({ found: true, data: 'probe/1.0' });
+    const child = await call('nova:reg:get', { path: 'HKNA/com.probe.app/agent/version' }, plainApp);
+    expect(child.result).toMatchObject({ found: true, data: 1 });
+  });
+
+  it('enforces per-key ACLs on bridge reads and writes', async () => {
+    grants.add('registry.read');
+    grants.add('registry.write');
+    NovaRegistry.set('HKNA/com.probe.app/gated/value', 'secret');
+
+    // No ACL → normal behavior.
+    const open = await call('nova:reg:get', { path: 'HKNA/com.probe.app/gated/value' }, plainApp);
+    expect(open.result.found).toBe(true);
+
+    // An ACL on the parent key that does not list this app → both denied.
+    NovaRegistry.setAcl('HKNA/com.probe.app/gated', { entries: [{ id: 'com.other.app', rights: ['read', 'write'] }] });
+    const readDenied = await call('nova:reg:get', { path: 'HKNA/com.probe.app/gated/value' }, plainApp);
+    expect(code(readDenied)).toBe('PERMISSION_DENIED');
+    expect(readDenied.error.message).toMatch(/ACL denies read/);
+
+    const writeDenied = await call('nova:reg:set', { path: 'HKNA/com.probe.app/gated/value', value: 'x' }, plainApp);
+    expect(code(writeDenied)).toBe('PERMISSION_DENIED');
+    expect(writeDenied.error.message).toMatch(/ACL denies write/);
+
+    // Wildcard read grant opens reads again, writes stay closed.
+    NovaRegistry.setAcl('HKNA/com.probe.app/gated', { entries: [
+      { id: '*', rights: ['read'] },
+      { id: 'com.probe.app', rights: ['write'] },
+    ] });
+    const readOk = await call('nova:reg:get', { path: 'HKNA/com.probe.app/gated/value' }, plainApp);
+    expect(readOk.result.found).toBe(true);
+    const writeOk = await call('nova:reg:set', { path: 'HKNA/com.probe.app/gated/value', value: 'mine' }, plainApp);
+    expect(writeOk.result.success).toBe(true);
+    // registry.system bypasses ACLs entirely.
+    grants.add('registry.system');
+    const systemWrite = await call('nova:reg:set', { path: 'HKNA/com.other.app/gated/value', value: 'sys' }, plainApp);
+    expect(systemWrite.result.success).toBe(true);
+  });
+
+  it('lets a manifest registryScopes.write prefix unlock designated HKNU keys', async () => {
+    grants.add('registry.write');
+    const scopedApp = { id: 'com.probe.app', system: false, registryScopes: { write: ['HKNU/shell/notifications'] } };
+
+    const denied = await call('nova:reg:set', { path: 'HKNU/shell/notifications/banners', value: true, type: 'REG_BOOL' }, plainApp);
+    expect(code(denied)).toBe('PERMISSION_DENIED');
+
+    const allowed = await call('nova:reg:set', { path: 'HKNU/shell/notifications/banners', value: true, type: 'REG_BOOL' }, scopedApp);
+    expect(allowed.result.success).toBe(true);
+    expect(NovaRegistry.get('HKNU/shell/notifications/banners')).toBe(true);
+
+    // The scope prefix bounds the grant: siblings outside it stay denied.
+    const outside = await call('nova:reg:set', { path: 'HKNU/desktop/pins', value: ['x'] }, scopedApp);
+    expect(code(outside)).toBe('PERMISSION_DENIED');
+
+    // Scopes never unlock the system hive.
+    const hkns = await call('nova:reg:set', { path: 'HKNS/shell/theme', value: 'nord' }, { ...scopedApp, registryScopes: { write: ['HKNS/shell'] } });
+    expect(code(hkns)).toBe('PERMISSION_DENIED');
+  });
+
+  it('records the calling app id as the audit actor', async () => {
+    grants.add('registry.write');
+    NovaRegistry.set('HKNA/com.probe.app/audit-anchor', 'before');
+    await call('nova:reg:set', { path: 'HKNA/com.probe.app/audit-anchor', value: 'after' }, plainApp);
+    const entry = NovaRegistry.audit(1)[0];
+    expect(entry).toMatchObject({ actor: 'com.probe.app', action: 'set', path: 'HKNA/com.probe.app/audit-anchor', before: 'before', after: 'after' });
+  });
 });
