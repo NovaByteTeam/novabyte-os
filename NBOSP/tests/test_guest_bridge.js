@@ -47,6 +47,9 @@
 //        coexistence), geolocation, media, calendar, contacts, mail,
 //        admin, background, permissions — same gates as the frozen
 //        channels, normalized results only
+//   GA24 raw websocket receive — socket pushes mirrored onto the events
+//        bus (net:websocket-gated, same-app filtered), completing the raw
+//        channels as a standalone API
 //
 // Usage: node tests/test_guest_bridge.js [--filter GA5] [--verbose]
 
@@ -1052,16 +1055,17 @@ async function ga9() {
   // 3) Event table names are all subscribable with the right grants and a
   //    made-up name is not (behavior-level parity with ALLOWED_EVENT_NAMES).
   const g = await freshGuest('com.test.audit.g9');
-  // system:events plus every domain read grant the doc table's tiered rows
-  // require (mail/calendar/contact events need their domain read too).
-  for (const p of ['system:events', 'mail:read', 'calendar:read', 'contacts:read']) {
+  // system:events plus every domain grant the doc table's tiered rows
+  // require (mail/calendar/contact events need their domain read; the
+  // WebSocket push rows need net:websocket instead of system:events).
+  for (const p of ['system:events', 'mail:read', 'calendar:read', 'contacts:read', 'net:websocket']) {
     await grant(p, appId09);
   }
   // Event-table rows only, parsed inside the "### Event bus" section so the
   // permission and background-execution tables can't leak in.
   const eventSection = doc.match(/### Event bus[\s\S]*?(?=\n### )/);
   const docEvents = eventSection
-    ? [...eventSection[0].matchAll(/^\| \`((?:system|app|mail|calendar|contacts):[a-zA-Z]+)\` \|/gm)].map((x) => x[1])
+    ? [...eventSection[0].matchAll(/^\| \`((?:system|app|mail|calendar|contacts|nova:net:ws):[a-zA-Z:]+)\` \|/gm)].map((x) => x[1])
     : [];
   let notSubscribable = [];
   for (const ev of docEvents) {
@@ -2192,13 +2196,102 @@ async function ga23() {
   g.teardown();
 }
 
+// ════════════════════════════════ GA24 ═════════════════════════════════════
+// Raw WebSocket channels as a complete standalone API. The host mirrors
+// every socket push onto the OS event bus (nova:net:ws:message / ws:error /
+// ws:close) so a raw nova.ipc app — no wrapper, no facade — can receive.
+// Contract: net:websocket-gated (not system:events), same-app filtered
+// (foreign sockets are silently dropped), and the wrapper/facade per-wsId
+// direct pushes keep flowing alongside. Runs the REAL subscribe handler,
+// REAL bus, REAL socket handlers, REAL guest fan-out.
+// ═════════════════════════════════════════════════════════════════════
+
+async function ga24() {
+  section('[GA24] raw websocket receive — socket pushes as subscribable bus events');
+
+  const appId = 'com.test.audit.g24';
+  const g = await freshGuest(appId);
+
+  // The domain gate: the three ws push names need net:websocket — the same
+  // permission opening a socket needs — not the flat system:events grant.
+  const denied = await guestCall(g, 'nova:events:subscribe', { event: 'nova:net:ws:message' });
+  check('ws push subscribe without net:websocket is PERMISSION_DENIED',
+    !denied.ok && errCode(denied.error) === 'PERMISSION_DENIED', JSON.stringify(denied.error && denied.error.code));
+
+  await grant('net:websocket', appId);
+
+  // Raw standalone loop: connect + send over the raw channels (no wrapper,
+  // no facade), receive through the events path.
+  const opened = await guestCall(g, 'nova:net:websocket', { url: 'wss://ws.example.com/raw' });
+  check('raw nova:net:websocket connects', opened.ok && opened.value && !!opened.value.wsId, JSON.stringify(opened.error && opened.error.code));
+  const wsId = opened.value.wsId;
+
+  let pushed = null;
+  await settle(g.nova.onEvent('nova:net:ws:message', (data) => { pushed = data; }));
+  const send = await guestCall(g, 'nova:net:ws:send', { wsId, data: 'ping-raw' });
+  check('raw nova:net:ws:send resolves', send.ok, JSON.stringify(send.error && send.error.code));
+
+  // Fire the host-side stub socket's onmessage: the push must arrive BOTH
+  // as the per-wsId direct push (wrapper/facade plumbing, untouched) and
+  // through the bus mirror to the events subscriber.
+  const stub = g.sandbox.wsConnections.get(wsId) && g.sandbox.wsConnections.get(wsId).ws;
+  check('socket tracked on the guest sandbox record', !!stub);
+  stub.onmessage({ data: 'hello-raw' });
+  await sleep(200);
+  check('bus mirror delivers to the events subscriber', pushed && pushed.wsId === wsId && pushed.data === 'hello-raw', JSON.stringify(pushed));
+  check('appId rides the bus payload for the same-app filter', pushed && pushed.appId === appId, JSON.stringify(pushed && pushed.appId));
+
+  // The per-wsId direct pushes are untouched: a socket opened through the
+  // v1 wrapper delivers to the wrapper's own callbacks, while the same app
+  // ALSO receives it through the bus mirror (documented: pick one receive
+  // surface per socket — both firing is the expected double delivery).
+  const v1ws = await settle(g.nova.websocket('wss://ws.example.com/wrapper'));
+  check('wrapper socket opens alongside the raw one', v1ws && !!v1ws.wsId, JSON.stringify(v1ws && v1ws.wsId));
+  let wrapperGot = null, wrapperBusPush = null;
+  v1ws.onMessage((m) => { wrapperGot = m; });
+  await settle(g.nova.onEvent('nova:net:ws:message', (data) => { if (data.wsId === v1ws.wsId) wrapperBusPush = data; }));
+  const v1stub = g.sandbox.wsConnections.get(v1ws.wsId) && g.sandbox.wsConnections.get(v1ws.wsId).ws;
+  v1stub.onmessage({ data: 'via-wrapper' });
+  await sleep(250);
+  check('wrapper socket still delivers via the per-wsId direct push', wrapperGot && wrapperGot.data === 'via-wrapper', JSON.stringify(wrapperGot));
+  check('wrapper socket also mirrors onto the bus for this app', wrapperBusPush && wrapperBusPush.data === 'via-wrapper', JSON.stringify(wrapperBusPush));
+
+  // A second app subscribed to the same bus name must not hear the first
+  // app's socket traffic — the filter drops deliveries addressed elsewhere.
+  const other = await freshGuest('com.test.audit.g24b');
+  await grant('net:websocket', other.appId);
+  let otherPushed = null;
+  await settle(other.nova.onEvent('nova:net:ws:message', (data) => { otherPushed = data; }));
+  await sleep(200);
+  stub.onmessage({ data: 'second-hello' });
+  await sleep(250);
+  check("foreign subscriber does not receive another app's socket push", otherPushed === null, JSON.stringify(otherPushed));
+  check('owner still receives its own pushes with a foreign subscriber listening',
+    pushed && pushed.data === 'second-hello', JSON.stringify(pushed && pushed.data));
+
+  // error + close mirrors are subscribable too.
+  let errPushed = null, closePushed = null;
+  await settle(g.nova.onEvent('nova:net:ws:error', (data) => { errPushed = data; }));
+  await settle(g.nova.onEvent('nova:net:ws:close', (data) => { closePushed = data; }));
+  stub.onerror({});
+  await sleep(200);
+  check('ws:error mirrors to the events subscriber', errPushed && errPushed.error === 'WebSocket error', JSON.stringify(errPushed));
+  stub.onclose({ code: 1000, reason: 'done', wasClean: true });
+  await sleep(200);
+  check('ws:close mirrors to the events subscriber', closePushed && closePushed.code === 1000 && closePushed.clean === true, JSON.stringify(closePushed));
+  check('socket deregistered after close', !g.sandbox.wsConnections.has(wsId));
+
+  other.teardown();
+  g.teardown();
+}
+
 const FILTER = process.argv.find((a) => a.startsWith('--filter'))?.split('=')[1] || '';
 
 const SUITE = {
   GA1: ga1, GA2: ga2, GA3: ga3, GA4: ga4, GA5: ga5,
   GA6: ga6, GA7: ga7, GA8: ga8, GA9: ga9,
   GA10: ga10, GA11: ga11, GA12: ga12,
-  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20, GA21: ga21, GA22: ga22, GA23: ga23,
+  GA13: ga13, GA14: ga14, GA15: ga15, GA16: ga16, GA17: ga17, GA18: ga18, GA19: ga19, GA20: ga20, GA21: ga21, GA22: ga22, GA23: ga23, GA24: ga24,
 };
 
 (async () => {

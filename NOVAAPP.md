@@ -1270,7 +1270,7 @@ const data = await res.json();
 
 ### WebSocket — `nova:net:websocket` / `window.nova.websocket`
 
-Requires `net:websocket`. Only `ws:` and `wss:` URLs are accepted; credential-bearing URLs and known cloud-metadata address literals are blocked. Literal loopback/private/link-local addresses and NovaByte's internal hosts also require `net:internal`. Hostname classification is based on the URL hostname, so deployments that use private DNS aliases should apply network egress controls as a second layer. Don't call the raw `nova:net:websocket` / `nova:net:ws:send` / `nova:net:ws:close` IPC methods directly — use the `window.nova.websocket()` wrapper, which handles requestId bookkeeping and event dispatch:
+Requires `net:websocket`. Only `ws:` and `wss:` URLs are accepted; credential-bearing URLs and known cloud-metadata address literals are blocked. Literal loopback/private/link-local addresses and NovaByte's internal hosts also require `net:internal`. Hostname classification is based on the URL hostname, so deployments that use private DNS aliases should apply network egress controls as a second layer. The `window.nova.websocket()` wrapper is the convenient form — it handles requestId bookkeeping and per-socket event dispatch:
 
 ```javascript
 const ws = await window.nova.websocket('wss://example.com/socket');
@@ -1292,6 +1292,28 @@ ws.close(1000, 'done');
 The returned promise resolves once the connection is open — from the host's `onopen` handler only. There is no host-side rejection path if the connection never opens (bad host, refused connection, TLS failure): the call sits until the bridge timeout fires with a generic timeout error. Treat that timeout as a real connection failure.
 
 Also available as `novaOS.net.websocket(url, protocols?)` (v2, capability `net.v2`) — the same wrapper under a modern name: same gates, same `{ wsId, data }` envelope shape on `onMessage`, same open-only resolution and timeout-on-never-opens behavior, and callbacks registered through it see only pushes for sockets opened through it (the v1 wrapper and the v2 facade keep independent listener registries; a socket opened through one surface never delivers to the other's callbacks).
+
+#### Raw channels — `nova:net:websocket` / `nova:net:ws:*`
+
+The raw IPC channels are also a complete standalone API: connect, send, close, and receive. Receiving works through the events bus — the host mirrors every socket push onto `OS.events` under the channel's own name (`nova:net:ws:message`, `nova:net:ws:error`, `nova:net:ws:close`), so the regular subscription surfaces deliver it:
+
+```javascript
+// Connect and send over the raw channels (requires net:websocket).
+const res = await window.nova.ipc('nova:net:websocket', { url: 'wss://example.com/socket' });
+const wsId = res.wsId;
+await window.nova.ipc('nova:net:ws:send', { wsId, data: 'hello' });
+
+// Receive: subscribable like any other event (net:websocket required).
+const off = await window.novaOS.events.on('nova:net:ws:message', (push) => {
+  if (push.wsId !== wsId) return;          // one bus name, many sockets
+  console.log('received:', push.data);     // same { wsId, data } envelope
+});
+// window.nova.onEvent('nova:net:ws:message', cb) works identically (v1).
+```
+
+Delivery is filtered to the owning app: a subscriber only ever receives pushes for its own sockets, never another app's. Subscribing to the three names requires `net:websocket` — the same permission opening a socket needs — rather than `system:events`. If you see `...:response` spellings on pushed messages (`nova:net:ws:message:response`), those are the transport envelope the bridge appends to every channel; the subscribable event names have no suffix.
+
+Pick one receive surface per socket: a socket opened through the wrapper or facade delivers to that surface's per-socket callbacks, and if the same app *also* subscribes to the bus name it receives the push a second time through the events path.
 
 ### Geolocation — `nova:device:geolocation`
 
@@ -1705,7 +1727,7 @@ The two surfaces coexist: the host holds a single subscription per sandbox per e
 
 Calling `nova.ipc('nova:events:unsubscribe', { event: 'system:themeChanged' })` directly also works.
 
-**Event names are restricted to a fixed allowlist** — subscribing to any other name fails with `INVALID_ARGS`. Common appearance, volume, workspace, power, and network change events require no permission; notifications, app inventory/lifecycle events, and mail/calendar/contact events require `system:events`, and the mail/calendar/contact ones additionally require their domain read permission:
+**Event names are restricted to a fixed allowlist** — subscribing to any other name fails with `INVALID_ARGS`. Common appearance, volume, workspace, power, and network change events require no permission; notifications, app inventory/lifecycle events, and mail/calendar/contact events require `system:events`, and the mail/calendar/contact ones additionally require their domain read permission. The three WebSocket push events require `net:websocket` alone (no `system:events`) and are delivered only to the app that owns the socket (see [WebSocket](#websocket--novanetwebsocket--windownovawebsocket)):
 
 | Event | Fires when | Permission |
 |---|---|---|
@@ -1723,6 +1745,9 @@ Calling `nova.ipc('nova:events:unsubscribe', { event: 'system:themeChanged' })` 
 | `calendar:reminder` | A calendar reminder fires | `system:events` + `calendar:read` |
 | `calendar:updated` | Calendar data changes | `system:events` + `calendar:read` |
 | `contacts:updated` | Contacts data changes | `system:events` + `contacts:read` |
+| `nova:net:ws:message` | A socket opened by this app received a message (raw `nova:net:websocket` data plane) | `net:websocket` |
+| `nova:net:ws:error` | A socket opened by this app errored | `net:websocket` |
+| `nova:net:ws:close` | A socket opened by this app closed | `net:websocket` |
 
 The bus is OS-to-app only — there is no event for arbitrary custom app-to-app messaging (use [Inter-app communication](#inter-app-communication) instead).
 

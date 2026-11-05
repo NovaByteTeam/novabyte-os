@@ -2822,6 +2822,120 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(responses[0].error.code).toBe('PERMISSION_DENIED');
   });
 
+  it('completes the raw WebSocket API: push events are subscribable and filtered to the owning app', async () => {
+    const responses = [];
+    const busHandlers = new Map();
+    vi.stubGlobal('AppPermissionManager', { isGranted: permission => permission === 'net:websocket' });
+    vi.stubGlobal('OS', { events: { on: (name, handler) => busHandlers.set(name, handler), off: vi.fn(), emit: vi.fn() } });
+
+    const webview = {
+      dataset: { sandboxId: 'ws-push-sandbox' },
+      __directResponder: message => responses.push(message),
+    };
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:events:subscribe',
+        { event: 'nova:net:ws:message' },
+        'ws-push-subscribe',
+        { id: 'ws.owner.app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._eventSubscriptions.delete('ws-push-sandbox');
+    }
+
+    expect(responses[0].result.subscribed).toBe('nova:net:ws:message');
+    const handler = busHandlers.get('nova:net:ws:message');
+    expect(handler).toBeTypeOf('function');
+
+    // The bus is global, so a payload addressed to another app must not
+    // deliver — otherwise any subscriber to the name hears every app's
+    // socket traffic.
+    handler({ appId: 'other.app', wsId: 'ws_foreign', data: 'secret' });
+    expect(responses).toHaveLength(1);
+
+    // The owning app's own socket traffic delivers with the same envelope
+    // the wrapper's onMessage receives, plus appId for the filter.
+    handler({ appId: 'ws.owner.app', wsId: 'ws_own', data: 'hello' });
+    expect(responses[1].type).toBe('nova:events:event:response');
+    expect(responses[1].result).toEqual({
+      event: 'nova:net:ws:message',
+      data: { appId: 'ws.owner.app', wsId: 'ws_own', data: 'hello' },
+    });
+  });
+
+  it('requires net:websocket to subscribe to WebSocket push events', async () => {
+    const responses = [];
+    const on = vi.fn();
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('OS', { events: { on, off: vi.fn(), emit: vi.fn() } });
+
+    const webview = {
+      dataset: { sandboxId: 'ws-push-denied' },
+      __directResponder: message => responses.push(message),
+    };
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:events:subscribe',
+        { event: 'nova:net:ws:error' },
+        'ws-push-denied',
+        { id: 'ws.denied.app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      AppSandbox._internal._eventSubscriptions.delete('ws-push-denied');
+    }
+
+    expect(responses[0].error.code).toBe('PERMISSION_DENIED');
+    expect(on).not.toHaveBeenCalled();
+  });
+
+  it('mirrors WebSocket socket pushes onto the event bus for raw subscribers', async () => {
+    const emit = vi.fn();
+    const pushed = [];
+    const socket = { readyState: 1, send: vi.fn(), close: vi.fn() };
+    const WebSocketMock = vi.fn(function() { return socket; });
+    vi.stubGlobal('WebSocket', WebSocketMock);
+    vi.stubGlobal('AppPermissionManager', { isGranted: permission => permission === 'net:websocket' });
+    vi.stubGlobal('OS', { events: { on: vi.fn(), off: vi.fn(), emit } });
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:net:websocket',
+        { url: 'wss://socket.example.com/raw' },
+        'ws-bus-mirror',
+        { id: 'ws.mirror.app' },
+        { __directResponder: message => pushed.push(message) },
+        { wsConnections: new Map() }
+      );
+      socket.onmessage({ data: 'payload' });
+      socket.onerror({});
+      socket.onclose({ code: 1000, reason: 'done', wasClean: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    // The bus mirror: one emit per socket event, each carrying the owning
+    // app's id so the subscribe-side filter can drop foreign traffic.
+    expect(emit).toHaveBeenCalledTimes(3);
+    expect(emit.mock.calls[0][0]).toBe('nova:net:ws:message');
+    expect(emit.mock.calls[0][1]).toEqual({ appId: 'ws.mirror.app', wsId: expect.any(String), data: 'payload' });
+    const wsId = emit.mock.calls[0][1].wsId;
+    expect(emit.mock.calls[1]).toEqual(['nova:net:ws:error', { appId: 'ws.mirror.app', wsId, error: 'WebSocket error' }]);
+    expect(emit.mock.calls[2][0]).toBe('nova:net:ws:close');
+    expect(emit.mock.calls[2][1]).toEqual({ appId: 'ws.mirror.app', wsId, code: 1000, reason: 'done', clean: true });
+
+    // The per-webview direct pushes are untouched — wrapper and facade
+    // listeners keep their existing delivery path alongside the bus.
+    expect(pushed.map(message => message.type)).toEqual([
+      'nova:net:ws:message:response', 'nova:net:ws:error:response', 'nova:net:ws:close:response',
+    ]);
+  });
+
   it('cleans nested views, popups, and subscriptions using the captured sandbox record', () => {
     const unsubscribeAppearance = vi.fn();
     const destroySandbox = vi.fn();

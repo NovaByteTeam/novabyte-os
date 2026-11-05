@@ -611,6 +611,19 @@ async function p11() {
   r = await call('nova:events:subscribe', { event: 'mail:new' }, { app, sandbox });
   check('domain event ok with both grants', code(r) !== 'PERMISSION_DENIED', code(r));
 
+  // WebSocket push events — the raw nova:net:websocket data plane made
+  // subscribable. Gated on net:websocket (the connect permission), NOT
+  // system:events; delivery is same-app filtered in the subscribe handler.
+  r = await call('nova:events:subscribe', { event: 'nova:net:ws:message' }, { app, sandbox });
+  check('ws push event needs net:websocket', code(r) === 'PERMISSION_DENIED', code(r));
+  await grant('net:websocket', app.id);
+  r = await call('nova:events:subscribe', { event: 'nova:net:ws:message' }, { app, sandbox });
+  check('ws push event subscribable with net:websocket', code(r) !== 'PERMISSION_DENIED', code(r));
+  r = await call('nova:events:subscribe', { event: 'nova:net:ws:error' }, { app, sandbox });
+  check('ws error event subscribable with net:websocket', code(r) !== 'PERMISSION_DENIED', code(r));
+  r = await call('nova:events:subscribe', { event: 'nova:net:ws:close' }, { app, sandbox });
+  check('ws close event subscribable with net:websocket', code(r) !== 'PERMISSION_DENIED', code(r));
+
   r = await call('nova:events:subscribe', { event: 'x' }, { app, sandbox });
   check('subscribing same event twice tolerated', code(r) !== 'DOUBLE_RESPONSE', code(r));
 

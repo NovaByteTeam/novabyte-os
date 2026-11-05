@@ -5614,6 +5614,28 @@ const AppSandbox = (() => {
     'mail:new', 'mail:updated',
     'calendar:reminder', 'calendar:updated',
     'contacts:updated',
+    // Raw WebSocket push channels (the nova:net:websocket data plane).
+    // Without these the raw channels were send-only: connect/send/close
+    // answered, but the host's per-socket pushes (nova:net:ws:message etc.)
+    // only ever reached wrapper/facade listeners registered per wsId — a
+    // raw nova.ipc app had no receive path at all. The host mirrors every
+    // socket push onto the OS event bus (see handleNetWebsocket's
+    // onmessage/onerror/onclose), so subscribing here completes the raw
+    // API. Two things keep this from becoming a wiretap:
+    //   1. EVENT_DOMAIN_PERMISSIONS below gates the names on net:websocket
+    //      — the same permission opening a socket already needs — rather
+    //      than the flat system:events grant.
+    //   2. The bus is global, so the emitted payload carries the owning
+    //      app's id and handleEventsSubscribe drops deliveries addressed
+    //      to another app (WS_PUSH_EVENT_NAMES filter). Subscribers only
+    //      ever hear their own sockets.
+    'nova:net:ws:message', 'nova:net:ws:error', 'nova:net:ws:close',
+  ]);
+  // The subscribable WebSocket push names — used by the same-app delivery
+  // filter in handleEventsSubscribe. Kept as its own set so adding a future
+  // per-event filter can't accidentally forget these.
+  const WS_PUSH_EVENT_NAMES = new Set([
+    'nova:net:ws:message', 'nova:net:ws:error', 'nova:net:ws:close',
   ]);
   const SENSITIVE_EVENT_NAMES = new Set([
     'system:notification', 'app:installed', 'app:uninstalled', 'app:launched',
@@ -5629,6 +5651,12 @@ const AppSandbox = (() => {
     ['calendar:reminder', 'calendar:read'],
     ['calendar:updated', 'calendar:read'],
     ['contacts:updated', 'contacts:read'],
+    // WebSocket push events gate on the same permission the raw connect
+    // channel requires — an app that can open sockets gains nothing new
+    // from hearing them, and an app without the grant can't subscribe.
+    ['nova:net:ws:message', 'net:websocket'],
+    ['nova:net:ws:error', 'net:websocket'],
+    ['nova:net:ws:close', 'net:websocket'],
   ]);
 
   // Legacy OS-wide default; the live cap is per-app via the ledger budget
@@ -5896,6 +5924,11 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:events:subscribe', requestId, 'ALREADY_SUBSCRIBED', `Already subscribed to '${event}'`);
     }
     const handler = (data) => {
+      // WebSocket socket-push events ride the global bus with the owning
+      // app's id in the payload — silently drop deliveries addressed to
+      // another app, so a subscriber to the name only ever hears its own
+      // sockets (see ALLOWED_EVENT_NAMES / WS_PUSH_EVENT_NAMES).
+      if (WS_PUSH_EVENT_NAMES.has(event) && data?.appId !== app.id) return;
       respond(webview, 'nova:events:event', generateRequestId(), { event, data });
     };
     // Only register and record the subscription if OS.events actually
@@ -6079,13 +6112,25 @@ const AppSandbox = (() => {
     ws.onopen = () => respond(webview, 'nova:net:websocket', requestId, { success: true, wsId, readyState: ws.readyState });
     ws.onmessage = (e) => {
       respond(webview, 'nova:net:ws:message', generateRequestId(), { wsId, data: e.data });
+      // Mirror the push onto the OS event bus so apps subscribed via
+      // nova:events:subscribe (window.nova.onEvent / novaOS.events.on) —
+      // including apps that opened this socket through the raw channels —
+      // receive it too. The per-webview respond above only ever reaches
+      // wrapper/facade listeners registered per wsId. The appId in the
+      // payload is what handleEventsSubscribe filters on; without it every
+      // subscriber to the bus name would hear every app's socket traffic.
+      OS?.events?.emit?.('nova:net:ws:message', { appId: app.id, wsId, data: e.data });
     };
     ws.onerror = () => {
       respond(webview, 'nova:net:ws:error', generateRequestId(), { wsId, error: 'WebSocket error' });
+      OS?.events?.emit?.('nova:net:ws:error', { appId: app.id, wsId, error: 'WebSocket error' });
     };
     ws.onclose = (e) => {
       respond(webview, 'nova:net:ws:close', generateRequestId(), {
         wsId, code: e.code, reason: e.reason, clean: e.wasClean,
+      });
+      OS?.events?.emit?.('nova:net:ws:close', {
+        appId: app.id, wsId, code: e.code, reason: e.reason, clean: e.wasClean,
       });
       sandbox?.wsConnections?.delete(wsId);
     };
@@ -10475,6 +10520,10 @@ const AppSandbox = (() => {
     // Dispatched to listeners registered per-wsId via window.nova.websocket()
     // and, independently, via the v2 net facade (novaOS.net.websocket) —
     // each surface only ever sees callbacks registered through itself.
+    // Raw nova.ipc apps have no per-wsId registry entry; the host mirrors
+    // their sockets' pushes onto the OS event bus under the same names
+    // (net:websocket-gated, same-app filtered — see ALLOWED_EVENT_NAMES),
+    // so they arrive here as ordinary nova:events:event pushes instead.
     if ((msg.type === 'nova:net:ws:message:response' || msg.type === 'nova:net:ws:error:response' || msg.type === 'nova:net:ws:close:response')
         && msg.result && msg.result.wsId) {
       const kind = msg.type === 'nova:net:ws:message:response' ? 'message'

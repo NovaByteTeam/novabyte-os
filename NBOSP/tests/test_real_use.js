@@ -908,6 +908,45 @@ async function r8() {
   check('socket deregistered after close', !surfer.sandbox.wsConnections.has(wsId));
   check('socket actually closed', conn.readyState === 3);
 
+  // Raw-channel receive: the host mirrors socket pushes onto the event bus
+  // (net:websocket-gated, same-app filtered), so the raw channels form a
+  // complete standalone API — subscribe, then hear your own sockets only.
+  const rawSub = await call('nova:events:subscribe', { event: 'nova:net:ws:message' }, ctx);
+  check('raw ws push event subscribable with net:websocket', rawSub.result?.success === true, code(rawSub));
+  const ws2 = await call('nova:net:websocket', { url: 'wss://ok.example.com/rt2' }, ctx);
+  check('second raw socket opens', ws2.result?.success === true && !!ws2.result?.wsId, code(ws2));
+  const wsId2 = ws2.result.wsId;
+  const conn2 = surfer.sandbox.wsConnections.get(wsId2)?.ws;
+  surfer.webview.responses.length = 0;
+  conn2.onmessage({ data: 'mirror-me' });
+  await sleep(15);
+  const mirrored = surfer.webview.responses.find((m) => m.type === 'nova:events:event:response' && m.result?.event === 'nova:net:ws:message');
+  check('socket push mirrored to the events subscriber',
+    !!mirrored && mirrored.result.data?.wsId === wsId2 && mirrored.result.data?.data === 'mirror-me', JSON.stringify(mirrored?.result));
+  const directWsPush = surfer.webview.responses.find((m) => m.type === 'nova:net:ws:message:response');
+  check('per-wsId direct push still flows alongside', !!directWsPush && directWsPush.result.data === 'mirror-me', JSON.stringify(directWsPush?.result));
+
+  // Cross-app: a second app subscribed to the same bus name hears nothing —
+  // the payload carries the owning appId and delivery filters on it.
+  const eavesdropper = session(freshSessionId('com.eaves.app'));
+  await PM.grantPermission('net:websocket', eavesdropper.id);
+  const eavesSub = await call('nova:events:subscribe', { event: 'nova:net:ws:message' },
+    { app: eavesdropper.app, webview: eavesdropper.webview, sandbox: eavesdropper.sandbox });
+  check('eavesdropper subscribes with its own net:websocket', eavesSub.result?.success === true, code(eavesSub));
+  eavesdropper.webview.responses.length = 0;
+  surfer.webview.responses.length = 0;
+  conn2.onmessage({ data: 'private' });
+  await sleep(15);
+  check("foreign app does not receive another app's socket pushes",
+    !eavesdropper.webview.responses.some((m) => m.type === 'nova:events:event:response'),
+    JSON.stringify(eavesdropper.webview.responses.map((m) => m.type)));
+  check('owner still receives its own mirrored push',
+    surfer.webview.responses.some((m) => m.type === 'nova:events:event:response' && m.result?.data?.data === 'private'));
+
+  await call('nova:net:ws:close', { wsId: wsId2 }, ctx);
+  await sleep(30);
+  check('second socket deregistered after close', !surfer.sandbox.wsConnections.has(wsId2));
+
   PM.closeAllDialogs();
 }
 
