@@ -838,10 +838,19 @@ registerApp({
         if (!isAlive()) return;
         if (confirmed !== 'confirm') return;
         // Set the manual recovery flag so init.js knows this is intentional.
-        // init.js's manual-recovery branch clears nova_boot_attempts itself,
+        // Registry-backed (HKNS/system/boot/manualRecovery via BootState —
+        // the legacy key is kept in step as the pre-boot handoff shadow).
+        // init.js's manual-recovery branch clears boot attempts itself,
         // so we don't write fake boot-attempt entries here.
-        localStorage.setItem('nova_manual_recovery', '1');
-        localStorage.removeItem('nova_safe_mode');
+        try {
+          if (typeof RegistryBootState !== 'undefined') {
+            RegistryBootState.setFlag('manualRecovery', true);
+            RegistryBootState.clearFlag('safeMode');
+          } else {
+            localStorage.setItem('nova_manual_recovery', '1');
+            localStorage.removeItem('nova_safe_mode');
+          }
+        } catch (e) { console.warn('[Settings] could not stage recovery flag:', e); }
         location.reload();
       }, { signal: lifecycle.signal });
       recoveryRow.appendChild(recoveryBtn);
@@ -1500,6 +1509,10 @@ registerApp({
           if (tempKeys.length) {
             for (const k of tempKeys) localStorage.removeItem(k);
             cleared.push(tempKeys.length + ' temp key' + (tempKeys.length > 1 ? 's' : ''));
+          }
+          // Registry copies of the same transient boot state (HKNS/system/boot/*).
+          if (typeof RegistryBootState !== 'undefined') {
+            RegistryBootState.clearFlags('attempts', 'forceRecovery', 'timeoutFlag');
           }
         } catch (err) { devLog('localStorage sweep failed:', err); }
 

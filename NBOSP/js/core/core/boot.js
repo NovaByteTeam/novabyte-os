@@ -3,12 +3,6 @@ const BOOT_TIMEOUT_MS = 15000;
 const BOOT_THRESHOLD  = 5;
 
 const KEYS = Object.freeze({
-  TIMEOUT       : 'nova_boot_timeout_flag',
-  FORCE         : 'nova_force_recovery',
-  ATTEMPTS      : 'nova_boot_attempts',
-  SAFE_MODE     : 'nova_safe_mode',
-  MANUAL_REC    : 'nova_manual_recovery',
-  SHOW_REC      : 'nova_show_recovery',
   INSTALLED_APPS: 'nova_installed_apps',
   OS_VERSION    : 'novabyte_os_version',
 });
@@ -25,6 +19,33 @@ const Storage = {
   remove(key)            { localStorage.removeItem(key); },
   checkFlag(key)         { return localStorage.getItem(key) === '1'; },
   removeAll(...keys)     { for (let i = 0; i < keys.length; i++) localStorage.removeItem(keys[i]); },
+};
+
+// ── Boot-State Helper ──────────────────────────────────────────────
+// Boot and recovery flags live in the NovaByte Registry
+// (HKNS/system/boot/*) via RegistryBootState — loaded just above this
+// file. localStorage remains the fail-soft fallback and the handoff
+// channel init.js reads before boot() runs; the module keeps both
+// strata in step. The inline stand-in only matters if the platform
+// script failed to load entirely.
+const LEGACY_FLAG_KEYS = {
+  safeMode: 'nova_safe_mode',          forceRecovery: 'nova_force_recovery',
+  manualRecovery: 'nova_manual_recovery', showRecovery: 'nova_show_recovery',
+  attempts: 'nova_boot_attempts',      timeoutFlag: 'nova_boot_timeout_flag',
+  homeLaunchPending: 'nova_home_launch_pending',
+};
+const BootState = (typeof RegistryBootState !== 'undefined') ? RegistryBootState : {
+  flag(n)              { try { return localStorage.getItem(LEGACY_FLAG_KEYS[n]) === '1'; } catch { return false; } },
+  setFlag(n, on)       { try { if (on) localStorage.setItem(LEGACY_FLAG_KEYS[n], '1'); else localStorage.removeItem(LEGACY_FLAG_KEYS[n]); } catch {} return false; },
+  clearFlag(n)         { try { localStorage.removeItem(LEGACY_FLAG_KEYS[n]); } catch {} return false; },
+  clearFlags(...n)     { for (const k of n) { try { localStorage.removeItem(LEGACY_FLAG_KEYS[k]); } catch {} } return false; },
+  attempts()           { try { return JSON.parse(localStorage.getItem(LEGACY_FLAG_KEYS.attempts) || '[]'); } catch { return []; } },
+  setAttempts(v)       { try { localStorage.setItem(LEGACY_FLAG_KEYS.attempts, JSON.stringify(v)); } catch {} return false; },
+  timeoutFlag()        { try { return JSON.parse(localStorage.getItem(LEGACY_FLAG_KEYS.timeoutFlag) || 'null'); } catch { return null; } },
+  setTimeoutFlag(v)    { try { localStorage.setItem(LEGACY_FLAG_KEYS.timeoutFlag, JSON.stringify(v)); } catch {} return false; },
+  homeLaunchPending()  { try { return localStorage.getItem(LEGACY_FLAG_KEYS.homeLaunchPending); } catch { return null; } },
+  setHomeLaunchPending(v) { try { localStorage.setItem(LEGACY_FLAG_KEYS.homeLaunchPending, v); } catch {} return false; },
+  clearHomeLaunchPending() { try { localStorage.removeItem(LEGACY_FLAG_KEYS.homeLaunchPending); } catch {} return false; },
 };
 
 // ── CSS Custom Property Batch Helper ──────────────────────────────
@@ -102,15 +123,15 @@ const Boot = {
    * @returns {{ complete: Function }} Call complete() when boot finishes normally.
    */
   _setupWatchdog(bootStartTime, uaShort) {
-    Storage.set(KEYS.TIMEOUT, { start: bootStartTime, completed: false });
+    BootState.setTimeoutFlag({ start: bootStartTime, completed: false });
 
     const id = setTimeout(() => {
-      const td = Storage.get(KEYS.TIMEOUT, {});
+      const td = BootState.timeoutFlag() || {};
       if (!td.completed) {
         console.error('[BOOT] Stuck — timeout detected');
-        Storage.set(KEYS.TIMEOUT, { start: bootStartTime, completed: false, stuck: true });
-        localStorage.setItem(KEYS.FORCE, '1');
-        Storage.set(KEYS.ATTEMPTS, [
+        BootState.setTimeoutFlag({ start: bootStartTime, completed: false, stuck: true });
+        BootState.setFlag('forceRecovery', true);
+        BootState.setAttempts([
           { ts: bootStartTime + BOOT_TIMEOUT_MS - 2000, reason: 'boot_timeout_1', ua: uaShort },
           { ts: bootStartTime + BOOT_TIMEOUT_MS,        reason: 'boot_timeout_2', ua: uaShort },
         ]);
@@ -121,12 +142,34 @@ const Boot = {
     return {
       complete() {
         clearTimeout(id);
-        const td = Storage.get(KEYS.TIMEOUT, {});
+        const td = BootState.timeoutFlag() || {};
         td.completed = true;
-        Storage.set(KEYS.TIMEOUT, td);
-        Storage.remove(KEYS.FORCE);
+        BootState.setTimeoutFlag(td);
+        BootState.clearFlag('forceRecovery');
       },
     };
+  },
+
+  /**
+   * @private
+   * The engine instance opened for this session, or null. boot() opens it
+   * at step 0 — before the watchdog and recovery routing consume the
+   * HKNS/system/boot flags — and initSubsystems reuses it, because the
+   * engine's init() is not idempotent (it resets the audit ring and
+   * re-snapshots the hives).
+   * @type {Object|null}
+   */
+  _registry: null,
+
+  /**
+   * @private
+   * Initialize the NovaByte Registry exactly once per session.
+   * @returns {Object|null} the engine, or null when unavailable
+   */
+  ensureRegistry() {
+    if (Boot._registry) return Boot._registry;
+    Boot._registry = Boot.initNovaRegistry();
+    return Boot._registry;
   },
 
   // (The web-build prefs.json mirror was removed: OS.settings persists
@@ -168,7 +211,7 @@ const Boot = {
     // unavailable the shim never attaches and OS.settings keeps its
     // original behaviour; when Safe Mode asks for a throwaway session the
     // shim's volatile flag keeps every change out of persistence.
-    const reg = Boot.initNovaRegistry();
+    const reg = Boot.ensureRegistry();
     if (reg && window.NovaSettingsShim) window.NovaSettingsShim.attach(OS, reg);
     OS.settings.volatile = isSafeMode === true;
 
@@ -396,22 +439,29 @@ async function boot() {
   const bootStartTime  = Date.now();
   const uaShort        = navigator.userAgent.slice(0, 80);
 
+  // 0. Registry ───────────────────────────────────────────
+  // Open the hives BEFORE the watchdog and recovery routing: the boot
+  // flags both consume live in HKNS/system/boot now, so the engine has
+  // to be up first. Fail-soft — when the registry is unavailable the
+  // flags fall back to their legacy localStorage keys via BootState.
+  Boot.ensureRegistry();
+
   // 1. Watchdog ────────────────────────────────────────────────────
-  const forceRecovery = Storage.checkFlag(KEYS.FORCE);
+  const forceRecovery = BootState.flag('forceRecovery');
   const watchdog      = Boot._setupWatchdog(bootStartTime, uaShort);
 
   // 2. Recovery Routing ────────────────────────────────────────────
-  const isManualRecovery = Storage.checkFlag(KEYS.MANUAL_REC) || Storage.checkFlag(KEYS.SHOW_REC);
+  const isManualRecovery = BootState.flag('manualRecovery') || BootState.flag('showRecovery');
   if (isManualRecovery || forceRecovery) {
-    Storage.removeAll(KEYS.MANUAL_REC, KEYS.SHOW_REC, KEYS.FORCE);
+    BootState.clearFlags('manualRecovery', 'showRecovery', 'forceRecovery');
     requestSystemRecovery(forceRecovery ? 'boot_failure' : 'manual');
     watchdog.complete();
     return;
   }
 
   // 3. Attempt Tracking ────────────────────────────────────────────
-  const priorAttempts = Storage.get(KEYS.ATTEMPTS, []);
-  const isSafeMode    = Storage.checkFlag(KEYS.SAFE_MODE) || consumeSafeModeFile();
+  const priorAttempts = BootState.attempts();
+  const isSafeMode    = BootState.flag('safeMode') || consumeSafeModeFile();
 
   if (priorAttempts.length >= BOOT_THRESHOLD && !isSafeMode) {
     requestSystemRecovery('repeated_boot_failure');
@@ -423,17 +473,17 @@ async function boot() {
   // so that rapid dev restarts don't accumulate toward the threshold.
   priorAttempts.push({ ts: Date.now(), ua: uaShort });
   if (priorAttempts.length > 10) priorAttempts.shift();
-  Storage.set(KEYS.ATTEMPTS, priorAttempts);
+  BootState.setAttempts(priorAttempts);
 
   function markBootSuccess() {
-    Storage.removeAll(KEYS.ATTEMPTS, KEYS.FORCE);
+    BootState.clearFlags('attempts', 'forceRecovery');
     watchdog.complete();
     document.body.classList.add('os-booted');
   }
 
   // 4. Safe Mode ───────────────────────────────────────────────────
   if (isSafeMode) {
-    Storage.remove(KEYS.SAFE_MODE);
+    BootState.clearFlag('safeMode');
     document.getElementById('safe-mode-banner').style.display = 'block';
     OS._safeModeActive = true;
   }
@@ -455,7 +505,7 @@ async function boot() {
 
   // Subsystems initialised cleanly — this is not a crash loop. Clear attempts now
   // so a subsequent fast restart doesn't accumulate toward the threshold.
-  Storage.remove(KEYS.ATTEMPTS);
+  BootState.clearFlag('attempts');
 
   // 7. Settings & UI ───────────────────────────────────────────────
   // OS.settings is registry-backed by now (initSubsystems opened the hives
@@ -607,7 +657,8 @@ async function startBundledLauncher() {
 // Because the choice is persisted, it would do the same on every boot. So the
 // attempt is marked before launch and cleared after; a marker found at startup
 // means the last attempt never finished, and the default is reset.
-const HOME_PENDING_KEY = 'nova_home_launch_pending';
+// The pending id lives in HKNS/system/boot/homeLaunchPending via BootState
+// (legacy nova_home_launch_pending stays as the fail-soft shadow).
 const HOME_START_TIMEOUT_MS = 5000; // well under the 15s boot watchdog
 
 function launchWithTimeout(promise, ms, label) {
@@ -624,10 +675,10 @@ async function startConfiguredHomeApp() {
   const root = document.getElementById('launcher-root');
   if (!root) throw new Error('Launcher root is missing from the OS page');
 
-  const interruptedId = localStorage.getItem(HOME_PENDING_KEY);
+  const interruptedId = BootState.homeLaunchPending();
   if (interruptedId) {
     console.error(`[BOOT] Home app "${interruptedId}" never finished starting last time; reverting to ${bundledLauncherId}`);
-    localStorage.removeItem(HOME_PENDING_KEY);
+    BootState.clearHomeLaunchPending();
     if (selectedId !== bundledLauncherId) {
       DefaultApps.setDefault?.('home', null);
       selectedId = bundledLauncherId;
@@ -658,16 +709,16 @@ async function startConfiguredHomeApp() {
     } else {
       window.__NOVA_ACTIVE_HOME_APP_ID__ = selectedId;
       root.replaceChildren();
-      localStorage.setItem(HOME_PENDING_KEY, selectedId);
+      BootState.setHomeLaunchPending(selectedId);
       try {
         // launchRootApp resolves null on failure (after scheduling its own
         // reload), so a falsy result has to count as a failed start.
         const launched = await launchWithTimeout(AppSandbox.launchHome(app, root), HOME_START_TIMEOUT_MS, `Home app ${selectedId}`);
         if (!launched) throw new Error('launchHome returned no surface');
-        localStorage.removeItem(HOME_PENDING_KEY);
+        BootState.clearHomeLaunchPending();
       } catch (error) {
         console.error(`[BOOT] Failed to start selected Home app "${selectedId}"; falling back to ${bundledLauncherId}:`, error);
-        localStorage.removeItem(HOME_PENDING_KEY);
+        BootState.clearHomeLaunchPending();
         DefaultApps.setDefault?.('home', null);
         window.__NOVA_ACTIVE_HOME_APP_ID__ = bundledLauncherId;
         root.replaceChildren();
@@ -1257,16 +1308,10 @@ async function startConfiguredHomeApp() {
 function triggerRecovery(reason) {
   if (document.body.classList.contains('os-booted')) return false;
 
-  const KEY = 'nova_boot_attempts';
-  const attempts = (() => {
-    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; }
-  })();
-
+  const attempts = BootState.attempts();
   attempts.push({ ts: Date.now(), reason: reason || 'unknown', ua: navigator.userAgent.slice(0, 80) });
   if (attempts.length > 10) attempts.shift();
-  try {
-    localStorage.setItem(KEY, JSON.stringify(attempts));
-  } catch { /* quota exceeded — keep going without persisting */ }
+  BootState.setAttempts(attempts);
 
   window.EventLog?.log?.({
     app: 'System', category: 'system', severity: 'error',
@@ -1305,7 +1350,7 @@ window.addEventListener('error', (e) => {
 const SAFE_MODE_FILE = '/home/nbosp/.config/novabyte/safe-mode';
 
 function requestSystemRecovery(reason) {
-  Storage.removeAll(KEYS.MANUAL_REC, KEYS.SHOW_REC, KEYS.FORCE, KEYS.ATTEMPTS);
+  BootState.clearFlags('manualRecovery', 'showRecovery', 'forceRecovery', 'attempts');
   if (!window.NovaRecovery) {
     console.error('[BOOT] NovaRecovery missing; init.js did not load');
     return;

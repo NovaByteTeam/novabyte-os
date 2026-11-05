@@ -160,6 +160,16 @@ document.addEventListener('DOMContentLoaded', function () {
         .forEach((k) => localStorage.removeItem(k));
     } catch (e) { /* storage unavailable: carry on, the request file is what matters */ }
 
+    // Also clear the registry copies (HKNS/system/boot/*) so a stale flag
+    // can't route the NEXT boot into recovery after this one handled it.
+    // Best-effort: this guard has to work even when the registry engine
+    // never came up — a broken registry is exactly what recovery is for.
+    try {
+      if (typeof RegistryBootState !== 'undefined') {
+        RegistryBootState.clearFlags('manualRecovery', 'forceRecovery', 'showRecovery', 'attempts', 'safeMode');
+      }
+    } catch (e) { /* registry unavailable: the request file is what matters */ }
+
     // Off NBOSP Linux (dev in a browser or plain NW.js) there is nothing to
     // hand off to. Say so instead of reloading in a loop.
     if (!isNbospLinux()) {
@@ -187,7 +197,11 @@ document.addEventListener('DOMContentLoaded', function () {
   window.NovaRecovery = Object.freeze({ isAvailable: isNbospLinux, request: requestRecovery });
 
   // Left behind by the previous session: Settings > "Boot to Recovery", or a
-  // boot the watchdog below / the main script gave up on.
+  // boot the watchdog below / the main script gave up on. These reads use the
+  // legacy localStorage keys ON PURPOSE — this guard runs before any core
+  // script can be trusted, so it must not depend on the registry engine (the
+  // authoritative copies live in HKNS/system/boot and are also consumed by
+  // boot() step 2 through RegistryBootState, which keeps both strata in step).
   const manual = localStorage.getItem(MANUAL_RECOVERY_KEY) === '1';
   if (manual || localStorage.getItem(RECOVERY_FORCE_KEY) === '1') {
     requestRecovery(manual ? 'manual' : 'boot_failure');

@@ -246,6 +246,11 @@
        Replaces the remaining nova_* localStorage keys; legacy values are
        adopted once. -->
   <script src="/js/platform/core/registry-system-state.js" defer></script>
+  <!-- Registry-backed boot/recovery machine state (HKNS/system/boot/*).
+       boot() opens the hives before the watchdog consumes these; the legacy
+       nova_* keys stay as the pre-boot handoff channel to init.js and the
+       fail-soft fallback. Must load before boot.js. -->
+  <script src="/js/platform/core/registry-boot-state.js" defer></script>
   <!-- Per-app config accessor for built-in apps (HKNA/<appId>/...);
        legacy localStorage keys are adopted once per path. -->
   <script src="/js/platform/core/app-config.js" defer></script>

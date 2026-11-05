@@ -4952,10 +4952,17 @@ const AppSandbox = (() => {
 
   async function handleSystemBootRecovery({ requestId, webview }) {
     try {
-      localStorage.setItem('nova_manual_recovery', '1');
-      localStorage.removeItem('nova_safe_mode');
+      // Registry-backed (HKNS/system/boot/manualRecovery via BootState — the
+      // legacy key stays in step as the pre-boot handoff shadow to init.js).
+      if (typeof RegistryBootState !== 'undefined') {
+        RegistryBootState.setFlag('manualRecovery', true);
+        RegistryBootState.clearFlag('safeMode');
+      } else {
+        localStorage.setItem('nova_manual_recovery', '1');
+        localStorage.removeItem('nova_safe_mode');
+      }
       // Reload the HOST window, not the sandbox guest frame. The next boot
-      // sees nova_manual_recovery, writes the recovery request and restarts into the Linux recovery environment.
+      // sees manualRecovery, writes the recovery request and restarts into the Linux recovery environment.
       setTimeout(() => {
         try { location.reload(); } catch (e) { console.error('[Settings] recovery reload failed:', e); }
       }, 120);
@@ -5087,6 +5094,10 @@ const AppSandbox = (() => {
           if (tempKeys.length) {
             tempKeys.forEach(k => localStorage.removeItem(k));
             cleared.push(tempKeys.length + ' temp key' + (tempKeys.length === 1 ? '' : 's'));
+          }
+          // Registry copies of the same transient boot state (HKNS/system/boot/*).
+          if (typeof RegistryBootState !== 'undefined') {
+            RegistryBootState.clearFlags('attempts', 'forceRecovery', 'timeoutFlag');
           }
         } catch (e) { console.warn('[Settings] temp key clear failed:', e); }
         return respond(webview, 'nova:system:data:clear', requestId, { success: true, mode, cleared });
