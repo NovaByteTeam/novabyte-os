@@ -228,6 +228,11 @@
        change events). Must load before boot.js so shell lookups can prefer
        registry values over the OS.settings fallback. -->
   <script src="/js/platform/core/nova-registry.js" defer></script>
+  <!-- .nvreg text interchange format for the registry (NovaReg export/import,
+       devconsole reg export/import). Depends only on Web APIs. -->
+  <script src="/js/platform/core/nova-reg-file.js" defer></script>
+  <!-- reg CLI (reg.exe flavor) — the dev Console routes `reg ...` lines here. -->
+  <script src="/js/platform/core/nova-reg-cli.js" defer></script>
   <script src="/js/platform/security/app-permission-manager.js" defer></script>
   <script src="/js/platform/security/app-secrets.js" defer></script>
   <script src="/js/platform/security/root-broker.js" defer></script>
