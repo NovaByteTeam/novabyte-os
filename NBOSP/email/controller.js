@@ -13,7 +13,17 @@ const ServerEventLog = require('../server/core/server-event-log');
 
 let nodemailer, ImapFlow, PostalMime, multer;
 try { ({ ImapFlow } = require('imapflow')); } catch { ImapFlow = null; }
-try { PostalMime = require('postal-mime'); } catch { PostalMime = null; }
+// postal-mime ships the class as the CommonJS module.exports itself (with a
+// .default mirror on the ESM build) — there is NO named `PostalMime` export.
+// Destructuring `const { PostalMime } = require('postal-mime')` therefore
+// yielded undefined, which silently disabled IMAP/POP3/EWS full-message
+// fetching (lists still worked off ENVELOPE, so subjects rendered while the
+// reader failed with "Missing dependency: npm install postal-mime").
+try {
+  const postalMimeModule = require('postal-mime');
+  PostalMime = postalMimeModule?.PostalMime || postalMimeModule?.default
+    || (typeof postalMimeModule === 'function' ? postalMimeModule : null);
+} catch { PostalMime = null; }
 try { nodemailer = require('nodemailer'); } catch { nodemailer = null; }
 try { multer = require('multer'); } catch { multer = null; }
 
@@ -439,3 +449,12 @@ router.get('/preview/:token', (req, res) => {
 });
 
 module.exports = router;
+
+// Test-only access to the resolved protocol dependencies. The postal-mime
+// export shape changed in v4 (class on module.exports, no named export) —
+// this lets the suite assert the resolution logic stays working without
+// standing up a real IMAP/POP3/EWS server.
+module.exports._internal = {
+  getPostalMime: () => PostalMime,
+  getImapFlow: () => ImapFlow,
+};
