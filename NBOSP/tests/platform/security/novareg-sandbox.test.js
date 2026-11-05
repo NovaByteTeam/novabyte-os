@@ -308,4 +308,63 @@ describe('nova:reg:* sandbox handlers', () => {
     const entry = NovaRegistry.audit(1)[0];
     expect(entry).toMatchObject({ actor: 'com.probe.app', action: 'set', path: 'HKNA/com.probe.app/audit-anchor', before: 'before', after: 'after' });
   });
+
+  // Third-party default: a manifest with no registryScopes field gets ONE
+  // built-in write scope — HKNU/software/<appId> — while every explicit
+  // declaration (even empty) opts out entirely.
+  describe('registryScopes defaults for scope-less manifests', () => {
+    it('gives a scope-less manifest write access to its own HKNU/software slice', async () => {
+      grants.add('registry.write');
+      // plainApp = { id: 'com.probe.app', system: false } — no registryScopes.
+      const own = await call('nova:reg:set', { path: 'HKNU/software/com.probe.app/theme', value: 'nord' }, plainApp);
+      expect(own.result.success).toBe(true);
+      expect(NovaRegistry.get('HKNU/software/com.probe.app/theme')).toBe('nord');
+
+      // Subkeys ride the same prefix.
+      const deep = await call('nova:reg:set', { path: 'HKNU/software/com.probe.app/window/size', value: { w: 800, h: 600 }, type: 'REG_JSON' }, plainApp);
+      expect(deep.result.success).toBe(true);
+    });
+
+    it('bounds the default to the app slice — siblings, user keys and other apps stay denied', async () => {
+      grants.add('registry.write');
+      const foreign = await call('nova:reg:set', { path: 'HKNU/software/com.other.app/theme', value: 'x' }, plainApp);
+      expect(code(foreign)).toBe('PERMISSION_DENIED');
+
+      const software = await call('nova:reg:set', { path: 'HKNU/software/shared', value: 'x' }, plainApp);
+      expect(code(software)).toBe('PERMISSION_DENIED');
+
+      const pins = await call('nova:reg:set', { path: 'HKNU/desktop/pins', value: ['x'] }, plainApp);
+      expect(code(pins)).toBe('PERMISSION_DENIED');
+    });
+
+    it('lets a manifest opt out by declaring registryScopes (even empty)', async () => {
+      grants.add('registry.write');
+      const optedOut = { id: 'com.probe.app', system: false, registryScopes: {} };
+      const denied = await call('nova:reg:set', { path: 'HKNU/software/com.probe.app/theme', value: 'nord' }, optedOut);
+      expect(code(denied)).toBe('PERMISSION_DENIED');
+      expect(NovaRegistry.get('HKNU/software/com.probe.app/theme')).toBe(undefined);
+    });
+
+    it('replaces the default with declared scopes — no silent merge', async () => {
+      grants.add('registry.write');
+      const declared = { id: 'com.probe.app', system: false, registryScopes: { write: ['HKNU/shell/notifications'] } };
+
+      const designated = await call('nova:reg:set', { path: 'HKNU/shell/notifications/banners', value: true, type: 'REG_BOOL' }, declared);
+      expect(designated.result.success).toBe(true);
+
+      // The own-software slice is no longer granted once scopes are declared.
+      const own = await call('nova:reg:set', { path: 'HKNU/software/com.probe.app/theme', value: 'nord' }, declared);
+      expect(code(own)).toBe('PERMISSION_DENIED');
+    });
+
+    it('never grants the default to system apps or without registry.write', async () => {
+      const sysApp = { id: 'com.nbosp.shell', system: true };
+      const sys = await call('nova:reg:set', { path: 'HKNU/software/com.nbosp.shell/theme', value: 'nord' }, sysApp);
+      expect(code(sys)).toBe('PERMISSION_DENIED');
+
+      const noGrant = await call('nova:reg:set', { path: 'HKNU/software/com.probe.app/theme', value: 'nord' }, plainApp);
+      expect(code(noGrant)).toBe('PERMISSION_DENIED');
+      expect(NovaRegistry.get('HKNU/software/com.probe.app/theme')).toBe(undefined);
+    });
+  });
 });

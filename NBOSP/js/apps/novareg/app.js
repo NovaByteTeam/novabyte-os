@@ -13,13 +13,134 @@
 // panel, and hive snapshots (take/restore/delete — the engine already
 // snapshots every boot).
 
+// ── friendly names for well-known paths ────────────────────────────────
+// The editor keeps raw paths everywhere (regedit parity); this catalog adds
+// the plain-language layer on top: an info strip under the values header,
+// plus tooltips in the tree and the find dialog. Paths outside the catalog
+// still resolve: HKNA/<appId> and HKNU/software/<appId> take their display
+// name from the installed-app inventory (HKNS/apps/installed), and
+// HKNU/settings/<key> humanizes the camelCase setting name — so
+// third-party config gets a friendly name too.
+const KEY_INFO = [
+  // ── hives ──
+  { path: 'HKNS', label: 'System (machine)', description: 'Machine-wide configuration that applies to every user.' },
+  { path: 'HKNU', label: 'Current user', description: 'Per-user preferences and shell state.' },
+  { path: 'HKNA', label: 'Per-app config', description: 'One subtree per installed app — its supported config surface.' },
+  { path: 'HKND', label: 'Developer scratch', description: 'Dev-only hive; wiped in production builds.' },
+  // ── HKNS ──
+  { path: 'HKNS/shell', label: 'Shell look & feel', description: 'Theme, accent color and wallpaper the desktop renders.' },
+  { path: 'HKNS/shell/theme', label: 'Desktop theme' },
+  { path: 'HKNS/shell/accentColor', label: 'Accent color' },
+  { path: 'HKNS/shell/wallpaper', label: 'Desktop wallpaper' },
+  { path: 'HKNS/system', label: 'System state', description: 'OS version and the Developer Mode flag.' },
+  { path: 'HKNS/system/devMode', label: 'Developer Mode' },
+  { path: 'HKNS/system/osVersion', label: 'OS version' },
+  { path: 'HKNS/env', label: 'Environment', description: 'Where NovaByte keeps its data.' },
+  { path: 'HKNS/env/novaRoot', label: 'Nova root' },
+  { path: 'HKNS/settings', label: 'System settings', description: 'Machine-scoped settings mirrors (settings shim).' },
+  { path: 'HKNS/security', label: 'Security & policy', description: 'Credentials, permission grants and machine policy.' },
+  { path: 'HKNS/security/policy', label: 'Machine policy', description: 'Restrictions applied to every user.' },
+  { path: 'HKNS/security/policy/prohibitWallpaperChange', label: 'Prohibit wallpaper changes' },
+  { path: 'HKNS/security/appPermissions', label: 'App permission grants' },
+  { path: 'HKNS/security/bootPassword', label: 'Boot password' },
+  { path: 'HKNS/security/lockPin', label: 'Screen-lock PIN' },
+  { path: 'HKNS/security/pinSalt', label: 'Lock PIN salt' },
+  { path: 'HKNS/security/biometricCredentialId', label: 'Biometric credential' },
+  { path: 'HKNS/security/rootAccessEnabled', label: 'Root access' },
+  { path: 'HKNS/apps', label: 'Applications', description: 'Machine-scoped app services: inventory, alarms, push, store.' },
+  { path: 'HKNS/apps/installed', label: 'Installed app inventory' },
+  { path: 'HKNS/apps/alarms', label: 'Background alarm registry' },
+  { path: 'HKNS/apps/push', label: 'Push tokens + replay queues' },
+  { path: 'HKNS/apps/pushDeviceId', label: 'Push device id' },
+  { path: 'HKNS/apps/store', label: 'App Store service' },
+  { path: 'HKNS/apps/store/updateIntervalMinutes', label: 'Store update-check interval' },
+  // ── HKNU ──
+  { path: 'HKNU/desktop', label: 'User desktop' },
+  { path: 'HKNU/desktop/pins', label: 'Pinned desktop apps' },
+  { path: 'HKNU/shell', label: 'User shell prefs' },
+  { path: 'HKNU/shell/defaultApps', label: 'Default apps', description: 'File-type associations — which app opens what.' },
+  { path: 'HKNU/shell/notifications', label: 'Notification channels' },
+  { path: 'HKNU/shell/notifications/channels', label: 'Channel definitions' },
+  { path: 'HKNU/shell/notifications/channelOverrides', label: 'Per-app channel overrides' },
+  { path: 'HKNU/shell/shortcuts', label: 'Keyboard shortcuts' },
+  { path: 'HKNU/settings', label: 'User settings', description: 'The Settings app store — mirrored live to OS.settings.' },
+  { path: 'HKNU/apps', label: 'Per-user app state' },
+  { path: 'HKNU/apps/disabled', label: 'Disabled apps' },
+  { path: 'HKNU/apps/boot', label: 'Auto-start apps' },
+  { path: 'HKNU/apps/showHidden', label: 'Show hidden apps' },
+  { path: 'HKNU/legacy', label: 'Legacy settings snapshot', description: 'Forensic copy from the pre-registry era — safe to ignore.' },
+  // ── HKND ──
+  { path: 'HKND/_migration', label: 'Migration markers', description: 'One-time adoption guards — resetting one re-adopts legacy data.' },
+  { path: 'HKND/_migration/registrySourceDone', label: 'Legacy settings adopted' },
+  { path: 'HKND/_migration/sysStateDone', label: 'System state adopted' },
+  { path: 'HKND/_migration/appConfig', label: 'App configs adopted' },
+  { path: 'HKND/_migration/prefsDone', label: 'Registry prefs adopted' },
+  { path: 'HKND/_migration/legacySettingsDone', label: 'Legacy snapshot written' },
+  { path: 'HKND/events', label: 'Events app config' },
+  { path: 'HKND/events/filters', label: 'Events — saved filters' },
+  { path: 'HKND/events/views', label: 'Events — saved views' },
+  { path: 'HKND/events/alerts', label: 'Events — alert rules' },
+  { path: 'HKND/overlay', label: 'Debug overlay' },
+  { path: 'HKND/overlay/position', label: 'Debug overlay position' },
+  { path: 'HKND/com.nbosp.novareg', label: 'NovaReg editor state', description: "This editor's favorites and jump history." },
+];
+
+function humanizeSettingName(name) {
+  return String(name)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/^./, (c) => c.toUpperCase());
+}
+
+// Resolve the friendly name for a key path. `resolveAppName` (optional) maps
+// an app id to a display name; NovaReg passes the installed-inventory lookup.
+// Specific resolvers win over generic inheritance: HKNA/<appId>,
+// HKNU/software/<appId> and HKNU/settings/<key> resolve dynamically even
+// though their parents are cataloged; everything else takes the longest
+// matching catalog prefix, and a path below a catalog entry renders as
+// "<entry label> → <rest>" so children inherit a sensible name.
+function keyInfo(path, resolveAppName) {
+  if (typeof path !== 'string' || !path) return null;
+  const seg = path.split('/');
+  if (seg[0] === 'HKNU' && seg[1] === 'software') {
+    const appName = seg[2] && resolveAppName ? resolveAppName(seg[2]) : null;
+    const root = !seg[2] ? 'App user data'
+      : appName ? 'App user data — ' + appName
+      : 'App user data (' + seg[2] + ')';
+    const label = seg.length > 3 ? root + ' → ' + seg.slice(3).join(' / ') : root;
+    return { label, description: "The app's user-scoped slice (the default registryScopes.write area)." };
+  }
+  if (seg[0] === 'HKNA' && seg[1]) {
+    const appName = resolveAppName ? resolveAppName(seg[1]) : null;
+    const root = appName ? 'App config — ' + appName : 'App config (' + seg[1] + ')';
+    return {
+      label: seg.length > 2 ? root + ' → ' + seg.slice(2).join(' / ') : root,
+      description: "The app's own config subtree — persists across updates and is visible here to the user.",
+    };
+  }
+  if (seg[0] === 'HKNU' && seg[1] === 'settings' && seg[2]) {
+    return { label: humanizeSettingName(seg.slice(2).join(' ')), description: 'User setting (Settings app mirror).' };
+  }
+  let best = null;
+  for (const entry of KEY_INFO) {
+    if (path === entry.path || path.startsWith(entry.path + '/')) {
+      if (!best || entry.path.length > best.path.length) best = entry;
+    }
+  }
+  if (best) {
+    if (best.path === path) return { label: best.label, description: best.description || '' };
+    const rest = path.slice(best.path.length + 1);
+    return { label: best.label + ' → ' + rest.split('/').join(' / '), description: best.description || '' };
+  }
+  return null;
+}
+
 registerApp({
   id: 'com.nbosp.novareg',
   name: 'NovaReg',
   icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJOb3ZhUmVnIGljb24iPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJiZyIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMwZjE3MmEiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMWUyOTNiIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJkYiIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM3ZGQzZmMiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIwLjU1IiBzdG9wLWNvbG9yPSIjMzhiZGY4Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzI1NjNlYiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZGJUb3AiIHgxPSIwIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjYmFlNmZkIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzdkZDNmYyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ia2V5IiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZkZTY4YSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNmNTllMGIiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8ZmlsdGVyIGlkPSJkcyIgeD0iLTMwJSIgeT0iLTMwJSIgd2lkdGg9IjE2MCUiIGhlaWdodD0iMTYwJSI+CiAgICAgIDxmZURyb3BTaGFkb3cgZHg9IjAiIGR5PSI2IiBzdGREZXZpYXRpb249IjgiIGZsb29kLWNvbG9yPSIjMDAwMDAwIiBmbG9vZC1vcGFjaXR5PSIwLjQ1Ii8+CiAgICA8L2ZpbHRlcj4KICA8L2RlZnM+CgogIDwhLS0gYmFja2dyb3VuZCAtLT4KICA8cmVjdCB4PSIxNiIgeT0iMTYiIHdpZHRoPSI0ODAiIGhlaWdodD0iNDgwIiByeD0iMTEyIiBmaWxsPSJ1cmwoI2JnKSIvPgoKICA8IS0tIGZhaW50IE4gbW9ub2dyYW0gLS0+CiAgPHRleHQgeD0iMjU2IiB5PSIzMzAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgSGVsdmV0aWNhLCBzYW5zLXNlcmlmIgogICAgICAgIGZvbnQtc2l6ZT0iMzYwIiBmb250LXdlaWdodD0iODAwIiBmaWxsPSIjMzhiZGY4IiBvcGFjaXR5PSIwLjA3Ij5OPC90ZXh0PgoKICA8IS0tIHJlZ2lzdHJ5IGRhdGFiYXNlIGN5bGluZGVyIC0tPgogIDxnIGZpbHRlcj0idXJsKCNkcykiPgogICAgPHBhdGggZD0iTTExMCAxNjggdjE3NiBhMTIyIDQ0IDAgMCAwIDI0NCAwIHYtMTc2IHoiIGZpbGw9InVybCgjZGIpIi8+CiAgICA8cGF0aCBkPSJNMTEwIDI1MiBhMTIyIDQ0IDAgMCAwIDI0NCAwIiBmaWxsPSJub25lIiBzdHJva2U9IiMxZTNhOGEiIHN0cm9rZS13aWR0aD0iMTAiIG9wYWNpdHk9IjAuNDUiLz4KICAgIDxwYXRoIGQ9Ik0xMTAgMzIyIGExMjIgNDQgMCAwIDAgMjQ0IDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFlM2E4YSIgc3Ryb2tlLXdpZHRoPSIxMCIgb3BhY2l0eT0iMC40NSIvPgogICAgPGVsbGlwc2UgY3g9IjIzMiIgY3k9IjE2OCIgcng9IjEyMiIgcnk9IjQ0IiBmaWxsPSJ1cmwoI2RiVG9wKSIvPgogICAgPGVsbGlwc2UgY3g9IjIzMiIgY3k9IjE2OCIgcng9Ijg0IiByeT0iMjciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzI1NjNlYiIgc3Ryb2tlLXdpZHRoPSI4IiBvcGFjaXR5PSIwLjU1Ii8+CiAgPC9nPgoKICA8IS0tIGtleSAtLT4KICA8ZyBmaWx0ZXI9InVybCgjZHMpIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgzMzAgMzQ0KSByb3RhdGUoLTQyKSI+CiAgICA8Y2lyY2xlIGN4PSIwIiBjeT0iMCIgcj0iMzQiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNrZXkpIiBzdHJva2Utd2lkdGg9IjI0Ii8+CiAgICA8cmVjdCB4PSIzNCIgeT0iLTEyIiB3aWR0aD0iMTUyIiBoZWlnaHQ9IjI0IiByeD0iMTIiIGZpbGw9InVybCgja2V5KSIvPgogICAgPHJlY3QgeD0iMTI4IiB5PSIxMCIgd2lkdGg9IjIyIiBoZWlnaHQ9IjM2IiByeD0iNyIgZmlsbD0idXJsKCNrZXkpIi8+CiAgICA8cmVjdCB4PSIxNjQiIHk9IjEwIiB3aWR0aD0iMjIiIGhlaWdodD0iMjgiIHJ4PSI3IiBmaWxsPSJ1cmwoI2tleSkiLz4KICA8L2c+Cjwvc3ZnPgo=',
   description: 'Edit the NovaByte Registry',
   category: 'developer',
-  version: '1.1.0',
+  version: '1.2.0',
   devOnly: true,
   defaultSize: [960, 600],
   minSize: [640, 420],
@@ -90,6 +211,22 @@ registerApp({
 
     function keyOf(path) { return path.split('/').slice(0, -1).join('/') || path.split('/')[0]; }
     function errorMessage(err) { return (err && err.message) ? err.message : String(err); }
+
+    // Display names for HKNA/<appId> and HKNU/software/<appId> come from the
+    // installed-app inventory (HKNS/apps/installed); cached until a registry
+    // change invalidates it. Everything else resolves through the static
+    // keyInfo catalog at the top of this file.
+    let inventoryCache = null;
+    function appDisplayName(appId) {
+      if (!inventoryCache) {
+        let installed = null;
+        try { installed = Reg.get('HKNS/apps/installed'); } catch (_) { /* unreadable — fall through */ }
+        inventoryCache = Array.isArray(installed) ? installed : [];
+      }
+      const hit = inventoryCache.find((app) => app && app.id === appId);
+      return (hit && typeof hit.name === 'string' && hit.name) || null;
+    }
+    function infoOf(path) { return keyInfo(path, appDisplayName); }
 
     function rememberJump(path) {
       jumpHistory = jumpHistory.filter((p) => p !== path).concat([path]).slice(-20);
@@ -194,8 +331,10 @@ registerApp({
     const valuePane = el('div', 'flex:1;display:flex;flex-direction:column;min-width:0;');
 
     const valueHeader = el('div', 'padding:8px 10px;border-bottom:1px solid var(--border-subtle,#2a2f3a);color:var(--text-muted,#9aa4b2);font-weight:600;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;');
+    // Friendly-name strip — what the selected key IS, in plain language.
+    const valueHeaderInfo = el('div', 'display:none;padding:2px 10px 7px;border-bottom:1px solid var(--border-subtle,#2a2f3a);flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;');
     const valueTable = el('div', 'flex:1;overflow:auto;padding:4px 10px;');
-    valuePane.append(valueHeader, valueTable);
+    valuePane.append(valueHeader, valueHeaderInfo, valueTable);
 
     // Audit panel (bottom pane, toggleable).
     const auditPane = el('div', 'display:none;flex-direction:column;border-top:1px solid var(--border-subtle,#2a2f3a);height:180px;flex-shrink:0;');
@@ -229,7 +368,8 @@ registerApp({
       if (isFavorite(path)) {
         row.appendChild(el('span', 'color:#f5b301;margin-left:2px;', '★'));
       }
-      row.title = path;
+      const info = infoOf(path);
+      row.title = info ? info.label + '\n' + path + (info.description ? '\n' + info.description : '') : path;
       row.addEventListener('click', () => {
         expanded[path] = !expanded[path];
         selectedPath = path;
@@ -284,6 +424,15 @@ registerApp({
       const values = listing ? listing.values : {};
       const names = Object.keys(values).filter((n) => n !== DEFAULT_NAME).sort();
       valueHeader.textContent = selectedPath + '  (' + names.length + ' value' + (names.length === 1 ? '' : 's') + (listing && listing.link ? ' · link → ' + listing.link : '') + ')';
+      const info = infoOf(selectedPath);
+      valueHeaderInfo.textContent = '';
+      if (info) {
+        valueHeaderInfo.style.display = 'block';
+        valueHeaderInfo.appendChild(el('span', 'color:var(--accent,#58a6ff);font-weight:600;', info.label));
+        if (info.description) valueHeaderInfo.appendChild(el('span', 'color:var(--text-muted,#9aa4b2);margin-left:8px;', info.description));
+      } else {
+        valueHeaderInfo.style.display = 'none';
+      }
       valueTable.textContent = '';
       // The pinned (Default) row — every key owns one, regedit-style.
       valueTable.appendChild(makeValueRow(DEFAULT_NAME, values[DEFAULT_NAME] || null, true));
@@ -609,6 +758,9 @@ registerApp({
           const row = el('div', 'padding:4px 8px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;gap:8px;align-items:baseline;');
           row.appendChild(el('span', 'color:#d2a8ff;font-size:10px;width:70px;flex-shrink:0;', result.kind));
           row.appendChild(el('span', 'font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;', result.path));
+          const keyPath = result.kind === 'key' ? result.path : keyOf(result.path);
+          const finfo = infoOf(keyPath);
+          row.title = finfo ? finfo.label + (finfo.description ? ' — ' + finfo.description : '') : keyPath;
           row.addEventListener('click', () => {
             back.remove();
             jumpInput.value = result.kind === 'key' ? result.path : keyOf(result.path);
@@ -774,6 +926,7 @@ registerApp({
     // Live refresh — one debounced listener on the registry change event.
     let refreshTimer = null;
     OS.events.on('nova:reg:changed', () => {
+      inventoryCache = null; // HKNA app display names may have changed
       clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => { refresh(); }, 120);
     });

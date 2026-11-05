@@ -3034,10 +3034,11 @@ const AppSandbox = (() => {
   //                            subtree. System apps may also write HKNS
   //                            (still never HKNS/security without
   //                            registry.system). HKNU needs registry.system
-  //                            OR a matching declared registryScopes.write
-  //                            prefix (manifest-declared designated user
-  //                            keys). HKND additionally requires Developer
-  //                            Mode.
+  //                            OR a matching registryScopes.write prefix —
+  //                            declared in the manifest, or the built-in
+  //                            HKNU/software/<appId> default for manifests
+  //                            that declare no registryScopes at all.
+  //                            HKND additionally requires Developer Mode.
   //   registry.system        — full access everywhere (devMode still gates
   //                            HKND: it is a dev scratch hive by
   //                            definition).
@@ -3078,8 +3079,24 @@ const AppSandbox = (() => {
   // exactly where the base rules put them. registryScopes.read is
   // advisory: reads are already broad, and HKNS/security is never
   // scope-grantable.
+  //
+  // Defaults for third-party manifests: an app whose manifest declares NO
+  // registryScopes field still gets ONE designated write prefix — its own
+  // HKNU/software/<appId> subtree, the user-scoped slice that mirrors
+  // HKCU\Software\<App>. Declaring the field at all (even an empty object)
+  // opts out — an explicit empty scope list means "no designated keys".
+  // System apps never receive the default: they either hold registry.system
+  // or declare their intents explicitly.
+  function regDefaultScopes(app, mode) {
+    if (mode !== 'write' || !app || app.system === true) return null;
+    if (app.registryScopes !== undefined) return null; // explicit declaration wins, even when empty
+    if (typeof app.id !== 'string' || !app.id) return null;
+    return ['HKNU/software/' + app.id];
+  }
+
   function regScopeAllows(app, parsed, mode) {
-    const scopes = app?.registryScopes?.[mode];
+    let scopes = app?.registryScopes?.[mode];
+    if (!Array.isArray(scopes) || !scopes.length) scopes = regDefaultScopes(app, mode);
     if (!Array.isArray(scopes) || !scopes.length) return false;
     if (parsed.hive === 'HKNS') return false; // system hive is never scope-grantable
     if (parsed.hive === 'HKND') return false; // dev scratch stays devMode-gated
