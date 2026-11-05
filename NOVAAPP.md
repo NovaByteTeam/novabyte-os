@@ -2168,3 +2168,4 @@ Notes for legacy callers:
 - `vfs:access` is deliberately **not** aliased as a channel — it was only ever a permission name, and as a channel it returns `UNKNOWN_API` exactly as it always did.
 - Unknown `vfs:*` names (`vfs:frobnicate`, …) still return `UNKNOWN_API`; the alias table is exact, there is no prefix wildcard.
 - `nova:vfs:watch` never existed and has no alias; filesystem watching is the `nova:fs:watch` / `fs:watch` grant pair from the modern family.
+- The `vfs:metedata` misspelling of `vfs:metadata` is accepted too, as pure typo insurance — it is not a known historical channel or permission spelling, but accepting it costs nothing and a package that ever shipped the typo keeps working.

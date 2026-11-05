@@ -8914,8 +8914,10 @@ const AppSandbox = (() => {
   //   nova:vfs:rename → nova:fs:rename  nova:vfs:move → nova:fs:move
   // plus the bare vfs:* spellings, and the metadata variants (vfs:metadata
   // was the legacy permission NAME; as a channel intent it maps to the
-  // metadata channel nova:fs:stat — the typo'd 'metedata' spelling seen in
-  // old packages is aliased too). There is deliberately NO vfs:access channel
+  // metadata channel nova:fs:stat — the typo'd 'metedata' spelling is
+  // aliased too as free insurance: it is not a verified historical channel
+  // name, but aliasing it costs two map entries and a package that ever
+  // shipped the typo keeps working). There is deliberately NO vfs:access channel
   // alias: vfs:access was only ever a permission, never a channel (it got
   // UNKNOWN_API in the old era as well); AppRegistry translates it to
   // fs:access on the permission side instead (see LEGACY_PERMISSION_ALIASES
