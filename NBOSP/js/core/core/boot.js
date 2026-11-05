@@ -281,11 +281,22 @@ const Boot = {
     return window.WallpaperService?.apply(sGet) ?? false;
   },
 
+  // Legacy (unmapped) settings keys imported once into HKNU/legacy on
+  // first registry boot — the registry gains a per-user snapshot of
+  // pre-registry prefs; OS.settings stays the live source of truth for
+  // these keys (they are deliberately NOT mirrored both ways).
+  const LEGACY_SETTINGS_KEYS = Object.freeze([
+    'clockFormat', 'dateFormat', 'fontSize', 'taskbarStyle', 'windowRadius',
+    'animSpeed', 'iconSize', 'autoLock', 'searchEngine', 'proxyUrl',
+    'username', 'region', 'keyboardLayout', 'timezone',
+  ]);
+
   /**
    * Load the NovaByte Registry before the shell reads any config: open the
-   * hives, seed-once the boot defaults, and attach the settings ↔ registry
-   * mirror. Every step is fail-soft — a missing or broken registry must
-   * never block boot; the shell simply falls back to OS.settings.
+   * hives, seed-once the boot defaults, attach the settings ↔ registry
+   * mirror, and (once) import legacy settings. Every step is fail-soft — a
+   * missing or broken registry must never block boot; the shell simply
+   * falls back to OS.settings.
    * @returns {Object|null} the engine, or null when unavailable
    */
   initNovaRegistry() {
@@ -295,7 +306,14 @@ const Boot = {
       reg.init({ settings: OS.settings, events: OS.events, logger: OS.logger });
       const seeded = reg.ensureDefaults(reg.BOOT_DEFAULTS);
       reg.attachSettingsMirror(OS.settings, OS.events);
+      let migrated = 0;
+      try {
+        migrated = reg.migrateLegacySettings((key) => OS.settings.get(key), LEGACY_SETTINGS_KEYS);
+      } catch (err) {
+        console.warn('[BOOT] Registry legacy import skipped:', err);
+      }
       if (seeded > 0) console.info(`[BOOT] NovaByte Registry seeded ${seeded} default value(s)`);
+      if (migrated > 0) console.info(`[BOOT] NovaByte Registry imported ${migrated} legacy setting(s) into HKNU/legacy`);
       return reg;
     } catch (err) {
       console.warn('[BOOT] NovaByte Registry unavailable:', err);
