@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ensureCerts } from '../../scripts/certs.js';
-import { seedCerts } from './helpers/seed-certs.js';
+import { seedCerts } from '../server/helpers/seed-certs.js';
 
 describe('scripts/certs.js — kiosk localhost certificate handling', () => {
   let appDir;

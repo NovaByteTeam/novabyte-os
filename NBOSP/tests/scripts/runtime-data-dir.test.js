@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { ensureEnv } from '../../scripts/env.js';
 import { ensureCerts } from '../../scripts/certs.js';
-import { seedCerts } from './helpers/seed-certs.js';
+import { seedCerts } from '../server/helpers/seed-certs.js';
 
 describe('Linux runtime data directory', () => {
   let tempDir;
