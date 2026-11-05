@@ -1751,7 +1751,14 @@ Requires `registry.read` (System / Low) to read, `registry.write` (System / Medi
 
 `registry.system` (System / Critical) reads and writes everything, but Developer Mode still gates `HKND`. Reading is broad for any `registry.read` holder — config facts are not per-app private state — except `HKNS/security/...`, which needs `registry.system` even to read.
 
-A path names **keys** and ends in a **value**: `HKNS/shell/wallpaper` is the value `wallpaper` under key `shell`. Values are typed — `REG_SZ` (string), `REG_BOOL`, `REG_DWORD` (uint32), `REG_QWORD` (non-negative safe integer), `REG_JSON` (any JSON value), `REG_BINARY` (base64 string) — and the type is validated host-side on every write. Omitting the type on `set` auto-detects it. The engine quotas everything (16-segment paths, 256 KB per value, per-hive caps), persists every hive atomically, and quarantines a corrupt hive file instead of failing the boot.
+A path names **keys** and ends in a **value**: `HKNS/shell/wallpaper` is the value `wallpaper` under key `shell`. Two Windows-isms sit on top:
+
+- **Every key has a `(default)` value.** A *bare key path* (`HKNS/shell`) reads and writes that key's default value — `stat()` reports `found: false` while it is unset. An explicit `(default)` segment (`HKNS/shell/(default)`) addresses the same thing.
+- **`HKCU` is an alias for `HKNU`** — the parser maps `HKCU/...` to `HKNU/...` the way `HKEY_CURRENT_USER` names a user hive.
+
+Values are typed — `REG_SZ` (string), `REG_EXPAND_SZ` (string with `%VAR%` tokens, stored raw and expanded on read against the `HKNS/env/*` variable table, single pass, unknown variables left verbatim), `REG_MULTI_SZ` (array of strings — never auto-detected, arrays without an explicit type stay `REG_JSON`), `REG_BOOL`, `REG_DWORD` (uint32), `REG_QWORD` (non-negative safe integer), `REG_JSON` (any JSON value), `REG_BINARY` (base64 string) — and the type is validated host-side on every write. Omitting the type on `set` auto-detects it. The engine quotas everything (16-segment paths, 256 KB per value, per-hive caps), persists every hive atomically, and quarantines a corrupt hive file instead of failing the boot.
+
+Keys can also be **links** (Windows `REG_LINK` / junction flavor): a link key carries a target path and is followed transparently on reads (`list`/`get`/`stat`/`export`) and same-hive writes; removing a link path removes the link, never the target; writes through a *cross-hive* link are refused with `LINK_CROSS_HIVE`. Links are created host-side (`NovaRegistry.setLink`, the NovaReg **+ Link** button) and survive export/import.
 
 ```javascript
 // Requires registry.read
@@ -1765,6 +1772,10 @@ await window.novaOS.registry.set('HKNA/com.example.player/volume', 80, 'REG_DWOR
 await window.novaOS.registry.set('HKNA/com.example.player/lastPlaylist', { tracks: [1, 7, 9] }); // auto REG_JSON
 await window.novaOS.registry.remove('HKNA/com.example.player/volume');
 
+// A bare key path writes/reads the key's default value
+await window.novaOS.registry.set('HKNA/com.example.player', 'player/2.0'); // the (default) value
+(await window.novaOS.registry.stat('HKNA/com.example.player')).data;       // 'player/2.0'
+
 // Watch for changes (watching is reading — same grant as the event)
 const off = await window.novaOS.registry.watch('HKNS/shell', (change) => {
   console.log('registry changed:', change.path, change.type, change.value);
@@ -1772,9 +1783,25 @@ const off = await window.novaOS.registry.watch('HKNS/shell', (change) => {
 await off(); // stop watching
 ```
 
+**Per-key ACLs.** On top of the hive rules, any key can carry an ACL — `{ owner, entries: [{ id, rights: ['read','write'], inherit }] }` where `id` is an app id or `*` for everyone. Entries with `inherit !== false` flow down the subtree; a deeper entry for the same id replaces a shallower one; grants from different ids (the actor's own and `*`) are additive. With **no ACL anywhere** in a key's chain the base hive rules apply unchanged; with **any** covering ACL, an actor must appear (directly or via `*`) with the needed right — `registry.system` bypasses ACLs entirely, and `HKNS/security` stays `registry.system`-only regardless. ACLs are managed in the NovaReg **Permissions** dialog; apps only ever see their effect as `PERMISSION_DENIED: key ACL denies <read|write>`.
+
+**Manifest-declared scopes.** A `.novaapp` manifest may declare `registryScopes: { write: ['HKNU/shell/notifications', ...] }` — a bounded list (32 entries max) of designated prefixes. A matching prefix unlocks writes into that `HKNU` area without `registry.system` (the model for apps the user has designated to manage a slice of user config). Scopes can never unlock `HKNS`, `HKND`, or another app's `HKNA` subtree; `registryScopes.read` is advisory documentation (reads are already broad).
+
 Change notifications ride the event bus as `nova:reg:changed` (see [Event bus](#event-bus--novaevents)): the payload is `{ path, type, value, appId, source }`, one event per committed write/delete/import. `watch(path, cb)` is the facade's prefix-filtered sugar over that event, so it holds exactly the grants subscribing to it needs.
 
-Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, `HKNS/shell/wallpaper`) by a **system app** apply live — the OS copies them into the matching settings keys and the desktop re-applies immediately. Apps should treat their `HKNA` subtree as their supported config surface: it persists across updates, is visible to the user in the NovaReg editor (Developer Mode), and survives alongside the app's own storage. Error codes: `INVALID_ARGS` (bad path), `INVALID_VALUE` (type mismatch), `QUOTA_EXCEEDED` (size/node caps), `NOT_FOUND`, `SUBTREE_NOT_EMPTY` (delete a non-empty key without `recursive: true`), `PERMISSION_DENIED`.
+Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, `HKNS/shell/wallpaper`, plus the user-side `HKNU/desktop/pins` ↔ `pinnedApps` and `HKNU/shell/defaultApps` ↔ `defaultApps`) apply live — the OS copies them into the matching settings keys (and mirrors settings changes back into the registry), so the desktop re-applies immediately. On first registry boot the OS also imports the unmapped legacy settings into `HKNU/legacy/<key>` once (guarded by `HKND/_migration/legacySettingsDone`). Apps should treat their `HKNA` subtree as their supported config surface: it persists across updates, is visible to the user in the NovaReg editor (Developer Mode), and survives alongside the app's own storage. Error codes: `INVALID_ARGS` (bad path), `INVALID_VALUE` (type mismatch), `QUOTA_EXCEEDED` (size/node caps), `NOT_FOUND`, `SUBTREE_NOT_EMPTY` (delete a non-empty key without `recursive: true`), `LINK_CROSS_HIVE`, `LINK_LOOP`, `NAME_CONFLICT` (rename), `PERMISSION_DENIED`.
+
+**Host-side extras** (NovaReg and the dev Console use these; they are not part of the sandboxed IPC surface): `batch(fn)` groups mutations into an all-or-nothing transaction across hives (rollback discards everything, including audit entries; change events fire at commit); `saveSnapshot/snapshots/restoreSnapshot/deleteSnapshot` keep a bounded ring of per-hive restore points — one `boot` snapshot is taken automatically on every boot before the shell touches anything; `audit(n)` returns the bounded write ring (`{ ts, actor, action, path, before, after }`, newest first); `rename(path, newName)` renames a value or key atomically (`NAME_CONFLICT` on collisions; renaming a value to `(default)` makes it the key default). Every mutation lands in the audit ring with its actor (calling app id, `shell` for the settings mirror, `seed` for defaults, `devconsole:reg` for the CLI).
+
+**`.nvreg` text format and the `reg` command.** The registry's interchange format is the `.nvreg` text file — the analog of a Windows `.reg` file: `[HKNS\shell]` section headers, `@="..."` for a key's default, typed lines like `"count"=dword:0000002a`, `"list"=multi:"a","b"`, `"blob"=hex:68,65,...`, `"cfg"=json:{...}`, `"template"=expandz:"%novaRoot%\x"`, and `>alias=HKNU\desktop` for links. NovaReg's Export/Import buttons and the dev Console speak it:
+
+```
+reg query HKNS\shell /s          reg add HKNS\shell\theme /t REG_SZ /d nord
+reg delete HKND\scratch /f       reg export HKNA\com.example.player
+reg import HKNU\misc [HKNU\misc] "note"="hi"     (multi-line in the Console)
+reg compare HKNU\a HKNU\b        reg acl HKNS\shell      reg audit 30
+reg snapshot HKNU save|list|restore|delete        reg types
+```
 
 Feature-detect with `window.novaOS.capabilities.has('registry.v1')`.
 
