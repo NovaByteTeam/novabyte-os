@@ -70,19 +70,14 @@ const AppRegistry = (() => {
   //     without that toggle keep the modern handler behavior: app-owned
   //     paths need no grant at all, shared paths ask via picker/confirmation
   //     flows exactly as they do for a modern app.
-  // 'vfs:metedata' — a typo'd spelling of vfs:metadata — is aliased too as
-  // free insurance: it is not a verified historical permission name, but
-  // aliasing it costs one map entry and a manifest that ever shipped the
-  // typo survives the strip as well. The companion half of this compat
-  // layer (legacy nova:vfs:* / vfs:* IPC channel aliases) lives in
-  // app-sandbox.js (LEGACY_VFS_CHANNEL_ALIASES).
+  // The companion half of this compat layer (legacy nova:vfs:* / vfs:* IPC
+  // channel aliases) lives in app-sandbox.js (LEGACY_VFS_CHANNEL_ALIASES).
   const LEGACY_PERMISSION_ALIASES = Object.freeze({
     'vfs:access': 'fs:access',
     'vfs:read': 'fs:access',
     'vfs:write': 'fs:access',
     'vfs:delete': 'fs:access',
     'vfs:metadata': 'fs:metadata',
-    'vfs:metedata': 'fs:metadata',
   });
 
   // Translate a permission list's legacy vfs:* names to their fs:*
