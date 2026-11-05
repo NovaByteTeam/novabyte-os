@@ -1035,20 +1035,67 @@ await window.nova.appearance.set({
 });
 ```
 
-### User-mediated sharing — `window.nova.share`
+### User-mediated sharing — `window.nova.share` / `novaOS.app.share`
 
-Opening the OS share sheet needs no permission: the user chooses whether to copy content, open a link in the OS default browser, email it, or cancel. The app cannot silently write to the clipboard or launch a recipient through this chooser:
+Opening the OS share sheet needs no permission: the user chooses what happens next, and the app cannot silently write to the clipboard or launch a recipient through this chooser. Both the v1 channel and the v2 facade accept the same payload:
 
 ```javascript
+// v1
 const result = await window.nova.share({
-  title: 'Share this page',
-  text: 'Useful note',
-  url: 'https://example.com/article'
+  title: 'Share this page',     // optional; defaults to your app's name, trimmed to 120 chars
+  text: 'Useful note',          // optional, max 4000 chars
+  url: 'https://example.com/article' // optional, credential-free HTTP(S) only
 });
 if (result.cancelled) return;
+
+// v2 — identical payload and result (capability: app.v2)
+const r2 = await window.novaOS.app.share({ title: 'Look', text: 'shared text', url });
 ```
 
-Only credential-free HTTP(S) links are accepted. Text is limited to 4000 characters and the chooser is rate-limited. The returned `action` identifies the user's choice.
+At least one of `text` or `url` must be present. `url` must be a credential-free `http:`/`https:` link (no `user:pass@`) or the call fails with `INVALID_ARGS`; more than 4000 characters of text is also `INVALID_ARGS`. The sheet is rate-limited to 5 opens per minute per app (`RATE_LIMITED` beyond that).
+
+The sheet offers some of: **Copy** (text + url to the OS clipboard), **Open link in browser** (only when a `url` was supplied), **Email** (opens the Mail composer with the title as subject and the text + url as the body), **Send to \<app\>** (one entry per installed share target — see [Share target](#share-target--systemshare-target--novaosshareoninbound)), and **Cancel**. The returned object tells you what happened:
+
+```javascript
+{ cancelled: false, action: 'Copy' }            // the button label the user tapped
+{ cancelled: true }                             // dismissed via Cancel / Esc / backdrop
+{ cancelled: false, action: 'Send to Notes', sharedWith: 'Notes', queued: true }
+```
+
+`queued: true` means the target app was not running, so the inbound share is delivered on its next launch. A dismissed sheet is a normal outcome, not an error — treat it as "the user changed their mind".
+
+### Desktop wallpaper — settings keys & `window.nova.wallpaper`
+
+Changing the desktop wallpaper is a low-risk ambient capability: **no permission is required**. Two allowlisted settings keys control it, and they are exempt from the `system:settings` write grant that every other writable settings key needs (reads still require `system:info` as usual):
+
+| Key | Value | Meaning |
+| --- | --- | --- |
+| `wallpaperId` | preset id string, or `null`/`''` to clear | One of the built-in gradient presets: `stock-blue`, `stock-dark`, `stock-light`, `stock-green`, `stock-purple`, `stock-red`, `stock-gray`, `stock-teal` |
+| `customWallpaper` | image URL string (typically a `data:` URL), or `null`/`''` to clear | A custom image painted over the whole desktop (`background-size: cover`) |
+
+The keys are mutually exclusive in practice: setting `customWallpaper` paints the image regardless of `wallpaperId`; clearing it back to `null` restores the preset named by `wallpaperId` (default `stock-blue` when both are empty). Values are validated — an unknown `wallpaperId` or a non-string `customWallpaper` fails with `INVALID_ARGS` instead of silently doing nothing, and both keys reject the change with `POLICY_BLOCKED` when the `prohibitWallpaperChange` kiosk policy is on:
+
+```javascript
+// Apply a downloaded image as the wallpaper (data: URL, any app, no permission)
+await window.novaOS.settings.set('customWallpaper', dataUrl);
+await window.novaOS.settings.set('wallpaperId', null); // optional hygiene
+
+// Or switch back to a built-in preset
+await window.novaOS.settings.set('customWallpaper', null);
+await window.novaOS.settings.set('wallpaperId', 'stock-teal');
+
+// Legacy dedicated bridge — same two keys, same validation, same policy gate.
+// Equivalent to nova:settings:set for these two keys; kept for apps written
+// against it.
+await window.nova.wallpaper.set('wallpaperId', 'stock-purple');
+await window.nova.wallpaper.set('customWallpaper', dataUrl);
+```
+
+Notes for apps:
+
+- `wallpaperId` takes a **preset id**, never an image. Passing a data URL there fails with `INVALID_ARGS` (older runtimes silently fell back to the default preset — check `novaOS.capabilities` on new runtimes and treat `INVALID_ARGS` as the signal you used the wrong key).
+- There is no size cap enforced host-side beyond the IPC payload budget, but large wallpapers are still subject to the platform's general payload limits — prefer a compressed image, and handle `PAYLOAD_TOO_LARGE` by offering the file for the user to set from Settings instead.
+- The desktop applies changes live on the `settings:changed` event, so the new wallpaper appears immediately — no reload needed.
 
 ### Picker-scoped files — `window.nova.files`
 
@@ -1541,7 +1588,7 @@ Feature-detect with `window.novaOS.capabilities.has('badge.v1')`.
 
 ### Share target — `system:share-target` / `novaOS.share.onInbound`
 
-The inbound half of [User-mediated sharing](#user-mediated-sharing--windownovashare). Declare what you accept in the manifest and hold the `system:share-target` grant (System / Medium):
+The inbound half of [User-mediated sharing](#user-mediated-sharing--windownovashare--novaosappshare). Declare what you accept in the manifest and hold the `system:share-target` grant (System / Medium):
 
 ```json
 {
@@ -1659,7 +1706,7 @@ Feature-detect with `window.novaOS.capabilities.has('push.v1')`.
 Reading and writing OS settings are gated by **different** permissions, and both directions are **allowlisted** — this is a shared, OS-wide key space of user preferences, not arbitrary key/value access and not per-app storage:
 
 - `nova:settings:get` requires `system:info` and can read only allowlisted preference keys (`theme`, `accentColor`, `username`, `region`, `timezone`, `devMode`, `highContrast`, `reduceMotion`, `taskbarPosition`, `wallpaperId`, and other desktop/appearance/settings values).
-- `nova:settings:set` requires `system:settings` and can write the same allowlist minus `osVersion` and `devMode` (those change only through OS-owned flows).
+- `nova:settings:set` requires `system:settings` and can write the same allowlist minus `osVersion` and `devMode` (those change only through OS-owned flows). **Exception:** the two wallpaper keys `wallpaperId` and `customWallpaper` are writable without any permission — see [Desktop wallpaper](#desktop-wallpaper--settings-keys--windownovawallpaper).
 
 ```javascript
 // Requires system:info

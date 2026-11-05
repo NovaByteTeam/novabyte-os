@@ -3568,3 +3568,128 @@ describe('stable per-app serving alias (sandbox_<appId>)', () => {
     }
   });
 });
+
+describe('wallpaper settings keys — value validation (wallpaperId / customWallpaper)', () => {
+  // The desktop's applyWallpaper treats wallpaperId as a WALLPAPER_PRESETS id
+  // and customWallpaper as the image; an unknown id silently falls back to
+  // stock-blue. The sandbox now rejects bad values with INVALID_ARGS so apps
+  // can't "succeed" while changing nothing (the Wallpaper Hub 2.1 bug: it set
+  // wallpaperId to a data URL and reported "Applied ✓" with no effect).
+  const PRESET_IDS = ['stock-blue', 'stock-dark', 'stock-light', 'stock-green',
+    'stock-purple', 'stock-red', 'stock-gray', 'stock-teal'];
+  const DATA_URL = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+
+  function stubOs(setImpl) {
+    const set = vi.fn(setImpl || (() => undefined));
+    vi.stubGlobal('OS', { settings: { set, get: () => false } });
+    return set;
+  }
+
+  async function call(type, key, value) {
+    const responses = [];
+    await AppSandbox._internal.handleAPICall(
+      type,
+      { key, value },
+      'wp-test',
+      { id: 'com.test.wallpaper-app' },
+      { __directResponder: (m) => responses.push(m) },
+      {}
+    );
+    return responses[0];
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false }); // no system:settings
+    vi.stubGlobal('window', {
+      WallpaperService: { getPresets: () => PRESET_IDS.map((id) => ({ id, name: id })) },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects a data URL in wallpaperId with INVALID_ARGS (the 2.1 app bug)', async () => {
+    stubOs();
+    const res = await call('nova:wallpaper:set', 'wallpaperId', DATA_URL);
+    expect(res.error).toMatchObject({ code: 'INVALID_ARGS' });
+    expect(res.error.message).toMatch(/preset id/i);
+  });
+
+  it('rejects an unknown preset id with INVALID_ARGS', async () => {
+    stubOs();
+    const res = await call('nova:wallpaper:set', 'wallpaperId', 'my-cool-wallpaper');
+    expect(res.error).toMatchObject({ code: 'INVALID_ARGS' });
+  });
+
+  it('rejects a non-string wallpaperId with INVALID_ARGS', async () => {
+    stubOs();
+    const res = await call('nova:wallpaper:set', 'wallpaperId', { url: DATA_URL });
+    expect(res.error).toMatchObject({ code: 'INVALID_ARGS' });
+  });
+
+  it('accepts a known preset id and still requires no permission', async () => {
+    const set = stubOs();
+    const res = await call('nova:wallpaper:set', 'wallpaperId', 'stock-teal');
+    expect(res.result).toMatchObject({ success: true });
+    expect(set).toHaveBeenCalledWith('wallpaperId', 'stock-teal');
+  });
+
+  it('accepts null and empty string as "clear" values for wallpaperId', async () => {
+    stubOs();
+    expect((await call('nova:wallpaper:set', 'wallpaperId', null)).result).toMatchObject({ success: true });
+    expect((await call('nova:wallpaper:set', 'wallpaperId', '')).result).toMatchObject({ success: true });
+  });
+
+  it('accepts a data URL in customWallpaper — the documented image key', async () => {
+    const set = stubOs();
+    const res = await call('nova:wallpaper:set', 'customWallpaper', DATA_URL);
+    expect(res.result).toMatchObject({ success: true });
+    expect(set).toHaveBeenCalledWith('customWallpaper', DATA_URL);
+  });
+
+  it('rejects a non-string customWallpaper with INVALID_ARGS', async () => {
+    stubOs();
+    const res = await call('nova:wallpaper:set', 'customWallpaper', 42);
+    expect(res.error).toMatchObject({ code: 'INVALID_ARGS' });
+  });
+
+  it('keeps the exemption on nova:settings:set (no system:settings needed)', async () => {
+    const set = stubOs();
+    // Called via the raw handler: nova:settings:set is an isolated-process
+    // API type, so handleAPICall would route it through the host-side
+    // dispatch shim instead of our capture webview — the permission gate we
+    // are asserting on lives in the handler itself.
+    const viaHandler = (key, value, requestId) => {
+      const responses = [];
+      return AppSandbox._internal.API_HANDLERS['nova:settings:set']({
+        payload: { key, value },
+        requestId,
+        app: { id: 'com.test.wallpaper-app' },
+        webview: { __directResponder: (m) => responses.push(m) },
+      }).then(() => responses[0]);
+    };
+
+    // AppPermissionManager.isGranted is false in this describe, so a non-
+    // wallpaper key must still fail with PERMISSION_DENIED…
+    const denied = await viaHandler('theme', 'nord', 'settings-theme');
+    expect(denied.error).toMatchObject({ code: 'PERMISSION_DENIED' });
+    // …while the wallpaper keys pass through without any grant.
+    const ok = await viaHandler('customWallpaper', DATA_URL, 'settings-wallpaper');
+    expect(ok.result).toMatchObject({ success: true });
+    expect(set).toHaveBeenCalledWith('customWallpaper', DATA_URL);
+  });
+
+  it('still reports POLICY_BLOCKED when OS.settings.set refuses (prohibitWallpaperChange)', async () => {
+    stubOs(() => false);
+    const res = await call('nova:wallpaper:set', 'wallpaperId', 'stock-dark');
+    expect(res.error).toMatchObject({ code: 'POLICY_BLOCKED' });
+  });
+
+  it('skips preset-id validation when WallpaperService is unavailable (defensive)', async () => {
+    vi.stubGlobal('window', {}); // no WallpaperService
+    stubOs();
+    const res = await call('nova:wallpaper:set', 'wallpaperId', 'whatever-future-id');
+    expect(res.result).toMatchObject({ success: true });
+  });
+});

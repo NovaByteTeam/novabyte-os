@@ -2928,6 +2928,43 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:settings:get', requestId, { success: true, value });
   }
 
+  // The two app-writable wallpaper keys have distinct value shapes:
+  //   wallpaperId     — a WALLPAPER_PRESETS id ('stock-blue', 'stock-dark', …)
+  //                     or null/'' to fall back to the default preset;
+  //   customWallpaper — a string image URL (the Settings app stores a data:
+  //                     URL) or null/'' to clear it.
+  // Validating here turns a silent no-op (applyWallpaper falls back to
+  // stock-blue for an unknown id — an app could "succeed" while changing
+  // nothing) into an immediate INVALID_ARGS the developer can see.
+  function wallpaperPresetIds() {
+    try {
+      const presets = window.WallpaperService?.getPresets?.();
+      if (Array.isArray(presets) && presets.length) {
+        return new Set(presets.map((p) => p.id));
+      }
+    } catch (_) { /* service unavailable — skip id validation */ }
+    return null;
+  }
+
+  function validateWallpaperSetting(key, value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (key === 'wallpaperId') {
+      if (typeof value !== 'string') {
+        return 'wallpaperId must be a preset id string (stock-blue, stock-dark, …) or null';
+      }
+      const ids = wallpaperPresetIds();
+      if (ids && !ids.has(value)) {
+        return `Unknown wallpaperId '${value.slice(0, 60)}' — use a preset id (see WallpaperService.getPresets()) or null to clear`;
+      }
+      return null;
+    }
+    // customWallpaper
+    if (typeof value !== 'string') {
+      return 'customWallpaper must be a string image URL (data: URL) or null to clear';
+    }
+    return null;
+  }
+
   async function handleSettingsSetWithType({ payload, requestId, app, webview }, type) {
     const key = payload?.key;
     if (typeof key !== 'string' || !key) {
@@ -2945,6 +2982,12 @@ const AppSandbox = (() => {
     }
     if (!SETTINGS_WRITABLE_KEYS.has(key)) {
       return respondError(webview, type, requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not writable by apps`);
+    }
+    if (isWallpaperKey) {
+      const invalidReason = validateWallpaperSetting(key, payload?.value);
+      if (invalidReason) {
+        return respondError(webview, type, requestId, 'INVALID_ARGS', invalidReason);
+      }
     }
     if (typeof OS?.settings?.set !== 'function') {
       return respondError(webview, type, requestId, 'UNAVAILABLE', 'Settings service not available');
