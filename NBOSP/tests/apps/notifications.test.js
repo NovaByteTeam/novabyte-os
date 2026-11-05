@@ -2,6 +2,25 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp, settle } from '../helpers/app-harness.js';
+import NovaRegistry from '../../js/platform/core/nova-registry.js';
+
+// A real registry engine over a memory store, for the registry-present paths.
+function freshRegistry() {
+  const map = new Map();
+  const storage = {
+    loadAll() {
+      const out = {};
+      for (const name of [...NovaRegistry.HIVES, 'AUDIT', 'SNAPSHOTS']) {
+        out[name] = map.has(name) ? JSON.parse(map.get(name)) : null;
+      }
+      return out;
+    },
+    save(hive, data) { map.set(hive, JSON.stringify(data)); },
+  };
+  NovaRegistry._internal.resetState();
+  NovaRegistry.init({ storage, events: null, logger: console });
+  return NovaRegistry;
+}
 
 // Notify drives host globals (OS state, updateNotificationBadge, WM, EventLog).
 // The OS stub is captured per load as `os` so tests can assert/mutate shell state.
@@ -327,5 +346,26 @@ describe('Notify service (js/apps/notifications)', () => {
     expect(svc.listAppsWithChannels()).toEqual(['com.alive']);
     expect(svc.getChannel('com.dead', 'c1')).toBe(null);
     expect(JSON.parse(window.localStorage.getItem('novaOS_notifPendingActions'))).toEqual([]);
+  });
+
+  it('queues action taps into the registry when the engine is up, and drains them from there', async () => {
+    const Reg = freshRegistry();
+    const { window, document } = await load({ OS: { dnd: false }, NovaRegistry: Reg });
+    const svc = window.Notify;
+
+    document.body.innerHTML = '<div id="toast-container"></div>';
+    svc.show({ title: 'x', appId: 'com.dead', actions: [{ id: 'open', label: 'Open' }] });
+    document.querySelector('.toast-action').click(); // queue {open} for com.dead
+
+    // The queue landed in the hive (HKNU/shell/notifications/pendingActions,
+    // beside channels + overrides); the legacy shadow stays untouched.
+    expect(Reg.get('HKNU/shell/notifications/pendingActions')).toHaveLength(1);
+    expect(Reg.get('HKNU/shell/notifications/pendingActions')[0]).toMatchObject({ appId: 'com.dead', actionId: 'open' });
+    expect(window.localStorage.getItem('novaOS_notifPendingActions')).toBeNull();
+
+    // Drain consumes from the same hive path.
+    const drained = svc.consumePendingActions('com.dead');
+    expect(drained).toHaveLength(1);
+    expect(Reg.get('HKNU/shell/notifications/pendingActions')).toEqual([]);
   });
 });

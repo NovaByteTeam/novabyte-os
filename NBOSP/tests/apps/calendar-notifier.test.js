@@ -2,6 +2,25 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp } from '../helpers/app-harness.js';
+import NovaRegistry from '../../js/platform/core/nova-registry.js';
+
+// A real registry engine over a memory store, for the registry-present paths.
+function freshRegistry() {
+  const map = new Map();
+  const storage = {
+    loadAll() {
+      const out = {};
+      for (const name of [...NovaRegistry.HIVES, 'AUDIT', 'SNAPSHOTS']) {
+        out[name] = map.has(name) ? JSON.parse(map.get(name)) : null;
+      }
+      return out;
+    },
+    save(hive, data) { map.set(hive, JSON.stringify(data)); },
+  };
+  NovaRegistry._internal.resetState();
+  NovaRegistry.init({ storage, events: null, logger: console });
+  return NovaRegistry;
+}
 
 const pad = (n) => String(n).padStart(2, '0');
 const localYMD = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -141,5 +160,40 @@ describe('CalendarNotifier service (js/apps/calendar-notifier)', () => {
     window.localStorage.setItem('calendar_events_v2', JSON.stringify([eventInMinutes('e9', 4, { title: '   ' })]));
     window.CalendarNotifier._tick();
     expect(calls[0].title).toBe('Upcoming: Untitled event');
+  });
+
+  it('keeps the fired set in the registry when the engine is up (no re-fire after reload)', async () => {
+    const Reg = freshRegistry();
+    const { stub, calls } = makeNotifyStub();
+    const { window } = await loadServiceApp('calendar-notifier', { stubs: { extra: { Notify: stub, NovaRegistry: Reg } } });
+    window.localStorage.setItem('calendar_events_v2', JSON.stringify([eventInMinutes('e1', 5)]));
+
+    window.CalendarNotifier._tick();
+    expect(calls.length).toBe(1);
+    // The dedupe set lives in the hive; the legacy shadow stays untouched.
+    expect(Reg.get('HKNS/apps/calendar/notifiedIds')).toEqual(['e1']);
+    expect(window.localStorage.getItem('calendar_notified_v1')).toBeNull();
+
+    // A reload with an EMPTY legacy channel still refuses to re-alert: the
+    // fired set is read back from the registry.
+    const { stub: stub2, calls: calls2 } = makeNotifyStub();
+    const { window: w2 } = await loadServiceApp('calendar-notifier', { stubs: { extra: { Notify: stub2, NovaRegistry: Reg } } });
+    w2.localStorage.setItem('calendar_events_v2', JSON.stringify([eventInMinutes('e1', 5)]));
+    w2.CalendarNotifier._tick();
+    expect(calls2.length).toBe(0);
+  });
+
+  it('adopts a pre-registry localStorage fired set into the hive on the next save', async () => {
+    const Reg = freshRegistry();
+    const { stub, calls } = makeNotifyStub();
+    const { window } = await loadServiceApp('calendar-notifier', { stubs: { extra: { Notify: stub, NovaRegistry: Reg } } });
+    window.localStorage.setItem('calendar_notified_v1', JSON.stringify(['old-1']));
+    window.localStorage.setItem('calendar_events_v2', JSON.stringify([eventInMinutes('e2', 4)]));
+
+    window.CalendarNotifier._tick();
+
+    expect(calls.length).toBe(1);
+    // Both the adopted id and the new one are in the hive now.
+    expect(Reg.get('HKNS/apps/calendar/notifiedIds')).toEqual(['old-1', 'e2']);
   });
 });

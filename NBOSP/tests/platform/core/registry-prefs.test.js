@@ -49,6 +49,7 @@ describe('registry prefs (js/platform/core/registry-prefs.js)', () => {
     localStorage.setItem('nova_boot_apps', JSON.stringify(['com.nbosp.clock']));
     localStorage.setItem('nova_show_hidden_apps', '1');
     localStorage.setItem('novabyte-shortcuts', JSON.stringify({ 'toggle-launchpad': 'Ctrl+Space' }));
+    localStorage.setItem('novaOS_notifPendingActions', JSON.stringify([{ appId: 'com.a', actionId: 'open' }]));
 
     expect(RegistryPrefs.disabledApps()).toEqual(['com.nbosp.files']);
     expect(NovaRegistry.get('HKNU/apps/disabled')).toEqual(['com.nbosp.files']);
@@ -56,6 +57,8 @@ describe('registry prefs (js/platform/core/registry-prefs.js)', () => {
     expect(RegistryPrefs.showHiddenApps()).toBe(true);
     expect(NovaRegistry.get('HKNU/apps/showHidden')).toBe(true);
     expect(RegistryPrefs.shortcuts()).toEqual({ 'toggle-launchpad': 'Ctrl+Space' });
+    expect(RegistryPrefs.notifPendingActions()).toEqual([{ appId: 'com.a', actionId: 'open' }]);
+    expect(NovaRegistry.get('HKNU/shell/notifications/pendingActions')).toEqual([{ appId: 'com.a', actionId: 'open' }]);
     expect(NovaRegistry.stat('HKND/_migration/prefsDone')).not.toBeNull();
 
     // The guard holds: legacy edits after adoption never leak back in.
@@ -86,6 +89,10 @@ describe('registry prefs (js/platform/core/registry-prefs.js)', () => {
     RegistryPrefs.setNotifChannelOverrides({ 'com.app|messages': { enabled: false } });
     expect(RegistryPrefs.notifChannelOverrides()['com.app|messages']).toEqual({ enabled: false });
 
+    RegistryPrefs.setNotifPendingActions([{ appId: 'com.app', actionId: 'reply' }]);
+    expect(RegistryPrefs.notifPendingActions()).toEqual([{ appId: 'com.app', actionId: 'reply' }]);
+    expect(NovaRegistry.get('HKNU/shell/notifications/pendingActions')).toEqual([{ appId: 'com.app', actionId: 'reply' }]);
+
     expect(RegistryPrefs.setOverlayPosition(120, 80)).toBe(true);
     expect(RegistryPrefs.overlayPosition()).toEqual({ x: 120, y: 80 });
     expect(NovaRegistry.get('HKND/overlay/position')).toEqual({ x: 120, y: 80 });
@@ -115,6 +122,10 @@ describe('registry prefs (js/platform/core/registry-prefs.js)', () => {
     RegistryPrefs.setShortcuts({ a: 'F1' });
     expect(RegistryPrefs.shortcuts()).toEqual({ a: 'F1' });
 
+    RegistryPrefs.setNotifPendingActions([{ appId: 'com.app', actionId: 'open' }]);
+    expect(RegistryPrefs.notifPendingActions()).toEqual([{ appId: 'com.app', actionId: 'open' }]);
+    expect(JSON.parse(localStorage.getItem('novaOS_notifPendingActions'))).toEqual([{ appId: 'com.app', actionId: 'open' }]);
+
     // Legacy '1'/'0' encoding and the old nova_show_system_apps default.
     expect(RegistryPrefs.overlayPosition()).toBeNull();
     RegistryPrefs.setOverlayPosition(5, 6);
@@ -132,8 +143,10 @@ describe('registry prefs (js/platform/core/registry-prefs.js)', () => {
   it('ignores junk gracefully: non-array lists and malformed positions', () => {
     NovaRegistry.set('HKNU/apps/disabled', 'garbage', { type: 'REG_SZ' });
     NovaRegistry.set('HKND/overlay/position', { x: 'nope' }, { type: 'REG_JSON' });
+    NovaRegistry.set('HKNU/shell/notifications/pendingActions', 'garbage', { type: 'REG_SZ' });
     expect(RegistryPrefs.disabledApps()).toEqual([]);
     expect(RegistryPrefs.overlayPosition()).toBeNull();
+    expect(RegistryPrefs.notifPendingActions()).toEqual([]);
     expect(RegistryPrefs.setOverlayPosition('x', 1)).toBe(false);
   });
 });

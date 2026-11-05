@@ -1799,7 +1799,7 @@ Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, 
 | --- | --- | --- |
 | Shell look & feel, per-user prefs, security/policy | `HKNS/shell/*`, `HKNU/settings/*`, `HKNS/security/*` | settings shim (`OS.settings`) |
 | Desktop pins / default apps | `HKNU/desktop/pins`, `HKNU/shell/defaultApps` | settings shim |
-| Disabled + autostart apps, show-hidden, shortcuts, notification channels | `HKNU/apps/*`, `HKNU/shell/*` | `registry-prefs.js` (RegistryPrefs) |
+| Disabled + autostart apps, show-hidden, shortcuts, notification channels + queued action taps | `HKNU/apps/*`, `HKNU/shell/*` | `registry-prefs.js` (RegistryPrefs) |
 | Debug overlay position | `HKND/overlay/position` | `registry-prefs.js` |
 | Shell Bags — per-app window placement, Files view mode + sort | `HKNU/shell/bags/windows/<app-id>`, `HKNU/shell/bags/files` | `wm.js` + the Files app directly (new persistence — no legacy channel; degrades to cascade/defaults when no engine is up) |
 | Installed `.novaapp` inventory | `HKNS/apps/installed` | `registry-system-state.js` via `nova-app-package-store.js` |
@@ -1812,6 +1812,7 @@ Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, 
 | Built-in app cache (AppRegistry records) | `HKNS/apps/builtin` | `registry-system-state.js` via `app-registry.js` |
 | Inbound share-target queue | `HKNS/apps/share/inbound` | `registry-system-state.js` via the sandbox |
 | Update notifications sent (appId → version) | `HKNS/apps/store/lastNotifiedAt` | `registry-system-state.js` via the update service |
+| Calendar reminder dedupe (fired event ids) | `HKNS/apps/calendar/notifiedIds` | the calendar-notifier service directly |
 | Permission sweep stamp | `HKNS/security/meta/lastSweep` | `registry-system-state.js` via the permission manager |
 | Built-in app config (music prefs, browser settings, textedit word-wrap, email accounts, clock alarms + clock timer/stopwatch state, modules manager list + safety overrides) | `HKNA/<app-id>/...` | `app-config.js` (NovaAppConfig) |
 | Dev-tool config (Event Viewer filters/views/alert rules/session history, dev Console history, App Manager install log, Permissions consent-log cutoff) | `HKND/events/*`, `HKND/console/history`, `HKND/appmanager/log`, `HKND/com.nbosp.permissions/logCutoff` | the owning dev apps directly |
@@ -1849,7 +1850,7 @@ Feature-detect with `window.novaOS.capabilities.has('registry.v1')`.
 
 Excluded from the hive: `customWallpaper` (a multi-megabyte data URL would blow the 256 KB per-value quota) — it alone keeps riding the legacy persistence channel. Safe Mode sets `OS.settings.volatile = true`: changes apply live in the session but are never committed anywhere, which is the documented "clean default session" behavior. If the registry engine is unavailable at boot the shim never attaches and `OS.settings` keeps its original file-backed behavior byte for byte — a broken hive can never block boot.
 
-Platform preferences that used to be scattered `nova_*` localStorage keys moved into the hive too, via `window.RegistryPrefs` (`js/platform/core/registry-prefs.js`, adopted once under `HKND/_migration/prefsDone`): disabled apps → `HKNU/apps/disabled`, boot/autostart apps → `HKNU/apps/boot`, the App Manager "show hidden" toggle → `HKNU/apps/showHidden` (`REG_BOOL`), custom keyboard shortcuts → `HKNU/shell/shortcuts`, notification channels and the user's per-channel overrides → `HKNU/shell/notifications/channels` and `.../channelOverrides`, and the debug overlay position → `HKND/overlay/position`. Every accessor fails soft to the legacy localStorage channel when the registry engine is absent, so pre-registry installs and recovery paths keep working. App-internal data (contacts, mail caches, browser history, alarm stores) deliberately stays out of the registry — the hive holds configuration, the way `HKLM`/`HKCU` never held your mail.
+Platform preferences that used to be scattered `nova_*` localStorage keys moved into the hive too, via `window.RegistryPrefs` (`js/platform/core/registry-prefs.js`, adopted once under `HKND/_migration/prefsDone`): disabled apps → `HKNU/apps/disabled`, boot/autostart apps → `HKNU/apps/boot`, the App Manager "show hidden" toggle → `HKNU/apps/showHidden` (`REG_BOOL`), custom keyboard shortcuts → `HKNU/shell/shortcuts`, notification channels, the user's per-channel overrides, and the queued notification-action taps apps drain on launch → `HKNU/shell/notifications/channels`, `.../channelOverrides`, and `.../pendingActions`, and the debug overlay position → `HKND/overlay/position`. Every accessor fails soft to the legacy localStorage channel when the registry engine is absent, so pre-registry installs and recovery paths keep working. App-internal data (contacts, mail caches, browser history, alarm stores) deliberately stays out of the registry — the hive holds configuration, the way `HKLM`/`HKCU` never held your mail.
 
 ### Ready snapshot — `window.novaOS.ready`
 

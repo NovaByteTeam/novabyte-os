@@ -13,10 +13,11 @@ function safeIconKey(icon) {
 // "Promos"), each with an importance the user can override. Importance is
 // locked once created (Android parity) — a later ensureChannel() with a
 // different importance is a no-op; only the user can change it, via
-// channelOverrides. All three stores are localStorage-persisted so channel
-// state survives shell reloads, and queued notification actions survive a
-// reload too (the app drains them via nova:notifications:consumeActions on
-// its next launch).
+// channelOverrides. All three stores survive shell reloads: channels and
+// overrides live in the registry (HKNU/shell/notifications/*), and queued
+// notification actions ride the same hive area so they survive a reload
+// too (the app drains them via nova:notifications:consumeActions on its
+// next launch).
 const CHANNEL_IMPORTANCES = new Set(['none', 'low', 'default', 'high']);
 // How long a toast stays up per importance level. 'low' = 0 → panel-only,
 // silent (Android low = no sound/snap); 'high' = 8s, the closest thing to
@@ -60,7 +61,31 @@ function slugOk(value, maxLen) {
 
 let channelDefs = null;
 let channelOverrides = null;
-const pendingActionQueue = loadJsonStore(PENDING_ACTIONS_STORAGE_KEY, []);
+// The pending-action queue rides RegistryPrefs (HKNU/shell/notifications/
+// pendingActions — same home as channels + overrides); the legacy
+// localStorage key is the adoption source and the fail-soft fallback, so a
+// pre-registry install keeps its queued taps. The in-memory array hydrates
+// lazily: this service can evaluate before the registry boots.
+const pendingActionQueue = [];
+let pendingQueueHydrated = false;
+
+function ensurePendingQueueHydrated() {
+  if (pendingQueueHydrated) return;
+  pendingQueueHydrated = true;
+  let stored = null;
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.notifPendingActions) {
+    try { stored = RegistryPrefs.notifPendingActions(); } catch (_) { stored = null; }
+  }
+  if (stored === null) stored = loadJsonStore(PENDING_ACTIONS_STORAGE_KEY, []);
+  if (Array.isArray(stored)) pendingActionQueue.push(...stored);
+}
+
+function persistPendingQueue() {
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setNotifPendingActions) {
+    try { if (RegistryPrefs.setNotifPendingActions(pendingActionQueue)) return; } catch (_) { /* legacy below */ }
+  }
+  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+}
 
 // Channels and overrides live in the registry through RegistryPrefs — but
 // this service may evaluate before the registry boots, so the stores
@@ -165,6 +190,7 @@ function getChannelForApp(appId, channelId) {
 // without requiring a live sandbox at click time.
 function queueActionForApp(notif, actionDef) {
   if (!notif || !notif.appId || !actionDef || !slugOk(actionDef.id, 40)) return;
+  ensurePendingQueueHydrated();
   const entry = {
     appId: notif.appId,
     notifId: notif.id,
@@ -180,18 +206,19 @@ function queueActionForApp(notif, actionDef) {
   while (mine.length > MAX_PENDING_ACTIONS_PER_APP) mine.shift();
   pendingActionQueue.length = 0;
   pendingActionQueue.push(...others, ...mine);
-  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+  persistPendingQueue();
 }
 
 function consumeActionsForApp(appId) {
   if (!appId) return [];
+  ensurePendingQueueHydrated();
   const mine = pendingActionQueue.filter(pa => pa && pa.appId === appId);
   if (!mine.length) return [];
   for (const pa of mine) {
     const i = pendingActionQueue.indexOf(pa);
     if (i > -1) pendingActionQueue.splice(i, 1);
   }
-  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+  persistPendingQueue();
   return mine;
 }
 
@@ -200,6 +227,7 @@ function consumeActionsForApp(appId) {
 function dropNotificationAppState(appId) {
   if (!appId) return;
   ensureNotifStores();
+  ensurePendingQueueHydrated();
   let changed = false;
   if (channelDefs[appId]) { delete channelDefs[appId]; changed = true; }
   for (const key of Object.keys(channelOverrides)) {
@@ -214,7 +242,7 @@ function dropNotificationAppState(appId) {
   if (changed) {
     persistChannels();
     persistChannelOverrides();
-    persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+    persistPendingQueue();
   }
 }
 

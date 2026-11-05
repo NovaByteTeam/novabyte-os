@@ -11,7 +11,8 @@
  *   HKNU/apps/boot                — auto-start apps            (REG_JSON [])
  *   HKNU/apps/showHidden          — App Manager "show hidden"  (REG_BOOL)
  *   HKNU/shell/shortcuts          — custom keyboard shortcuts  (REG_JSON)
- *   HKNU/shell/notifications/*    — channels + user overrides  (REG_JSON)
+ *   HKNU/shell/notifications/*    — channels + user overrides +
+ *                                   queued notification action taps (REG_JSON)
  *   HKND/overlay/position         — debug overlay position     (REG_JSON)
  *
  * The first successful access adopts the legacy localStorage values into
@@ -32,6 +33,7 @@
     shortcuts: 'HKNU/shell/shortcuts',
     notifChannels: 'HKNU/shell/notifications/channels',
     notifChannelOverrides: 'HKNU/shell/notifications/channelOverrides',
+    notifPendingActions: 'HKNU/shell/notifications/pendingActions',
     overlayPosition: 'HKND/overlay/position',
   });
 
@@ -44,6 +46,7 @@
     shortcuts: 'novabyte-shortcuts',
     notifChannels: 'novaOS_notifChannels',
     notifChannelOverrides: 'novaOS_notifChannelOverrides',
+    notifPendingActions: 'novaOS_notifPendingActions',
     overlayPosition: 'debug_overlay_pos',
   });
 
@@ -88,6 +91,7 @@
         [PATHS.shortcuts]: readJson(LEGACY_KEYS.shortcuts, null),
         [PATHS.notifChannels]: readJson(LEGACY_KEYS.notifChannels, null),
         [PATHS.notifChannelOverrides]: readJson(LEGACY_KEYS.notifChannelOverrides, null),
+        [PATHS.notifPendingActions]: readJson(LEGACY_KEYS.notifPendingActions, null),
         [PATHS.overlayPosition]: readJson(LEGACY_KEYS.overlayPosition, null),
       };
       r.batch(() => {
@@ -232,6 +236,22 @@
     return writePref(PATHS.notifChannelOverrides, 'REG_JSON', map || {}, LEGACY_KEYS.notifChannelOverrides, map || {});
   }
 
+  // ── Pending notification action taps ──────────────────────────────────
+  // Queued when the user taps a notification action and drained by the
+  // target app on its next launch — machine bookkeeping that must survive
+  // a shell reload, so it rides the same hive area as channels/overrides.
+
+  function notifPendingActions() {
+    const value = readPref(PATHS.notifPendingActions, 'REG_JSON', () =>
+      readJson(LEGACY_KEYS.notifPendingActions, []));
+    return Array.isArray(value) ? value : [];
+  }
+
+  function setNotifPendingActions(list) {
+    const clean = Array.isArray(list) ? list : [];
+    return writePref(PATHS.notifPendingActions, 'REG_JSON', clean, LEGACY_KEYS.notifPendingActions, clean);
+  }
+
   // ── Debug overlay position (HKND — developer scratch hive) ─────────────
 
   function overlayPosition() {
@@ -261,6 +281,8 @@
     setNotifChannels,
     notifChannelOverrides,
     setNotifChannelOverrides,
+    notifPendingActions,
+    setNotifPendingActions,
     overlayPosition,
     setOverlayPosition,
     ensureAdopted,

@@ -10,10 +10,17 @@
 // Runs independently of whether the Calendar app window is open, since it
 // reads calendar's localStorage directly and is booted once as a Boot.after
 // hook (see js/core/core/boot.js).
+//
+// The fired-id dedupe set ("already reminded for this event") is machine
+// service bookkeeping, so it lives in the hive at
+// HKNS/apps/calendar/notifiedIds — the same family as the store-update
+// notified marker (HKNS/apps/store/lastNotifiedAt). The legacy localStorage
+// key stays as the adoption source and the fail-soft fallback.
 
 const CalendarNotifier = {
   _STORE_KEY:   'calendar_events_v2',   // must match calendar.js STORE_KEY
-  _FIRED_KEY:   'calendar_notified_v1', // ids we've already alerted for
+  _FIRED_KEY:   'calendar_notified_v1', // ids we've already alerted for (legacy)
+  _FIRED_REG:   'HKNS/apps/calendar/notifiedIds',
   _LEAD_MS:     10 * 60 * 1000,         // warn 10 minutes before start
   _POLL_MS:     30 * 1000,              // check every 30s
   _timer:       null,
@@ -38,7 +45,19 @@ const CalendarNotifier = {
     } catch { return []; }
   },
 
+  _reg() {
+    return (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+      ? window.NovaRegistry : null;
+  },
+
   _loadFired() {
+    const r = CalendarNotifier._reg();
+    if (r) {
+      try {
+        const value = r.get(CalendarNotifier._FIRED_REG);
+        if (value !== undefined) return Array.isArray(value) ? new Set(value) : new Set();
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       const raw = JSON.parse(localStorage.getItem(CalendarNotifier._FIRED_KEY) ?? '[]');
       return Array.isArray(raw) ? new Set(raw) : new Set();
@@ -48,6 +67,13 @@ const CalendarNotifier = {
   _saveFired(set) {
     // Cap so this can't grow unbounded over months of use.
     const arr = Array.from(set).slice(-500);
+    const r = CalendarNotifier._reg();
+    if (r) {
+      try {
+        r.set(CalendarNotifier._FIRED_REG, arr, { type: 'REG_JSON', source: 'calendar-notifier' });
+        return;
+      } catch (_) { /* fall through to legacy */ }
+    }
     try { localStorage.setItem(CalendarNotifier._FIRED_KEY, JSON.stringify(arr)); } catch {}
   },
 
