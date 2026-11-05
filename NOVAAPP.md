@@ -1793,64 +1793,7 @@ Change notifications ride the event bus as `nova:reg:changed` (see [Event bus](#
 
 Writes to the mapped shell paths (`HKNS/shell/theme`, `HKNS/shell/accentColor`, `HKNS/shell/wallpaper`, plus the user-side `HKNU/desktop/pins` ↔ `pinnedApps` and `HKNU/shell/defaultApps` ↔ `defaultApps`) apply live: the settings shim subscribes to `nova:reg:changed`, maps the path back to its settings key, refreshes `OS.settings`' cache and re-emits `settings:changed`, so the desktop re-applies immediately — whether the write came from the Settings app, NovaReg, the `reg` CLI, or your app's IPC. On first registry boot the OS **adopts** the legacy settings store (Linux `settings.json`, web IndexedDB) into the live registry paths — guarded by `HKND/_migration/registrySourceDone`, running exactly once, with adopted values beating boot seeds. (The older `HKNU/legacy/*` snapshot written by `migrateLegacySettings` is retained only as a forensic copy.) Apps should treat their `HKNA` subtree as their supported config surface: it persists across updates, is visible to the user in the NovaReg editor (Developer Mode), and survives alongside the app's own storage. NovaReg renders **friendly names** for the well-known paths — an info strip under the values header plus tree/find tooltips — including dynamic display names for `HKNA/<app-id>` and `HKNU/software/<app-id>` resolved from the installed-app inventory and humanized names for `HKNU/settings/<key>`, so user-scoped third-party config reads plainly too. Error codes: `INVALID_ARGS` (bad path), `INVALID_VALUE` (type mismatch), `QUOTA_EXCEEDED` (size/node caps), `NOT_FOUND`, `SUBTREE_NOT_EMPTY` (delete a non-empty key without `recursive: true`), `LINK_CROSS_HIVE`, `LINK_LOOP`, `NAME_CONFLICT` (rename), `PERMISSION_DENIED`.
 
-**The OS itself runs on it — the full config map.** The registry is not just an API for apps; it is the machine's configuration database. Every surface the OS owns lives in a hive path now, with the pre-registry localStorage key kept only as the one-time adoption source and the fail-soft fallback when no engine is up:
-
-| Surface | Hive path | Owner module |
-| --- | --- | --- |
-| Shell look & feel, per-user prefs, security/policy | `HKNS/shell/*`, `HKNU/settings/*`, `HKNS/security/*` | settings shim (`OS.settings`) |
-| Desktop pins / default apps | `HKNU/desktop/pins`, `HKNU/shell/defaultApps` | settings shim |
-| Disabled + autostart apps, show-hidden, shortcuts, notification channels + queued action taps | `HKNU/apps/*`, `HKNU/shell/*` | `registry-prefs.js` (RegistryPrefs) |
-| Debug overlay position | `HKND/overlay/position` | `registry-prefs.js` |
-| Shell Bags — per-app window placement, Files view mode + sort | `HKNU/shell/bags/windows/<app-id>`, `HKNU/shell/bags/files` | `wm.js` + the Files app directly (new persistence — no legacy channel; degrades to cascade/defaults when no engine is up) |
-| Installed `.novaapp` inventory | `HKNS/apps/installed` | `registry-system-state.js` via `nova-app-package-store.js` |
-| Permission grants | `HKNS/security/appPermissions` | `registry-system-state.js` via the permission manager |
-| Background alarm registry | `HKNS/apps/alarms` | `registry-system-state.js` via the sandbox (`nova:alarm:*`) |
-| Push tokens + replay queues, device id | `HKNS/apps/push`, `HKNS/apps/pushDeviceId` | `registry-system-state.js` via the sandbox (`nova:push:*`) |
-| Store update check interval | `HKNS/apps/store/updateIntervalMinutes` | `registry-system-state.js` via the update service |
-| Boot machine state (safe mode, recovery flags, boot attempts, watchdog doc, Home-launch handoff) | `HKNS/system/boot/*` | `registry-boot-state.js` (RegistryBootState) |
-| Installed web apps (PWA payload) | `HKNS/apps/webapps` | `registry-system-state.js` via `web-app-manager.js` |
-| Built-in app cache (AppRegistry records) | `HKNS/apps/builtin` | `registry-system-state.js` via `app-registry.js` |
-| Inbound share-target queue | `HKNS/apps/share/inbound` | `registry-system-state.js` via the sandbox |
-| Update notifications sent (appId → version) | `HKNS/apps/store/lastNotifiedAt` | `registry-system-state.js` via the update service |
-| Calendar reminder dedupe (fired event ids) | `HKNS/apps/calendar/notifiedIds` | the calendar-notifier service directly |
-| Permission sweep stamp | `HKNS/security/meta/lastSweep` | `registry-system-state.js` via the permission manager |
-| Built-in app config (music prefs, browser settings, textedit word-wrap, email accounts, clock alarms + clock timer/stopwatch state, modules manager list + safety overrides) | `HKNA/<app-id>/...` | `app-config.js` (NovaAppConfig) |
-| Dev-tool config (Event Viewer filters/views/alert rules/session history, dev Console history, App Manager install log, Permissions consent-log cutoff) | `HKND/events/*`, `HKND/console/history`, `HKND/appmanager/log`, `HKND/com.nbosp.permissions/logCutoff` | the owning dev apps directly |
-
-Adoption guards: settings store under `HKND/_migration/registrySourceDone`, platform prefs under `HKND/_migration/prefsDone`, system state under `HKND/_migration/sysStateDone`, boot state under `HKND/_migration/bootFlags`, per-app config per path under `HKND/_migration/appConfig`, and the first-boot permission pre-grant under `HKND/_migration/permsBootstrapped`. An adoption never clobbers a value that already exists in the hive, so a stale localStorage shadow can never beat the registry.
-
-What deliberately stays **out** of the registry (Windows keeps these out of the registry too): bulk app data (contacts, calendar events, downloads history, email drafts, browser bookmarks/history) and the Modules manager's reload history (whole previous file contents — documents, not config; its module list and safety overrides do live in `HKNA/com.nbosp.modules/*`). `customWallpaper` stays on the legacy channel as well (oversized for a hive value).
-
-**Boot state keeps two strata on purpose.** The hive (`HKNS/system/boot/*`) is authoritative from `boot()` step one — the engine opens before the watchdog consumes the flags. The legacy `nova_*` localStorage keys are kept in step as (a) the fail-soft fallback when the engine never comes up and (b) the handoff channel to the pre-boot recovery guard in `init.js`, which deliberately reads localStorage only: it runs before any core script can be trusted, and a broken registry is exactly what recovery is for. `boot()` re-checks the same flags through RegistryBootState, so a flag that only reached the hive still routes to recovery.
-
-**Host-side extras** (NovaReg and the dev Console use these; they are not part of the sandboxed IPC surface): `batch(fn)` groups mutations into an all-or-nothing transaction across hives (rollback discards everything, including audit entries; change events fire at commit); `saveSnapshot/snapshots/restoreSnapshot/deleteSnapshot` keep a bounded ring of per-hive restore points — one `boot` snapshot is taken automatically on every boot before the shell touches anything; `audit(n)` returns the bounded write ring (`{ ts, actor, action, path, before, after }`, newest first); `rename(path, newName)` renames a value or key atomically (`NAME_CONFLICT` on collisions; renaming a value to `(default)` makes it the key default). Every mutation lands in the audit ring with its actor (calling app id, `shell` for settings writes, `seed` for defaults, `legacy-adopt` for the one-time settings adoption, `prefs`/`prefs-import` for platform prefs, `devconsole:reg` for the CLI).
-
-**`.nvreg` text format and the `reg` command.** The registry's interchange format is the `.nvreg` text file — the analog of a Windows `.reg` file: `[HKNS\shell]` section headers, `@="..."` for a key's default, typed lines like `"count"=dword:0000002a`, `"list"=multi:"a","b"`, `"blob"=hex:68,65,...`, `"cfg"=json:{...}`, `"template"=expandz:"%novaRoot%\x"`, and `>alias=HKNU\desktop` for links. NovaReg's Export/Import buttons and the dev Console speak it:
-
-```
-reg query HKNS\shell /s          reg add HKNS\shell\theme /t REG_SZ /d nord
-reg delete HKND\scratch /f       reg export HKNA\com.example.player
-reg import HKNU\misc [HKNU\misc] "note"="hi"     (multi-line in the Console)
-reg compare HKNU\a HKNU\b        reg acl HKNS\shell      reg audit 30
-reg snapshot HKNU save|list|restore|delete        reg types
-```
-
 Feature-detect with `window.novaOS.capabilities.has('registry.v1')`.
-
-**The OS runs on the registry.** Since the settings-shim transition, the NovaByte Registry is not just an API for apps — it is the configuration source of truth the OS itself boots from. `OS.settings` (kernel.js) is a thin client of the engine (`js/platform/core/settings-shim.js`): `settings.set(key, value)` resolves the key through `NovaRegistry.settingsPathFor(key)` and commits it to the hive atomically (persist + audit + change event in one step); `settings.load()` hydrates the shell's settings cache from the registry at boot, adopting the legacy store exactly once. The canonical key ↔ path schema:
-
-| Settings key | Registry path |
-|---|---|
-| `theme`, `accentColor`, `wallpaperId` | `HKNS/shell/theme`, `HKNS/shell/accentColor`, `HKNS/shell/wallpaper` |
-| `osVersion`, `devMode` | `HKNS/system/...` |
-| `lockPin`, `pinSalt`, `bootPassword`, `biometricCredentialId`, `rootAccessEnabled` | `HKNS/security/...` |
-| `prohibitWallpaperChange` | `HKNS/security/policy/prohibitWallpaperChange` |
-| `pinnedApps`, `defaultApps` | `HKNU/desktop/pins`, `HKNU/shell/defaultApps` |
-| every other per-user pref (`clockFormat`, `region`, `timezone`, `username`, …) | `HKNU/settings/<key>` — unmapped runtime keys are filed here automatically |
-
-Excluded from the hive: `customWallpaper` (a multi-megabyte data URL would blow the 256 KB per-value quota) — it alone keeps riding the legacy persistence channel. Safe Mode sets `OS.settings.volatile = true`: changes apply live in the session but are never committed anywhere, which is the documented "clean default session" behavior. If the registry engine is unavailable at boot the shim never attaches and `OS.settings` keeps its original file-backed behavior byte for byte — a broken hive can never block boot.
-
-Platform preferences that used to be scattered `nova_*` localStorage keys moved into the hive too, via `window.RegistryPrefs` (`js/platform/core/registry-prefs.js`, adopted once under `HKND/_migration/prefsDone`): disabled apps → `HKNU/apps/disabled`, boot/autostart apps → `HKNU/apps/boot`, the App Manager "show hidden" toggle → `HKNU/apps/showHidden` (`REG_BOOL`), custom keyboard shortcuts → `HKNU/shell/shortcuts`, notification channels, the user's per-channel overrides, and the queued notification-action taps apps drain on launch → `HKNU/shell/notifications/channels`, `.../channelOverrides`, and `.../pendingActions`, and the debug overlay position → `HKND/overlay/position`. Every accessor fails soft to the legacy localStorage channel when the registry engine is absent, so pre-registry installs and recovery paths keep working. App-internal data (contacts, mail caches, browser history, alarm stores) deliberately stays out of the registry — the hive holds configuration, the way `HKLM`/`HKCU` never held your mail.
 
 ### Ready snapshot — `window.novaOS.ready`
 
@@ -2300,27 +2243,6 @@ The working rules, spelled out:
 3. **Facades are sugar, not replacements.** Each `window.novaOS.*` facade wraps one or more v1 channels 1:1 — the facade and the channel cannot drift apart, because the facade makes the same call through the same bridge.
 4. **Feature detection is `window.novaOS.capabilities.has(name)`.** Version your probes off capability names, not off `novaOS.apiVersion` or user-agent sniffing. Capability names are added over time and never removed or reused for different meanings.
 5. **Removal is not a thing.** Channels are not removed or repurposed in major OS versions; at most they stop being *documented as recommended* when a facade supersedes them — which is always stated next to the facade (see the `dialog` facade note for the pattern).
-
-### Test layout
-
-There is exactly one test root, `NBOSP/tests/`, and it mirrors the OS layout — a source file's test lives at the same relative path, and every app in `js/apps/` has its own dedicated test file:
-
-| Path | What lives there |
-| --- | --- |
-| `tests/core/<area>/<file>.test.js` | Mirrors `js/core/` (boot, kernel, init, fs, workers, base-utils, …) |
-| `tests/platform/<area>/<file>.test.js` | Mirrors `js/platform/` (sandbox, permission manager, registry, trust store, …) |
-| `tests/apps/<app>.test.js` | One test file per app folder in `js/apps/` (calculator, terminal, settings, wallpaper, …) |
-| `tests/server/`, `tests/email/` | Mirror the top-level `server/` and `email/` modules |
-| `tests/system/` | OS image build / installer / kiosk config |
-| `tests/integration/*.suite.js` | The nine whole-OS node audits (guest-bridge, ipc-matrix, mac-policy, legacy-vfs-compat, real-use, …) |
-| `tests/helpers/`, `tests/setup.js` | Shared fixtures and the vitest global setup (`app-harness.js` loads any app into a real JSDOM window the way the host does) |
-
-Two runners:
-
-- `npm test` — vitest over `tests/**/*.test.js` (unit + app + platform + server).
-- `npm run test:integration` — the nine node audit suites in `tests/integration/`, run sequentially by `run-all.js`; these boot the real dispatcher/sandbox and assert at the IPC-contract level, so they stay plain node scripts instead of vitest files.
-
-The app harness contract: `loadWindowApp(name)` loads a window app's `index.html` + `app.js` into JSDOM and captures what it passes to the host's global `registerApp()`; `initApp(app)` runs the real `init()` against a detached element exactly like the window manager does; `loadServiceApp(name)` loads a service's `service.js` and asserts on what it attaches to `window`. Host globals (`AppDirs`, the `nova` bridge with recorded calls, `novaOS`, `nw`, `fetch`) are stubbed in `app-harness.js` and overridable per test via `stubs`.
 
 ### Legacy vfs compatibility
 
