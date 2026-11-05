@@ -531,7 +531,7 @@ const AppSandbox = (() => {
       return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : String(endpointType || '');
     }
 
-    // Seed grant table — mirrors the MATRIX table in tests/test_ipc_matrix.js
+    // Seed grant table — mirrors the MATRIX table in tests/integration/ipc-matrix.suite.js
     // row for row (ANY-of semantics, same perms). Values:
     //   ['perm:a', 'perm:b'] — enforced here: requires ANY-of the grants
     //   null                 — advisory: handler-level checks are the boundary

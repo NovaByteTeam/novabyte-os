@@ -12,6 +12,7 @@
     "predev": "node scripts/bootstrap.js && node scripts/build-apps-on-start.js",
     "dev": "nw . --enable-logging=stderr --v=1",
     "test": "npx vitest run --reporter=verbose",
+    "test:integration": "node tests/integration/run-all.js",
     "clean": "node -e \"const {exec}=require('child_process');exec(process.platform==='win32'?'taskkill /F /IM nw.exe':'pkill -x nw; pkill -x nwjs; exit 0',()=>console.log('\\u2714 Cleared.'))\""
   },
   "window": {
