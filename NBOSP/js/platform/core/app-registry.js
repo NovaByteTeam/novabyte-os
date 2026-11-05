@@ -48,6 +48,54 @@ const AppRegistry = (() => {
     'admin:apps', 'admin:users', 'admin:system', 'admin:audit',
   ]);
 
+  // Legacy permission names from the pre-fs ("vfs") era. Old .novaapp
+  // manifests still declare these, and the unknown-permission strip below
+  // used to silently remove them — leaving old apps permanently
+  // under-granted with no diagnostic beyond a console warning. Known legacy
+  // names are translated to their fs-era equivalents BEFORE that strip, so
+  // an old manifest registers with exactly the grants a modern manifest
+  // would carry. Mapping rationale:
+  //   vfs:metadata → fs:metadata   exact successor (same label, same risk).
+  //   vfs:access / vfs:read / vfs:write / vfs:delete → fs:access
+  //     The scoped-storage model collapsed the old broad filesystem verbs
+  //     into the single special-access grant: there is no generic fs:read /
+  //     fs:write / fs:delete permission anymore. fs:access is critical-risk
+  //     AND specialAccess — requestPermission() refuses to prompt for it and
+  //     the prompt queue skips it — so translating into it can never widen
+  //     an old app's access silently; the user must explicitly enable
+  //     "Manage all files" for that app in Settings (the toggle lives in the
+  //     per-app permissions panel), the same user-mediated grant path a
+  //     modern app declaring fs:access gets. Shared-tree calls old apps make
+  //     without that toggle keep the modern handler behavior: app-owned
+  //     paths need no grant at all, shared paths ask via picker/confirmation
+  //     flows exactly as they do for a modern app.
+  // 'vfs:metedata' — a spelling that appears in old packages — is aliased
+  // too, so typo'd manifests survive the strip as well. The companion
+  // half of this compat layer (legacy nova:vfs:* / vfs:* IPC channel
+  // aliases) lives in app-sandbox.js (LEGACY_VFS_CHANNEL_ALIASES).
+  const LEGACY_PERMISSION_ALIASES = Object.freeze({
+    'vfs:access': 'fs:access',
+    'vfs:read': 'fs:access',
+    'vfs:write': 'fs:access',
+    'vfs:delete': 'fs:access',
+    'vfs:metadata': 'fs:metadata',
+    'vfs:metedata': 'fs:metadata',
+  });
+
+  // Translate a permission list's legacy vfs:* names to their fs:*
+  // equivalents. Lists without any legacy name are returned untouched (same
+  // array reference), so modern manifests are not deduped or reordered as a
+  // side effect; legacy lists are deduped, since e.g. vfs:read + vfs:write
+  // both collapse onto fs:access.
+  function translateLegacyPermissions(perms) {
+    if (!Array.isArray(perms)) return perms;
+    if (!perms.some(p => Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, p))) return perms;
+    return [...new Set(perms.map(p =>
+      Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, p)
+        ? LEGACY_PERMISSION_ALIASES[p]
+        : p))];
+  }
+
   const RESERVED_APP_IDS = new Set([
     'app-manager', 'browser', 'calculator', 'calendar-app', 'files', 'quill', 'shell', 'terminal', 'textedit', 'vault',
     'nbosp-contacts', 'nbosp-downloads', 'nbosp-gallery', 'nbosp-music', 'nbosp-search',
@@ -212,6 +260,31 @@ const AppRegistry = (() => {
 
     if (RESERVED_APP_IDS.has(appConfig.id) && !appConfig.verified) {
       throw new Error('[AppRegistry] Registration denied — id "' + appConfig.id + '" is reserved for system apps. Verify the app signature to proceed.');
+    }
+
+    // Legacy vfs-era permission names are translated to their fs-era
+    // equivalents before the unknown-permission strip below, so old
+    // manifests register with the same grants a modern manifest would
+    // carry instead of being silently under-granted (see
+    // LEGACY_PERMISSION_ALIASES above). The translation is logged so an
+    // audit trail shows exactly what an old manifest was normalized to.
+    const legacyPerms = [...(appConfig.permissions || []), ...(appConfig.optionalPermissions || [])]
+      .filter(p => Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, p));
+    if (legacyPerms.length > 0) {
+      const mapped = [...new Set(legacyPerms.map(p => `${p} → ${LEGACY_PERMISSION_ALIASES[p]}`))];
+      console.warn('[AppRegistry] Translated legacy permission(s) for', appConfig.id + ':', mapped.join(', '));
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Translated legacy permission(s) for ${appConfig.id}: ${mapped.join(', ')}`, data: { appId: appConfig.id, legacy: legacyPerms } });
+      }
+    }
+    // Only assign back when an array was actually present — assigning
+    // `permissions: undefined` onto appConfig would override the default
+    // `[]` fill in the app object below via the spread.
+    if (Array.isArray(appConfig.permissions)) {
+      appConfig.permissions = translateLegacyPermissions(appConfig.permissions);
+    }
+    if (Array.isArray(appConfig.optionalPermissions)) {
+      appConfig.optionalPermissions = translateLegacyPermissions(appConfig.optionalPermissions);
     }
 
     const allPerms = [...(appConfig.permissions || []), ...(appConfig.optionalPermissions || [])];

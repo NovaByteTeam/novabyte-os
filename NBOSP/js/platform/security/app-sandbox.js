@@ -8891,10 +8891,88 @@ const AppSandbox = (() => {
     'nova:locale:get', 'nova:badge:set', 'nova:badge:clear',
   ]);
 
+  // ---------------------------------------------------------------------------
+  // Legacy VFS channel compat (translate-then-enforce).
+  //
+  // The pre-scoped-storage era exposed the filesystem as nova:vfs:* channels
+  // (read/write/delete/list/mkdir/stat/rename/move) backed by vfs:* permission
+  // names. Both families were renamed in the fs:* era, so old apps have been
+  // failing with UNKNOWN_API (channels) or silently stripped permissions
+  // (manifests) ever since. Instead of leaving those apps broken, legacy
+  // channel names are translated to their modern counterparts at the IPC
+  // front door — BEFORE handler lookup and the MAC policy check — so a legacy
+  // call takes exactly the same enforcement path (MAC front door, per-path
+  // scoped-storage rules, handler checks) as if the app had dialed the modern
+  // channel. There is no alias bypass: translating first is the whole design.
+  //
+  // Mappings mirror the historical handler table one-for-one (the payload and
+  // response shapes of nova:fs:* are backward-compatible with nova:vfs:* —
+  // same path/content/stat fields; the modern handlers only ADD fields):
+  //   nova:vfs:read → nova:fs:read      nova:vfs:write → nova:fs:write
+  //   nova:vfs:delete → nova:fs:delete  nova:vfs:list → nova:fs:list
+  //   nova:vfs:mkdir → nova:fs:mkdir    nova:vfs:stat → nova:fs:stat
+  //   nova:vfs:rename → nova:fs:rename  nova:vfs:move → nova:fs:move
+  // plus the bare vfs:* spellings, and the metadata variants (vfs:metadata
+  // was the legacy permission NAME; as a channel intent it maps to the
+  // metadata channel nova:fs:stat — the typo'd 'metedata' spelling seen in
+  // old packages is aliased too). There is deliberately NO vfs:access channel
+  // alias: vfs:access was only ever a permission, never a channel (it got
+  // UNKNOWN_API in the old era as well); AppRegistry translates it to
+  // fs:access on the permission side instead (see LEGACY_PERMISSION_ALIASES
+  // in app-registry.js).
+  //
+  // Response transparency note: handlers respond with their own frozen
+  // modern type strings (respond(…, 'nova:fs:read', …)), so a legacy caller's
+  // response carries type "nova:fs:read", not "nova:vfs:read". That is safe
+  // by construction — the guest shim matches responses to callers by
+  // requestId, never by type (see buildCapabilityShim), and error envelopes
+  // keep the code/message shape legacy apps already read. Documented in
+  // NOVAAPP.md ("Legacy vfs compatibility").
+  const LEGACY_VFS_CHANNEL_ALIASES = Object.freeze({
+    // Historical channel names (nova-prefixed).
+    'nova:vfs:read': 'nova:fs:read',
+    'nova:vfs:write': 'nova:fs:write',
+    'nova:vfs:delete': 'nova:fs:delete',
+    'nova:vfs:list': 'nova:fs:list',
+    'nova:vfs:mkdir': 'nova:fs:mkdir',
+    'nova:vfs:stat': 'nova:fs:stat',
+    'nova:vfs:rename': 'nova:fs:rename',
+    'nova:vfs:move': 'nova:fs:move',
+    // Bare spellings (no nova: prefix) — accepted for the same reason.
+    'vfs:read': 'nova:fs:read',
+    'vfs:write': 'nova:fs:write',
+    'vfs:delete': 'nova:fs:delete',
+    'vfs:list': 'nova:fs:list',
+    'vfs:mkdir': 'nova:fs:mkdir',
+    'vfs:stat': 'nova:fs:stat',
+    'vfs:rename': 'nova:fs:rename',
+    'vfs:move': 'nova:fs:move',
+    // Metadata spellings → the metadata channel.
+    'vfs:metadata': 'nova:fs:stat',
+    'vfs:metedata': 'nova:fs:stat',
+    'nova:vfs:metadata': 'nova:fs:stat',
+    'nova:vfs:metedata': 'nova:fs:stat',
+  });
+
+  // Resolve a legacy channel name to its modern counterpart. Non-legacy
+  // names (including every modern one) pass through unchanged, so the
+  // resolution is idempotent and safe to apply at every entry point.
+  function resolveLegacyIpcType(type) {
+    return Object.prototype.hasOwnProperty.call(LEGACY_VFS_CHANNEL_ALIASES, type)
+      ? LEGACY_VFS_CHANNEL_ALIASES[type]
+      : type;
+  }
+
   // Dispatch an incoming IPC message to its handler. Catches sync throws and
   // async rejections so a single misbehaving handler can't take down the
   // bridge. Unknown types get an UNKNOWN_API error response.
-  async function handleAPICall(type, payload, requestId, app, webview, sandbox) {
+  async function handleAPICall(rawType, payload, requestId, app, webview, sandbox) {
+    // Legacy vfs:* channels resolve to their modern nova:fs:* counterparts
+    // before the forbidden-API gate, handler lookup, and the MAC front door
+    // (translate-then-enforce — see LEGACY_VFS_CHANNEL_ALIASES above). All
+    // enforcement below therefore sees the modern name and applies the
+    // identical rules a modern call would get.
+    const type = resolveLegacyIpcType(rawType);
     try {
       if (GUEST_FORBIDDEN_IPC_APIS.has(type)) {
         return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'This system capability is only available through trusted OS UI');
@@ -8940,7 +9018,13 @@ const AppSandbox = (() => {
         typeof requestId !== 'string' || !requestId) {
       throw new TypeError('A valid app ID, API type, and request ID are required');
     }
-    if (!ISOLATED_PROCESS_API_TYPES.has(type)) {
+    // Same translate-then-enforce rule as the sandboxed bridge: legacy
+    // vfs:* names resolve before the isolated-process allowlist check, so
+    // an old app's call gets the identical gate the modern channel gets.
+    // The UNAVAILABLE envelope below still echoes the caller's original
+    // type, and handleAPICall re-resolves (idempotently) on the way in.
+    const resolvedType = resolveLegacyIpcType(type);
+    if (!ISOLATED_PROCESS_API_TYPES.has(resolvedType)) {
       return {
         type: `${type}:response`,
         requestId,
@@ -9061,7 +9145,13 @@ const AppSandbox = (() => {
       // be answered at all — dropped as before.
       if (typeof type !== 'string' || !type) return;
       if (typeof requestId !== 'string' || !requestId) return;
-      if (!Object.prototype.hasOwnProperty.call(API_HANDLERS, type) && !GUEST_FORBIDDEN_IPC_APIS.has(type)) {
+      // Legacy vfs:* channel names must resolve BEFORE this membership
+      // check, or old apps would be answered UNKNOWN_API right here and
+      // never reach handleAPICall's translate-then-enforce path. The
+      // UNKNOWN_API answer below still echoes the name the app actually
+      // sent, and handleAPICall re-resolves (idempotently) on the way in.
+      const resolvedType = resolveLegacyIpcType(type);
+      if (!Object.prototype.hasOwnProperty.call(API_HANDLERS, resolvedType) && !GUEST_FORBIDDEN_IPC_APIS.has(resolvedType)) {
         // Unknown endpoint (e.g. a typo'd channel name). Historically this
         // was dropped silently, which left the guest's pending ipc() promise
         // hanging until the bridge timeout — a 30s wait ending in a generic

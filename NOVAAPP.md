@@ -2134,3 +2134,37 @@ The working rules, spelled out:
 3. **Facades are sugar, not replacements.** Each `window.novaOS.*` facade wraps one or more v1 channels 1:1 — the facade and the channel cannot drift apart, because the facade makes the same call through the same bridge.
 4. **Feature detection is `window.novaOS.capabilities.has(name)`.** Version your probes off capability names, not off `novaOS.apiVersion` or user-agent sniffing. Capability names are added over time and never removed or reused for different meanings.
 5. **Removal is not a thing.** Channels are not removed or repurposed in major OS versions; at most they stop being *documented as recommended* when a facade supersedes them — which is always stated next to the facade (see the `dialog` facade note for the pattern).
+
+### Legacy vfs compatibility
+
+The earliest `.novaapp` packages predate the scoped-storage `fs` family. Their manifests declare the `vfs:*` permission family and their code dials the `nova:vfs:*` channels directly. Those names are still accepted through a background translation layer — old apps keep working without a repack, and the translation never weakens enforcement:
+
+**Permissions** (translated at registration, before the unknown-permission strip — an old manifest registers with exactly the grants a modern manifest would carry):
+
+| Legacy manifest name | Modern equivalent |
+| --- | --- |
+| `vfs:metadata` (and the `vfs:metedata` typo) | `fs:metadata` |
+| `vfs:access`, `vfs:read`, `vfs:write`, `vfs:delete` | `fs:access` |
+
+There is no generic `fs:read`/`fs:write`/`fs:delete` permission anymore — the scoped-storage model collapsed the broad filesystem verbs into the single special-access grant. `fs:access` is **special access**: it is never prompt-granted at install or runtime; the user must explicitly enable "Manage all files" for the app in Settings → per-app permissions. Translating into it therefore cannot widen an old app's access silently. Without that toggle, old apps keep the modern scoped behavior: their own `/data/` files need no grant, and shared-tree writes go through the same picker/confirmation flows a modern app sees.
+
+**Channels** (translated at the IPC front door, *before* handler lookup and the MAC policy check — a legacy call takes exactly the enforcement path a modern call takes):
+
+| Legacy channel | Modern channel |
+| --- | --- |
+| `nova:vfs:read` / `vfs:read` | `nova:fs:read` |
+| `nova:vfs:write` / `vfs:write` | `nova:fs:write` |
+| `nova:vfs:delete` / `vfs:delete` | `nova:fs:delete` |
+| `nova:vfs:list` / `vfs:list` | `nova:fs:list` |
+| `nova:vfs:mkdir` / `vfs:mkdir` | `nova:fs:mkdir` |
+| `nova:vfs:stat` / `vfs:stat` | `nova:fs:stat` |
+| `nova:vfs:rename` / `vfs:rename` | `nova:fs:rename` |
+| `nova:vfs:move` / `vfs:move` | `nova:fs:move` |
+| `vfs:metadata` / `vfs:metedata` | `nova:fs:stat` |
+
+Notes for legacy callers:
+
+- Responses carry the modern channel's type string (e.g. `nova:fs:read:response`), not the legacy name. The bridge matches responses by `requestId`, so existing promise/listener code resolves unchanged.
+- `vfs:access` is deliberately **not** aliased as a channel — it was only ever a permission name, and as a channel it returns `UNKNOWN_API` exactly as it always did.
+- Unknown `vfs:*` names (`vfs:frobnicate`, …) still return `UNKNOWN_API`; the alias table is exact, there is no prefix wildcard.
+- `nova:vfs:watch` never existed and has no alias; filesystem watching is the `nova:fs:watch` / `fs:watch` grant pair from the modern family.

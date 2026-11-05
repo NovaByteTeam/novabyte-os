@@ -153,6 +153,91 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
     spy.mockRestore();
   });
 
+  // Legacy vfs-era manifests: the old broad filesystem permission names are
+  // translated to their fs-era equivalents BEFORE the unknown-permission
+  // strip, so an old .novaapp registers with exactly the grants a modern
+  // manifest would carry instead of being silently under-granted. See
+  // LEGACY_PERMISSION_ALIASES in app-registry.js for the mapping rationale.
+  describe('legacy vfs permission translation', () => {
+    it('translates all five legacy vfs permission names', () => {
+      vi.resetModules();
+      const mod = require('../../js/platform/core/app-registry.js');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mod.registerApp({
+        id: 'vfs-manifest',
+        name: 'VFS manifest',
+        permissions: ['vfs:access', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata'],
+      });
+      const app = mod.getApp('vfs-manifest');
+      // Broad verbs collapse onto fs:access; metadata onto fs:metadata.
+      expect(app.permissions).toEqual(['fs:access', 'fs:metadata']);
+      // Nothing legacy survives the strip.
+      for (const legacy of ['vfs:access', 'vfs:read', 'vfs:write', 'vfs:delete', 'vfs:metadata']) {
+        expect(app.permissions).not.toContain(legacy);
+      }
+      spy.mockRestore();
+    });
+
+    it('translates the typo vfs:metedata too and keeps modern names untouched', () => {
+      vi.resetModules();
+      const mod = require('../../js/platform/core/app-registry.js');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mod.registerApp({
+        id: 'vfs-typo',
+        name: 'VFS typo',
+        permissions: ['vfs:metedata', 'fs:read:images', 'net:external'],
+      });
+      const app = mod.getApp('vfs-typo');
+      expect(app.permissions).toContain('fs:metadata');
+      expect(app.permissions).not.toContain('vfs:metedata');
+      expect(app.permissions).toContain('fs:read:images');
+      expect(app.permissions).toContain('net:external');
+      spy.mockRestore();
+    });
+
+    it('translates optionalPermissions as well', () => {
+      vi.resetModules();
+      const mod = require('../../js/platform/core/app-registry.js');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mod.registerApp({
+        id: 'vfs-optional',
+        name: 'VFS optional',
+        permissions: [],
+        optionalPermissions: ['vfs:read', 'vfs:metadata'],
+      });
+      const app = mod.getApp('vfs-optional');
+      expect(app.optionalPermissions).toEqual(['fs:access', 'fs:metadata']);
+      spy.mockRestore();
+    });
+
+    it('does not dedupe or reorder manifests without legacy names', () => {
+      vi.resetModules();
+      const mod = require('../../js/platform/core/app-registry.js');
+      mod.registerApp({
+        id: 'modern-manifest',
+        name: 'Modern manifest',
+        permissions: ['net:external', 'net:external', 'fs:access'],
+      });
+      const app = mod.getApp('modern-manifest');
+      expect(app.permissions).toEqual(['net:external', 'net:external', 'fs:access']);
+    });
+
+    it('leaves genuinely unknown permissions subject to the strip', () => {
+      vi.resetModules();
+      const mod = require('../../js/platform/core/app-registry.js');
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mod.registerApp({
+        id: 'vfs-mixed',
+        name: 'VFS mixed',
+        permissions: ['vfs:read', 'evil:inject'],
+      });
+      const app = mod.getApp('vfs-mixed');
+      expect(app.permissions).toEqual(['fs:access']);
+      expect(app.permissions).not.toContain('evil:inject');
+      spy.mockRestore();
+    });
+  });
+
   it('accepts the scoped filesystem and app-launch permissions', () => {
     vi.resetModules();
     const mod = require('../../js/platform/core/app-registry.js');
