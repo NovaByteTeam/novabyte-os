@@ -178,7 +178,7 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
       spy.mockRestore();
     });
 
-    it('translates the typo vfs:metedata too and keeps modern names untouched', () => {
+    it('strips the vfs:metedata typo as unknown and keeps modern names untouched', () => {
       vi.resetModules();
       const mod = require('../../../js/platform/core/app-registry.js');
       const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -188,10 +188,15 @@ describe('AppRegistry (js/platform/core/app-registry.js)', () => {
         permissions: ['vfs:metedata', 'fs:read:images', 'net:external'],
       });
       const app = mod.getApp('vfs-typo');
-      expect(app.permissions).toContain('fs:metadata');
+      // The vfs:metedata permission alias was removed (it was typo
+      // insurance, not a historical spelling — see the LEGACY_PERMISSION_
+      // ALIASES rationale): the unknown-permission strip now drops it
+      // instead of silently translating it into fs:metadata. The legacy
+      // nova:vfs:* / vfs:metedata IPC channel alias in app-sandbox.js is
+      // separate and still resolves.
+      expect(app.permissions).not.toContain('fs:metadata');
       expect(app.permissions).not.toContain('vfs:metedata');
-      expect(app.permissions).toContain('fs:read:images');
-      expect(app.permissions).toContain('net:external');
+      expect(app.permissions).toEqual(['fs:read:images', 'net:external']);
       spy.mockRestore();
     });
 
