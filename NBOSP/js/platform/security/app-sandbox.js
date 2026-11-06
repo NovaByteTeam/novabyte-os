@@ -2226,7 +2226,7 @@ const AppSandbox = (() => {
           file: {
             id: node.id,
             name: node.name,
-            content: node.content || '',
+            content: coerceFsReadContent(node.content) || '',
             mimeType: node.mimeType || 'text/plain',
             size: node.size || 0,
             path: FS.getPath(node.id),
@@ -2372,7 +2372,7 @@ const AppSandbox = (() => {
     }
     return respond(webview, 'nova:fs:read', requestId, {
       success: true,
-      data: node.content,
+      data: coerceFsReadContent(node.content),
       mimeType: node.mimeType,
       name: node.name,
       size: node.size,
@@ -2406,6 +2406,17 @@ const AppSandbox = (() => {
   function coerceFsWriteContent(content) {
     if (content == null || typeof content === 'string') return content;
     return JSON.stringify(content);
+  }
+
+  // Read-side twin of coerceFsWriteContent: whatever reaches the VFS —
+  // including content stored by pre-fix builds or any non-IPC writer — an app
+  // reading a file gets text it can display, never a live object that string
+  // concatenation turns into "[object Object]". Strings pass through
+  // untouched; null/undefined stay null so "absent" remains distinguishable;
+  // everything else becomes its JSON text, exactly what the write path would
+  // have stored for the same value.
+  function coerceFsReadContent(content) {
+    return coerceFsWriteContent(content);
   }
 
   async function handleFsWrite({ payload, requestId, app, webview, sandbox }) {
@@ -8789,7 +8800,7 @@ const AppSandbox = (() => {
           files.push({
             id: entry.id,
             name: entry.name,
-            content: entry.content || '',
+            content: coerceFsReadContent(entry.content) || '',
             mimeType: entry.mimeType || 'text/plain',
             size: entry.size || 0,
             path: FS.getPath(entry.id),

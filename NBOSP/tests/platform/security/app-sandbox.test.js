@@ -1800,6 +1800,68 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(ownFile.content).toBe('{"count":1}');
   });
 
+  it('reads object content stored by pre-fix builds back as JSON text (no "[object Object]")', async () => {
+    const responses = [];
+    // Content that reaches the VFS as a live object — a file written by a
+    // build before the write-side serialization fix, or by any non-IPC
+    // writer. nova:fs:read must hand the app text it can display, mirroring
+    // what the write path would have stored for the same value.
+    const legacyFile = { id: 'legacy-json', name: 'old.json', type: 'file', content: { legacy: true, items: [1, 2] } };
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['legacy-json', legacyFile]]),
+      getPath: id => id === 'root' ? '/home/user' : '/home/user/data/editor_app/old.json',
+      getByPath: path => path === '/data/editor_app/old.json' ? legacyFile : null,
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:read',
+        { path: '/data/old.json' },
+        'legacy-read',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.success).toBe(true);
+    expect(typeof responses[0].result.data).toBe('string');
+    expect(responses[0].result.data).toBe('{"legacy":true,"items":[1,2]}');
+  });
+
+  it('reads string file content through unchanged', async () => {
+    const responses = [];
+    const ownFile = { id: 'own-text', name: 'note.txt', type: 'file', content: 'plain text' };
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['own-text', ownFile]]),
+      getPath: id => id === 'root' ? '/home/user' : '/home/user/data/editor_app/note.txt',
+      getByPath: path => path === '/data/editor_app/note.txt' ? ownFile : null,
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:read',
+        { path: '/data/note.txt' },
+        'text-read',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.data).toBe('plain text');
+  });
+
   it('serializes object content passed to nova:sysdialog:save instead of silently saving an empty file', async () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'nbosp-save-object-'));
     const filePath = path.join(directory, 'export.json');
