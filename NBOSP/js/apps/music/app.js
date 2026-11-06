@@ -4,7 +4,8 @@
 // and plays the selected track through a hidden <audio> element. Playback
 // state is mirrored in a now-playing bar with seek, volume, shuffle and
 // repeat controls. Preferences (shuffle, repeat, volume) persist across
-// sessions via localStorage.
+// sessions in the NovaByte Registry (HKNA/com.nbosp.music/prefs), adopted
+// from the legacy localStorage key.
 //
 // Host runtime is expected to provide these globals:
 //   registerApp, createEl, svgIcon, lsSave, Notify, FS, AppDirs.
@@ -34,7 +35,6 @@
     weba: 'audio/webm',
     webm: 'audio/webm',
   });
-
   const DEFAULT_VOLUME = 1;
 
   // Volume changes can fire dozens of input events per second while the
@@ -100,6 +100,14 @@
   }
 
   function loadPrefs(key) {
+    // Prefs live in the NovaByte Registry (HKNA/com.nbosp.music/prefs);
+    // the localStorage key is adopted once + kept as the fail-soft fallback.
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        const value = window.NovaAppConfig.get('com.nbosp.music', 'prefs', { legacyKey: key, fallback: null });
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : {};
@@ -111,6 +119,12 @@
   }
 
   function savePrefs(key, prefs) {
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        window.NovaAppConfig.set('com.nbosp.music', 'prefs', prefs, { legacyKey: key });
+        return;
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       lsSave(key, prefs);
     } catch (err) {
@@ -161,6 +175,9 @@
         return;
       }
 
+      const linuxNative = typeof process !== 'undefined' && process.platform === 'linux'
+        && FS?.backend === 'linux-native';
+      const nativeFs = linuxNative ? require('fs').promises : null;
       const prefs = loadPrefs(PREFS_KEY);
 
       const root = createEl('div', {
@@ -186,6 +203,8 @@
       // Object URLs we hand to <audio>. Cached per track id so flipping
       // back to a track is instant and free.
       const blobCache = new Map();
+      let loadGeneration = 0;
+      let initialFileHandled = false;
 
       // One AbortController for every listener we attach. Aborting it on
       // teardown drops every closure and lets the GC collect the DOM.
@@ -349,7 +368,7 @@
           audio.volume = normalized;
           if (volSlider) volSlider.value = String(normalized);
           prefs.volume = normalized;
-          try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+          savePrefs(PREFS_KEY, prefs);
         });
       }
 
@@ -515,7 +534,7 @@
         syncRepeatBtn();
       });
 
-      on(refreshBtn, 'click', () => scanLibrary());
+      on(refreshBtn, 'click', () => { void scanLibrary(); });
 
       // Initial toggle visuals.
       syncShuffleBtn();
@@ -539,17 +558,19 @@
         });
       }
 
-      function getUrl(track) {
+      async function getUrl(track) {
         if (!track) return null;
         const cached = blobCache.get(track.id);
         if (cached) return cached;
-        if (!track.content) return null;
 
         let data;
         try {
           data = normalizeBuffer(track.content);
+          if (!data && nativeFs && typeof track.id === 'string') {
+            data = await nativeFs.readFile(track.id);
+          }
         } catch (err) {
-          console.warn('[Music] Could not normalise track content:', err);
+          console.warn('[Music] Could not read track content:', err);
           return null;
         }
         if (!data || data.byteLength === 0) return null;
@@ -593,8 +614,10 @@
         playTrack(queue[queueIdx]);
       }
 
-      function playTrack(track) {
-        const url = getUrl(track);
+      async function playTrack(track) {
+        const generation = ++loadGeneration;
+        const url = await getUrl(track);
+        if (generation !== loadGeneration) return;
         if (!url) {
           Notify.show({
             title: 'Music',
@@ -616,27 +639,49 @@
 
       // ---- Library scan & render ----
 
-      function scanLibrary() {
-        const files = FS?.files;
-        if (!files) {
-          tracks.length = 0;
-        } else {
-          // Filter in a single pass and sort once, rather than building
-          // an intermediate array with Array.from + filter.
-          const next = [];
-          for (const f of files.values()) {
-            if (f.type !== 'file') continue;
-            const isAudio =
-              (f.mimeType && f.mimeType.startsWith('audio/')) ||
-              AUDIO_EXTENSIONS.has(extOf(f.name));
-            if (isAudio) next.push(f);
-          }
-          next.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      function isAudioFile(file) {
+        return file?.type === 'file' && (
+          file.mimeType?.startsWith('audio/') || AUDIO_EXTENSIONS.has(extOf(file.name))
+        );
+      }
 
-          // Mutate tracks in place so external references (if any)
-          // stay valid.
+      let libraryScanVersion = 0;
+      function queryAllMedia() {
+        const found = [];
+        for (let offset = 0; offset < 5000; offset += 500) {
+          const page = window.NovaByteMediaStore.query({ type: 'audio', limit: 500, offset });
+          found.push(...page);
+          if (page.length < 500) break;
+        }
+        return found;
+      }
+
+      async function scanLibrary() {
+        const scanVersion = ++libraryScanVersion;
+        try {
+          if (!window.NovaByteMediaStore?.query) throw new Error('NovaByte MediaStore is unavailable');
+          const found = queryAllMedia()
+            .map(item => FS.files.get(item.id) || {
+              ...item,
+              type: 'file',
+              content: null,
+              parentId: null,
+            });
+
+          // A file opened from Files is a user-picked item and may live outside
+          // Music; include only that explicit intent in addition to the library.
+          const openedFile = state.fileId ? FS?.files?.get(state.fileId) : null;
+          if (isAudioFile(openedFile) && !found.some(file => file.id === openedFile.id)) {
+            found.push(openedFile);
+          }
+          found.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+          if (scanVersion !== libraryScanVersion) return;
           tracks.length = 0;
-          for (const t of next) tracks.push(t);
+          for (const track of found) tracks.push(track);
+        } catch (err) {
+          console.error('[Music] Library scan failed:', err);
+          Notify.show({ title: 'Music', body: 'Could not read the Music folder: ' + err.message, type: 'error', appName: 'Music' });
         }
 
         // Revoke object URLs for tracks that have disappeared — without
@@ -656,6 +701,12 @@
         // to a valid index on the next interaction.
         buildQueue(queue[queueIdx]?.id);
         renderList();
+
+        if (!initialFileHandled && state.fileId) {
+          initialFileHandled = true;
+          const openedIdx = tracks.findIndex(track => track.id === state.fileId);
+          if (openedIdx !== -1) playIdx(openedIdx);
+        }
       }
 
       // ---- List rendering (with event delegation) ----
@@ -818,6 +869,17 @@
         // Cancel any pending volume autosave.
         if (volumeSaveTimer) clearTimeout(volumeSaveTimer);
       });
+      if (typeof OS !== 'undefined' && OS.events?.on) {
+        const refreshLibrary = () => { void scanLibrary(); };
+        for (const event of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+          OS.events.on(event, refreshLibrary);
+        }
+        state.cleanups.push(() => {
+          for (const event of ['fs:created', 'fs:updated', 'fs:moved', 'fs:deleted']) {
+            OS.events.off?.(event, refreshLibrary);
+          }
+        });
+      }
 
       // ---- Initial render ----
       scanLibrary();

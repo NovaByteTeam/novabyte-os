@@ -15,6 +15,12 @@ const AppPermissionManager = (() => {
   const PERMISSION_TYPES = Object.freeze({
     FS_ACCESS         : 'fs:access',
     FS_METADATA       : 'fs:metadata',
+    // Change notifications for paths the app could already read. 'low':
+    // purely reactive — it cannot read anything a plain read could not, it
+    // only learns WHEN a readable path changes. The handler still enforces
+    // the exact nova:fs:read per-path rules; this grant is the context-free
+    // front door on top.
+    FS_WATCH          : 'fs:watch',
     FS_READ_IMAGES    : 'fs:read:images',
     FS_READ_VIDEO     : 'fs:read:video',
     FS_READ_AUDIO     : 'fs:read:audio',
@@ -32,6 +38,19 @@ const AppPermissionManager = (() => {
     DEVICE_MICROPHONE : 'device:microphone',
     // Clipboard is a shared, ambient, cross-app channel, not a file.
     CLIPBOARD_READ    : 'clipboard:read',  CLIPBOARD_WRITE   : 'clipboard:write',
+    // Data portability — export/backup of the app's OWN storage namespace.
+    // 'low' on purpose: both grants only ever touch the caller's own
+    // key/value namespace (strictly caller-scoped, like clipboard:write);
+    // restore/import pin the envelope's appId to the caller, so no grant
+    // here can read another app's data or smuggle data across apps.
+    DATA_EXPORT       : 'data:export',     DATA_BACKUP       : 'data:backup',
+    // Encrypted per-app credential store (AES-256-GCM at rest, separate
+    // from nova:storage so backup envelopes can never carry credentials).
+    // 'medium': the app can read back what it stored — the risk is the
+    // app's own credentials, not other apps' or the user's data. The OS
+    // never exposes one app's secrets to another, and the Settings
+    // dashboard shows counts only, never values.
+    SECRETS_STORE     : 'secrets:store',
     SYSTEM_INFO       : 'system:info',    SYSTEM_SETTINGS   : 'system:settings',
     SYSTEM_APPS       : 'system:apps',    SYSTEM_APP_LAUNCH : 'system:app-launch',
     APPS_COMMUNICATE  : 'apps:communicate',
@@ -52,6 +71,35 @@ const AppPermissionManager = (() => {
     SYSTEM_BACKGROUND      : 'system:background',
     SYSTEM_BACKGROUND_LIVE : 'system:background:live',
     SYSTEM_AUTOSTART       : 'system:autostart',
+    // Taskbar badge — a count or short label on the app's own taskbar icon.
+    // 'low': purely presentational, scoped to the app's own icon, host-clamped
+    // (0-999 / 4 chars) and rate-limited; it can't touch other apps' icons
+    // or any user data.
+    SYSTEM_BADGE           : 'system:badge',
+    // Named alarms — the app may schedule its own wake-prompt times (one-shot
+    // or periodic with a 15-minute floor). 'medium': alarms persist host-side
+    // and fire pushes into the app's live sandbox, so an app can schedule
+    // future activity without being open — but unlike system:background it
+    // can NEVER launch itself: a fire while fully closed queues a bounded
+    // push for the next launch and nothing runs in between.
+    SYSTEM_SCHEDULE        : 'system:schedule',
+    // Inbound share target — the app may be OFFERED as a destination in the
+    // share sheet (outbound nova:share), and receives a push when the user
+    // picks it. 'medium': delivery is strictly user-mediated (the pick IS
+    // the consent), but the app receives other apps' content, which is a
+    // real data-inflow surface; the manifest must also declare a
+    // shareTarget with the MIME types it accepts.
+    SYSTEM_SHARE_TARGET    : 'system:share-target',
+    // Push delivery — the app's own backend may send it messages through the
+    // OS push service, and the OS may display a notification on the app's
+    // behalf while it is fully closed. 'medium': content flows in from the
+    // internet addressed to this app (a real data-inflow surface), but the
+    // OS holds the one server connection — apps never open their own listen
+    // socket — and every message passes through the delivery ladder, which
+    // drops anything for a revoked or disabled app before it can run code.
+    // Notification display while closed is bounded by the same per-app
+    // notification rate limit as apps posting their own.
+    PUSH_RECEIVE           : 'push:receive',
     ADMIN_APPS        : 'admin:apps',     ADMIN_USERS       : 'admin:users',
     ADMIN_SYSTEM      : 'admin:system',   ADMIN_AUDIT       : 'admin:audit',
     // Lets a .novaapp's own guest content instantiate a nested <webview>
@@ -78,11 +126,23 @@ const AppPermissionManager = (() => {
     // context, comparable risk to allow-same-origin, with none of the same
     // gating. See app-sandbox.js.
     SANDBOX_ESCAPE_POPUPS : 'sandbox:escape-popups',
+    // NovaByte Registry — the typed hierarchical config store the OS reads
+    // at boot. read is 'low' (config facts; the HKNS/security subtree is
+    // still blocked without registry.system), write is 'medium' (the app may
+    // persist config into its OWN HKNA/<appId>/ subtree — quota'd, visible
+    // to the user in the NovaReg editor), system is 'critical' (read/write
+    // everywhere INCLUDING the system and security keys the OS itself runs
+    // on — effectively root for configuration).
+    REGISTRY_READ    : 'registry.read',
+    REGISTRY_WRITE   : 'registry.write',
+    REGISTRY_SYSTEM  : 'registry.system',
   });
 
   const PERMISSION_CATEGORIES = Object.freeze({
     'fs:access'         : { category: 'filesystem', risk: 'critical', label: 'Manage all files', specialAccess: true },
     'fs:metadata'       : { category: 'filesystem', risk: 'medium',   label: 'Read shared file metadata' },
+    // See FS_WATCH above — reactive-only, never grants new read access.
+    'fs:watch'          : { category: 'filesystem', risk: 'low',      label: 'Get notified when your files change' },
     'fs:read:images'    : { category: 'filesystem', risk: 'medium',   label: 'Read shared images' },
     'fs:read:video'     : { category: 'filesystem', risk: 'medium',   label: 'Read shared videos' },
     'fs:read:audio'     : { category: 'filesystem', risk: 'medium',   label: 'Read shared audio' },
@@ -111,6 +171,17 @@ const AppPermissionManager = (() => {
     // See handleClipboardRead/Write in app-sandbox.js for the full rationale.
     'clipboard:read'    : { category: 'device',     risk: 'high',     label: 'Read clipboard' },
     'clipboard:write'   : { category: 'device',     risk: 'low',      label: 'Write clipboard' },
+    // Data portability. 'low' because the entire surface is caller-scoped:
+    // export/backup serialize the app's own key/value namespace, and
+    // restore/import refuse any envelope whose appId doesn't match the
+    // caller (no cross-app channel) and verify a checksum before writing.
+    // The worst a bad envelope can destroy is the app's own data — the
+    // same blast radius as the app calling nova:storage:clear itself.
+    'data:export'       : { category: 'data',       risk: 'low',      label: 'Export this app\u2019s data' },
+    'data:backup'       : { category: 'data',       risk: 'low',      label: 'Back up and restore this app\u2019s data' },
+    // See SECRETS_STORE above — app-scoped encrypted credentials, counts
+    // only in Settings, never in export/backup envelopes.
+    'secrets:store'     : { category: 'data',       risk: 'medium',   label: 'Securely store passwords and tokens' },
     // 'medium', not 'low' — this gates both nova:system:info (OS version,
     // security patch level, username, uptime) and handleSettingsGet's
     // SETTINGS_READABLE_KEYS allowlist (username, region, timezone,
@@ -129,6 +200,15 @@ const AppPermissionManager = (() => {
     'system:background' : { category: 'system',     risk: 'medium',   label: 'Run scheduled background tasks' },
     'system:background:live': { category: 'system', risk: 'high',     label: 'Keep running after you close it' },
     'system:autostart'  : { category: 'system',     risk: 'high',     label: 'Start automatically when NovaByte starts' },
+    // Presentational only — see the SYSTEM_BADGE rationale above.
+    'system:badge'      : { category: 'system',     risk: 'low',      label: 'Show a badge on the taskbar' },
+    // See SYSTEM_SCHEDULE above — scheduling, never self-launching.
+    'system:schedule'   : { category: 'system',     risk: 'medium',   label: 'Schedule named alarms' },
+    // See SYSTEM_SHARE_TARGET above — user-mediated inbound content.
+    'system:share-target': { category: 'system',    risk: 'medium',   label: 'Receive shared content' },
+    // See PUSH_RECEIVE above — OS-mediated inbound content from the app's
+    // own backend, never a third party's.
+    'push:receive'      : { category: 'system',     risk: 'medium',   label: 'Receive push messages from its own server' },
     'admin:apps'        : { category: 'admin',      risk: 'high',     label: 'Manage apps (admin)' },
     'admin:users'       : { category: 'admin',      risk: 'critical', label: 'Manage users' },
     'admin:system'      : { category: 'admin',      risk: 'critical', label: 'System administration' },
@@ -155,6 +235,25 @@ const AppPermissionManager = (() => {
     // to allow-same-origin." See sanitizeSandboxAttr() in app-sandbox.js for
     // the actual gate this backs.
     'sandbox:escape-popups': { category: 'sandbox', risk: 'high', label: 'Open unrestricted popup windows' },
+    // See REGISTRY_* above — reads are config facts ('low'), writes land in
+    // the app's own quota'd namespace ('medium'), full-store access includes
+    // the keys the OS boots from ('critical'). Per-hive rules are enforced
+    // by the nova:reg:* handlers in app-sandbox.js.
+    'registry.read'     : { category: 'system', risk: 'low',      label: 'Read the NovaByte Registry' },
+    'registry.write'    : { category: 'system', risk: 'medium',   label: 'Store settings in the NovaByte Registry' },
+    'registry.system'   : { category: 'system', risk: 'critical', label: 'Full Registry access, including system keys' },
+  });
+
+  // Legacy vfs:* permission names from the pre-fs era. Mirrors
+  // LEGACY_PERMISSION_ALIASES in app-registry.js (which translates at install
+  // time) — this copy covers the runtime path: an app calling
+  // nova:request-permission with a vfs:* name bypasses the registry entirely.
+  const LEGACY_PERMISSION_ALIASES = Object.freeze({
+    'vfs:access':   'fs:access',
+    'vfs:read':     'fs:access',
+    'vfs:write':    'fs:access',
+    'vfs:delete':   'fs:access',
+    'vfs:metadata': 'fs:metadata',
   });
 
   const STORAGE_KEY = 'nova_app_permissions';
@@ -176,6 +275,59 @@ const AppPermissionManager = (() => {
   const RATE_BASE_COOLDOWN_MS = 5_000;
   const RATE_MAX_COOLDOWN_MS  = 15 * 60_000;
   const RATE_MAX_DENIAL_STREAK = 20; // caps the exponent so backoff math never runs away
+
+  // Manifest-declared permission reasons ("permissionReasons"). A .novaapp
+  // manifest may carry a map of permission -> reason text:
+  //   "permissionReasons": { "system:root": "Needed to manage system services" }
+  // The launch-gate prompts and every runtime request-permission dialog show
+  // this declaration so the user can make an informed choice. When neither
+  // the call site nor the manifest declares a reason, the dialog renders an
+  // explicit "no reason declared" block instead of showing nothing at all.
+  // Keys are normalized at install time by app-registry.js (legacy vfs:*
+  // names translated, unknown keys stripped); values are capped here so a
+  // pathological manifest can't blow out the dialog layout.
+  const MAX_REASON_LENGTH = 500;
+
+  // Returns the display-ready reason text, or null when there is nothing
+  // usable. Non-strings, whitespace-only strings and the empty result of a
+  // length cap are all normalized away so callers can branch on null.
+  function normalizeReasonText(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed.length > MAX_REASON_LENGTH ? trimmed.slice(0, MAX_REASON_LENGTH) : trimmed;
+  }
+
+  // Resolution order for the text a permission dialog displays:
+  //   1. runtimeReason — the calling app's own words for THIS prompt (the
+  //      nova:request-permission payload's reason field), the most specific
+  //      description of what is happening right now.
+  //   2. The manifest's permissionReasons[permission] declaration — the
+  //      developer's standing explanation, written at build time. App
+  //      records carry it flattened (app-registry.js normalization), with
+  //      the raw manifest as a fallback path for records that predate the
+  //      flattening.
+  //   3. null — the dialog then renders the "no reason declared" fallback.
+  function resolvePermissionReason(permission, appId, runtimeReason) {
+    // Translate legacy vfs:* names before lookup so the helper is correct
+    // standalone (Settings surfaces can call it directly), not just when
+    // reached through requestPermission() — which translates first anyway,
+    // making this idempotent on the runtime path.
+    permission = LEGACY_PERMISSION_ALIASES[permission] ?? permission;
+    const fromCall = normalizeReasonText(runtimeReason);
+    if (fromCall) return fromCall;
+    try {
+      const record = typeof AppRegistry !== 'undefined' ? AppRegistry.getApp?.(appId) : null;
+      const declared = record?.permissionReasons?.[permission]
+        ?? record?.manifest?.permissionReasons?.[permission];
+      return normalizeReasonText(declared);
+    } catch {
+      // A hostile or half-initialized AppRegistry must never break the
+      // permission prompt itself — worst case the dialog shows the
+      // no-reason-declared fallback.
+      return null;
+    }
+  }
 
   let permissionGrants = new Map(); // key: `${appId}:${permission}`
   const consentLog      = [];
@@ -238,11 +390,27 @@ const AppPermissionManager = (() => {
     }
   }
 
-  async function saveToStorage() {
+  // Grants persist in the NovaByte Registry (HKNS/security/appPermissions
+  // via RegistrySystemState); the localStorage key is the pre-registry
+  // adoption source and the fail-soft fallback when no engine is up.
+  function registryState() {
+    return typeof window !== 'undefined' && window ? window.RegistrySystemState : null;
+  }
+
+  function persistGrants() {
+    const grants = [...permissionGrants.values()];
+    const state = registryState();
+    if (state && typeof state.setAppPermissions === 'function') {
+      try {
+        state.setAppPermissions(grants);
+        return;
+      } catch (error) {
+        console.error('[AppPermissionManager] registry save failed:', error);
+      }
+    }
     const storage = getLocalStorage();
     if (!storage) return;
     try {
-      const grants = [...permissionGrants.values()];
       storage.setItem(STORAGE_KEY, JSON.stringify(grants));
     } catch (e) {
       if (e.name === 'SecurityError') return;
@@ -252,6 +420,10 @@ const AppPermissionManager = (() => {
       }
       console.error('[AppPermissionManager] save failed:', e);
     }
+  }
+
+  async function saveToStorage() {
+    persistGrants();
   }
 
   // 30-day unused-app expiry sweep
@@ -302,28 +474,56 @@ const AppPermissionManager = (() => {
   }
 
   // Run the sweep at most once per day, deferred so it doesn't block init.
+  // The last-sweep stamp is registry-backed (HKNS/security/meta/lastSweep);
+  // the legacy localStorage key is the fallback when no engine is up.
   function scheduleSweep() {
-    const storage = getLocalStorage();
-    if (!storage) return;
-    const last = Number.parseInt(storage.getItem(SWEEP_KEY) ?? '0', 10);
-    if (!Number.isNaN(last) && Date.now() - last < MS_PER_DAY) return;
-    storage.setItem(SWEEP_KEY, String(Date.now()));
-    setTimeout(() => {
+    const runSoon = () => setTimeout(() => {
       sweepExpiredGrants().catch(e => console.error('[AppPermissionManager] sweep failed:', e));
     }, 5000);
+
+    // Registry-backed stamp when the engine is up.
+    if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+      try {
+        const last = RegistrySystemState.permLastSweep() || 0;
+        if (Date.now() - last >= MS_PER_DAY) {
+          RegistrySystemState.setPermLastSweep(Date.now());
+          runSoon();
+        }
+        return;
+      } catch (e) { /* fall back to the legacy channel */ }
+    }
+
+    const storage = getLocalStorage();
+    if (!storage) return;
+    const legacyLast = Number.parseInt(storage.getItem(SWEEP_KEY) ?? '0', 10);
+    if (!Number.isNaN(legacyLast) && Date.now() - legacyLast < MS_PER_DAY) return;
+    storage.setItem(SWEEP_KEY, String(Date.now()));
+    runSoon();
   }
 
   // Initialization
 
   function initialize() {
+    // Registry-first hydration (HKNS/security/appPermissions); the legacy
+    // localStorage key is the pre-registry adoption source and fallback.
+    let raw = null;
+    const state = registryState();
+    if (state && typeof state.appPermissions === 'function') {
+      try {
+        const fromRegistry = state.appPermissions();
+        if (Array.isArray(fromRegistry) && fromRegistry.length > 0) raw = JSON.stringify(fromRegistry);
+      } catch (_) { /* fall through to localStorage */ }
+    }
     const storage = getLocalStorage();
-    if (!storage) {
-      console.warn('[AppPermissionManager] localStorage unavailable — in-memory only');
-      return;
+    if (raw === null) {
+      if (!storage) {
+        console.warn('[AppPermissionManager] localStorage unavailable — in-memory only');
+        return;
+      }
+      try { raw = storage.getItem(STORAGE_KEY); } catch (_) { raw = null; }
     }
 
     try {
-      const raw = storage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         const grants = Array.isArray(parsed) ? parsed : [];
@@ -346,7 +546,7 @@ const AppPermissionManager = (() => {
         }
         if (migratedLegacyIds) {
           try {
-            storage.setItem(STORAGE_KEY, JSON.stringify([...permissionGrants.values()]));
+            persistGrants();
           } catch (error) {
             console.error('[AppPermissionManager] failed migrating legacy app IDs:', error);
           }
@@ -497,6 +697,11 @@ const AppPermissionManager = (() => {
   // Single permission request
 
   async function requestPermission(permission, appId, options = {}) {
+    // Translate legacy vfs:* names before any lookup — an app calling
+    // nova:request-permission with a vfs:* name bypasses the registry
+    // translation that happens at install time, so without this the dialog
+    // shows a blank label and falls through to 'low' risk.
+    permission = LEGACY_PERMISSION_ALIASES[permission] ?? permission;
     assertValidAppId(appId);
     if (PERMISSION_CATEGORIES[permission]?.specialAccess) return false;
     if (permission === PERMISSION_TYPES.SYSTEM_ROOT && !isRootModeEnabled()) return false;
@@ -531,9 +736,18 @@ const AppPermissionManager = (() => {
     const riskLevel = PERMISSION_CATEGORIES[permission]?.risk ?? 'low';
     const permanent = permission === PERMISSION_TYPES.SYSTEM_ROOT || options.permanent !== false;
 
+    // What the dialog displays: the calling app's reason for THIS prompt if
+    // it passed one (nova:request-permission), otherwise the manifest's
+    // permissionReasons declaration for this permission, otherwise null —
+    // the dialog renders the explicit no-reason-declared fallback for that
+    // case. The same effective reason is stored on the grant so the
+    // Settings/Permissions surfaces show why the app asked, not just that
+    // it did.
+    const effectiveReason = resolvePermissionReason(permission, appId, options.reason);
+
     const granted = await showPermissionDialog({
       permission, appId, appName, riskLevel,
-      reason   : options.reason ?? null,
+      reason   : effectiveReason,
       permanent,
       current  : options.current ?? 1,
       total    : options.total ?? 1,
@@ -542,7 +756,7 @@ const AppPermissionManager = (() => {
     if (granted) {
       await persistGrant(permission, appId, {
         permanent,
-        reason   : options.reason ?? null,
+        reason   : effectiveReason,
       });
     } else {
       await persistDenial(permission, appId);
@@ -800,6 +1014,17 @@ const AppPermissionManager = (() => {
     });
   }
 
+  // Shown when neither the request call site nor the manifest's
+  // permissionReasons declared a reason for this permission. Visually
+  // quieter than buildReasonBlock (dimmer text, no risk-color accent) so
+  // the absence reads as information, not as a rendering gap.
+  function buildNoReasonBlock() {
+    return el('p', {
+      style: 'color:#6e7681;font-size:12px;font-style:italic;margin:0 0 14px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid rgba(255,255,255,0.12);',
+      text : 'This app declared no reason why it needs this permission.',
+    });
+  }
+
   function buildRiskRow({ riskLevel, riskColor, category }) {
     const row = el('div', {
       style: 'display:flex;align-items:center;gap:8px;margin-bottom:18px;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;',
@@ -859,7 +1084,10 @@ const AppPermissionManager = (() => {
 
       if (total > 1) card.append(buildPagerRow(current, total));
       card.append(buildHeaderRow({ label, appName, riskColor, riskIcon }));
-      if (reason) card.append(buildReasonBlock(reason, riskColor));
+      // Always a reason block: the declared reason when there is one, the
+      // explicit fallback otherwise — a silent gap would leave users
+      // guessing whether the developer simply never said why.
+      card.append(reason ? buildReasonBlock(reason, riskColor) : buildNoReasonBlock());
       card.append(buildRiskRow({ riskLevel, riskColor, category }));
 
       const { row: buttonRow, denyBtn, grantBtn } = buildButtonRow();
@@ -982,8 +1210,11 @@ const AppPermissionManager = (() => {
     getConsentLog,
     getStats,
     closeAllDialogs,
+    resolvePermissionReason,
     PERMISSION_TYPES,
     PERMISSION_CATEGORIES,
+    LEGACY_PERMISSION_ALIASES,
+    MAX_REASON_LENGTH,
   };
 })();
 

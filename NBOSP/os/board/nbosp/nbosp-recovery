@@ -57,13 +57,16 @@ confirm_word() {
 }
 
 # ── kiosk launch ───────────────────────────────────────────────────────
-# Hand over to the normal boot path. Done through start-stop-daemon so the
-# launcher survives this VT session ending.
+# Hand over to the normal boot path after this recovery shell releases VT1.
+# Do not use start-stop-daemon --exec /bin/sh here: it sees this recovery
+# script's own interpreter and incorrectly reports that /bin/sh is running.
 launch_kiosk() {
   cls
   say "Starting NovaByte..."
-  start-stop-daemon --start --background --exec /bin/sh -- -c \
-    "sleep 1; NBOSP_RECOVERY_DONE=1 $KIOSK_INIT start"
+  (
+    sleep 1
+    NBOSP_RECOVERY_DONE=1 "$KIOSK_INIT" start
+  ) </dev/null >/dev/null 2>&1 &
   exit 0
 }
 

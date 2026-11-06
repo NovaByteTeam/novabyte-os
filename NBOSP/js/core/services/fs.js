@@ -326,13 +326,14 @@ const FS = {
     if (!src) return null;
 
     if (clip.type === 'cut') {
-      await this.move(src.id, destParentId);
       // Dedupe against the destination's existing children (excluding src
-      // itself, in case it's a same-folder move-in-place) so moving into a
-      // folder with a same-named item lands as "name (1).ext" instead of
-      // silently colliding.
+      // itself, in case it's a same-folder move-in-place) and rename BEFORE
+      // moving, so the node never transiently shares a name with a sibling
+      // and lands exactly once — the same contract the linux-native backend
+      // enforces by moving straight to the deduped name.
       const finalName = this.uniqueName(destParentId, src.name, src.id);
       if (finalName !== src.name) await this.rename(src.id, finalName);
+      await this.move(src.id, destParentId);
       return src;
     }
 
@@ -460,9 +461,13 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       '.lnk': 'application/x-app-shortcut',
       '.txt': 'text/plain', '.md': 'text/markdown', '.pdf': 'application/pdf',
       '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
-      '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
-      '.mp4': 'video/mp4', '.webm': 'video/webm',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+      '.svg': 'image/svg+xml', '.avif': 'image/avif', '.tif': 'image/tiff',
+      '.tiff': 'image/tiff',
+      '.mp3': 'audio/mpeg', '.mp4': 'audio/mp4', '.m4a': 'audio/mp4',
+      '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.flac': 'audio/flac',
+      '.aac': 'audio/aac', '.opus': 'audio/ogg; codecs=opus',
+      '.weba': 'audio/webm', '.webm': 'video/webm',
     };
     return mimeTypes[extension] || 'application/octet-stream';
   };
@@ -733,11 +738,16 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       OS.events.emit('fs:updated', node);
       return node;
     },
-    async move(id, newParentId) {
+    async move(id, newParentId, nameOverride) {
       const source = assertHomePath(id);
-      const destination = safeChild(newParentId, nativePath.basename(source));
+      const destination = safeChild(newParentId, nameOverride || nativePath.basename(source));
+      if (destination === source) {
+        // Cut-pasted into the folder it already sits in, with the same name:
+        // a no-op paste, not a collision with itself.
+        return nodeForPath(source);
+      }
       if (nativeFs.existsSync(destination)) {
-        const error = new Error(`A file or folder named "${nativePath.basename(source)}" already exists in this location.`);
+        const error = new Error(`A file or folder named "${nativePath.basename(destination)}" already exists in this location.`);
         error.code = 'EEXIST';
         throw error;
       }
@@ -766,9 +776,10 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       if (!source) return null;
       const name = this.uniqueName(destParentId, source.name, clip.type === 'cut' ? source.id : undefined);
       if (clip.type === 'cut') {
-        const moved = await this.move(source.id, destParentId);
-        if (name !== source.name) return this.rename(moved.id, name);
-        return moved;
+        // Compute the deduped name BEFORE moving so the file lands exactly
+        // once: moving under the original name first would collide with the
+        // same-named sibling the dedup was computed against.
+        return this.move(source.id, destParentId, name === source.name ? undefined : name);
       }
       return this.copyNodeInto(source, destParentId, name);
     },
@@ -799,11 +810,18 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       const needle = String(query || '').toLocaleLowerCase();
       if (!needle) return [];
       const results = [];
+      const contentText = node => {
+        if (typeof node.content === 'string') return node.content;
+        // The native backend reads file bytes as a Buffer — decode it so
+        // content search works there exactly as it does on the virtual one.
+        if (Buffer.isBuffer(node.content)) return node.content.toString('utf8');
+        return '';
+      };
       const visit = folder => {
         for (const node of refreshChildren(folder)) {
           if (node.name.startsWith('.')) continue;
           if (node.name.toLocaleLowerCase().includes(needle) ||
-              (typeof node.content === 'string' && node.content.toLocaleLowerCase().includes(needle))) {
+              contentText(node).toLocaleLowerCase().includes(needle)) {
             results.push(node);
           }
           if (node.type === 'folder') visit(node.id);
@@ -875,6 +893,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     },
   });
   FS.backend = 'linux-native';
+} else {
+  // Dev machines (and any non-Linux host) run the in-memory virtual FS.
+  // The marker keeps the active backend observable (devconsole/tests) the
+  // same way 'linux-native' is on the real kiosk.
+  FS.backend = 'virtual';
 }
 
 window.FS = FS;

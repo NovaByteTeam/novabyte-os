@@ -86,12 +86,13 @@ const WM = window.WM = (() => {
 
     },
 
-    createWindow(appId, options) {
+    createWindow(appId, options = {}) {
       if (appId === 'launchpad') { window.toggleLaunchpad?.(); return null; }
       appId = window.NovaAppIdAliases?.canonicalize(appId) || appId;
 
       const disabled = (() => {
-        try { return JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]'); }
+        // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+        try { return (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : []; }
         catch { return []; }
       })();
       if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
@@ -119,6 +120,19 @@ const WM = window.WM = (() => {
         maxHeight: app.maxSize?.[1]     ?? null,
       };
       const cfg = { ...defaults, ...options };
+
+      // Shell Bags (HKNU/shell/bags/windows/<app-id> — the Explorer "Bags"
+      // idea): remember each app's last on-screen geometry and restore it on
+      // the next open instead of cascading randomly. Explicit x/y in the
+      // launch options (scripted/centered dialogs) always win.
+      if (options.x === undefined && options.y === undefined) {
+        const bag = wm.windowBag(appId);
+        if (bag) {
+          if (Number.isFinite(bag.x) && Number.isFinite(bag.y)) { cfg.x = bag.x; cfg.y = bag.y; }
+          if (Number.isFinite(bag.width)  && bag.width  >= cfg.minWidth)  cfg.width  = bag.width;
+          if (Number.isFinite(bag.height) && bag.height >= cfg.minHeight) cfg.height = bag.height;
+        }
+      }
 
       const win = createEl('div', {
         className: 'app-window opening',
@@ -452,6 +466,17 @@ const WM = window.WM = (() => {
         for (const cleanup of state.cleanups) {
           try { cleanup(); } catch (err) { console.warn('[WM] cleanup error:', err); }
         }
+        // Shell Bags: remember the geometry for the next open of this app.
+        // Maximized/snapped rects are skipped — restoring a full-screen rect
+        // would defeat the bag; the window reopens at its pre-max size.
+        try {
+          if (!state.maximized && !state.snapSide && Number.isFinite(state.x) && Number.isFinite(state.y)) {
+            wm.writeWindowBag(state.appId, {
+              x: Math.round(state.x), y: Math.round(state.y),
+              width: Math.round(state.width), height: Math.round(state.height),
+            });
+          }
+        } catch (err) { /* best-effort — bags must never block a close */ }
         state.element.remove();
         OS.windows.delete(id);
 
@@ -531,6 +556,34 @@ const WM = window.WM = (() => {
       state.element.addEventListener('animationend',
         () => state.element.classList.remove('restoring'), { once: true });
       wm.updateTaskbar();
+    },
+
+    // ── Shell Bags (HKNU/shell/bags/*) ─────────────────────────────
+    // Per-app window geometry remembered across opens, the way Explorer
+    // remembers folder window sizes. New persistence — no legacy channel:
+    // when the registry engine is down the bag reads null and windows
+    // cascade exactly as before, so this degrades silently.
+
+    windowBag(appId) {
+      try {
+        const r = window.NovaRegistry;
+        if (!r || typeof r.get !== 'function' || typeof appId !== 'string' || !appId) return null;
+        const bag = r.get(`HKNU/shell/bags/windows/${appId}`);
+        if (!bag || typeof bag !== 'object') return null;
+        const { x, y, width, height } = bag;
+        const ok = (v) => Number.isFinite(v) && v >= 0 && v <= 32767;
+        if (!ok(x) || !ok(y) || !ok(width) || !ok(height)) return null;
+        return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
+      } catch { return null; }
+    },
+
+    writeWindowBag(appId, rect) {
+      try {
+        const r = window.NovaRegistry;
+        if (!r || typeof r.set !== 'function' || typeof appId !== 'string' || !appId || !rect) return false;
+        r.set(`HKNU/shell/bags/windows/${appId}`, rect, { type: 'REG_JSON', source: 'shell-bags' });
+        return true;
+      } catch { return false; }
     },
 
     getWorkArea(noGap = false) {

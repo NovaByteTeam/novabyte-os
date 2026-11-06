@@ -932,7 +932,8 @@
         interval.id = 'store-update-interval';
         interval.className = 'store-update-interval';
         const currentInterval = window.StoreUpdateService?.getIntervalMinutes?.()
-          ?? Number(localStorage.getItem('nova_store_update_interval_minutes') ?? 60);
+          ?? window.RegistrySystemState?.storeUpdateInterval?.()
+          ?? 60;
         for (const [minutes, text] of [
           [0, 'Startup only'],
           [15, '15 minutes'],
@@ -1242,11 +1243,20 @@
       });
 
       // keep install/uninstall buttons in sync if another window (e.g.
-      // appmanager) installs or removes something while we're open
+      // appmanager) installs or removes something while we're open — both
+      // via legacy storage events and via registry change events (the
+      // inventory and the update interval live in HKNS now)
       window.addEventListener('storage', event => {
         if (event.key === APPS_KEY) renderView();
         if (event.key === 'nova_store_update_interval_minutes' && settingsOpen) renderView();
       });
+      if (window.OS?.events?.on) {
+        OS.events.on('nova:reg:changed', (event) => {
+          if (!event || typeof event.path !== 'string') return;
+          if (event.path === 'HKNS/apps/installed') renderView();
+          if (event.path === 'HKNS/apps/store/updateIntervalMinutes' && settingsOpen) renderView();
+        });
+      }
       window.addEventListener('nova-store-update-settings-changed', () => {
         if (settingsOpen) renderView();
       });

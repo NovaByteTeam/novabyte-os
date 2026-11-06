@@ -49,6 +49,33 @@ function searchTrigramIndex(built, query, verifyFn) {
   return results;
 }
 
+function collectSearchableFiles(fs) {
+  if (!fs?.files || typeof fs.listDir !== 'function') return [];
+
+  const pending = [fs.rootId, fs.specialFolders?.data].filter(Boolean);
+  const visited = new Set();
+  const files = new Map();
+  while (pending.length) {
+    const folderId = pending.pop();
+    if (visited.has(folderId)) continue;
+    visited.add(folderId);
+    for (const entry of fs.listDir(folderId)) {
+      if (entry.type === 'folder') {
+        if (!entry.name.startsWith('.')) pending.push(entry.id);
+      } else if (entry.type === 'file') {
+        files.set(entry.id, entry);
+      }
+    }
+  }
+
+  if (!files.size) {
+    for (const entry of fs.files.values()) {
+      if (entry.type === 'file') files.set(entry.id, entry);
+    }
+  }
+  return [...files.values()];
+}
+
 const storageWatchers = new Set();
 const originalSetItem = localStorage.setItem.bind(localStorage);
 localStorage.setItem = function(key, value) {
@@ -89,5 +116,6 @@ window.addEventListener('storage', event => {
 window.SearchIndex = Object.freeze({
   build: buildTrigramIndex,
   search: searchTrigramIndex,
+  collectFiles: collectSearchableFiles,
   watchStorage,
 });

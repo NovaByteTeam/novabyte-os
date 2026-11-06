@@ -139,7 +139,8 @@ const AppScheduler = (() => {
 
     let disabled = [];
     try {
-      disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+      disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : [];
     } catch {
       // Corrupt value — treat as none disabled rather than failing eligibility
       // for every app.
@@ -316,6 +317,43 @@ const AppScheduler = (() => {
   }
 
   /**
+   * Request a one-off Tier-1 wake for a single app, right now, instead of
+   * waiting for the next sweep tick. Used by push delivery: a message for
+   * a fully-closed app that holds system:background gets queued and the
+   * app is woken so the queue flushes right after the sandbox's ready
+   * handshake (the same bounded wake window, deadline, and teardown as a
+   * scheduled wake — requestWake is a trigger, not a new execution tier).
+   *
+   * Mirrors getEligibleApps()'s three-part eligibility (installed, not
+   * disabled, holds system:background) for the one app. Returns whether a
+   * wake was actually dispatched — a false return is honest: the caller
+   * (push delivery) still has the message queued for next launch either
+   * way, and the OS-attributed notification path does not depend on it.
+   * @param {string} appId
+   * @returns {boolean}
+   */
+  function requestWake(appId) {
+    if (typeof appId !== 'string' || !appId) return false;
+    if (typeof OS === 'undefined' || !OS.apps || !OS.apps[appId]) return false;
+    if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted) return false;
+    if (!AppPermissionManager.isGranted('system:background', appId)) return false;
+    let disabled = [];
+    try {
+      disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : [];
+    } catch {
+      disabled = [];
+    }
+    if (disabled.includes(appId)) return false;
+    try {
+      wake(OS.apps[appId]);
+      return true;
+    } catch (err) {
+      log('warn', `AppScheduler: requestWake threw for ${appId}`, { error: err?.message });
+      return false;
+    }
+  }
+
+  /**
    * Start the periodic scheduler. Safe to call more than once — a second
    * call is a no-op rather than stacking duplicate intervals.
    */
@@ -348,6 +386,7 @@ const AppScheduler = (() => {
     stop,
     runWakeCycle,
     getEligibleApps,
+    requestWake,
 
     // Internal — called from app-sandbox.js's wake-done IPC handler, and
     // by tests. Not covered by stability guarantees.

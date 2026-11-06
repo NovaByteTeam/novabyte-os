@@ -82,9 +82,13 @@ function initLinuxTextEdit(content, state, options = {}) {
   root.append(toolbar, editor, status);
   content.replaceChildren(root);
   content.style.cssText = 'padding:0;height:100%;overflow:hidden;position:relative;';
-  if (currentPath) {
+  if (Object.prototype.hasOwnProperty.call(options, 'initialContent')) {
+    editor.value = String(options.initialContent ?? '');
+    setStatus();
+  } else if (currentPath) {
     fs.readFile(currentPath, 'utf8').then(text => {
       editor.value = text;
+      modified = false;
       setStatus();
     }).catch(error => {
       console.error('[TextEdit] Could not open requested file:', error);
@@ -190,9 +194,20 @@ registerApp({
 
     let prevLineCount = 0;
     let prevGutterWrapped = false;
+    // The word-wrap preference lives in the NovaByte Registry
+    // (HKNA/com.nbosp.textedit/wordWrap); the localStorage key is adopted
+    // once + kept as the fail-soft fallback.
     const wordWrapKey = 'nbosp.textedit.wordWrap';
     let wordWrapEnabled = false;
-    try { wordWrapEnabled = localStorage.getItem(wordWrapKey) === 'true'; }
+    try {
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        wordWrapEnabled = window.NovaAppConfig.get('com.nbosp.textedit', 'wordWrap', {
+          type: 'REG_BOOL', legacyKey: wordWrapKey, fallback: false,
+        }) === true;
+      } else {
+        wordWrapEnabled = localStorage.getItem(wordWrapKey) === 'true';
+      }
+    }
     catch (err) { console.warn('[TextEdit] Could not read the word-wrap preference:', err); }
 
     function updateWordWrap() {
@@ -207,7 +222,15 @@ registerApp({
     wrapBtn.addEventListener('click', () => {
       wordWrapEnabled = !wordWrapEnabled;
       updateWordWrap();
-      try { localStorage.setItem(wordWrapKey, String(wordWrapEnabled)); }
+      try {
+        if (typeof window !== 'undefined' && window.NovaAppConfig) {
+          window.NovaAppConfig.set('com.nbosp.textedit', 'wordWrap', wordWrapEnabled, {
+            type: 'REG_BOOL', legacyKey: wordWrapKey, legacyRaw: String(wordWrapEnabled),
+          });
+        } else {
+          localStorage.setItem(wordWrapKey, String(wordWrapEnabled));
+        }
+      }
       catch (err) { console.warn('[TextEdit] Could not save the word-wrap preference:', err); }
     }, { signal });
 

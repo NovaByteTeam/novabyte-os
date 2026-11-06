@@ -25,6 +25,10 @@
     "entry": "service.js"
   },
   {
+    "id": "com.nbosp.service.media-store",
+    "entry": "service.js"
+  },
+  {
     "id": "com.nbosp.service.network-activity-log",
     "entry": "service.js"
   },

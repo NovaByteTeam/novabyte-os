@@ -161,14 +161,16 @@ router.post('/admin-mode',
 );
 
 
-// Cleanup expired login locks every 5 minutes
+// Cleanup expired login locks every 5 minutes. unref()'d: this is background
+// maintenance and must not keep the process (or a test runner) alive on its
+// own — same contract as the credential-cleanup tick in email/credentials.js.
 setInterval(() => {
     for (const [ip, record] of failedLoginAttempts.entries()) {
         if (record.lockedUntil && record.lockedUntil <= Date.now()) {
             failedLoginAttempts.delete(ip);
         }
     }
-}, 5 * 60 * 1000);
+}, 5 * 60 * 1000).unref();
 
 // The in-memory `sessions` Map this used to be was dead code — its only
 // writer, registerSession() below, was exported but never called from

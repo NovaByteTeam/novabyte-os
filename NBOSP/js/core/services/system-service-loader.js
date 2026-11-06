@@ -149,7 +149,7 @@
         throw new Error(`System service ${service.id} entry ${scriptEntry} failed during startup: ${runtimeError.message || runtimeError}`);
       }
     }
-    loadedServices.push({
+    const registeredService = {
       id: manifest.id,
       name: manifest.name,
       version: manifest.version,
@@ -164,7 +164,13 @@
       signer: 'NovaByte System',
       source: 'system-bundle',
       headlessSystemService: manifest.headless !== false,
-    });
+    };
+    if (typeof AppRegistry === 'undefined' ||
+        typeof AppRegistry.registerSystemService !== 'function') {
+      throw new Error('AppRegistry system-service support is unavailable');
+    }
+    AppRegistry.registerSystemService(registeredService);
+    loadedServices.push(registeredService);
     console.info(`[SystemServiceLoader] Started ${service.id}`);
   }
 

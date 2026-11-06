@@ -531,7 +531,7 @@ const AppSandbox = (() => {
       return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : String(endpointType || '');
     }
 
-    // Seed grant table — mirrors the MATRIX table in tests/test_ipc_matrix.js
+    // Seed grant table — mirrors the MATRIX table in tests/integration/ipc-matrix.suite.js
     // row for row (ANY-of semantics, same perms). Values:
     //   ['perm:a', 'perm:b'] — enforced here: requires ANY-of the grants
     //   null                 — advisory: handler-level checks are the boundary
@@ -548,6 +548,12 @@ const AppSandbox = (() => {
       // Clipboard.
       'nova:clipboard:read': ['clipboard:read'],
       'nova:clipboard:write': ['clipboard:write'],
+      // Data portability (own-namespace export/backup — see the handlers
+      // for why restore/import are caller-pinned and checksummed).
+      'nova:data:export': ['data:export'],
+      'nova:data:import': ['data:export'],
+      'nova:data:backup': ['data:backup'],
+      'nova:data:restore': ['data:backup'],
       // System settings read/write.
       'nova:settings:get': ['system:info'],
       'nova:settings:set': ['system:settings'],
@@ -557,8 +563,16 @@ const AppSandbox = (() => {
       'nova:app:install': ['system:apps'],
       'nova:app:uninstall': ['system:apps'],
       'nova:app:openDefaultAppsSettings': ['system:apps'],
-      'nova:home:apps:launch': ['system:app-launch', 'system:apps'],
-      'nova:home:openDefaultAppsSettings': ['system:apps'],
+      // nova:home:apps:launch and nova:home:openDefaultAppsSettings are
+      // context-dependent, NOT context-free permission gates: both are
+      // restricted to the currently selected Home app (isActiveHomeCaller),
+      // and Home may always launch Settings/App Manager with no grant at
+      // all (documented — the whole point of the Home surface). Requiring
+      // system:app-launch/system:apps here denied those documented
+      // grant-free Home flows at the MAC front door before the handler's
+      // own caller/target checks could run; the handler stays the boundary.
+      'nova:home:apps:launch': null,
+      'nova:home:openDefaultAppsSettings': null,
       // Admin — also a neverallow target: rows here must never be weakened.
       'nova:admin:audit': ['admin:audit'],
       'nova:admin:system': ['admin:system'],
@@ -570,8 +584,14 @@ const AppSandbox = (() => {
       'nova:mail:session': ['mail:write'],
       'nova:mail:send': ['mail:send'],
       'nova:mail:delete': ['mail:delete'],
-      // Network.
-      'nova:net:fetch': ['net:external'],
+      // Network. ANY-of: the handler classifies the destination — internal
+      // hosts require net:internal, everything else net:external — so the
+      // MAC front door must accept either grant and let the handler decide,
+      // exactly like the path-dependent fs:* rows. Requiring net:external
+      // alone (the old row) locked internal-only apps out of their own
+      // internal hosts entirely: MAC denied the call before the handler's
+      // correct per-destination check could run.
+      'nova:net:fetch': ['net:internal', 'net:external'],
       'nova:net:websocket': ['net:websocket'],
       // Devices.
       'nova:device:geolocation': ['device:geolocation'],
@@ -586,6 +606,13 @@ const AppSandbox = (() => {
       'nova:contacts:delete': ['contacts:delete'],
       // Misc.
       'nova:system:info': ['system:info'],
+      // Locale — ungated on purpose (coarse formatting facts only; see the
+      // handler comment). Still an explicit advisory row so policy coverage
+      // is a statement, not an accident.
+      'nova:locale:get': null,
+      // Taskbar badge.
+      'nova:badge:set': ['system:badge'],
+      'nova:badge:clear': ['system:badge'],
       'nova:nested-webview': ['sandbox:nested-webview'],
       'nova:ipc:register': ['apps:communicate'],
       'nova:ipc:unregister': ['apps:communicate'],
@@ -612,10 +639,45 @@ const AppSandbox = (() => {
       'nova:fs:write': null,
       'nova:fs:delete': null,
       'nova:fs:list': null,
+      'nova:media:query': null,
       'nova:fs:mkdir': null,
       'nova:fs:stat': null,
       'nova:fs:rename': null,
       'nova:fs:move': null,
+      // Watch — context-free fs:watch grant at the front door PLUS the
+      // per-path nova:fs:read access rules in the handler (watching is
+      // reading). The unwatch counterpart is advisory: dropping your own
+      // poller leaks nothing.
+      'nova:fs:watch': ['fs:watch'],
+      'nova:fs:unwatch': null,
+      // Named alarms.
+      'nova:alarms:create': ['system:schedule'],
+      'nova:alarms:clear': ['system:schedule'],
+      'nova:alarms:getAll': ['system:schedule'],
+      // Secrets — encrypted per-app credential store.
+      'nova:secrets:set': ['secrets:store'],
+      'nova:secrets:get': ['secrets:store'],
+      'nova:secrets:delete': ['secrets:store'],
+      'nova:secrets:keys': ['secrets:store'],
+      // Push delivery — registration/unregistration of the app's publish
+      // token. The inbound nova:push:message direction is a host→guest
+      // push, not a guest request, so it has no row here; the delivery
+      // ladder re-checks the grant on every message before the app ever
+      // sees one.
+      'nova:push:register': ['push:receive'],
+      'nova:push:unregister': ['push:receive'],
+      // NovaByte Registry — reads (get/list/export) are registry.read,
+      // writes (set/delete/import) are registry.write. The handler adds the
+      // per-hive rules the flat grant can't express: apps write only their
+      // own HKNA/<appId>/ subtree, HKNS writes need a system app, HKNU needs
+      // registry.system, HKND additionally needs Developer Mode, and the
+      // HKNS/security subtree needs registry.system on top of either grant.
+      'nova:reg:get': ['registry.read'],
+      'nova:reg:list': ['registry.read'],
+      'nova:reg:export': ['registry.read'],
+      'nova:reg:set': ['registry.write'],
+      'nova:reg:delete': ['registry.write'],
+      'nova:reg:import': ['registry.write'],
     });
 
     // Families with NO grant-coupled endpoints: every endpoint in them is
@@ -629,7 +691,7 @@ const AppSandbox = (() => {
       'nova:context-menu', 'nova:share', 'nova:files', 'nova:email',
       'nova:open-url', 'nova:open-with', 'nova:download',
       'nova:wallpaper', 'nova:request-permission',
-      'nova:permission-rate-limited', 'nova:audit',
+      'nova:permission-rate-limited', 'nova:audit', 'nova:locale',
     ]);
 
     // neverallow v1: the admin family is the platform's privilege anchor —
@@ -1048,6 +1110,30 @@ const AppSandbox = (() => {
     return `sandbox_${appId}_${unique}`;
   }
 
+  // Stable per-app serving alias. Besides the per-session path (see
+  // generateSandboxId), the server also publishes this app's bundled files
+  // under `sandbox_<appId>` with NO unique suffix — a URL that survives
+  // relaunches, which is what makes pre-registered OAuth/redirect callback
+  // URLs possible (register
+  // `https://localhost:3003/api/apps/serve/sandbox_<appId>/callback.html`
+  // with the provider once; it resolves to the most recent launch). Only ids
+  // matching the platform's app-id shapes are eligible — reverse-domain
+  // package ids (app-package.js install validation) and webapp_ shortcut ids.
+  // Anything else degrades to session-only serving, exactly as before the
+  // alias existed, so an unexpected id can never break a launch.
+  const APP_SERVE_APP_ID_PATTERN = /^(?:webapp_[a-z0-9._-]{1,112}|[a-z][a-z0-9]*(?:\.[a-z0-9]+)+)$/;
+
+  // Per-sandbox liveness heartbeat cadence for the server-side app-serve
+  // registry (server prunes entries idle for 30 minutes — six missed beats,
+  // so plenty of margin for a dropped request).
+  const APP_SERVE_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+
+  function stableServeAppId(appId) {
+    return (typeof appId === 'string' && appId.length <= 128 && APP_SERVE_APP_ID_PATTERN.test(appId))
+      ? appId
+      : null;
+  }
+
   // Escape a string for safe HTML interpolation. Used whenever app-supplied
   // metadata (name, author, etc.) is embedded into the default shell or error
   // page. Without this, a malicious package could inject <script> tags.
@@ -1092,6 +1178,54 @@ const AppSandbox = (() => {
     return btoa(binary);
   }
 
+  // Serial mirror for operator-visible log lines. Field debugging kept dying
+  // on the same wall: the popup decision lines (763edcd) and every other
+  // info/warn/error from this module go to this window's console, and THIS
+  // window's console never reaches the serial console — two captures covered
+  // a popup spawning and not one [AppSandbox] line appeared, while the
+  // server's process.stdout (the channel carrying the [OS Build] marker and
+  // the [Memory] heartbeat) provably does. The UI is served same-origin by
+  // the server, so mirroring is a POST to /api/os/log, which the server
+  // writes straight to its stdout — i.e. onto the serial console.
+  // Fire-and-forget, never throws, debug stays console-only.
+  const serialMirror = (() => {
+    let windowStart = 0;
+    let sentInWindow = 0;
+    let dropped = 0;
+    const MAX_PER_WINDOW = 40;
+    const WINDOW_MS = 5000;
+    function formatItem(item) {
+      if (typeof item === 'string') return item;
+      if (item instanceof Error) return item.stack || `${item.name}: ${item.message}`;
+      try { return JSON.stringify(item) ?? String(item); } catch (e) { return String(item); }
+    }
+    return function mirror(level, message, ...rest) {
+      try {
+        const now = Date.now();
+        if (now - windowStart > WINDOW_MS) { windowStart = now; sentInWindow = 0; }
+        if (sentInWindow >= MAX_PER_WINDOW) { dropped += 1; return; }
+        sentInWindow += 1;
+        const dropNote = dropped > 0 ? `(${dropped} earlier lines dropped by throttle) ` : '';
+        dropped = 0;
+        const line = `${dropNote}[AppSandbox:${level}] ${message}${rest.length ? ' ' + rest.map(formatItem).join(' ') : ''}`;
+        // The sink is a POST route, so it sits behind the server's CSRF gate
+        // like every other one: without the token each POST is answered 403
+        // CSRF_MISSING and the never-throw policy hides it — which is exactly
+        // what happened in the field (the app guest's devtools filled with
+        // 403s on :3003/api/os/log while serial never showed one [OS UI]
+        // line). The UI window's own document carries the live session token
+        // in the csrf-token meta tag injected by GET /, and csrfToken() is
+        // the same accessor authedJsonFetch uses for its POSTs.
+        fetch('/api/os/log', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'X-CSRF-Token': csrfToken() },
+          body: JSON.stringify({ lines: [line.slice(0, 2000)] }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch (e) { /* logging must never throw */ }
+    };
+  })();
+
   // Structured logger. Debug-level messages are gated on a window flag so
   // production builds stay quiet unless an operator opts in.
   function log(level, message, ...rest) {
@@ -1104,6 +1238,9 @@ const AppSandbox = (() => {
       }
     } else {
       console.log(prefix, message, ...rest);
+    }
+    if (level !== 'debug' && typeof fetch === 'function') {
+      serialMirror(level, message, ...rest);
     }
   }
 
@@ -1783,6 +1920,46 @@ const AppSandbox = (() => {
     return '/data/' + appDataSegment(appId) + p.slice('/data'.length);
   }
 
+  // Lazily create the caller's OWN /data/<appId>/… ancestor folders
+  // (mkdir -p semantics), so a write like nova:fs:write('/data/notes/todo.txt')
+  // — or the documented appdata.write('notes/todo.txt', …) example — works
+  // without the app pre-creating every folder. The app's own subtree is
+  // private to it: auto-creating missing folders there has no security
+  // impact and removes a whole class of first-run NOT_FOUND failures for
+  // apps installed through paths that don't run the AppDirs bootstrap
+  // (e.g. programmatic nova:app:install, fresh profiles).
+  //
+  // ONLY the caller-relative own subtree is touched: the path must already
+  // have been through rewriteDataPath/expandLogicalFsPath so its /data/
+  // segment is the caller's own id. A missing parent anywhere else (shared
+  // tree) returns null and the caller keeps its NOT_FOUND behavior.
+  //
+  // Returns the folder node for the deepest existing-or-created ancestor,
+  // or null when the path is outside the caller's own subtree or a
+  // same-named non-folder node blocks the way.
+  async function ensureOwnAppDataAncestors(resolvedPath, appId) {
+    const ownRoot = '/data/' + appDataSegment(appId);
+    if (resolvedPath !== ownRoot && !resolvedPath.startsWith(ownRoot + '/')) return null;
+    let cursor = FS.getByPath('/data');
+    if (!cursor || cursor.type !== 'folder') {
+      try { cursor = await FS.createFolder(FS.rootId, 'data'); } catch { return null; }
+    }
+    // Walk from the app segment down to the full path, creating missing
+    // folders. Bail out (null) if a same-named non-folder node exists —
+    // that's a genuinely invalid parent path, not a missing one.
+    const segments = resolvedPath.slice('/data/'.length).split('/').filter(Boolean);
+    for (const seg of segments) {
+      const next = FS.listDir(cursor.id).find((n) => n.name === seg);
+      if (next) {
+        if (next.type !== 'folder') return null;
+        cursor = next;
+      } else {
+        try { cursor = await FS.createFolder(cursor.id, seg); } catch { return null; }
+      }
+    }
+    return cursor && cursor.type === 'folder' ? cursor : null;
+  }
+
   // File dialog
 
   // Show a file open/save dialog. The dialog is a custom overlay so it matches
@@ -1858,14 +2035,20 @@ const AppSandbox = (() => {
     let currentFolderId = FS.rootId;
     let selectedFile = null;
 
+    // Open mode: enforce the documented accept filter on file rows (folders
+    // always stay visible for navigation). accept used to be display-only —
+    // a "Filter:" label while every file stayed clickable.
+    const acceptMatch = mode === 'open' ? pickerAcceptMatcher(payload.accept) : null;
+
     function renderFileList() {
       fileList.innerHTML = '';
       const broadAccess = hasFsAccess(app.id);
       const children = FS.listDir(currentFolderId).filter(item =>
-        mode === 'open'
+        (mode === 'open'
           ? resolveFile({ id: item.id }, app.id)
           : resolveFile({ id: item.id }, app.id, true, broadAccess)
             || (item.type === 'folder' && isAppDataContainer(item))
+        ) && (!acceptMatch || item.type === 'folder' || acceptMatch(item.name, item.mimeType))
       );
 
       children.sort((a, b) => {
@@ -2213,11 +2396,30 @@ const AppSandbox = (() => {
     }
   }
 
+  // Coerce an app-supplied write payload into the string the VFS stores.
+  // Strings (and null/undefined, which callers reject) pass through;
+  // everything else is JSON-stringified so structured data round-trips
+  // cleanly rather than becoming "[object Object]" somewhere downstream —
+  // the same contract the create-file branch and nova:storage:set already
+  // use. Throws on values the structured-clone bridge can carry but JSON
+  // cannot (cycles, BigInt) so handlers can answer INVALID_ARGS precisely.
+  function coerceFsWriteContent(content) {
+    if (content == null || typeof content === 'string') return content;
+    return JSON.stringify(content);
+  }
+
   async function handleFsWrite({ payload, requestId, app, webview, sandbox }) {
     const broadAccess = hasFsAccess(app.id);
     const selectedFile = getOpenFileForSandbox(sandbox, payload)
       || (payload?.id && hasPickedFileAccess(sandbox, FS.files.get(payload.id)) ? FS.files.get(payload.id) : null);
     const { path, content, mimeType } = payload ?? {};
+    let fileContent;
+    try {
+      fileContent = coerceFsWriteContent(content);
+    } catch (e) {
+      return respondError(webview, 'nova:fs:write', requestId, 'INVALID_ARGS',
+        `Content is not JSON-serializable: ${e?.message || e}`);
+    }
     if (selectedFile) {
       if (content === undefined || content === null) {
         return respondError(webview, 'nova:fs:write', requestId, 'INVALID_ARGS', 'content is required');
@@ -2227,10 +2429,10 @@ const AppSandbox = (() => {
         return respondError(webview, 'nova:fs:write', requestId, 'UNAVAILABLE', 'User confirmation is required to modify a shared file');
       }
       if (!confirmed) return respond(webview, 'nova:fs:write', requestId, { cancelled: true });
-      const saved = await FS.writeFile(selectedFile.id, content);
+      const saved = await FS.writeFile(selectedFile.id, fileContent);
       if (!saved) return respondError(webview, 'nova:fs:write', requestId, 'NOT_FOUND', 'Selected file no longer exists');
       StorageLedger.noteRequest(app.id);
-      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(content) });
+      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(fileContent) });
       if (!isOwnedByApp(selectedFile, app.id)) {
         StorageLedger.recordAccess({ appId: app.id, kind: 'picked-file-write', detail: FS.getPath(selectedFile.id) });
       }
@@ -2257,9 +2459,9 @@ const AppSandbox = (() => {
         return respondError(webview, 'nova:fs:write', requestId, 'UNAVAILABLE', 'User confirmation is required to modify a shared file');
       }
       if (!confirmed) return respond(webview, 'nova:fs:write', requestId, { cancelled: true });
-      await FS.writeFile(node.id, content);
+      await FS.writeFile(node.id, fileContent);
       StorageLedger.noteRequest(app.id);
-      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(content) });
+      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(fileContent) });
       if (!isOwnedByApp(node, app.id)) {
         StorageLedger.recordAccess({ appId: app.id, kind: 'shared-file-write', detail: FS.getPath(node.id) });
       }
@@ -2268,18 +2470,25 @@ const AppSandbox = (() => {
     const parts = resolvedPath.split('/').filter(Boolean);
     const fileName = parts.pop();
     const parentPath = '/' + parts.join('/');
-    const parent = parts.length > 0 ? FS.getByPath(parentPath) : FS.files.get(FS.rootId);
+    let parent = parts.length > 0 ? FS.getByPath(parentPath) : FS.files.get(FS.rootId);
+    if (!parent && parts.length > 0) {
+      // Missing parents inside the caller's OWN /data/<appId>/ subtree are
+      // auto-created (see ensureOwnAppDataAncestors) so the documented
+      // first-write flows work without a prior mkdir. Shared-tree paths
+      // keep the NOT_FOUND below — the host must not silently grow folders
+      // outside an app's private subtree.
+      parent = await ensureOwnAppDataAncestors(parentPath, app.id);
+    }
     if (!parent || parent.type !== 'folder') {
       return respondError(webview, 'nova:fs:write', requestId, 'NOT_FOUND', 'Parent folder not found');
     }
     if (!resolveFile({ id: parent.id }, app.id, true, broadAccess)) {
       return respondError(webview, 'nova:fs:write', requestId, 'PERMISSION_DENIED', 'New files can only be created in app-owned storage unless fs:access is enabled');
     }
-    // Coerce content to a string for FS.createFile. Strings pass through;
-    // null/undefined is rejected above; anything else (objects, arrays,
-    // numbers) is JSON-stringified so structured data round-trips cleanly
-    // rather than becoming "[object Object]".
-    const fileContent = typeof content === 'string' ? content : JSON.stringify(content);
+    // fileContent was coerced by coerceFsWriteContent above (strings pass
+    // through; objects/arrays/numbers are JSON-stringified), so the same
+    // round-trip guarantee holds on the create branch as on every other
+    // write branch — no "[object Object]" ever reaches the VFS.
     const newNode = await FS.createFile(parent.id, fileName, fileContent, mimeType || 'text/plain');
     StorageLedger.noteRequest(app.id);
     StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(fileContent) });
@@ -2340,6 +2549,42 @@ const AppSandbox = (() => {
     });
   }
 
+  async function handleMediaQuery({ payload, requestId, app, webview, sandbox }) {
+    const type = payload?.type || 'all';
+    const permissionForType = {
+      image: 'fs:read:images',
+      audio: 'fs:read:audio',
+      video: 'fs:read:video',
+    };
+    if (!['all', 'image', 'audio', 'video'].includes(type)) {
+      return respondError(webview, 'nova:media:query', requestId, 'INVALID_ARGS', 'type must be all, image, audio, or video');
+    }
+
+    const hasMetadata = AppPermissionManager.isGranted('fs:metadata', app.id);
+    const readableTypes = type === 'all' ? Object.values(permissionForType) : [permissionForType[type]];
+    if (!hasMetadata && !hasFsAccess(app.id) &&
+        !readableTypes.some(permission => AppPermissionManager.isGranted(permission, app.id))) {
+      return respondError(webview, 'nova:media:query', requestId, 'PERMISSION_DENIED', 'Media queries require a matching media-read grant, fs:metadata, or fs:access');
+    }
+
+    const mediaStore = window.NovaByteMediaStore;
+    if (!mediaStore || typeof mediaStore.query !== 'function') {
+      return respondError(webview, 'nova:media:query', requestId, 'UNAVAILABLE', 'NovaByte MediaStore is unavailable');
+    }
+    const indexed = mediaStore.query({
+      type,
+      offset: payload?.offset,
+      limit: payload?.limit,
+    });
+    const files = indexed.filter(file => {
+      const node = FS.files.get(file.id);
+      return node?.type === 'file'
+        && resolveFile({ id: file.id }, app.id)
+        && canReadMetadata(node, app.id, sandbox);
+    });
+    return respond(webview, 'nova:media:query', requestId, { files });
+  }
+
   async function handleFsMkdir({ payload, requestId, app, webview }) {
     const broadAccess = hasFsAccess(app.id);
     const { path, name } = payload ?? {};
@@ -2356,6 +2601,13 @@ const AppSandbox = (() => {
     let parent;
     if (resolvedPath) {
       parent = FS.getByPath(resolvedPath);
+      if (!parent) {
+        // mkdir '/data/' on a fresh install: the app's own root may not
+        // exist yet (AppDirs only bootstraps system packages). Create the
+        // caller-relative ancestors rather than failing NOT_FOUND on the
+        // app's very first mkdir.
+        parent = await ensureOwnAppDataAncestors(resolvedPath, app.id);
+      }
     } else {
       parent = FS.files.get(FS.rootId);
     }
@@ -2706,6 +2958,43 @@ const AppSandbox = (() => {
     return respond(webview, 'nova:settings:get', requestId, { success: true, value });
   }
 
+  // The two app-writable wallpaper keys have distinct value shapes:
+  //   wallpaperId     — a WALLPAPER_PRESETS id ('stock-blue', 'stock-dark', …)
+  //                     or null/'' to fall back to the default preset;
+  //   customWallpaper — a string image URL (the Settings app stores a data:
+  //                     URL) or null/'' to clear it.
+  // Validating here turns a silent no-op (applyWallpaper falls back to
+  // stock-blue for an unknown id — an app could "succeed" while changing
+  // nothing) into an immediate INVALID_ARGS the developer can see.
+  function wallpaperPresetIds() {
+    try {
+      const presets = window.WallpaperService?.getPresets?.();
+      if (Array.isArray(presets) && presets.length) {
+        return new Set(presets.map((p) => p.id));
+      }
+    } catch (_) { /* service unavailable — skip id validation */ }
+    return null;
+  }
+
+  function validateWallpaperSetting(key, value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (key === 'wallpaperId') {
+      if (typeof value !== 'string') {
+        return 'wallpaperId must be a preset id string (stock-blue, stock-dark, …) or null';
+      }
+      const ids = wallpaperPresetIds();
+      if (ids && !ids.has(value)) {
+        return `Unknown wallpaperId '${value.slice(0, 60)}' — use a preset id (see WallpaperService.getPresets()) or null to clear`;
+      }
+      return null;
+    }
+    // customWallpaper
+    if (typeof value !== 'string') {
+      return 'customWallpaper must be a string image URL (data: URL) or null to clear';
+    }
+    return null;
+  }
+
   async function handleSettingsSetWithType({ payload, requestId, app, webview }, type) {
     const key = payload?.key;
     if (typeof key !== 'string' || !key) {
@@ -2723,6 +3012,12 @@ const AppSandbox = (() => {
     }
     if (!SETTINGS_WRITABLE_KEYS.has(key)) {
       return respondError(webview, type, requestId, 'PERMISSION_DENIED', `Settings key '${key}' is not writable by apps`);
+    }
+    if (isWallpaperKey) {
+      const invalidReason = validateWallpaperSetting(key, payload?.value);
+      if (invalidReason) {
+        return respondError(webview, type, requestId, 'INVALID_ARGS', invalidReason);
+      }
     }
     if (typeof OS?.settings?.set !== 'function') {
       return respondError(webview, type, requestId, 'UNAVAILABLE', 'Settings service not available');
@@ -2743,6 +3038,253 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:wallpaper:set', requestId, 'INVALID_ARGS', "key must be 'wallpaperId' or 'customWallpaper'");
     }
     return handleSettingsSetWithType({ payload, requestId, app, webview }, 'nova:wallpaper:set');
+  }
+
+  // ── NovaByte Registry (nova:reg:*) ───────────────────────────────
+  //
+  // The engine (window.NovaRegistry — js/platform/core/nova-registry.js)
+  // owns storage, typing, quotas and the change events; these handlers own
+  // the SECURITY rules on top:
+  //
+  //   read (registry.read)   — every hive EXCEPT the HKNS/security/**
+  //                            subtree, which needs registry.system.
+  //   write (registry.write) — only the caller's own HKNA/<app.id>/**
+  //                            subtree. System apps may also write HKNS
+  //                            (still never HKNS/security without
+  //                            registry.system). HKNU needs registry.system
+  //                            OR a matching registryScopes.write prefix —
+  //                            declared in the manifest, or the built-in
+  //                            HKNU/software/<appId> default for manifests
+  //                            that declare no registryScopes at all.
+  //                            HKND additionally requires Developer Mode.
+  //   registry.system        — full access everywhere (devMode still gates
+  //                            HKND: it is a dev scratch hive by
+  //                            definition).
+  //
+  // On top of the hive rules, per-key ACLs from the engine (setAcl) are
+  // evaluated for every caller without registry.system: any ACL chain that
+  // covers the path must grant the actor (the calling app id, or '*') the
+  // needed right. Bare key paths address the key's default value — the
+  // engine resolves that, the handlers just stop rejecting them.
+  //
+  // The MAC front door (SEED_ENDPOINT_GRANTS) already required the flat
+  // grant before we run; these checks are the context-dependent half.
+  // Watching is reading: nova:reg:changed is gated on registry.read via
+  // EVENT_DOMAIN_PERMISSIONS, and the v2 facade builds registry.watch() on
+  // the events bus rather than a separate channel family.
+  //
+  // The channels are deliberately NOT in ISOLATED_PROCESS_API_TYPES: the
+  // registry engine lives in the OS page, and background/isolated processes
+  // have no business mutating live OS config.
+
+  function regEngine() {
+    return (typeof window !== 'undefined' && window.NovaRegistry) || null;
+  }
+
+  function regReadDeniedReason(app, parsed) {
+    if (AppPermissionManager.isGranted('registry.system', app.id)) return null;
+    if (!AppPermissionManager.isGranted('registry.read', app.id)) return 'registry.read permission required';
+    if (parsed.hive === 'HKNS' && parsed.segments[0] === 'security') {
+      return 'HKNS/security is only readable with registry.system';
+    }
+    return regAclDenied(app, parsed, 'read');
+  }
+
+  // Manifest-declared registry scopes: registryScopes.write may name
+  // designated prefixes that unlock HKNU writes without registry.system
+  // (and document intended HKNA usage). Scopes can never unlock HKNS
+  // (including HKNS/security) or another app's HKNA subtree — those stay
+  // exactly where the base rules put them. registryScopes.read is
+  // advisory: reads are already broad, and HKNS/security is never
+  // scope-grantable.
+  //
+  // Defaults for third-party manifests: an app whose manifest declares NO
+  // registryScopes field still gets ONE designated write prefix — its own
+  // HKNU/software/<appId> subtree, the user-scoped slice that mirrors
+  // HKCU\Software\<App>. Declaring the field at all (even an empty object)
+  // opts out — an explicit empty scope list means "no designated keys".
+  // System apps never receive the default: they either hold registry.system
+  // or declare their intents explicitly.
+  function regDefaultScopes(app, mode) {
+    if (mode !== 'write' || !app || app.system === true) return null;
+    if (app.registryScopes !== undefined) return null; // explicit declaration wins, even when empty
+    if (typeof app.id !== 'string' || !app.id) return null;
+    return ['HKNU/software/' + app.id];
+  }
+
+  function regScopeAllows(app, parsed, mode) {
+    let scopes = app?.registryScopes?.[mode];
+    if (!Array.isArray(scopes) || !scopes.length) scopes = regDefaultScopes(app, mode);
+    if (!Array.isArray(scopes) || !scopes.length) return false;
+    if (parsed.hive === 'HKNS') return false; // system hive is never scope-grantable
+    if (parsed.hive === 'HKND') return false; // dev scratch stays devMode-gated
+    if (parsed.hive === 'HKNA' && mode === 'write' && parsed.segments[0] !== app.id) return false;
+    const engine = regEngine();
+    if (!engine) return false;
+    return scopes.some((raw) => {
+      if (typeof raw !== 'string') return false;
+      const scope = engine._internal.parsePath(raw);
+      if (scope.error) return false;
+      return parsed.path === scope.path || parsed.path.startsWith(scope.path + '/');
+    });
+  }
+
+  // Engine-side per-key ACL evaluation. No ACL chain → granted (the engine
+  // stays policy-neutral); any covering chain → the actor (calling app id
+  // or '*') must hold the right.
+  function regAclDenied(app, parsed, need) {
+    const engine = regEngine();
+    if (!engine || typeof engine.checkAccess !== 'function') return null;
+    const verdict = engine.checkAccess(parsed.path, app.id, need);
+    return verdict.granted ? null : `key ACL denies ${need}: ${verdict.reason}`;
+  }
+
+  function regWriteDeniedReason(app, parsed) {
+    if (AppPermissionManager.isGranted('registry.system', app.id)) {
+      if (parsed.hive === 'HKND' && OS?.settings?.get('devMode') !== true) {
+        return 'HKND requires Developer Mode';
+      }
+      return null;
+    }
+    if (!AppPermissionManager.isGranted('registry.write', app.id)) return 'registry.write permission required';
+    if (parsed.hive === 'HKNA') {
+      if (parsed.segments[0] !== app.id) return 'apps may only write their own HKNA/<appId>/ subtree';
+      return regAclDenied(app, parsed, 'write');
+    }
+    if (parsed.hive === 'HKNS') {
+      if (app.system !== true) return 'writing HKNS requires a system app';
+      if (parsed.segments[0] === 'security') return 'HKNS/security is only writable with registry.system';
+      return regAclDenied(app, parsed, 'write');
+    }
+    if (parsed.hive === 'HKNU') {
+      if (regScopeAllows(app, parsed, 'write')) return null;
+      return 'writing HKNU requires registry.system';
+    }
+    if (parsed.hive === 'HKND') {
+      if (OS?.settings?.get('devMode') !== true) return 'HKND requires Developer Mode';
+      return regAclDenied(app, parsed, 'write');
+    }
+    return 'unsupported hive';
+  }
+
+  function regParseOrError(webview, type, requestId, rawPath) {
+    const engine = regEngine();
+    if (!engine) {
+      respondError(webview, type, requestId, 'UNAVAILABLE', 'Registry service not available');
+      return null;
+    }
+    const parsed = engine._internal.parsePath(rawPath);
+    if (parsed.error) {
+      respondError(webview, type, requestId, parsed.error, parsed.message);
+      return null;
+    }
+    return parsed;
+  }
+
+  function regEngineError(webview, type, requestId, err) {
+    const code = err && typeof err.code === 'string' ? err.code : 'INTERNAL_ERROR';
+    respondError(webview, type, requestId, code, err?.message || 'Registry operation failed');
+  }
+
+  async function handleRegGet({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:get';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    // A bare key path is fine here: since engine v2 it addresses the key's
+    // default value (found: false when unset), Windows-style.
+    const denied = regReadDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const entry = regEngine().stat(parsed.path);
+      if (!entry) return respond(webview, TYPE, requestId, { found: false, path: parsed.path });
+      const out = { found: true, path: parsed.path, type: entry.type, data: entry.data, lastModified: entry.lastModified };
+      if (entry.type === 'REG_EXPAND_SZ' && typeof entry.expanded === 'string') out.expanded = entry.expanded;
+      return respond(webview, TYPE, requestId, out);
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegSet({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:set';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    // A bare key path writes the key's default value (engine v2).
+    const denied = regWriteDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    if (!Object.prototype.hasOwnProperty.call(payload ?? {}, 'value')) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'value is required (null is only valid for REG_JSON)');
+    }
+    let committed;
+    try {
+      committed = regEngine().set(parsed.path, payload.value, {
+        type: typeof payload.type === 'string' ? payload.type : undefined,
+        appId: app.id,
+        source: 'app',
+      });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+    // Registry → settings live-apply used to be duplicated here; since the
+    // settings shim (platform/core/settings-shim.js) subscribes to
+    // nova:reg:changed centrally, every external write — app or system —
+    // already syncs OS.settings and re-emits 'settings:changed'. Nothing
+    // more to do: the registry IS the source of truth.
+    return respond(webview, TYPE, requestId, { success: true, path: committed.path, type: committed.type });
+  }
+
+  async function handleRegDelete({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:delete';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    if (parsed.segments.length < 1) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'path must name a value or key');
+    }
+    const denied = regWriteDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const result = regEngine().remove(parsed.path, {
+        recursive: payload?.recursive === true,
+        appId: app.id,
+        source: 'app',
+      });
+      return respond(webview, TYPE, requestId, { success: true, path: result.path, removed: result.removed });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegList({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:list';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    const denied = regReadDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const listing = regEngine().list(parsed.path);
+      if (!listing) return respondError(webview, TYPE, requestId, 'NOT_FOUND', `no such key: ${parsed.path}`);
+      return respond(webview, TYPE, requestId, listing);
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegExport({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:export';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    const denied = regReadDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      return respond(webview, TYPE, requestId, { path: parsed.path, data: regEngine().export(parsed.path) });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
+  }
+
+  async function handleRegImport({ payload, requestId, app, webview }) {
+    const TYPE = 'nova:reg:import';
+    const parsed = regParseOrError(webview, TYPE, requestId, payload?.path);
+    if (!parsed) return;
+    if (parsed.segments.length < 1) {
+      return respondError(webview, TYPE, requestId, 'INVALID_ARGS', 'import needs a target key path');
+    }
+    const denied = regWriteDeniedReason(app, parsed);
+    if (denied) return respondError(webview, TYPE, requestId, 'PERMISSION_DENIED', denied);
+    try {
+      const result = regEngine().import(parsed.path, payload?.data, { appId: app.id, source: 'app' });
+      return respond(webview, TYPE, requestId, { success: true, path: result.path, merged: result.merged });
+    } catch (err) { return regEngineError(webview, TYPE, requestId, err); }
   }
 
   async function handleNestedWebview({ payload, requestId, app, webview, sandbox }) {
@@ -3328,6 +3870,14 @@ const AppSandbox = (() => {
   // App lifecycle
 
   const crossAppLaunchRateLimits = new Map();
+  /* Launch rate limits exist because these are programmatic calls with no
+     user-gesture signal: a buggy or hostile app looping on launch would
+     otherwise spam window creation with no other guard in front of
+     WM.createWindow. The budgets are set far above any human flow (opening
+     and closing apps repeatedly) but far below a runaway loop, so real users
+     never see RATE_LIMITED from normal use. Launches from the desktop
+     launcher/taskbar go through WM directly and are not limited. */
+  const LAUNCH_RATE_LIMIT_MAX = 30;
   const HOME_ALWAYS_LAUNCHABLE_APP_IDS = new Set([
     'com.nbosp.settings',
     'com.nbosp.appmanager',
@@ -3342,9 +3892,9 @@ const AppSandbox = (() => {
     }
     const now = Date.now();
     const launchTimes = (crossAppLaunchRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
-    if (launchTimes.length >= 6) {
+    if (launchTimes.length >= LAUNCH_RATE_LIMIT_MAX) {
       crossAppLaunchRateLimits.set(app.id, launchTimes);
-      return respondError(webview, 'nova:app:launch', requestId, 'RATE_LIMITED', 'Max 6 cross-app launches per minute');
+      return respondError(webview, 'nova:app:launch', requestId, 'RATE_LIMITED', `Max ${LAUNCH_RATE_LIMIT_MAX} cross-app launches per minute`);
     }
     const { appId, options } = payload ?? {};
     if (!appId) {
@@ -3445,9 +3995,9 @@ const AppSandbox = (() => {
 
     const now = Date.now();
     const launchTimes = (crossAppLaunchRateLimits.get(app.id) || []).filter(time => time > now - 60_000);
-    if (launchTimes.length >= 6) {
+    if (launchTimes.length >= LAUNCH_RATE_LIMIT_MAX) {
       crossAppLaunchRateLimits.set(app.id, launchTimes);
-      return respondError(webview, 'nova:home:apps:launch', requestId, 'RATE_LIMITED', 'Max 6 Home app launches per minute');
+      return respondError(webview, 'nova:home:apps:launch', requestId, 'RATE_LIMITED', `Max ${LAUNCH_RATE_LIMIT_MAX} Home app launches per minute`);
     }
     try {
       if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') {
@@ -3657,6 +4207,29 @@ const AppSandbox = (() => {
           return {};
         });
       }
+      // Inbound share targets (system:share-target): apps that declared a
+      // shareTarget in their manifest and hold the user grant. The user
+      // picks one — that IS the delivery consent — and the target receives
+      // a nova:share:inbound push now (live) or on its next launch (queued).
+      try {
+        const shareContent = { text: text, url: url };
+        const targets = Object.values(OS?.apps || {})
+          .filter((a) => a && a.id && a.id !== app?.id
+            && shareTargetMatches(normalizedShareTargetMimes(a), shareContent)
+            && AppPermissionManager.isGranted('system:share-target', a.id))
+          .slice(0, SHARE_TARGET_SHEET_MAX);
+        for (const target of targets) {
+          const targetId = target.id;
+          const targetName = target.name || targetId;
+          addAction('Send to ' + targetName, async () => {
+            const outcome = deliverShareTarget(targetId, { title: title, text: text, url: url, sourceAppId: app?.id || null });
+            if (!outcome.delivered && typeof WM !== 'undefined' && typeof WM.createWindow === 'function') {
+              try { WM.createWindow(targetId); } catch (_) { /* window opening is best-effort */ }
+            }
+            return { sharedWith: targetName, queued: outcome.queued === true };
+          });
+        }
+      } catch (_) { /* targets are an enhancement; the sheet works without them */ }
       addAction('Cancel', async () => ({ cancelled: true }));
       overlay.addEventListener('click', event => {
         if (event.target === overlay) finish({ cancelled: true });
@@ -3691,9 +4264,12 @@ const AppSandbox = (() => {
   // whole sandbox already does) means we can't lean on the guest telling
   // us it was a click. The mitigation actually available at this layer is
   // the same one used for notifications: a sliding-window rate limit, so
-  // a misbehaving app can steal window focus at most a few times a minute
-  // instead of in a tight loop.
-  const DEFAULT_APPS_RATE_LIMIT_MAX = 3;
+  // a misbehaving app can steal window focus only a bounded number of
+  // times per minute instead of in a tight loop. The budget sits well
+  // above any human flow (a user reopening Settings a dozen times in a
+  // minute is unusual but legitimate) while a focus-stealing loop still
+  // bounces quickly.
+  const DEFAULT_APPS_RATE_LIMIT_MAX = 12;
   const DEFAULT_APPS_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
   const defaultAppsRateLimitLog = new Map();
 
@@ -4289,8 +4865,10 @@ const AppSandbox = (() => {
     if (settingsToRestore && typeof settingsToRestore === 'object' && typeof OS !== 'undefined' && OS.settings) {
       for (const [k, v] of Object.entries(settingsToRestore)) {
         try {
-          if (OS.settings._cache) OS.settings._cache[k] = v;
+          // set() routes through the registry-backed shim (persist + change
+          // fan-out); direct cache writes would bypass persistence.
           if (typeof OS.settings.set === 'function') OS.settings.set(k, v);
+          else if (OS.settings._cache) OS.settings._cache[k] = v;
         } catch (e) { log('warn', `OS.settings restore failed for ${k}:`, e); }
       }
     }
@@ -4392,10 +4970,17 @@ const AppSandbox = (() => {
 
   async function handleSystemBootRecovery({ requestId, webview }) {
     try {
-      localStorage.setItem('nova_manual_recovery', '1');
-      localStorage.removeItem('nova_safe_mode');
+      // Registry-backed (HKNS/system/boot/manualRecovery via BootState — the
+      // legacy key stays in step as the pre-boot handoff shadow to init.js).
+      if (typeof RegistryBootState !== 'undefined') {
+        RegistryBootState.setFlag('manualRecovery', true);
+        RegistryBootState.clearFlag('safeMode');
+      } else {
+        localStorage.setItem('nova_manual_recovery', '1');
+        localStorage.removeItem('nova_safe_mode');
+      }
       // Reload the HOST window, not the sandbox guest frame. The next boot
-      // sees nova_manual_recovery, writes the recovery request and restarts into the Linux recovery environment.
+      // sees manualRecovery, writes the recovery request and restarts into the Linux recovery environment.
       setTimeout(() => {
         try { location.reload(); } catch (e) { console.error('[Settings] recovery reload failed:', e); }
       }, 120);
@@ -4527,6 +5112,10 @@ const AppSandbox = (() => {
           if (tempKeys.length) {
             tempKeys.forEach(k => localStorage.removeItem(k));
             cleared.push(tempKeys.length + ' temp key' + (tempKeys.length === 1 ? '' : 's'));
+          }
+          // Registry copies of the same transient boot state (HKNS/system/boot/*).
+          if (typeof RegistryBootState !== 'undefined') {
+            RegistryBootState.clearFlags('attempts', 'forceRecovery', 'timeoutFlag');
           }
         } catch (e) { console.warn('[Settings] temp key clear failed:', e); }
         return respond(webview, 'nova:system:data:clear', requestId, { success: true, mode, cleared });
@@ -5358,6 +5947,36 @@ const AppSandbox = (() => {
     'mail:new', 'mail:updated',
     'calendar:reminder', 'calendar:updated',
     'contacts:updated',
+    // Raw WebSocket push channels (the nova:net:websocket data plane).
+    // Without these the raw channels were send-only: connect/send/close
+    // answered, but the host's per-socket pushes (nova:net:ws:message etc.)
+    // only ever reached wrapper/facade listeners registered per wsId — a
+    // raw nova.ipc app had no receive path at all. The host mirrors every
+    // socket push onto the OS event bus (see handleNetWebsocket's
+    // onmessage/onerror/onclose), so subscribing here completes the raw
+    // API. Two things keep this from becoming a wiretap:
+    //   1. EVENT_DOMAIN_PERMISSIONS below gates the names on net:websocket
+    //      — the same permission opening a socket already needs — rather
+    //      than the flat system:events grant.
+    //   2. The bus is global, so the emitted payload carries the owning
+    //      app's id and handleEventsSubscribe drops deliveries addressed
+    //      to another app (WS_PUSH_EVENT_NAMES filter). Subscribers only
+    //      ever hear their own sockets.
+    'nova:net:ws:message', 'nova:net:ws:error', 'nova:net:ws:close',
+    // NovaByte Registry change notifications. The engine (nova-registry.js)
+    // emits one event per committed write/delete/import with the value path,
+    // type, value, and the writing app's id. Registry config facts are not
+    // per-app private state — every registry reader may hear that something
+    // changed — but subscribing is still gated on registry.read (the same
+    // grant reading needs — see EVENT_DOMAIN_PERMISSIONS below), so only
+    // apps that could have polled the store get push instead of poll.
+    'nova:reg:changed',
+  ]);
+  // The subscribable WebSocket push names — used by the same-app delivery
+  // filter in handleEventsSubscribe. Kept as its own set so adding a future
+  // per-event filter can't accidentally forget these.
+  const WS_PUSH_EVENT_NAMES = new Set([
+    'nova:net:ws:message', 'nova:net:ws:error', 'nova:net:ws:close',
   ]);
   const SENSITIVE_EVENT_NAMES = new Set([
     'system:notification', 'app:installed', 'app:uninstalled', 'app:launched',
@@ -5373,6 +5992,15 @@ const AppSandbox = (() => {
     ['calendar:reminder', 'calendar:read'],
     ['calendar:updated', 'calendar:read'],
     ['contacts:updated', 'contacts:read'],
+    // WebSocket push events gate on the same permission the raw connect
+    // channel requires — an app that can open sockets gains nothing new
+    // from hearing them, and an app without the grant can't subscribe.
+    ['nova:net:ws:message', 'net:websocket'],
+    ['nova:net:ws:error', 'net:websocket'],
+    ['nova:net:ws:close', 'net:websocket'],
+    // Registry change events gate on the same grant reading the registry
+    // needs — watching is reading, exactly like fs:watch vs nova:fs:read.
+    ['nova:reg:changed', 'registry.read'],
   ]);
 
   // Legacy OS-wide default; the live cap is per-app via the ledger budget
@@ -5528,7 +6156,16 @@ const AppSandbox = (() => {
     if (outcome.error) {
       return respondError(webview, 'nova:ipc:invoke', requestId, 'REMOTE_ERROR', outcome.error);
     }
-    return respond(webview, 'nova:ipc:invoke', requestId, { result: outcome.result });
+    // Respond with the provider's own return value as the result, NOT a
+    // { result: … } wrapper around it. The guest-side shim merges msg.result
+    // onto the response's top level AND exposes it as response.result, so a
+    // wrapper here made apps read response.result.result — one level deeper
+    // than the documented `const response = await nova.ipc.call(…);
+    // response.result` contract (NOVAAPP.md, Inter-app communication).
+    // A primitive or null provider return round-trips as response.result
+    // unchanged; an object return additionally spreads its fields onto the
+    // top level, same as every other handler.
+    return respond(webview, 'nova:ipc:invoke', requestId, outcome.result);
   }
 
   function handleAppIpcReply({ payload, requestId, app, webview, sandbox }) {
@@ -5631,6 +6268,11 @@ const AppSandbox = (() => {
       return respondError(webview, 'nova:events:subscribe', requestId, 'ALREADY_SUBSCRIBED', `Already subscribed to '${event}'`);
     }
     const handler = (data) => {
+      // WebSocket socket-push events ride the global bus with the owning
+      // app's id in the payload — silently drop deliveries addressed to
+      // another app, so a subscriber to the name only ever hears its own
+      // sockets (see ALLOWED_EVENT_NAMES / WS_PUSH_EVENT_NAMES).
+      if (WS_PUSH_EVENT_NAMES.has(event) && data?.appId !== app.id) return;
       respond(webview, 'nova:events:event', generateRequestId(), { event, data });
     };
     // Only register and record the subscription if OS.events actually
@@ -5814,13 +6456,25 @@ const AppSandbox = (() => {
     ws.onopen = () => respond(webview, 'nova:net:websocket', requestId, { success: true, wsId, readyState: ws.readyState });
     ws.onmessage = (e) => {
       respond(webview, 'nova:net:ws:message', generateRequestId(), { wsId, data: e.data });
+      // Mirror the push onto the OS event bus so apps subscribed via
+      // nova:events:subscribe (window.nova.onEvent / novaOS.events.on) —
+      // including apps that opened this socket through the raw channels —
+      // receive it too. The per-webview respond above only ever reaches
+      // wrapper/facade listeners registered per wsId. The appId in the
+      // payload is what handleEventsSubscribe filters on; without it every
+      // subscriber to the bus name would hear every app's socket traffic.
+      OS?.events?.emit?.('nova:net:ws:message', { appId: app.id, wsId, data: e.data });
     };
     ws.onerror = () => {
       respond(webview, 'nova:net:ws:error', generateRequestId(), { wsId, error: 'WebSocket error' });
+      OS?.events?.emit?.('nova:net:ws:error', { appId: app.id, wsId, error: 'WebSocket error' });
     };
     ws.onclose = (e) => {
       respond(webview, 'nova:net:ws:close', generateRequestId(), {
         wsId, code: e.code, reason: e.reason, clean: e.wasClean,
+      });
+      OS?.events?.emit?.('nova:net:ws:close', {
+        appId: app.id, wsId, code: e.code, reason: e.reason, clean: e.wasClean,
       });
       sandbox?.wsConnections?.delete(wsId);
     };
@@ -6158,6 +6812,213 @@ const AppSandbox = (() => {
     }
   }
 
+  /* ---------------- data portability — data:export / data:backup ----------
+     Listed in the early permission docs, never implemented, and eventually
+     removed as dead metadata — this is the real thing.
+
+     Scope: strictly the CALLING app's own key/value namespace (the same
+     IndexedDB store nova:storage:* uses). Both permissions are 'low' risk
+     because there is no cross-app path: export/backup serialize the
+     caller's own namespace, and restore/import refuse any envelope whose
+     appId does not match the caller, so one app cannot use another app's
+     backup as a data-transfer channel. Restores verify the envelope's
+     checksum before writing anything, so a corrupted or hand-edited
+     envelope fails cleanly instead of half-writing.
+
+     Envelope: { novaDataEnvelope: 1, format, kind: 'backup'|'export',
+     appId, capturedAt, storage: {key: value}, counts: {keys, bytes},
+     checksum } — checksum is sha256 over a key-sorted serialization of
+     storage. Values round-trip through the same storageSet path as
+     nova:storage:set, so per-value caps and the per-app quota apply. */
+
+  const DATA_ENVELOPE_FORMAT = 1;
+
+  /* sha256 hex — Node crypto when running inside the NW host (the common
+     case for the sandbox bridge), WebCrypto everywhere else. Checksums
+     are async throughout so both paths work. */
+  async function sha256Hex(text) {
+    if (typeof require === 'function') {
+      try {
+        return require('crypto').createHash('sha256').update(text).digest('hex');
+      } catch (_) { /* fall through to WebCrypto */ }
+    }
+    if (typeof crypto !== 'undefined' && typeof crypto?.subtle?.digest === 'function') {
+      const digest = await crypto.subtle.digest('SHA-256', sharedTextEncoder.encode(text));
+      return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    }
+    throw new Error('No SHA-256 implementation available for data envelope checksums');
+  }
+
+  async function dataChecksum(storageMap) {
+    /* Key-sorted pair list — stable across insertion order so the
+       checksum a backup produced is the checksum a restore verifies. */
+    const canonical = JSON.stringify(
+      Object.keys(storageMap).sort().map(k => [k, storageMap[k]])
+    );
+    return sha256Hex(canonical);
+  }
+
+  async function readOwnNamespace(appId) {
+    const keys = await storageKeys(appId);
+    const entries = await Promise.all(keys.map(async k => [k, await storageGet(appId, k)]));
+    return Object.fromEntries(entries);
+  }
+
+  async function makeDataEnvelope(kind, appId, storageMap) {
+    let bytes = 0;
+    for (const [k, v] of Object.entries(storageMap)) {
+      let json;
+      try { json = typeof v === 'string' ? v : JSON.stringify(v); } catch (_) { json = String(v); }
+      bytes += sharedTextEncoder.encode(k).length + sharedTextEncoder.encode(json).length;
+    }
+    return {
+      novaDataEnvelope: 1,
+      format: DATA_ENVELOPE_FORMAT,
+      kind,
+      appId,
+      capturedAt: new Date().toISOString(),
+      storage: storageMap,
+      counts: { keys: Object.keys(storageMap).length, bytes },
+      checksum: await dataChecksum(storageMap),
+    };
+  }
+
+  /* Returns { env } on success or { error, message } for respondError. */
+  async function validateDataEnvelope(payload, callerAppId, kind) {
+    const env = payload?.envelope;
+    if (!env || typeof env !== 'object' || env.novaDataEnvelope !== 1 || env.format !== DATA_ENVELOPE_FORMAT) {
+      return { error: 'INVALID_ARGS', message: 'envelope must be a data envelope produced by nova.data.export or nova.data.backup' };
+    }
+    if (env.kind !== kind) {
+      return { error: 'INVALID_ARGS', message: `envelope kind mismatch: expected '${kind}', got '${env.kind}'` };
+    }
+    if (env.appId !== callerAppId) {
+      /* Not INVALID_ARGS — this is a policy boundary: envelopes are pinned
+         to their appId and cross-app restore is refused outright. */
+      return { error: 'POLICY_BLOCKED', message: 'envelope belongs to a different app — envelopes only restore into their own app' };
+    }
+    if (!env.storage || typeof env.storage !== 'object' || Array.isArray(env.storage)) {
+      return { error: 'INVALID_ARGS', message: 'envelope.storage must be an object of key/value pairs' };
+    }
+    if (typeof env.checksum !== 'string' || (await dataChecksum(env.storage)) !== env.checksum) {
+      return { error: 'INVALID_ARGS', message: 'envelope checksum mismatch — the data is corrupt or was modified' };
+    }
+    return { env };
+  }
+
+  /* Writes one namespace entry through the same path as nova:storage:set
+     (per-value cap + quota + ledger accounting). Returns {ok, bytes} or
+     {ok:false, reason}. */
+  async function writeOwnNamespaceEntry(appId, key, value) {
+    let valueJson;
+    try { valueJson = typeof value === 'string' ? value : JSON.stringify(value); } catch (e) {
+      return { ok: false, reason: `not JSON-serializable: ${e?.message || e}` };
+    }
+    const valueBytes = sharedTextEncoder.encode(valueJson).length;
+    if (valueBytes > STORAGE_VALUE_MAX_BYTES) {
+      return { ok: false, reason: `value exceeds ${STORAGE_VALUE_MAX_BYTES} byte limit` };
+    }
+    try {
+      await storageSet(appId, key, value, valueBytes);
+      StorageLedger.noteRequest(appId);
+      StorageLedger.noteBytes(appId, { written: valueBytes });
+      return { ok: true, bytes: valueBytes };
+    } catch (e) {
+      return { ok: false, reason: e && e.code === 'STORAGE_FULL' ? 'per-app storage quota exceeded' : 'write failed' };
+    }
+  }
+
+  async function handleDataBackup({ requestId, app, webview }) {
+    try {
+      const storage = await readOwnNamespace(app.id);
+      StorageLedger.noteRequest(app.id);
+      return respond(webview, 'nova:data:backup', requestId, {
+        success: true,
+        envelope: await makeDataEnvelope('backup', app.id, storage),
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:data:backup', requestId, 'ERROR', e?.message || 'Failed to back up app data');
+    }
+  }
+
+  async function handleDataRestore({ payload, requestId, app, webview }) {
+    const check = await validateDataEnvelope(payload, app.id, 'backup');
+    if (check.error) {
+      return respondError(webview, 'nova:data:restore', requestId, check.error, check.message);
+    }
+    const { clearFirst } = payload || {};
+    try {
+      if (clearFirst === true) {
+        await storageClear(app.id);
+      }
+      let restoredKeys = 0;
+      const failedKeys = [];
+      for (const [key, value] of Object.entries(check.env.storage)) {
+        const result = await writeOwnNamespaceEntry(app.id, key, value);
+        if (result.ok) restoredKeys++;
+        else failedKeys.push({ key, reason: result.reason });
+      }
+      return respond(webview, 'nova:data:restore', requestId, {
+        success: true, restoredKeys, cleared: clearFirst === true, failedKeys,
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:data:restore', requestId, 'ERROR', e?.message || 'Failed to restore app data');
+    }
+  }
+
+  async function handleDataExport({ payload, requestId, app, webview }) {
+    const keys = Array.isArray(payload?.keys) ? payload.keys : null;
+    const prefix = typeof payload?.prefix === 'string' && payload.prefix.length ? payload.prefix : null;
+    if (!keys && !prefix) {
+      return respondError(webview, 'nova:data:export', requestId, 'INVALID_ARGS',
+        'provide keys (array of storage keys) or prefix (key prefix) — for everything, use nova:data:backup');
+    }
+    if (keys && keys.length > 1000) {
+      return respondError(webview, 'nova:data:export', requestId, 'INVALID_ARGS', 'keys is limited to 1000 entries per export');
+    }
+    try {
+      const namespace = await readOwnNamespace(app.id);
+      let selected;
+      if (keys) {
+        const wanted = new Set(keys.map(k => String(k)));
+        selected = Object.fromEntries(Object.entries(namespace).filter(([k]) => wanted.has(k)));
+      } else {
+        selected = Object.fromEntries(Object.entries(namespace).filter(([k]) => k.startsWith(prefix)));
+      }
+      StorageLedger.noteRequest(app.id);
+      return respond(webview, 'nova:data:export', requestId, {
+        success: true,
+        envelope: await makeDataEnvelope('export', app.id, selected),
+      });
+    } catch (e) {
+      return respondError(webview, 'nova:data:export', requestId, 'ERROR', e?.message || 'Failed to export app data');
+    }
+  }
+
+  async function handleDataImport({ payload, requestId, app, webview }) {
+    const check = await validateDataEnvelope(payload, app.id, 'export');
+    if (check.error) {
+      return respondError(webview, 'nova:data:import', requestId, check.error, check.message);
+    }
+    try {
+      /* Merge semantics only: import writes the envelope's keys over the
+         live namespace and never deletes keys it doesn't contain. The
+         destructive path (wiping before writing) is backup/restore with
+         clearFirst, which is a different permission with full-snapshot
+         semantics. */
+      let importedKeys = 0;
+      const failedKeys = [];
+      for (const [key, value] of Object.entries(check.env.storage)) {
+        const result = await writeOwnNamespaceEntry(app.id, key, value);
+        if (result.ok) importedKeys++;
+        else failedKeys.push({ key, reason: result.reason });
+      }
+      return respond(webview, 'nova:data:import', requestId, { success: true, importedKeys, failedKeys });
+    } catch (e) {
+      return respondError(webview, 'nova:data:import', requestId, 'ERROR', e?.message || 'Failed to import app data');
+    }
+  }
+
   // Host-side snapshot of the MAC policy engine for the Settings privacy
   // dashboard (mode, rule counts, avc denial feed). Same trust model as the
   // storage ledger snapshot: trusted host-tier direct call, deliberately NOT
@@ -6288,6 +7149,7 @@ const AppSandbox = (() => {
 
   function saveCalendarEvents(evs) {
     localStorage.setItem(CALENDAR_STORE_KEY, JSON.stringify(evs));
+    if (typeof OS !== 'undefined' && OS.events?.emit) OS.events.emit('calendar:updated');
   }
 
   async function handleCalendarRead({ requestId, app, webview }) {
@@ -6358,6 +7220,7 @@ const AppSandbox = (() => {
 
   function saveContacts(arr) {
     localStorage.setItem(CONTACTS_STORE_KEY, JSON.stringify(arr));
+    if (typeof OS !== 'undefined' && OS.events?.emit) OS.events.emit('contacts:updated');
   }
 
   async function handleContactsRead({ requestId, app, webview }) {
@@ -6420,6 +7283,1167 @@ const AppSandbox = (() => {
         uptime: Date.now() - bootTime,
       },
     });
+  }
+
+  // ── Locale ─────────────────────────────────────────────────────────────
+  // Read-only, deliberately coarse locale facts for formatting: the OS
+  // region/timezone settings when the user set them, else environment
+  // defaults. No permission gate on purpose — these are the same values a
+  // plain web page gets from navigator/Intl on the open web, they identify
+  // no one, and gating date formatting behind a prompt would just push
+  // apps back to user-agent sniffing. Anything sensitive (username,
+  // hostname, …) stays behind system:info; this surface exposes nothing
+  // but formatting facts.
+  function firstDayOfWeekForRegion(region) {
+    // Coarse, documented mapping (enough for calendar grids, not an i18n
+    // library): regions whose calendars conventionally start on Sunday.
+    const SUNDAY_REGIONS = new Set(['US', 'CA', 'JP', 'CN', 'TW', 'KR', 'SA', 'IL', 'BR', 'PH', 'MX']);
+    return region && SUNDAY_REGIONS.has(region) ? 'sunday' : 'monday';
+  }
+
+  async function handleLocaleGet({ requestId, app, webview }) {
+    let locale = null;
+    try {
+      locale = (typeof navigator !== 'undefined' && navigator.language) || null;
+    } catch (_) { locale = null; }
+    if (typeof locale !== 'string' || !locale) locale = 'en-US';
+    // User preference wins over the environment default, when set. These
+    // two keys are read through the same OS.settings service the Settings
+    // app uses, but only the two formatting-innocuous keys — nothing from
+    // the system:info-gated set is reachable here.
+    let region = null;
+    let timeZone = null;
+    try {
+      const setRegion = OS?.settings?.get?.('region');
+      if (typeof setRegion === 'string' && setRegion) region = setRegion;
+      const setTz = OS?.settings?.get?.('timezone');
+      if (typeof setTz === 'string' && setTz) timeZone = setTz;
+    } catch (_) { /* settings service unavailable — fall through to env defaults */ }
+    if (!region) {
+      const dash = locale.indexOf('-');
+      region = dash > 0 ? locale.slice(dash + 1).toUpperCase() : null;
+    }
+    if (!timeZone) {
+      try { timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch (_) { timeZone = null; }
+    }
+    return respond(webview, 'nova:locale:get', requestId, {
+      success: true,
+      locale: locale,
+      region: region,
+      timeZone: timeZone,
+      firstDayOfWeek: firstDayOfWeekForRegion(region),
+    });
+  }
+
+  // ── Taskbar badge (system:badge) ───────────────────────────────────────
+  // Per-app badge shown on the app's taskbar icon: a count (0-999) or a
+  // short text label (1-4 characters). Session-only host state — nothing
+  // persists across reboots, because a badge is a view of live state
+  // (like the window count), not data. The taskbar reads the store via
+  // window.NovaAppBadges (exported below); updates are pushed to the UI
+  // with a nova-badge-changed event plus a WM.updateTaskbar() refresh.
+  const appBadgeState = new Map();   // appId -> { count } | { text }
+  const badgeRateLimits = new Map(); // appId -> [timestamps]
+  const BADGE_RATE_MAX = 30;         // updates per minute — a badge is not a ticker
+  const BADGE_TEXT_MAX = 4;
+  const BADGE_COUNT_MAX = 999;
+
+  function badgeRateLimited(appId) {
+    const now = Date.now();
+    const recent = (badgeRateLimits.get(appId) || []).filter((t) => t > now - 60_000);
+    if (recent.length >= BADGE_RATE_MAX) {
+      badgeRateLimits.set(appId, recent);
+      return true;
+    }
+    recent.push(now);
+    badgeRateLimits.set(appId, recent);
+    return false;
+  }
+
+  // Copy out so callers can't mutate the live store entry.
+  function getBadge(appId) {
+    const badge = appBadgeState.get(appId);
+    if (!badge) return null;
+    return badge.count != null ? { count: badge.count } : { text: badge.text };
+  }
+
+  function publishBadge(appId) {
+    const badge = appBadgeState.get(appId) || null;
+    try {
+      if (typeof document !== 'undefined' && typeof document.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        document.dispatchEvent(new CustomEvent('nova-badge-changed', { detail: { appId: appId, badge: badge } }));
+      }
+    } catch (_) { /* event dispatch is best-effort; the store is the truth */ }
+    try {
+      if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
+    } catch (_) { /* taskbar refresh is best-effort */ }
+  }
+
+  async function handleBadgeSet({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:badge', app.id)) {
+      return respondError(webview, 'nova:badge:set', requestId, 'PERMISSION_DENIED', 'system:badge permission required');
+    }
+    if (badgeRateLimited(app.id)) {
+      return respondError(webview, 'nova:badge:set', requestId, 'RATE_LIMITED', 'Max 30 badge updates per minute');
+    }
+    const hasCount = payload && Object.prototype.hasOwnProperty.call(payload, 'count');
+    const hasText = payload && Object.prototype.hasOwnProperty.call(payload, 'text');
+    if (!hasCount && !hasText) {
+      return respondError(webview, 'nova:badge:set', requestId, 'INVALID_ARGS', 'provide count (number 0-999) or text (1-4 characters)');
+    }
+    let badge;
+    if (hasCount) {
+      const n = payload.count;
+      if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > BADGE_COUNT_MAX) {
+        return respondError(webview, 'nova:badge:set', requestId, 'INVALID_ARGS', 'count must be a number between 0 and 999');
+      }
+      const rounded = Math.floor(n);
+      if (rounded === 0) {
+        // count: 0 means "nothing to show" — identical to clear(), documented.
+        appBadgeState.delete(app.id);
+        publishBadge(app.id);
+        return respond(webview, 'nova:badge:set', requestId, { success: true, badge: null });
+      }
+      badge = { count: rounded };
+    } else {
+      const t = typeof payload.text === 'string' ? payload.text.trim() : '';
+      if (!t || t.length > BADGE_TEXT_MAX) {
+        return respondError(webview, 'nova:badge:set', requestId, 'INVALID_ARGS', `text must be 1-${BADGE_TEXT_MAX} characters after trimming`);
+      }
+      badge = { text: t };
+    }
+    appBadgeState.set(app.id, badge);
+    publishBadge(app.id);
+    return respond(webview, 'nova:badge:set', requestId, { success: true, badge: badge });
+  }
+
+  async function handleBadgeClear({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:badge', app.id)) {
+      return respondError(webview, 'nova:badge:clear', requestId, 'PERMISSION_DENIED', 'system:badge permission required');
+    }
+    const had = appBadgeState.delete(app.id);
+    publishBadge(app.id);
+    return respond(webview, 'nova:badge:clear', requestId, { success: true, cleared: had });
+  }
+
+  // ── fs:watch (fs:watch permission) ─────────────────────────────────────
+  // Change notifications for paths the app could already read. Watching is
+  // reading: the watcher is only created for a path that passes the exact
+  // same access checks as nova:fs:read (app-owned paths need no grant,
+  // shared paths need the same grants a read would), and the fs:watch
+  // grant is required on top. Delivery is abstract-FS polling (works
+  // across every backend, including the in-memory one) with a debounce so
+  // a burst of writes is one event, a per-app push cap so a hot tree can't
+  // flood the guest, and a hard per-app watcher budget. Events are
+  // best-effort: a missed tick self-heals on the next poll because the
+  // snapshot is only advanced after the decision.
+  const fsWatchers = new Map();      // watcherId -> record
+  const fsWatchPushLog = new Map();  // appId -> [timestamps]
+  const fsWatchConfig = { pollMs: 2000, debounceMs: 300, pushesPerMinute: 60 };
+  const FS_WATCH_MAX_PER_APP = 8;
+
+  function snapshotFsTarget(node) {
+    if (node.type === 'folder') {
+      const kids = FS.listDir(node.id)
+        .map((c) => `${c.id}~${c.name}~${c.type}~${c.modified ?? ''}`)
+        .sort()
+        .join('|');
+      return 'dir:' + kids;
+    }
+    return `file:${node.modified ?? 0}:${node.size ?? 0}`;
+  }
+
+  // Polling re-resolves by path, and resolveFile rewrites every /data/...
+  // path into the CALLER's own subtree — a canonical /data/<appId>/...
+  // path would double-nest (/data/<appId>/<appId>/...). App-owned targets
+  // therefore poll on the caller-relative form ('/data/' + rest); shared
+  // paths resolve as-is.
+  function watchablePathFor(node, appId) {
+    const canonical = FS.getPath(node.id);
+    const prefix = '/data/' + appDataSegment(appId) + '/';
+    if (canonical.startsWith(prefix)) {
+      return '/data/' + canonical.slice(prefix.length);
+    }
+    return canonical;
+  }
+
+  function stopFsWatcher(watcherId) {
+    const w = fsWatchers.get(watcherId);
+    if (!w) return false;
+    clearInterval(w.timer);
+    clearTimeout(w.debounceTimer);
+    fsWatchers.delete(watcherId);
+    return true;
+  }
+
+  function stopFsWatchersForApp(appId) {
+    let stopped = 0;
+    for (const [id, w] of [...fsWatchers.entries()]) {
+      if (w.appId === appId) { stopFsWatcher(id); stopped++; }
+    }
+    return stopped;
+  }
+
+  function fsWatchPushAllowed(appId) {
+    const now = Date.now();
+    const recent = (fsWatchPushLog.get(appId) || []).filter((t) => t > now - 60_000);
+    if (recent.length >= fsWatchConfig.pushesPerMinute) {
+      fsWatchPushLog.set(appId, recent);
+      return false;
+    }
+    recent.push(now);
+    fsWatchPushLog.set(appId, recent);
+    return true;
+  }
+
+  function pollFsWatcher(watcherId) {
+    const w = fsWatchers.get(watcherId);
+    if (!w) return;
+    // Re-resolve by canonical path each tick: the node may have been
+    // renamed, rewritten, or deleted since the watcher was created.
+    let node = null;
+    try { node = resolveFile({ path: w.watchPath }, w.appId) || null; } catch (_) { node = null; }
+    let snap = null;
+    if (node) { try { snap = snapshotFsTarget(node); } catch (_) { snap = null; } }
+    if (snap === w.snapshot) return;
+
+    // State changed since the last tick — debounce, then push one event.
+    clearTimeout(w.debounceTimer);
+    w.debounceTimer = setTimeout(() => {
+      const live = fsWatchers.get(watcherId);
+      if (!live) return;
+      let node2 = null;
+      try { node2 = resolveFile({ path: live.watchPath }, live.appId) || null; } catch (_) { node2 = null; }
+      let snap2 = null;
+      if (node2) { try { snap2 = snapshotFsTarget(node2); } catch (_) { snap2 = null; } }
+      const prev = live.snapshot;
+      live.snapshot = snap2;
+      if (!fsWatchPushAllowed(live.appId)) return; // coalesced; snapshot already advanced
+      const kind = snap2 === null ? 'deleted' : (prev === null ? 'created' : 'changed');
+      try {
+        respond(live.webview, 'nova:fs:changed', generateRequestId(), {
+          watcherId: watcherId,
+          path: live.canonicalPath,
+          kind: kind,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (_) { /* best-effort delivery */ }
+    }, Math.max(0, Number(fsWatchConfig.debounceMs) || 0));
+    w.snapshot = snap;
+  }
+
+  async function handleFsWatch({ payload, requestId, app, webview, sandbox }) {
+    if (!AppPermissionManager.isGranted('fs:watch', app.id)) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'PERMISSION_DENIED', 'fs:watch permission required');
+    }
+    const rawPath = payload?.path;
+    if (typeof rawPath !== 'string' || !rawPath) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'INVALID_ARGS', 'path is required');
+    }
+    const node = resolveFile({ path: rawPath }, app.id);
+    if (!node) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'NOT_FOUND', 'File or folder not found');
+    }
+    // The exact nova:fs:read access rules, per target type — watching is
+    // reading, so a watcher can never be a read-access oracle.
+    if (node.type === 'folder') {
+      const hasMetadataPermission = AppPermissionManager.isGranted('fs:metadata', app.id);
+      const hasMediaPermission = ['fs:read:images', 'fs:read:video', 'fs:read:audio']
+        .some((permission) => AppPermissionManager.isGranted(permission, app.id));
+      if (!isOwnedByApp(node, app.id) && !hasFsAccess(app.id)
+        && !hasMetadataPermission && !hasMediaPermission) {
+        return respondError(webview, 'nova:fs:watch', requestId, 'PERMISSION_DENIED',
+          'watching requires the same access as reading: app-owned paths need no grant, shared paths need the nova:fs:read grants');
+      }
+    } else if (!canReadFileContents(node, app.id, sandbox)) {
+      return respondError(webview, 'nova:fs:watch', requestId, 'PERMISSION_DENIED',
+        'watching requires the same access as reading: app-owned paths need no grant, shared paths need the nova:fs:read grants');
+    }
+    // The caller supplies the watcher id it registered its listener under
+    // (the facade generates one per watch() call) — honor it so pushed
+    // events carry an id the guest can actually dispatch, including on
+    // FIRST registration. Re-registering an existing watcher of this app
+    // replaces its target instead of consuming a second budget slot; a
+    // foreign id falls through to a fresh host-side id, never hijacked.
+    // EVERY new registration counts against the budget — only a true
+    // re-registration of the app's own watcher skips it.
+    let watcherId = null;
+    let reRegister = false;
+    if (typeof payload?.watcherId === 'string' && /^w_[a-z0-9_]{4,64}$/.test(payload.watcherId)) {
+      const existing = fsWatchers.get(payload.watcherId);
+      if (existing && existing.appId === app.id) {
+        watcherId = payload.watcherId;
+        reRegister = true;
+      } else if (!existing) {
+        watcherId = payload.watcherId;
+      }
+    }
+    if (!reRegister) {
+      const mine = [...fsWatchers.values()].filter((w) => w.appId === app.id).length;
+      if (mine >= FS_WATCH_MAX_PER_APP) {
+        return respondError(webview, 'nova:fs:watch', requestId, 'RATE_LIMITED', `Max ${FS_WATCH_MAX_PER_APP} watchers per app`);
+      }
+      if (!watcherId) {
+        watcherId = 'w_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+      }
+    } else {
+      stopFsWatcher(watcherId);
+    }
+    const record = {
+      appId: app.id,
+      canonicalPath: FS.getPath(node.id),
+      watchPath: watchablePathFor(node, app.id),
+      snapshot: snapshotFsTarget(node),
+      webview,
+      timer: null,
+      debounceTimer: null,
+    };
+    fsWatchers.set(watcherId, record);
+    record.timer = setInterval(() => pollFsWatcher(watcherId), Math.max(10, Number(fsWatchConfig.pollMs) || 2000));
+    return respond(webview, 'nova:fs:watch', requestId, {
+      success: true,
+      watcherId: watcherId,
+      path: record.canonicalPath,
+    });
+  }
+
+  async function handleFsUnwatch({ payload, requestId, app, webview }) {
+    const watcherId = payload?.watcherId;
+    const w = typeof watcherId === 'string' ? fsWatchers.get(watcherId) : null;
+    // Idempotent and silent about other apps' watcher ids — an unknown id
+    // and a foreign id are the same "cleared: false".
+    const cleared = !!(w && w.appId === app.id && stopFsWatcher(watcherId));
+    return respond(webview, 'nova:fs:unwatch', requestId, { success: true, cleared: cleared });
+  }
+
+  // ── Share target (system:share-target) ─────────────────────────────────
+  // The inbound half of the share surface. Outbound is user-mediated via
+  // nova:share (the sheet); this makes the sheet bidirectional: apps that
+  // declare a shareTarget in their manifest AND hold the system:share-target
+  // grant are offered as destinations, and the user's pick delivers a
+  // nova:share:inbound push to the target. Delivery to a live sandbox is
+  // immediate; a closed target gets the entry queued (bounded 8) and it is
+  // delivered right after its next nova:ready — the same honest semantics
+  // as alarms: the user's click launches the window, the push never starts
+  // an app by itself.
+  const SHARE_TARGET_QUEUE_KEY = 'nova_share_inbound';
+  const SHARE_TARGET_QUEUE_MAX = 8;
+  const SHARE_TARGET_SHEET_MAX = 6;
+
+  function normalizedShareTargetMimes(app) {
+    const raw = app?.manifest?.shareTarget?.mimeTypes;
+    if (!Array.isArray(raw)) return null;
+    const mimes = raw
+      .filter((v) => typeof v === 'string' && v.trim())
+      .map((v) => v.split(';', 1)[0].trim().toLowerCase());
+    return mimes.length ? mimes : null;
+  }
+
+  function shareTargetMatches(mimes, content) {
+    if (!Array.isArray(mimes) || !mimes.length) return false;
+    const contentMimes = [];
+    if (content && content.text) contentMimes.push('text/plain');
+    if (content && content.url) contentMimes.push('text/uri-list', 'text/plain');
+    if (!contentMimes.length) return false;
+    return mimes.some((declared) => declared === '*/*'
+      || contentMimes.some((c) => c === declared
+        || (declared.endsWith('/*') && c.startsWith(declared.slice(0, -1)))));
+  }
+
+  function loadShareQueue() {
+    // Registry-first (HKNS/apps/share/inbound via RegistrySystemState); the
+    // localStorage key is the adoption source and the fail-soft fallback.
+    if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+      try {
+        const stored = RegistrySystemState.shareInbound();
+        if (stored && stored.apps && typeof stored.apps === 'object') return stored;
+      } catch (_) { /* fall through to legacy */ }
+    }
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SHARE_TARGET_QUEUE_KEY) || '{}');
+      if (parsed && typeof parsed === 'object' && parsed.apps && typeof parsed.apps === 'object') return parsed;
+    } catch (_) { /* corrupt — start clean */ }
+    return { version: 1, apps: {} };
+  }
+
+  function saveShareQueue(state) {
+    if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+      try { if (RegistrySystemState.setShareInbound(state)) return; } catch (_) { /* fall through */ }
+    }
+    try { localStorage.setItem(SHARE_TARGET_QUEUE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
+  }
+
+  function queueShareInbound(appId, entry) {
+    const state = loadShareQueue();
+    const record = state.apps[appId] || (state.apps[appId] = []);
+    if (!Array.isArray(record)) { state.apps[appId] = record = []; }
+    record.push(entry);
+    if (record.length > SHARE_TARGET_QUEUE_MAX) record.splice(0, record.length - SHARE_TARGET_QUEUE_MAX);
+    saveShareQueue(state);
+  }
+
+  function flushShareInboundQueue(appId, webview) {
+    const state = loadShareQueue();
+    const record = state.apps[appId];
+    if (!Array.isArray(record) || !record.length) return 0;
+    const pending = record.splice(0, record.length);
+    if (pending.length) saveShareQueue(state);
+    for (const entry of pending) {
+      try {
+        respond(webview, 'nova:share:inbound', generateRequestId(), Object.assign({}, entry, { queued: true }));
+      } catch (_) { /* best-effort */ }
+    }
+    return pending.length;
+  }
+
+  function deliverShareTarget(appId, content) {
+    if (typeof AppPermissionManager === 'undefined'
+      || !AppPermissionManager.isGranted('system:share-target', appId)) {
+      return { delivered: false, queued: false, reason: 'PERMISSION_DENIED' };
+    }
+    const payload = {
+      title: typeof content?.title === 'string' ? content.title.slice(0, 120) : '',
+      text: typeof content?.text === 'string' ? content.text.slice(0, 4000) : '',
+      url: typeof content?.url === 'string' ? content.url : '',
+      sourceAppId: typeof content?.sourceAppId === 'string' ? content.sourceAppId : null,
+      firedAt: new Date().toISOString(),
+    };
+    const sandbox = liveSandboxForApp(appId);
+    if (sandbox) {
+      try {
+        respond(sandbox.webview, 'nova:share:inbound', generateRequestId(), payload);
+        return { delivered: true, queued: false };
+      } catch (_) { /* fall through to queue */ }
+    }
+    queueShareInbound(appId, payload);
+    return { delivered: false, queued: true };
+  }
+
+  // ── Named alarms (system:schedule) ─────────────────────────────────────
+  // App-scheduled wake prompts, Chrome-alarms style: an app creates named
+  // alarms (a one-shot `when` or a periodic `periodMinutes` with a 15-minute
+  // floor, matching Android WorkManager's coarse periodic floor) and gets a
+  // nova:background:alarm push each time one fires.
+  //
+  // Delivery honesty: alarms fire into a LIVE sandbox — a running window or
+  // a Tier-2 system:background:live process. While an app is fully closed,
+  // periodic alarms skip to their next occurrence and one-shot alarms are
+  // queued (bounded at 8, newest kept) and delivered on the next launch,
+  // right after nova:ready. Apps that must run brief work while fully
+  // closed already have the right tool: system:background's scheduler wakes.
+  //
+  // Alarm registry persists host-side in the NovaByte Registry
+  // (HKNS/apps/alarms via RegistrySystemState — the same store the
+  // permission manager uses) so alarms survive OS reboots; timers are
+  // rebuilt from persisted state at module load. The localStorage key is
+  // the pre-registry adoption source and the fail-soft fallback when no
+  // engine is up.
+  const ALARMS_STORAGE_KEY = 'nova_app_alarms';
+  const ALARMS_MAX_PER_APP = 32;
+  const ALARMS_MIN_PERIOD_MINUTES = 15;
+  const ALARMS_MAX_NAME_LEN = 64;
+  const ALARMS_MAX_WHEN_AHEAD_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
+  const ALARMS_QUEUE_MAX = 8;
+  const alarmsTimers = new Map(); // `${appId}:${name}` -> timeoutId
+
+  function sysState() {
+    return typeof window !== 'undefined' && window ? window.RegistrySystemState : null;
+  }
+
+  function loadAlarmState() {
+    const state = sysState();
+    if (state && typeof state.alarms === 'function') {
+      try {
+        const fromRegistry = state.alarms();
+        if (fromRegistry && typeof fromRegistry === 'object' && fromRegistry.apps && typeof fromRegistry.apps === 'object') {
+          return fromRegistry;
+        }
+      } catch (_) { /* fall through to legacy */ }
+    }
+    try {
+      const raw = localStorage.getItem(ALARMS_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && parsed.apps && typeof parsed.apps === 'object') return parsed;
+    } catch (_) { /* corrupt state — start clean, alarms are app conveniences */ }
+    return { version: 1, apps: {} };
+  }
+
+  function saveAlarmState(state) {
+    const sys = sysState();
+    if (sys && typeof sys.setAlarms === 'function') {
+      try { sys.setAlarms(state); return; } catch (_) { /* fall through to legacy */ }
+    }
+    try { localStorage.setItem(ALARMS_STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
+  }
+
+  function validAlarmName(name) {
+    return typeof name === 'string' && name.length >= 1 && name.length <= ALARMS_MAX_NAME_LEN && /^[\w.:\-]+$/.test(name);
+  }
+
+  function liveSandboxForApp(appId) {
+    if (typeof AppSandbox === 'undefined' || typeof AppSandbox.getAllSandboxes !== 'function') return null;
+    const all = AppSandbox.getAllSandboxes() || [];
+    // Prefer a visible window; a Tier-2 backgrounded process works too.
+    return all.find((s) => s.appId === appId && !s.backgrounded && s.webview)
+      || all.find((s) => s.appId === appId && s.webview)
+      || null;
+  }
+
+  function scheduleAlarmTimer(appId, name, alarm) {
+    const key = `${appId}:${name}`;
+    const existing = alarmsTimers.get(key);
+    if (existing) clearTimeout(existing);
+    const delay = Math.max(0, Math.min(alarm.nextFire - Date.now(), 2 ** 31 - 1));
+    const timerId = setTimeout(() => fireAlarm(appId, name), delay);
+    if (typeof timerId === 'object' && timerId !== null && typeof timerId.unref === 'function') timerId.unref();
+    alarmsTimers.set(key, timerId);
+  }
+
+  function stopAlarmTimer(appId, name) {
+    const key = `${appId}:${name}`;
+    const timerId = alarmsTimers.get(key);
+    if (timerId) { clearTimeout(timerId); alarmsTimers.delete(key); }
+  }
+
+  function pushAlarmToSandbox(sandbox, payload) {
+    try {
+      respond(sandbox.webview, 'nova:background:alarm', generateRequestId(), payload);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  function fireAlarm(appId, name) {
+    alarmsTimers.delete(`${appId}:${name}`);
+    const state = loadAlarmState();
+    const record = state.apps[appId];
+    const alarm = record && record.alarms ? record.alarms[name] : null;
+    if (!alarm) return; // cleared while the timer was pending
+
+    const now = Date.now();
+    const sandbox = liveSandboxForApp(appId);
+    let delivered = false;
+    if (sandbox) {
+      delivered = pushAlarmToSandbox(sandbox, {
+        name: name,
+        alarm: { name: name, when: alarm.when ?? null, periodMinutes: alarm.periodMinutes ?? null, scheduledTime: alarm.nextFire },
+        firedAt: new Date(now).toISOString(),
+      });
+    }
+
+    if (alarm.periodMinutes) {
+      // Periodic: advance past every missed cycle so a long-sleeping OS
+      // doesn't fire a burst of catch-up events; the next occurrence is
+      // always in the future.
+      const periodMs = Math.max(ALARMS_MIN_PERIOD_MINUTES, alarm.periodMinutes) * 60_000;
+      let next = alarm.nextFire + periodMs;
+      while (next <= now) next += periodMs;
+      alarm.nextFire = next;
+      saveAlarmState(state);
+      scheduleAlarmTimer(appId, name, alarm);
+      return;
+    }
+
+    // One-shot: consume. Undelivered (app fully closed) → bounded queue
+    // for next launch.
+    delete record.alarms[name];
+    if (!delivered) {
+      if (!Array.isArray(record.queue)) record.queue = [];
+      record.queue.push({ name: name, firedAt: new Date(now).toISOString(), scheduledTime: alarm.nextFire });
+      if (record.queue.length > ALARMS_QUEUE_MAX) record.queue.splice(0, record.queue.length - ALARMS_QUEUE_MAX);
+    }
+    saveAlarmState(state);
+  }
+
+  function bootstrapAlarms() {
+    const state = loadAlarmState();
+    const now = Date.now();
+    let dirty = false;
+    for (const [appId, record] of Object.entries(state.apps)) {
+      if (!record || typeof record !== 'object' || !record.alarms) continue;
+      for (const [name, alarm] of Object.entries(record.alarms)) {
+        if (!alarm || typeof alarm.nextFire !== 'number') { delete record.alarms[name]; dirty = true; continue; }
+        if (alarm.periodMinutes) {
+          const periodMs = Math.max(ALARMS_MIN_PERIOD_MINUTES, alarm.periodMinutes) * 60_000;
+          while (alarm.nextFire <= now) { alarm.nextFire += periodMs; dirty = true; }
+          scheduleAlarmTimer(appId, name, alarm);
+        } else if (alarm.nextFire <= now) {
+          // Missed one-shot from before shutdown — treat as undelivered.
+          if (!Array.isArray(record.queue)) record.queue = [];
+          record.queue.push({ name: name, firedAt: new Date(now).toISOString(), scheduledTime: alarm.nextFire });
+          if (record.queue.length > ALARMS_QUEUE_MAX) record.queue.splice(0, record.queue.length - ALARMS_QUEUE_MAX);
+          delete record.alarms[name];
+          dirty = true;
+        } else {
+          scheduleAlarmTimer(appId, name, alarm);
+        }
+      }
+    }
+    if (dirty) saveAlarmState(state);
+  }
+  // Rebuild timers once the host module is live. Deferred so a module load
+  // inside a test harness never schedules anything before state exists.
+  if (typeof setTimeout === 'function') {
+    const bootTimer = setTimeout(bootstrapAlarms, 0);
+    if (bootTimer && typeof bootTimer.unref === 'function') bootTimer.unref();
+  }
+
+  async function handleAlarmsCreate({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:schedule', app.id)) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'PERMISSION_DENIED', 'system:schedule permission required');
+    }
+    const name = payload?.name;
+    if (!validAlarmName(name)) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', `name must be 1-${ALARMS_MAX_NAME_LEN} characters of letters, digits, or . : _ -`);
+    }
+    const hasWhen = payload && Object.prototype.hasOwnProperty.call(payload, 'when') && payload.when != null;
+    const hasPeriod = payload && Object.prototype.hasOwnProperty.call(payload, 'periodMinutes') && payload.periodMinutes != null;
+    if (hasWhen === hasPeriod) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', 'provide exactly one of when (future epoch ms) or periodMinutes (>= 15)');
+    }
+    let alarm;
+    if (hasWhen) {
+      const when = payload.when;
+      if (typeof when !== 'number' || !Number.isFinite(when) || when <= Date.now() || when > Date.now() + ALARMS_MAX_WHEN_AHEAD_MS) {
+        return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', 'when must be a future epoch-ms timestamp no more than a year out');
+      }
+      alarm = { when: Math.floor(when), nextFire: Math.floor(when) };
+    } else {
+      const period = payload.periodMinutes;
+      if (typeof period !== 'number' || !Number.isFinite(period) || period < ALARMS_MIN_PERIOD_MINUTES) {
+        return respondError(webview, 'nova:alarms:create', requestId, 'INVALID_ARGS', `periodMinutes must be a number >= ${ALARMS_MIN_PERIOD_MINUTES}`);
+      }
+      alarm = { periodMinutes: Math.floor(period), nextFire: Date.now() + Math.floor(period) * 60_000 };
+    }
+    const state = loadAlarmState();
+    const record = state.apps[app.id] || (state.apps[app.id] = { alarms: {}, queue: [] });
+    if (!record.alarms || typeof record.alarms !== 'object') record.alarms = {};
+    const replacing = Object.prototype.hasOwnProperty.call(record.alarms, name);
+    if (!replacing && Object.keys(record.alarms).length >= ALARMS_MAX_PER_APP) {
+      return respondError(webview, 'nova:alarms:create', requestId, 'RATE_LIMITED', `Max ${ALARMS_MAX_PER_APP} alarms per app`);
+    }
+    record.alarms[name] = alarm;
+    saveAlarmState(state);
+    scheduleAlarmTimer(app.id, name, alarm);
+    return respond(webview, 'nova:alarms:create', requestId, {
+      success: true,
+      replaced: replacing,
+      alarm: { name: name, when: alarm.when ?? null, periodMinutes: alarm.periodMinutes ?? null, scheduledTime: alarm.nextFire },
+    });
+  }
+
+  async function handleAlarmsClear({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:schedule', app.id)) {
+      return respondError(webview, 'nova:alarms:clear', requestId, 'PERMISSION_DENIED', 'system:schedule permission required');
+    }
+    const name = payload?.name;
+    if (!validAlarmName(name)) {
+      return respondError(webview, 'nova:alarms:clear', requestId, 'INVALID_ARGS', 'a valid alarm name is required');
+    }
+    const state = loadAlarmState();
+    const record = state.apps[app.id];
+    const had = !!(record && record.alarms && Object.prototype.hasOwnProperty.call(record.alarms, name));
+    if (had) { delete record.alarms[name]; saveAlarmState(state); }
+    stopAlarmTimer(app.id, name);
+    return respond(webview, 'nova:alarms:clear', requestId, { success: true, cleared: had });
+  }
+
+  // ── Secrets (secrets:store) ────────────────────────────────────────────
+  // Encrypted per-app key/value store for small credentials, backed by the
+  // AppSecrets module (AES-256-GCM, per-install master key, plaintext never
+  // on disk). Deliberately NOT part of the app's portable namespace: the
+  // data:export / data:backup surfaces read the storage service only, so a
+  // backup envelope can never silently carry credentials. The Store module
+  // enforces the same budgets (64 secrets, 8 KB values, 128-char keys).
+  function secretsPermitted(appId) {
+    return AppPermissionManager.isGranted('secrets:store', appId);
+  }
+
+  async function handleSecretsSet({ payload, requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:set', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    const result = AppSecrets.set(app.id, payload?.key, payload?.value);
+    if (!result.ok) {
+      return respondError(webview, 'nova:secrets:set', requestId, result.code, result.message);
+    }
+    return respond(webview, 'nova:secrets:set', requestId, { success: true, persisted: result.persisted !== false });
+  }
+
+  async function handleSecretsGet({ payload, requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:get', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    const value = AppSecrets.get(app.id, payload?.key);
+    return respond(webview, 'nova:secrets:get', requestId, { success: true, value: value });
+  }
+
+  async function handleSecretsDelete({ payload, requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:delete', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    const deleted = AppSecrets.del(app.id, payload?.key);
+    return respond(webview, 'nova:secrets:delete', requestId, { success: true, deleted: deleted });
+  }
+
+  async function handleSecretsKeys({ requestId, app, webview }) {
+    if (!secretsPermitted(app.id)) {
+      return respondError(webview, 'nova:secrets:keys', requestId, 'PERMISSION_DENIED', 'secrets:store permission required');
+    }
+    return respond(webview, 'nova:secrets:keys', requestId, { success: true, keys: AppSecrets.keys(app.id) });
+  }
+
+  async function handleAlarmsGetAll({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('system:schedule', app.id)) {
+      return respondError(webview, 'nova:alarms:getAll', requestId, 'PERMISSION_DENIED', 'system:schedule permission required');
+    }
+    const state = loadAlarmState();
+    const record = state.apps[app.id];
+    const alarms = [];
+    if (record && record.alarms) {
+      for (const [name, alarm] of Object.entries(record.alarms)) {
+        alarms.push({ name: name, when: alarm.when ?? null, periodMinutes: alarm.periodMinutes ?? null, scheduledTime: alarm.nextFire });
+      }
+    }
+    return respond(webview, 'nova:alarms:getAll', requestId, { success: true, alarms: alarms });
+  }
+
+  // ── Push delivery (push:receive) ───────────────────────────────────────
+  // Server-to-app push, the FCM shape: the app's own backend publishes a
+  // message to a per-app subscription token, the OS push service relays it
+  // to the device over ONE connection the OS holds (never the app — apps
+  // get no listen sockets), and the message goes down the delivery ladder:
+  //
+  //   1. app running            → nova:push:message push into the live sandbox
+  //   2. closed + system:background → queue + AppScheduler.requestWake();
+  //      the queue flushes right after the woken sandbox's ready handshake,
+  //      inside the same bounded wake window as any scheduled wake
+  //   3. closed, notification payload (title/body) → the OS displays it
+  //      attributed to the app (same sanitizer + per-app notification rate
+  //      limit as apps posting their own), and…
+  //   4. …the data part is always queued (bounded, flushed after nova:ready
+  //      on the next launch, exactly like missed one-shot alarms)
+  //
+  // Every rung re-checks the push:receive grant and the disabled list, so
+  // a revoked or disabled app stops receiving at the door — no sandbox is
+  // ever started for a message an app may no longer see. The token
+  // registry and the queue persist host-side (localStorage, the same store
+  // the alarms and permission manager use) so tokens and undelivered
+  // messages survive OS reboots.
+  //
+  // Transport honesty: the host's SSE stream is best-effort. If the server
+  // can't be reached, messages published meanwhile are held in the
+  // SERVER's small in-memory backlog (last 16 per token, 24 h) and
+  // replayed on the next connect; anything older, or beyond the backlog,
+  // is genuinely lost — push is live-delivery semantics, not a mailbox.
+  // The register/unregister channels work with the transport fully absent
+  // (offline, headless test runs): the token is real and stable, and the
+  // delivery ladder can be driven locally regardless.
+  const PUSH_STORAGE_KEY = 'nova_app_push';
+  const PUSH_DEVICE_ID_KEY = 'nova_push_device_id';
+  const PUSH_QUEUE_MAX = 8;
+  const PUSH_TITLE_MAX = 200;
+  const PUSH_BODY_MAX = 2000;
+  const PUSH_DATA_MAX_BYTES = 4 * 1024;
+  const PUSH_ID_MAX = 64;
+  const PUSH_BACKOFF_STEPS_MS = [1000, 2000, 5000, 15000];
+
+  function loadPushState() {
+    const state = sysState();
+    if (state && typeof state.push === 'function') {
+      try {
+        const fromRegistry = state.push();
+        if (fromRegistry && typeof fromRegistry === 'object' && fromRegistry.tokens && typeof fromRegistry.tokens === 'object') {
+          return fromRegistry;
+        }
+      } catch (_) { /* fall through to legacy */ }
+    }
+    try {
+      const raw = localStorage.getItem(PUSH_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === 'object' && parsed.tokens && typeof parsed.tokens === 'object') return parsed;
+    } catch (_) { /* corrupt state — start clean */ }
+    return { version: 1, tokens: {}, queue: {} };
+  }
+
+  function savePushState(state) {
+    const sys = sysState();
+    if (sys && typeof sys.setPush === 'function') {
+      try { sys.setPush(state); return; } catch (_) { /* fall through to legacy */ }
+    }
+    try { localStorage.setItem(PUSH_STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* best-effort */ }
+  }
+
+  function pushDeviceId() {
+    const sys = sysState();
+    if (sys && typeof sys.pushDeviceId === 'function') {
+      try {
+        const existing = sys.pushDeviceId();
+        if (existing && /^[\w-]{8,64}$/.test(existing)) return existing;
+      } catch (_) { /* fall through to generation */ }
+    }
+    try {
+      const existing = localStorage.getItem(PUSH_DEVICE_ID_KEY);
+      if (existing && /^[\w-]{8,64}$/.test(existing)) return existing;
+    } catch (_) { /* fall through to generation */ }
+    const fresh = generatePushToken().slice(PUSH_TOKEN_PREFIX_LENGTH);
+    let stored = false;
+    if (sys && typeof sys.setPushDeviceId === 'function') {
+      try { stored = sys.setPushDeviceId(fresh); } catch (_) { stored = false; }
+    }
+    if (!stored) {
+      try { localStorage.setItem(PUSH_DEVICE_ID_KEY, fresh); } catch (_) { /* best-effort */ }
+    }
+    return fresh;
+  }
+
+  function generatePushToken() {
+    const bytes = new Uint8Array(16);
+    try {
+      (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(bytes)
+        : bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
+    } catch (_) {
+      bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
+    }
+    return 'nps_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  const PUSH_TOKEN_PREFIX_LENGTH = 4; // slice('nps_') for device ids
+
+  function normalizePushMessage(raw, appId) {
+    const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const id = typeof src.id === 'string' && src.id.length >= 1 && src.id.length <= PUSH_ID_MAX
+      ? src.id
+      : generatePushToken().slice(4);
+    const title = typeof src.title === 'string' ? src.title.slice(0, PUSH_TITLE_MAX) : '';
+    const body = typeof src.body === 'string' ? src.body.slice(0, PUSH_BODY_MAX) : '';
+    let data = null;
+    if (src.data != null) {
+      try {
+        const encoded = JSON.stringify(src.data);
+        if (encoded.length <= PUSH_DATA_MAX_BYTES) data = JSON.parse(encoded);
+      } catch (_) { data = null; }
+    }
+    return {
+      appId: appId,
+      id: id,
+      title: title,
+      body: body,
+      data: data,
+      sentAt: typeof src.sentAt === 'string' ? src.sentAt : new Date().toISOString(),
+    };
+  }
+
+  function enqueuePushMessage(state, appId, message) {
+    if (!state.queue || typeof state.queue !== 'object') state.queue = {};
+    if (!Array.isArray(state.queue[appId])) state.queue[appId] = [];
+    state.queue[appId].push(message);
+    if (state.queue[appId].length > PUSH_QUEUE_MAX) state.queue[appId].splice(0, state.queue[appId].length - PUSH_QUEUE_MAX);
+  }
+
+  function appIsPushDisabled(appId) {
+    try {
+      // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+      return typeof RegistryPrefs !== 'undefined' && RegistryPrefs.isAppDisabled
+        ? RegistryPrefs.isAppDisabled(appId)
+        : false;
+    } catch (_) { return false; }
+  }
+
+  // The OS-attributed notification rung: the same sanitizer and the same
+  // per-app rate budget as an app posting its own notification — the user
+  // granted push:receive, not "spawn unlimited popups while closed".
+  function showPushNotification(appId, message) {
+    if (typeof Notify === 'undefined' || typeof Notify.show !== 'function') return false;
+    if (!message.title && !message.body) return false;
+    if (!checkNotificationRateLimit(appId)) return false;
+    const appRecord = (typeof OS !== 'undefined' && OS.apps && OS.apps[appId]) || {};
+    try {
+      Notify.show(sanitizeNotificationPayload(
+        { title: message.title || 'Notification', body: message.body, type: 'info' },
+        appRecord.name || appId,
+        appId,
+      ));
+      return true;
+    } catch (_) { return false; }
+  }
+
+  // The delivery ladder. Always resolves { delivered, how } — delivered is
+  // true whenever the message reached the app or a durable bounded queue,
+  // false only when the app may not receive at all (no grant, disabled,
+  // uninstalled). Never throws.
+  function deliverPushMessage(appId, rawMessage) {
+    try {
+      if (typeof appId !== 'string' || !appId) return { delivered: false, how: 'bad-app-id' };
+      if (appIsPushDisabled(appId)) return { delivered: false, how: 'disabled' };
+      if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted
+        || !AppPermissionManager.isGranted('push:receive', appId)) {
+        return { delivered: false, how: 'no-grant' };
+      }
+      const message = normalizePushMessage(rawMessage, appId);
+
+      // Rung 1 — live sandbox (visible window, else a Tier-2 keep-alive).
+      const sandbox = liveSandboxForApp(appId);
+      if (sandbox) {
+        try {
+          respond(sandbox.webview, 'nova:push:message', generateRequestId(), message);
+          return { delivered: true, how: 'live' };
+        } catch (_) { /* fall through the ladder — a dying sandbox queues */ }
+      }
+
+      // Rung 2 — closed but allowed to run brief headless work: queue and
+      // request a wake. requestWake uses the same bounded window and
+      // teardown as any scheduled wake; whether or not it fires right now,
+      // the queue is the durable half of this rung (flushed after
+      // nova:ready — next launch at the latest).
+      if (typeof AppPermissionManager.isGranted === 'function'
+        && AppPermissionManager.isGranted('system:background', appId)
+        && typeof AppScheduler !== 'undefined' && typeof AppScheduler.requestWake === 'function') {
+        const state = loadPushState();
+        enqueuePushMessage(state, appId, message);
+        savePushState(state);
+        let woke = false;
+        try { woke = AppScheduler.requestWake(appId); } catch (_) { woke = false; }
+        return { delivered: true, how: woke ? 'wake-queued' : 'queued' };
+      }
+
+      // Rung 3+4 — closed and not wakeable: show the notification payload
+      // attributed to the app (if any), and queue the data part.
+      const notified = showPushNotification(appId, message);
+      const state = loadPushState();
+      enqueuePushMessage(state, appId, message);
+      savePushState(state);
+      return { delivered: true, how: notified ? 'notified-queued' : 'queued' };
+    } catch (_) {
+      return { delivered: false, how: 'error' };
+    }
+  }
+
+  // Flush the bounded queue into a just-ready sandbox — called from the
+  // post-nova:ready block below, alongside the alarm and share flushes.
+  // On a mid-flush failure (sandbox dying under us) the undelivered tail
+  // goes back to the FRONT of the queue, bounded again, so ordering is
+  // preserved for the next attempt.
+  function flushPushQueue(appId, webview) {
+    if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted
+      || !AppPermissionManager.isGranted('push:receive', appId)) return;
+    const state = loadPushState();
+    const record = state.queue ? state.queue[appId] : null;
+    if (!Array.isArray(record) || !record.length) return;
+    const pending = record.splice(0, record.length);
+    try { savePushState(state); } catch (_) { /* best-effort */ }
+    let failedAt = -1;
+    for (let i = 0; i < pending.length; i++) {
+      try {
+        respond(webview, 'nova:push:message', generateRequestId(), Object.assign({}, pending[i], { queued: true }));
+      } catch (_) { failedAt = i; break; }
+    }
+    if (failedAt >= 0) {
+      const remaining = pending.slice(failedAt);
+      const state2 = loadPushState();
+      if (!state2.queue || typeof state2.queue !== 'object') state2.queue = {};
+      state2.queue[appId] = remaining
+        .concat(Array.isArray(state2.queue[appId]) ? state2.queue[appId] : [])
+        .slice(-PUSH_QUEUE_MAX);
+      savePushState(state2);
+    }
+  }
+
+  // ── Push transport (host-side SSE client) ─────────────────────────────
+  // One connection per device, held by the OS, not by any app. Connects
+  // only while at least one installed, enabled app holds push:receive,
+  // re-subscribes the token set on every (re)connect, and backs off
+  // geometrically on failures. Every branch is defensive: this module must
+  // work with fetch, location, and Notify all absent (headless test runs,
+  // offline devices) — delivery-ladder and token lifecycle come first.
+  let pushStreamAbort = null;
+  let pushReconnectTimer = null;
+  let pushReconnectStep = 0;
+  let pushSubscriptionsDirty = true;
+
+  function pushPermissionHolders() {
+    if (typeof OS === 'undefined' || !OS.apps) return [];
+    if (typeof AppPermissionManager === 'undefined' || !AppPermissionManager.isGranted) return [];
+    let disabled = [];
+    try { disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : []; } catch (_) { disabled = []; }
+    return Object.values(OS.apps).filter((app) => app && app.id
+      && !(Array.isArray(disabled) && disabled.includes(app.id))
+      && AppPermissionManager.isGranted('push:receive', app.id));
+  }
+
+  function pushTransportAvailable() {
+    return typeof fetch === 'function' && typeof window !== 'undefined' && !!window.location;
+  }
+
+  // Push the current token set to the server: one { token, appId } entry
+  // for every app that STILL holds the grant. The trusted host supplies
+  // the appId, so a backend publishing to a token can never address a
+  // different app than the one that registered it. Prunes
+  // revoked/uninstalled apps' tokens as a side effect — the server's
+  // token→device map is rebuilt from this on every reconnect, so a
+  // restart anywhere heals itself.
+  async function syncPushSubscriptions(force = false) {
+    if (!force && !pushSubscriptionsDirty) return true;
+    try {
+      const holders = pushPermissionHolders();
+      const state = loadPushState();
+      const subscriptions = holders
+        .map((app) => (state.tokens[app.id] ? { token: state.tokens[app.id].token, appId: app.id } : null))
+        .filter(Boolean);
+      const response = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: pushDeviceId(), subscriptions: subscriptions }),
+      });
+      if (!response?.ok) throw new Error(`server returned HTTP ${response?.status ?? 'unknown'}`);
+      const result = await response.json();
+      if (result?.ok !== true || result.subscribed !== subscriptions.length) {
+        throw new Error('server did not confirm every push subscription');
+      }
+      pushSubscriptionsDirty = false;
+      return true;
+    } catch (error) {
+      pushSubscriptionsDirty = true;
+      console.warn('[Push] Subscription sync failed; it will retry on the next registration or stream reconnect:', error?.message || error);
+      return false;
+    }
+  }
+
+  function schedulePushReconnect() {
+    if (pushReconnectTimer) return;
+    const delay = PUSH_BACKOFF_STEPS_MS[Math.min(pushReconnectStep, PUSH_BACKOFF_STEPS_MS.length - 1)];
+    pushReconnectStep += 1;
+    pushReconnectTimer = setTimeout(() => {
+      pushReconnectTimer = null;
+      ensurePushConnection();
+    }, delay);
+    if (typeof pushReconnectTimer === 'object' && pushReconnectTimer !== null && typeof pushReconnectTimer.unref === 'function') pushReconnectTimer.unref();
+  }
+
+  async function pushStreamLoop() {
+    // Hold the controller this loop owns so a replaced/aborted connection
+    // never clobbers a newer one's state on its way out.
+    const controller = pushStreamAbort;
+    while (controller && !controller.aborted) {
+      let res = null;
+      try {
+        // system-fetch (OS UI context) signs same-origin /api/ GETs; in
+        // environments without it this is a plain fetch and the server's
+        // trust check will simply refuse — treated like any other failure.
+        res = await fetch('/api/push/stream?deviceId=' + encodeURIComponent(pushDeviceId()), {
+          signal: controller.signal,
+          headers: { Accept: 'text/event-stream' },
+        });
+      } catch (_) { res = null; }
+      if (!res || !res.ok || !res.body) {
+        if (pushStreamAbort === controller) pushStreamAbort = null;
+        schedulePushReconnect();
+        return;
+      }
+
+      pushReconnectStep = 0;
+      syncPushSubscriptions(true);
+      // Drain replay happens server-side at attach; parse the event stream.
+      try {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (controller && !controller.aborted) {
+          let chunk = null;
+          try { chunk = await reader.read(); } catch (_) { chunk = { done: true }; }
+          if (chunk.done || !chunk.value) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          let sep;
+          while ((sep = buffer.indexOf('\n\n')) >= 0) {
+            const frame = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            for (const line of frame.split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const evt = JSON.parse(line.slice(6));
+                if (evt && evt.appId) deliverPushMessage(evt.appId, evt);
+              } catch (_) { /* malformed frame — skip */ }
+            }
+          }
+        }
+        try { reader.cancel?.(); } catch (_) { /* closing anyway */ }
+      } catch (_) { /* fall out to reconnect */ }
+      if (pushStreamAbort === controller) pushStreamAbort = null;
+      schedulePushReconnect();
+      return;
+    }
+  }
+
+  function ensurePushConnection() {
+    if (!pushTransportAvailable()) return;
+    const holders = pushPermissionHolders();
+    if (!holders.length) {
+      if (pushStreamAbort) { try { pushStreamAbort.abort(); } catch (_) {} pushStreamAbort = null; }
+      return;
+    }
+    if (pushStreamAbort) {
+      // Already connected — but the token set may have changed.
+      if (pushSubscriptionsDirty) syncPushSubscriptions();
+      return;
+    }
+    pushStreamAbort = new AbortController();
+    pushStreamLoop();
+  }
+
+  async function handlePushRegister({ payload, requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('push:receive', app.id)) {
+      return respondError(webview, 'nova:push:register', requestId, 'PERMISSION_DENIED', 'push:receive permission required');
+    }
+    const state = loadPushState();
+    if (!state.tokens || typeof state.tokens !== 'object') state.tokens = {};
+    if (!state.queue || typeof state.queue !== 'object') state.queue = {};
+    const existing = state.tokens[app.id];
+    const record = existing && /^nps_[0-9a-f]{32}$/.test(existing.token)
+      ? existing
+      : { token: generatePushToken(), createdAt: new Date().toISOString() };
+    const replaced = !!existing && existing !== record;
+    state.tokens[app.id] = record;
+    savePushState(state);
+    // Connection may not exist yet (first registrant boots it); the sync
+    // marks the token set dirty even when it can't run right now.
+    pushSubscriptionsDirty = true;
+    const subscribed = await syncPushSubscriptions(true);
+    ensurePushConnection();
+    let endpoint = '/api/push/publish';
+    try { endpoint = new URL('/api/push/publish', window.location.href).toString(); } catch (_) { /* relative path is fine */ }
+    const queued = Array.isArray(state.queue[app.id]) ? state.queue[app.id].length : 0;
+    return respond(webview, 'nova:push:register', requestId, {
+      success: true,
+      token: record.token,
+      endpoint: endpoint,
+      queued: queued,
+      replaced: replaced,
+      subscribed: subscribed,
+    });
+  }
+
+  async function handlePushUnregister({ requestId, app, webview }) {
+    if (!AppPermissionManager.isGranted('push:receive', app.id)) {
+      return respondError(webview, 'nova:push:unregister', requestId, 'PERMISSION_DENIED', 'push:receive permission required');
+    }
+    const state = loadPushState();
+    const had = !!(state.tokens && Object.prototype.hasOwnProperty.call(state.tokens, app.id));
+    if (had) delete state.tokens[app.id];
+    // Unregistering stops the surface entirely: the queue is dropped too.
+    // Messages published after this point fail the grant check at the
+    // delivery ladder anyway — nothing new can queue behind this flush.
+    if (state.queue && Object.prototype.hasOwnProperty.call(state.queue, app.id)) delete state.queue[app.id];
+    savePushState(state);
+    pushSubscriptionsDirty = true;
+    await syncPushSubscriptions(true);
+    ensurePushConnection();
+    return respond(webview, 'nova:push:unregister', requestId, { success: true, removed: had });
+  }
+
+  // Rebuild the connection once the host module is live — deferred like
+  // the alarm bootstrap so a module load inside a test harness never
+  // opens anything before state exists. No-op wherever fetch is absent.
+  if (typeof setTimeout === 'function') {
+    const pushBootTimer = setTimeout(ensurePushConnection, 0);
+    if (pushBootTimer && typeof pushBootTimer.unref === 'function') pushBootTimer.unref();
   }
 
   const PUBLIC_APPEARANCE_SETTING_KEYS = new Set(['theme', 'accentColor', 'highContrast', 'reduceMotion', 'removeTransparency']);
@@ -6540,11 +8564,48 @@ const AppSandbox = (() => {
     // hands back to app code, so a single respond() call covers both
     // shapes — no separate legacy send needed.
     respond(webview, 'nova:ready', requestId, payload);
+
+    // One-shot alarms that fired while the app was fully closed are
+    // delivered right after the ready handshake — the app is up, its
+    // listeners can register. Bounded by ALARMS_QUEUE_MAX at enqueue time.
+    try {
+      const alarmState = loadAlarmState();
+      const alarmRecord = alarmState.apps[app.id];
+      if (alarmRecord && Array.isArray(alarmRecord.queue) && alarmRecord.queue.length) {
+        const pending = alarmRecord.queue.splice(0, alarmRecord.queue.length);
+        saveAlarmState(alarmState);
+        for (const queued of pending) {
+          respond(webview, 'nova:background:alarm', generateRequestId(), {
+            name: queued.name,
+            alarm: { name: queued.name, when: null, periodMinutes: null, scheduledTime: queued.scheduledTime },
+            firedAt: queued.firedAt,
+            queued: true,
+          });
+        }
+      }
+    } catch (_) { /* best-effort delivery */ }
+
+    // Inbound shares queued while this app was closed (share-target picks
+    // with no live sandbox) — delivered right after ready, like alarms.
+    try { flushShareInboundQueue(app.id, webview); } catch (_) { /* best-effort */ }
+
+    // Push messages queued while this app was fully closed (delivery
+    // ladder rungs 2 and 4) — delivered right after ready, same bounded
+    // semantics as the missed-alarm flush above.
+    try { flushPushQueue(app.id, webview); } catch (_) { /* best-effort */ }
   }
 
   // File dialogs
 
   async function handleDialogOpen({ payload, requestId, app, webview, sandbox }) {
+    // Same accept contract as the other two pickers (nova:files:open,
+    // nova:sysdialog:open): MIME types and/or .ext entries, array or comma
+    // string. An invalid list is rejected loudly instead of silently opening
+    // an unfiltered dialog.
+    if (payload?.accept !== undefined && normalizePickerAcceptList(payload?.accept) === null) {
+      return respondError(webview, 'nova:dialog:open', requestId, 'INVALID_ARGS',
+        'accept must be a string or an array of at most 20 MIME types and/or file extensions (e.g. ".json")');
+    }
     showFileDialog('open', webview, 'nova:dialog:open', requestId, app, payload, sandbox);
     // Response is sent from the dialog's confirm/cancel handler.
   }
@@ -6555,6 +8616,89 @@ const AppSandbox = (() => {
 
   // The trusted picker returns host paths; sandbox filesystem APIs use a
   // separate virtual filesystem and cannot resolve those paths as nodes.
+
+  // Picker accept-list contract (shared by nova:files:open and
+  // nova:sysdialog:open): an app may pass MIME types ('text/plain'),
+  // file extensions ('.json'), or both, matching <input accept> semantics —
+  // SystemDialogs.acceptFilter() has always understood both forms. The
+  // files:open handler used to validate entries as MIME-only, so an app
+  // sending ['.json', 'text/plain'] was rejected with INVALID_ARGS before
+  // the picker ever opened. Both handlers now share this validator.
+  const PICKER_ACCEPT_MAX_ENTRIES = 20;
+  const PICKER_ACCEPT_ENTRY_MAX_LEN = 64;
+  const PICKER_ACCEPT_MIME_RE = /^[\w.+*-]+\/[\w.+*-]+$/;
+  const PICKER_ACCEPT_EXT_RE = /^\.[\w+-]+$/i;
+
+  function isValidPickerAcceptEntry(entry) {
+    return typeof entry === 'string' && entry.length <= PICKER_ACCEPT_ENTRY_MAX_LEN
+      && (PICKER_ACCEPT_MIME_RE.test(entry) || PICKER_ACCEPT_EXT_RE.test(entry));
+  }
+
+  // Validates an accept list (array or, for sysdialog, a comma-separated
+  // string) and returns it in the single form SystemDialogs consumes:
+  // one comma-joined string. Returns undefined for "no filter".
+  function normalizePickerAcceptList(raw) {
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw === 'string') return raw.length <= 512 ? raw : undefined;
+    if (!Array.isArray(raw) || raw.length > PICKER_ACCEPT_MAX_ENTRIES
+      || raw.some(entry => !isValidPickerAcceptEntry(entry))) {
+      return null; // invalid — caller responds INVALID_ARGS
+    }
+    return raw.join(',');
+  }
+
+  // Multi-select ceiling for a single picker call. Each picked file is read
+  // into memory and base64-framed across the guest bridge (up to 10 MB per
+  // file), so an uncapped multi-pick lets an app memory-bomb its own sandbox
+  // through the bridge. 25 covers real photo/batch-import workflows.
+  const PICKER_MULTI_MAX_FILES = 25;
+
+  // Builds a (name, mimeType) => boolean matcher from an accept list in any
+  // form the pickers accept (comma string or array of MIME types and/or .ext
+  // rules). Mirrors SystemDialogs.acceptFilter semantics: extension rules
+  // match by filename suffix; MIME rules match the node's type exactly (or
+  // by type/* prefix) and let unidentified (application/octet-stream) files
+  // through, since the mime table cannot rule them out. Returns null when
+  // the list yields no usable rule. Used by the nova:dialog:open overlay,
+  // whose accept field used to be display-only (a "Filter:" label) while the
+  // documented example passed ['.txt', '.md'].
+  function pickerAcceptMatcher(rawAccept) {
+    const joined = normalizePickerAcceptList(rawAccept);
+    if (!joined) return null;
+    const rules = String(joined).split(',').map(r => r.trim().toLowerCase())
+      .filter(r => PICKER_ACCEPT_EXT_RE.test(r) || PICKER_ACCEPT_MIME_RE.test(r));
+    if (!rules.length) return null;
+    return (name, mimeType) => {
+      const lowerName = String(name || '').toLowerCase();
+      const type = String(mimeType || '').toLowerCase() || 'application/octet-stream';
+      return rules.some(rule => {
+        if (PICKER_ACCEPT_EXT_RE.test(rule)) return lowerName.endsWith(rule);
+        if (type === 'application/octet-stream') return true;
+        if (rule.endsWith('/*')) return type.startsWith(rule.slice(0, -1));
+        return type === rule;
+      });
+    };
+  }
+
+  // True when the bytes are clean UTF-8 text (no NUL bytes, decodes under a
+  // strict decoder). Used for files the mime table can't type — a
+  // '.recipe'-style custom text format looks like application/octet-stream
+  // but is plain text an app must be able to read as text. Genuinely binary
+  // content virtually always contains NULs or invalid UTF-8 sequences and
+  // still comes back base64 with encoding:'base64'.
+  function looksLikeUtf8Text(bytes) {
+    if (!bytes || !bytes.length) return true;
+    for (let i = 0; i < bytes.length; i++) {
+      if (bytes[i] === 0) return false;
+    }
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function readPickedHostFile(picked) {
     const path = require('path');
     const filePath = typeof picked?.path === 'string' ? picked.path : '';
@@ -6575,7 +8719,11 @@ const AppSandbox = (() => {
 
       const mimeType = typeof picked.mimeType === 'string' ? picked.mimeType : 'application/octet-stream';
       const isText = mimeType.startsWith('text/') ||
-        ['application/json', 'application/x-sh', 'application/xml'].includes(mimeType);
+        ['application/json', 'application/x-sh', 'application/xml'].includes(mimeType) ||
+        // Unknown-typed files: sniff. Returning clean UTF-8 as text keeps
+        // custom text formats ('.recipe', '.yaml', …) readable; real binary
+        // fails the sniff and stays base64. See looksLikeUtf8Text.
+        (mimeType === 'application/octet-stream' && looksLikeUtf8Text(data));
       return {
         name,
         path: resolvedPath,
@@ -6594,39 +8742,64 @@ const AppSandbox = (() => {
     if (typeof window.SystemDialogs === 'undefined') {
       return respondError(webview, 'nova:sysdialog:open', requestId, 'UNAVAILABLE', 'SystemDialogs not loaded');
     }
+    // accept: a comma-separated string OR an array of MIME types and/or file
+    // extensions — same contract as nova:files:open (normalizePickerAcceptList).
+    // Previously only the string form was read, so an app's array accept list
+    // was silently dropped and the picker showed every file unfiltered.
+    const accept = normalizePickerAcceptList(payload?.accept);
+    if (accept === null) {
+      return respondError(webview, 'nova:sysdialog:open', requestId, 'INVALID_ARGS',
+        'accept must be a string or an array of at most 20 MIME types and/or file extensions (e.g. ".json")');
+    }
+    // multiple: true — SystemDialogs has always supported click-to-toggle
+    // multi-select (open mode only), but this bridge never forwarded the
+    // flag, so every multi-file picker silently degraded to single-file.
+    const multiple = payload?.multiple === true;
     try {
       const picked = await window.SystemDialogs.open({
         title: typeof payload?.title === 'string' ? payload.title.slice(0, 100) : undefined,
         startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
           ? payload.startPath
           : undefined,
-        accept: typeof payload?.accept === 'string' && payload.accept.length <= 512
-          ? payload.accept
-          : undefined,
+        accept: accept || undefined,
+        multiple,
         pathOnly: true,
       });
       if (!picked) return respond(webview, 'nova:sysdialog:open', requestId, { cancelled: true });
-      let file;
-      if (typeof picked.path === 'string') {
-        file = await readPickedHostFile(picked);
-      } else {
-        if (!resolveFile({ id: picked.id }, app.id)) {
-          return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible files');
+      // Single picks resolve one descriptor; multi picks resolve an array.
+      // Normalize to an array of entries either way and answer with both
+      // shapes: `files` (always an array) and `file` (the first entry), so
+      // single-select apps keep their existing result.file reads while
+      // multi-select apps get a stable list.
+      const entries = Array.isArray(picked) ? picked : [picked];
+      if (entries.length > PICKER_MULTI_MAX_FILES) {
+        return respondError(webview, 'nova:sysdialog:open', requestId, 'LIMIT_REACHED',
+          `Multi-select is limited to ${PICKER_MULTI_MAX_FILES} files per pick`);
+      }
+      const files = [];
+      for (const entry of entries) {
+        if (typeof entry?.path === 'string') {
+          files.push(await readPickedHostFile(entry));
+        } else {
+          if (!resolveFile({ id: entry.id }, app.id)) {
+            return respondError(webview, 'nova:sysdialog:open', requestId, 'PERMISSION_DENIED', 'Selected file is outside this app\'s accessible files');
+          }
+          if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
+          sandbox.pickedFileIds.add(entry.id);
+          files.push({
+            id: entry.id,
+            name: entry.name,
+            content: entry.content || '',
+            mimeType: entry.mimeType || 'text/plain',
+            size: entry.size || 0,
+            path: FS.getPath(entry.id),
+          });
         }
-        if (!(sandbox.pickedFileIds instanceof Set)) sandbox.pickedFileIds = new Set();
-        sandbox.pickedFileIds.add(picked.id);
-        file = {
-          id: picked.id,
-          name: picked.name,
-          content: picked.content || '',
-          mimeType: picked.mimeType || 'text/plain',
-          size: picked.size || 0,
-          path: FS.getPath(picked.id),
-        };
       }
       respond(webview, 'nova:sysdialog:open', requestId, {
         success: true,
-        file,
+        file: files[0],
+        files,
       });
     } catch (e) {
       respondError(webview, 'nova:sysdialog:open', requestId, 'DIALOG_ERROR', e?.message || 'Dialog failed');
@@ -6634,7 +8807,15 @@ const AppSandbox = (() => {
   }
 
   function normalizeFsSavePayload(payload, filename) {
-    let content = typeof payload?.content === 'string' ? payload.content : '';
+    // Serialize non-string payloads instead of silently dropping them:
+    // an app saving { a: 1 } must get '{"a":1}' on disk, not an empty
+    // file. null/undefined keeps the historical '' (callers treat a
+    // missing content as an empty save); non-JSON values (cycles, BigInt)
+    // throw and surface as the caller's own error path.
+    let rawContent = payload?.content;
+    let content = typeof rawContent === 'string'
+      ? rawContent
+      : (rawContent == null ? '' : JSON.stringify(rawContent));
     let mimeType = typeof payload?.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(payload.mimeType)
       ? payload.mimeType
       : '';
@@ -6798,10 +8979,15 @@ const AppSandbox = (() => {
     if (typeof window.SystemDialogs?.open !== 'function') {
       return respondError(webview, 'nova:files:open', requestId, 'UNAVAILABLE', 'File picker is not available');
     }
-    const accept = payload?.accept;
-    if (accept !== undefined && (!Array.isArray(accept) || accept.length > 20
-      || accept.some(type => typeof type !== 'string' || !/^[\w.+*-]+\/[\w.+*-]+$/.test(type)))) {
-      return respondError(webview, 'nova:files:open', requestId, 'INVALID_ARGS', 'accept must be an array of MIME types');
+    // Accept entries may be MIME types ('text/plain') and/or file extensions
+    // ('.json') — same contract as nova:sysdialog:open; see
+    // normalizePickerAcceptList. (Previously MIME-only, which rejected the
+    // mixed lists real importers send and killed the feature with
+    // INVALID_ARGS before the picker even opened.)
+    const accept = normalizePickerAcceptList(payload?.accept);
+    if (accept === null) {
+      return respondError(webview, 'nova:files:open', requestId, 'INVALID_ARGS',
+        'accept must be an array of at most 20 MIME types and/or file extensions (e.g. ".json")');
     }
     try {
       const node = await window.SystemDialogs.open({
@@ -6809,7 +8995,7 @@ const AppSandbox = (() => {
         startPath: typeof payload?.startPath === 'string' && payload.startPath.length <= 4096
           ? payload.startPath
           : undefined,
-        accept: accept?.join(','),
+        accept: accept || undefined,
         pathOnly: true,
       });
       if (!node) return respond(webview, 'nova:files:open', requestId, { cancelled: true });
@@ -6983,8 +9169,20 @@ const AppSandbox = (() => {
     'nova:appearance:unsubscribe': handleAppearanceUnsubscribe,
     'nova:fs:read': handleFsRead,
     'nova:fs:write': handleFsWrite,
+    'nova:fs:watch': handleFsWatch,
+    'nova:fs:unwatch': handleFsUnwatch,
+    'nova:alarms:create': handleAlarmsCreate,
+    'nova:alarms:clear': handleAlarmsClear,
+    'nova:alarms:getAll': handleAlarmsGetAll,
+    'nova:push:register': handlePushRegister,
+    'nova:push:unregister': handlePushUnregister,
+    'nova:secrets:set': handleSecretsSet,
+    'nova:secrets:get': handleSecretsGet,
+    'nova:secrets:delete': handleSecretsDelete,
+    'nova:secrets:keys': handleSecretsKeys,
     'nova:fs:delete': handleFsDelete,
     'nova:fs:list': handleFsList,
+    'nova:media:query': handleMediaQuery,
     'nova:fs:mkdir': handleFsMkdir,
     'nova:fs:stat': handleFsStat,
     'nova:fs:rename': handleFsRename,
@@ -6999,6 +9197,12 @@ const AppSandbox = (() => {
     'nova:settings:get': handleSettingsGet,
     'nova:settings:set': handleSettingsSet,
     'nova:wallpaper:set': handleWallpaperSet,
+    'nova:reg:get': handleRegGet,
+    'nova:reg:set': handleRegSet,
+    'nova:reg:delete': handleRegDelete,
+    'nova:reg:list': handleRegList,
+    'nova:reg:export': handleRegExport,
+    'nova:reg:import': handleRegImport,
     'nova:request-permission': handleRequestPermission,
     'nova:permission-rate-limited': handlePermissionRateLimited,
     'nova:window:close': handleWindowClose,
@@ -7051,6 +9255,10 @@ const AppSandbox = (() => {
     'nova:storage:clear': handleStorageClear,
     'nova:storage:keys': handleStorageKeys,
     'nova:storage:usage': handleStorageUsage,
+    'nova:data:export': handleDataExport,
+    'nova:data:import': handleDataImport,
+    'nova:data:backup': handleDataBackup,
+    'nova:data:restore': handleDataRestore,
     'nova:device:geolocation': handleDeviceGeolocation,
     'nova:device:camera': handleDeviceCamera,
     'nova:device:microphone': handleDeviceMicrophone,
@@ -7061,6 +9269,9 @@ const AppSandbox = (() => {
     'nova:contacts:write': handleContactsWrite,
     'nova:contacts:delete': handleContactsDelete,
     'nova:system:info': handleSystemInfo,
+    'nova:locale:get': handleLocaleGet,
+    'nova:badge:set': handleBadgeSet,
+    'nova:badge:clear': handleBadgeClear,
     'nova:ready': handleReady,
     'nova:dialog:open': handleDialogOpen,
     'nova:dialog:save': handleDialogSave,
@@ -7073,9 +9284,14 @@ const AppSandbox = (() => {
   const ISOLATED_PROCESS_API_TYPES = new Set([
     'nova:ready', 'nova:app:info',
     'nova:fs:read', 'nova:fs:write', 'nova:fs:delete', 'nova:fs:list',
+    'nova:media:query',
     'nova:fs:mkdir', 'nova:fs:stat', 'nova:fs:rename', 'nova:fs:move',
+    'nova:fs:watch', 'nova:fs:unwatch',
+    'nova:alarms:create', 'nova:alarms:clear', 'nova:alarms:getAll',
+    'nova:secrets:set', 'nova:secrets:get', 'nova:secrets:delete', 'nova:secrets:keys',
     'nova:storage:get', 'nova:storage:set', 'nova:storage:delete',
     'nova:storage:clear', 'nova:storage:keys', 'nova:storage:usage',
+    'nova:data:export', 'nova:data:import', 'nova:data:backup', 'nova:data:restore',
     'nova:settings:get', 'nova:settings:set',
     'nova:appearance:get', 'nova:appearance:set',
     'nova:notifications:show', 'nova:notifications:clear',
@@ -7089,12 +9305,93 @@ const AppSandbox = (() => {
     'nova:mail:send', 'nova:mail:delete',
     'nova:calendar:read', 'nova:calendar:write', 'nova:calendar:delete',
     'nova:contacts:read', 'nova:contacts:write', 'nova:contacts:delete',
+    'nova:locale:get', 'nova:badge:set', 'nova:badge:clear',
   ]);
+
+  // ---------------------------------------------------------------------------
+  // Legacy VFS channel compat (translate-then-enforce).
+  //
+  // The pre-scoped-storage era exposed the filesystem as nova:vfs:* channels
+  // (read/write/delete/list/mkdir/stat/rename/move) backed by vfs:* permission
+  // names. Both families were renamed in the fs:* era, so old apps have been
+  // failing with UNKNOWN_API (channels) or silently stripped permissions
+  // (manifests) ever since. Instead of leaving those apps broken, legacy
+  // channel names are translated to their modern counterparts at the IPC
+  // front door — BEFORE handler lookup and the MAC policy check — so a legacy
+  // call takes exactly the same enforcement path (MAC front door, per-path
+  // scoped-storage rules, handler checks) as if the app had dialed the modern
+  // channel. There is no alias bypass: translating first is the whole design.
+  //
+  // Mappings mirror the historical handler table one-for-one (the payload and
+  // response shapes of nova:fs:* are backward-compatible with nova:vfs:* —
+  // same path/content/stat fields; the modern handlers only ADD fields):
+  //   nova:vfs:read → nova:fs:read      nova:vfs:write → nova:fs:write
+  //   nova:vfs:delete → nova:fs:delete  nova:vfs:list → nova:fs:list
+  //   nova:vfs:mkdir → nova:fs:mkdir    nova:vfs:stat → nova:fs:stat
+  //   nova:vfs:rename → nova:fs:rename  nova:vfs:move → nova:fs:move
+  // plus the bare vfs:* spellings, and the metadata variants (vfs:metadata
+  // was the legacy permission NAME; as a channel intent it maps to the
+  // metadata channel nova:fs:stat — the typo'd 'metedata' spelling is
+  // aliased too as free insurance: it is not a verified historical channel
+  // name, but aliasing it costs two map entries and a package that ever
+  // shipped the typo keeps working). There is deliberately NO vfs:access channel
+  // alias: vfs:access was only ever a permission, never a channel (it got
+  // UNKNOWN_API in the old era as well); AppRegistry translates it to
+  // fs:access on the permission side instead (see LEGACY_PERMISSION_ALIASES
+  // in app-registry.js).
+  //
+  // Response transparency note: handlers respond with their own frozen
+  // modern type strings (respond(…, 'nova:fs:read', …)), so a legacy caller's
+  // response carries type "nova:fs:read", not "nova:vfs:read". That is safe
+  // by construction — the guest shim matches responses to callers by
+  // requestId, never by type (see buildCapabilityShim), and error envelopes
+  // keep the code/message shape legacy apps already read. Documented in
+  // NOVAAPP.md ("Legacy vfs compatibility").
+  const LEGACY_VFS_CHANNEL_ALIASES = Object.freeze({
+    // Historical channel names (nova-prefixed).
+    'nova:vfs:read': 'nova:fs:read',
+    'nova:vfs:write': 'nova:fs:write',
+    'nova:vfs:delete': 'nova:fs:delete',
+    'nova:vfs:list': 'nova:fs:list',
+    'nova:vfs:mkdir': 'nova:fs:mkdir',
+    'nova:vfs:stat': 'nova:fs:stat',
+    'nova:vfs:rename': 'nova:fs:rename',
+    'nova:vfs:move': 'nova:fs:move',
+    // Bare spellings (no nova: prefix) — accepted for the same reason.
+    'vfs:read': 'nova:fs:read',
+    'vfs:write': 'nova:fs:write',
+    'vfs:delete': 'nova:fs:delete',
+    'vfs:list': 'nova:fs:list',
+    'vfs:mkdir': 'nova:fs:mkdir',
+    'vfs:stat': 'nova:fs:stat',
+    'vfs:rename': 'nova:fs:rename',
+    'vfs:move': 'nova:fs:move',
+    // Metadata spellings → the metadata channel.
+    'vfs:metadata': 'nova:fs:stat',
+    'vfs:metedata': 'nova:fs:stat',
+    'nova:vfs:metadata': 'nova:fs:stat',
+    'nova:vfs:metedata': 'nova:fs:stat',
+  });
+
+  // Resolve a legacy channel name to its modern counterpart. Non-legacy
+  // names (including every modern one) pass through unchanged, so the
+  // resolution is idempotent and safe to apply at every entry point.
+  function resolveLegacyIpcType(type) {
+    return Object.prototype.hasOwnProperty.call(LEGACY_VFS_CHANNEL_ALIASES, type)
+      ? LEGACY_VFS_CHANNEL_ALIASES[type]
+      : type;
+  }
 
   // Dispatch an incoming IPC message to its handler. Catches sync throws and
   // async rejections so a single misbehaving handler can't take down the
   // bridge. Unknown types get an UNKNOWN_API error response.
-  async function handleAPICall(type, payload, requestId, app, webview, sandbox) {
+  async function handleAPICall(rawType, payload, requestId, app, webview, sandbox) {
+    // Legacy vfs:* channels resolve to their modern nova:fs:* counterparts
+    // before the forbidden-API gate, handler lookup, and the MAC front door
+    // (translate-then-enforce — see LEGACY_VFS_CHANNEL_ALIASES above). All
+    // enforcement below therefore sees the modern name and applies the
+    // identical rules a modern call would get.
+    const type = resolveLegacyIpcType(rawType);
     try {
       if (GUEST_FORBIDDEN_IPC_APIS.has(type)) {
         return respondError(webview, type, requestId, 'PERMISSION_DENIED', 'This system capability is only available through trusted OS UI');
@@ -7140,7 +9437,13 @@ const AppSandbox = (() => {
         typeof requestId !== 'string' || !requestId) {
       throw new TypeError('A valid app ID, API type, and request ID are required');
     }
-    if (!ISOLATED_PROCESS_API_TYPES.has(type)) {
+    // Same translate-then-enforce rule as the sandboxed bridge: legacy
+    // vfs:* names resolve before the isolated-process allowlist check, so
+    // an old app's call gets the identical gate the modern channel gets.
+    // The UNAVAILABLE envelope below still echoes the caller's original
+    // type, and handleAPICall re-resolves (idempotently) on the way in.
+    const resolvedType = resolveLegacyIpcType(type);
+    if (!ISOLATED_PROCESS_API_TYPES.has(resolvedType)) {
       return {
         type: `${type}:response`,
         requestId,
@@ -7255,12 +9558,29 @@ const AppSandbox = (() => {
       // host-initiated read that doesn't land in the visible log stream
       // the way console.log broadcasts do.
       const { type, requestId } = data;
-      if (typeof type !== 'string'
-        || (!Object.prototype.hasOwnProperty.call(API_HANDLERS, type) && !GUEST_FORBIDDEN_IPC_APIS.has(type))) {
-        log('warn', `Rejected IPC message with unknown/disallowed type from ${app?.id || 'unknown app'}: ${String(type)}`);
-        return;
-      }
+      // requestId must be validated BEFORE the type check can answer: an
+      // unknown type is answered with UNKNOWN_API, and a response needs a
+      // routable requestId to land on. A typeless or id-less message can't
+      // be answered at all — dropped as before.
+      if (typeof type !== 'string' || !type) return;
       if (typeof requestId !== 'string' || !requestId) return;
+      // Legacy vfs:* channel names must resolve BEFORE this membership
+      // check, or old apps would be answered UNKNOWN_API right here and
+      // never reach handleAPICall's translate-then-enforce path. The
+      // UNKNOWN_API answer below still echoes the name the app actually
+      // sent, and handleAPICall re-resolves (idempotently) on the way in.
+      const resolvedType = resolveLegacyIpcType(type);
+      if (!Object.prototype.hasOwnProperty.call(API_HANDLERS, resolvedType) && !GUEST_FORBIDDEN_IPC_APIS.has(resolvedType)) {
+        // Unknown endpoint (e.g. a typo'd channel name). Historically this
+        // was dropped silently, which left the guest's pending ipc() promise
+        // hanging until the bridge timeout — a 30s wait ending in a generic
+        // TypeError with no error code. The documented contract (NOVAAPP.md
+        // error-code table) says a typo rejects with UNKNOWN_API, so answer
+        // it: the guest gets an immediate, code-carrying rejection while the
+        // unknown type still never reaches a handler.
+        log('warn', `Rejected IPC message with unknown type from ${app?.id || 'unknown app'}: ${type}`);
+        return respondError(webview, type, requestId, 'UNKNOWN_API', `Unknown API: ${type}`);
+      }
 
       // Deliberately NOT { mainWorld: true } — window.__novaOutboxPull now
       // lives inside the isolated-world transport script (see
@@ -7473,6 +9793,21 @@ const AppSandbox = (() => {
     return app.allowNestedWebview === true
       || app.manifest?.allowNestedWebview === true
       || declaredPermissions.includes('sandbox:nested-webview');
+  }
+
+  // Sandbox popups that escape the app sandbox use the same double gate as
+  // allowSameOrigin (manifest opt-in AND a separate user grant), but the
+  // manifest opt-in is a TOP-LEVEL allowPopupsToEscapeSandbox field — the
+  // same location as allowNestedWebview, which is how NOVAAPP.md and the
+  // studio permission picker both document it. Unlike nested-webview,
+  // listing sandbox:escape-popups in `permissions` does NOT count as the
+  // opt-in: the docs are explicit that the permission alone does nothing,
+  // the boolean is the publisher's declaration that this app's popups are
+  // meant to run unsandboxed.
+  function isEscapePopupsOptedIn(app) {
+    if (!app) return false;
+    return app.allowPopupsToEscapeSandbox === true
+      || app.manifest?.allowPopupsToEscapeSandbox === true;
   }
 
   function isNestedWebviewPermitted(app) {
@@ -7719,6 +10054,13 @@ const AppSandbox = (() => {
   // Source for the additive, modern app-facing API. Keep the facade thin: all
   // operations still go through the existing IPC bridge and host-side handlers,
   // which preserve per-app isolation, validation, quotas, and permission checks.
+  //
+  // Facade completion policy (documented in NOVAAPP.md under "API versions
+  // and backward compatibility"): every facade here is pure sugar over an
+  // existing channel — the v1 channel, its payload, its response object,
+  // its error codes, and its permission gate are all UNCHANGED. The v1
+  // surface is frozen; anything genuinely new ships as a new channel with
+  // its own facade method, never as a behavior change to an old one.
   // This is source text because the code runs inside each sandboxed app document.
   function buildNovaOSFacadeSource(maxHttpBodyBytes) {
     const bodyCap = Number(maxHttpBodyBytes) >= 64 * 1024 ? Math.floor(Number(maxHttpBodyBytes)) : 6 * 1024 * 1024;
@@ -7730,8 +10072,111 @@ const AppSandbox = (() => {
   // every request, so these guest-side checks are just early failures.
   const __NOVA_MAX_BODY_BYTES__ = ${bodyCap};
   const NOVAOS_SUPPORTED_CAPABILITIES = Object.freeze({
+    // One capability per v2 facade surface. These mean "this runtime ships
+    // this facade" — feature detection, NOT permission state (an app must
+    // still hold the underlying grant for gated surfaces; the capability
+    // tells it whether to bother probing the API at all). New facades add
+    // names here; existing names are never removed.
     'storage.v2': true,
+    'fs.v2': true,
+    'clipboard.v2': true,
+    'notifications.v2': true,
+    'window.v2': true,
+    'dialogs.v2': true,
+    'app.v2': true,
+    'data.v2': true,
+    // New host-side capabilities (each with its own permission — a
+    // capability name says the runtime ships the surface, not that the
+    // app may use it).
+    'locale.v1': true,
+    'badge.v1': true,
+    'fsWatch.v1': true,
+    'alarms.v1': true,
+    'secrets.v1': true,
+    'shareTarget.v1': true,
+    'push.v1': true,
+    // v2 sugar over frozen v1 channels (nova:settings:*, nova:ready) —
+    // same gates, same payloads, nothing new host-side.
+    'settings.v2': true,
+    'ready.v2': true,
+    // Full-coverage v2 sugar over the remaining frozen v1 channel families
+    // (events, device, calendar/contacts, mail, admin, background,
+    // permissions, websocket) — still pure sugar, still nothing new
+    // host-side.
+    'events.v2': true,
+    'geolocation.v2': true,
+    'media.v2': true,
+    'calendar.v2': true,
+    'contacts.v2': true,
+    'mail.v2': true,
+    'admin.v2': true,
+    'background.v2': true,
+    'permissions.v2': true,
+    'net.v2': true,
+    // NovaByte Registry — nova:reg:* channels + the nova:reg:changed event.
+    'registry.v1': true,
   });
+  // Listener state for the v2 event-bus, background-wake, and net facades.
+  // Deliberately separate from the v1 bridge's own collections
+  // (eventListeners / backgroundWakeListeners — frozen window.nova surface):
+  // the push dispatch fans out to both independently, and each side manages
+  // only its own callbacks. __v1EventListeners lets the events facade
+  // coordinate with v1 listeners when this source is embedded in the full
+  // capability shim (always, in a real sandbox): the host holds ONE
+  // subscription per sandbox per event name, so while v1 listeners exist
+  // for a name we neither re-subscribe (the host would answer
+  // ALREADY_SUBSCRIBED) nor host-unsubscribe out from under them. It is
+  // null when this source is evaluated standalone (the test harness).
+  const novaOSEventListeners = {}; // eventName -> [callback, ...]
+  const novaOSWakeListeners = [];
+  // Per-socket listeners for the v2 net facade (novaOS.net.websocket) —
+  // wsId -> { message: [...], error: [...], close: [...] }. Separate from
+  // the v1 wrapper's wsEventListeners for the same reason as above: the
+  // push dispatch fans out to both, and each surface manages only its own
+  // entries (a wsId's entry goes when its close push arrives).
+  const novaOSWsListeners = {};
+  const __v1EventListeners = (typeof eventListeners === 'object' && eventListeners !== null) ? eventListeners : null;
+  // Shared subscription machinery for the events facade AND registry.watch()
+  // (which is v2 sugar over the 'nova:reg:changed' event with a guest-side
+  // prefix filter). Stacks any number of listeners per event name over ONE
+  // host subscription, tolerates an existing subscription, and returns an
+  // off() function that also unsubscribes host-side once the last listener
+  // for the name goes. (Body moved verbatim out of the events facade so
+  // both surfaces share it.)
+  function novaOSEventOn(eventName, callback) {
+    if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+    if (!novaOSEventListeners[eventName]) novaOSEventListeners[eventName] = [];
+    novaOSEventListeners[eventName].push(callback);
+    const v1HasListeners = !!(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length);
+    const needsSubscribe = novaOSEventListeners[eventName].length === 1 && !v1HasListeners;
+    const sub = needsSubscribe
+      ? ipc('nova:events:subscribe', { event: eventName }).then(null, function(error) {
+          if (error && error.code === 'ALREADY_SUBSCRIBED') {
+            return { success: true, subscribed: eventName };
+          }
+          // The host refused the subscription (allowlist miss,
+          // PERMISSION_DENIED, bus unavailable) — don't leave a
+          // listener registered for a subscription that will never fire.
+          const list = novaOSEventListeners[eventName] || [];
+          const index = list.indexOf(callback);
+          if (index >= 0) list.splice(index, 1);
+          if (list.length === 0) delete novaOSEventListeners[eventName];
+          throw error;
+        })
+      : Promise.resolve({ success: true, subscribed: eventName });
+    return sub.then(function() {
+      return function() {
+        const list = novaOSEventListeners[eventName] || [];
+        const index = list.indexOf(callback);
+        if (index >= 0) list.splice(index, 1);
+        if (list.length === 0 && !(__v1EventListeners && __v1EventListeners[eventName] && __v1EventListeners[eventName].length)) {
+          delete novaOSEventListeners[eventName];
+          return ipc('nova:events:unsubscribe', { event: eventName }).then(function() {});
+        }
+        return undefined;
+      };
+    });
+  }
   window.novaOS = Object.freeze({
     apiVersion: 2,
     capabilities: Object.freeze({
@@ -7783,6 +10228,63 @@ const AppSandbox = (() => {
     // the shared tree under the same permission rules as raw paths —
     // ownership and grant checks happen on every call host-side.
     fs: Object.freeze({
+      // Full facade over the raw nova:fs:* channels — same caller-relative
+      // paths (appdata:/shared:/media: roots accepted), same permission
+      // rules, same file records and error codes. Pure sugar: nothing here
+      // bypasses or re-implements the host-side path rewriting, MAC checks,
+      // or quotas — the host handler is still the only boundary.
+      read: function(path) {
+        return ipc('nova:fs:read', { path: path });
+      },
+      write: function(path, content) {
+        return ipc('nova:fs:write', { path: path, content: content });
+      },
+      list: function(path) {
+        return ipc('nova:fs:list', { path: path });
+      },
+      stat: function(path) {
+        return ipc('nova:fs:stat', { path: path });
+      },
+      mkdir: function(path, name) {
+        return ipc('nova:fs:mkdir', { path: path, name: name });
+      },
+      rename: function(path, name) {
+        return ipc('nova:fs:rename', { path: path, name: name });
+      },
+      move: function(path, destPath) {
+        return ipc('nova:fs:move', { path: path, destPath: destPath });
+      },
+      remove: function(path) {
+        return ipc('nova:fs:delete', { path: path });
+      },
+      // Change watch (fs:watch + the per-path read rules of nova:fs:read —
+      // watching is reading). watch() resolves with a handle whose unwatch()
+      // stops the events; changes arrive on the callback as
+      // { watcherId, path, kind: 'changed'|'created'|'deleted', timestamp }.
+      // Delivery is debounced and budgeted host-side (max 8 watchers, 60
+      // events/min) and is best-effort — poll if you need guarantees.
+      watch: function(path, callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        const watcherId = 'w_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+        fsWatchListeners[watcherId] = [callback];
+        return ipc('nova:fs:watch', { path: path, watcherId: watcherId }).then(function(result) {
+          return {
+            watcherId: watcherId,
+            path: result && result.path ? result.path : path,
+            unwatch: function() {
+              delete fsWatchListeners[watcherId];
+              return ipc('nova:fs:unwatch', { watcherId: watcherId }).then(function() {});
+            },
+          };
+        }, function(error) {
+          delete fsWatchListeners[watcherId];
+          throw error;
+        });
+      },
+      // Raw unwatch by watcher id (fs.watch().unwatch() is the usual path).
+      unwatch: function(watcherId) {
+        return ipc('nova:fs:unwatch', { watcherId: watcherId }).then(function() {});
+      },
       appdata: Object.freeze({
         list: function(path) {
           return ipc('nova:fs:list', { path: 'appdata:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
@@ -7805,6 +10307,524 @@ const AppSandbox = (() => {
           return ipc('nova:fs:read', { path: 'shared:/' + String(path || '').replace(/^\\/+$|^\\/+/, '') });
         },
       }),
+    }),
+    // Indexed shared media metadata (nova:media:query). File bytes must
+    // still be read through fs.read(), which applies the usual per-file
+    // media permission checks. The device media-authorization checks live
+    // on this surface too (device:camera / device:microphone) — the raw
+    // channels are authorization-only (a MediaStream can't cross the IPC
+    // bridge), so checkCamera()/checkMicrophone() resolve true when the
+    // app-level grant is held and reject PERMISSION_DENIED when it isn't.
+    // getUserMedia(constraints) mirrors window.nova.getUserMedia:
+    // app-level checks first, then the real getUserMedia() in THIS
+    // document — the browser's own permission gate still runs separately
+    // when it is invoked (the permissionrequest 'media' branch). One
+    // merged media surface: an earlier draft shipped these as two
+    // media keys, where the later one silently clobbered query().
+    media: Object.freeze({
+      query: function(options) {
+        return ipc('nova:media:query', options || {});
+      },
+      checkCamera: function() { return ipc('nova:device:camera', {}).then(function() { return true; }); },
+      checkMicrophone: function() { return ipc('nova:device:microphone', {}).then(function() { return true; }); },
+      getUserMedia: function(constraints) {
+        constraints = constraints || {};
+        const needsCamera = !!constraints.video;
+        const needsMic = !!constraints.audio;
+        const checks = [];
+        if (needsCamera) checks.push(ipc('nova:device:camera', {}));
+        if (needsMic) checks.push(ipc('nova:device:microphone', {}));
+        if (checks.length === 0) {
+          return Promise.reject(new TypeError('getUserMedia requires at least one of video/audio in constraints'));
+        }
+        return Promise.all(checks).then(function() {
+          if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+            return Promise.reject(new TypeError('getUserMedia not available in this environment'));
+          }
+          return navigator.mediaDevices.getUserMedia(constraints);
+        });
+      },
+    }),
+    // Clipboard facade. readText() normalizes to the text itself (null when
+    // nothing is readable — matches nova:clipboard:read's null text field);
+    // writeText() resolves undefined. Permission behavior is identical to
+    // the raw channels (clipboard:read / clipboard:write, host-checked).
+    clipboard: Object.freeze({
+      readText: function() {
+        return ipc('nova:clipboard:read', {}).then(function(result) {
+          return result && Object.prototype.hasOwnProperty.call(result, 'text') ? result.text : null;
+        });
+      },
+      writeText: function(text) {
+        return ipc('nova:clipboard:write', { text: text }).then(function() {});
+      },
+    }),
+    // Notifications facade — 1:1 with the v1 channels, same permission gate
+    // (device:notifications), same rate limits, same payloads. Mutations
+    // resolve undefined; show/post return the raw response (which may be an
+    // UNAVAILABLE/RATE_LIMITED error rejection exactly like v1).
+    notifications: Object.freeze({
+      show: function(options) {
+        return ipc('nova:notifications:show', options || {});
+      },
+      post: function(options) {
+        return ipc('nova:notifications:post', options || {});
+      },
+      createChannel: function(id, name, importance) {
+        return ipc('nova:notifications:createChannel', { id: id, name: name, importance: importance });
+      },
+      cancel: function(id) {
+        return ipc('nova:notifications:cancel', { id: id });
+      },
+      cancelAll: function() {
+        return ipc('nova:notifications:cancelAll', {}).then(function() {});
+      },
+      clear: function() {
+        return ipc('nova:notifications:clear', {}).then(function() {});
+      },
+      consumeActions: function() {
+        return ipc('nova:notifications:consumeActions', {});
+      },
+    }),
+    // Window facade — the same controls nova:window:* offers. Mutations
+    // resolve undefined; getState() returns the normalized state record
+    // (the raw response minus its success flag). Host-side clamps are
+    // unchanged: the host still caps titles and dimensions.
+    window: Object.freeze({
+      close: function() { return ipc('nova:window:close', {}).then(function() {}); },
+      minimize: function() { return ipc('nova:window:minimize', {}).then(function() {}); },
+      maximize: function() { return ipc('nova:window:maximize', {}).then(function() {}); },
+      setTitle: function(title) { return ipc('nova:window:setTitle', { title: title }).then(function() {}); },
+      resize: function(width, height) {
+        return ipc('nova:window:resize', { width: width, height: height }).then(function() {});
+      },
+      getState: function() {
+        return ipc('nova:window:getState', {}).then(function(result) {
+          return {
+            id: result.id, x: result.x, y: result.y,
+            width: result.width, height: result.height,
+            maximized: !!result.maximized, minimized: !!result.minimized,
+          };
+        });
+      },
+    }),
+    // Dialog facade — unifies the two historical pickers behind one pair of
+    // methods. style: 'styled' (default) uses the OS-styled picker
+    // (nova:sysdialog:*); style: 'system' uses the plain picker
+    // (nova:dialog:*). Both are user-mediated: the app only ever gets what
+    // the user actively picked, so no permission gates either path.
+    // Extra options (accept, multiple, defaultName, …) pass through
+    // unchanged; the style key itself is stripped before sending.
+    dialog: Object.freeze({
+      pickOpen: function(options) {
+        const opts = options || {};
+        const payload = Object.assign({}, opts);
+        delete payload.style;
+        if (opts.style === 'system') return ipc('nova:dialog:open', payload);
+        return ipc('nova:sysdialog:open', payload);
+      },
+      pickSave: function(options) {
+        const opts = options || {};
+        const payload = Object.assign({}, opts);
+        delete payload.style;
+        if (opts.style === 'system') return ipc('nova:dialog:save', payload);
+        return ipc('nova:sysdialog:save', payload);
+      },
+    }),
+    // App facade — info/list/launch plus the user-mediated intents. Same
+    // permission gates as the raw channels (list/install need system:apps,
+    // launch needs system:app-launch or system:apps, share/openUrl/openWith
+    // are user-mediated and ungated).
+    app: Object.freeze({
+      info: function() { return ipc('nova:app:info', {}); },
+      list: function() { return ipc('nova:app:list', {}); },
+      launch: function(appId, options) {
+        return ipc('nova:app:launch', { appId: appId, options: options || {} });
+      },
+      openUrl: function(url) { return ipc('nova:open-url', { url: url }); },
+      share: function(data) { return ipc('nova:share', data || {}); },
+      openWith: function(fileId) { return ipc('nova:open-with', { fileId: fileId }); },
+    }),
+    // Data portability facade — thin sugar over nova:data:* (see the
+    // Data portability chapter; envelopes are checksummed and pinned to
+    // the calling appId host-side).
+    data: Object.freeze({
+      export: function(options) { return ipc('nova:data:export', options || {}); },
+      import: function(envelope) { return ipc('nova:data:import', { envelope: envelope }); },
+      backup: function() { return ipc('nova:data:backup', {}); },
+      restore: function(envelope, options) {
+        return ipc('nova:data:restore', Object.assign({ envelope: envelope }, options || {}));
+      },
+    }),
+    // Locale facade — no permission, coarse formatting facts only (see the
+    // host handler). get() returns the normalized record.
+    locale: Object.freeze({
+      get: function() {
+        return ipc('nova:locale:get', {}).then(function(result) {
+          return {
+            locale: result && typeof result.locale === 'string' ? result.locale : 'en-US',
+            region: result && typeof result.region === 'string' ? result.region : null,
+            timeZone: result && typeof result.timeZone === 'string' ? result.timeZone : null,
+            firstDayOfWeek: result && result.firstDayOfWeek === 'sunday' ? 'sunday' : 'monday',
+          };
+        });
+      },
+    }),
+    // Taskbar badge (system:badge). set takes a number 0-999 or an object
+    // { text } (1-4 chars); set(0) clears, exactly like clear(). Mutations
+    // resolve undefined; the host clamps and rate-limits authoritatively.
+    badge: Object.freeze({
+      set: function(value) {
+        const payload = typeof value === 'number' ? { count: value } : (value || {});
+        return ipc('nova:badge:set', payload).then(function() {});
+      },
+      clear: function() { return ipc('nova:badge:clear', {}).then(function() {}); },
+    }),
+    // Secrets (secrets:store) — encrypted per-app credential store. get()
+    // returns the plaintext string or null (absent or unauthenticated);
+    // mutations resolve undefined; keys() lists only this app's own labels.
+    // Secrets never appear in data export/backup envelopes — they are not
+    // part of the portable namespace, by design.
+    secrets: Object.freeze({
+      set: function(key, value) { return ipc('nova:secrets:set', { key: key, value: value }).then(function() {}); },
+      get: function(key) {
+        return ipc('nova:secrets:get', { key: key }).then(function(result) {
+          return result && Object.prototype.hasOwnProperty.call(result, 'value') ? result.value : null;
+        });
+      },
+      delete: function(key) { return ipc('nova:secrets:delete', { key: key }).then(function() {}); },
+      keys: function() {
+        return ipc('nova:secrets:keys', {}).then(function(result) {
+          return result && Array.isArray(result.keys) ? result.keys : [];
+        });
+      },
+    }),
+    // Inbound share (system:share-target) — receive content other apps
+    // shared after the user picked THIS app in the share sheet. The push
+    // payload: { title, text, url, sourceAppId, firedAt, queued? }.
+    share: Object.freeze({
+      onInbound: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        shareInboundListeners.push(callback);
+        return function() {
+          const index = shareInboundListeners.indexOf(callback);
+          if (index >= 0) shareInboundListeners.splice(index, 1);
+        };
+      },
+    }),
+    // Named alarms (system:schedule). create takes exactly one of
+    // when (future epoch ms, one-shot) or periodMinutes (>= 15, periodic);
+    // re-creating a name replaces it. Fires arrive via onAlarm as
+    // { name, alarm: { scheduledTime, ... }, firedAt, queued? }. Alarms
+    // fire while the app is running or keep-alive; one-shots missed while
+    // fully closed are delivered right after the next launch.
+    alarms: Object.freeze({
+      create: function(options) { return ipc('nova:alarms:create', options || {}); },
+      clear: function(name) { return ipc('nova:alarms:clear', { name: name }).then(function() {}); },
+      getAll: function() {
+        return ipc('nova:alarms:getAll', {}).then(function(result) {
+          return result && Array.isArray(result.alarms) ? result.alarms : [];
+        });
+      },
+      onAlarm: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        alarmListeners.push(callback);
+        return function() {
+          const index = alarmListeners.indexOf(callback);
+          if (index >= 0) alarmListeners.splice(index, 1);
+        };
+      },
+    }),
+    // Push delivery (push:receive) — messages from the app's own backend
+    // via the OS push service. register() resolves
+    // { success, token, endpoint, queued?, replaced?, subscribed } — hand
+    // the stable token to YOUR backend, which publishes to the endpoint
+    // documented in NOVAAPP.md. register() is idempotent: the same install
+    // keeps the same token. Messages arrive via onMessage as
+    // { appId, id, title?, body?, data?, sentAt, queued? }.
+    push: Object.freeze({
+      register: function() { return ipc('nova:push:register', {}).then(function(result) { return result || {}; }); },
+      unregister: function() { return ipc('nova:push:unregister', {}).then(function() {}); },
+      onMessage: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        pushListeners.push(callback);
+        return function() {
+          const index = pushListeners.indexOf(callback);
+          if (index >= 0) pushListeners.splice(index, 1);
+        };
+      },
+    }),
+    // Settings access — v2 sugar over nova:settings:get/set. The gates are
+    // the ones those channels always had, unchanged: reading requires
+    // system:info, writing requires system:settings (the wallpaper keys
+    // keep their write-grant exemption, still subject to the
+    // prohibitWallpaperChange policy toggle host-side), and both directions
+    // stay bound to the OS-owned key allowlists — credentials, osVersion,
+    // and devMode are unreachable no matter how this is called. get()
+    // resolves the raw stored value (undefined when the key is unset);
+    // set() resolves undefined. There is deliberately no list/subscribe
+    // surface here: the allowlist is deny-by-default, and settings-change
+    // events stay host-internal (use the appearance facade for the public
+    // appearance subset).
+    settings: Object.freeze({
+      get: function(key) {
+        return ipc('nova:settings:get', { key: key }).then(function(result) {
+          return result && Object.prototype.hasOwnProperty.call(result, 'value')
+            ? result.value
+            : undefined;
+        });
+      },
+      set: function(key, value) {
+        return ipc('nova:settings:set', { key: key, value: value }).then(function() {});
+      },
+    }),
+    // Ready-handshake snapshot — v2 sugar over nova:ready (ungated, same as
+    // the automatic handshake and the v1 app.getInfo()). Resolves this
+    // app's authenticated launch payload: its id, the permission grants
+    // actually in effect right now, and OS identity (username only for
+    // system-bundled apps — null otherwise). The automatic handshake on
+    // load keeps the delivery side effects (queued alarms, shares, and
+    // pushes flush right after it); this snapshot never delivers anything,
+    // and repeat calls are safe because those queues drain once.
+    ready: Object.freeze({
+      get: function() {
+        return ipc('nova:ready', {}).then(function(result) {
+          return {
+            appId: result && typeof result.appId === 'string' ? result.appId : null,
+            permissions: result && Array.isArray(result.permissions) ? result.permissions : [],
+            optionalPermissions: result && Array.isArray(result.optionalPermissions) ? result.optionalPermissions : [],
+            osVersion: result && result.osVersion != null ? result.osVersion : null,
+            securityPatch: result && result.securityPatch != null ? result.securityPatch : null,
+            username: result && typeof result.username === 'string' ? result.username : null,
+          };
+        });
+      },
+    }),
+    // Event bus (nova:events:*) — OS-to-app push events; there is no
+    // app-to-app publish path (that's nova.ipc.broadcast, unchanged). on()
+    // stacks any number of listeners per event name over ONE host
+    // subscription (the host holds a single subscription per sandbox and
+    // the push dispatch fans out here), tolerates a subscription another
+    // surface already made (ALREADY_SUBSCRIBED), and returns an off()
+    // function that also unsubscribes host-side once the last listener
+    // for that name goes. subscribe()/unsubscribe() are the raw channels
+    // for manual control — subscribe rejects ALREADY_SUBSCRIBED when on()
+    // or a v1 onEvent listener already subscribed the name. The fixed
+    // event allowlist and its permission gates (system:events plus the
+    // domain read permission for the sensitive families) are unchanged.
+    events: Object.freeze({
+      on: function(eventName, callback) { return novaOSEventOn(eventName, callback); },
+      subscribe: function(eventName) { return ipc('nova:events:subscribe', { event: eventName }); },
+      unsubscribe: function(eventName) { return ipc('nova:events:unsubscribe', { event: eventName }).then(function() {}); },
+    }),
+    // Geolocation (device:geolocation) — one-shot position fix. Same
+    // PositionOptions payload as the raw channel (timeout, maximumAge,
+    // enableHighAccuracy — passed through as options), normalized to
+    // { coords, timestamp } (the raw response minus its success flag).
+    // There is deliberately no watchPosition: the v1 channel is one-shot
+    // by design and the facade does not invent host behavior.
+    geolocation: Object.freeze({
+      getCurrentPosition: function(options) {
+        return ipc('nova:device:geolocation', { options: options || {} }).then(function(result) {
+          return { coords: result.coords, timestamp: result.timestamp };
+        });
+      },
+    }),
+    // Calendar/Contacts — the SAME shared stores the host Calendar and
+    // Contacts apps use (not per-app isolated data), so writes are visible
+    // to those apps and their change events fire exactly as before. list()
+    // returns the records array; save() returns the host-normalized record
+    // (ids are assigned host-side on create); remove() resolves whether
+    // anything was actually deleted. Error codes (INVALID_EVENT,
+    // INVALID_CONTACT, INVALID_ID, PERMISSION_DENIED) are unchanged.
+    calendar: Object.freeze({
+      list: function() {
+        return ipc('nova:calendar:read', {}).then(function(result) {
+          return result && Array.isArray(result.events) ? result.events : [];
+        });
+      },
+      save: function(event) {
+        return ipc('nova:calendar:write', { event: event }).then(function(result) {
+          return result && result.event ? result.event : result;
+        });
+      },
+      remove: function(id) {
+        return ipc('nova:calendar:delete', { id: id }).then(function(result) {
+          return !!(result && result.removed);
+        });
+      },
+    }),
+    contacts: Object.freeze({
+      list: function() {
+        return ipc('nova:contacts:read', {}).then(function(result) {
+          return result && Array.isArray(result.contacts) ? result.contacts : [];
+        });
+      },
+      save: function(contact) {
+        return ipc('nova:contacts:write', { contact: contact }).then(function(result) {
+          return result && result.contact ? result.contact : result;
+        });
+      },
+      remove: function(id) {
+        return ipc('nova:contacts:delete', { id: id }).then(function(result) {
+          return !!(result && result.removed);
+        });
+      },
+    }),
+    // Mail (nova:mail:* + nova:email:open-link) — reuses whatever account
+    // is connected in the host shell's Email app (session-scoped; fails
+    // UNAVAILABLE when nothing is connected). 1:1 with the v1 wrapper:
+    // same actions, same permission gate per action (mail:read/write/send/
+    // delete), and unnormalized records — mail responses are action-shaped
+    // (folders lists, message pages, preview tokens), so there is no
+    // single value to project out.
+    mail: Object.freeze({
+      connect: function(account) { return ipc('nova:mail:session', { action: 'connect', account: account || {} }); },
+      disconnect: function() { return ipc('nova:mail:session', { action: 'disconnect' }); },
+      restore: function() { return ipc('nova:mail:session', { action: 'restore' }); },
+      account: function() { return ipc('nova:mail:read', { action: 'account' }); },
+      folders: function() { return ipc('nova:mail:read', { action: 'folders' }); },
+      messages: function(options) { return ipc('nova:mail:read', Object.assign({ action: 'messages' }, options || {})); },
+      message: function(uid, folder) { return ipc('nova:mail:read', { action: 'message', uid: uid, folder: folder }); },
+      search: function(query, folder) { return ipc('nova:mail:read', { action: 'search', query: query, folder: folder }); },
+      preview: function(html) { return ipc('nova:mail:write', { action: 'preview', html: html }); },
+      markRead: function(uids, folder) { return ipc('nova:mail:write', { action: 'batch', op: 'read', uids: uids, folder: folder }); },
+      move: function(uids, dest, folder) { return ipc('nova:mail:write', { action: 'batch', op: 'move', uids: uids, dest: dest, folder: folder }); },
+      send: function(msg) { return ipc('nova:mail:send', msg || {}); }, // msg: { to, cc, bcc, subject, text, html, smtpHost, smtpPort }
+      remove: function(uids, folder) { return ipc('nova:mail:delete', { uids: uids, folder: folder }); },
+      openLink: function(url) { return ipc('nova:email:open-link', { url: url }); },
+    }),
+    // Admin (nova:admin:*) — the dual gate is unchanged: the per-app
+    // permission grant AND the machine's local admin flag set in Settings;
+    // granting an app admin:* never puts the machine in admin mode by
+    // itself. Records pass through unnormalized (audit responses carry
+    // pagination/statistics; system/users/apps shapes are action-specific).
+    admin: Object.freeze({
+      auditQuery: function(filters) { return ipc('nova:admin:audit', filters || {}); },
+      systemGet: function() { return ipc('nova:admin:system', { action: 'get' }); },
+      systemSet: function(settings) { return ipc('nova:admin:system', { action: 'set', settings: settings }); },
+      usersList: function() { return ipc('nova:admin:users', { action: 'list' }); },
+      usersRevoke: function(sessionId) { return ipc('nova:admin:users', { action: 'revoke', sessionId: sessionId }); },
+      appsList: function() { return ipc('nova:admin:apps', {}); },
+    }),
+    // Background execution — the three tiers are unchanged (system:background
+    // scheduled wakes, system:background:live stay-alive, system:autostart).
+    // stayAlive() opts THIS session into surviving window close — holding
+    // the grant alone is never enough — and resolves the resulting enabled
+    // state; call stayAlive(false) to opt back out before closing. wakeDone()
+    // ends a scheduled wake early so the host doesn't wait out the deadline
+    // (resolves undefined). onWake() registers a wake handler and returns an
+    // off() function — it fires only in sandboxes the host started FOR a
+    // wake cycle; the wake happening at all IS the system:background check
+    // having passed host-side.
+    background: Object.freeze({
+      stayAlive: function(enabled) {
+        return ipc('nova:background:stay-alive', { enabled: enabled !== false }).then(function(result) {
+          return { enabled: !!(result && result.enabled) };
+        });
+      },
+      wakeDone: function() { return ipc('nova:background:wake-done', {}).then(function() {}); },
+      onWake: function(callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        novaOSWakeListeners.push(callback);
+        return function() {
+          const index = novaOSWakeListeners.indexOf(callback);
+          if (index >= 0) novaOSWakeListeners.splice(index, 1);
+        };
+      },
+    }),
+    // Permission requests — the runtime counterpart to the static manifest
+    // grants. request() surfaces the OS permission dialog (permanent by
+    // default, exactly like the raw channel) and resolves the granted
+    // boolean; the host silently denies re-asks while a denial cooldown is
+    // active. checkRateLimited() peeks at that cooldown WITHOUT triggering
+    // a prompt and returns the raw status record (the Permissions app uses
+    // the same shape for its "try again in Ns" display).
+    permissions: Object.freeze({
+      request: function(permission, reason) {
+        return ipc('nova:request-permission', { permission: permission, reason: reason }).then(function(result) {
+          return !!(result && result.granted);
+        });
+      },
+      checkRateLimited: function(permission) {
+        return ipc('nova:permission-rate-limited', { permission: permission });
+      },
+    }),
+    // WebSocket (nova:net:websocket + ws:send/ws:close) — 1:1 with the v1
+    // window.nova.websocket() wrapper: open resolves only once the host's
+    // socket is OPEN (the host answers nova:net:websocket from its onopen
+    // handler, so a connection that never opens surfaces as the shim's
+    // generic IPC timeout rather than a specific failure reason — same as
+    // v1), and the handle registers message/error/close callbacks per
+    // wsId. Push delivery fans out to this facade's own registry
+    // (novaOSWsListeners above) independently of the v1 wrapper's, so each
+    // surface only sees callbacks registered through itself. Same gates,
+    // same URL rules (ws:/wss: only, no embedded credentials, no
+    // cloud-metadata literals; net:internal additionally required for
+    // private and first-party destinations), same error codes.
+    net: Object.freeze({
+      websocket: function(url, protocols) {
+        return ipc('nova:net:websocket', { url: url, protocols: protocols }).then(function(res) {
+          const wsId = res && res.wsId;
+          if (!wsId) throw new Error('nova:net:websocket resolved without a wsId');
+          novaOSWsListeners[wsId] = { message: [], error: [], close: [] };
+          return {
+            wsId: wsId,
+            readyState: res.readyState,
+            onMessage: function(cb) {
+              if (typeof cb !== 'function') throw new TypeError('callback must be a function');
+              novaOSWsListeners[wsId].message.push(cb);
+            },
+            onError: function(cb) {
+              if (typeof cb !== 'function') throw new TypeError('callback must be a function');
+              novaOSWsListeners[wsId].error.push(cb);
+            },
+            onClose: function(cb) {
+              if (typeof cb !== 'function') throw new TypeError('callback must be a function');
+              novaOSWsListeners[wsId].close.push(cb);
+            },
+            send: function(data) { return ipc('nova:net:ws:send', { wsId: wsId, data: data }); },
+            close: function(code, reason) { return ipc('nova:net:ws:close', { wsId: wsId, code: code, reason: reason }); },
+          };
+        });
+      },
+    }),
+    // NovaByte Registry (nova:reg:* + nova:reg:changed) — the typed OS
+    // config store. get() resolves the stored value directly, or undefined
+    // when the path is absent (stat() returns the full { found, type, data
+    // } record). set()/remove()/import() enforce the per-hive rules
+    // host-side: apps write only their own HKNA/<app.id>/ subtree, HKNS
+    // writes need a system app, HKNU needs registry.system, HKND needs
+    // Developer Mode, and HKNS/security needs registry.system everywhere.
+    // watch() is sugar over nova:events:subscribe('nova:reg:changed') with
+    // a guest-side prefix filter, so it holds the same grants subscribing
+    // to that event needs (registry.read) — watching is reading. The off()
+    // function it resolves stops the listener AND the host subscription
+    // once the last one for the event goes.
+    registry: Object.freeze({
+      get: function(path) {
+        return ipc('nova:reg:get', { path: path }).then(function(result) {
+          return result && result.found ? result.data : undefined;
+        });
+      },
+      stat: function(path) { return ipc('nova:reg:get', { path: path }); },
+      set: function(path, value, type) {
+        return ipc('nova:reg:set', { path: path, value: value, type: type });
+      },
+      remove: function(path, options) {
+        return ipc('nova:reg:delete', { path: path, recursive: !!(options && options.recursive) });
+      },
+      list: function(path) { return ipc('nova:reg:list', { path: path }); },
+      export: function(path) { return ipc('nova:reg:export', { path: path }); },
+      import: function(path, data) { return ipc('nova:reg:import', { path: path, data: data }); },
+      watch: function(path, callback) {
+        if (typeof callback !== 'function') return Promise.reject(new TypeError('callback must be a function'));
+        const prefix = String(path || '');
+        return novaOSEventOn('nova:reg:changed', function(data) {
+          const changed = String((data && data.path) || '').split('\\\\').join('/');
+          if (!prefix || changed === prefix || changed.indexOf(prefix + '/') === 0) callback(data);
+        });
+      },
     }),
   });`;
   }
@@ -8032,6 +11052,13 @@ const AppSandbox = (() => {
       for (let j = 0; j < listeners.length; j++) {
         try { listeners[j](msg.result.data); } catch (_) {}
       }
+      // The v2 events facade (novaOS.events.on) keeps its own listener map
+      // (declared by the embedded facade source below) — fan out to it too,
+      // so v1 and v2 subscribers both receive every push independently.
+      const v2EventListeners = novaOSEventListeners[msg.result.event] || [];
+      for (let j = 0; j < v2EventListeners.length; j++) {
+        try { v2EventListeners[j](msg.result.data); } catch (_) {}
+      }
       return;
     }
 
@@ -8046,18 +11073,35 @@ const AppSandbox = (() => {
     // sent with a fresh requestId that was never registered in
     // pendingRequests, so without this branch they'd hit the
     // "!entry -> return" fallthrough below and silently vanish.
-    // Dispatched to listeners registered per-wsId via window.nova.websocket().
+    // Dispatched to listeners registered per-wsId via window.nova.websocket()
+    // and, independently, via the v2 net facade (novaOS.net.websocket) —
+    // each surface only ever sees callbacks registered through itself.
+    // Raw nova.ipc apps have no per-wsId registry entry; the host mirrors
+    // their sockets' pushes onto the OS event bus under the same names
+    // (net:websocket-gated, same-app filtered — see ALLOWED_EVENT_NAMES),
+    // so they arrive here as ordinary nova:events:event pushes instead.
     if ((msg.type === 'nova:net:ws:message:response' || msg.type === 'nova:net:ws:error:response' || msg.type === 'nova:net:ws:close:response')
         && msg.result && msg.result.wsId) {
+      const kind = msg.type === 'nova:net:ws:message:response' ? 'message'
+        : msg.type === 'nova:net:ws:error:response' ? 'error' : 'close';
       const wsListeners = wsEventListeners[msg.result.wsId];
       if (wsListeners) {
-        const kind = msg.type === 'nova:net:ws:message:response' ? 'message'
-          : msg.type === 'nova:net:ws:error:response' ? 'error' : 'close';
         const cbs = wsListeners[kind] || [];
         for (let k = 0; k < cbs.length; k++) {
           try { cbs[k](msg.result); } catch (_) {}
         }
         if (kind === 'close') delete wsEventListeners[msg.result.wsId];
+      }
+      // v2 net facade listeners — same push, its own registry, so a socket
+      // opened through novaOS.net.websocket delivers to facade callbacks
+      // even when no v1 handle was ever created for that wsId.
+      const v2WsListeners = novaOSWsListeners[msg.result.wsId];
+      if (v2WsListeners) {
+        const v2Cbs = v2WsListeners[kind] || [];
+        for (let k = 0; k < v2Cbs.length; k++) {
+          try { v2Cbs[k](msg.result); } catch (_) {}
+        }
+        if (kind === 'close') delete novaOSWsListeners[msg.result.wsId];
       }
       return;
     }
@@ -8073,6 +11117,49 @@ const AppSandbox = (() => {
     if (msg.type === 'nova:background:wake:response') {
       for (let w = 0; w < backgroundWakeListeners.length; w++) {
         try { backgroundWakeListeners[w](msg.result || {}); } catch (_) {}
+      }
+      // v2 wake handlers (novaOS.background.onWake) — same push, fanned out
+      // to the facade's own listener array (declared by the embedded facade
+      // source below) independently of the v1 registrations.
+      for (let w = 0; w < novaOSWakeListeners.length; w++) {
+        try { novaOSWakeListeners[w](msg.result || {}); } catch (_) {}
+      }
+      return;
+    }
+
+    // Pushed fs watch events (novaOS.fs.watch) — dispatched to listeners
+    // registered per-watcherId via the facade's callback.
+    if (msg.type === 'nova:fs:changed:response' && msg.result && msg.result.watcherId) {
+      const cbs = fsWatchListeners[msg.result.watcherId] || [];
+      for (let k = 0; k < cbs.length; k++) {
+        try { cbs[k](msg.result); } catch (error) { console.error('fs watch listener failed:', error); }
+      }
+      return;
+    }
+
+    // Pushed alarm fires (novaOS.alarms) — fanned out to every onAlarm
+    // listener, like background wakes.
+    if (msg.type === 'nova:background:alarm:response' && msg.result) {
+      for (let w = 0; w < alarmListeners.length; w++) {
+        try { alarmListeners[w](msg.result); } catch (error) { console.error('Alarm listener failed:', error); }
+      }
+      return;
+    }
+
+    // Pushed inbound shares (novaOS.share.onInbound) — delivered only to
+    // apps the user explicitly picked in the share sheet.
+    if (msg.type === 'nova:share:inbound:response' && msg.result) {
+      for (let w = 0; w < shareInboundListeners.length; w++) {
+        try { shareInboundListeners[w](msg.result); } catch (error) { console.error('Share inbound listener failed:', error); }
+      }
+      return;
+    }
+
+    // Pushed server messages (novaOS.push.onMessage) — the delivery ladder
+    // already re-checked push:receive host-side before this push existed.
+    if (msg.type === 'nova:push:message:response' && msg.result) {
+      for (let w = 0; w < pushListeners.length; w++) {
+        try { pushListeners[w](msg.result); } catch (error) { console.error('Push message listener failed:', error); }
       }
       return;
     }
@@ -8216,6 +11303,25 @@ const AppSandbox = (() => {
   // Populated by window.nova.websocket(); read by the inbox poller above.
   const wsEventListeners = {};
 
+  // watcherId -> [callback, ...] — populated by novaOS.fs.watch(); the
+  // pushed nova:fs:changed events fan out to the matching watcher's
+  // callbacks. Same lifecycle as wsEventListeners above.
+  const fsWatchListeners = {};
+
+  // Callbacks registered via novaOS.alarms.onAlarm() — the host pushes
+  // nova:background:alarm events (fire + queued-after-launch delivery).
+  const alarmListeners = [];
+
+  // Callbacks registered via novaOS.share.onInbound() — pushed
+  // nova:share:inbound events (user-mediated share-target delivery).
+  const shareInboundListeners = [];
+
+  // Callbacks registered via novaOS.push.onMessage() — pushed
+  // nova:push:message events (delivery-ladder output from the OS push
+  // service: live, woken, and queued-after-launch deliveries all land
+  // here as the same shape).
+  const pushListeners = [];
+
   ipc.provide = function(endpoint, handler) {
     if (typeof handler !== 'function') return Promise.reject(new TypeError('handler must be a function'));
     if (ipcRequestHandlers.has(endpoint)) return Promise.reject(new TypeError('endpoint is already registered'));
@@ -8267,6 +11373,18 @@ const AppSandbox = (() => {
       save: function(options) { return ipc('nova:files:save', options || {}); },
     },
     share: function(data) { return ipc('nova:share', data || {}); },
+    data: {
+      /* Data portability over this app's OWN namespace. export/import move
+         targeted subsets (data:export); backup/restore move the whole
+         namespace (data:backup). Envelopes are checksummed and pinned to
+         the calling appId — restore/import refuse another app's envelope. */
+      export: function(options) { return ipc('nova:data:export', options || {}); },
+      import: function(envelope) { return ipc('nova:data:import', { envelope: envelope }); },
+      backup: function() { return ipc('nova:data:backup', {}); },
+      restore: function(envelope, options) {
+        return ipc('nova:data:restore', Object.assign({ envelope: envelope }, options || {}));
+      },
+    },
     appearance: {
       get: function() { return ipc('nova:appearance:get', {}); },
       set: function(appearance) { return ipc('nova:appearance:set', { appearance: appearance || {} }); },
@@ -8405,7 +11523,19 @@ const AppSandbox = (() => {
     onEvent: function(eventName, callback) {
       if (!eventListeners[eventName]) eventListeners[eventName] = [];
       eventListeners[eventName].push(callback);
-      return ipc('nova:events:subscribe', { event: eventName });
+      // Subscribe ONCE per event name. The host holds a single
+      // subscription per sandbox and pushes each occurrence to this
+      // document, where the shim fans it out to every registered callback
+      // (the eventListeners array above). Re-sending nova:events:subscribe
+      // for each added listener made the host reject every call after the
+      // first with ALREADY_SUBSCRIBED — the new listener never fired and
+      // the returned promise rejected (an unhandled rejection in any app
+      // that didn't .catch() it, since onEvent is addEventListener-shaped
+      // and callers expect stacking listeners to work).
+      if (eventListeners[eventName].length === 1) {
+        return ipc('nova:events:subscribe', { event: eventName });
+      }
+      return Promise.resolve({ success: true, subscribed: eventName });
     },
     // system:background scheduled-wake support. The host only ever spins
     // up a sandbox for a wake cycle if the app holds system:background —
@@ -9889,7 +13019,10 @@ const AppSandbox = (() => {
         const regRes = await fetch('/api/apps/serve/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sandboxId, files: shimmedFiles, allowExternalFrames }),
+          // appId requests the stable per-app serving alias (sandbox_<appId>,
+          // no unique suffix) alongside this launch's own session path. Dropped
+          // from the JSON entirely when the id isn't alias-eligible.
+          body: JSON.stringify({ sandboxId, files: shimmedFiles, allowExternalFrames, appId: stableServeAppId(app.id) || undefined }),
         });
         if (!regRes.ok) throw new Error(`File registration failed: ${regRes.status}`);
         const { baseUrl } = await regRes.json();
@@ -10075,7 +13208,7 @@ const AppSandbox = (() => {
   // Sandboxed apps must explicitly opt in via allowSameOrigin and hold the
   // separate sandbox:same-origin grant. Packages approved for unrestricted
   // host execution return before this function is needed.
-  function sanitizeSandboxAttr(sandboxConfig, appId, fullyUnrestricted = false) {
+  function sanitizeSandboxAttr(sandboxConfig, appId, fullyUnrestricted = false, app = null) {
     if (fullyUnrestricted) return '';
     const isExplicitOptIn = sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowSameOrigin === true;
     const sameOriginPermitted = isExplicitOptIn
@@ -10091,26 +13224,56 @@ const AppSandbox = (() => {
     // wrongly accept e.g. "allow-scripts-foo" as "allow-scripts").
     //
     // allow-popups-to-escape-sandbox used to be granted purely from the
-    // manifest's own self-declaration, with no permission check — unlike
-    // allow-same-origin just above, which requires both the manifest flag
-    // AND a separate grant. A popup that escapes the sandbox is a fully
-    // unrestricted browsing context, arguably comparable risk to
-    // allow-same-origin, so it now goes through the same double-gate:
-    // manifest opt-in AND sandbox:escape-popups granted.
-    const popupsEscapePermitted = sandboxConfig && typeof sandboxConfig === 'object'
-      && sandboxConfig.allowPopupsToEscapeSandbox === true
-      && AppPermissionManager?.isGranted('sandbox:escape-popups', appId);
+    // manifest's own self-declaration, with no permission check — a popup
+    // that escapes the sandbox is a fully unrestricted browsing context,
+    // so user consent is mandatory. But pinning the token to the grant
+    // state AT SANDBOX CREATION was its own bug: an app that asked for
+    // sandbox:escape-popups after launch — the documented
+    // requestPermission-at-first-use pattern — got a webview whose sandbox
+    // attribute was missing the token, so its popups silently STAYED
+    // SANDBOXED (opaque 'null' origin). The window.opener.postMessage relay
+    // from a provider callback page still ran — attach() preserves the
+    // opener — but every message arrived with event.origin 'null', and
+    // OAuth flows died with "popup closed before sign-in completed" and
+    // nothing in any log. Consent now lives where the decision is actually
+    // made: setupSandboxPopupHandler checks sandbox:escape-popups per popup
+    // at newwindow time. The token here therefore only follows the
+    // publisher's INTENT — a grant obtained mid-session applies to the very
+    // next window.open(), and a revoked one stops applying immediately,
+    // without ever rewriting this attribute.
+    //
+    // The manifest opt-in is the TOP-LEVEL allowPopupsToEscapeSandbox field
+    // (see isEscapePopupsOptedIn above). Reading it from the sandbox object
+    // instead is what originally broke the whole feature: NOVAAPP.md and
+    // the studio both document the top-level location, so a compliant
+    // manifest never satisfied that gate and the token was never added.
+    // Direct callers that pass no `app` object keep the legacy opt-in
+    // locations for compatibility: the in-sandbox-object flag, or the token
+    // itself in a string-form config.
+    const popupsOptedIn = app
+      ? isEscapePopupsOptedIn(app)
+      : (sandboxConfig && typeof sandboxConfig === 'object' && sandboxConfig.allowPopupsToEscapeSandbox === true)
+        || (typeof sandboxConfig === 'string' && sandboxConfig.split(/\s+/).includes('allow-popups-to-escape-sandbox'));
 
     const requestedTokens = new Set();
     if (sandboxConfig && typeof sandboxConfig === 'object') {
       if (sandboxConfig.allowScripts === true) requestedTokens.add('allow-scripts');
       if (sandboxConfig.allowForms === true) requestedTokens.add('allow-forms');
-      if (sandboxConfig.allowPopups === true) requestedTokens.add('allow-popups');
-      if (popupsEscapePermitted) requestedTokens.add('allow-popups-to-escape-sandbox');
+      // allow-popups-to-escape-sandbox only decides whether an OPENED popup
+      // inherits the sandbox; it cannot conjure popups that allow-popups
+      // never unlocked. Opting in therefore implies allow-popups. The escape
+      // token itself is NOT added here — it is added once at the final token
+      // level below, so every config shape gets identical treatment.
+      if (sandboxConfig.allowPopups === true || popupsOptedIn) requestedTokens.add('allow-popups');
       if (sandboxConfig.allowModals === true) requestedTokens.add('allow-modals');
     } else if (typeof sandboxConfig === 'string') {
       for (const tok of sandboxConfig.split(/\s+/)) {
-        if (tok) requestedTokens.add(tok);
+        // The escape token is never forwarded as a plain token here — a
+        // string mentioning it is treated as the opt-in instead (see
+        // popupsOptedIn above) and the token itself is added once at the
+        // final token level below. Consent for the escaped popups it
+        // produces is enforced per popup in setupSandboxPopupHandler.
+        if (tok && tok !== 'allow-popups-to-escape-sandbox') requestedTokens.add(tok);
       }
     }
 
@@ -10140,9 +13303,234 @@ const AppSandbox = (() => {
       tokens.add('allow-downloads');
     }
 
+    // The escape opt-in is applied once, at the final token level, so it
+    // covers every config shape — object, string, or NO sandbox config at
+    // all. That last case is the common one for a compliant manifest:
+    // allowPopupsToEscapeSandbox is a top-level field, so the publisher may
+    // never declare a sandbox object and the default set above is what
+    // runs. Without this block the object-branch-only handling would still
+    // leave every config-less app unable to open escape popups.
+    //
+    // This deliberately does NOT consult the sandbox:escape-popups grant:
+    // the attribute is the publisher's intent, not the consent decision —
+    // consent is enforced per popup in setupSandboxPopupHandler, which sees
+    // the LIVE grant state every time a popup is opened, including grants
+    // that arrived after this webview was created.
+    if (popupsOptedIn) {
+      tokens.add('allow-popups');
+      tokens.add('allow-popups-to-escape-sandbox');
+    }
+
     const attr = Array.from(tokens).join(' ');
     log('debug', `sandbox attrs for ${appId || 'unknown'}: ${attr}`);
     return attr;
+  }
+
+  // Popup display path for sandboxed apps.
+  //
+  // The sandbox attribute alone never shows a popup. Chromium only spawns
+  // the popup when the sandbox tokens permit it (allow-popups, plus
+  // allow-popups-to-escape-sandbox for popups that leave the sandbox
+  // behind), but the embedder is then responsible for giving the spawned
+  // window a surface — attach() it into a webview we own, or discard() it.
+  // With no newwindow handler on sandbox webviews, every spawned popup was
+  // silently discarded, so even an app with the full sandbox:escape-popups
+  // double gate (top-level allowPopupsToEscapeSandbox + user grant) got
+  // literally nothing when it called window.open().
+  //
+  // The handler mirrors the Nova Browser's popup policy: permitted popups
+  // attach into an OS-owned overlay card (title bar with the target URL and
+  // a close button) over the app's own content, so window.close() inside
+  // the popup keeps working via the preserved opener relationship. Whether
+  // the popup content is sandboxed or escaped is Chromium's decision from
+  // the opener's sandbox tokens — attach() is only the display surface, so
+  // this single handler serves both the plain allow-popups case and the
+  // sandbox:escape-popups case.
+  function setupSandboxPopupHandler(webview, app, options = {}) {
+    const { sandboxAttr = '', partitionId = '', state = null } = options;
+    const sandboxTokens = new Set(
+      typeof sandboxAttr === 'string' && sandboxAttr
+        ? sandboxAttr.split(/\s+/).filter(Boolean)
+        : []
+    );
+    // An unsandboxed guest (no sandbox attribute at all — the deliberate
+    // fully-unrestricted hand-off) has no token restrictions, so popups are
+    // permitted exactly as they would be for any unsandboxed page.
+    const popupsPermitted = sandboxAttr === '' ? true : sandboxTokens.has('allow-popups');
+
+    // Operator-facing one-liners. The popup path used to log nothing at info
+    // level (decisions were debug-gated or silent), so a serial capture of a
+    // failing OAuth flow showed pages loading but could not say WHY the relay
+    // died — sandboxed spawn, missing grant, or popup closed mid-flow were
+    // indistinguishable. Every decision below now leaves one line.
+    const appId = app?.id || app?.name || 'unknown';
+    const shortUrl = u => (typeof u === 'string' && u.length > 120 ? `${u.slice(0, 117)}...` : u);
+    const logPopup = message => log('info', `popup: app=${appId} ${message}`);
+
+    const openPopupOverlays = new Set();
+    const closeOverlay = backdrop => {
+      openPopupOverlays.delete(backdrop);
+      try { backdrop.remove(); } catch (e) { log('debug', 'popup overlay removal failed', e); }
+    };
+
+    const onNewWindow = event => {
+      const popupWindow = event?.window;
+      const discard = () => { try { popupWindow?.discard?.(); } catch (e) { log('debug', 'popup discard failed', e); } };
+
+      if (!popupsPermitted) {
+        // The sandbox tokens already told the guest popups are blocked —
+        // discard explicitly so no embedder default leaks a surface through.
+        logPopup('blocked: sandbox attribute forbids popups');
+        discard();
+        return;
+      }
+
+      // Escape-capable popups are unsandboxed browsing contexts, so the
+      // sandbox:escape-popups consent is checked HERE, per popup, instead of
+      // only being baked into the sandbox attribute at creation time. The
+      // old creation-time snapshot silently stranded apps that requested the
+      // permission after launch: the attribute lacked the escape token, the
+      // popup spawned sandboxed (opaque origin), and every postMessage relay
+      // from a provider callback page arrived with event.origin 'null' and
+      // was dropped — OAuth flows died as "popup closed before sign-in
+      // completed". Checking at use time means a grant that arrives
+      // mid-session applies to the very next window.open(), and a revoked
+      // one stops applying immediately.
+      //
+      // Fail-closed: a missing manager or unexpected throw counts as
+      // ungranted, same rule as isNestedWebviewPermitted.
+      const escapeTokenInAttr = sandboxTokens.has('allow-popups-to-escape-sandbox');
+      let escapeGranted = false;
+      try {
+        escapeGranted = escapeTokenInAttr
+          && AppPermissionManager?.isGranted('sandbox:escape-popups', app?.id) === true;
+      } catch (e) {
+        log('debug', 'escape-popups grant check failed', e);
+      }
+      if (!escapeGranted && escapeTokenInAttr) {
+        // The attribute let Chromium spawn this popup UNSANDBOXED already —
+        // displaying it would hand out exactly what the consent gate exists
+        // to guard, so the only safe outcome is a discard (the guest sees
+        // the popup fail to open, which is what an ungranted popup means).
+        logPopup(`discarded: escape token in attribute but sandbox:escape-popups not granted (fail-closed) url=${shortUrl(event?.targetUrl)}`);
+        discard();
+        return;
+      }
+
+      const url = typeof event.targetUrl === 'string' ? event.targetUrl : '';
+      if (!url || url === 'about:blank' || url.startsWith('javascript:')) {
+        // Nothing safe to display — same policy as the browser's newwindow
+        // handler for un-navigable popup targets.
+        logPopup(`discarded: un-navigable popup target url=${shortUrl(url)}`);
+        discard();
+        return;
+      }
+
+      const contentEl = state?.content;
+      if (!contentEl || typeof contentEl.appendChild !== 'function') {
+        logPopup('discarded: no app content element available to host the overlay');
+        discard();
+        return;
+      }
+
+      logPopup(escapeGranted
+        ? `displayed unsandboxed (sandbox:escape-popups granted) url=${shortUrl(url)}`
+        : `displayed SANDBOXED: attribute lacks allow-popups-to-escape-sandbox (app did not opt in) — this popup runs at an opaque origin, so provider relays arrive with event.origin 'null' and a receiving-side origin check will drop them url=${shortUrl(url)}`);
+
+      let backdrop = null;
+      try {
+        const hostWidth = (typeof window !== 'undefined' && Number(window.innerWidth)) || 1024;
+        const hostHeight = (typeof window !== 'undefined' && Number(window.innerHeight)) || 768;
+        const popupWidth = Math.min(Math.max(Number(event.initialWidth) || 520, 360), Math.round(hostWidth * 0.75));
+        const popupHeight = Math.min(Math.max(Number(event.initialHeight) || 620, 300), Math.round(hostHeight * 0.85));
+
+        backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:absolute;inset:0;z-index:9999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+
+        const card = document.createElement('div');
+        card.style.cssText = `width:${popupWidth}px;height:${popupHeight}px;background:var(--bg,#1e1e2e);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.08);`;
+
+        const bar = document.createElement('div');
+        bar.style.cssText = 'height:36px;min-height:36px;background:var(--bg2,#181825);display:flex;align-items:center;padding:0 10px;gap:8px;border-bottom:1px solid rgba(255,255,255,0.06);user-select:none;';
+        const barTitle = document.createElement('span');
+        barTitle.style.cssText = 'flex:1;font-size:12px;opacity:0.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        barTitle.textContent = url;
+        const barClose = document.createElement('button');
+        barClose.type = 'button';
+        barClose.textContent = '✕';
+        barClose.setAttribute('aria-label', 'Close popup');
+        barClose.style.cssText = 'background:none;border:none;color:inherit;opacity:0.5;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px;';
+        bar.append(barTitle, barClose);
+
+        const popupWebview = document.createElement('webview');
+        popupWebview.style.cssText = 'flex:1;width:100%;border:none;';
+        // The popup shares the app's own storage partition (OAuth sessions,
+        // external checkouts) but nothing else: no node integration, no
+        // remote module. No sandbox attribute is set here on purpose — the
+        // popup's security context is already fixed by Chromium from the
+        // opener's sandbox tokens, and attach() only supplies the surface.
+        popupWebview.setAttribute('nodeintegration', 'false');
+        popupWebview.setAttribute('enableremotemodule', 'false');
+        popupWebview.setAttribute('partition', `persist:${partitionId}`);
+
+        card.append(bar, popupWebview);
+        backdrop.appendChild(card);
+
+        // Track the last committed URL so the close line says WHERE the
+        // popup died: still on a provider page (closed early — watchdog or
+        // user) vs already back on the app callback (relay path reached).
+        let lastPopupUrl = url;
+        const trackPopupUrl = e => { if (typeof e?.url === 'string' && e.url) lastPopupUrl = e.url; };
+        popupWebview.addEventListener('loadcommit', trackPopupUrl);
+        popupWebview.addEventListener('did-navigate', trackPopupUrl);
+        popupWebview.addEventListener('did-navigate-in-page', trackPopupUrl);
+
+        const closePopup = source => () => {
+          logPopup(`overlay closed (${source}) lastUrl=${shortUrl(lastPopupUrl)}`);
+          closeOverlay(backdrop);
+        };
+        barClose.addEventListener('click', closePopup('titlebar'));
+        popupWebview.addEventListener('close', closePopup('popup window.close'));
+
+        // Same guest console mirror as createSandbox, scoped to this popup.
+        // The relay half of an OAuth flow runs HERE — the provider's pages
+        // and the app's callback.html are the popup's documents, so the
+        // decisive probe lines ("callback fired, opener present/absent,
+        // relay posted") surface only if this webview's console reaches
+        // serial. Prefix distinguishes popup lines from app-window lines;
+        // share the same throttle budget (see createSandbox).
+        popupWebview.addEventListener('console-message', e => {
+          if (!e || typeof e.message !== 'string' || !e.message) return;
+          let level = typeof e.level === 'number'
+            ? (['debug', 'info', 'warn', 'error'][e.level] || 'info')
+            : (typeof e.level === 'string' ? e.level : 'info');
+          if (level !== 'debug' && level !== 'info' && level !== 'warn' && level !== 'error') level = 'info';
+          let srcLine = '';
+          if (typeof e.sourceId === 'string' && e.sourceId) {
+            const base = e.sourceId.split('/').pop();
+            srcLine = ` [${base}${Number.isFinite(e.lineNumber) ? ':' + e.lineNumber : ''}]`;
+          }
+          log(level === 'debug' ? 'debug' : level, `popup console app=${appId}${srcLine} ${e.message}`);
+        });
+
+        openPopupOverlays.add(backdrop);
+        contentEl.appendChild(backdrop);
+        // attach() is what actually binds the spawned window into our
+        // popupWebview — it can throw if the popup was already consumed, in
+        // which case we tear the overlay back down and discard.
+        popupWindow.attach(popupWebview);
+      } catch (e) {
+        log('warn', `Could not display popup for ${app?.name || app?.id || 'unknown app'}`, e);
+        if (backdrop) closeOverlay(backdrop);
+        discard();
+      }
+    };
+
+    webview.addEventListener('newwindow', onNewWindow);
+    return () => {
+      webview.removeEventListener('newwindow', onNewWindow);
+      for (const backdrop of [...openPopupOverlays]) closeOverlay(backdrop);
+    };
   }
 
   // Sandbox creation
@@ -10174,7 +13562,35 @@ const AppSandbox = (() => {
     const partitionId = `app_${app.id}`;
     webview.setAttribute('partition', `persist:${partitionId}`);
 
-    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app) && !forceSandbox);
+    // Guest console mirror. The serial mirror above carries every decision
+    // THIS module makes, but a guest-side flow has a second half that used
+    // to be invisible: the app's own console — the token exchange result,
+    // a relay message arriving or never arriving, a state-mismatch branch.
+    // A serial capture could show the full popup round-trip completing
+    // (authorize → provider → callback → window.close) and still not say
+    // whether the app accepted the code or died inside its own fetch.
+    // The <webview> console-message event carries every guest console line
+    // host-side, so route them through the same mirror. Levels map from
+    // Chromium's numeric scheme (0=debug..3=error) when the embedder sends
+    // numbers; debug stays console-only, matching this module's own rule
+    // that debug never reaches serial. Guest noise shares serialMirror's
+    // 40-lines/5s budget with OS-side lines by design — diagnostics must
+    // never flood the channel they diagnose.
+    webview.addEventListener('console-message', e => {
+      if (!e || typeof e.message !== 'string' || !e.message) return;
+      let level = typeof e.level === 'number'
+        ? (['debug', 'info', 'warn', 'error'][e.level] || 'info')
+        : (typeof e.level === 'string' ? e.level : 'info');
+      if (level !== 'debug' && level !== 'info' && level !== 'warn' && level !== 'error') level = 'info';
+      let srcLine = '';
+      if (typeof e.sourceId === 'string' && e.sourceId) {
+        const base = e.sourceId.split('/').pop();
+        srcLine = ` [${base}${Number.isFinite(e.lineNumber) ? ':' + e.lineNumber : ''}]`;
+      }
+      log(level === 'debug' ? 'debug' : level, `guest console app=${app?.id || app?.name || 'unknown'}${srcLine} ${e.message}`);
+    });
+
+    const sandboxAttr = sanitizeSandboxAttr(app.sandbox, app.id, isFullyUnrestricted(app) && !forceSandbox, app);
     if (sandboxAttr) {
       webview.setAttribute('sandbox', sandboxAttr);
     } else if (isFullyUnrestricted(app) && !forceSandbox) {
@@ -10193,25 +13609,40 @@ const AppSandbox = (() => {
     // realm the guest's own scripts cannot reach (see
     // buildIsolatedTransportScript for why that matters).
     //
-    // Scoped to THIS sandbox's own serving path, not the whole origin.
+    // Scoped to THIS sandbox's own serving path and this app's own STABLE
+    // per-app serving path, not the whole origin.
     // /api/apps/serve/register (server/core/index.js) always returns
     // baseUrl = `/api/apps/serve/${sandboxId}` — deterministic from the
     // sandboxId we already generated above, no need to wait on the async
-    // registration call below to know it. Matching the bare origin would
+    // registration call below to know it. The stable alias
+    // `/api/apps/serve/sandbox_${app.id}` is equally deterministic (same app
+    // id every launch), so pages that reach the app's own bundled files
+    // through it — an OAuth provider redirecting back to the app's registered
+    // callback.html, for example — get the same isolated transport as pages
+    // loaded through the session path. Matching the bare origin would
     // register this transport against every app's served files on this
     // host (they all live under window.location.origin), so every
     // launched app's webview would get every other app's transport
-    // script injected into it — scoping to our own baseUrl keeps this
+    // script injected into it — scoping to our own two paths keeps this
     // sandbox's isolated IPC transport from leaking into any other
-    // sandbox's webview.
+    // sandbox's webview. (The transport stays inert on any page whose main
+    // world doesn't run this app's capability shim — it only relays for the
+    // shim's one-time port claim — so an app navigating to another app's
+    // stable path gains nothing.)
     // webapp-type apps (external URLs) don't get this at all: they
     // navigate to classified.url directly and were never given
     // window.nova capabilities in the first place.
     if (typeof webview.addContentScripts === 'function') {
+      const transportMatches = [`${window.location.origin}/api/apps/serve/${sandboxId}/*`];
+      // Same eligibility rule as the registration alias in loadAppContent:
+      // only platform-shaped ids get a stable path at all.
+      if (stableServeAppId(app.id)) {
+        transportMatches.push(`${window.location.origin}/api/apps/serve/sandbox_${app.id}/*`);
+      }
       try {
         webview.addContentScripts([{
           name: `nova-ipc-transport-${sandboxId}`,
-          matches: [`${window.location.origin}/api/apps/serve/${sandboxId}/*`],
+          matches: transportMatches,
           js: { code: buildIsolatedTransportScript() },
           run_at: 'document_start',
           all_frames: false,
@@ -10274,6 +13705,27 @@ const AppSandbox = (() => {
     // a real leak for backgrounded sandboxes whose webview element
     // survives in #background-app-host).
     const teardownFns = [];
+
+    // Liveness heartbeat for the server-side app-serve registry. Its entries
+    // expire after 30 minutes without access; an app that loads its bundle
+    // once and then goes quiet (a long OAuth consent page in a popup, a
+    // dashboard SPA that never navigates) would otherwise have its files
+    // pruned mid-session and 404 on the next navigation — including the
+    // OAuth redirect back to its callback URL. The heartbeat pins the entry
+    // for as long as THIS sandbox exists; destroy() clears the timer via
+    // cleanup and unregisters the files, so nothing outlives the sandbox.
+    // Only apps with real bundled content register files with the server,
+    // so only those bother beating.
+    if (app.entry && app.files && app.files[app.entry]) {
+      const serveHeartbeatTimer = setInterval(() => {
+        fetch('/api/apps/serve/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sandboxId }),
+        }).catch(() => {});
+      }, APP_SERVE_HEARTBEAT_INTERVAL_MS);
+      teardownFns.push(() => clearInterval(serveHeartbeatTimer));
+    }
 
     const requestedFileIntent = launchOptions?.fileIntent;
     const requestedFileId = requestedFileIntent?.action === 'open'
@@ -10343,6 +13795,7 @@ const AppSandbox = (() => {
     teardownFns.push(setupAPIBridge(webview, app, sandboxId, sandboxRecord));
     teardownFns.push(setupErrorHandling(webview, app));
     teardownFns.push(setupPermissionRequestGate(webview, app));
+    teardownFns.push(setupSandboxPopupHandler(webview, app, { sandboxAttr, partitionId, state }));
 
     // Compose all teardowns into the sandbox's cleanup function.
     sandboxRecord.cleanup = () => cleanupSandboxRecord(sandboxRecord, teardownFns);
@@ -10839,6 +14292,12 @@ const AppSandbox = (() => {
     // activeSandboxes.delete(sandboxId) already ran at the top of this
     // function — that early delete is the reentrancy guard, see the
     // comment there for why.
+    // A badge is a view of live state — a closed app has no live state.
+    try {
+      if (appBadgeState.delete(appId)) publishBadge(appId);
+    } catch (_) { /* best-effort */ }
+    // Same for fs watchers: no sandbox, nowhere to push events.
+    try { stopFsWatchersForApp(appId); } catch (_) { /* best-effort */ }
     log('debug', `Destroyed sandbox: ${sandboxId}`);
     if (typeof EventLog !== 'undefined') {
       EventLog.log({ app: 'AppSandbox', category: 'security', severity: 'info', message: `Destroyed sandbox ${sandboxId}`, data: { appId: sandbox.appId, sandboxId } });
@@ -11081,6 +14540,7 @@ const AppSandbox = (() => {
     handlePermissionRevoked,
     getSandbox,
     getAllSandboxes,
+    getBadge,
     clearAppPartition,
     clearAppPartitions,
     // storageClear/clearAllStorage clear nova:storage (a separate,
@@ -11128,6 +14588,17 @@ const AppSandbox = (() => {
       isInternalHost,
       handlePermissionRevoked,
       GUEST_FORBIDDEN_IPC_APIS,
+      appBadgeState,
+      fsWatchers,
+      fsWatchConfig,
+      stopFsWatchersForApp,
+      deliverShareTarget,
+      normalizedShareTargetMimes,
+      shareTargetMatches,
+      deliverPushMessage,
+      flushPushQueue,
+      loadPushState,
+      ensurePushConnection,
       cleanupSandboxRecord,
       clearAppPartitionsByName,
       ensureExecutionPartitionClean,
@@ -11138,6 +14609,9 @@ const AppSandbox = (() => {
       dispatchIsolatedProcessRequest,
       respond,
       normalizeFsSavePayload,
+      normalizePickerAcceptList,
+      pickerAcceptMatcher,
+      looksLikeUtf8Text,
       setupAPIBridge,
       API_HANDLERS,
       buildCapabilityShim,
@@ -11146,6 +14620,10 @@ const AppSandbox = (() => {
       buildIsolatedTransportScript,
       isNestedWebviewOptedIn,
       isNestedWebviewPermitted,
+      isEscapePopupsOptedIn,
+      setupSandboxPopupHandler,
+      loadAppContent,
+      stableServeAppId,
       RELAXED_CSP_META,
       // Test-only helpers for resetting module state between tests.
       _resetState() {
@@ -11185,6 +14663,17 @@ const AppSandbox = (() => {
 // In the browser, the module attaches as a global `AppSandbox`.
 if (typeof window !== 'undefined') {
   window.AppSandbox = AppSandbox;
+  // Taskbar badge store (session-only, written by the nova:badge:*
+  // handlers, read by the taskbar renderer in the launcher). Read-only
+  // view on purpose — the only writers are the permission-gated handlers.
+  // appBadgeState lives inside the AppSandbox closure, so go through its
+  // public getter. Referencing the Map from here threw a ReferenceError
+  // on every taskbar refresh.
+  window.NovaAppBadges = Object.freeze({
+    get: function(appId) {
+      return AppSandbox.getBadge(appId);
+    },
+  });
 }
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = AppSandbox;

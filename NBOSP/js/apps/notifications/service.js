@@ -13,10 +13,11 @@ function safeIconKey(icon) {
 // "Promos"), each with an importance the user can override. Importance is
 // locked once created (Android parity) — a later ensureChannel() with a
 // different importance is a no-op; only the user can change it, via
-// channelOverrides. All three stores are localStorage-persisted so channel
-// state survives shell reloads, and queued notification actions survive a
-// reload too (the app drains them via nova:notifications:consumeActions on
-// its next launch).
+// channelOverrides. All three stores survive shell reloads: channels and
+// overrides live in the registry (HKNU/shell/notifications/*), and queued
+// notification actions ride the same hive area so they survive a reload
+// too (the app drains them via nova:notifications:consumeActions on its
+// next launch).
 const CHANNEL_IMPORTANCES = new Set(['none', 'low', 'default', 'high']);
 // How long a toast stays up per importance level. 'low' = 0 → panel-only,
 // silent (Android low = no sound/snap); 'high' = 8s, the closest thing to
@@ -58,13 +59,69 @@ function slugOk(value, maxLen) {
     && /^[a-zA-Z0-9_-]+$/.test(value);
 }
 
-const channelDefs = loadJsonStore(CHANNELS_STORAGE_KEY, {});
-const channelOverrides = loadJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, {});
-const pendingActionQueue = loadJsonStore(PENDING_ACTIONS_STORAGE_KEY, []);
+let channelDefs = null;
+let channelOverrides = null;
+// The pending-action queue rides RegistryPrefs (HKNU/shell/notifications/
+// pendingActions — same home as channels + overrides); the legacy
+// localStorage key is the adoption source and the fail-soft fallback, so a
+// pre-registry install keeps its queued taps. The in-memory array hydrates
+// lazily: this service can evaluate before the registry boots.
+const pendingActionQueue = [];
+let pendingQueueHydrated = false;
+
+function ensurePendingQueueHydrated() {
+  if (pendingQueueHydrated) return;
+  pendingQueueHydrated = true;
+  let stored = null;
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.notifPendingActions) {
+    try { stored = RegistryPrefs.notifPendingActions(); } catch (_) { stored = null; }
+  }
+  if (stored === null) stored = loadJsonStore(PENDING_ACTIONS_STORAGE_KEY, []);
+  if (Array.isArray(stored)) pendingActionQueue.push(...stored);
+}
+
+function persistPendingQueue() {
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setNotifPendingActions) {
+    try { if (RegistryPrefs.setNotifPendingActions(pendingActionQueue)) return; } catch (_) { /* legacy below */ }
+  }
+  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+}
+
+// Channels and overrides live in the registry through RegistryPrefs — but
+// this service may evaluate before the registry boots, so the stores
+// hydrate lazily on first use (the localStorage fallback keeps pre-registry
+// values visible; RegistryPrefs adopts them into the hive on first access).
+function ensureNotifStores() {
+  if (channelDefs !== null && channelOverrides !== null) return;
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.notifChannels) {
+    try {
+      channelDefs = RegistryPrefs.notifChannels();
+      channelOverrides = RegistryPrefs.notifChannelOverrides();
+      return;
+    } catch (_) { /* fall through to localStorage */ }
+  }
+  channelDefs = loadJsonStore(CHANNELS_STORAGE_KEY, {});
+  channelOverrides = loadJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, {});
+}
+
+function persistChannels() {
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setNotifChannels) {
+    try { RegistryPrefs.setNotifChannels(channelDefs); return; } catch (_) { /* legacy below */ }
+  }
+  persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+}
+
+function persistChannelOverrides() {
+  if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setNotifChannelOverrides) {
+    try { RegistryPrefs.setNotifChannelOverrides(channelOverrides); return; } catch (_) { /* legacy below */ }
+  }
+  persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
+}
 
 // Register (or update) a channel. Returns { created, channel } or null when
 // the definition is invalid or the per-app cap is hit.
 function ensureChannelForApp(appId, def, { declaredBy = 'runtime' } = {}) {
+  ensureNotifStores();
   if (!appId || !def || !slugOk(def.id, MAX_NOTIF_KEY_LEN)) return null;
   const name = typeof def.name === 'string' && def.name.trim()
     ? def.name.trim().slice(0, 60)
@@ -82,13 +139,13 @@ function ensureChannelForApp(appId, def, { declaredBy = 'runtime' } = {}) {
     // Android parity: name/description stay updatable, importance is locked.
     existing.name = name;
     existing.description = description;
-    persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+    persistChannels();
     return { created: false, channel: existing };
   }
   if (Object.keys(channelDefs[appId]).length >= MAX_CHANNELS_PER_APP) return null;
   const channel = { id: def.id, name, description, importance, declaredBy, createdAt: Date.now() };
   channelDefs[appId][def.id] = channel;
-  persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
+  persistChannels();
   return { created: true, channel };
 }
 
@@ -109,6 +166,7 @@ function ensureDeclaredChannels(appId, manifest) {
 // unknown channels; blocked:true when the user muted it (importance 'none'
 // or enabled:false) and the notification should be silently dropped.
 function getChannelForApp(appId, channelId) {
+  ensureNotifStores();
   if (!appId || !slugOk(channelId, MAX_NOTIF_KEY_LEN)) return null;
   const def = channelDefs[appId]?.[channelId];
   if (!def) return null;
@@ -132,6 +190,7 @@ function getChannelForApp(appId, channelId) {
 // without requiring a live sandbox at click time.
 function queueActionForApp(notif, actionDef) {
   if (!notif || !notif.appId || !actionDef || !slugOk(actionDef.id, 40)) return;
+  ensurePendingQueueHydrated();
   const entry = {
     appId: notif.appId,
     notifId: notif.id,
@@ -147,18 +206,19 @@ function queueActionForApp(notif, actionDef) {
   while (mine.length > MAX_PENDING_ACTIONS_PER_APP) mine.shift();
   pendingActionQueue.length = 0;
   pendingActionQueue.push(...others, ...mine);
-  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+  persistPendingQueue();
 }
 
 function consumeActionsForApp(appId) {
   if (!appId) return [];
+  ensurePendingQueueHydrated();
   const mine = pendingActionQueue.filter(pa => pa && pa.appId === appId);
   if (!mine.length) return [];
   for (const pa of mine) {
     const i = pendingActionQueue.indexOf(pa);
     if (i > -1) pendingActionQueue.splice(i, 1);
   }
-  persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+  persistPendingQueue();
   return mine;
 }
 
@@ -166,6 +226,8 @@ function consumeActionsForApp(appId) {
 // with it (Android removes channels on uninstall too).
 function dropNotificationAppState(appId) {
   if (!appId) return;
+  ensureNotifStores();
+  ensurePendingQueueHydrated();
   let changed = false;
   if (channelDefs[appId]) { delete channelDefs[appId]; changed = true; }
   for (const key of Object.keys(channelOverrides)) {
@@ -178,9 +240,9 @@ function dropNotificationAppState(appId) {
     changed = true;
   }
   if (changed) {
-    persistJsonStore(CHANNELS_STORAGE_KEY, channelDefs);
-    persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
-    persistJsonStore(PENDING_ACTIONS_STORAGE_KEY, pendingActionQueue);
+    persistChannels();
+    persistChannelOverrides();
+    persistPendingQueue();
   }
 }
 
@@ -369,6 +431,7 @@ const Notify = {
   // permission-model work; the store is live now so no migration is needed
   // later. Pass null to clear an override.
   setChannelOverride(appId, channelId, override) {
+    ensureNotifStores();
     if (!appId || !slugOk(channelId, MAX_NOTIF_KEY_LEN) || !channelDefs[appId]?.[channelId]) return false;
     const key = `${appId}|${channelId}`;
     if (override === null) {
@@ -381,11 +444,12 @@ const Notify = {
       }
       channelOverrides[key] = clean;
     }
-    persistJsonStore(CHANNEL_OVERRIDES_STORAGE_KEY, channelOverrides);
+    persistChannelOverrides();
     return true;
   },
 
   listChannels(appId) {
+    ensureNotifStores();
     if (!appId) return [];
     return Object.keys(channelDefs[appId] || {})
       .map(id => getChannelForApp(appId, id))
@@ -396,6 +460,7 @@ const Notify = {
   // wiped from channelDefs on uninstall, so everything listed here is live.
   // Used by the Settings > Notifications channel UI.
   listAppsWithChannels() {
+    ensureNotifStores();
     return Object.keys(channelDefs)
       .filter(id => channelDefs[id] && Object.keys(channelDefs[id]).length > 0);
   },
@@ -824,24 +889,26 @@ const Notify = {
       const actionDefs = (Array.isArray(n.actions) && n.actions.length)
         ? n.actions
         : (n.action && n.actionLabel ? [{ id: n.action, label: n.actionLabel, legacy: true }] : []);
+      const controls = createEl('div', {
+        className: 'notif-item-controls',
+        style: 'display:flex;flex:1 1 100%;min-width:0;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px;margin-left:34px;',
+      });
       for (let ai = 0; ai < actionDefs.length && ai < MAX_ACTIONS_PER_NOTIF; ai++) {
         const a = actionDefs[ai];
         const actionBtn = createEl('button', { className: 'notif-item-action' });
         actionBtn.textContent = a.label;
-        // Only the first button pushes itself to the far edge; extra
-        // buttons sit beside it instead of spreading across the row.
-        actionBtn.style.cssText = `${ai === 0 ? 'margin-left:auto;' : ''}flex-shrink:0;${ACTION_BUTTON_STYLE}`;
+        actionBtn.style.cssText = `flex:0 1 auto;min-width:0;${ACTION_BUTTON_STYLE}`;
         wireActionButtonHover(actionBtn);
         actionBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           handleNotificationActionClick(n, a);
         });
-        item.appendChild(actionBtn);
+        controls.appendChild(actionBtn);
       }
 
       if (!n.read) {
         const markReadBtn = createEl('button', { className: 'notif-item-action', textContent: 'Mark read' });
-        markReadBtn.style.cssText = `margin-left:auto;flex-shrink:0;${ACTION_BUTTON_STYLE}`;
+        markReadBtn.style.cssText = `flex:0 1 auto;min-width:0;${ACTION_BUTTON_STYLE}`;
         wireActionButtonHover(markReadBtn);
         markReadBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -853,7 +920,7 @@ const Notify = {
             Notify.renderPanel();
           }
         });
-        item.appendChild(markReadBtn);
+        controls.appendChild(markReadBtn);
       }
 
       if (!n.pinned) {
@@ -869,9 +936,10 @@ const Notify = {
             Notify.renderPanel();
           }
         });
-        item.appendChild(dismissBtn);
+        controls.appendChild(dismissBtn);
       }
 
+      if (controls.childNodes.length) item.appendChild(controls);
       frag.appendChild(item);
     }
     list.replaceChildren(frag);

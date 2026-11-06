@@ -5,12 +5,26 @@
   const APP_ROOT = 'apps';
   const STORAGE_VERSION = 1;
 
+  // The installed-apps inventory lives in the NovaByte Registry
+  // (HKNS/apps/installed — Windows keeps the same inventory under
+  // HKLM\...\Uninstall) through RegistrySystemState. The localStorage key
+  // stays only as the pre-registry adoption source and the fail-soft
+  // fallback when the engine is unavailable.
+  function sysState() {
+    return typeof window !== 'undefined' && window && window.RegistrySystemState;
+  }
+
   function parseJSON(raw, fallback) {
     try { return raw ? JSON.parse(raw) : fallback; }
     catch { return fallback; }
   }
 
   function loadRegistry() {
+    const state = sysState();
+    if (state && typeof state.installedApps === 'function') {
+      try { return state.installedApps(); }
+      catch { /* fall through to legacy */ }
+    }
     try { return parseJSON(localStorage.getItem(APPS_KEY), []); }
     catch { return []; }
   }
@@ -67,7 +81,13 @@
 
   function saveRegistry(list) {
     const metadata = toMetadataList(list);
-    localStorage.setItem(APPS_KEY, JSON.stringify(metadata));
+    const state = sysState();
+    if (state && typeof state.setInstalledApps === 'function') {
+      try { state.setInstalledApps(metadata); }
+      catch { localStorage.setItem(APPS_KEY, JSON.stringify(metadata)); }
+    } else {
+      localStorage.setItem(APPS_KEY, JSON.stringify(metadata));
+    }
     if (window.AppDirs?.syncKey) AppDirs.syncKey(APPS_KEY, metadata).catch(() => {});
     return metadata;
   }

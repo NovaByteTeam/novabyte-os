@@ -54,7 +54,29 @@
     }
   }
 
+  // The installed-apps inventory is registry-backed (HKNS/apps/installed);
+  // the localStorage key is only the pre-registry fallback.
+  function readInstalledApps() {
+    if (typeof window !== 'undefined') {
+      if (window.RegistrySystemState?.installedApps) {
+        try { return window.RegistrySystemState.installedApps() || []; } catch (_) { /* fall through */ }
+      }
+      if (window.NovaAppPackageStore?.loadRegistry) {
+        try { return window.NovaAppPackageStore.loadRegistry() || []; } catch (_) { /* fall through */ }
+      }
+    }
+    return readArray(INSTALLED_APPS_KEY);
+  }
+
   function getIntervalMinutes() {
+    // Registry-backed (HKNS/apps/store/updateIntervalMinutes); the legacy
+    // localStorage key is the pre-registry fallback.
+    if (typeof window !== 'undefined' && window.RegistrySystemState?.storeUpdateInterval) {
+      try {
+        const fromRegistry = window.RegistrySystemState.storeUpdateInterval();
+        if (fromRegistry !== null && ALLOWED_INTERVALS.has(fromRegistry)) return fromRegistry;
+      } catch (_) { /* fall through to legacy */ }
+    }
     try {
       const raw = localStorage.getItem(SETTINGS_KEY);
       if (raw === null) return DEFAULT_INTERVAL_MINUTES;
@@ -71,12 +93,25 @@
     if (!ALLOWED_INTERVALS.has(minutes)) {
       throw new RangeError('Update interval must be one of the available minute values.');
     }
-    localStorage.setItem(SETTINGS_KEY, String(minutes));
+    const inRegistry = typeof window !== 'undefined' && window.RegistrySystemState?.setStoreUpdateInterval;
+    if (inRegistry) {
+      window.RegistrySystemState.setStoreUpdateInterval(minutes);
+    } else {
+      localStorage.setItem(SETTINGS_KEY, String(minutes));
+    }
     window.dispatchEvent(new Event(SETTINGS_EVENT));
     return minutes;
   }
 
   function getNotifiedVersions() {
+    // Registry-first (HKNS/apps/store/lastNotifiedAt); the localStorage key
+    // is the adoption source and the fail-soft fallback.
+    if (typeof window !== 'undefined' && window.RegistrySystemState?.storeNotified) {
+      try {
+        const stored = window.RegistrySystemState.storeNotified();
+        if (stored) return stored;
+      } catch (_) { /* fall through */ }
+    }
     try {
       const value = JSON.parse(localStorage.getItem(NOTIFIED_KEY) || '{}');
       return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -139,7 +174,7 @@
       const updates = [];
       let notificationHistoryChanged = false;
 
-      for (const installed of readArray(INSTALLED_APPS_KEY)) {
+      for (const installed of readInstalledApps()) {
         if (!installed || typeof installed.id !== 'string' || installed.system === true) continue;
         const app = catalogById.get(installed.id);
         if (!app || compareVersions(app.version, installed.version) !== 1) continue;
@@ -157,7 +192,11 @@
 
       if (notificationHistoryChanged) {
         try {
-          localStorage.setItem(NOTIFIED_KEY, JSON.stringify(notified));
+          if (typeof window !== 'undefined' && window.RegistrySystemState?.setStoreNotified) {
+            window.RegistrySystemState.setStoreNotified(notified);
+          } else {
+            localStorage.setItem(NOTIFIED_KEY, JSON.stringify(notified));
+          }
         } catch (error) {
           console.error('[StoreUpdateService] Could not save update notification history:', error);
         }

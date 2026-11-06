@@ -108,11 +108,45 @@ registerApp({
       { action: 'Quick Commands',    key: 'Ctrl+K'       }
     ];
 
+    function getThirdPartyHomeApp() {
+      const activeHomeAppId = window.__NOVA_ACTIVE_HOME_APP_ID__;
+      const homeAppId = typeof activeHomeAppId === 'string' && activeHomeAppId
+        ? activeHomeAppId
+        : typeof DefaultApps !== 'undefined' ? DefaultApps.getDefault('home') : null;
+      if (!homeAppId || homeAppId === 'com.nbosp.launcher') return null;
+      return {
+        id: homeAppId,
+        name: (typeof OS !== 'undefined' && OS.apps?.[homeAppId]?.name) || homeAppId
+      };
+    }
+
+    function createThirdPartyLauncherNotice(homeApp) {
+      const notice = createEl('div', {
+        role: 'status',
+        style: 'padding:10px 12px;margin:0 0 12px;background:var(--accent-muted,rgba(88,166,255,0.12));border:1px solid var(--accent);border-radius:8px;color:var(--text-primary);font-size:12px;'
+      });
+      notice.textContent = `${homeApp.name} is your active third-party launcher. These controls only apply to NovaByte Launcher.`;
+      return notice;
+    }
+
+    function disableBundledLauncherControls(group, homeApp) {
+      if (!homeApp) return;
+      for (const control of group.querySelectorAll('button, input, select')) {
+        control.disabled = true;
+      }
+      for (const row of group.querySelectorAll('.nook-row, .nook-toggle-row')) {
+        row.style.opacity = '0.55';
+      }
+      group.setAttribute('aria-disabled', 'true');
+      group.insertBefore(createThirdPartyLauncherNotice(homeApp), group.children[1] || null);
+    }
+
     const PERM_LABELS = {
-      'fs:access': 'Manage all files (special access)', 'fs:metadata': 'Read shared file metadata',
+      'fs:access': 'Manage all files (special access)', 'fs:metadata': 'Read shared file metadata', 'fs:watch': 'File change alerts',
       'fs:read:images': 'Read shared images', 'fs:read:video': 'Read shared videos', 'fs:read:audio': 'Read shared audio',
       'net:internal': 'Internal network', 'net:external': 'Public internet', 'net:websocket': 'Public WebSocket',
       'clipboard:read': 'Read clipboard', 'clipboard:write': 'Write clipboard',
+      'data:export': 'Export this app\u2019s data', 'data:backup': 'Back up and restore this app\u2019s data', 'secrets:store': 'Secure secrets storage',
       'mail:read': 'Read emails', 'mail:write': 'Compose emails', 'mail:send': 'Send emails', 'mail:delete': 'Delete emails',
       'calendar:read': 'Read calendar', 'calendar:write': 'Edit calendar', 'calendar:delete': 'Delete events',
       'contacts:read': 'Read contacts', 'contacts:write': 'Edit contacts',
@@ -121,6 +155,8 @@ registerApp({
       'system:info': 'System info', 'system:settings': 'System settings', 'system:apps': 'Manage apps', 'system:app-launch': 'Launch apps',
       'apps:communicate': 'Communicate with other apps',
       'system:background': 'Background tasks', 'system:background:live': 'Keep running in background', 'system:autostart': 'Start at launch',
+      'system:badge': 'Taskbar badge', 'system:schedule': 'Named alarms', 'system:share-target': 'Receive shared content',
+      'push:receive': 'Push from its own server',
       'admin:apps': 'Manage apps (admin)', 'admin:system': 'System administration', 'admin:users': 'Manage users', 'admin:audit': 'Audit logs'
     };
 
@@ -802,10 +838,19 @@ registerApp({
         if (!isAlive()) return;
         if (confirmed !== 'confirm') return;
         // Set the manual recovery flag so init.js knows this is intentional.
-        // init.js's manual-recovery branch clears nova_boot_attempts itself,
+        // Registry-backed (HKNS/system/boot/manualRecovery via BootState —
+        // the legacy key is kept in step as the pre-boot handoff shadow).
+        // init.js's manual-recovery branch clears boot attempts itself,
         // so we don't write fake boot-attempt entries here.
-        localStorage.setItem('nova_manual_recovery', '1');
-        localStorage.removeItem('nova_safe_mode');
+        try {
+          if (typeof RegistryBootState !== 'undefined') {
+            RegistryBootState.setFlag('manualRecovery', true);
+            RegistryBootState.clearFlag('safeMode');
+          } else {
+            localStorage.setItem('nova_manual_recovery', '1');
+            localStorage.removeItem('nova_safe_mode');
+          }
+        } catch (e) { console.warn('[Settings] could not stage recovery flag:', e); }
         location.reload();
       }, { signal: lifecycle.signal });
       recoveryRow.appendChild(recoveryBtn);
@@ -1465,6 +1510,10 @@ registerApp({
             for (const k of tempKeys) localStorage.removeItem(k);
             cleared.push(tempKeys.length + ' temp key' + (tempKeys.length > 1 ? 's' : ''));
           }
+          // Registry copies of the same transient boot state (HKNS/system/boot/*).
+          if (typeof RegistryBootState !== 'undefined') {
+            RegistryBootState.clearFlags('attempts', 'forceRecovery', 'timeoutFlag');
+          }
         } catch (err) { devLog('localStorage sweep failed:', err); }
 
         if (!isAlive()) return;
@@ -1508,8 +1557,9 @@ registerApp({
       const presetContainer = createEl('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;' });
 
       const savedWallpaperId = systemSettings.get('wallpaperId');
-      const currentWallpaperId = PRESET_WALLPAPERS.some(wp => wp.id === savedWallpaperId)
-        ? savedWallpaperId : 'stock-blue';
+      const currentWallpaperId = systemSettings.get('customWallpaper')
+        ? null
+        : PRESET_WALLPAPERS.some(wp => wp.id === savedWallpaperId) ? savedWallpaperId : 'stock-blue';
 
       // Direct references to cards for O(1) visual updates on click
       const wpCards = [];
@@ -1527,10 +1577,12 @@ registerApp({
 
         function applyWallpaper() {
           if (systemSettings.set('wallpaperId', wp.id) === false ||
-              systemSettings.set('customWallpaper', null) === false) {
+              systemSettings.set('customWallpaper', null) === false ||
+              systemSettings.set('customWallpaperName', null) === false) {
             Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
             return;
           }
+          wallpaperName.textContent = 'No custom image selected';
           for (let i = 0; i < wpCards.length; i++) {
             const on = i === idx;
             wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -1555,6 +1607,13 @@ registerApp({
 
       const wallpaperRow = createEl('div', { className: 'nook-row', style: 'margin-top:16px;' });
       wallpaperRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Custom Image' }));
+      const wallpaperName = createEl('span', {
+        id: 'custom-wallpaper-name',
+        textContent: systemSettings.get('customWallpaper')
+          ? (systemSettings.get('customWallpaperName') || 'Custom image')
+          : 'No custom image selected',
+        style: 'margin-left:8px;color:var(--text-secondary);font-size:12px;'
+      });
 
       const wallpaperBtn = createEl('button', { className: 'btn btn-sm', id: 'wallpaper-upload', textContent: 'Choose Image…' });
       wallpaperBtn.addEventListener('click', async () => {
@@ -1568,6 +1627,7 @@ registerApp({
         const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
         try {
           if (systemSettings.set('customWallpaper', dataUrl) === false ||
+              systemSettings.set('customWallpaperName', file.name) === false ||
               systemSettings.set('wallpaperId', null) === false) {
             Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
             return;
@@ -1576,17 +1636,21 @@ registerApp({
           Notify.show({ title: 'Wallpaper Not Changed', body: error?.message || 'The selected image is not supported.', type: 'error', appName: 'Settings' });
           return;
         }
+        wallpaperName.textContent = file.name;
         Notify.show({ title: 'Wallpaper Changed', body: 'Custom wallpaper applied', type: 'success', appName: 'Settings' });
       }, { signal: lifecycle.signal });
       wallpaperRow.appendChild(wallpaperBtn);
+      wallpaperRow.appendChild(wallpaperName);
 
       const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset to Default', style: { marginLeft: '8px' } });
       resetBtn.addEventListener('click', () => {
         if (systemSettings.set('customWallpaper', null) === false ||
+            systemSettings.set('customWallpaperName', null) === false ||
             systemSettings.set('wallpaperId', 'stock-blue') === false) {
           Notify.show({ title: 'Wallpaper Not Changed', body: 'Wallpaper changes are disabled by system policy.', type: 'error', appName: 'Settings' });
           return;
         }
+        wallpaperName.textContent = 'No custom image selected';
         for (let i = 0; i < wpCards.length; i++) {
           const on = i === 0;
           wpCards[i].style.borderColor = on ? 'var(--accent)' : 'transparent';
@@ -1642,6 +1706,7 @@ registerApp({
         sizeRow.appendChild(btn);
       }
       clockGroup.appendChild(sizeRow);
+      disableBundledLauncherControls(clockGroup, getThirdPartyHomeApp());
 
       mainContent.appendChild(clockGroup);
     }
@@ -1725,6 +1790,7 @@ registerApp({
         row.appendChild(btn);
         iconSizeGroup.appendChild(row);
       }
+      disableBundledLauncherControls(iconSizeGroup, getThirdPartyHomeApp());
       mainContent.appendChild(iconSizeGroup);
     }
 
@@ -1888,7 +1954,7 @@ registerApp({
       }
 
       let novaApps = [];
-      try { novaApps = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); }
+      try { novaApps = (window.NovaAppPackageStore?.loadRegistry?.()) ?? JSON.parse(localStorage.getItem('nova_installed_apps') || '[]'); }
       catch (err) { devLog('nova_installed_apps parse failed:', err); novaApps = []; }
       const novaAppIds = new Set(novaApps.map(a => a.id));
 
@@ -2099,6 +2165,57 @@ registerApp({
           body.appendChild(normSection);
         }
 
+        // Live per-app resource counts for the newer surfaces — visible in
+        // the same detail view as the grants, never the values themselves
+        // (secret VALUES are unreadable even here, by design).
+        try {
+          const liveCounts = [];
+          if (mgr.isGranted && mgr.isGranted('secrets:store', appId) && typeof AppSecrets !== 'undefined' && AppSecrets.count) {
+            const n = AppSecrets.count(appId);
+            liveCounts.push(n + (n === 1 ? ' secret' : ' secrets'));
+          }
+          if (mgr.isGranted && mgr.isGranted('system:schedule', appId)) {
+            let alarmCount = 0;
+            try {
+              // Registry-backed (HKNS/apps/alarms); the localStorage key is
+              // the pre-registry fallback.
+              const state = (window.RegistrySystemState?.alarms?.())
+                ?? JSON.parse(localStorage.getItem('nova_app_alarms') || '{"apps":{}}');
+              const rec = state && state.apps && state.apps[appId];
+              if (rec && rec.alarms) alarmCount = Object.keys(rec.alarms).length;
+            } catch (_) {}
+            liveCounts.push(alarmCount + (alarmCount === 1 ? ' alarm' : ' alarms'));
+          }
+          if (mgr.isGranted && mgr.isGranted('fs:watch', appId) && typeof AppSandbox !== 'undefined' && AppSandbox._internal && AppSandbox._internal.fsWatchers) {
+            let watcherCount = 0;
+            for (const w of AppSandbox._internal.fsWatchers.values()) if (w.appId === appId) watcherCount++;
+            liveCounts.push(watcherCount + (watcherCount === 1 ? ' watcher' : ' watchers'));
+          }
+          if (mgr.isGranted && mgr.isGranted('push:receive', appId) && typeof AppSandbox !== 'undefined'
+            && AppSandbox._internal && AppSandbox._internal.loadPushState) {
+            // Registration state + queued-message count — the token VALUE is
+            // never shown here, same policy as secret values above.
+            let pushState = { tokens: {}, queue: {} };
+            try { pushState = AppSandbox._internal.loadPushState() || pushState; } catch (_) {}
+            const registered = !!(pushState.tokens && pushState.tokens[appId]);
+            const pushQueue = pushState.queue && Array.isArray(pushState.queue[appId]) ? pushState.queue[appId].length : 0;
+            if (registered) liveCounts.push('push registered');
+            if (pushQueue > 0) liveCounts.push(pushQueue + (pushQueue === 1 ? ' queued push' : ' queued pushes'));
+          }
+          if (liveCounts.length > 0) {
+            const liveSection = createEl('div', { style: 'padding:0 14px 10px;' });
+            liveSection.appendChild(createEl('div', {
+              textContent: 'IN USE',
+              style: 'font-size:10px;font-weight:700;letter-spacing:0.07em;color:var(--text-muted);margin-bottom:4px;'
+            }));
+            liveSection.appendChild(createEl('div', {
+              textContent: liveCounts.join(' · '),
+              style: 'font-size:11px;color:var(--text-muted);'
+            }));
+            body.appendChild(liveSection);
+          }
+        } catch (_) { /* counts are informational; never block the page */ }
+
         if (dangerous.length > 0) {
           const footer   = createEl('div', { style: 'padding:8px 14px;border-top:1px solid var(--border-subtle);display:flex;justify-content:flex-end;' });
           const resetBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Reset All Permissions', style: 'font-size:11px;' });
@@ -2265,6 +2382,7 @@ registerApp({
       function openPicker(categoryId, category, onChosen) {
         const candidates = DefaultApps.getAppsForCategory(categoryId);
         const currentId  = DefaultApps.getDefault(categoryId);
+        const selectedId = currentId || candidates[0]?.id || null;
 
         const overlay = createEl('div', {
           tabIndex: -1,
@@ -2294,20 +2412,24 @@ registerApp({
           const optRow = createEl('div', {
             role: 'radio',
             tabindex: '0',
-            'aria-checked': String(app.id === currentId),
-            style: 'display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:8px;cursor:pointer;'
+            'aria-checked': String(app.id === selectedId),
+            style: `display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:8px;cursor:pointer;background:${app.id === selectedId ? 'var(--accent-muted, rgba(59,130,246,0.14))' : 'transparent'};`
           });
-          optRow.addEventListener('mouseenter', () => optRow.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))');
-          optRow.addEventListener('mouseleave', () => optRow.style.background = '');
+          optRow.addEventListener('mouseenter', () => {
+            if (app.id !== selectedId) optRow.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))';
+          });
+          optRow.addEventListener('mouseleave', () => {
+            if (app.id !== selectedId) optRow.style.background = 'transparent';
+          });
 
           optRow.appendChild(iconFor(app.icon, app.name));
 
           optRow.appendChild(createEl('div', { textContent: app.name, style: 'flex:1;font-size:13px;color:var(--text-primary);' }));
 
           const radio = createEl('div', {
-            style: 'width:16px;height:16px;border-radius:50%;border:2px solid ' + (app.id === currentId ? 'var(--accent)' : 'var(--border)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;'
+            style: 'width:16px;height:16px;border-radius:50%;border:2px solid ' + (app.id === selectedId ? 'var(--accent)' : 'var(--border)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;'
           });
-          if (app.id === currentId) {
+          if (app.id === selectedId) {
             radio.appendChild(createEl('div', { style: 'width:8px;height:8px;border-radius:50%;background:var(--accent);' }));
           }
           optRow.appendChild(radio);
@@ -2792,7 +2914,7 @@ registerApp({
         if (app?.id) rootAppsById.set(app.id, app);
       }
       try {
-        const installedPackages = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+        const installedPackages = (window.NovaAppPackageStore?.loadRegistry?.()) ?? JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
         if (Array.isArray(installedPackages)) {
           for (const app of installedPackages) {
             if (app?.id && !rootAppsById.has(app.id)) rootAppsById.set(app.id, app);
@@ -2934,6 +3056,8 @@ registerApp({
     // Shortcuts
     function renderShortcuts() {
       mainContent.appendChild(createEl('h2', { textContent: 'Keyboard Shortcuts', style: { marginBottom: '20px' } }));
+      const thirdPartyHomeApp = getThirdPartyHomeApp();
+      if (thirdPartyHomeApp) mainContent.appendChild(createThirdPartyLauncherNotice(thirdPartyHomeApp));
 
       const searchWrapper = createEl('div', { className: 'nook-shortcuts-search' });
       const search        = createEl('input', { id: 'shortcuts-search-input', name: 'shortcuts-search', placeholder: 'Search shortcuts...', type: 'search' });
@@ -2949,10 +3073,11 @@ registerApp({
 
       const tbody = createEl('tbody');
 
-      // Parse custom shortcuts once — corrupt localStorage no longer crashes
+      // Parse custom shortcuts once — corrupt storage no longer crashes.
+      // Registry-backed (HKNU/shell/shortcuts) via RegistryPrefs.
       let customShortcuts;
-      try { customShortcuts = JSON.parse(localStorage.getItem('novabyte-shortcuts') || '{}'); }
-      catch (err) { devLog('novabyte-shortcuts parse failed:', err); customShortcuts = {}; }
+      try { customShortcuts = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.shortcuts) ? RegistryPrefs.shortcuts() : {}; }
+      catch (err) { devLog('custom shortcuts read failed:', err); customShortcuts = {}; }
 
       function captureKeyBinding(action) {
         return new Promise(resolve => {
@@ -3016,12 +3141,18 @@ registerApp({
         keyTd.appendChild(keySpan);
         const rebindTd = createEl('td');
         const btn = createEl('button', { className: 'btn btn-sm nook-rebind-btn', textContent: 'Rebind' });
+        const launcherOnlyShortcut = ['Open Launchpad', 'Show Desktop'].includes(s.action);
+        if (thirdPartyHomeApp && launcherOnlyShortcut) {
+          btn.disabled = true;
+          row.style.opacity = '0.55';
+          row.setAttribute('aria-disabled', 'true');
+        }
         btn.addEventListener('click', async () => {
           const newKey = await captureKeyBinding(s.action);
           if (!isAlive()) return;
           if (newKey) {
             customShortcuts[s.action] = newKey;
-            localStorage.setItem('novabyte-shortcuts', JSON.stringify(customShortcuts));
+            try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setShortcuts) RegistryPrefs.setShortcuts(customShortcuts); } catch (err) { devLog('shortcut save failed:', err); }
             keySpan.textContent = newKey;
             // Update cached search text so the new binding is findable
             const idx = rows.indexOf(row);
@@ -3142,7 +3273,7 @@ registerApp({
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleVersionClick(); }
       }, { signal: lifecycle.signal });
       swRows.appendChild(novaVersionRow);
-      swRows.appendChild(mkRow('Source Date',  '2026-08-02'));
+      swRows.appendChild(mkRow('Source Date',  '2026-11-04'));
 
       const secRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-top:1px solid var(--border-subtle);border-radius:6px;' });
       const secRowLeft  = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });

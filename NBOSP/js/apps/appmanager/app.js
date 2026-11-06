@@ -940,7 +940,14 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
             // CURRENT state rather than a stale install-time snapshot.
             let launchIntegrityStatus = 'unavailable'; // 'ok' | 'failed' | 'unavailable'
             let launchMismatchedFiles = [];
-            if (appData.integrity && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
+            // Same 'none'/missing-digest gate as the install path: a package
+            // that never recorded hashes has nothing to re-verify, and
+            // verifyIntegrity() now fails those closed — reporting
+            // 'unavailable' here keeps Studio-default (None) packages from
+            // tripping the tamper dialog on every launch.
+            if (appData.integrity && appData.integrity.method && appData.integrity.method !== 'none'
+              && appData.integrity.payloadHash
+              && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
                 // Reconstruct the same pkg shape the install path verifies
                 // against (manifest + files + signature + integrity), not a
                 // narrower subset — AppPackage's internals aren't in this
@@ -1037,7 +1044,22 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               appData.minSize = appData.minSize || pkgData.minSize || [400, 300];
             }
 
-            const sandboxId = 'sandbox_' + appId.replace(/\./g, '_') + '_' + Date.now();
+            // Canonical session-key shape, matching generateSandboxId() in
+            // app-sandbox.js: sandbox_<appId>_<unique>. The previous version
+            // mangled dots to underscores here — pointless (the server's
+            // registry regex accepts dots) and, worse, it made this session
+            // key fail the server's appId ownership binding for the stable
+            // per-app serving alias, which compares the key prefix against
+            // the literal app id.
+            const sandboxId = 'sandbox_' + appId + '_' + Date.now();
+            // Stable per-app serving alias eligibility (server/core/index.js
+            // also publishes these files under sandbox_<appId> with no unique
+            // suffix so bundled files keep a URL that survives relaunches —
+            // pre-registered OAuth/redirect callback URLs need that). Only
+            // platform-shaped app ids qualify; anything else degrades to
+            // session-only serving, exactly as before the alias existed.
+            const stableAppId = (typeof appId === 'string' && appId.length <= 128
+              && /^(?:webapp_[a-z0-9._-]{1,112}|[a-z][a-z0-9]*(?:\.[a-z0-9]+)+)$/.test(appId)) ? appId : null;
 
             // ── Attempt sandboxed serve via API ──
             let serveFailed = false;
@@ -1059,7 +1081,7 @@ function showUntrustedAppDialog(appData, { onLaunchAnyway } = {}) {
               const regRes = await fetch('/api/apps/serve/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sandboxId, files: shimmedFiles })
+                body: JSON.stringify({ sandboxId, files: shimmedFiles, appId: stableAppId || undefined })
               });
 
               if (regRes.ok) {
@@ -1255,7 +1277,7 @@ registerApp({
       'com.nbosp.sysaccess',
       'com.nbosp.launcher',
     ]);
-    const LOG_KEY = 'nova_appmanager_log';
+    const LOG_KEY = 'nova_appmanager_log'; // legacy seed + fallback; live path is HKND/appmanager/log
 
     // ── AbortController for clean teardown of all listeners ──
     const ac = new AbortController();
@@ -1263,8 +1285,10 @@ registerApp({
 
     // ── Helpers ────────────────────────────────────────────────────
     const PackageStore = window.NovaAppPackageStore || null;
-    const isManagedSystemPackage = app =>
-      app.headlessSystemService || app.manifest?.systemService === true;
+    const isSystemService = app =>
+      app?.systemService === true || app?.headlessSystemService === true ||
+      app?.manifest?.systemService === true;
+    const isManagedSystemPackage = app => isSystemService(app);
 
     // Builds the CSP injected into sandboxed app HTML. Only the webapp
     // template needs frame-src — everything else gets none, since no other
@@ -1306,7 +1330,7 @@ registerApp({
         const knownIds = new Set(apps.map(app => app.id));
         for (const [id, entry] of Object.entries(OS.apps || {})) {
           if (knownIds.has(id) || id.startsWith('wa_') || id.startsWith('webapp_') ||
-              entry?.headlessSystemService || entry?.manifest?.systemService === true) continue;
+              isManagedSystemPackage(entry)) continue;
           apps.push({
             ...entry,
             id,
@@ -1341,7 +1365,17 @@ registerApp({
       }
     }
 
+    // Install log lives in the dev hive (HKND/appmanager/log); the scoped
+    // localStorage key is the pre-registry seed and the fail-soft fallback.
     function getLog() {
+      const r = (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+        ? window.NovaRegistry : null;
+      if (r) {
+        try {
+          const stored = r.get('HKND/appmanager/log');
+          if (stored !== undefined) return Array.isArray(stored) ? stored : [];
+        } catch { /* fall through to legacy */ }
+      }
       try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); }
       catch { return []; }
     }
@@ -1350,28 +1384,35 @@ registerApp({
       const log = getLog();
       log.unshift({ ...entry, ts: Date.now() });
       if (log.length > 200) log.length = 200;
-      try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); }
+      try {
+        const r = (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+          ? window.NovaRegistry : null;
+        if (r) {
+          try { r.set('HKND/appmanager/log', log, { type: 'REG_JSON', source: 'appmanager' }); return; }
+          catch { /* fall through to legacy */ }
+        }
+        localStorage.setItem(LOG_KEY, JSON.stringify(log));
+      }
       catch { /* quota — discard oldest silently */ }
     }
 
     function getPinned() { return OS.settings.get('pinnedApps') || []; }
     function getDisabled() {
-      try {
-        const raw = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
-        return raw.map(x => typeof x === 'string' ? x : x?.id).filter(Boolean);
-      }
+      // Registry-backed (HKNU/apps/disabled) — RegistryPrefs normalizes both
+      // legacy entry shapes (id strings and { id } objects).
+      try { return (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : []; }
       catch { return []; }
     }
     function setDisabled(list) {
-      try { localStorage.setItem('nova_disabled_apps', JSON.stringify(list)); }
+      try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setDisabledApps) RegistryPrefs.setDisabledApps(list); }
       catch { /* quota */ }
     }
     function getBootApps() {
-      try { return JSON.parse(localStorage.getItem('nova_boot_apps') || '[]'); }
+      try { return (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.bootApps) ? RegistryPrefs.bootApps() : []; }
       catch { return []; }
     }
     function setBootApps(list) {
-      try { localStorage.setItem('nova_boot_apps', JSON.stringify(list)); }
+      try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setBootApps) RegistryPrefs.setBootApps(list); }
       catch { /* quota */ }
     }
 
@@ -1487,6 +1528,13 @@ registerApp({
     window.addEventListener('storage', e => {
       if (e.key === APPS_KEY) syncInstalledApps();
     });
+    // The inventory lives in HKNS/apps/installed now — live-sync on
+    // registry writes too (NovaReg, reg CLI, other windows).
+    if (window.OS?.events?.on) {
+      OS.events.on('nova:reg:changed', (event) => {
+        if (event && event.path === 'HKNS/apps/installed') syncInstalledApps();
+      });
+    }
 
     setInterval(syncInstalledApps, 2000);
 
@@ -1586,11 +1634,10 @@ registerApp({
       }, listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
-      // Developer tools, the built-in launcher, and headless services are
-      // available for inspection but hidden from the ordinary package list.
-      let showHiddenApps = localStorage.getItem('nova_show_hidden_apps') === '1' ||
-        (localStorage.getItem('nova_show_hidden_apps') === null &&
-          localStorage.getItem('nova_show_system_apps') === '1');
+      // Developer tools and the built-in launcher can be inspected on demand.
+      // Registry-backed (HKNU/apps/showHidden) — RegistryPrefs preserves the
+      // legacy '1'/'0' encoding and the old nova_show_system_apps default.
+      let showHiddenApps = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.showHiddenApps) ? RegistryPrefs.showHiddenApps() : false;
       const showHiddenChk = createEl('input', {
         type: 'checkbox', id: 'app-manager-show-hidden',
         style: 'width:15px;height:15px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;'
@@ -1603,7 +1650,7 @@ registerApp({
       showHiddenChk.checked = showHiddenApps;
       showHiddenChk.addEventListener('change', () => {
         showHiddenApps = showHiddenChk.checked;
-        try { localStorage.setItem('nova_show_hidden_apps', showHiddenApps ? '1' : '0'); } catch {}
+        try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setShowHiddenApps) RegistryPrefs.setShowHiddenApps(showHiddenApps); } catch {}
         renderList();
       }, listenerOpts);
       const showHiddenWrap = createEl('div', {
@@ -1678,10 +1725,10 @@ registerApp({
         listEl.innerHTML = '';
         const q = searchEl.value.trim().toLowerCase();
         const disabledSet = new Set(getDisabled());
-        let visible = installedApps.filter(app => showHiddenApps || !(
-          app.system === true &&
-          (HIDDEN_SYSTEM_APP_IDS.has(app.id) || app.manifest?.systemService === true)
-        ));
+        let visible = installedApps.filter(app => {
+          if (isSystemService(app)) return showHiddenApps;
+          return showHiddenApps || !(app.system === true && HIDDEN_SYSTEM_APP_IDS.has(app.id));
+        });
 
         if (q) {
           visible = visible.filter(a =>
@@ -1698,7 +1745,7 @@ registerApp({
             ? '<div style="font-size:13px;">No apps match.</div>'
             : showHiddenApps
               ? '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No packages installed.<br>Click <strong style="color:var(--text-primary);">Install</strong> or drop a <code style="color:var(--accent);">.novaapp</code> file.</div>'
-              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No apps match.<br>Enable <strong style="color:var(--text-primary);">Show hidden apps</strong> to include developer tools and system services.</div>';
+              : '<div style="font-size:32px;margin-bottom:10px;">\uD83D\uDCE6</div><div style="font-size:12px;">No apps match.<br>Enable <strong style="color:var(--text-primary);">Show hidden apps</strong> to include developer tools and hidden system apps.</div>';
           listEl.appendChild(msg);
           return;
         }
@@ -2395,7 +2442,14 @@ registerApp({
             // in its own step further down, with its own harder confirmation.
             let integrityStatus = 'unavailable'; // 'ok' | 'failed' | 'unavailable'
             let mismatchedFiles = [];
-            if (pkg.integrity && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
+            // A block recorded with method 'none' (or without a payload
+            // digest) has no hashes to compare — verifyIntegrity() now fails
+            // it closed, so gate the status on a real recorded method here
+            // and keep reporting 'unavailable' (never hashed) rather than
+            // 'failed' (tampered) for those packages.
+            if (pkg.integrity && pkg.integrity.method && pkg.integrity.method !== 'none'
+              && pkg.integrity.payloadHash
+              && typeof AppPackage !== 'undefined' && typeof AppPackage.verifyIntegrity === 'function') {
               try {
                 const integrityOk = await AppPackage.verifyIntegrity(pkg);
                 integrityStatus = integrityOk ? 'ok' : 'failed';
@@ -2612,8 +2666,6 @@ registerApp({
         );
         if (uninstallResult !== 'confirm') return;
 
-        pushLog({ action: 'uninstall', appId: app.id, label: `${app.name} v${app.version} uninstalled` });
-
         // Close any open windows for this app before removing it — otherwise
         // the window is left running against an app whose registry entry,
         // files, and permissions are about to be deleted out from under it.
@@ -2625,11 +2677,28 @@ registerApp({
           await Promise.all(openWindowIds.map(wid => WM.closeWindow(wid)));
         }
 
+        let removedByAppRegistry = false;
         try {
-          if (PackageStore?.removeApp) await PackageStore.removeApp(appId, { updateRegistry: false });
+          if (typeof AppRegistry !== 'undefined' && AppRegistry.uninstallApp) {
+            removedByAppRegistry = await AppRegistry.uninstallApp(appId);
+          }
+          if (!removedByAppRegistry) {
+            if (!PackageStore?.removeApp) throw new Error('Package storage is not available.');
+            const removed = await PackageStore.removeApp(appId, { updateRegistry: false });
+            if (!removed) throw new Error(`Package storage refused to remove ${appId}`);
+          }
         } catch (e) {
-          console.warn('[AppManager] Failed to remove stored package files for', appId, e);
+          console.error('[AppManager] Failed to remove app package and registry entry for', appId, e);
+          Notify.show({
+            title: 'Uninstall Failed',
+            body: e?.message || String(e),
+            type: 'error',
+            appName: 'App Manager',
+          });
+          return false;
         }
+        pushLog({ action: 'uninstall', appId: app.id, label: `${app.name} v${app.version} uninstalled` });
+
         try {
           if (typeof AppSandbox !== 'undefined' && AppSandbox.clearAppPartition) {
             await AppSandbox.clearAppPartition(appId);
@@ -2658,6 +2727,11 @@ registerApp({
         } catch (e) {
           console.warn('[AppManager] Failed to clear app data for', appId, e);
         }
+        try {
+          await window.AppPermissionManager?.revokeAllPermissions?.(appId);
+        } catch (e) {
+          console.warn('[AppManager] Failed to revoke permissions for', appId, e);
+        }
         installedApps = installedApps.filter(a => a.id !== appId);
         saveStoredApps(installedApps);
         delete OS.apps[appId];
@@ -2680,6 +2754,10 @@ registerApp({
                   const data = JSON.parse(f.content || '{}');
                   if (data?.type === 'app-shortcut' && data?.target === appId) {
                     await FS.permanentDelete(f.id);
+                    const iconPositions = OS.settings.get('desktopIconPositions') || {};
+                    delete iconPositions['file:' + f.id];
+                    delete iconPositions['app:' + appId];
+                    OS.settings.set('desktopIconPositions', iconPositions);
                   }
                 } catch { /* skip invalid shortcuts */ }
               }
@@ -2696,7 +2774,13 @@ registerApp({
         renderDetail();
         if (typeof refreshStats === 'function') refreshStats();
         Notify.show({ title: 'App Uninstalled', body: `${app.name} has been removed.`, type: 'success', appName: 'App Manager' });
+        return true;
       }
+
+      // Other system surfaces (Launchpad and desktop context menus) delegate
+      // here so every uninstall updates the same package registry and cleanup
+      // state as the App Manager UI.
+      content._novaAppUninstall = doUninstall;
 
       // ── Debounced search to avoid excessive re-renders ──
       searchEl.addEventListener('input', debounce(renderList, 150), listenerOpts);

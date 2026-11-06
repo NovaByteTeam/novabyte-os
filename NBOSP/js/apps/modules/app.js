@@ -38,9 +38,16 @@ registerApp({
     // console.js) since there is no filesystem helper for small app
     // state — lsSave/localStorage is what calendar.js, contacts.js, etc.
     // actually use.
+    // Config surfaces (module list + safety overrides) live in this app's
+    // registry slice (HKNA/com.nbosp.modules/{list,safety} via NovaAppConfig);
+    // the scoped localStorage keys are the pre-registry seeds and the
+    // fail-soft fallbacks. The reload HISTORY stays on localStorage
+    // deliberately — it stores whole file contents (bulk data, not config;
+    // Windows keeps documents out of the registry too).
     const STORAGE_KEY = 'nbosp_modules_list';
     const SAFETY_KEY = 'nbosp_modules_safety';   // { [path]: 'safe' | 'unsafe' } manual overrides
     const HISTORY_KEY = 'nbosp_modules_history'; // { [path]: { prevCode, newCode, ts } } last reload only
+    const MODULES_REG_SLICE = 'com.nbosp.modules';
     const DEFAULT_MODULES = [
       { id: 'boot', path: 'js/core/core/boot.js' },
       { id: 'wm', path: 'js/apps/shell-ui/wm.js' },
@@ -74,6 +81,12 @@ registerApp({
     }
 
     let modules = loadJSON(STORAGE_KEY, null);
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        const stored = window.NovaAppConfig.get(MODULES_REG_SLICE, 'list', { legacyKey: STORAGE_KEY, fallback: null });
+        if (Array.isArray(stored) && stored.length) modules = stored;
+      } catch { /* fall back to the localStorage read above */ }
+    }
     if (!Array.isArray(modules) || !modules.length) modules = DEFAULT_MODULES.slice();
     let modulesPathMigrated = false;
     modules = modules.map(module => {
@@ -89,6 +102,12 @@ registerApp({
     // other pattern the heuristic doesn't catch. This lets the user
     // correct it per-module instead of being stuck with the guess.
     let safety = loadJSON(SAFETY_KEY, {});
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        const stored = window.NovaAppConfig.get(MODULES_REG_SLICE, 'safety', { legacyKey: SAFETY_KEY, fallback: null });
+        if (stored && typeof stored === 'object' && !Array.isArray(stored)) safety = stored;
+      } catch { /* fall back to the localStorage read above */ }
+    }
 
     // Last reload only, keyed by path — { prevCode, newCode, ts }.
     // Backs both the diff view and undo. Deliberately not a full history
@@ -97,8 +116,18 @@ registerApp({
     // actual use case (a reload just made something worse).
     let reloadHistory = loadJSON(HISTORY_KEY, {});
 
-    function saveModules() { saveJSON(STORAGE_KEY, modules); }
-    function saveSafety() { saveJSON(SAFETY_KEY, safety); }
+    function saveModules() {
+      saveJSON(STORAGE_KEY, modules); // seed + fallback
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try { window.NovaAppConfig.set(MODULES_REG_SLICE, 'list', modules, { legacyKey: STORAGE_KEY }); } catch { /* best-effort */ }
+      }
+    }
+    function saveSafety() {
+      saveJSON(SAFETY_KEY, safety); // seed + fallback
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try { window.NovaAppConfig.set(MODULES_REG_SLICE, 'safety', safety, { legacyKey: SAFETY_KEY }); } catch { /* best-effort */ }
+      }
+    }
     function saveHistory() { saveJSON(HISTORY_KEY, reloadHistory); }
     function migratePathKey(record) {
       if (!record || typeof record !== 'object' ||

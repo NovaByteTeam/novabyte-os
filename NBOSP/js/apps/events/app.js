@@ -32,12 +32,43 @@ registerApp({
     const ac = new AbortController();
     state.cleanups.push(() => ac.abort());
 
+    // Dev-tool config lives in the dev hive (HKND/events/* — same home as
+    // the debug overlay position); localStorage is the pre-registry seed
+    // and the fail-soft fallback. Session history is bookkeeping, not bulk
+    // data, so it rides the same hive path (HKND/events/sessions).
     const VIEWS_STORAGE_KEY = 'nova_events_views';
     const ALERTS_STORAGE_KEY = 'nova_events_alerts';
     const SESSION_STORAGE_KEY = 'nova_events_sessions';
+    const VIEWS_REG_PATH = 'HKND/events/views';
+    const ALERTS_REG_PATH = 'HKND/events/alerts';
+    const SESSION_REG_PATH = 'HKND/events/sessions';
 
     let savedViews = [];
     let alertRules = [];
+
+    function devReg() {
+      return (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+        ? window.NovaRegistry : null;
+    }
+    function readDevJson(path, legacyKey, fallback) {
+      const r = devReg();
+      if (r) {
+        try {
+          const value = r.get(path);
+          if (value !== undefined) return value;
+        } catch (_) { /* fall through to legacy */ }
+      }
+      try { return JSON.parse(localStorage.getItem(legacyKey) || JSON.stringify(fallback)); }
+      catch { return fallback; }
+    }
+    function writeDevJson(path, legacyKey, value) {
+      const r = devReg();
+      if (r) {
+        try { r.set(path, value, { type: 'REG_JSON', source: 'events-app' }); return; }
+        catch (_) { /* fall through to legacy */ }
+      }
+      try { localStorage.setItem(legacyKey, JSON.stringify(value)); } catch {}
+    }
     let currentSessionId = null;
 
     loadViews();
@@ -165,7 +196,7 @@ registerApp({
 
     // Restore previously used filters so reopening the app doesn't reset them.
     try {
-      const saved = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || '{}');
+      const saved = readDevJson('HKND/events/filters', FILTER_STORAGE_KEY, {});
       searchQuery = saved.searchQuery || '';
       appFilter = saved.appFilter || '';
       categoryFilter = saved.categoryFilter || '';
@@ -181,29 +212,29 @@ registerApp({
     } catch { /* corrupt/missing — just start with defaults */ }
 
     function saveFilters() {
-      try {
-        localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify({ searchQuery, appFilter, categoryFilter, severityFilter, timeRange, sortOrder }));
-      } catch { /* storage unavailable — filters just won't persist, not fatal */ }
+      writeDevJson('HKND/events/filters', FILTER_STORAGE_KEY, { searchQuery, appFilter, categoryFilter, severityFilter, timeRange, sortOrder });
     }
 
     function loadViews() {
       try {
-        savedViews = JSON.parse(localStorage.getItem(VIEWS_STORAGE_KEY) || '[]');
+        savedViews = readDevJson(VIEWS_REG_PATH, VIEWS_STORAGE_KEY, []);
+        if (!Array.isArray(savedViews)) savedViews = [];
       } catch { savedViews = []; }
     }
 
     function saveViews() {
-      try { localStorage.setItem(VIEWS_STORAGE_KEY, JSON.stringify(savedViews)); } catch {}
+      writeDevJson(VIEWS_REG_PATH, VIEWS_STORAGE_KEY, savedViews);
     }
 
     function loadAlerts() {
       try {
-        alertRules = JSON.parse(localStorage.getItem(ALERTS_STORAGE_KEY) || '[]');
+        alertRules = readDevJson(ALERTS_REG_PATH, ALERTS_STORAGE_KEY, []);
+        if (!Array.isArray(alertRules)) alertRules = [];
       } catch { alertRules = []; }
     }
 
     function saveAlerts() {
-      try { localStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(alertRules)); } catch {}
+      writeDevJson(ALERTS_REG_PATH, ALERTS_STORAGE_KEY, alertRules);
     }
 
     function refreshViewOptions() {
@@ -698,11 +729,11 @@ registerApp({
       const sid = getCurrentSessionId();
       currentSessionId = sid;
       try {
-        const sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]');
+        const sessions = readDevJson(SESSION_REG_PATH, SESSION_STORAGE_KEY, []);
         const existing = sessions.find(s => s.id === sid);
         if (!existing) {
           sessions.push({ id: sid, startedAt: Date.now(), eventCount: 0 });
-          localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions.slice(-20)));
+          writeDevJson(SESSION_REG_PATH, SESSION_STORAGE_KEY, sessions.slice(-20));
         }
       } catch {}
     }
@@ -732,7 +763,7 @@ registerApp({
 
     async function openCompareModal() {
       let sessions = [];
-      try { sessions = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || '[]'); } catch {}
+      try { sessions = readDevJson(SESSION_REG_PATH, SESSION_STORAGE_KEY, []); } catch {}
       if (sessions.length < 2) { await showModal('Compare sessions', 'Need at least 2 sessions recorded to compare.'); return; }
 
       const picker = createEl('div', { style: 'display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto;' });

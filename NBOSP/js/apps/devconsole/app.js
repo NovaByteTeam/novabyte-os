@@ -50,7 +50,7 @@ registerApp({
     // textarea instead of <input> so Shift+Enter can insert a newline for
     // multi-line snippets (e.g. a small for-loop). Enter alone still runs.
     const input = createEl('textarea', {
-      placeholder: 'Enter JS to evaluate, e.g. OS.windows.size\nEnter to run · Shift+Enter for newline · ↑/↓ for history',
+      placeholder: 'Enter JS to evaluate, or `reg query HKNS\\shell` for the Registry CLI\nEnter to run · Shift+Enter for newline · ↑/↓ for history',
       rows: '2',
       style: 'flex:1;padding:8px;background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;min-height:36px;max-height:160px;'
     });
@@ -189,16 +189,27 @@ registerApp({
     }
 
     // ── Persisted command history (↑/↓ navigation) ──────────────────────
-    // Scoped key to avoid collision with other apps' localStorage usage
-    // (calendar/contacts/etc. all write to their own plain-string keys via
-    // lsSave, confirmed in base-utils.js — there's no enforced namespace,
-    // so this app needs its own distinct key).
+    // Lives in the dev hive (HKND/console/history — same home as the Event
+    // Viewer's filters/views); the scoped localStorage key is the pre-
+    // registry seed and the fail-soft fallback.
     const HISTORY_KEY = 'nbosp_devconsole_history';
+    const HISTORY_REG_PATH = 'HKND/console/history';
     const MAX_HISTORY = 100;
+    function devReg() {
+      return (typeof window !== 'undefined' && window.NovaRegistry && typeof window.NovaRegistry.get === 'function')
+        ? window.NovaRegistry : null;
+    }
     let cmdHistory = [];
     try {
-      const raw = localStorage.getItem(HISTORY_KEY);
-      if (raw) cmdHistory = JSON.parse(raw);
+      const r = devReg();
+      let raw = null;
+      if (r) { try { raw = r.get(HISTORY_REG_PATH); } catch (_) { raw = null; } }
+      if (raw === null || raw === undefined) {
+        raw = localStorage.getItem(HISTORY_KEY);
+        if (raw) cmdHistory = JSON.parse(raw);
+      } else {
+        cmdHistory = raw;
+      }
       if (!Array.isArray(cmdHistory)) cmdHistory = [];
     } catch {
       cmdHistory = [];
@@ -208,6 +219,11 @@ registerApp({
 
     function saveHistory() {
       try {
+        const r = devReg();
+        if (r) {
+          try { r.set(HISTORY_REG_PATH, cmdHistory, { type: 'REG_JSON', source: 'devconsole' }); return; }
+          catch (_) { /* fall through to legacy */ }
+        }
         if (typeof lsSave === 'function') lsSave(HISTORY_KEY, cmdHistory);
         else localStorage.setItem(HISTORY_KEY, JSON.stringify(cmdHistory));
       } catch {
@@ -221,23 +237,35 @@ registerApp({
     // structure/order is still easy to follow.
 
     async function run() {
-      const code = input.value.trim();
+      let code = input.value.trim();
       if (!code) return;
       if (!hasRun) {
         entries.length = 0;
         output.style.color = 'var(--text-primary)';
         hasRun = true;
       }
-      try {
-        const { result, captured } = await withCapturedConsole(() => eval(code));
-        let out = `\n> ${code}\n`;
-        if (captured.length) {
-          out += captured.map(c => `${c.level === 'error' ? '✗' : c.level === 'warn' ? '⚠' : '·'} ${c.text}`).join('\n') + '\n';
+      // `reg ...` lines route to the Registry CLI (reg.exe flavor) instead
+      // of eval() — window.RegCLI comes from js/platform/core/nova-reg-cli.js.
+      if (/^reg\b/.test(code) && window.RegCLI) {
+        let text;
+        try {
+          text = window.RegCLI.run(code, window.NovaRegistry, window.NovaRegFile);
+        } catch (err) {
+          text = 'ERROR: ' + (err && err.message ? err.message : String(err));
         }
-        out += formatResult(result) + '\n';
-        pushEntry(out);
-      } catch (e) {
-        pushEntry(`\n> ${code}\nError: ${e.message}\n`);
+        pushEntry(`\n> ${code}\n${text}\n`);
+      } else {
+        try {
+          const { result, captured } = await withCapturedConsole(() => eval(code));
+          let out = `\n> ${code}\n`;
+          if (captured.length) {
+            out += captured.map(c => `${c.level === 'error' ? '✗' : c.level === 'warn' ? '⚠' : '·'} ${c.text}`).join('\n') + '\n';
+          }
+          out += formatResult(result) + '\n';
+          pushEntry(out);
+        } catch (e) {
+          pushEntry(`\n> ${code}\nError: ${e.message}\n`);
+        }
       }
 
       // Push to history unless it's an exact repeat of the last command —

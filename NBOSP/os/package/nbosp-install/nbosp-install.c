@@ -48,8 +48,8 @@ int main(int argc, char **argv)
 	};
 	char *const child_env[] = {
 		"PATH=/bin:/sbin:/usr/bin:/usr/sbin",
-		"LANG=C",
-		"LC_ALL=C",
+		"LANG=C.UTF-8",
+		"LC_ALL=C.UTF-8",
 		NULL
 	};
 

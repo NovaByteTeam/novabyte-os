@@ -191,6 +191,11 @@
   <!-- Performance Configuration (must load first) -->
   <!-- NW.js Frame Security (must load early, before app sandbox) -->
   <script src="/js/platform/security/frame-security.js" defer></script>
+  <!-- Signs same-origin /api/ fetches with the per-launch system secret so
+       OS-UI traffic (launcher, shell, Settings) is trusted by the server's
+       rate limiter instead of competing for the untrusted per-IP budget.
+       Must load before any module that fetches. -->
+  <script src="/js/platform/security/system-fetch.js" defer></script>
   <!-- App Registry and Permission Manager (must load before app sandbox) -->
 
   <!-- App Sandbox with Frame Security Validation -->
@@ -219,7 +224,38 @@
 
   <script src="/js/platform/core/app-id-aliases.js" defer></script>
   <script src="/js/platform/core/app-registry.js" defer></script>
+  <!-- NovaByte Registry: OS config store (hives on disk, nova:reg:* IPC,
+       change events). Must load before boot.js so shell lookups can prefer
+       registry values over the OS.settings fallback. -->
+  <script src="/js/platform/core/nova-registry.js" defer></script>
+  <!-- .nvreg text interchange format for the registry (NovaReg export/import,
+       devconsole reg export/import). Depends only on Web APIs. -->
+  <script src="/js/platform/core/nova-reg-file.js" defer></script>
+  <!-- reg CLI (reg.exe flavor) — the dev Console routes `reg ...` lines here. -->
+  <script src="/js/platform/core/nova-reg-cli.js" defer></script>
+  <!-- Settings shim: turns OS.settings into a registry client (the registry
+       is the config source of truth). Boot attaches it right after the
+       registry engine inits; must load before boot.js. -->
+  <script src="/js/platform/core/settings-shim.js" defer></script>
+  <!-- Registry-backed platform prefs (disabled/boot apps, shortcuts,
+       notification channels, overlay position). Replaces the old
+       nova_* localStorage keys; legacy values are adopted once. -->
+  <script src="/js/platform/core/registry-prefs.js" defer></script>
+  <!-- Registry-backed system state (installed apps, permission grants,
+       background alarms, push subscriptions, Store update interval).
+       Replaces the remaining nova_* localStorage keys; legacy values are
+       adopted once. -->
+  <script src="/js/platform/core/registry-system-state.js" defer></script>
+  <!-- Registry-backed boot/recovery machine state (HKNS/system/boot/*).
+       boot() opens the hives before the watchdog consumes these; the legacy
+       nova_* keys stay as the pre-boot handoff channel to init.js and the
+       fail-soft fallback. Must load before boot.js. -->
+  <script src="/js/platform/core/registry-boot-state.js" defer></script>
+  <!-- Per-app config accessor for built-in apps (HKNA/<appId>/...);
+       legacy localStorage keys are adopted once per path. -->
+  <script src="/js/platform/core/app-config.js" defer></script>
   <script src="/js/platform/security/app-permission-manager.js" defer></script>
+  <script src="/js/platform/security/app-secrets.js" defer></script>
   <script src="/js/platform/security/root-broker.js" defer></script>
   <script src="/js/platform/security/app-permissions-bootstrap.js" defer></script>
   <script src="/js/platform/security/app-scheduler.js" defer></script>

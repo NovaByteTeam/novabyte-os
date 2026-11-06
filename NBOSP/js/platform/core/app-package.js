@@ -130,6 +130,45 @@ const AppPackage = (() => {
     });
   }
 
+  // Signature encoding helpers.
+  //
+  // NOVAAPP.md documents the package signature as base64url, and tools
+  // mirroring Studio's build (repackage.js et al.) emit base64url — but
+  // signPackage/verifyPackage historically emitted and parsed plain hex.
+  // A correctly-signed base64url package therefore NEVER verified against
+  // the trust store (hex parsing mangled the bytes), silently pinning every
+  // such package at Unverified forever, even after its key was trusted.
+  // Signing now emits the documented base64url; verification accepts BOTH
+  // encodings (hex first, then base64/base64url) so packages from either
+  // generation verify. Both interpretations are tried in order when a
+  // string is ambiguous (hex chars are also valid base64).
+
+  function _bytesToBase64Url(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function _signatureCandidates(signature) {
+    const s = String(signature || '').trim();
+    if (!s) return [];
+    const candidates = [];
+    if (/^[0-9a-fA-F]+$/.test(s) && s.length >= 2 && s.length % 2 === 0) {
+      candidates.push(new Uint8Array(s.match(/.{2}/g).map(b => parseInt(b, 16))));
+    }
+    if (/^[A-Za-z0-9+/_-]+={0,2}$/.test(s) && s.length >= 2) {
+      const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+      try {
+        const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
+        const bin = atob(padded);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        candidates.push(out);
+      } catch (_) { /* not base64 either — hex candidate (if any) stands */ }
+    }
+    return candidates;
+  }
+
   // ─── Key material helpers ───────────────────────────────────────────────────
 
   async function _toCryptoKey(key, usage, method) {
@@ -314,7 +353,12 @@ const AppPackage = (() => {
   async function verifyIntegrity(pkg) {
     if (!pkg || !pkg.integrity) return false;
     const { method, payloadHash, fileHashes } = pkg.integrity;
-    if (method === 'none' || !payloadHash) return true;
+    // Fail closed: a block recorded with method 'none' (or without a
+    // payload digest) proves nothing — there are no hashes to compare, so
+    // there is nothing to verify. Returning true here let any package that
+    // simply skipped hashing ride the integrity-only install path as
+    // "verified".
+    if (method === 'none' || !payloadHash) return false;
 
     const hasher = _getHasher(method);
     if (!hasher) return false;
@@ -376,7 +420,8 @@ const AppPackage = (() => {
     const payload = new TextEncoder().encode(_signingPayload(pkg));
     const cryptoKey = await _toCryptoKey(privateKey, 'sign', method);
     const sig = await _crypto.subtle.sign(spec.algo, cryptoKey, payload);
-    return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+    // Documented format: base64url (see _signatureCandidates).
+    return _bytesToBase64Url(new Uint8Array(sig));
   }
 
   async function verifyPackage(pkg, publicKey, method) {
@@ -424,10 +469,14 @@ const AppPackage = (() => {
     try {
       const payload = new TextEncoder().encode(_signingPayload(pkg));
       const cryptoKey = await _toCryptoKey(publicKey, 'verify', m);
-      const sigMatch = pkg.signature.match(/.{2}/g);
-      if (!sigMatch) return false;
-      const sigBytes = new Uint8Array(sigMatch.map(b => parseInt(b, 16)));
-      return await _crypto.subtle.verify(spec.algo, cryptoKey, sigBytes, payload);
+      // Accept the documented base64url form AND the hex form historical
+      // builds emitted — see _signatureCandidates.
+      for (const sigBytes of _signatureCandidates(pkg.signature)) {
+        try {
+          if (await _crypto.subtle.verify(spec.algo, cryptoKey, sigBytes, payload)) return true;
+        } catch (_) { /* wrong length/encoding for this key — next candidate */ }
+      }
+      return false;
     } catch (_) {
       return false;
     }
@@ -486,9 +535,14 @@ const AppPackage = (() => {
       pkg.signer = options.signerName || 'self-signed';
     }
 
-    if (options.integrityMethod !== 'none') {
-      const intMethod = options.integrityMethod || DEFAULT_INTEGRITY_METHOD;
-      pkg.integrity = await computeIntegrity(pkg, intMethod);
+    // Integrity is opt-in per call: the Packages app and Studio-style
+    // builders pass an explicit method (Studio v1.1.80+ defaults new
+    // projects to None), and computing one implicitly via the blake3
+    // default hard-required @noble/hashes — a bare createPackage() in an
+    // environment without that dependency threw instead of building the
+    // package it was asked to build.
+    if (options.integrityMethod && options.integrityMethod !== 'none') {
+      pkg.integrity = await computeIntegrity(pkg, options.integrityMethod);
     }
 
     return pkg;
@@ -518,17 +572,24 @@ const AppPackage = (() => {
       const result = await verifyAgainstTrustStore(pkg, trustStore, options.revocationCheck);
       verified = result.trusted;
       signer = result.signer;
-      if (!verified && !options.allowUnverified) {
-        const intOk = options.allowIntegrityFallback ? await verifyIntegrity(pkg) : false;
-        if (!intOk) {
-          const msg = 'Package signature did not match any trusted signer and integrity check failed';
-          if (typeof EventLog !== 'undefined') {
-            EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'signature' } });
-          }
-          throw new Error(msg);
-        }
+      // Integrity-only rescue: when the caller enabled the fallback and the
+      // package carries genuine recorded hashes that still match, the
+      // install is marked verified with signer 'integrity-only' — the
+      // contents provably match what was built, even though the signer is
+      // unknown. This runs before the allowUnverified bypass so a caller
+      // passing both flags gets the more truthful status, and
+      // verifyIntegrity()'s fail-closed 'none'/missing-digest handling keeps
+      // packages that never recorded hashes off this path.
+      if (!verified && options.allowIntegrityFallback && await verifyIntegrity(pkg)) {
         verified = true;
         signer = signer || 'integrity-only';
+      }
+      if (!verified && !options.allowUnverified) {
+        const msg = 'Package signature did not match any trusted signer and integrity check failed';
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'Packages', category: 'packages', severity: 'error', message: `Install failed for ${pkg?.manifest?.id || '(unknown)'}: ${msg}`, data: { appId: pkg?.manifest?.id, reason: 'signature' } });
+        }
+        throw new Error(msg);
       }
       }
     }
@@ -760,6 +821,34 @@ const AppPackage = (() => {
         }
       }
     }
+    if (manifest.shareTarget !== undefined) {
+      const shareTarget = manifest.shareTarget;
+      if (!shareTarget || typeof shareTarget !== 'object' || Array.isArray(shareTarget)) {
+        errors.push('shareTarget must be an object');
+      } else {
+        for (const key of Object.keys(shareTarget)) {
+          if (key !== 'mimeTypes') errors.push(`shareTarget.${key} is not supported`);
+        }
+        if (shareTarget.mimeTypes !== undefined) {
+          if (!Array.isArray(shareTarget.mimeTypes) || shareTarget.mimeTypes.length > 20) {
+            errors.push('shareTarget.mimeTypes must be an array of at most 20 MIME patterns');
+          } else {
+            const seenMime = new Set();
+            shareTarget.mimeTypes.forEach((value, index) => {
+              const base = typeof value === 'string' ? value.split(';', 1)[0].trim() : '';
+              const valid = /^\*\/\*$/.test(base) || /^[a-z0-9!#$&^_.+-]+\/(?:[a-z0-9!#$&^_.+-]+|\*)$/i.test(base);
+              if (!valid) {
+                errors.push(`shareTarget.mimeTypes[${index}] is invalid`);
+              } else if (seenMime.has(base.toLowerCase())) {
+                errors.push(`shareTarget.mimeTypes[${index}] is duplicated`);
+              } else {
+                seenMime.add(base.toLowerCase());
+              }
+            });
+          }
+        }
+      }
+    }
     if (manifest.ipc !== undefined) {
       const ipcManifest = manifest.ipc;
       if (!ipcManifest || typeof ipcManifest !== 'object' || Array.isArray(ipcManifest)) {
@@ -798,6 +887,46 @@ const AppPackage = (() => {
       manifest.permissions.forEach(p => {
         if (valid.length > 0 && !valid.includes(p)) warnings.push(`Unknown permission: ${p}`);
       });
+    }
+    if (manifest.permissionReasons !== undefined) {
+      // permissionReasons maps permission strings to the developer's
+      // declared reason for needing them — the text the OS shows in the
+      // grant dialogs (with an explicit fallback when a permission has no
+      // entry). Shape errors reject the package; unknown keys and reasons
+      // for permissions the manifest doesn't declare are warnings, matching
+      // how the permissions array itself treats unknown strings. The length
+      // cap mirrors AppPermissionManager.MAX_REASON_LENGTH (the dialog
+      // truncates rather than wraps); app-registry.js truncates for the
+      // non-package path, so packages are held to the stricter standard.
+      const reasons = manifest.permissionReasons;
+      if (!reasons || typeof reasons !== 'object' || Array.isArray(reasons)) {
+        errors.push('permissionReasons must be an object mapping permission strings to reason strings');
+      } else {
+        const validPerms = Object.values((typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.PERMISSION_TYPES) || {});
+        const legacyAliases = (typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.LEGACY_PERMISSION_ALIASES) || {};
+        const reasonCap = (typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.MAX_REASON_LENGTH) || 500;
+        const declaredPerms = new Set([
+          ...(Array.isArray(manifest.permissions) ? manifest.permissions : []),
+          ...(Array.isArray(manifest.optionalPermissions) ? manifest.optionalPermissions : []),
+        ]);
+        for (const [key, value] of Object.entries(reasons)) {
+          if (typeof key !== 'string' || !key.trim()) {
+            errors.push('permissionReasons keys must be non-empty permission strings');
+            continue;
+          }
+          const canonical = Object.prototype.hasOwnProperty.call(legacyAliases, key) ? legacyAliases[key] : key;
+          if (validPerms.length > 0 && !validPerms.includes(canonical)) {
+            warnings.push(`Unknown permission in permissionReasons: ${key}`);
+          }
+          if (typeof value !== 'string' || !value.trim()) {
+            errors.push(`permissionReasons["${key}"] must be a non-empty string`);
+          } else if (value.trim().length > reasonCap) {
+            errors.push(`permissionReasons["${key}"] exceeds ${reasonCap} characters`);
+          } else if (!declaredPerms.has(key) && !declaredPerms.has(canonical)) {
+            warnings.push(`permissionReasons declares "${key}", which is not in permissions or optionalPermissions`);
+          }
+        }
+      }
     }
     const requestsRoot = Array.isArray(manifest.permissions) && manifest.permissions.includes('system:root');
     const rootEntry = manifest.unrestrictedEntry;

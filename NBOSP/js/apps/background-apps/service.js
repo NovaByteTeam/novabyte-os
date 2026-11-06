@@ -45,7 +45,7 @@
 
   /* ---------------------------- Clock service ---------------------------- */
   if (!bgRoot.clock) {
-    const STATE_KEY = 'nbosp_clock_state_v2';
+    const STATE_KEY = 'nbosp_clock_state_v2'; // legacy seed + fallback; live path is HKNA/com.nbosp.clock/state
     const ALARMS_KEY = 'nbosp_clock_v1';
 
     const defaults = () => ({
@@ -54,7 +54,16 @@
       lastAlarmMinute: ''
     });
 
-    let state = safeJSONParse(localStorage.getItem(STATE_KEY), null) || defaults();
+    // Registry-backed (HKNA/com.nbosp.clock/state via NovaAppConfig); the
+    // localStorage key is the pre-registry seed and the fail-soft fallback.
+    let state = null;
+    if (typeof window !== 'undefined' && window.NovaAppConfig) {
+      try {
+        state = window.NovaAppConfig.get('com.nbosp.clock', 'state', { legacyKey: STATE_KEY, fallback: null });
+      } catch (_) { state = null; }
+    }
+    if (state === null || state === undefined) state = safeJSONParse(localStorage.getItem(STATE_KEY), null);
+    if (!state || typeof state !== 'object') state = defaults();
 
     function normaliseState() {
       state.timer = state.timer || {};
@@ -76,11 +85,25 @@
 
     function persist() {
       normaliseState();
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          window.NovaAppConfig.set('com.nbosp.clock', 'state', state, { legacyKey: STATE_KEY });
+          return;
+        } catch (_) { /* fall through to legacy */ }
+      }
       lsSave(STATE_KEY, state);
     }
 
     function loadAlarms() {
-      const raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
+      // Registry-backed (HKNA/com.nbosp.clock/alarms); the localStorage key
+      // is the pre-registry fallback. Shares the path with the clock app.
+      let raw = null;
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          raw = window.NovaAppConfig.get('com.nbosp.clock', 'alarms', { legacyKey: ALARMS_KEY, fallback: null });
+        } catch (_) { raw = null; }
+      }
+      if (raw === null || raw === undefined) raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
       const alarms = Array.isArray(raw?.alarms) ? raw.alarms : [];
       return alarms
         .map(al => ({
@@ -94,8 +117,23 @@
     }
 
     function saveAlarms(alarms) {
-      const raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
+      let raw = null;
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          raw = window.NovaAppConfig.get('com.nbosp.clock', 'alarms', { legacyKey: ALARMS_KEY, fallback: null });
+        } catch (_) { raw = null; }
+      }
+      if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
+        raw = safeJSONParse(localStorage.getItem(ALARMS_KEY), {});
+        if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) raw = {};
+      }
       raw.alarms = alarms;
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          window.NovaAppConfig.set('com.nbosp.clock', 'alarms', raw, { legacyKey: ALARMS_KEY });
+          return;
+        } catch (_) { /* fall through to legacy */ }
+      }
       lsSave(ALARMS_KEY, raw);
     }
 
@@ -298,11 +336,25 @@
     };
 
     const rawLoad = () => {
+      // Registry-backed (HKNA/com.nbosp.email/accounts); the localStorage
+      // key is the pre-registry fallback.
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          const fromRegistry = window.NovaAppConfig.get('com.nbosp.email', 'accounts', { legacyKey: ACCTS_KEY, fallback: null });
+          if (Array.isArray(fromRegistry)) return fromRegistry;
+        } catch (_) { /* fall through to legacy */ }
+      }
       try { return JSON.parse(localStorage.getItem(ACCTS_KEY) || '[]'); }
       catch { return []; }
     };
 
     function saveAccounts() {
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          window.NovaAppConfig.set('com.nbosp.email', 'accounts', state.accounts, { legacyKey: ACCTS_KEY });
+          return;
+        } catch (_) { /* fall through to legacy */ }
+      }
       lsSave(ACCTS_KEY, state.accounts);
     }
 

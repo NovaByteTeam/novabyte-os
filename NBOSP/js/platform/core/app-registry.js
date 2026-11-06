@@ -26,23 +26,73 @@ const AppRegistry = (() => {
   const STORAGE_KEY = 'nova_registry_meta';
 
   let installedApps    = new Map();
+  const systemServices = new Map();
   const _onInstalled   = [];
   const _onUninstalled = [];
 
   const KNOWN_PERMISSIONS = new Set([
-    'fs:access', 'fs:metadata', 'fs:read:images', 'fs:read:video', 'fs:read:audio',
+    'fs:access', 'fs:metadata', 'fs:watch', 'fs:read:images', 'fs:read:video', 'fs:read:audio',
     'apps:communicate',
     'clipboard:read', 'clipboard:write',
+    'data:export', 'data:backup', 'secrets:store',
     'net:internal', 'net:external', 'net:websocket',
     'mail:read', 'mail:write', 'mail:send', 'mail:delete',
     'calendar:read', 'calendar:write', 'calendar:delete',
     'contacts:read', 'contacts:write', 'contacts:delete',
     'device:notifications', 'device:geolocation', 'device:camera', 'device:microphone',
     'system:info', 'system:settings', 'system:apps', 'system:app-launch', 'system:events', 'system:root',
+    'system:badge', 'system:schedule', 'system:share-target',
     'system:background', 'system:background:live', 'system:autostart',
+    'push:receive',
+    'registry.read', 'registry.write', 'registry.system',
     'sandbox:nested-webview', 'sandbox:same-origin', 'sandbox:escape-popups',
     'admin:apps', 'admin:users', 'admin:system', 'admin:audit',
   ]);
+
+  // Legacy permission names from the pre-fs ("vfs") era. Old .novaapp
+  // manifests still declare these, and the unknown-permission strip below
+  // used to silently remove them — leaving old apps permanently
+  // under-granted with no diagnostic beyond a console warning. Known legacy
+  // names are translated to their fs-era equivalents BEFORE that strip, so
+  // an old manifest registers with exactly the grants a modern manifest
+  // would carry. Mapping rationale:
+  //   vfs:metadata → fs:metadata   exact successor (same label, same risk).
+  //   vfs:access / vfs:read / vfs:write / vfs:delete → fs:access
+  //     The scoped-storage model collapsed the old broad filesystem verbs
+  //     into the single special-access grant: there is no generic fs:read /
+  //     fs:write / fs:delete permission anymore. fs:access is critical-risk
+  //     AND specialAccess — requestPermission() refuses to prompt for it and
+  //     the prompt queue skips it — so translating into it can never widen
+  //     an old app's access silently; the user must explicitly enable
+  //     "Manage all files" for that app in Settings (the toggle lives in the
+  //     per-app permissions panel), the same user-mediated grant path a
+  //     modern app declaring fs:access gets. Shared-tree calls old apps make
+  //     without that toggle keep the modern handler behavior: app-owned
+  //     paths need no grant at all, shared paths ask via picker/confirmation
+  //     flows exactly as they do for a modern app.
+  // The companion half of this compat layer (legacy nova:vfs:* / vfs:* IPC
+  // channel aliases) lives in app-sandbox.js (LEGACY_VFS_CHANNEL_ALIASES).
+  const LEGACY_PERMISSION_ALIASES = Object.freeze({
+    'vfs:access': 'fs:access',
+    'vfs:read': 'fs:access',
+    'vfs:write': 'fs:access',
+    'vfs:delete': 'fs:access',
+    'vfs:metadata': 'fs:metadata',
+  });
+
+  // Translate a permission list's legacy vfs:* names to their fs:*
+  // equivalents. Lists without any legacy name are returned untouched (same
+  // array reference), so modern manifests are not deduped or reordered as a
+  // side effect; legacy lists are deduped, since e.g. vfs:read + vfs:write
+  // both collapse onto fs:access.
+  function translateLegacyPermissions(perms) {
+    if (!Array.isArray(perms)) return perms;
+    if (!perms.some(p => Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, p))) return perms;
+    return [...new Set(perms.map(p =>
+      Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, p)
+        ? LEGACY_PERMISSION_ALIASES[p]
+        : p))];
+  }
 
   const RESERVED_APP_IDS = new Set([
     'app-manager', 'browser', 'calculator', 'calendar-app', 'files', 'quill', 'shell', 'terminal', 'textedit', 'vault',
@@ -55,6 +105,7 @@ const AppRegistry = (() => {
     'com.nbosp.events',
     'com.nbosp.inspector',
     'com.nbosp.modules',
+    'com.nbosp.novareg',
     'com.nbosp.packages',
     'com.nbosp.perf',
     'com.nbosp.permissions',
@@ -76,6 +127,12 @@ const AppRegistry = (() => {
   function _saveToStorage() {
     try {
       if (typeof localStorage === 'undefined' || !localStorage) return;
+      // Registry-first (HKNS/apps/builtin via RegistrySystemState); the
+      // localStorage key is the adoption source and the fail-soft fallback.
+      if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+        try { if (RegistrySystemState.setBuiltinMeta([...installedApps.values()])) return; }
+        catch (e) { console.warn('[AppRegistry] registry save failed; using localStorage:', e); }
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify([...installedApps.values()]));
     } catch (e) {
       if (e.name !== 'SecurityError') {
@@ -98,7 +155,16 @@ const AppRegistry = (() => {
         }
         return;
       }
-      const raw = localStorage.getItem(STORAGE_KEY);
+      // Registry-first hydration (HKNS/apps/builtin); the legacy key is the
+      // adoption source and the fail-soft fallback.
+      let raw = null;
+      if (typeof window !== 'undefined' && window.NovaRegistry && typeof RegistrySystemState !== 'undefined') {
+        try {
+          const list = RegistrySystemState.builtinMeta();
+          if (list) raw = JSON.stringify(list);
+        } catch (e) { /* fall through to localStorage */ }
+      }
+      if (raw === null) raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const apps = JSON.parse(raw);
       for (const app of apps) {
@@ -194,6 +260,9 @@ const AppRegistry = (() => {
 
   function registerApp(appConfig, options = {}) {
     if (!appConfig?.id || !appConfig?.name) throw new Error('[AppRegistry] App must have id and name');
+    if (systemServices.has(appConfig.id)) {
+      throw new Error('[AppRegistry] Registration denied — id "' + appConfig.id + '" is reserved for a system service.');
+    }
 
     if (installedApps.has(appConfig.id) && !options.force) {
       return installedApps.get(appConfig.id);
@@ -207,6 +276,31 @@ const AppRegistry = (() => {
       throw new Error('[AppRegistry] Registration denied — id "' + appConfig.id + '" is reserved for system apps. Verify the app signature to proceed.');
     }
 
+    // Legacy vfs-era permission names are translated to their fs-era
+    // equivalents before the unknown-permission strip below, so old
+    // manifests register with the same grants a modern manifest would
+    // carry instead of being silently under-granted (see
+    // LEGACY_PERMISSION_ALIASES above). The translation is logged so an
+    // audit trail shows exactly what an old manifest was normalized to.
+    const legacyPerms = [...(appConfig.permissions || []), ...(appConfig.optionalPermissions || [])]
+      .filter(p => Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, p));
+    if (legacyPerms.length > 0) {
+      const mapped = [...new Set(legacyPerms.map(p => `${p} → ${LEGACY_PERMISSION_ALIASES[p]}`))];
+      console.warn('[AppRegistry] Translated legacy permission(s) for', appConfig.id + ':', mapped.join(', '));
+      if (typeof EventLog !== 'undefined') {
+        EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'info', message: `Translated legacy permission(s) for ${appConfig.id}: ${mapped.join(', ')}`, data: { appId: appConfig.id, legacy: legacyPerms } });
+      }
+    }
+    // Only assign back when an array was actually present — assigning
+    // `permissions: undefined` onto appConfig would override the default
+    // `[]` fill in the app object below via the spread.
+    if (Array.isArray(appConfig.permissions)) {
+      appConfig.permissions = translateLegacyPermissions(appConfig.permissions);
+    }
+    if (Array.isArray(appConfig.optionalPermissions)) {
+      appConfig.optionalPermissions = translateLegacyPermissions(appConfig.optionalPermissions);
+    }
+
     const allPerms = [...(appConfig.permissions || []), ...(appConfig.optionalPermissions || [])];
     const unknown = allPerms.filter(p => !KNOWN_PERMISSIONS.has(p));
     if (unknown.length > 0) {
@@ -216,6 +310,75 @@ const AppRegistry = (() => {
       }
       appConfig.permissions = (appConfig.permissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
       appConfig.optionalPermissions = (appConfig.optionalPermissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
+    }
+
+    // Manifest-declared per-permission reasons ("permissionReasons") get the
+    // same treatment the permission arrays just got: legacy vfs:* keys are
+    // translated (two legacy names can map onto one fs:* target — first
+    // non-empty value wins), keys the OS doesn't know are stripped, and
+    // values that wouldn't survive display (non-strings, whitespace-only,
+    // over the dialog's length cap) are dropped. The cap is enforced by
+    // truncation rather than rejection because this code also runs for
+    // built-in registrations that never went through package validation —
+    // for packaged installs, validateManifest already ERRORS on oversized
+    // reasons, so an author sees and fixes them before shipping.
+    // Reasons for known permissions the app didn't declare are KEPT (the
+    // display path is gated by actual prompts, so they're inert) but logged
+    // — validateManifest flags them as a non-fatal warning for the author.
+    // The cleaned map lands on the app record via the appConfig spread, so
+    // AppPermissionManager.resolvePermissionReason() can pick it up at
+    // prompt time via AppRegistry.getApp(id).permissionReasons.
+    if (appConfig.permissionReasons !== undefined) {
+      const rawReasons = appConfig.permissionReasons;
+      if (!rawReasons || typeof rawReasons !== 'object' || Array.isArray(rawReasons)) {
+        console.warn('[AppRegistry] Ignoring invalid permissionReasons for', appConfig.id, '(must be an object)');
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Ignored invalid permissionReasons for ${appConfig.id} (must be an object)`, data: { appId: appConfig.id } });
+        }
+        delete appConfig.permissionReasons;
+      } else {
+        const REASON_DISPLAY_CAP = 500;
+        const translated = {};
+        for (const [key, value] of Object.entries(rawReasons)) {
+          const mappedKey = Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, key)
+            ? LEGACY_PERMISSION_ALIASES[key]
+            : key;
+          if (translated[mappedKey] === undefined || translated[mappedKey] === null) {
+            translated[mappedKey] = value;
+          }
+        }
+        const cleanedReasons = {};
+        const rejectedReasons = [];
+        for (const [key, value] of Object.entries(translated)) {
+          if (!KNOWN_PERMISSIONS.has(key)) {
+            rejectedReasons.push(`${key} (unknown permission)`);
+            continue;
+          }
+          if (typeof value !== 'string' || !value.trim()) {
+            rejectedReasons.push(`${key} (reason is not a non-empty string)`);
+            continue;
+          }
+          const trimmed = value.trim();
+          if (trimmed.length > REASON_DISPLAY_CAP) {
+            rejectedReasons.push(`${key} (reason truncated to ${REASON_DISPLAY_CAP} characters)`);
+          }
+          cleanedReasons[key] = trimmed.length > REASON_DISPLAY_CAP ? trimmed.slice(0, REASON_DISPLAY_CAP) : trimmed;
+        }
+        const undeclaredReasons = Object.keys(cleanedReasons)
+          .filter(p => !(appConfig.permissions || []).includes(p) && !(appConfig.optionalPermissions || []).includes(p));
+        if (rejectedReasons.length > 0 || undeclaredReasons.length > 0) {
+          const detail = [...rejectedReasons, ...undeclaredReasons.map(p => `${p} (not declared in permissions)`)].join(', ');
+          console.warn('[AppRegistry] Normalized permissionReasons for', appConfig.id + ':', detail);
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Normalized permissionReasons for ${appConfig.id}: ${detail}`, data: { appId: appConfig.id, rejected: rejectedReasons, undeclared: undeclaredReasons } });
+          }
+        }
+        if (Object.keys(cleanedReasons).length > 0) {
+          appConfig.permissionReasons = cleanedReasons;
+        } else {
+          delete appConfig.permissionReasons;
+        }
+      }
     }
 
     // autoGrant silently skips the permission-request prompt entirely (see
@@ -322,6 +485,31 @@ const AppRegistry = (() => {
     return app;
   }
 
+  function registerSystemService(service) {
+    if (!service?.id || !service?.name ||
+        service.system !== true || service.verified !== true ||
+        service.signer !== 'NovaByte System' ||
+        service.manifest?.system !== true || service.manifest?.systemService !== true) {
+      throw new Error('[AppRegistry] System service registration requires a verified NovaByte System package.');
+    }
+    if (installedApps.has(service.id)) {
+      throw new Error('[AppRegistry] System service id is already registered as an app: ' + service.id);
+    }
+
+    const registered = Object.freeze({
+      ...service,
+      categories: ['system-service'],
+      systemService: true,
+      headlessSystemService: true,
+    });
+    systemServices.set(registered.id, registered);
+    return registered;
+  }
+
+  function unregisterSystemService(serviceId) {
+    return systemServices.delete(serviceId);
+  }
+
   function unregisterApp(appId) {
     const app = installedApps.get(appId);
     if (!app) return false;
@@ -403,7 +591,8 @@ const AppRegistry = (() => {
    */
   async function launchApp(appId, content, state, options) {
     try {
-      const disabled = JSON.parse(localStorage.getItem('nova_disabled_apps') || '[]');
+      // Registry-backed (HKNU/apps/disabled) via RegistryPrefs.
+      const disabled = (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.disabledApps) ? RegistryPrefs.disabledApps() : [];
       if (disabled.some(x => (typeof x === 'string' ? x : x?.id) === appId)) {
         console.warn('[AppRegistry] Launch blocked — disabled app:', appId);
         if (typeof EventLog !== 'undefined') {
@@ -537,12 +726,16 @@ const AppRegistry = (() => {
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
-  function getApp(appId)              { return installedApps.get(appId) ?? null; }
-  function getAllApps()               { return [...installedApps.values()]; }
-  function getAppsByCategory(cat)    { return [...installedApps.values()].filter(a => a.categories.includes(cat)); }
+  function getApp(appId)              { return installedApps.get(appId) ?? systemServices.get(appId) ?? null; }
+  function isRegistered(appId)        { return installedApps.has(appId) || systemServices.has(appId); }
+  function isInstalled(appId)         { return isRegistered(appId); }
+  function getAllApps()               { return [...installedApps.values(), ...systemServices.values()]; }
+  function getAppsByCategory(cat)    {
+    return getAllApps().filter(app => (app.categories || []).includes(cat));
+  }
 
   function getStats() {
-    const apps = [...installedApps.values()];
+    const apps = getAllApps();
     return {
       totalApps   : apps.length,
       totalLaunches: apps.reduce((s, a) => s + (a.launchCount || 0), 0),
@@ -561,8 +754,9 @@ const AppRegistry = (() => {
   function onUninstall(cb) { if (typeof cb === 'function') _onUninstalled.push(cb); }
 
   return {
-    initialize, registerApp, unregisterApp, uninstallApp, launchApp, updateApp,
-    getApp, getAllApps, getAppsByCategory, checkPermissions,
+    initialize, registerApp, registerSystemService, unregisterSystemService,
+    unregisterApp, uninstallApp, launchApp, updateApp,
+    getApp, isRegistered, isInstalled, getAllApps, getAppsByCategory, checkPermissions,
     onInstall, onUninstall, getStats,
   };
 })();

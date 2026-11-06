@@ -134,7 +134,8 @@ const OS = {
     },
 
     set(key, value) {
-      if ((key === 'wallpaperId' || key === 'customWallpaper') && this.get('prohibitWallpaperChange') === true) {
+      if ((key === 'wallpaperId' || key === 'customWallpaper' || key === 'customWallpaperName')
+        && this.get('prohibitWallpaperChange') === true) {
         return false;
       }
       this._cache[key] = value;

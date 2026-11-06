@@ -71,6 +71,10 @@ for option in \
   BR2_PACKAGE_LIBNSS \
   BR2_PACKAGE_LIBNSPR \
   BR2_PACKAGE_CA_CERTIFICATES \
+  BR2_PACKAGE_OPENSSL \
+  BR2_PACKAGE_LIBCURL \
+  BR2_PACKAGE_LIBCURL_CURL \
+  BR2_PACKAGE_LIBCURL_OPENSSL \
   BR2_PACKAGE_FONTCONFIG \
   BR2_PACKAGE_NOTO_EMOJI \
   BR2_PACKAGE_DEJAVU \
@@ -145,6 +149,18 @@ fi
 if grep -qx "BR2_PACKAGE_NODEJS=y" "$OUTPUT_DIR/.config"; then
   echo "Buildroot Node.js must stay disabled; the kiosk uses NW.js's bundled Node runtime." >&2
   exit 1
+fi
+
+CURL_TLS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-curl-tls-signature"
+CURL_TLS_SIGNATURE="$(
+  grep -E '^BR2_PACKAGE_(LIBCURL|OPENSSL)(_|=)' "$OUTPUT_DIR/.config" \
+    | sha256sum | cut -d ' ' -f 1
+)"
+if [[ ! -f "$CURL_TLS_SIGNATURE_FILE" ]] \
+  || [[ "$(cat "$CURL_TLS_SIGNATURE_FILE")" != "$CURL_TLS_SIGNATURE" ]]; then
+  echo "cURL TLS configuration changed; rebuilding libcurl."
+  make -C "$BUILDROOT_DIR" O="$OUTPUT_DIR" BR2_EXTERNAL="$OS_DIR" libcurl-dirclean
+  printf '%s\n' "$CURL_TLS_SIGNATURE" > "$CURL_TLS_SIGNATURE_FILE"
 fi
 
 GRAPHICS_SIGNATURE_FILE="$OUTPUT_DIR/.nbosp-graphics-signature"

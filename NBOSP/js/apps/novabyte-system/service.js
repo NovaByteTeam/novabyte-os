@@ -26,7 +26,7 @@
     'highContrast', 'keyboardLayout', 'osVersion', 'prohibitWallpaperChange',
     'reduceMotion', 'region', 'removeTransparency', 'rootAccessEnabled',
     'showTaskbarClock', 'taskbarSize', 'theme', 'timezone', 'username',
-    'wallpaperId', 'customWallpaper',
+    'wallpaperId', 'customWallpaper', 'customWallpaperName', 'doNotDisturb',
   ]);
   const protectedImportKeys = new Set([
     'devMode', 'rootAccessEnabled', 'lockPin', 'pinSalt',
@@ -61,6 +61,10 @@
     ['customWallpaper', value => value === null ||
       (typeof value === 'string' && value.length <= 5_500_000 &&
         /^data:image\/(?:png|jpe?g|webp|gif|bmp|x-ms-bmp|svg\+xml);base64,[a-z\d+/]+=*$/i.test(value))],
+    ['customWallpaperName', value => value === null ||
+      (typeof value === 'string' && value.length > 0 && value.length <= 255 &&
+        !/[\u0000-\u001f\u007f]/.test(value))],
+    ['doNotDisturb', value => typeof value === 'boolean'],
     ['showTaskbarClock', value => typeof value === 'boolean'],
     ['taskbarSize', value => value === 'compact' || value === 'normal' || value === 'large'],
     ['reduceMotion', value => typeof value === 'boolean'],
@@ -177,8 +181,10 @@
       accepted.push([key, value]);
     }
 
-    const isLinux = typeof process !== 'undefined' && process.platform === 'linux';
-    const writes = [];
+    // Every import lands through storedSettings.set — registry-backed since
+    // the settings shim became the persistence path, so imported values are
+    // committed to their hive (atomic + audited) and fanned out through
+    // 'settings:changed' exactly like a manual change.
     const imported = [];
     for (const [key, value] of accepted) {
       if (validators.has(key)) {
@@ -186,18 +192,10 @@
           skipped.push(key);
           continue;
         }
-      } else if (isLinux) {
-        storedSettings.set(key, value);
       } else {
-        storedSettings._cache[key] = value;
-        writes.push(OS.workers.fs.call('putSetting', key, value));
+        storedSettings.set(key, value);
       }
       imported.push(key);
-    }
-    const results = await Promise.allSettled(writes);
-    const failedWrites = results.filter(result => result.status === 'rejected');
-    if (failedWrites.length) {
-      throw new Error(`Failed to persist ${failedWrites.length} imported system setting(s)`);
     }
     OS.events.emit('settings:changed', { key: null, value: null, bulk: true });
     return { imported, skipped };

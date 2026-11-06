@@ -209,13 +209,32 @@ registerApp({
     }
 
     // Settings storage — write-through cache + debounced persist.
+    // Settings live in the NovaByte Registry (HKNA/com.nbosp.browser/settings)
+    // via NovaAppConfig; the localStorage key is adopted once + kept as the
+    // fail-soft fallback. Bookmarks/history stay app data (localStorage).
     let _settingsCache = null;
     let _settingsSaveTimer = null;
+
+    function persistSettings(settings) {
+      if (typeof window !== 'undefined' && window.NovaAppConfig) {
+        try {
+          window.NovaAppConfig.set('com.nbosp.browser', 'settings', settings, { legacyKey: ST_KEY });
+          return;
+        } catch (_) { /* fall through to legacy */ }
+      }
+      try { localStorage.setItem(ST_KEY, JSON.stringify(settings)); }
+      catch (err) { console.warn('[NB Browser] Failed to save settings:', err); }
+    }
 
     function loadSettings() {
       if (_settingsCache) return _settingsCache;
       try {
-        _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}');
+        if (typeof window !== 'undefined' && window.NovaAppConfig) {
+          const fromRegistry = window.NovaAppConfig.get('com.nbosp.browser', 'settings', { legacyKey: ST_KEY, fallback: null });
+          _settingsCache = fromRegistry && typeof fromRegistry === 'object' && !Array.isArray(fromRegistry) ? fromRegistry : {};
+        } else {
+          _settingsCache = JSON.parse(localStorage.getItem(ST_KEY) || '{}');
+        }
         let migrated = false;
         if ('double_tap_zoom' in _settingsCache) {
           delete _settingsCache.double_tap_zoom;
@@ -232,8 +251,7 @@ registerApp({
           }
         }
         if (migrated) {
-          try { localStorage.setItem(ST_KEY, JSON.stringify(_settingsCache)); }
-          catch (err) { console.warn('[NB Browser] Could not migrate browser settings:', err); }
+          persistSettings(_settingsCache);
         }
       } catch (err) {
         console.error('[NB Browser] Settings cache corrupted, resetting:', err);
@@ -248,10 +266,7 @@ registerApp({
       s[key] = val;
       _settingsCache = s;
       clearTimeout(_settingsSaveTimer);
-      _settingsSaveTimer = setTimeout(() => {
-        try { localStorage.setItem(ST_KEY, JSON.stringify(s)); }
-        catch (err) { console.warn('[NB Browser] Failed to save settings:', err); }
-      }, DEBOUNCE_MS);
+      _settingsSaveTimer = setTimeout(() => persistSettings(s), DEBOUNCE_MS);
     }
 
     const getSetting = (key, def) => {
@@ -761,7 +776,7 @@ registerApp({
       clearTimeout(_bookmarksSaveTimer);
       clearTimeout(_historySaveTimer);
       try {
-        if (_settingsCache)  localStorage.setItem(ST_KEY, JSON.stringify(_settingsCache));
+        if (_settingsCache) persistSettings(_settingsCache);
         if (_bookmarksCache) localStorage.setItem(BK_KEY, JSON.stringify(_bookmarksCache));
         if (_historyCache)   localStorage.setItem(HX_KEY, JSON.stringify(_historyCache));
       } catch (err) {
@@ -1944,8 +1959,13 @@ registerApp({
     // characters, and truncate to MAX_DL_NAME_LEN. Returns a non-empty name.
     function sanitizeDownloadName(rawName) {
       const base = (() => {
-        try { return decodeURIComponent(new URL(rawName).pathname.split('/').pop()); }
-        catch { return ''; }
+        try {
+          const parsed = new URL(rawName);
+          if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+          return decodeURIComponent(parsed.pathname.split('/').pop());
+        } catch {
+          return String(rawName || '').split(/[\\/]/).pop();
+        }
       })() || ('download_' + Date.now());
       const cleaned = base.replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim() || ('download_' + Date.now());
       return cleaned.length > MAX_DL_NAME_LEN ? cleaned.slice(0, MAX_DL_NAME_LEN) : cleaned;
@@ -1961,21 +1981,32 @@ registerApp({
     }
 
     // Streams a URL to disk with Node's http(s), so there's no CORS and no
-    // whole-file buffer in memory. Follows up to 5 redirects and only renames
-    // the .part file once it's complete. Runs outside the webview session, so
-    // cookies aren't sent.
-    function streamUrlToFile(url, destPath, redirectsLeft = 5) {
+    // whole-file buffer in memory. Uses captured image request headers to
+    // preserve hotlink/session access and only forwards credentials to the
+    // original origin when following redirects.
+    function streamUrlToFile(url, destPath, requestHeaders = {}, redirectsLeft = 5) {
       return new Promise((resolve, reject) => {
         const fs = require('fs');
         const client = /^https:/i.test(url) ? require('https') : require('http');
-        const req = client.get(url, res => {
+        const req = client.get(url, { headers: requestHeaders }, res => {
           const { statusCode, headers } = res;
           if (statusCode >= 300 && statusCode < 400 && headers.location) {
             res.resume();
             if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
             const next = new URL(headers.location, url).href;
             if (!/^https?:/i.test(next)) return reject(new Error('Unsupported redirect'));
-            return streamUrlToFile(next, destPath, redirectsLeft - 1).then(resolve, reject);
+            const nextHeaders = { ...requestHeaders };
+            if (new URL(url).origin !== new URL(next).origin) {
+              for (const name of Object.keys(nextHeaders)) {
+                if (['authorization', 'cookie', 'cookie2', 'host', 'proxy-authorization'].includes(name.toLowerCase())) {
+                  delete nextHeaders[name];
+                } else if (name.toLowerCase() === 'referer') {
+                  try { nextHeaders[name] = new URL(nextHeaders[name]).origin + '/'; }
+                  catch { delete nextHeaders[name]; }
+                }
+              }
+            }
+            return streamUrlToFile(next, destPath, nextHeaders, redirectsLeft - 1).then(resolve, reject);
           }
           if (statusCode !== 200) {
             res.resume();
@@ -2006,22 +2037,68 @@ registerApp({
       });
     }
 
+    function normalizeRequestUrl(url) {
+      try {
+        const parsed = new URL(url);
+        parsed.hash = '';
+        return parsed.href;
+      } catch {
+        return url;
+      }
+    }
+
+    function getImageRequestHeaders(wv, url, pageUrl) {
+      const savedHeaders = wv?._nbImageRequestHeaders?.get(normalizeRequestUrl(url)) || {};
+      const requestHeaders = { ...savedHeaders };
+      if (!Object.keys(requestHeaders).some(name => name.toLowerCase() === 'referer') && pageUrl) {
+        try {
+          const referer = new URL(pageUrl);
+          if (['http:', 'https:'].includes(referer.protocol)) {
+            referer.username = '';
+            referer.password = '';
+            requestHeaders.Referer = referer.href;
+          }
+        } catch { /* ignore invalid page URLs */ }
+      }
+      if (!Object.keys(requestHeaders).some(name => name.toLowerCase() === 'user-agent') &&
+          typeof navigator !== 'undefined' && typeof navigator.userAgent === 'string') {
+        requestHeaders['User-Agent'] = navigator.userAgent;
+      }
+      return requestHeaders;
+    }
+
     // Chromium's own download would open the host's native chooser, so the
     // permission handler denies it and routes the URL here for the OS Save As.
-    async function saveDownloadViaDialog(url) {
-      if (!url || !/^https?:\/\//i.test(url)) return;
-      const rawName = sanitizeDownloadName(url);
+    async function saveDownloadViaDialog(url, requestedName, title = 'Save As', requestHeaders = {}) {
+      const isDataImage = /^data:image\/[a-z0-9.+-]+(?:;[^,]*)?,/i.test(url || '');
+      if (!url || (!/^https?:\/\//i.test(url) && !isDataImage)) {
+        Notify.show({ title: 'Download failed', body: 'This image URL cannot be saved directly.', type: 'error', appName: 'Downloads' });
+        return;
+      }
+      const rawName = sanitizeDownloadName(requestedName || url);
       const suggestedName = rawName.includes('.') ? rawName : rawName + '.bin';
-      const picked = await SystemDialogs.save({ title: 'Save As', suggestedName });
+      const picked = await SystemDialogs.save({ title, suggestedName });
       if (!picked) return;
       if (!picked.path) {
         Notify.show({ title: 'Download failed', body: 'Save As did not return a file path.', type: 'error', appName: 'Downloads' });
         return;
       }
-      const entry = window.Downloads?.add(picked.name, url, 0, '');
+      const entry = window.Downloads?.add(picked.name, isDataImage ? '' : url, 0, '');
       if (entry) window.Downloads.setStatus(entry.id, 'downloading');
       try {
-        const bytes = await streamUrlToFile(url, picked.path);
+        let bytes;
+        if (isDataImage) {
+          const comma = url.indexOf(',');
+          const metadata = url.slice(5, comma);
+          const payload = url.slice(comma + 1);
+          const data = /;base64/i.test(metadata)
+            ? Buffer.from(payload, 'base64')
+            : Buffer.from(decodeURIComponent(payload), 'utf8');
+          await require('fs').promises.writeFile(picked.path, data);
+          bytes = data.length;
+        } else {
+          bytes = await streamUrlToFile(url, picked.path, requestHeaders);
+        }
         if (entry) window.Downloads.setStatus(entry.id, 'done', bytes);
         Notify.show({ title: 'Download complete', body: picked.name, type: 'success', appName: 'Downloads' });
       } catch (err) {
@@ -2157,8 +2234,10 @@ registerApp({
       // itself is what the listener closure captures, and property reads on
       // it always work.
       wv._nbTabId = tabId;
+      wv._nbImageRequestHeaders = new Map();
 
       wv.addEventListener('loadcommit', e => {
+        if (e.isTopLevel) wv._nbImageRequestHeaders.clear();
         if (e.isTopLevel && e.url) syncUrlForTab(e.url, tabId, 'loadcommit');
       });
 
@@ -3224,12 +3303,30 @@ registerApp({
             ['blocking']
           );
           wv.request.onBeforeSendHeaders.addListener(details => {
-            if (getSetting('accept_cookies', true)) return { requestHeaders: details.requestHeaders };
-            return {
-              requestHeaders: (details.requestHeaders || []).filter(header =>
+            const requestHeaders = getSetting('accept_cookies', true)
+              ? (details.requestHeaders || [])
+              : (details.requestHeaders || []).filter(header =>
                 !['cookie', 'cookie2'].includes(header.name?.toLowerCase())
-              )
-            };
+              );
+            if (details.type === 'image' && typeof details.url === 'string') {
+              const captured = {};
+              const allowedHeaders = new Set([
+                'accept', 'accept-language', 'authorization', 'cookie', 'cookie2',
+                'referer', 'user-agent',
+              ]);
+              for (const header of requestHeaders) {
+                const name = header.name?.toLowerCase();
+                if (allowedHeaders.has(name) && typeof header.value === 'string') {
+                  captured[header.name] = header.value;
+                }
+              }
+              if (wv._nbImageRequestHeaders.size >= 256) {
+                const oldestUrl = wv._nbImageRequestHeaders.keys().next().value;
+                wv._nbImageRequestHeaders.delete(oldestUrl);
+              }
+              wv._nbImageRequestHeaders.set(normalizeRequestUrl(details.url), captured);
+            }
+            return { requestHeaders };
           }, { urls: ['<all_urls>'] }, ['blocking', 'requestHeaders', 'extraHeaders']);
           wv.request.onHeadersReceived.addListener(details => {
             let responseHeaders = details.responseHeaders || [];
@@ -3432,7 +3529,7 @@ registerApp({
               viewportHeight: window.innerHeight,
               linkHref:     link ? (link.href  || '') : '',
               linkText:     link ? (link.textContent || '').trim().slice(0, 120) : '',
-              imgSrc:       img  ? (img.src   || '') : '',
+              imgSrc:       img  ? (img.currentSrc || img.src || '') : '',
               imgAlt:       img  ? (img.alt   || '') : '',
               videoSrc:     vid  ? (vid.currentSrc || vid.src || '') : '',
               selectedText: sel.slice(0, 500),
@@ -3515,6 +3612,34 @@ registerApp({
         tabs.push(t);
         switchToTab(t.id);
         navigate(url);
+      }
+
+      function _ctxSaveImageAs(ctx) {
+        const src = ctx?.imgSrc || '';
+        if (!src) return;
+        let imageName = ctx.imgAlt;
+        if (!imageName && !src.startsWith('data:image/')) {
+          try { imageName = decodeURIComponent(new URL(src).pathname.split('/').pop()); }
+          catch { imageName = ''; }
+        }
+        if (!/\.[a-z\d]{2,8}$/i.test(imageName || '')) {
+          const extension = (() => {
+            try { return new URL(src).pathname.split('.').pop().match(/^[a-z\d]{2,8}$/i)?.[0]; }
+            catch { return null; }
+          })();
+          const dataExtension = /^data:image\/(jpeg|png|gif|webp|bmp|svg\+xml)(?:;|,)/i.exec(src)?.[1]
+            ?.replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+          imageName = (imageName || 'image') + '.' + (extension || dataExtension || 'png');
+        }
+        saveDownloadViaDialog(
+          src,
+          imageName,
+          'Save Image As',
+          getImageRequestHeaders(wv, src, ctx.pageUrl)
+        ).catch(error => {
+          console.error('[NB Browser] Could not save image:', error);
+          Notify.show({ title: 'Image save failed', body: error?.message || 'Could not save this image.', type: 'error', appName: 'Browser' });
+        });
       }
 
       function _ctxOpenSourceInNewTab(sourceUrl, sourceText) {
@@ -3665,6 +3790,7 @@ registerApp({
         if (hasImg) {
           items.push({ label: 'Open Image in New Tab', action: () => _ctxOpenInNewTab(ctx.imgSrc) });
           items.push({ label: 'Copy Image Address',    action: () => _ctxCopyText(ctx.imgSrc) });
+          items.push({ label: 'Save Image As\u2026', action: () => _ctxSaveImageAs(ctx) });
           items.push({ separator: true });
         }
 
@@ -3697,7 +3823,7 @@ registerApp({
         if (pageUrl && /^https?:/i.test(pageUrl)) {
           items.push({ label: 'Copy Page URL', action: () => _ctxCopyText(pageUrl) });
         }
-        items.push({ label: 'Save as\u2026', action: () => _ctxSavePageAs(wv, pageUrl) });
+        items.push({ label: 'Save Page As\u2026', action: () => _ctxSavePageAs(wv, pageUrl) });
         items.push({ label: 'Print\u2026', action: () => {
           try { wv.executeScript({ code: 'window.print()' }); } catch { /* ignore */ }
         }});
@@ -4278,7 +4404,12 @@ registerApp({
             clearTimeout(_settingsSaveTimer);
             _settingsSaveTimer = null;
             try {
-              localStorage.removeItem(ST_KEY);
+              if (typeof window !== 'undefined' && window.NovaAppConfig) {
+                window.NovaAppConfig.remove('com.nbosp.browser', 'settings', { legacyKey: ST_KEY });
+              } else {
+                localStorage.removeItem(ST_KEY);
+              }
+              _settingsCache = null;
             } catch (err) {
               console.error('[NB Browser] Failed to reset settings:', err);
               Notify.show({ title: 'Settings not reset', body: err.message, type: 'error', appName: 'Browser' });

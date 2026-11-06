@@ -137,6 +137,45 @@ global.updateNotificationBadge = () => {};
 // ── load the real permission manager ──
 const AppPermissionManager = require(path.join(NBOSP, 'js/platform/security/app-permission-manager.js'));
 global.AppPermissionManager = AppPermissionManager;
+const AppSecrets = require(path.join(NBOSP, 'js/platform/security/app-secrets.js'));
+global.AppSecrets = AppSecrets;
+
+// ── load the real NovaByte Registry engine (window.NovaRegistry) ──
+// The nova:reg:* handlers resolve window.NovaRegistry at request time; give
+// them the REAL engine over an in-memory store so the matrix exercises the
+// full storage/quota path without touching disk (or the localStorage state
+// other suites assert on). resetHost() re-inits it, same as OS/FS.
+const regStore = new Map();
+const NovaRegistry = require(path.join(NBOSP, 'js/platform/core/nova-registry.js'));
+const registryEvents = {
+  _m: Object.create(null),
+  on(event, fn) { (this._m[event] = this._m[event] || []).push(fn); },
+  off(event, fn) {
+    const list = this._m[event];
+    if (list) { const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); }
+  },
+  emit(event, data) {
+    const list = (this._m[event] || []).slice();
+    for (const fn of list) { try { fn(data); } catch (_) {} }
+  },
+};
+const registryStorage = {
+  loadAll() {
+    const out = {};
+    for (const hive of NovaRegistry.HIVES) {
+      out[hive] = regStore.has(hive) ? JSON.parse(regStore.get(hive)) : null;
+    }
+    return out;
+  },
+  save(hive, data) { regStore.set(hive, JSON.stringify(data)); },
+};
+function resetRegistry() {
+  regStore.clear();
+  NovaRegistry.init({ storage: registryStorage, events: registryEvents, logger: console });
+}
+resetRegistry();
+global.window.NovaRegistry = NovaRegistry;
+global.__registryEvents = registryEvents;
 
 // ── load the real notifications service (sets window.Notify) ──
 const svcSource = fs.readFileSync(path.join(NBOSP, 'js/apps/notifications/service.js'), 'utf8');
@@ -171,11 +210,34 @@ global.fetch = function stubFetch(url, opts) {
   const u = String(url);
   // Host service endpoints the sandbox itself talks to.
   if (u === '/api/security/settings') return jsonResponse(200, { success: true, data: { _meta: { adminMode: true } } });
+  if (u === '/api/push/subscribe') {
+    const body = JSON.parse(opts?.body || '{}');
+    return jsonResponse(200, { ok: true, subscribed: Array.isArray(body.subscriptions) ? body.subscriptions.length : 0 });
+  }
   if (u.startsWith('/api/security/audit')) return jsonResponse(200, { success: true, data: [], pagination: {}, statistics: {} });
   if (u.startsWith('/api/admin')) return jsonResponse(200, { success: true, data: {} });
-  if (u.includes('/api/proxy')) return jsonResponse(200, { hello: 'proxied-world' });
+  // Mirrors the REAL /api/proxy response contract (server/proxies.js):
+  // { status, statusText, headers, body, bodyEncoding } — the sandbox's
+  // external-fetch path reads exactly these fields.
+  if (u.includes('/api/proxy')) return jsonResponse(200, {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ hello: 'world' }),
+    bodyEncoding: 'utf8',
+  });
   if (u.startsWith('https://ok.example.com') || u.startsWith('http://ok.example.com') || u.startsWith('http://127.0.0.1')) {
     return jsonResponse(200, { hello: 'world' });
+  }
+  // The guest simulator's own serve host — a self-file fetch from inside a
+  // sandbox (native path, no net permission) lands here.
+  if (u.startsWith('https://apps.sandbox.invalid/')) {
+    return Promise.resolve({
+      ok: true, status: 200, statusText: 'OK',
+      headers: { get: (h) => (String(h).toLowerCase() === 'content-type' ? 'text/html' : null) },
+      text: () => Promise.resolve('<!DOCTYPE html><html><body>app entry</body></html>'),
+      json: () => Promise.reject(new TypeError('not json')),
+    });
   }
   return Promise.reject(new TypeError('stubFetch: no route for ' + u));
 };
@@ -193,6 +255,12 @@ global.WebSocket = class StubWebSocket {
   addEventListener() {}
   removeEventListener() {}
 };
+// Static readyState constants — the real WebSocket class exposes them and
+// handleNetWsSend compares against WebSocket.OPEN.
+global.WebSocket.CONNECTING = 0;
+global.WebSocket.OPEN = 1;
+global.WebSocket.CLOSING = 2;
+global.WebSocket.CLOSED = 3;
 
 // ── entity factories ──
 
@@ -288,6 +356,7 @@ function resetHost() {
   global.OS = freshOS();
   global.FS = createFakeFS();
   global.EventLog.clear();
+  resetRegistry();
   for (const k of [...lsMap.keys()]) {
     if (k.startsWith('novaOS_notif')) lsMap.delete(k);
   }
@@ -295,7 +364,7 @@ function resetHost() {
 }
 
 module.exports = {
-  AppSandbox, AppPermissionManager, Notify,
+  AppSandbox, AppPermissionManager, AppSecrets, Notify, NovaRegistry,
   makeApp, makeWebview, makeSandbox, call, grant, revoke, resetHost, registerActive,
   fetchCalls,
   state: {

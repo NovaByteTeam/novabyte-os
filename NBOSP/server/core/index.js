@@ -34,8 +34,65 @@ try {
     process.exit(1);
 }
 
+// 1.5. OS build identity — print WHICH sandbox code this deployment runs.
+//
+// Field debugging of the sandbox popup path kept dead-ending on the same
+// question: a serial capture shows a popup opening, but nothing says which
+// app-sandbox.js produced the decision. Kernel timestamps only date the
+// (often cache-reused) Buildroot kernel, and package.json's version does
+// not move between rebuilds, so two captures from different deployments
+// were indistinguishable. process.stdout here IS the serial console (the
+// same channel as the [Memory] heartbeat), so hashing the deployed module
+// at startup puts an unforgeable identity at the top of every capture: if
+// the hash does not match the commit believed to be deployed, the rebuild
+// did not take — and the capture says so itself instead of the operator
+// having to guess.
+(function printOsBuildIdentity() {
+    const crypto = require('crypto');
+    const identityOf = (label, absPath) => {
+        try {
+            const stat = fs.statSync(absPath);
+            const hash = crypto.createHash('sha256').update(fs.readFileSync(absPath)).digest('hex').slice(0, 8);
+            process.stdout.write(`[OS Build] ${label}=${hash} (${stat.size} bytes, mtime ${stat.mtime.toISOString()})\n`);
+        } catch (e) {
+            process.stdout.write(`[OS Build] ${label} identity unavailable: ${e?.message}\n`);
+        }
+    };
+    identityOf('sandbox', path.join(__dirname, '..', '..', 'js', 'platform', 'security', 'app-sandbox.js'));
+    // The middleware half of the identity: the OAuth popup relay fix lives in
+    // server/middleware.js (COOP headers), and the 2026-11-03 23:44 capture
+    // proved a build can carry a fresh sandbox while its middleware is stale —
+    // the two files are rebuilt by different pipeline steps. Print both, so a
+    // serial capture can prove or refute deployment of each half on its own.
+    identityOf('middleware', path.join(__dirname, '..', 'middleware.js'));
+})();
+
 // 2. Setup middleware
 setupMiddleware(app);
+
+// 2.2. OS UI log mirror — the serial console's only proven channel is this
+// process's stdout (the [OS Build] marker and the [Memory] heartbeat go out
+// over it). The OS UI window's own console does NOT reach serial in the
+// field: two captures of a failing OAuth popup showed zero of the sandbox's
+// popup-decision lines even though app-sandbox.js logs every decision, so it
+// now mirrors its info/warn/error lines here and this endpoint writes them
+// straight to stdout — i.e. onto the serial console, prefixed [OS UI] so
+// they stay distinguishable from the server's own lines.
+// Trust model: an operator diagnostics sink, not a security boundary — the
+// UI is served same-origin, but sandboxed app guests share that origin and
+// could post forged lines; the caps below (50 lines/request, 2000
+// chars/line) bound the cost of abuse.
+app.post('/api/os/log', (req, res) => {
+    const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    let written = 0;
+    for (const line of lines) {
+        if (typeof line !== 'string' || line.length === 0) continue;
+        if (written >= 50) break;
+        process.stdout.write(`[OS UI] ${line.slice(0, 2000)}\n`);
+        written += 1;
+    }
+    res.status(204).end();
+});
 
 // 2.5. Index.html caching and nonce injection (MUST come before static middleware)
 let _indexHtmlRaw = null;
@@ -213,11 +270,47 @@ app.get('/api/files/search', (req, res) => res.json([]));
 app.get('/api/files/metadata', (req, res) => res.json({}));
 
 // App Serve Registry
-// Temporary in-memory store: sandboxId → { files: { 'filename': '<base64>' }, created: ms }
+// Temporary in-memory store: key → { files: { 'filename': '<base64>' }, created, lastAccess, ... }
 // Used by webview sandboxes to serve packaged .novaapp files under their own relaxed CSP.
-// Entries auto-expire after 30 minutes; explicit cleanup happens when a sandbox is destroyed.
+// Entries auto-expire after 30 minutes of inactivity; explicit cleanup happens when a
+// sandbox is destroyed, and live sandboxes keep their entry fresh two ways: every file
+// served through the route touches lastAccess, and app-sandbox.js sends a periodic
+// /api/apps/serve/heartbeat while the sandbox exists (an app that loads its bundle once
+// and then sits idle — a long OAuth consent page in a popup, a dashboard SPA that never
+// navigates — would otherwise get its files pruned mid-session and 404 on the next
+// navigation, including the OAuth redirect back to its callback URL).
+//
+// Two key shapes live side by side in this map:
+//
+//   1. Per-session keys: `sandbox_<appId>_<unique>` — one per launch (generateSandboxId
+//      in app-sandbox.js). Unique per launch so concurrent/repeated launches don't
+//      collide. This is the URL the app's own webview loads from.
+//
+//   2. Stable per-app alias keys: `sandbox_<appId>` — NO unique suffix, registered by
+//      the same registration call that created the session key, pointing at the exact
+//      same entry object. This gives the app's bundled files a URL that survives
+//      relaunches, so redirect-based flows (OAuth callbacks, payment providers) can
+//      register `https://localhost:3003/api/apps/serve/sandbox_<appId>/callback.html`
+//      with a third party ahead of time. When the same app is launched again, the new
+//      registration overwrites the alias (last launch wins); the previous launch's
+//      session key keeps serving its own copy until its TTL or its destroy(). The alias
+//      is dropped when the session that most recently registered it unregisters, so a
+//      fully closed app stops serving under its stable URL.
+//
+// The alias can never collide with a session key: session keys always carry a
+// `_<unique>` suffix after the app id, and the app ids accepted here (see
+// _APP_SERVE_APP_ID_PATTERN) contain no underscores at all in their reverse-domain
+// form, so `sandbox_<appId>` is not a well-formed session key for any app id.
 const _appServeRegistry = new Map();
-const _APP_SERVE_TTL = 30 * 60 * 1000; // 30 min
+const _APP_SERVE_TTL = 30 * 60 * 1000; // 30 min idle
+
+// App ids eligible for a stable alias. These are exactly the two shapes the
+// platform issues: reverse-domain package ids (app-package.js install validation:
+// `^[a-z][a-z0-9]*(\.[a-z0-9]+)+$`) and `webapp_` shortcut ids (automated-review.js:
+// `^webapp_[a-z0-9._-]+$`). Anything else is rejected — this keeps garbage out of the
+// registry and, because reverse-domain ids contain no underscores, guarantees a stable
+// key can't be confused with a per-session key or another app's key.
+const _APP_SERVE_APP_ID_PATTERN = /^(?:webapp_[a-z0-9._-]{1,112}|[a-z][a-z0-9]*(?:\.[a-z0-9]+)+)$/;
 
 function _normalizeAppServePath(filePath) {
     return String(filePath).replace(/\\/g, '/').replace(/^(?:\.\/)+/, '');
@@ -226,7 +319,7 @@ function _normalizeAppServePath(filePath) {
 function _pruneAppServeRegistry() {
     const cutoff = Date.now() - _APP_SERVE_TTL;
     for (const [k, v] of _appServeRegistry) {
-        if (v.created < cutoff) _appServeRegistry.delete(k);
+        if ((v.lastAccess || v.created) < cutoff) _appServeRegistry.delete(k);
     }
 }
 
@@ -240,7 +333,7 @@ _appServeSweepTimer.unref();
 
 // Register app files for serving (called by app-sandbox.js loadAppContent)
 app.post('/api/apps/serve/register', (req, res) => {
-    const { sandboxId, files, allowExternalFrames } = req.body || {};
+    const { sandboxId, files, allowExternalFrames, appId } = req.body || {};
     if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
         return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
     }
@@ -253,24 +346,96 @@ app.post('/api/apps/serve/register', (req, res) => {
     if (!/^sandbox_[\w.-]+$/.test(sandboxId)) {
         return res.status(400).json({ error: 'Invalid sandboxId format' });
     }
+    // Optional stable alias: when the caller passes the app id, the same entry
+    // is ALSO registered under `sandbox_<appId>` (no unique suffix) so bundled
+    // files stay reachable at a URL that survives relaunches — the piece that
+    // makes pre-registered OAuth/redirect callback URLs possible. Clients only
+    // send appId when it matches _APP_SERVE_APP_ID_PATTERN (they degrade to
+    // session-only serving otherwise, matching pre-alias behavior), so a 400
+    // here means a caller bug worth surfacing, not a launch blocker.
+    let aliasKey = null;
+    if (appId !== undefined) {
+        if (
+            typeof appId !== 'string'
+            || appId.length > 128
+            || !_APP_SERVE_APP_ID_PATTERN.test(appId)
+        ) {
+            return res.status(400).json({ error: 'Invalid appId format for stable serving alias' });
+        }
+        // Ownership binding: the session key must embed this app id, so a caller
+        // can't accidentally register app A's files under app B's alias. This is
+        // a caller-bug guard, not a security boundary — the endpoint is reachable
+        // only from the trusted host page (sandboxed guests have fetch/XHR routed
+        // through the permission-checked bridge), and a hostile host-context
+        // caller could fabricate a matching pair anyway.
+        if (!sandboxId.startsWith(`sandbox_${appId}_`)) {
+            return res.status(400).json({ error: 'sandboxId does not belong to appId' });
+        }
+        aliasKey = `sandbox_${appId}`;
+    }
     _pruneAppServeRegistry();
     const normalizedFiles = new Map();
     for (const [filePath, fileData] of Object.entries(files)) {
         const normalizedPath = _normalizeAppServePath(filePath);
         if (!normalizedFiles.has(normalizedPath)) normalizedFiles.set(normalizedPath, fileData);
     }
-    _appServeRegistry.set(sandboxId, {
+    const now = Date.now();
+    const entry = {
         files,
         normalizedFiles,
         allowExternalFrames: allowExternalFrames === true,
-        created: Date.now()
+        created: now,
+        lastAccess: now,
+        // Which session key registered this entry (used by unregister to decide
+        // whether the alias still belongs to the dying session, and by the
+        // heartbeat as the lookup key).
+        registeredBy: sandboxId,
+        aliasKey
+    };
+    _appServeRegistry.set(sandboxId, entry);
+    if (aliasKey) _appServeRegistry.set(aliasKey, entry);
+    res.json({
+        ok: true,
+        baseUrl: `/api/apps/serve/${sandboxId}`,
+        ...(aliasKey ? { stableBaseUrl: `/api/apps/serve/${aliasKey}` } : {})
     });
-    res.json({ ok: true, baseUrl: `/api/apps/serve/${sandboxId}` });
+});
+
+// Liveness heartbeat (called by app-sandbox.js on a per-sandbox interval while
+// the sandbox exists). Keeps the registry entry past the idle TTL for apps that
+// load their bundle once and then go quiet — see the registry comment above for
+// why the TTL alone breaks long-running redirect flows.
+app.post('/api/apps/serve/heartbeat', (req, res) => {
+    const { sandboxId } = req.body || {};
+    if (typeof sandboxId !== 'string' || !sandboxId) {
+        return res.status(400).json({ error: 'sandboxId (string) is required' });
+    }
+    const entry = _appServeRegistry.get(sandboxId);
+    // Unknown id (including after a pruned leak) is not an error for the caller
+    // — it just means there is nothing to keep alive; the client ignores 404s.
+    if (!entry) return res.status(404).json({ error: 'Unknown sandboxId' });
+    entry.lastAccess = Date.now();
+    res.json({ ok: true });
 });
 
 // Unregister (called on sandbox destroy)
 app.delete('/api/apps/serve/unregister/:sandboxId', (req, res) => {
-    _appServeRegistry.delete(req.params.sandboxId);
+    const key = req.params.sandboxId;
+    const entry = _appServeRegistry.get(key);
+    _appServeRegistry.delete(key);
+    // The stable alias belongs to the session that most recently registered it.
+    // If THIS session owns the alias (no newer launch has taken it over), drop it
+    // so a fully closed app stops serving under its stable URL. An older window
+    // of the same app closing must not evict the alias the newer window
+    // registered — the identity check makes that explicit.
+    if (
+        entry
+        && entry.aliasKey
+        && entry.registeredBy === key
+        && _appServeRegistry.get(entry.aliasKey) === entry
+    ) {
+        _appServeRegistry.delete(entry.aliasKey);
+    }
     res.json({ ok: true });
 });
 
@@ -293,6 +458,9 @@ const APP_SERVE_MIME = {
 app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stable Express 5 syntax
     const entry = _appServeRegistry.get(req.params.sandboxId);
     if (!entry) return res.status(404).end();
+    // Refresh the idle timer: a session (or stable alias) that keeps getting
+    // loaded is alive, whatever its age. See the registry comment above.
+    entry.lastAccess = Date.now();
 
     const raw = req.params.file;
     const filePath = Array.isArray(raw) ? raw.join('/') : (raw || 'index.html');
@@ -348,6 +516,13 @@ app.get('/api/apps/serve/:sandboxId/{*file}', (req, res) => { // <-- Valid stabl
         ];
         if (entry.allowExternalFrames) policy.push('frame-src http: https:');
         res.setHeader('Content-Security-Policy', policy.join('; '));
+        // Serial-visible proof of the effective COOP policy per document. This
+        // route serves the ONLY OS documents that Chromium loads INTO an
+        // opener-linked popup (app callback pages — OAuth/SSO relay targets),
+        // so the header value here decides whether window.opener survives;
+        // one line per document load puts that value directly into the next
+        // serial capture instead of leaving it to be inferred from commits.
+        process.stdout.write(`[serve] doc=${req.params.sandboxId}/${filePath} coop=${res.getHeader('Cross-Origin-Opener-Policy') || 'none'}\n`);
     }
     res.setHeader('Content-Type', APP_SERVE_MIME[ext] || 'application/octet-stream');
     res.setHeader('Cache-Control', 'no-store');

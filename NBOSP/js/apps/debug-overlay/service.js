@@ -27,18 +27,19 @@ const DebugOverlay = (() => {
   const STORAGE_KEY = 'debug_overlay_pos';
 
   function _loadPos() {
+    // Registry-backed (HKND/overlay/position) via RegistryPrefs, with the
+    // old localStorage key as the fail-soft fallback inside the helper.
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const p = JSON.parse(raw);
-        if (typeof p.x === 'number' && typeof p.y === 'number') return p;
+      if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.overlayPosition) {
+        const p = RegistryPrefs.overlayPosition();
+        if (p) return p;
       }
     } catch {}
     return null;
   }
 
   function _savePos(x, y) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x, y })); } catch {}
+    try { if (typeof RegistryPrefs !== 'undefined' && RegistryPrefs.setOverlayPosition) RegistryPrefs.setOverlayPosition(x, y); } catch {}
   }
 
   function _create() {

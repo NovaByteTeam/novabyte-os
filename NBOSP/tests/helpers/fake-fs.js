@@ -106,11 +106,23 @@ function createFakeFS() {
   }
 
   // Ensure /data/<appId> exists (the host does this lazily on first write).
-  // Segment naming must match app-sandbox.js's sanitizeAppIdSegment exactly
-  // (dots become underscores) or the sandbox's /data/<appId>/... path
-  // rewrites won't resolve against directories created here.
+  // Segment naming must mirror app-sandbox.js's sanitizeAppIdSegment exactly
+  // — dots are KEPT ('com.gallery.app.r6'), only genuinely unsafe
+  // characters become underscores, with the same leading-character fallback —
+  // or the sandbox's /data/<appId>/... path rewrites won't resolve against
+  // directories created here. (This helper previously stripped dots to
+  // underscores, so every dotted app id failed its own /data writes with
+  // NOT_FOUND — see tests/test_real_use.js R6.)
+  function sanitizeAppIdSegment(appId) {
+    let segment = String(appId || 'default').replace(/[^a-zA-Z0-9._-]/g, '_');
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(segment)) {
+      segment = segment.replace(/^[._-]+/, '');
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(segment)) segment = 'default';
+    }
+    return segment;
+  }
   function ensureAppDir(appId) {
-    const seg = String(appId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const seg = sanitizeAppIdSegment(appId);
     let dir = listDir(data.id).find((n) => n.name === seg && n.type === 'folder');
     if (!dir) dir = makeNode(seg, 'folder', data.id);
     return dir;

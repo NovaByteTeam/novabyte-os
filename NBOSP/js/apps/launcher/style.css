@@ -304,6 +304,27 @@
     z-index: 1;
   }
 
+  /* App-set badge (system:badge) — bottom-right so it never collides with
+     the window count in the top-right. Host clamps content (0-999 / 4 chars). */
+  .taskbar-app-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background: #f85149;
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    z-index: 1;
+    pointer-events: none;
+  }
+
   /* Window preview popup — shown when hovering an active taskbar button. */
   .taskbar-window-preview {
     position: fixed;

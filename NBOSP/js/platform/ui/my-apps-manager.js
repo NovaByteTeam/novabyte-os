@@ -147,7 +147,8 @@ const MyAppsManager = (() => {
    * @returns {Array} Array of app objects
    */
   function getAllApps() {
-    return AppRegistry?.getAllApps() || [];
+    return (AppRegistry?.getAllApps() || [])
+      .filter(app => app.systemService !== true && app.headlessSystemService !== true);
   }
 
   /**
@@ -493,8 +494,11 @@ const MyAppsManager = (() => {
       const raw = el.getAttribute('data-app-icon') || '';
       const files = (function() {
         try {
-          const apps = JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
-          return apps.find(a => a.id === el.getAttribute('data-app-id'))?.files || {};
+          // Registry-backed inventory (HKNS/apps/installed) with the legacy
+          // localStorage key as fail-soft fallback.
+          const apps = (window.NovaAppPackageStore?.loadRegistry?.())
+            ?? JSON.parse(localStorage.getItem('nova_installed_apps') || '[]');
+          return Array.isArray(apps) ? (apps.find(a => a.id === el.getAttribute('data-app-id'))?.files || {}) : {};
         } catch (_) { return {}; }
       })();
       const encoded = files[raw];

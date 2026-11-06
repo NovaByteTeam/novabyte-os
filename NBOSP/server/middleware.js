@@ -25,16 +25,36 @@ const EXACT_SKIP_PATHS = new Set([
     '/favicon.ico',
     '/api/favicon',
     '/api/events/stream',
-    // App sandbox registration is local bookkeeping performed during every
-    // packaged-app launch, not a user-facing API request.
-    '/api/apps/serve/register',
+    // The OS UI log mirror (app-sandbox.js POSTs its info/warn/error lines
+    // here so they reach the serial console). It must never be rate-limited:
+    // the whole OS shares one localhost bucket, OS-internal traffic already
+    // exhausts the budget, and a 429 here is swallowed by the mirror's
+    // never-throw policy — so limiter starvation silently killed every
+    // field-debugging capture before this exemption. The sink is
+    // self-throttled at the source (40 lines/5s) and bounded at the sink
+    // (50 lines/request, 2000 chars/line), so exempting it does not reopen
+    // an abuse hole.
+    '/api/os/log',
 ]);
 const PREFIX_SKIP_PATHS = [
     '/js/',
     '/css/',
     '/public/',
     '/assets/',
-    '/api/apps/serve/unregister/',
+    // The per-sandbox app-serve surface (register, heartbeat, unregister,
+    // and every installed app's content tree: HTML/JS/CSS/icons under
+    // /api/apps/serve/<sandbox>/…). App windows load these through
+    // navigation and <script>/<link>/<img>/<iframe> tags, which cannot
+    // carry custom headers, so they can never be trusted via signature —
+    // yet a handful of app launches pulls dozens of requests through here
+    // and exhausted the global per-IP budget in the field, 429-ing the
+    // whole desktop (default launcher included) for the 15-minute window
+    // ("Too many requests from this IP"). This surface is the OS's own
+    // installed-app content on localhost; the limiter exists for untrusted
+    // remote clients, not for it. OS-UI fetch() traffic is separately
+    // trusted via signature (js/platform/security/system-fetch.js +
+    // isTrustedSystemAppRequest below).
+    '/api/apps/serve/',
 ];
 
 function shouldSkipGlobalApiRateLimit(req) {
@@ -96,8 +116,64 @@ function setupMiddleware(app) {
             disableFloc: true
         },
         crossOriginResourcePolicy: false,
-        originAgentCluster: false
+        originAgentCluster: false,
+        // helmet 8 defaults COOP to the strict `same-origin`, and that default
+        // is what killed every OAuth popup relay in the field. Serial capture
+        // 2026-11-03 22:48: the sandboxed guest opened github.com/login/oauth/
+        // authorize, the OS attached the popup into its overlay webview (opener
+        // intact), the user signed in through GitHub and Google, and the
+        // provider redirected back to the app's own
+        // /api/apps/serve/sandbox_<id>/callback.html?code=... — served by THIS
+        // server with helmet's `Cross-Origin-Opener-Policy: same-origin`.
+        // Chromium's COOP processing then moved the popup into a NEW browsing
+        // context group and the callback page executed with `window.opener`
+        // null. GitHub's login pages send no COOP at all and accounts.google.com
+        // sends COOP report-only — verified live — so our own header was the
+        // single ENFORCING response in the whole chain.
+        //
+        // CORRECTION of the 2026-11-03 23:04 attempt (commit f23df12): switching
+        // this global to `same-origin-allow-popups` did NOT fix the field.
+        // Serial capture 2026-11-03 23:44 — run against a build whose deployed
+        // app-sandbox.js hash (f14b6811) matches this tree — shows the IDENTICAL
+        // failure signature: callback fired with opener=ABSENT, relay dropped,
+        // "popup closed without a relay message within 500ms". The soap theory
+        // was wrong about direction. The HTML spec's "matching opener policy
+        // values" algorithm (which governs every non-popup navigation, i.e.
+        // every hop INSIDE an existing popup window) requires a group switch
+        // whenever the two documents' policies differ and either side is
+        // "unsafe-none" — the soap relaxation only applies at POPUP CREATION
+        // ("check if popup COOP values ...": opener soap + response unsafe-none
+        // stays). A provider page (unsafe-none) navigating to our soap callback
+        // therefore switches groups again, opener severed, same failure.
+        // Empirically pinned with a headless-Chromium matrix reproducing this
+        // exact structure (soap/sandboxed guest iframe -> window.open ->
+        // 302 + report-only provider chain -> callback served with the variant
+        // under test): opener survives and the postMessage relay arrives ONLY
+        // when the callback document itself carries unsafe-none; soap and
+        // same-origin both sever for every guest variant.
+        //
+        // So the global policy stays soap (isolation for OS UI pages that are
+        // never popup relay targets), and the app serve surface — the ONLY
+        // documents Chromium loads INTO an opener-linked popup window — gets
+        // unsafe-none right after this middleware, see the override below.
+        crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
     }));
+
+    // The app serve surface must never split the popup's browsing context
+    // group. Every document an app registers under /api/apps/serve can be the
+    // redirect target of an OAuth/SSO/payment popup — the app chooses its own
+    // callback filename, so this cannot be narrowed to "callback.html". An
+    // unsafe-none document NEVER requires a group switch (spec: matching is
+    // true whenever both sides are unsafe-none, and a provider chain like
+    // github.com — no COOP — plus accounts.google.com — report-only — never
+    // switches), so the popup stays in the opener's group for its whole life
+    // and window.opener is alive when the relay needs it. This override must
+    // run AFTER helmet (which stamps soap on everything) and BEFORE the serve
+    // routes; headers set later in the chain overwrite earlier ones.
+    app.use('/api/apps/serve', (req, res, next) => {
+        res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+        next();
+    });
 
     // .filter(Boolean) can leave an empty array (e.g. CORS_ORIGIN="," or a
     // stray trailing comma), and `[] || fallback` doesn't trigger since []
