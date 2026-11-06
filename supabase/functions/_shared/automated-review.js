@@ -85,6 +85,57 @@ export function runAutomatedReview(pkg, { appId, version, now = new Date().toISO
       if (Array.isArray(manifest.optionalPermissions) && manifest.optionalPermissions.includes('system:root')) {
         error('optional_root_permission', 'system:root must be required, not listed as optional.');
       }
+      // permissionReasons is mandatory for store submissions: every declared
+      // permission (required and optional) must carry a non-empty reason — the
+      // text the OS shows in its grant dialogs. Enforcement happens at
+      // submission time only, so listings published before this rule are not
+      // re-validated (they stay up) until their next update. Key matching
+      // mirrors the OS package validator (app-package.js): a reason keyed by a
+      // legacy vfs:* alias counts for its fs:* equivalent, values must be
+      // non-empty strings within the OS display cap.
+      const declaredPermissions = [
+        ...(Array.isArray(manifest.permissions) ? manifest.permissions : []),
+        ...(Array.isArray(manifest.optionalPermissions) ? manifest.optionalPermissions : []),
+      ].filter(permission => typeof permission === 'string' && permission.trim());
+      if (declaredPermissions.length) {
+        const LEGACY_PERMISSION_ALIASES = {
+          'vfs:access': 'fs:access',
+          'vfs:read': 'fs:access',
+          'vfs:write': 'fs:access',
+          'vfs:delete': 'fs:access',
+          'vfs:metadata': 'fs:metadata',
+        };
+        const REASON_CAP = 500;
+        const reasons = manifest.permissionReasons;
+        if (!reasons || typeof reasons !== 'object' || Array.isArray(reasons)) {
+          const unique = [...new Set(declaredPermissions)];
+          error('missing_permission_reasons',
+            'Every declared permission needs a reason: add a permissionReasons object to the manifest mapping each permission to a short human-readable justification'
+            + ` (missing for: ${unique.slice(0, 10).join(', ')}${unique.length > 10 ? ', …' : ''}).`);
+        } else {
+          const hasReason = permission => Object.entries(reasons).some(([key, value]) => {
+            const canonical = Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, key)
+              ? LEGACY_PERMISSION_ALIASES[key]
+              : key;
+            return (key === permission || canonical === permission)
+              && typeof value === 'string' && Boolean(value.trim());
+          });
+          for (const permission of new Set(declaredPermissions)) {
+            if (!hasReason(permission)) {
+              error('missing_permission_reason',
+                `Permission "${permission}" has no entry in permissionReasons; every declared permission needs a short human-readable reason.`);
+            }
+          }
+          for (const [key, value] of Object.entries(reasons)) {
+            if (typeof value !== 'string' || !value.trim()) {
+              error('invalid_permission_reason', `permissionReasons["${key}"] must be a non-empty string.`);
+            } else if (value.trim().length > REASON_CAP) {
+              error('overlong_permission_reason',
+                `permissionReasons["${key}"] exceeds the ${REASON_CAP}-character limit for permission reasons.`);
+            }
+          }
+        }
+      }
     }
 
     if (!files || typeof files !== 'object' || Array.isArray(files)) {

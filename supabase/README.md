@@ -94,8 +94,11 @@ only exist in the function environment.
   Function signs that uploaded package with the trusted key during publication.
 - Automated checks block malformed/unsafe package paths, missing manifest
   requirements or entry files, mismatched app identity/version, binary assets,
-  dynamic code execution, and remote script loading. They also report network
-  references, possible minification/obfuscation, and privileged permissions.
+  dynamic code execution, remote script loading, and declared permissions
+  without a matching `permissionReasons` entry (apps published before that
+  requirement stay listed; it is enforced again on their next update). They
+  also report network references, possible minification/obfuscation, and
+  privileged permissions.
   Semantic requirements (such as whether data handling is appropriate) remain
   on the human-review checklist; a clean automated report is not an approval.
 - Every submission, including submissions from the reviewer account, must pass

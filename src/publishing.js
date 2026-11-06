@@ -84,6 +84,59 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+// Store requirement: every declared permission (required and optional) must
+// have a permissionReasons entry — the text the OS shows in its grant dialogs.
+// Mirrors the server-side automated review (supabase/functions/_shared/
+// automated-review.js) and the OS package validator (app-package.js): legacy
+// vfs:* reason keys count for their fs:* equivalents, values must be non-empty
+// strings within the OS display cap. Enforcement happens when a package is
+// submitted, so listings published before this rule stay up until their next
+// update. Returns a list of human-readable problems; empty means compliant.
+function permissionReasonProblems(manifest) {
+  const declared = [
+    ...(Array.isArray(manifest?.permissions) ? manifest.permissions : []),
+    ...(Array.isArray(manifest?.optionalPermissions) ? manifest.optionalPermissions : []),
+  ].filter(permission => typeof permission === 'string' && permission.trim());
+  if (!declared.length) return [];
+  const problems = [];
+  const reasons = manifest.permissionReasons;
+  if (!reasons || typeof reasons !== 'object' || Array.isArray(reasons)) {
+    const unique = [...new Set(declared)];
+    problems.push(
+      'The NovaByte Store requires a declared reason for every permission. '
+      + 'Add a "permissionReasons" object to the manifest mapping each permission to a short human-readable justification '
+      + `(missing for: ${unique.slice(0, 10).join(', ')}${unique.length > 10 ? ', …' : ''}).`
+    );
+    return problems;
+  }
+  const legacyAliases = {
+    'vfs:access': 'fs:access',
+    'vfs:read': 'fs:access',
+    'vfs:write': 'fs:access',
+    'vfs:delete': 'fs:access',
+    'vfs:metadata': 'fs:metadata',
+  };
+  const missing = [...new Set(declared)].filter(permission => !Object.entries(reasons).some(([key, value]) => {
+    const canonical = Object.prototype.hasOwnProperty.call(legacyAliases, key) ? legacyAliases[key] : key;
+    return (key === permission || canonical === permission)
+      && typeof value === 'string' && Boolean(value.trim());
+  }));
+  if (missing.length) {
+    problems.push(
+      'The NovaByte Store requires a declared reason for every permission. '
+      + `Missing reasons for: ${missing.join(', ')}.`
+    );
+  }
+  for (const [key, value] of Object.entries(reasons)) {
+    if (typeof value !== 'string' || !value.trim()) {
+      problems.push(`permissionReasons["${key}"] must be a non-empty string.`);
+    } else if (value.trim().length > 500) {
+      problems.push(`permissionReasons["${key}"] exceeds the 500-character limit for permission reasons.`);
+    }
+  }
+  return problems;
+}
+
 function makeField(labelText, { id, type = 'text', required = true, value = '', placeholder = '', maxLength } = {}) {
   const label = makeElement('label', 'publisher-field', labelText);
   const input = document.createElement(type === 'textarea' ? 'textarea' : 'input');
@@ -676,6 +729,8 @@ class PublisherPortal {
         ) {
           throw new Error('This file is not a valid .novaapp package.');
         }
+        const reasonProblems = permissionReasonProblems(pkg.manifest);
+        if (reasonProblems.length) throw new Error(reasonProblems.join(' '));
         onPackage({ file, pkg });
         this.setNotice(`Loaded ${file.name} (${(file.size / 1024).toFixed(0)} KB).`, 'success');
       } catch (error) {
@@ -733,7 +788,7 @@ class PublisherPortal {
         {
           heading: 'Permissions',
           items: [
-            'Every declared permission must include a short human-readable justification in the manifest. Vague or missing justifications mean the submission won\'t be accepted.',
+            'Every declared permission — required and optional — must have a matching entry in the manifest\'s "permissionReasons" object: a short human-readable justification the OS shows before granting. Submissions missing a reason for any permission are rejected automatically.',
             'Apps may not request permissions at runtime beyond what is declared in the manifest.',
             'Apps declaring system:root won\'t be published unless there is a specific, compelling reason the app cannot function inside the sandbox. Every system:root submission is held for manual scrutiny.',
           ],
@@ -773,6 +828,7 @@ class PublisherPortal {
           heading: 'Updates',
           items: [
             'Every update, including patch releases, goes through full review again from scratch. No fast-track exemptions.',
+            'Apps published before permission reasons were required stay listed, but every new submission and every update must declare a reason for every permission.',
           ],
         },
       ];
