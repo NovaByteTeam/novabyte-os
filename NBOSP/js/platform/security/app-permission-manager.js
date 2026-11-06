@@ -276,6 +276,59 @@ const AppPermissionManager = (() => {
   const RATE_MAX_COOLDOWN_MS  = 15 * 60_000;
   const RATE_MAX_DENIAL_STREAK = 20; // caps the exponent so backoff math never runs away
 
+  // Manifest-declared permission reasons ("permissionReasons"). A .novaapp
+  // manifest may carry a map of permission -> reason text:
+  //   "permissionReasons": { "system:root": "Needed to manage system services" }
+  // The launch-gate prompts and every runtime request-permission dialog show
+  // this declaration so the user can make an informed choice. When neither
+  // the call site nor the manifest declares a reason, the dialog renders an
+  // explicit "no reason declared" block instead of showing nothing at all.
+  // Keys are normalized at install time by app-registry.js (legacy vfs:*
+  // names translated, unknown keys stripped); values are capped here so a
+  // pathological manifest can't blow out the dialog layout.
+  const MAX_REASON_LENGTH = 500;
+
+  // Returns the display-ready reason text, or null when there is nothing
+  // usable. Non-strings, whitespace-only strings and the empty result of a
+  // length cap are all normalized away so callers can branch on null.
+  function normalizeReasonText(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed.length > MAX_REASON_LENGTH ? trimmed.slice(0, MAX_REASON_LENGTH) : trimmed;
+  }
+
+  // Resolution order for the text a permission dialog displays:
+  //   1. runtimeReason — the calling app's own words for THIS prompt (the
+  //      nova:request-permission payload's reason field), the most specific
+  //      description of what is happening right now.
+  //   2. The manifest's permissionReasons[permission] declaration — the
+  //      developer's standing explanation, written at build time. App
+  //      records carry it flattened (app-registry.js normalization), with
+  //      the raw manifest as a fallback path for records that predate the
+  //      flattening.
+  //   3. null — the dialog then renders the "no reason declared" fallback.
+  function resolvePermissionReason(permission, appId, runtimeReason) {
+    // Translate legacy vfs:* names before lookup so the helper is correct
+    // standalone (Settings surfaces can call it directly), not just when
+    // reached through requestPermission() — which translates first anyway,
+    // making this idempotent on the runtime path.
+    permission = LEGACY_PERMISSION_ALIASES[permission] ?? permission;
+    const fromCall = normalizeReasonText(runtimeReason);
+    if (fromCall) return fromCall;
+    try {
+      const record = typeof AppRegistry !== 'undefined' ? AppRegistry.getApp?.(appId) : null;
+      const declared = record?.permissionReasons?.[permission]
+        ?? record?.manifest?.permissionReasons?.[permission];
+      return normalizeReasonText(declared);
+    } catch {
+      // A hostile or half-initialized AppRegistry must never break the
+      // permission prompt itself — worst case the dialog shows the
+      // no-reason-declared fallback.
+      return null;
+    }
+  }
+
   let permissionGrants = new Map(); // key: `${appId}:${permission}`
   const consentLog      = [];
   const rateLimitState  = new Map(); // key: `${appId}:${permission}` -> { attempts, cooldownUntil, denialStreak }
@@ -683,9 +736,18 @@ const AppPermissionManager = (() => {
     const riskLevel = PERMISSION_CATEGORIES[permission]?.risk ?? 'low';
     const permanent = permission === PERMISSION_TYPES.SYSTEM_ROOT || options.permanent !== false;
 
+    // What the dialog displays: the calling app's reason for THIS prompt if
+    // it passed one (nova:request-permission), otherwise the manifest's
+    // permissionReasons declaration for this permission, otherwise null —
+    // the dialog renders the explicit no-reason-declared fallback for that
+    // case. The same effective reason is stored on the grant so the
+    // Settings/Permissions surfaces show why the app asked, not just that
+    // it did.
+    const effectiveReason = resolvePermissionReason(permission, appId, options.reason);
+
     const granted = await showPermissionDialog({
       permission, appId, appName, riskLevel,
-      reason   : options.reason ?? null,
+      reason   : effectiveReason,
       permanent,
       current  : options.current ?? 1,
       total    : options.total ?? 1,
@@ -694,7 +756,7 @@ const AppPermissionManager = (() => {
     if (granted) {
       await persistGrant(permission, appId, {
         permanent,
-        reason   : options.reason ?? null,
+        reason   : effectiveReason,
       });
     } else {
       await persistDenial(permission, appId);
@@ -952,6 +1014,17 @@ const AppPermissionManager = (() => {
     });
   }
 
+  // Shown when neither the request call site nor the manifest's
+  // permissionReasons declared a reason for this permission. Visually
+  // quieter than buildReasonBlock (dimmer text, no risk-color accent) so
+  // the absence reads as information, not as a rendering gap.
+  function buildNoReasonBlock() {
+    return el('p', {
+      style: 'color:#6e7681;font-size:12px;font-style:italic;margin:0 0 14px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:8px;border-left:3px solid rgba(255,255,255,0.12);',
+      text : 'This app declared no reason why it needs this permission.',
+    });
+  }
+
   function buildRiskRow({ riskLevel, riskColor, category }) {
     const row = el('div', {
       style: 'display:flex;align-items:center;gap:8px;margin-bottom:18px;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;',
@@ -1011,7 +1084,10 @@ const AppPermissionManager = (() => {
 
       if (total > 1) card.append(buildPagerRow(current, total));
       card.append(buildHeaderRow({ label, appName, riskColor, riskIcon }));
-      if (reason) card.append(buildReasonBlock(reason, riskColor));
+      // Always a reason block: the declared reason when there is one, the
+      // explicit fallback otherwise — a silent gap would leave users
+      // guessing whether the developer simply never said why.
+      card.append(reason ? buildReasonBlock(reason, riskColor) : buildNoReasonBlock());
       card.append(buildRiskRow({ riskLevel, riskColor, category }));
 
       const { row: buttonRow, denyBtn, grantBtn } = buildButtonRow();
@@ -1134,8 +1210,11 @@ const AppPermissionManager = (() => {
     getConsentLog,
     getStats,
     closeAllDialogs,
+    resolvePermissionReason,
     PERMISSION_TYPES,
     PERMISSION_CATEGORIES,
+    LEGACY_PERMISSION_ALIASES,
+    MAX_REASON_LENGTH,
   };
 })();
 

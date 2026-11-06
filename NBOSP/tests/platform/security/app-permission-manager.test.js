@@ -318,3 +318,191 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
     });
   });
 });
+// ── Manifest-declared permission reasons (permissionReasons) ────────────────
+//
+// A manifest may carry "permissionReasons": { "<permission>": "why" }. The
+// resolution order is: the calling app's runtime reason (nova:request-permission
+// payload) first, then the manifest declaration, then null — and the dialog
+// renders an explicit "no reason declared" fallback for the null case so the
+// absence of a reason is information, not a blank spot.
+
+describe('AppPermissionManager — declared permission reasons', () => {
+  const originalDocument = globalThis.document;
+  const originalAppRegistry = globalThis.AppRegistry;
+  let createdElements;
+
+  // Minimal DOM stub strong enough for showPermissionDialog(): textContent
+  // setting, cssText styles, append/appendChild, addEventListener capture
+  // (so tests can click the Allow button), setAttribute, remove().
+  function makeStubElement(tag) {
+    const node = {
+      tagName: String(tag).toUpperCase(),
+      style: {},
+      children: [],
+      listeners: {},
+      textContent: '',
+      disabled: false,
+      checked: false,
+      append: vi.fn((...kids) => { for (const kid of kids) node.children.push(kid); }),
+      appendChild: vi.fn((kid) => { node.children.push(kid); return kid; }),
+      addEventListener: vi.fn((type, fn) => { (node.listeners[type] ??= []).push(fn); }),
+      removeEventListener: vi.fn(),
+      setAttribute: vi.fn(),
+      remove: vi.fn(),
+      click() {
+        for (const fn of node.listeners.click ?? []) fn({ preventDefault: () => {} });
+      },
+    };
+    createdElements.push(node);
+    return node;
+  }
+
+  function installStubDocument() {
+    createdElements = [];
+    globalThis.document = {
+      readyState: 'complete',
+      body: { append: vi.fn() },
+      head: { appendChild: vi.fn() },
+      createElement: vi.fn((tag) => makeStubElement(tag)),
+      createTextNode: vi.fn((text) => ({ text })),
+      getElementById: vi.fn(() => null),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      querySelector: vi.fn(() => null),
+      querySelectorAll: vi.fn(() => []),
+    };
+  }
+
+  afterEach(() => {
+    globalThis.document = originalDocument;
+    globalThis.AppRegistry = originalAppRegistry;
+  });
+
+  describe('resolvePermissionReason', () => {
+    it('prefers the runtime reason over the manifest declaration', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ permissionReasons: { 'net:external': 'Manifest reason.' } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x', 'Runtime reason.')).toBe('Runtime reason.');
+    });
+
+    it('falls back to the manifest declaration, trimmed', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ permissionReasons: { 'net:external': '  Manifest reason.  ' } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toBe('Manifest reason.');
+    });
+
+    it('also reads the raw manifest copy for records that predate flattening', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ manifest: { permissionReasons: { 'net:external': 'From manifest.' } } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toBe('From manifest.');
+    });
+
+    it('returns null when neither source declares a usable reason', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ permissionReasons: { 'net:external': '   ' } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toBeNull();
+      expect(APM.resolvePermissionReason('net:external', 'app-x', '   ')).toBeNull();
+      expect(APM.resolvePermissionReason('net:external', 'app-x', 42)).toBeNull();
+    });
+
+    it('caps runtime and declared reasons at MAX_REASON_LENGTH', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ permissionReasons: { 'net:external': 'y'.repeat(600) } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toHaveLength(APM.MAX_REASON_LENGTH);
+      expect(APM.resolvePermissionReason('net:external', 'app-x', 'z'.repeat(600))).toHaveLength(APM.MAX_REASON_LENGTH);
+    });
+
+    it('survives a hostile AppRegistry', () => {
+      globalThis.AppRegistry = { getApp: () => { throw new Error('boom'); } };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toBeNull();
+    });
+  });
+
+  describe('requestPermission dialog display', () => {
+    function reasonBlocks() {
+      return createdElements.filter((n) => n.tagName === 'P' && n.textContent);
+    }
+
+    function clickAllow() {
+      const grantBtn = createdElements.find((n) => n.tagName === 'BUTTON' && n.textContent === 'Allow');
+      expect(grantBtn).toBeDefined();
+      grantBtn.listeners.click[0]({ preventDefault: () => {} });
+    }
+
+    beforeEach(() => {
+      installStubDocument();
+    });
+
+    it('shows the manifest-declared reason and stores it on the grant', async () => {
+      resetTestStorage();
+      vi.resetModules();
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ name: 'Gallery', permissionReasons: { 'net:external': 'Calls the app\u2019s own API.' } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+
+      const promise = APM.requestPermission('net:external', 'manifest-app');
+      await Promise.resolve();
+      expect(reasonBlocks().some((n) => n.textContent === 'Calls the app\u2019s own API.')).toBe(true);
+
+      clickAllow();
+      expect(await promise).toBe(true);
+      const grant = APM.getAppPermissions('manifest-app').find((g) => g.permission === 'net:external');
+      expect(grant?.reason).toBe('Calls the app\u2019s own API.');
+    });
+
+    it('shows the explicit fallback block when nothing declares a reason', async () => {
+      resetTestStorage();
+      vi.resetModules();
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ name: 'Silent App' })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+
+      const promise = APM.requestPermission('net:external', 'fallback-app');
+      await Promise.resolve();
+      expect(reasonBlocks().some((n) => n.textContent === 'This app declared no reason why it needs this permission.')).toBe(true);
+
+      clickAllow();
+      expect(await promise).toBe(true);
+      const grant = APM.getAppPermissions('fallback-app').find((g) => g.permission === 'net:external');
+      expect(grant?.reason).toBeNull();
+    });
+
+    it('prefers the runtime reason text in the dialog over the manifest declaration', async () => {
+      resetTestStorage();
+      vi.resetModules();
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ name: 'Scanner', permissionReasons: { 'device:camera': 'Standing explanation.' } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+
+      const promise = APM.requestPermission('device:camera', 'scanner-app', { reason: 'Scan this QR code.' });
+      await Promise.resolve();
+      const texts = reasonBlocks().map((n) => n.textContent);
+      expect(texts).toContain('Scan this QR code.');
+      expect(texts).not.toContain('Standing explanation.');
+
+      clickAllow();
+      expect(await promise).toBe(true);
+    });
+
+    it('resolves a legacy vfs:* request reason through the fs:* manifest declaration', async () => {
+      resetTestStorage();
+      vi.resetModules();
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ name: 'Old App', permissionReasons: { 'fs:metadata': 'Lists shared file metadata.' } })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+
+      expect(APM.resolvePermissionReason('vfs:metadata', 'app-x')).toBe('Lists shared file metadata.');
+    });
+
+    it('denial still works with the fallback block in place', async () => {
+      resetTestStorage();
+      vi.resetModules();
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ name: 'Silent App' })) };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+
+      const promise = APM.requestPermission('net:external', 'denial-app');
+      await Promise.resolve();
+      const denyBtn = createdElements.find((n) => n.tagName === 'BUTTON' && n.textContent === 'Deny');
+      denyBtn.listeners.click[0]({ preventDefault: () => {} });
+      expect(await promise).toBe(false);
+      expect(APM.isGranted('net:external', 'denial-app')).toBe(false);
+    });
+  });
+});

@@ -312,6 +312,75 @@ const AppRegistry = (() => {
       appConfig.optionalPermissions = (appConfig.optionalPermissions || []).filter(p => KNOWN_PERMISSIONS.has(p));
     }
 
+    // Manifest-declared per-permission reasons ("permissionReasons") get the
+    // same treatment the permission arrays just got: legacy vfs:* keys are
+    // translated (two legacy names can map onto one fs:* target — first
+    // non-empty value wins), keys the OS doesn't know are stripped, and
+    // values that wouldn't survive display (non-strings, whitespace-only,
+    // over the dialog's length cap) are dropped. The cap is enforced by
+    // truncation rather than rejection because this code also runs for
+    // built-in registrations that never went through package validation —
+    // for packaged installs, validateManifest already ERRORS on oversized
+    // reasons, so an author sees and fixes them before shipping.
+    // Reasons for known permissions the app didn't declare are KEPT (the
+    // display path is gated by actual prompts, so they're inert) but logged
+    // — validateManifest flags them as a non-fatal warning for the author.
+    // The cleaned map lands on the app record via the appConfig spread, so
+    // AppPermissionManager.resolvePermissionReason() can pick it up at
+    // prompt time via AppRegistry.getApp(id).permissionReasons.
+    if (appConfig.permissionReasons !== undefined) {
+      const rawReasons = appConfig.permissionReasons;
+      if (!rawReasons || typeof rawReasons !== 'object' || Array.isArray(rawReasons)) {
+        console.warn('[AppRegistry] Ignoring invalid permissionReasons for', appConfig.id, '(must be an object)');
+        if (typeof EventLog !== 'undefined') {
+          EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Ignored invalid permissionReasons for ${appConfig.id} (must be an object)`, data: { appId: appConfig.id } });
+        }
+        delete appConfig.permissionReasons;
+      } else {
+        const REASON_DISPLAY_CAP = 500;
+        const translated = {};
+        for (const [key, value] of Object.entries(rawReasons)) {
+          const mappedKey = Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, key)
+            ? LEGACY_PERMISSION_ALIASES[key]
+            : key;
+          if (translated[mappedKey] === undefined || translated[mappedKey] === null) {
+            translated[mappedKey] = value;
+          }
+        }
+        const cleanedReasons = {};
+        const rejectedReasons = [];
+        for (const [key, value] of Object.entries(translated)) {
+          if (!KNOWN_PERMISSIONS.has(key)) {
+            rejectedReasons.push(`${key} (unknown permission)`);
+            continue;
+          }
+          if (typeof value !== 'string' || !value.trim()) {
+            rejectedReasons.push(`${key} (reason is not a non-empty string)`);
+            continue;
+          }
+          const trimmed = value.trim();
+          if (trimmed.length > REASON_DISPLAY_CAP) {
+            rejectedReasons.push(`${key} (reason truncated to ${REASON_DISPLAY_CAP} characters)`);
+          }
+          cleanedReasons[key] = trimmed.length > REASON_DISPLAY_CAP ? trimmed.slice(0, REASON_DISPLAY_CAP) : trimmed;
+        }
+        const undeclaredReasons = Object.keys(cleanedReasons)
+          .filter(p => !(appConfig.permissions || []).includes(p) && !(appConfig.optionalPermissions || []).includes(p));
+        if (rejectedReasons.length > 0 || undeclaredReasons.length > 0) {
+          const detail = [...rejectedReasons, ...undeclaredReasons.map(p => `${p} (not declared in permissions)`)].join(', ');
+          console.warn('[AppRegistry] Normalized permissionReasons for', appConfig.id + ':', detail);
+          if (typeof EventLog !== 'undefined') {
+            EventLog.log({ app: 'AppRegistry', category: 'apps', severity: 'warn', message: `Normalized permissionReasons for ${appConfig.id}: ${detail}`, data: { appId: appConfig.id, rejected: rejectedReasons, undeclared: undeclaredReasons } });
+          }
+        }
+        if (Object.keys(cleanedReasons).length > 0) {
+          appConfig.permissionReasons = cleanedReasons;
+        } else {
+          delete appConfig.permissionReasons;
+        }
+      }
+    }
+
     // autoGrant silently skips the permission-request prompt entirely (see
     // launchApp() below) — it exists for first-party dev tools that are
     // hardcoded into the JS bundle (console, packages, permissions, etc.),

@@ -565,3 +565,77 @@ describe('WebAppManager (js/apps/registry/service.js)', () => {
     expect(updated.lastUsed).toBeDefined();
   });
 });
+describe('AppRegistry — permissionReasons normalization', () => {
+  it('keeps known, declared reasons on the app record', () => {
+    const mod = require('../../../js/platform/core/app-registry.js');
+    const app = mod.registerApp({
+      id: 'reasons-app',
+      name: 'Reasons',
+      permissions: ['system:root', 'net:external'],
+      permissionReasons: {
+        'system:root': 'Needed to manage system services.',
+        'net:external': 'Calls the app\u2019s own API.',
+      },
+    });
+    expect(app.permissionReasons).toEqual({
+      'system:root': 'Needed to manage system services.',
+      'net:external': 'Calls the app\u2019s own API.',
+    });
+  });
+
+  it('translates legacy vfs:* keys to their fs:* equivalents', () => {
+    const mod = require('../../../js/platform/core/app-registry.js');
+    const app = mod.registerApp({
+      id: 'legacy-reasons',
+      name: 'Legacy',
+      permissions: ['fs:access'],
+      permissionReasons: { 'vfs:read': 'Opens files the user picks.' },
+    });
+    expect(app.permissionReasons).toEqual({ 'fs:access': 'Opens files the user picks.' });
+  });
+
+  it('strips unknown keys and unusable values, keeping the valid rest', () => {
+    const mod = require('../../../js/platform/core/app-registry.js');
+    const app = mod.registerApp({
+      id: 'mixed-reasons',
+      name: 'Mixed',
+      permissions: ['net:external', 'device:camera'],
+      permissionReasons: {
+        'net:external': 'Calls its API.',
+        'bogus:permission': 'Unknown key.',
+        'device:camera': 42,
+        'device:microphone': '   ',
+      },
+    });
+    expect(app.permissionReasons).toEqual({ 'net:external': 'Calls its API.' });
+  });
+
+  it('truncates oversized reasons to the 500-character display cap', () => {
+    const mod = require('../../../js/platform/core/app-registry.js');
+    const app = mod.registerApp({
+      id: 'long-reason',
+      name: 'Long',
+      permissions: ['net:external'],
+      permissionReasons: { 'net:external': 'x'.repeat(600) },
+    });
+    expect(app.permissionReasons['net:external']).toHaveLength(500);
+  });
+
+  it('drops the field entirely when nothing valid survives or the shape is wrong', () => {
+    const mod = require('../../../js/platform/core/app-registry.js');
+    const empty = mod.registerApp({
+      id: 'empty-reasons',
+      name: 'Empty',
+      permissions: ['net:external'],
+      permissionReasons: { 'net:external': '   ' },
+    });
+    expect(empty.permissionReasons).toBeUndefined();
+
+    const malformed = mod.registerApp({
+      id: 'bad-shape-reasons',
+      name: 'BadShape',
+      permissionReasons: 'not a map',
+    });
+    expect(malformed.permissionReasons).toBeUndefined();
+  });
+});

@@ -888,6 +888,46 @@ const AppPackage = (() => {
         if (valid.length > 0 && !valid.includes(p)) warnings.push(`Unknown permission: ${p}`);
       });
     }
+    if (manifest.permissionReasons !== undefined) {
+      // permissionReasons maps permission strings to the developer's
+      // declared reason for needing them — the text the OS shows in the
+      // grant dialogs (with an explicit fallback when a permission has no
+      // entry). Shape errors reject the package; unknown keys and reasons
+      // for permissions the manifest doesn't declare are warnings, matching
+      // how the permissions array itself treats unknown strings. The length
+      // cap mirrors AppPermissionManager.MAX_REASON_LENGTH (the dialog
+      // truncates rather than wraps); app-registry.js truncates for the
+      // non-package path, so packages are held to the stricter standard.
+      const reasons = manifest.permissionReasons;
+      if (!reasons || typeof reasons !== 'object' || Array.isArray(reasons)) {
+        errors.push('permissionReasons must be an object mapping permission strings to reason strings');
+      } else {
+        const validPerms = Object.values((typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.PERMISSION_TYPES) || {});
+        const legacyAliases = (typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.LEGACY_PERMISSION_ALIASES) || {};
+        const reasonCap = (typeof AppPermissionManager !== 'undefined' && AppPermissionManager?.MAX_REASON_LENGTH) || 500;
+        const declaredPerms = new Set([
+          ...(Array.isArray(manifest.permissions) ? manifest.permissions : []),
+          ...(Array.isArray(manifest.optionalPermissions) ? manifest.optionalPermissions : []),
+        ]);
+        for (const [key, value] of Object.entries(reasons)) {
+          if (typeof key !== 'string' || !key.trim()) {
+            errors.push('permissionReasons keys must be non-empty permission strings');
+            continue;
+          }
+          const canonical = Object.prototype.hasOwnProperty.call(legacyAliases, key) ? legacyAliases[key] : key;
+          if (validPerms.length > 0 && !validPerms.includes(canonical)) {
+            warnings.push(`Unknown permission in permissionReasons: ${key}`);
+          }
+          if (typeof value !== 'string' || !value.trim()) {
+            errors.push(`permissionReasons["${key}"] must be a non-empty string`);
+          } else if (value.trim().length > reasonCap) {
+            errors.push(`permissionReasons["${key}"] exceeds ${reasonCap} characters`);
+          } else if (!declaredPerms.has(key) && !declaredPerms.has(canonical)) {
+            warnings.push(`permissionReasons declares "${key}", which is not in permissions or optionalPermissions`);
+          }
+        }
+      }
+    }
     const requestsRoot = Array.isArray(manifest.permissions) && manifest.permissions.includes('system:root');
     const rootEntry = manifest.unrestrictedEntry;
     if (rootEntry !== undefined && (typeof rootEntry !== 'string'

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const nobleHashesMock = {
   blake3: (data) => {
@@ -630,3 +630,127 @@ describe('AppPackage (js/platform/core/app-package.js)', () => {
       expect(threw).toBe(true);
     });
   });
+
+describe('AppPackage.validateManifest — permissionReasons', () => {
+  const baseManifest = {
+    id: 'com.test.reasons',
+    name: 'Reasons App',
+    version: '1.0.0',
+    entry: 'index.html',
+  };
+  const PERM_STUB = {
+    PERMISSION_TYPES: { SYSTEM_ROOT: 'system:root', FS_ACCESS: 'fs:access', FS_READ_IMAGES: 'fs:read:images', NET_EXTERNAL: 'net:external' },
+    LEGACY_PERMISSION_ALIASES: { 'vfs:read': 'fs:access' },
+    MAX_REASON_LENGTH: 500,
+  };
+
+  afterEach(() => {
+    delete globalThis.AppPermissionManager;
+  });
+
+  it('accepts a well-formed map without warnings', async () => {
+    globalThis.AppPermissionManager = PERM_STUB;
+    const { validateManifest } = await import('../../../js/platform/core/app-package.js');
+    const result = validateManifest({
+      ...baseManifest,
+      permissions: ['fs:read:images', 'net:external'],
+      permissionReasons: {
+        'fs:read:images': 'Displays a gallery of shared images.',
+        'net:external': 'Calls the app\u2019s own API.',
+      },
+    });
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('rejects non-object values (strings, arrays, null)', async () => {
+    globalThis.AppPermissionManager = PERM_STUB;
+    const { validateManifest } = await import('../../../js/platform/core/app-package.js');
+    for (const bad of ['nope', ['system:root'], null]) {
+      const result = validateManifest({ ...baseManifest, permissionReasons: bad });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain('permissionReasons must be an object mapping permission strings to reason strings');
+    }
+  });
+
+  it('rejects values that are not non-empty strings within the cap', async () => {
+    globalThis.AppPermissionManager = PERM_STUB;
+    const { validateManifest } = await import('../../../js/platform/core/app-package.js');
+    const result = validateManifest({
+      ...baseManifest,
+      permissions: ['system:root'],
+      permissionReasons: { 'system:root': '   ' },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain('permissionReasons["system:root"] must be a non-empty string');
+
+    const tooLong = validateManifest({
+      ...baseManifest,
+      permissions: ['system:root'],
+      permissionReasons: { 'system:root': 'x'.repeat(501) },
+    });
+    expect(tooLong.valid).toBe(false);
+    expect(tooLong.errors).toContain('permissionReasons["system:root"] exceeds 500 characters');
+  });
+
+  it('warns on unknown permission keys and on reasons for undeclared permissions', async () => {
+    globalThis.AppPermissionManager = PERM_STUB;
+    const { validateManifest } = await import('../../../js/platform/core/app-package.js');
+    const result = validateManifest({
+      ...baseManifest,
+      permissions: ['net:external'],
+      permissionReasons: {
+        'net:external': 'Calls its API.',          // declared — fine
+        'fs:read:images': 'Never requested.',      // known but undeclared → warning
+        'not:a:permission': 'Typo.',               // unknown → warning
+      },
+    });
+    expect(result.valid).toBe(true);
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      'Unknown permission in permissionReasons: not:a:permission',
+      'permissionReasons declares "fs:read:images", which is not in permissions or optionalPermissions',
+    ]));
+  });
+
+  it('accepts a reason for a permission declared in optionalPermissions and translates legacy alias keys', async () => {
+    globalThis.AppPermissionManager = PERM_STUB;
+    const { validateManifest } = await import('../../../js/platform/core/app-package.js');
+    const optional = validateManifest({
+      ...baseManifest,
+      optionalPermissions: ['fs:read:images'],
+      permissionReasons: { 'fs:read:images': 'Gallery feature, optional.' },
+    });
+    expect(optional.valid).toBe(true);
+    expect(optional.warnings).toEqual([]);
+
+    const legacy = validateManifest({
+      ...baseManifest,
+      permissions: ['fs:access'],
+      permissionReasons: { 'vfs:read': 'Opens files the user picks.' },
+    });
+    expect(legacy.valid).toBe(true);
+    expect(legacy.warnings).toEqual([]);
+  });
+
+  it('honors AppPermissionManager.MAX_REASON_LENGTH as the cap when available', async () => {
+    globalThis.AppPermissionManager = { ...PERM_STUB, MAX_REASON_LENGTH: 50 };
+    const { validateManifest } = await import('../../../js/platform/core/app-package.js');
+    const result = validateManifest({
+      ...baseManifest,
+      permissions: ['net:external'],
+      permissionReasons: { 'net:external': 'x'.repeat(51) },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain('permissionReasons["net:external"] exceeds 50 characters');
+  });
+
+  it('still validates shapes without an AppPermissionManager global (standalone tooling)', async () => {
+    const { validateManifest } = await import('../../../js/platform/core/app-package.js');
+    const result = validateManifest({
+      ...baseManifest,
+      permissionReasons: { 'whatever:key': '' },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain('permissionReasons["whatever:key"] must be a non-empty string');
+  });
+});
