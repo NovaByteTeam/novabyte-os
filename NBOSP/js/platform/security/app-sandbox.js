@@ -2396,11 +2396,30 @@ const AppSandbox = (() => {
     }
   }
 
+  // Coerce an app-supplied write payload into the string the VFS stores.
+  // Strings (and null/undefined, which callers reject) pass through;
+  // everything else is JSON-stringified so structured data round-trips
+  // cleanly rather than becoming "[object Object]" somewhere downstream —
+  // the same contract the create-file branch and nova:storage:set already
+  // use. Throws on values the structured-clone bridge can carry but JSON
+  // cannot (cycles, BigInt) so handlers can answer INVALID_ARGS precisely.
+  function coerceFsWriteContent(content) {
+    if (content == null || typeof content === 'string') return content;
+    return JSON.stringify(content);
+  }
+
   async function handleFsWrite({ payload, requestId, app, webview, sandbox }) {
     const broadAccess = hasFsAccess(app.id);
     const selectedFile = getOpenFileForSandbox(sandbox, payload)
       || (payload?.id && hasPickedFileAccess(sandbox, FS.files.get(payload.id)) ? FS.files.get(payload.id) : null);
     const { path, content, mimeType } = payload ?? {};
+    let fileContent;
+    try {
+      fileContent = coerceFsWriteContent(content);
+    } catch (e) {
+      return respondError(webview, 'nova:fs:write', requestId, 'INVALID_ARGS',
+        `Content is not JSON-serializable: ${e?.message || e}`);
+    }
     if (selectedFile) {
       if (content === undefined || content === null) {
         return respondError(webview, 'nova:fs:write', requestId, 'INVALID_ARGS', 'content is required');
@@ -2410,10 +2429,10 @@ const AppSandbox = (() => {
         return respondError(webview, 'nova:fs:write', requestId, 'UNAVAILABLE', 'User confirmation is required to modify a shared file');
       }
       if (!confirmed) return respond(webview, 'nova:fs:write', requestId, { cancelled: true });
-      const saved = await FS.writeFile(selectedFile.id, content);
+      const saved = await FS.writeFile(selectedFile.id, fileContent);
       if (!saved) return respondError(webview, 'nova:fs:write', requestId, 'NOT_FOUND', 'Selected file no longer exists');
       StorageLedger.noteRequest(app.id);
-      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(content) });
+      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(fileContent) });
       if (!isOwnedByApp(selectedFile, app.id)) {
         StorageLedger.recordAccess({ appId: app.id, kind: 'picked-file-write', detail: FS.getPath(selectedFile.id) });
       }
@@ -2440,9 +2459,9 @@ const AppSandbox = (() => {
         return respondError(webview, 'nova:fs:write', requestId, 'UNAVAILABLE', 'User confirmation is required to modify a shared file');
       }
       if (!confirmed) return respond(webview, 'nova:fs:write', requestId, { cancelled: true });
-      await FS.writeFile(node.id, content);
+      await FS.writeFile(node.id, fileContent);
       StorageLedger.noteRequest(app.id);
-      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(content) });
+      StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(fileContent) });
       if (!isOwnedByApp(node, app.id)) {
         StorageLedger.recordAccess({ appId: app.id, kind: 'shared-file-write', detail: FS.getPath(node.id) });
       }
@@ -2466,11 +2485,10 @@ const AppSandbox = (() => {
     if (!resolveFile({ id: parent.id }, app.id, true, broadAccess)) {
       return respondError(webview, 'nova:fs:write', requestId, 'PERMISSION_DENIED', 'New files can only be created in app-owned storage unless fs:access is enabled');
     }
-    // Coerce content to a string for FS.createFile. Strings pass through;
-    // null/undefined is rejected above; anything else (objects, arrays,
-    // numbers) is JSON-stringified so structured data round-trips cleanly
-    // rather than becoming "[object Object]".
-    const fileContent = typeof content === 'string' ? content : JSON.stringify(content);
+    // fileContent was coerced by coerceFsWriteContent above (strings pass
+    // through; objects/arrays/numbers are JSON-stringified), so the same
+    // round-trip guarantee holds on the create branch as on every other
+    // write branch — no "[object Object]" ever reaches the VFS.
     const newNode = await FS.createFile(parent.id, fileName, fileContent, mimeType || 'text/plain');
     StorageLedger.noteRequest(app.id);
     StorageLedger.noteBytes(app.id, { written: ledgerWriteBytes(fileContent) });
@@ -8789,7 +8807,15 @@ const AppSandbox = (() => {
   }
 
   function normalizeFsSavePayload(payload, filename) {
-    let content = typeof payload?.content === 'string' ? payload.content : '';
+    // Serialize non-string payloads instead of silently dropping them:
+    // an app saving { a: 1 } must get '{"a":1}' on disk, not an empty
+    // file. null/undefined keeps the historical '' (callers treat a
+    // missing content as an empty save); non-JSON values (cycles, BigInt)
+    // throw and surface as the caller's own error path.
+    let rawContent = payload?.content;
+    let content = typeof rawContent === 'string'
+      ? rawContent
+      : (rawContent == null ? '' : JSON.stringify(rawContent));
     let mimeType = typeof payload?.mimeType === 'string' && /^[\w.+-]+\/[\w.+-]+$/.test(payload.mimeType)
       ? payload.mimeType
       : '';

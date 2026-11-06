@@ -1729,6 +1729,108 @@ describe('AppSandbox (js/platform/security/app-sandbox.js)', () => {
     expect(writeFile).toHaveBeenCalledWith('own-note', 'after');
   });
 
+  it('JSON-stringifies object content written to an existing app data file (no "[object Object]")', async () => {
+    const responses = [];
+    const ownFile = { id: 'own-state', name: 'state.json', type: 'file', content: '{"count":1}' };
+    const writeFile = vi.fn(async (id, content) => {
+      ownFile.content = content;
+      return ownFile;
+    });
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['own-state', ownFile]]),
+      getPath: id => id === 'root' ? '/home/user' : '/home/user/data/editor_app/state.json',
+      getByPath: path => path === '/data/editor_app/state.json' ? ownFile : null,
+      writeFile,
+    });
+
+    try {
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:write',
+        { path: '/data/state.json', content: { count: 2 } },
+        'own-file-write-object',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].result.success).toBe(true);
+    expect(writeFile).toHaveBeenCalledWith('own-state', '{"count":2}');
+    expect(typeof ownFile.content).toBe('string');
+    expect(ownFile.content).toBe('{"count":2}');
+  });
+
+  it('rejects non-serializable write content with INVALID_ARGS instead of corrupting the file', async () => {
+    const responses = [];
+    const ownFile = { id: 'own-state', name: 'state.json', type: 'file', content: '{"count":1}' };
+    const writeFile = vi.fn(async () => ownFile);
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('FS', {
+      rootId: 'root',
+      files: new Map([['own-state', ownFile]]),
+      getPath: id => id === 'root' ? '/home/user' : '/home/user/data/editor_app/state.json',
+      getByPath: path => path === '/data/editor_app/state.json' ? ownFile : null,
+      writeFile,
+    });
+
+    try {
+      const cyclic = {};
+      cyclic.self = cyclic;
+      const webview = { __directResponder: message => responses.push(message) };
+      await AppSandbox._internal.handleAPICall(
+        'nova:fs:write',
+        { path: '/data/state.json', content: cyclic },
+        'own-file-write-cyclic',
+        { id: 'editor_app' },
+        webview,
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(responses[0].error.code).toBe('INVALID_ARGS');
+    expect(responses[0].error.message).toContain('JSON-serializable');
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(ownFile.content).toBe('{"count":1}');
+  });
+
+  it('serializes object content passed to nova:sysdialog:save instead of silently saving an empty file', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'nbosp-save-object-'));
+    const filePath = path.join(directory, 'export.json');
+    const responses = [];
+    vi.stubGlobal('AppPermissionManager', { isGranted: () => false });
+    vi.stubGlobal('window', {
+      SystemDialogs: {
+        save: vi.fn(async () => ({ path: filePath, name: 'export.json' })),
+      },
+    });
+
+    try {
+      await AppSandbox._internal.handleAPICall(
+        'nova:sysdialog:save',
+        { startPath: directory, suggestedName: 'export.json', content: { exported: true } },
+        'host-file-save-object',
+        { id: 'com.example.editor', name: 'Editor' },
+        { __directResponder: message => responses.push(message) },
+        {}
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(directory, { recursive: true, force: true });
+    }
+
+    expect(responses[0].result).toMatchObject({
+      success: true,
+      file: { name: 'export.json', size: '{"exported":true}'.length },
+    });
+  });
+
   it('limits shared-media reads to the matching media permission', async () => {
     const responses = [];
     const image = { id: 'image', name: 'photo.png', type: 'file', content: 'image', mimeType: 'image/png' };
