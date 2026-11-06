@@ -38,6 +38,7 @@ const AppSecrets = (() => {
   const MAX_PER_APP = 64;
   const MAX_VALUE_BYTES = 8 * 1024;
   const MAX_KEY_LEN = 128;
+  let memoryStore = null;
 
   // Test/override hook: the default location is the OS install's root/
   // area (the same protected directory root-broker and the boot scripts
@@ -96,6 +97,7 @@ const AppSecrets = (() => {
   }
 
   function loadStore() {
+    if (memoryStore) return memoryStore;
     if (!fsMod || !pathMod) return { version: 1, apps: {} };
     try {
       const raw = fsMod.readFileSync(pathMod.join(rootDir(), 'app-secrets.json'), 'utf8');
@@ -106,13 +108,20 @@ const AppSecrets = (() => {
   }
 
   function saveStore(state) {
-    if (!fsMod || !pathMod) return false;
+    if (!fsMod || !pathMod || !getMasterKey() || !masterKeyPersistent) {
+      memoryStore = state;
+      return false;
+    }
     try {
       const dir = rootDir();
       try { fsMod.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch (_) { /* may already exist */ }
       fsMod.writeFileSync(pathMod.join(dir, 'app-secrets.json'), JSON.stringify(state), { mode: 0o600 });
+      memoryStore = null;
       return true;
-    } catch (_) { return false; }
+    } catch (_) {
+      memoryStore = state;
+      return false;
+    }
   }
 
   function encrypt(utf8Value) {
@@ -158,9 +167,10 @@ const AppSecrets = (() => {
       return { ok: false, code: 'RATE_LIMITED', message: `Max ${MAX_PER_APP} secrets per app` };
     }
     record[key] = Object.assign(encrypt(value), { ts: Date.now() });
-    if (!saveStore(state)) {
-      // Keep the in-memory copy so the session still works; persistence
-      // resumes when the filesystem cooperates again.
+    const saved = saveStore(state);
+    if (!saved) {
+      memoryStore = state;
+      // Keep the in-memory copy available for the rest of this session.
       return { ok: true, persisted: false };
     }
     return { ok: true, persisted: true };
@@ -219,6 +229,7 @@ const AppSecrets = (() => {
     masterKeyCache = null;
     ephemeralKey = null;
     masterKeyPersistent = false;
+    memoryStore = null;
   }
 
   return {
