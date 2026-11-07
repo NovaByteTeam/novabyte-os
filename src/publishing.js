@@ -45,7 +45,7 @@ function appendAutomatedReview(container, report, { includeManualChecks = false 
   const section = makeElement('section', 'publisher-automated-review');
   section.appendChild(makeElement('h3', '', report.passed
     ? 'Automated checks passed'
-    : 'Automated checks blocked this submission'));
+    : 'Automated checks failed (sent for review anyway)'));
   if (report.checked_at) {
     section.appendChild(makeElement('p', 'publisher-review-line',
       `Checked ${new Date(report.checked_at).toLocaleString()}`));
@@ -729,10 +729,13 @@ class PublisherPortal {
         ) {
           throw new Error('This file is not a valid .novaapp package.');
         }
+        // Don't block here: a package that fails the permission-reason rule is still
+        // submitted, flagged, and sent to the reviewer. Just warn the publisher.
         const reasonProblems = permissionReasonProblems(pkg.manifest);
-        if (reasonProblems.length) throw new Error(reasonProblems.join(' '));
         onPackage({ file, pkg });
-        this.setNotice(`Loaded ${file.name} (${(file.size / 1024).toFixed(0)} KB).`, 'success');
+        this.setNotice(reasonProblems.length
+          ? `Loaded ${file.name}, but it will fail the automated checks. ${reasonProblems.join(' ')} It will still be sent for human review.`
+          : `Loaded ${file.name} (${(file.size / 1024).toFixed(0)} KB).`, reasonProblems.length ? 'warning' : 'success');
       } catch (error) {
         field.input.value = '';
         this.setNotice(error.message || 'Could not read the package.', 'error');
@@ -744,12 +747,12 @@ class PublisherPortal {
   makeAppForm({ type, app } = {}) {
     const update = type === 'update';
     this.setPage(update ? `Update ${app.name}` : 'Publish an app', update
-      ? 'Upload a newer package version. It must pass automated checks and human review before publication.'
-      : 'Complete the listing details. Your .novaapp must pass automated checks and human review before publication.');
+      ? 'Upload a newer package version. Automated checks run first, then human review. Anything they flag goes to the reviewer.'
+      : 'Complete the listing details. Automated checks run first, then human review. Anything they flag goes to the reviewer.');
     const form = makeElement('form', 'publisher-card publisher-app-form');
     const status = makeElement('p', 'publisher-form-intro', update
-      ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version and pass automated and human review.`
-      : 'All listing details are required. The package must pass automated checks and human review before it can be published.');
+      ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version. Automated checks run first, then human review.`
+      : 'All listing details are required. Automated checks run first, then human review. Anything they flag goes to the reviewer.');
     form.appendChild(status);
 
     if (!update) {
@@ -1144,9 +1147,9 @@ class PublisherPortal {
         if (result.automatedReview?.passed === false) {
           this.setNotice(
             result.notificationSent === false
-              ? `Automated checks found blocking issues. See My Apps for details. ${emailFailureNotice(result.notificationError)}`
-              : 'Automated checks found blocking issues. See My Apps for details, fix them, and submit again.',
-            'error',
+              ? `Automated checks found issues, but your submission is still waiting for human review. See My Apps for details. ${emailFailureNotice(result.notificationError)}`
+              : 'Automated checks found issues, but your submission is still waiting for human review. See My Apps for the findings. Fixing them and resubmitting will speed things up.',
+            'warning',
           );
         } else {
           this.setNotice(result.notificationSent === false
@@ -1272,7 +1275,7 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Review Apps', 'Automated checks run first. Inspect the package and report, upload the reviewed .novaapp, then explicitly approve or reject it. Passing automation never publishes by itself.');
+    this.setPage('Review Apps', 'Automated checks run first, and submissions that fail them are still queued here, flagged. Inspect the package and report, upload the reviewed .novaapp, then explicitly approve or reject it. Passing automation never publishes by itself.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
@@ -1294,7 +1297,7 @@ class PublisherPortal {
           const item = makeElement('article', 'publisher-review-card');
           const info = submission.metadata || {};
           item.append(
-            makeElement('p', 'detail-kicker', `${submission.type} · ${submission.status}`),
+            makeElement('p', 'detail-kicker', `${submission.type} · ${submission.status}${submission.automated_review?.passed === false ? ' · FAILED AUTOMATED CHECKS' : ''}`),
             makeElement('h2', '', `${info.name || submission.app_id} v${submission.version}`),
             makeElement('p', 'publisher-app-meta', `${submission.app_id} · submitted ${new Date(submission.created_at).toLocaleString()}`),
             makeElement('p', 'publisher-app-description', info.description || ''),

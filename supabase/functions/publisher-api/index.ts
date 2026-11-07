@@ -296,7 +296,9 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
   if (submissionByteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The package exceeds the 25 MB upload limit.');
 
   const automatedReview = runAutomatedReview(pkg, { appId, version });
-  const status = automatedReview.passed ? 'pending' : 'automated_rejected';
+  // Failed checks still go to the human review queue (flagged via automated_review.passed).
+  // Approval re-runs the checks on the reviewed package, so nothing failing publishes as-is.
+  const status = 'pending';
   await rest('publisher_submissions', {
     method: 'POST',
     body: {
@@ -312,24 +314,22 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
       automated_review: automatedReview,
     },
   });
+  const findingsHtml = automatedReview.errors.map(finding => `<li>${escapeHtml(finding.message)}</li>`).join('');
   if (!automatedReview.passed) {
-    const notification = await sendEmail(
+    // Best effort: tell the publisher what was flagged. The reviewer is emailed below regardless.
+    await sendEmail(
       user.email || '',
-      `NovaByte app needs changes: ${appId} v${version}`,
-      `<p>Automated checks found issues that must be fixed before human review.</p><ul>${automatedReview.errors.map(finding => `<li>${escapeHtml(finding.message)}</li>`).join('')}</ul><p>Update your package and submit it again.</p>`,
+      `NovaByte app flagged by automated checks: ${appId} v${version}`,
+      `<p>Automated checks flagged issues. Your submission has still been sent for human review, but it can't be published until they're fixed.</p><ul>${findingsHtml}</ul><p>You can update your package and submit it again.</p>`,
     );
-    return {
-      submitted: true,
-      automatedReview,
-      notificationSent: notification.sent,
-      notificationError: notification.sent ? undefined : notification.reason,
-    };
   }
 
   const notification = await sendEmail(
     ADMIN_EMAIL,
-    `Automated checks passed: ${String(metadata.name)} v${version}`,
-    `<p>Automated checks passed. A verified publisher's app is ready for human review.</p><p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
+    `Automated checks ${automatedReview.passed ? 'passed' : 'FAILED'}: ${String(metadata.name)} v${version}`,
+    `<p>${automatedReview.passed
+      ? "Automated checks passed. A verified publisher's app is ready for human review."
+      : 'Automated checks failed, but the submission was sent for your review anyway.'}</p>${automatedReview.passed ? '' : `<ul>${findingsHtml}</ul>`}<p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
   );
   return {
     submitted: true,

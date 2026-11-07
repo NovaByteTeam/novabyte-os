@@ -298,6 +298,24 @@ const AppPermissionManager = (() => {
     return trimmed.length > MAX_REASON_LENGTH ? trimmed.slice(0, MAX_REASON_LENGTH) : trimmed;
   }
 
+  // Reads one permission's reason out of a permissionReasons-style map.
+  // Exact key first; then any key whose legacy vfs:* alias canonicalizes to
+  // the permission — needed because maps reached through raw manifests (the
+  // OS.apps fallback below) never went through app-registry.js's install-time
+  // key normalization. Own-property lookups only, so prototype names like
+  // 'constructor' can't masquerade as reasons.
+  function lookupDeclaredReason(map, permission) {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return null;
+    if (Object.prototype.hasOwnProperty.call(map, permission)) return map[permission];
+    for (const [key, value] of Object.entries(map)) {
+      const canonical = Object.prototype.hasOwnProperty.call(LEGACY_PERMISSION_ALIASES, key)
+        ? LEGACY_PERMISSION_ALIASES[key]
+        : key;
+      if (canonical === permission) return value;
+    }
+    return null;
+  }
+
   // Resolution order for the text a permission dialog displays:
   //   1. runtimeReason — the calling app's own words for THIS prompt (the
   //      nova:request-permission payload's reason field), the most specific
@@ -307,7 +325,14 @@ const AppPermissionManager = (() => {
   //      records carry it flattened (app-registry.js normalization), with
   //      the raw manifest as a fallback path for records that predate the
   //      flattening.
-  //   3. null — the dialog then renders the "no reason declared" fallback.
+  //   3. The OS.apps entry for the app — several real launch paths (the App
+  //      Manager's package hydration and the nova-app-launcher config
+  //      builder) put the app into OS.apps WITHOUT registering it in
+  //      AppRegistry, so getApp() returns null exactly at the first-launch
+  //      gate where the reason matters most. Both config builders keep the
+  //      raw manifest on the entry, and the permission gate itself reads its
+  //      permission lists from that same entry, so it is a reliable source.
+  //   4. null — the dialog then renders the "no reason declared" fallback.
   function resolvePermissionReason(permission, appId, runtimeReason) {
     // Translate legacy vfs:* names before lookup so the helper is correct
     // standalone (Settings surfaces can call it directly), not just when
@@ -318,8 +343,11 @@ const AppPermissionManager = (() => {
     if (fromCall) return fromCall;
     try {
       const record = typeof AppRegistry !== 'undefined' ? AppRegistry.getApp?.(appId) : null;
-      const declared = record?.permissionReasons?.[permission]
-        ?? record?.manifest?.permissionReasons?.[permission];
+      const osEntry = typeof OS !== 'undefined' ? OS?.apps?.[appId] : null;
+      const declared = lookupDeclaredReason(record?.permissionReasons, permission)
+        ?? lookupDeclaredReason(record?.manifest?.permissionReasons, permission)
+        ?? lookupDeclaredReason(osEntry?.permissionReasons, permission)
+        ?? lookupDeclaredReason(osEntry?.manifest?.permissionReasons, permission);
       return normalizeReasonText(declared);
     } catch {
       // A hostile or half-initialized AppRegistry must never break the

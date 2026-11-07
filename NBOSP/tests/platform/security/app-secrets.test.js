@@ -81,6 +81,28 @@ describe('AppSecrets (js/platform/security/app-secrets.js)', () => {
       expect(AppSecrets.persistentKey()).toBe(true);
     });
 
+    it('keeps secrets readable and listable for the session when disk persistence fails', () => {
+      const writeSpy = vi.spyOn(nodeFs, 'writeFileSync').mockImplementation(() => {
+        throw new Error('simulated read-only filesystem');
+      });
+
+      try {
+        expect(AppSecrets.set('com.example.mail', 'pw', 'session-only')).toEqual({
+          ok: true,
+          persisted: false,
+        });
+        expect(AppSecrets.persistentKey()).toBe(false);
+        expect(AppSecrets.get('com.example.mail', 'pw')).toBe('session-only');
+        expect(AppSecrets.keys('com.example.mail')).toEqual(['pw']);
+
+        expect(AppSecrets.del('com.example.mail', 'pw')).toBe(true);
+        expect(AppSecrets.get('com.example.mail', 'pw')).toBeNull();
+        expect(AppSecrets.keys('com.example.mail')).toEqual([]);
+      } finally {
+        writeSpy.mockRestore();
+      }
+    });
+
     it('survives a reboot: a fresh module instance re-loads the key from disk and decrypts old records', () => {
       AppSecrets.set('com.example.mail', 'pw', 'after-reboot');
       // A reboot is exactly "module state gone, disk state remains": the fresh

@@ -329,6 +329,7 @@ describe('AppPermissionManager (js/platform/security/app-permission-manager.js)'
 describe('AppPermissionManager — declared permission reasons', () => {
   const originalDocument = globalThis.document;
   const originalAppRegistry = globalThis.AppRegistry;
+  const originalOS = globalThis.OS;
   let createdElements;
 
   // Minimal DOM stub strong enough for showPermissionDialog(): textContent
@@ -376,6 +377,7 @@ describe('AppPermissionManager — declared permission reasons', () => {
   afterEach(() => {
     globalThis.document = originalDocument;
     globalThis.AppRegistry = originalAppRegistry;
+    globalThis.OS = originalOS;
   });
 
   describe('resolvePermissionReason', () => {
@@ -416,6 +418,38 @@ describe('AppPermissionManager — declared permission reasons', () => {
       globalThis.AppRegistry = { getApp: () => { throw new Error('boom'); } };
       const APM = require('../../../js/platform/security/app-permission-manager.js');
       expect(APM.resolvePermissionReason('net:external', 'app-x')).toBeNull();
+    });
+
+    // The App Manager's package hydration and the nova-app-launcher config
+    // builder put apps into OS.apps without registering them in AppRegistry,
+    // so getApp() returns null exactly at the first-launch gate. The lookup
+    // must fall back to the launch config's manifest copy.
+    it('resolves through the OS.apps launch config when AppRegistry has no record', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => null) };
+      globalThis.OS = { apps: { 'app-x': { manifest: { permissionReasons: { 'net:external': 'From the launch config manifest.' } } } } };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toBe('From the launch config manifest.');
+    });
+
+    it('also reads a flattened permissionReasons map from the OS.apps entry', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => null) };
+      globalThis.OS = { apps: { 'app-x': { permissionReasons: { 'net:external': 'Flattened on the launch config.' } } } };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toBe('Flattened on the launch config.');
+    });
+
+    it('translates legacy alias keys in a raw OS.apps manifest map', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => null) };
+      globalThis.OS = { apps: { 'app-x': { manifest: { permissionReasons: { 'vfs:metadata': 'Raw manifest still uses the old name.' } } } } };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('fs:metadata', 'app-x')).toBe('Raw manifest still uses the old name.');
+    });
+
+    it('still prefers the AppRegistry record over the OS.apps entry', () => {
+      globalThis.AppRegistry = { getApp: vi.fn(() => ({ permissionReasons: { 'net:external': 'From the registry record.' } })) };
+      globalThis.OS = { apps: { 'app-x': { manifest: { permissionReasons: { 'net:external': 'From the launch config.' } } } } };
+      const APM = require('../../../js/platform/security/app-permission-manager.js');
+      expect(APM.resolvePermissionReason('net:external', 'app-x')).toBe('From the registry record.');
     });
   });
 
