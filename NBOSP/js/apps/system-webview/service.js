@@ -696,7 +696,7 @@
   }
 
   function revokeApp(appId) {
-    let removed = false;
+    let removed = destroyTrustedGuests(appId);
     for (const [sandbox, state] of sandboxStates) {
       if (state.appId !== appId) continue;
       disposeState(state);
@@ -704,6 +704,118 @@
       removed = true;
     }
     return removed;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trusted (first-party) guests
+  //
+  // The IPC route above is for sandboxed third-party apps and always forces an
+  // app-scoped partition and a permission-gated navigation. The Browser and web
+  // apps run in the trusted host runtime and need full control of the guest
+  // (per-tab or incognito partitions, executeScript, zoom, UA, content scripts,
+  // their own event handling). This path gives them that, but only to system
+  // callers; third-party apps never get a handle.
+  // ---------------------------------------------------------------------------
+  const trustedGuests = new Map(); // appId -> Set<handle>
+  const TRUSTED_ID_PATTERN = /^com\.nbosp\.[a-z0-9._-]+$/;
+  const BLOCKED_NAV_SCHEMES = /^\s*(javascript|vbscript):/i;
+
+  function isFirstParty(app) {
+    if (!app || typeof app.id !== 'string') return false;
+    const system = app.system === true || app.manifest?.system === true;
+    return system && TRUSTED_ID_PATTERN.test(app.id);
+  }
+
+  function resolveTrustedPartition(app, options) {
+    const key = String(options.guestId || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    // No "persist:" prefix means in-memory, which is what incognito needs.
+    if (options.incognito) return `incognito_${app.id}_${key || Date.now()}`;
+    if (typeof options.partition === 'string' && options.partition) return options.partition;
+    return `persist:app_${app.id}_trusted`;
+  }
+
+  function createTrustedGuest(app, options = {}) {
+    if (!isFirstParty(app)) {
+      throw Object.assign(new Error('Trusted webviews are limited to system apps'), { code: 'PERMISSION_DENIED' });
+    }
+    const parent = options.parent;
+    if (!parent || typeof parent.appendChild !== 'function') {
+      throw Object.assign(new Error('A parent element is required'), { code: 'INVALID_ARGS' });
+    }
+
+    const view = document.createElement('webview');
+    // Partition has to be on the element before src or NW.js won't honour it.
+    view.setAttribute('partition', resolveTrustedPartition(app, options));
+    view.setAttribute('nodeintegration', 'false');
+    view.setAttribute('nodeintegrationsubframes', 'false');
+    view.setAttribute('enableremotemodule', 'false');
+    if (options.allowFullscreen !== false) view.setAttribute('allowfullscreen', 'true');
+    view.setAttribute('sandbox', options.sandbox || 'allow-scripts allow-same-origin allow-forms allow-popups');
+    if (typeof options.style === 'string') view.style.cssText = options.style;
+
+    const listeners = [];
+    let destroyed = false;
+    const guard = () => { if (destroyed) throw new Error('Webview guest was destroyed'); };
+
+    const handle = {
+      element: view,
+      on(type, fn) {
+        guard();
+        view.addEventListener(type, fn);
+        listeners.push([type, fn]);
+        return () => view.removeEventListener(type, fn);
+      },
+      navigate(url) {
+        guard();
+        if (typeof url !== 'string' || !url || BLOCKED_NAV_SCHEMES.test(url)) {
+          throw Object.assign(new Error('Blocked navigation target'), { code: 'INVALID_ARGS' });
+        }
+        view.src = url;
+      },
+      executeScript(code) {
+        guard();
+        return new Promise(resolve => {
+          try {
+            view.executeScript({ code }, result => {
+              if (globalThis.chrome?.runtime?.lastError) return resolve(null);
+              resolve(Array.isArray(result) ? result[0] : null);
+            });
+          } catch (_) { resolve(null); }
+        });
+      },
+      getUrl: () => handle.executeScript('location.href'),
+      setZoom(factor) { guard(); try { view.setZoom(factor); } catch (_) { /* not ready yet */ } },
+      setUserAgent(ua) { guard(); try { view.setUserAgentOverride(ua); } catch (_) { /* not ready yet */ } },
+      addContentScripts(scripts) {
+        guard();
+        if (typeof view.addContentScripts !== 'function') return false;
+        view.addContentScripts(scripts);
+        return true;
+      },
+      capture: () => captureGuest(view),
+      destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        for (const [type, fn] of listeners) view.removeEventListener(type, fn);
+        listeners.length = 0;
+        try { view.remove(); } catch (_) { /* already detached */ }
+        trustedGuests.get(app.id)?.delete(handle);
+      },
+    };
+
+    parent.appendChild(view);
+    if (!trustedGuests.has(app.id)) trustedGuests.set(app.id, new Set());
+    trustedGuests.get(app.id).add(handle);
+    if (typeof options.src === 'string' && options.src) handle.navigate(options.src);
+    return handle;
+  }
+
+  function destroyTrustedGuests(appId) {
+    const set = trustedGuests.get(appId);
+    if (!set) return false;
+    for (const handle of [...set]) handle.destroy();
+    trustedGuests.delete(appId);
+    return true;
   }
 
   window.NovaSystemWebview = Object.freeze({
@@ -719,5 +831,7 @@
     revokeApp,
     freezeSandbox,
     restoreSandbox,
+    createTrustedGuest,
+    destroyTrustedGuests,
   });
 })();

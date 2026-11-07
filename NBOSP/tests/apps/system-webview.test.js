@@ -158,3 +158,116 @@ describe('NovaByte System Webview service', () => {
     vi.useRealTimers();
   });
 });
+
+describe('NovaByte System Webview trusted guests', () => {
+  function makeView() {
+    const attributes = new Map();
+    const listeners = [];
+    return {
+      attributes,
+      listeners,
+      style: {},
+      setAttribute: vi.fn((k, v) => attributes.set(k, v)),
+      addEventListener: vi.fn((t, fn) => listeners.push([t, fn])),
+      removeEventListener: vi.fn(),
+      remove: vi.fn(),
+      setZoom: vi.fn(),
+      setUserAgentOverride: vi.fn(),
+      executeScript: vi.fn((details, cb) => cb(['https://example.test/'])),
+    };
+  }
+  const browser = { id: 'com.nbosp.browser', system: true };
+  const parentOf = () => ({ appendChild: vi.fn() });
+
+  it('refuses third-party and spoofed callers', () => {
+    const service = loadService();
+    vi.stubGlobal('document', { createElement: vi.fn(makeView) });
+    for (const app of [
+      { id: 'com.example.app' },
+      { id: 'com.example.app', system: true },
+      { id: 'com.nbosp.browser' },
+      null,
+    ]) {
+      expect(() => service.createTrustedGuest(app, { parent: parentOf() }))
+        .toThrow(/limited to system apps/);
+    }
+  });
+
+  it('builds a browser-style guest with a caller-chosen partition', () => {
+    const view = makeView();
+    const parent = parentOf();
+    const service = loadService();
+    vi.stubGlobal('document', { createElement: vi.fn(() => view) });
+
+    const guest = service.createTrustedGuest(browser, {
+      parent, guestId: 'tab1', partition: 'persist:b123', style: 'width:100%;',
+    });
+
+    expect(guest.element).toBe(view);
+    expect(parent.appendChild).toHaveBeenCalledWith(view);
+    expect(Object.fromEntries(view.attributes)).toMatchObject({
+      partition: 'persist:b123',
+      nodeintegration: 'false',
+      nodeintegrationsubframes: 'false',
+      enableremotemodule: 'false',
+      allowfullscreen: 'true',
+      sandbox: 'allow-scripts allow-same-origin allow-forms allow-popups',
+    });
+    expect(view.style.cssText).toBe('width:100%;');
+  });
+
+  it('keeps incognito guests off any persistent partition', () => {
+    const view = makeView();
+    const service = loadService();
+    vi.stubGlobal('document', { createElement: vi.fn(() => view) });
+
+    service.createTrustedGuest(browser, {
+      parent: parentOf(), guestId: 'tab2', incognito: true, partition: 'persist:b123',
+    });
+
+    const partition = view.attributes.get('partition');
+    expect(partition).toBe('incognito_com.nbosp.browser_tab2');
+    expect(partition.startsWith('persist:')).toBe(false);
+  });
+
+  it('blocks script-scheme navigation and exposes guest controls', async () => {
+    const view = makeView();
+    const service = loadService();
+    vi.stubGlobal('document', { createElement: vi.fn(() => view) });
+    const guest = service.createTrustedGuest(browser, { parent: parentOf() });
+
+    expect(() => guest.navigate('javascript:alert(1)')).toThrow(/Blocked navigation/);
+    expect(() => guest.navigate('  JavaScript:alert(1)')).toThrow(/Blocked navigation/);
+    guest.navigate('http://localhost:3000/');
+    expect(view.src).toBe('http://localhost:3000/');
+
+    guest.setZoom(1.5);
+    guest.setUserAgent('UA/1');
+    expect(view.setZoom).toHaveBeenCalledWith(1.5);
+    expect(view.setUserAgentOverride).toHaveBeenCalledWith('UA/1');
+    await expect(guest.getUrl()).resolves.toBe('https://example.test/');
+  });
+
+  it('tears down listeners and the element, and revokeApp cleans up leftovers', () => {
+    const first = makeView();
+    const second = makeView();
+    const views = [first, second];
+    const service = loadService();
+    vi.stubGlobal('document', { createElement: vi.fn(() => views.shift()) });
+
+    const a = service.createTrustedGuest(browser, { parent: parentOf() });
+    service.createTrustedGuest(browser, { parent: parentOf() });
+    const handler = vi.fn();
+    a.on('loadstop', handler);
+
+    a.destroy();
+    a.destroy();
+    expect(first.remove).toHaveBeenCalledOnce();
+    expect(first.removeEventListener).toHaveBeenCalledWith('loadstop', handler);
+    expect(() => a.navigate('https://example.test/')).toThrow(/destroyed/);
+
+    expect(service.revokeApp('com.nbosp.browser')).toBe(true);
+    expect(second.remove).toHaveBeenCalledOnce();
+    expect(service.destroyTrustedGuests('com.nbosp.browser')).toBe(false);
+  });
+});

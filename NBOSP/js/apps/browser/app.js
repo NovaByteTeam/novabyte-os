@@ -1087,7 +1087,7 @@ registerApp({
       // Remove DOM elements BEFORE checking tabs.length — prevents zombie
       // viewport elements lingering in the DOM.
       const closedWv = tabWebviews.get(tabId);
-      if (closedWv) { closedWv.remove(); tabWebviews.delete(tabId); }
+      if (closedWv) { closedWv._nbTrusted?.destroy(); closedWv.remove(); tabWebviews.delete(tabId); }
       const closedIfr = tabIframes.get(tabId);
       if (closedIfr) { closedIfr.remove(); tabIframes.delete(tabId); }
       const closedSource = tabSourcePages.get(tabId);
@@ -2219,14 +2219,27 @@ registerApp({
       const existing = tabWebviews.get(tabId);
       if (existing) return existing;
 
-      const wv = document.createElement('webview');
       const tab = tabs.find(t => t.id === tabId);
-      wv.setAttribute('partition', tab?.incognito ? ('incognito_' + tabId) : BROWSER_PARTITION);
-      wv.setAttribute('allowfullscreen', 'true');
-      wv.setAttribute('nodeintegration', 'false');
-      wv.setAttribute('enableremotemodule', 'false');
-      wv.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
-      wv.style.cssText = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointerEvents:none;z-index:0;top:0;left:0;';
+      const GUEST_STYLE = 'width:100%;height:100%;border:none;flex:1;position:absolute;visibility:hidden;pointerEvents:none;z-index:0;top:0;left:0;';
+      // The System Webview service owns guest creation for first-party apps.
+      // Fall back to building it here if the service isn't loaded.
+      const trusted = typeof window.NovaSystemWebview?.createTrustedGuest === 'function'
+        ? window.NovaSystemWebview.createTrustedGuest(
+            { id: 'com.nbosp.browser', system: true },
+            { parent: viewport, guestId: tabId, incognito: !!tab?.incognito, partition: BROWSER_PARTITION, style: GUEST_STYLE }
+          )
+        : null;
+      let wv = trusted?.element;
+      if (!wv) {
+        wv = document.createElement('webview');
+        wv.setAttribute('partition', tab?.incognito ? ('incognito_' + tabId) : BROWSER_PARTITION);
+        wv.setAttribute('allowfullscreen', 'true');
+        wv.setAttribute('nodeintegration', 'false');
+        wv.setAttribute('enableremotemodule', 'false');
+        wv.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+        wv.style.cssText = GUEST_STYLE;
+      }
+      wv._nbTrusted = trusted;
       // Stash the tabId directly on the element. NW.js's webRequest event
       // system doesn't reliably retain a closure over the local `tabId`
       // parameter (confirmed by the pre-existing onBeforeRequest listener
