@@ -1421,6 +1421,38 @@ class PublisherPortal {
       uploadButton.textContent = submission.has_reviewed_package ? 'Replace reviewed package' : 'Upload reviewed package';
     });
     card.append(uploadIntro, uploadField.label, uploadButton);
+
+    // Starts unset on purpose: a silent default of 50 would end up recorded as a real judgment.
+    let safetyRating = Number.isInteger(submission.safety_rating) ? submission.safety_rating : null;
+    const ratingField = makeElement('label', 'publisher-field publisher-rating', 'Safety confidence rating');
+    const ratingControl = makeElement('div', 'publisher-rating-control');
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.id = 'safety-rating';
+    slider.name = 'safety-rating';
+    slider.min = '1';
+    slider.max = '100';
+    slider.step = '1';
+    slider.value = String(safetyRating ?? 50);
+    const readout = makeElement('output', 'publisher-rating-value');
+    readout.htmlFor = slider.id;
+    const showRating = () => {
+      readout.textContent = safetyRating === null ? 'Not set' : `${safetyRating}%`;
+      readout.dataset.set = String(safetyRating !== null);
+      slider.setAttribute('aria-valuetext', safetyRating === null ? 'Not set' : `${safetyRating} percent`);
+    };
+    slider.addEventListener('input', () => {
+      safetyRating = Number(slider.value);
+      showRating();
+    });
+    showRating();
+    ratingControl.append(slider, readout);
+    ratingField.appendChild(ratingControl);
+    card.append(
+      ratingField,
+      makeElement('p', 'publisher-help', 'How confident you are that this app is safe, after inspecting the package. Required to publish.'),
+    );
+
     const note = makeField('Reviewer note (required for rejection or change requests)', {
       id: 'review-note',
       type: 'textarea',
@@ -1441,12 +1473,18 @@ class PublisherPortal {
         this.setNotice('Upload the inspected .novaapp before approving this submission.', 'error');
         return;
       }
+      if (action === 'publish' && safetyRating === null) {
+        this.setNotice('Set a safety confidence rating before publishing.', 'error');
+        slider.focus();
+        return;
+      }
       buttons.querySelectorAll('button').forEach(button => { button.disabled = true; });
       try {
         const result = await this.call('review', {
           submissionId: submission.id,
           decision: action,
           reviewNote: text,
+          safetyRating,
         });
         await this.renderReviewQueue();
         this.setNotice(result.notificationSent === false

@@ -2503,6 +2503,39 @@ body::before {
 .publisher-field textarea:focus { border-color: var(--glow-primary); box-shadow: 0 0 0 3px rgba(112, 217, 247, 0.1); }
 .publisher-field input[type="file"] { padding: 8px; }
 
+.publisher-rating-control {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.publisher-field .publisher-rating-control input[type="range"] {
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--glow-primary);
+  cursor: pointer;
+}
+
+.publisher-field .publisher-rating-control input[type="range"]:focus-visible {
+  outline: 2px solid var(--glow-primary);
+  outline-offset: 4px;
+  box-shadow: none;
+}
+
+.publisher-rating-value {
+  min-inline-size: 5ch;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: end;
+  color: var(--text-primary);
+
+  &[data-set="false"] { color: #8d9bb3; font-size: 0.82rem; font-weight: 600; }
+}
+
 .publisher-screenshot-preview {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
