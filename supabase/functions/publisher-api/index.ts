@@ -366,7 +366,7 @@ async function reviewQueue(user: { email?: string }) {
   requireAdmin(user);
   const rows = await rest('publisher_submissions', {
     query: queryString({
-      select: 'id,owner_id,app_id,type,version,metadata,changelog,status,automated_review,created_at,package_path,review_package_path',
+      select: 'id,owner_id,app_id,type,version,metadata,changelog,status,automated_review,safety_rating,created_at,package_path,review_package_path',
       status: 'in.(pending,changes_requested)',
       order: 'created_at.asc',
     }),
@@ -498,6 +498,16 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
     throw new PublisherError('Choose publish, reject, or request-changes.');
   }
   if (decision !== 'publish' && !note) throw new PublisherError('Add a reviewer note before requesting changes or rejecting.');
+  // Optional for reject/request-changes, required to publish.
+  const safetyRating = body.safetyRating === undefined || body.safetyRating === null
+    ? null
+    : Number(body.safetyRating);
+  if (safetyRating !== null && (!Number.isInteger(safetyRating) || safetyRating < 1 || safetyRating > 100)) {
+    throw new PublisherError('The safety confidence rating must be a whole number from 1 to 100.');
+  }
+  if (decision === 'publish' && safetyRating === null) {
+    throw new PublisherError('Set a safety confidence rating before publishing.');
+  }
   const submission = await getOne('publisher_submissions', 'id', id);
   if (!submission || !['pending', 'changes_requested'].includes(submission.status)) {
     throw new PublisherError('This submission is no longer awaiting review.', 404);
@@ -506,6 +516,13 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
     if (!submission.review_package_path) {
       throw new PublisherError('Upload the inspected .novaapp package before approving this submission.');
     }
+    // Saved before publishing so a failed publish doesn't lose the reviewer's rating.
+    await rest('publisher_submissions', {
+      method: 'PATCH',
+      query: queryString({ id: `eq.${id}` }),
+      body: { safety_rating: safetyRating },
+      prefer: 'return=minimal',
+    });
     await publishSubmission(submission);
   } else {
     await rest('publisher_submissions', {
@@ -515,6 +532,7 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
         status: decision === 'reject' ? 'rejected' : 'changes_requested',
         reviewed_at: new Date().toISOString(),
         review_note: note,
+        ...(safetyRating !== null ? { safety_rating: safetyRating } : {}),
       },
     });
   }
