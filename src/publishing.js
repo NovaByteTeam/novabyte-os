@@ -178,6 +178,8 @@ class PublisherPortal {
       signUp: document.getElementById('publisher-signup'),
       publish: document.getElementById('publisher-publish'),
       myApps: document.getElementById('publisher-my-apps'),
+      publishPlugin: document.getElementById('publisher-publish-plugin'),
+      myPlugins: document.getElementById('publisher-my-plugins'),
       account: document.getElementById('publisher-account'),
       review: document.getElementById('publisher-review'),
       signOut: document.getElementById('publisher-signout'),
@@ -379,8 +381,11 @@ class PublisherPortal {
         body: { action, ...payload },
       });
     } catch (error) {
-      if (error.message === 'Unknown publisher action.' && ['hosted-apps', 'dehost-app'].includes(action)) {
-        throw new Error('The publisher API is outdated. From the repository root, deploy the latest function with: npx supabase functions deploy publisher-api --project-ref jcrptxtmieveoijdbtqa');
+      if (error.message === 'Unknown publisher action.' && [
+        'hosted-apps', 'dehost-app', 'submit-plugin', 'my-plugins',
+        'plugin-review-list', 'review-plugin', 'withdraw-plugin',
+      ].includes(action)) {
+        throw new Error('The publisher API is outdated. Deploy the latest function with: npx supabase functions deploy publisher-api --project-ref jcrptxtmieveoijdbtqa');
       }
       throw error;
     }
@@ -415,6 +420,28 @@ class PublisherPortal {
     return result;
   }
 
+  async uploadReviewedPlugin(submissionId, file) {
+    await this.ensureSession();
+    if (!this.user || !this.session) throw new Error('Sign in with a verified email to continue.');
+    const params = new URLSearchParams({ action: 'upload-reviewed-plugin', submissionId });
+    const response = await fetch(`${this.baseUrl}/functions/v1/publisher-api?${params}`, {
+      method: 'POST',
+      headers: {
+        apikey: this.anonKey,
+        Authorization: `Bearer ${this.session.access_token}`,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: file,
+    });
+    const text = await response.text();
+    let result = null;
+    if (text) {
+      try { result = JSON.parse(text); } catch { result = text; }
+    }
+    if (!response.ok) throw new Error(errorMessage(result, `Plugin upload failed (${response.status}).`));
+    return result;
+  }
+
   async fetchPublishedApps() {
     if (!this.configured) return [];
     const params = new URLSearchParams({
@@ -440,6 +467,27 @@ class PublisherPortal {
     }));
   }
 
+  async fetchPublishedPlugins() {
+    if (!this.configured) return [];
+    const params = new URLSearchParams({
+      select: 'plugin_id,name,version,publisher,description,compatible_studio,file,size,release_notes,published_at',
+      order: 'published_at.desc',
+    });
+    const result = await this.request(`/rest/v1/publisher_catalog_plugins?${params}`);
+    if (!Array.isArray(result)) throw new Error('The Studio plugin catalog returned an invalid response.');
+    return result.map(plugin => ({
+      id: plugin.plugin_id,
+      name: plugin.name,
+      version: plugin.version,
+      publisher: plugin.publisher,
+      description: plugin.description,
+      compatibleStudio: plugin.compatible_studio,
+      file: plugin.file,
+      size: plugin.size,
+      releaseNotes: plugin.release_notes,
+    }));
+  }
+
   setNotice(message, kind = 'info') {
     const notice = this.nodes.notice;
     notice.textContent = message;
@@ -453,6 +501,8 @@ class PublisherPortal {
     this.nodes.signUp.classList.toggle('hidden', signedIn);
     this.nodes.publish.classList.toggle('hidden', !signedIn);
     this.nodes.myApps.classList.toggle('hidden', !signedIn);
+    this.nodes.publishPlugin.classList.toggle('hidden', !signedIn);
+    this.nodes.myPlugins.classList.toggle('hidden', !signedIn);
     this.nodes.account.classList.toggle('hidden', !signedIn);
     this.nodes.signOut.classList.toggle('hidden', !signedIn);
     this.nodes.review.classList.toggle(
@@ -506,6 +556,10 @@ class PublisherPortal {
       this.renderPublish();
     } else if (page === 'my-apps') {
       await this.renderMyApps();
+    } else if (page === 'publish-plugin') {
+      this.renderStudioPluginForm({ type: 'new' });
+    } else if (page === 'my-plugins') {
+      await this.renderMyStudioPlugins();
     } else if (page === 'account') {
       this.renderAccount();
     } else if (page === 'review') {
@@ -1170,6 +1224,167 @@ class PublisherPortal {
     this.makeAppForm({ type: 'new' });
   }
 
+  renderStudioPluginForm({ type, plugin } = {}) {
+    const update = type === 'update';
+    this.setPage(update ? `Update ${plugin.name}` : 'Publish a Studio plugin', update
+      ? 'Submit a newer .nbplugin for human review. NovaByte signs the reviewed plugin contents after approval.'
+      : 'Submit an .nbplugin for human review. Studio plugins run with full access to the user account, so every submission is manually reviewed.');
+    const form = makeElement('form', 'publisher-card publisher-app-form');
+    form.appendChild(makeElement('p', 'publisher-security-note',
+      'Plugins have full Node.js, filesystem, process, and network access. Upload readable code, disclose capabilities accurately, and never include private signing keys. NovaByte signs only the reviewed plugin contents.'));
+    const fields = {
+      pluginId: makeField('Plugin ID (must match plugin.json)', {
+        id: 'studio-plugin-id', value: plugin?.plugin_id || '', required: true, maxLength: 128,
+        placeholder: 'com.example.plugin',
+      }),
+      name: makeField('Plugin name (must match plugin.json)', {
+        id: 'studio-plugin-name', value: plugin?.name || '', required: true, maxLength: 100,
+      }),
+      publisher: makeField('Publisher name', {
+        id: 'studio-plugin-publisher', value: plugin?.publisher || this.user?.user_metadata?.display_name || '',
+        required: true, maxLength: 80,
+      }),
+      version: makeField('Version (must match plugin.json)', {
+        id: 'studio-plugin-version', value: update ? '' : '', required: true, maxLength: 40,
+        placeholder: '1.0.0',
+      }),
+      compatibleStudio: makeField('Compatible Studio versions (must match engines.studio)', {
+        id: 'studio-plugin-compatible', value: plugin?.compatible_studio || '', required: true, maxLength: 120,
+        placeholder: '>=1.2.0 <2.0.0',
+      }),
+      description: makeField('Description', {
+        id: 'studio-plugin-description', type: 'textarea', value: plugin?.description || '',
+        required: true, maxLength: 500,
+      }),
+      changelog: makeField('Release notes', {
+        id: 'studio-plugin-changelog', type: 'textarea', required: true, maxLength: 2000,
+        placeholder: 'Describe the changes and important behavior in this release.',
+      }),
+      package: makeField('Plugin package (.nbplugin ZIP, max 25 MB)', {
+        id: 'studio-plugin-package', type: 'file', required: true,
+      }),
+    };
+    fields.pluginId.input.readOnly = update;
+    fields.package.input.accept = '.nbplugin,application/zip,application/octet-stream';
+    form.append(
+      makeElement('p', 'publisher-form-intro',
+        'The plugin must contain plugin.json at its ZIP root. Its ID, name, version, and engines.studio range must exactly match these listing fields.'),
+      ...Object.values(fields).map(field => field.label),
+    );
+    const submit = makeElement('button', 'publisher-submit', update ? 'Submit plugin update for review' : 'Submit Studio plugin for review');
+    submit.type = 'submit';
+    form.appendChild(submit);
+    form.appendChild(this.makeAction('Cancel', () => this.open('my-plugins'), 'is-secondary'));
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const file = fields.package.input.files?.[0];
+      if (!file) {
+        this.setNotice('Choose an .nbplugin archive first.', 'error');
+        fields.package.input.focus();
+        return;
+      }
+      if (file.size > MAX_PACKAGE_BYTES) {
+        this.setNotice('The plugin archive must be no larger than 25 MB.', 'error');
+        return;
+      }
+      submit.disabled = true;
+      submit.textContent = 'Uploading plugin…';
+      try {
+        const submissionId = crypto.randomUUID();
+        const packagePath = `${this.user.id}/${submissionId}.nbplugin`;
+        await this.request(`/storage/v1/object/publisher-submissions/${encodePath(packagePath)}`, {
+          method: 'POST',
+          token: this.session.access_token,
+          rawBody: file,
+          headers: { 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' },
+        });
+        submit.textContent = 'Sending for review…';
+        const result = await this.call('submit-plugin', {
+          submissionId,
+          submission: {
+            type: update ? 'update' : 'new',
+            pluginId: fields.pluginId.input.value.trim(),
+            name: fields.name.input.value.trim(),
+            publisher: fields.publisher.input.value.trim(),
+            version: fields.version.input.value.trim(),
+            compatibleStudio: fields.compatibleStudio.input.value.trim(),
+            description: fields.description.input.value.trim(),
+            changelog: fields.changelog.input.value.trim(),
+            packagePath,
+          },
+        });
+        await this.open('my-plugins');
+        this.setNotice(result.notificationSent === false
+          ? `Plugin submitted for review. ${emailFailureNotice(result.notificationError)}`
+          : 'Studio plugin submitted. It will be published only after human review.', result.notificationSent === false ? 'warning' : 'success');
+      } catch (error) {
+        this.setNotice(error.message || String(error), 'error');
+      } finally {
+        submit.disabled = false;
+        submit.textContent = update ? 'Submit plugin update for review' : 'Submit Studio plugin for review';
+      }
+    });
+    this.nodes.content.appendChild(form);
+  }
+
+  async renderMyStudioPlugins() {
+    this.setPage('My Studio plugins', `Signed in as ${this.user.email}. Published plugins and review submissions are managed separately from NovaByte OS apps.`);
+    const loading = makeElement('p', 'publisher-help', 'Loading your Studio plugins…');
+    this.nodes.content.appendChild(loading);
+    try {
+      const result = await this.call('my-plugins');
+      const plugins = Array.isArray(result.plugins) ? result.plugins : [];
+      const submissions = Array.isArray(result.submissions) ? result.submissions : [];
+      this.nodes.content.replaceChildren();
+      this.nodes.content.appendChild(this.makeAction('＋ Publish a Studio plugin', () => this.open('publish-plugin'), 'publisher-submit'));
+      if (!plugins.length && !submissions.length) {
+        this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'You have not published or submitted any Studio plugins yet.'));
+        return;
+      }
+      const list = makeElement('div', 'publisher-app-list');
+      for (const plugin of plugins) {
+        const card = makeElement('article', 'publisher-app-card');
+        const details = makeElement('div', 'publisher-app-main');
+        details.append(
+          makeElement('h2', '', plugin.name),
+          makeElement('p', 'publisher-app-meta', `${plugin.plugin_id} · v${plugin.version} · Published`),
+          makeElement('p', 'publisher-app-description', plugin.description),
+        );
+        card.append(details, this.makeAction('Submit update', () => this.renderStudioPluginForm({ type: 'update', plugin })));
+        list.appendChild(card);
+      }
+      for (const submission of submissions) {
+        const metadata = submission.metadata || {};
+        const card = makeElement('article', 'publisher-app-card is-submission');
+        const details = makeElement('div', 'publisher-app-main');
+        details.append(
+          makeElement('h2', '', metadata.name || submission.plugin_id),
+          makeElement('p', 'publisher-app-meta', `${submission.plugin_id} · v${submission.version} · ${submission.type} · ${submission.status.replace(/_/g, ' ')}`),
+          makeElement('p', 'publisher-app-description', submission.review_note || submission.changelog || 'Waiting for review.'),
+        );
+        card.appendChild(details);
+        if (['pending', 'changes_requested', 'rejected'].includes(submission.status)) {
+          card.appendChild(this.makeAction('Withdraw submission', async () => {
+            if (!window.confirm('Withdraw this Studio plugin submission?')) return;
+            try {
+              await this.call('withdraw-plugin', { submissionId: submission.id });
+              await this.renderMyStudioPlugins();
+              this.setNotice('Studio plugin submission withdrawn.', 'success');
+            } catch (error) {
+              this.setNotice(error.message || String(error), 'error');
+            }
+          }, 'is-danger'));
+        }
+        list.appendChild(card);
+      }
+      this.nodes.content.appendChild(list);
+    } catch (error) {
+      loading.textContent = error.message || 'Could not load your Studio plugins.';
+      loading.classList.add('is-error');
+    }
+  }
+
   async renderMyApps() {
     this.setPage('My apps', `Signed in as ${this.user.email}. Right-click an app or use its options menu to update or remove it from the public catalog.`);
     const loading = makeElement('p', 'publisher-help', 'Loading your apps…');
@@ -1275,18 +1490,20 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Review Apps', 'Automated checks run first, and submissions that fail them are still queued here, flagged. Inspect the package and report, upload the reviewed .novaapp, then explicitly approve or reject it. Passing automation never publishes by itself.');
+    this.setPage('Review submissions', 'Apps and Studio plugins appear here for human review. Inspect each package, upload the reviewed version, and explicitly approve or reject it.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
-      const [result, hostedResult] = await Promise.all([
+      const [result, hostedResult, pluginResult] = await Promise.all([
         this.call('review-list'),
         this.call('hosted-apps'),
+        this.call('plugin-review-list'),
       ]);
       this.nodes.content.replaceChildren();
       const queue = Array.isArray(result.submissions) ? result.submissions : [];
       const hostedApps = Array.isArray(hostedResult.apps) ? hostedResult.apps : [];
-      if (!queue.length && !hostedApps.length) {
+      const pluginQueue = Array.isArray(pluginResult.submissions) ? pluginResult.submissions : [];
+      if (!queue.length && !hostedApps.length && !pluginQueue.length) {
         this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'The review queue is clear.'));
         return;
       }
@@ -1347,10 +1564,156 @@ class PublisherPortal {
         }
         this.nodes.content.appendChild(list);
       }
+      if (pluginQueue.length) {
+        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Studio plugin submissions'));
+        this.nodes.content.appendChild(makeElement('p', 'publisher-help',
+          'Studio plugins run with full user-account access. Inspect the complete archive, verify its declared behavior, upload the exact reviewed .nbplugin, then record your safety confidence before publishing.'));
+        const list = makeElement('div', 'publisher-app-list');
+        for (const submission of pluginQueue) {
+          const metadata = submission.metadata || {};
+          const item = makeElement('article', 'publisher-review-card');
+          item.append(
+            makeElement('p', 'detail-kicker', `${submission.type} · ${submission.status} · STUDIO PLUGIN`),
+            makeElement('h2', '', `${metadata.name || submission.plugin_id} v${submission.version}`),
+            makeElement('p', 'publisher-app-meta', `${submission.plugin_id} · by ${metadata.publisher || 'unknown publisher'} · submitted ${new Date(submission.created_at).toLocaleString()}`),
+            makeElement('p', 'publisher-app-description', metadata.description || ''),
+            makeElement('p', 'publisher-review-line', `Compatible Studio versions: ${metadata.compatible_studio || 'not declared'}`),
+            makeElement('p', 'publisher-review-changelog', submission.changelog || 'No release notes supplied.'),
+          );
+          const reviewButton = this.makeAction('Review Studio plugin', () => this.renderStudioPluginReviewForm(submission));
+          item.appendChild(reviewButton);
+          list.appendChild(item);
+        }
+        this.nodes.content.appendChild(list);
+      }
     } catch (error) {
       loading.textContent = error.message || 'Could not load the review queue.';
       loading.classList.add('is-error');
     }
+  }
+
+  renderStudioPluginReviewForm(submission) {
+    const metadata = submission.metadata || {};
+    this.setPage(`Review ${metadata.name || submission.plugin_id}`,
+      `Studio plugin · submitted by ${submission.owner_email || 'verified publisher'} · v${submission.version}`);
+    const card = makeElement('article', 'publisher-card publisher-review-form');
+    for (const line of [
+      `Plugin ID: ${submission.plugin_id}`,
+      `Version: ${submission.version}`,
+      `Publisher: ${metadata.publisher || '—'}`,
+      `Compatible Studio versions: ${metadata.compatible_studio || '—'}`,
+      `Description: ${metadata.description || '—'}`,
+      `Release notes: ${submission.changelog || '—'}`,
+    ]) card.appendChild(makeElement('p', 'publisher-review-line', line));
+    if (submission.download_url) {
+      const download = makeElement('a', 'publisher-download', 'Download .nbplugin for inspection');
+      download.href = packageDownloadUrl(submission.download_url, `${submission.plugin_id}-${submission.version}.nbplugin`);
+      download.download = `${submission.plugin_id}-${submission.version}.nbplugin`;
+      card.appendChild(download);
+    }
+    card.appendChild(makeElement('p', 'publisher-review-upload-help',
+      submission.has_reviewed_package
+        ? 'Reviewed package uploaded. Upload another inspected archive to replace it before approval.'
+        : 'Inspect the full plugin source and behavior before approving. Upload the inspected .nbplugin; NovaByte signs those plugin files only after approval.'));
+    const uploadField = makeField('Reviewed plugin (.nbplugin)', {
+      id: 'reviewed-studio-plugin', type: 'file', required: false,
+    });
+    uploadField.input.accept = '.nbplugin,application/zip,application/octet-stream';
+    const upload = this.makeAction(
+      submission.has_reviewed_package ? 'Replace reviewed plugin' : 'Upload reviewed plugin',
+      async () => {
+        const file = uploadField.input.files?.[0];
+        if (!file) {
+          this.setNotice('Choose the inspected .nbplugin first.', 'error');
+          uploadField.input.focus();
+          return;
+        }
+        if (file.size > MAX_PACKAGE_BYTES) {
+          this.setNotice('The reviewed plugin must be no larger than 25 MB.', 'error');
+          return;
+        }
+        upload.disabled = true;
+        upload.textContent = 'Uploading reviewed plugin…';
+        try {
+          await this.uploadReviewedPlugin(submission.id, file);
+          submission.has_reviewed_package = true;
+          this.renderStudioPluginReviewForm(submission);
+          this.setNotice('Reviewed .nbplugin uploaded. Approval will sign these exact plugin files.', 'success');
+        } catch (error) {
+          this.setNotice(error.message || String(error), 'error');
+          upload.disabled = false;
+          upload.textContent = submission.has_reviewed_package ? 'Replace reviewed plugin' : 'Upload reviewed plugin';
+        }
+      },
+      'is-secondary',
+    );
+    upload.disabled = !uploadField.input.files?.length;
+    uploadField.input.addEventListener('change', () => { upload.disabled = !uploadField.input.files?.length; });
+    card.append(uploadField.label, upload);
+
+    let safetyRating = Number.isInteger(submission.safety_rating) ? submission.safety_rating : null;
+    const ratingField = makeElement('label', 'publisher-field publisher-rating', 'Safety confidence rating');
+    const ratingControl = makeElement('div', 'publisher-rating-control');
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '1';
+    slider.max = '100';
+    slider.step = '1';
+    slider.value = String(safetyRating ?? 50);
+    const readout = makeElement('output', 'publisher-rating-value');
+    const showRating = () => {
+      readout.textContent = safetyRating === null ? 'Not set' : `${safetyRating}%`;
+      readout.dataset.set = String(safetyRating !== null);
+    };
+    slider.addEventListener('input', () => { safetyRating = Number(slider.value); showRating(); });
+    showRating();
+    ratingControl.append(slider, readout);
+    ratingField.appendChild(ratingControl);
+    card.append(ratingField, makeElement('p', 'publisher-help',
+      'How confident are you this full-access plugin is safe after inspecting it? Required to publish.'));
+    const note = makeField('Reviewer note (required for rejection or change requests)', {
+      id: 'studio-plugin-review-note', type: 'textarea', required: false, maxLength: 2000,
+    });
+    card.appendChild(note.label);
+    const buttons = makeElement('div', 'publisher-review-actions');
+    const perform = async (decision, label) => {
+      const reviewNote = note.input.value.trim();
+      if (decision !== 'publish' && !reviewNote) {
+        this.setNotice('Add a reviewer note before requesting changes or rejecting.', 'error');
+        note.input.focus();
+        return;
+      }
+      if (decision === 'publish' && !submission.has_reviewed_package) {
+        this.setNotice('Upload the exact inspected .nbplugin before approval.', 'error');
+        return;
+      }
+      if (decision === 'publish' && safetyRating === null) {
+        this.setNotice('Set a safety confidence rating before publishing.', 'error');
+        slider.focus();
+        return;
+      }
+      buttons.querySelectorAll('button').forEach(button => { button.disabled = true; });
+      try {
+        const result = await this.call('review-plugin', {
+          submissionId: submission.id, decision, reviewNote, safetyRating,
+        });
+        await this.renderReviewQueue();
+        this.setNotice(result.notificationSent === false
+          ? `${label}. ${emailFailureNotice(result.notificationError)}`
+          : `${label}.`, result.notificationSent === false ? 'warning' : 'success');
+        if (decision === 'publish') this.onCatalogChanged();
+      } catch (error) {
+        this.setNotice(error.message || String(error), 'error');
+        buttons.querySelectorAll('button').forEach(button => { button.disabled = false; });
+      }
+    };
+    buttons.append(
+      this.makeAction('Request changes', () => perform('request-changes', 'Changes requested'), 'is-secondary'),
+      this.makeAction('Reject', () => perform('reject', 'Studio plugin submission rejected'), 'is-danger'),
+      this.makeAction('Approve & sign', () => perform('publish', 'Studio plugin approved and signed'), 'publisher-submit'),
+    );
+    card.append(buttons, this.makeAction('Back to review queue', () => this.renderReviewQueue()));
+    this.nodes.content.appendChild(card);
   }
 
   renderReviewForm(submission) {
@@ -1517,6 +1880,8 @@ class PublisherPortal {
     this.nodes.signUp.addEventListener('click', () => navigate('signup'));
     this.nodes.publish.addEventListener('click', () => navigate('publish'));
     this.nodes.myApps.addEventListener('click', () => navigate('my-apps'));
+    this.nodes.publishPlugin.addEventListener('click', () => navigate('publish-plugin'));
+    this.nodes.myPlugins.addEventListener('click', () => navigate('my-plugins'));
     this.nodes.account.addEventListener('click', () => navigate('account'));
     this.nodes.review.addEventListener('click', () => navigate('review'));
     this.nodes.signOut.addEventListener('click', async () => {

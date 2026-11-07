@@ -154,6 +154,21 @@ export async function downloadSubmission(path: string) {
   return { pkg: pkg as Record<string, any>, byteLength: bytes.byteLength };
 }
 
+export async function downloadSubmissionBytes(path: string) {
+  const response = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${SUBMISSION_BUCKET}/${encodePath(path)}`,
+    { headers: { apikey: getServiceKey(), Authorization: `Bearer ${getServiceKey()}` } },
+  );
+  if (!response.ok) {
+    const result = await readResponse(response);
+    console.error('[publisher-api] Could not download private package:', result);
+    throw new PublisherError('The submitted package is unavailable.', 404);
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The package exceeds the 25 MB limit.');
+  return bytes;
+}
+
 export async function downloadPublishedPackage(path: string) {
   const response = await fetch(
     `${SUPABASE_URL}/storage/v1/object/${PUBLISHED_BUCKET}/${encodePath(path)}`,

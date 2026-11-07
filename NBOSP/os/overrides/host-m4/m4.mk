@@ -4,22 +4,16 @@
 #
 ################################################################################
 
-M4_VERSION = 1.4.19
+# 1.4.19's bundled gnulib puts _GL_ATTRIBUTE_NODISCARD between the inline
+# specifier and the return type. GCC 13+ (ubuntu-latest) expands it to
+# [[nodiscard]] and rejects that placement, so lib/gl_avltree_oset.o fails to
+# build. 1.4.21 ships a newer gnulib that fixes it; this is the same bump
+# Buildroot master made. A configure-time cache override doesn't work here:
+# the 1.4.19 gnulib has no probe for it.
+M4_VERSION = 1.4.21
 M4_SOURCE = m4-$(M4_VERSION).tar.xz
 M4_SITE = $(BR2_GNU_MIRROR)/m4
 M4_LICENSE = GPL-3.0+
 M4_LICENSE_FILES = COPYING
-
-# GCC 13 (ubuntu-latest) expands _GL_ATTRIBUTE_NODISCARD to [[nodiscard]]
-# and rejects it between an inline specifier and the return type in C11/C17
-# mode, breaking the gnulib build inside m4's lib/ directory:
-#
-#   gl_oset.h:275:40: error: expected identifier or '(' before 'int'
-#     GL_OSET_INLINE _GL_ATTRIBUTE_NODISCARD int
-#
-# Passing the autoconf cache variable disables the [[nodiscard]] probe so
-# gnulib falls back to __attribute__((warn_unused_result)) instead, which
-# GCC accepts in any position.
-HOST_M4_CONF_ENV += gl_cv_attribute_nodiscard=no
 
 $(eval $(host-autotools-package))

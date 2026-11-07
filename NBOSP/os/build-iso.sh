@@ -12,6 +12,21 @@ JOBS="${JOBS:-$(nproc)}"
 
 mkdir -p "$DOWNLOAD_DIR" "$OS_DIR/.buildroot"
 
+# Host tools (m4, gmp, ...) are built with the runner's gcc. Recent gcc releases
+# default to C23, where old K&R-style configure probes and gnulib attribute
+# placement fail ("could not find a working compiler" in host-gmp, nodiscard in
+# host-m4). Pin host C to gnu17 through a wrapper: Buildroot resolves HOSTCC with
+# `which`, so flags can't go in the variable itself. Flags a package passes later
+# on its own command line still win over this one.
+HOST_WRAPPER_DIR="$OS_DIR/.buildroot/host-wrappers"
+REAL_HOSTCC="$(command -v "${HOSTCC:-gcc}")"
+case "$REAL_HOSTCC" in "$HOST_WRAPPER_DIR"/*) REAL_HOSTCC="$(PATH="${PATH//$HOST_WRAPPER_DIR:/}" command -v gcc)";; esac
+mkdir -p "$HOST_WRAPPER_DIR"
+printf '#!/bin/sh\nexec "%s" -std=gnu17 "$@"\n' "$REAL_HOSTCC" > "$HOST_WRAPPER_DIR/gcc"
+chmod +x "$HOST_WRAPPER_DIR/gcc"
+export HOSTCC="$HOST_WRAPPER_DIR/gcc"
+echo "Host compiler: $("$REAL_HOSTCC" --version | head -n1) (forced -std=gnu17)" >&2
+
 if [[ ! -d "$BUILDROOT_DIR" ]]; then
   if [[ ! -f "$ARCHIVE" ]]; then
     curl --fail --location --retry 3 \
@@ -31,12 +46,12 @@ XWAYLAND_OVERRIDE_DIR="$OS_DIR/overrides/xwayland"
 cp "$XWAYLAND_OVERRIDE_DIR/xwayland.mk" "$XWAYLAND_OVERRIDE_DIR/xwayland.hash" \
   "$BUILDROOT_DIR/package/x11r7/xwayland/"
 
-# host-m4 1.4.19's gnulib copy uses _GL_ATTRIBUTE_NODISCARD in a position that
-# GCC 13 (ubuntu-latest) rejects in C11/C17 mode. The override adds
-# HOST_M4_CONF_ENV to pass gl_cv_attribute_nodiscard=no to configure, which
-# makes gnulib fall back to __attribute__((warn_unused_result)) instead.
+# host-m4 1.4.19's gnulib uses _GL_ATTRIBUTE_NODISCARD in a position that
+# GCC 13+ (ubuntu-latest) rejects. The override bumps host-m4 to 1.4.21, which
+# has the fixed gnulib. Old patches are dropped since they target 1.4.19.
 HOST_M4_OVERRIDE_DIR="$OS_DIR/overrides/host-m4"
-cp "$HOST_M4_OVERRIDE_DIR/m4.mk" "$BUILDROOT_DIR/package/m4/"
+rm -f "$BUILDROOT_DIR"/package/m4/*.patch
+cp "$HOST_M4_OVERRIDE_DIR/m4.mk" "$HOST_M4_OVERRIDE_DIR/m4.hash" "$BUILDROOT_DIR/package/m4/"
 
 # Buildroot 2025.02 ships open-vm-tools 11.3.5 built --without-x, which drops the
 # drag and drop and clipboard plugins, and whose configure needs libfuse2 for

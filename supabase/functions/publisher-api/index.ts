@@ -23,6 +23,14 @@ import {
   storageRequest,
 } from '../_shared/publisher.ts';
 import { runAutomatedReview } from '../_shared/automated-review.js';
+import {
+  myStudioPlugins,
+  reviewStudioPlugin,
+  studioPluginReviewQueue,
+  submitStudioPlugin,
+  uploadReviewedStudioPlugin,
+  withdrawStudioPlugin,
+} from './studio-plugins.ts';
 
 const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') || '').replace(/\/+$/, '');
 const STATIC_CATALOG_URL = Deno.env.get('PUBLIC_CATALOG_URL')
@@ -692,18 +700,35 @@ Deno.serve(async request => {
       });
       return respond({ uploaded: true });
     }
+    if (url.searchParams.get('action') === 'upload-reviewed-plugin') {
+      const contentLength = Number(request.headers.get('content-length'));
+      if (Number.isFinite(contentLength) && contentLength > MAX_PACKAGE_BYTES) {
+        throw new PublisherError('The reviewed .nbplugin must be no larger than 25 MB.');
+      }
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      return respond(await uploadReviewedStudioPlugin(
+        user,
+        requiredText(url.searchParams.get('submissionId'), 'Submission ID', 64),
+        bytes,
+      ));
+    }
     const body = await request.json();
     const action = body?.action;
     if (typeof action !== 'string') throw new PublisherError('Choose a publisher action.');
 
     if (action === 'submit') return respond(await submit(user, body));
+    if (action === 'submit-plugin') return respond(await submitStudioPlugin(user, body));
     if (action === 'my-apps') return respond(await myApps(user));
+    if (action === 'my-plugins') return respond(await myStudioPlugins(user));
     if (action === 'review-list') return respond(await reviewQueue(user));
+    if (action === 'plugin-review-list') return respond(await studioPluginReviewQueue(user));
     if (action === 'hosted-apps') return respond(await hostedAppsForReview(user));
     if (action === 'review') return respond(await review(user, body));
+    if (action === 'review-plugin') return respond(await reviewStudioPlugin(user, body));
     if (action === 'delete-app') return respond(await deletePublishedApp(user, body));
     if (action === 'dehost-app') return respond(await dehostPublishedApp(user, body));
     if (action === 'withdraw') return respond(await withdraw(user, body));
+    if (action === 'withdraw-plugin') return respond(await withdrawStudioPlugin(user, body));
     if (user.email?.trim().toLowerCase() === ADMIN_EMAIL) requireAdmin(user);
     throw new PublisherError('Unknown publisher action.', 404);
   } catch (error) {

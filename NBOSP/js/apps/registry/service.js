@@ -59,7 +59,7 @@ const APP_REGISTRY = [];
           icon: waData.icon,
           defaultSize: [900, 640],
           minSize: [400, 300],
-          init(c) {
+          init(c, state) {
             const wrapper = document.createElement('div');
             wrapper.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;';
             const urlBar = document.createElement('div');
@@ -69,12 +69,39 @@ const APP_REGISTRY = [];
             } catch {
               urlBar.textContent = 'External Web App';
             }
-            const iframe = document.createElement('webview');
-            iframe.style.cssText = 'flex:1;border:none;background:#fff;';
-            iframe.src = waData.url;
-            wrapper.append(urlBar, iframe);
+            wrapper.appendChild(urlBar);
             c.style.padding = '0';
             c.appendChild(wrapper);
+
+            const GUEST_STYLE = 'flex:1;border:none;background:#fff;';
+            const service = window.NovaSystemWebview;
+            const waKey = typeof waData.id === 'string' && waData.id
+              ? waData.id.replace(/[^a-zA-Z0-9_-]/g, '_')
+              : null;
+            if (waKey && typeof service?.createTrustedGuest === 'function') {
+              // Own partition per web app so one site's cookies and storage
+              // can't be read by another web app or by the shell itself.
+              const guest = service.createTrustedGuest(
+                { id: 'com.nbosp.service.registry', system: true },
+                {
+                  parent: wrapper,
+                  guestId: waKey,
+                  partition: 'persist:webapp_' + waKey,
+                  sandbox: null,
+                  allowFullscreen: false,
+                  style: GUEST_STYLE,
+                }
+              );
+              guest.navigate(waData.url);
+              if (Array.isArray(state?.cleanups)) state.cleanups.push(() => guest.destroy());
+              return;
+            }
+
+            // Service not loaded: keep the old behaviour.
+            const iframe = document.createElement('webview');
+            iframe.style.cssText = GUEST_STYLE;
+            iframe.src = waData.url;
+            wrapper.appendChild(iframe);
           }
         };
       }
