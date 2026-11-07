@@ -31,12 +31,12 @@ XWAYLAND_OVERRIDE_DIR="$OS_DIR/overrides/xwayland"
 cp "$XWAYLAND_OVERRIDE_DIR/xwayland.mk" "$XWAYLAND_OVERRIDE_DIR/xwayland.hash" \
   "$BUILDROOT_DIR/package/x11r7/xwayland/"
 
-# host-m4 1.4.19's gnulib copy uses _GL_ATTRIBUTE_NODISCARD in a position that
-# GCC 13 (ubuntu-latest) rejects in C11/C17 mode. The override adds
-# HOST_M4_CONF_ENV to pass gl_cv_attribute_nodiscard=no to configure, which
-# makes gnulib fall back to __attribute__((warn_unused_result)) instead.
+# host-m4 1.4.19's gnulib uses _GL_ATTRIBUTE_NODISCARD in a position that
+# GCC 13+ (ubuntu-latest) rejects. The override bumps host-m4 to 1.4.21, which
+# has the fixed gnulib. Old patches are dropped since they target 1.4.19.
 HOST_M4_OVERRIDE_DIR="$OS_DIR/overrides/host-m4"
-cp "$HOST_M4_OVERRIDE_DIR/m4.mk" "$BUILDROOT_DIR/package/m4/"
+rm -f "$BUILDROOT_DIR"/package/m4/*.patch
+cp "$HOST_M4_OVERRIDE_DIR/m4.mk" "$HOST_M4_OVERRIDE_DIR/m4.hash" "$BUILDROOT_DIR/package/m4/"
 
 # Buildroot 2025.02 ships open-vm-tools 11.3.5 built --without-x, which drops the
 # drag and drop and clipboard plugins, and whose configure needs libfuse2 for
