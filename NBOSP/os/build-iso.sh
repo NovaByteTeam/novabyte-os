@@ -12,6 +12,21 @@ JOBS="${JOBS:-$(nproc)}"
 
 mkdir -p "$DOWNLOAD_DIR" "$OS_DIR/.buildroot"
 
+# Host tools (m4, gmp, ...) are built with the runner's gcc. Recent gcc releases
+# default to C23, where old K&R-style configure probes and gnulib attribute
+# placement fail ("could not find a working compiler" in host-gmp, nodiscard in
+# host-m4). Pin host C to gnu17 through a wrapper: Buildroot resolves HOSTCC with
+# `which`, so flags can't go in the variable itself. Flags a package passes later
+# on its own command line still win over this one.
+HOST_WRAPPER_DIR="$OS_DIR/.buildroot/host-wrappers"
+REAL_HOSTCC="$(command -v "${HOSTCC:-gcc}")"
+case "$REAL_HOSTCC" in "$HOST_WRAPPER_DIR"/*) REAL_HOSTCC="$(PATH="${PATH//$HOST_WRAPPER_DIR:/}" command -v gcc)";; esac
+mkdir -p "$HOST_WRAPPER_DIR"
+printf '#!/bin/sh\nexec "%s" -std=gnu17 "$@"\n' "$REAL_HOSTCC" > "$HOST_WRAPPER_DIR/gcc"
+chmod +x "$HOST_WRAPPER_DIR/gcc"
+export HOSTCC="$HOST_WRAPPER_DIR/gcc"
+echo "Host compiler: $("$REAL_HOSTCC" --version | head -n1) (forced -std=gnu17)" >&2
+
 if [[ ! -d "$BUILDROOT_DIR" ]]; then
   if [[ ! -f "$ARCHIVE" ]]; then
     curl --fail --location --retry 3 \
