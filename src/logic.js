@@ -282,8 +282,10 @@ function packageDownloadUrl(value, fileName) {
 // ── State ──────────────────────────────────────────────────────────────────
 
 let allApps = [];
+let allStudioPlugins = [];
 let activeCategory = 'all';
 let searchQuery = '';
+let catalogMode = 'apps';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -297,7 +299,13 @@ const gridHeading   = document.getElementById('grid-heading');
 const sectionEyebrow = document.getElementById('section-eyebrow');
 const resultsCount  = document.getElementById('results-count');
 const catalogCount  = document.getElementById('catalog-count');
+const catalogCountLabel = document.getElementById('catalog-count-label');
+const catalogEyebrow = document.getElementById('catalog-eyebrow');
+const catalogDescription = document.getElementById('catalog-description');
+const storeHeading = document.getElementById('store-heading');
 const categoryBar   = document.querySelector('.category-bar');
+const catalogSwitch = document.querySelector('.catalog-switch');
+const pluginCatalogWarning = document.getElementById('plugin-catalog-warning');
 const searchInput   = document.getElementById('search-input');
 const backBtn       = document.getElementById('back-btn');
 
@@ -352,10 +360,22 @@ async function loadApps() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const catalog = await res.json();
     if (!Array.isArray(catalog)) throw new Error('App catalog must contain a list.');
-    const remoteCatalog = await publisherPortal.fetchPublishedApps().catch(error => {
-      console.warn('[Store] Could not load community-published apps:', error);
-      return [];
-    });
+    const [remoteCatalog, pluginCatalog] = await Promise.all([
+      publisherPortal.fetchPublishedApps().catch(error => {
+        console.warn('[Store] Could not load community-published apps:', error);
+        return [];
+      }),
+      publisherPortal.fetchPublishedPlugins().catch(error => {
+        console.warn('[Store] Could not load Studio plugins:', error);
+        return [];
+      }),
+    ]);
+    allStudioPlugins = pluginCatalog.filter(plugin =>
+      plugin &&
+      typeof plugin.id === 'string' &&
+      typeof plugin.name === 'string' &&
+      typeof plugin.file === 'string'
+    );
     const mergedCatalog = new Map(catalog.map(app => [app.id, app]));
     for (const app of remoteCatalog) mergedCatalog.set(app.id, app);
     allApps = [...mergedCatalog.values()].filter(app =>
@@ -365,7 +385,7 @@ async function loadApps() {
       typeof app.file === 'string'
     );
     renderCategories();
-    catalogCount.textContent = String(allApps.length).padStart(2, '0');
+    catalogCount.textContent = String(catalogMode === 'plugins' ? allStudioPlugins.length : allApps.length).padStart(2, '0');
   } catch (err) {
     console.error('Could not load apps.json:', err);
     allApps = [];
@@ -417,6 +437,12 @@ function renderCategories() {
 // ── Featured ───────────────────────────────────────────────────────────────
 
 function renderFeatured() {
+  if (catalogMode !== 'apps') {
+    featuredSection.hidden = true;
+    featuredName.dataset.appId = '';
+    featuredArt.replaceChildren();
+    return;
+  }
   // Only show featured when browsing all categories with no search
   const app = allApps.find(candidate => candidate.featured === true)
     || (allApps.length >= 4 ? allApps[0] : null);
@@ -496,6 +522,12 @@ function filteredApps() {
 }
 
 function renderGrid() {
+  if (catalogMode === 'plugins') {
+    renderStudioPluginGrid();
+    return;
+  }
+  pluginCatalogWarning.hidden = true;
+  gridEmpty.textContent = 'No apps match your search.';
   for (const card of grid.querySelectorAll('.app-card')) {
     badgeObserver?.unobserve(card);
     card.remove();
@@ -557,6 +589,83 @@ function renderGrid() {
 
     grid.appendChild(card);
   }
+}
+
+function renderStudioPluginGrid() {
+  for (const card of grid.querySelectorAll('.app-card')) {
+    badgeObserver?.unobserve(card);
+    card.remove();
+  }
+  const query = searchQuery.trim().toLowerCase();
+  const plugins = allStudioPlugins.filter(plugin =>
+    !query
+    || plugin.name.toLowerCase().includes(query)
+    || plugin.description?.toLowerCase().includes(query)
+    || plugin.id.toLowerCase().includes(query)
+    || plugin.publisher?.toLowerCase().includes(query)
+  );
+  resultsCount.textContent = `${plugins.length} ${plugins.length === 1 ? 'plugin' : 'plugins'}`;
+  gridHeading.hidden = false;
+  gridHeading.textContent = searchQuery ? `Studio plugin results for "${searchQuery}"` : 'Studio plugins';
+  sectionEyebrow.textContent = 'EXTEND YOUR WORKFLOW';
+  featuredSection.hidden = true;
+  categoryBar.hidden = true;
+  pluginCatalogWarning.hidden = false;
+  catalogCount.textContent = String(allStudioPlugins.length).padStart(2, '0');
+  if (!plugins.length) {
+    gridEmpty.textContent = searchQuery ? 'No Studio plugins match your search.' : 'No Studio plugins have been published yet.';
+    gridEmpty.classList.remove('hidden');
+    return;
+  }
+  gridEmpty.classList.add('hidden');
+  for (const plugin of plugins) {
+    const card = document.createElement('article');
+    card.className = 'app-card studio-plugin-card';
+    const safeFile = safeWebUrl(plugin.file);
+    const downloadUrl = safeFile
+      ? packageDownloadUrl(safeFile, `${plugin.id}-${plugin.version}.nbplugin`)
+      : null;
+    card.innerHTML = `
+      <div class="card-body">
+        <div class="card-name"><span>${escHtml(plugin.name)}</span><span class="verified-badge">✓ NovaByte signed</span></div>
+        <div class="card-author">by ${escHtml(plugin.publisher || 'Community publisher')}</div>
+        <p class="card-desc">${escHtml(plugin.description || '')}</p>
+        <p class="studio-plugin-card__compatibility">Requires Studio ${escHtml(plugin.compatibleStudio || 'version range unavailable')}</p>
+        <div class="card-footer">
+          <span class="card-version">${escHtml(plugin.id)} · v${escHtml(plugin.version)}</span>
+        </div>
+      </div>
+      <p class="studio-plugin-card__warning">Runs with full Node.js access. Review the publisher before enabling.</p>
+      ${downloadUrl ? `<a class="studio-plugin-card__download" href="${escHtml(downloadUrl)}" download="${escHtml(`${plugin.id}-${plugin.version}.nbplugin`)}">Download .nbplugin</a>` : '<span class="studio-plugin-card__warning">Download link unavailable.</span>'}
+    `;
+    grid.appendChild(card);
+  }
+}
+
+function setCatalogMode(mode) {
+  if (mode !== 'apps' && mode !== 'plugins') return;
+  catalogMode = mode;
+  activeCategory = 'all';
+  categoryBar.hidden = mode === 'plugins';
+  renderCategories();
+  searchInput.placeholder = mode === 'plugins' ? 'Search Studio plugins…' : 'Search apps…';
+  searchInput.setAttribute('aria-label', mode === 'plugins' ? 'Search Studio plugins' : 'Search apps');
+  catalogSwitch.querySelectorAll('.catalog-switch-button').forEach(button => {
+    const selected = button.dataset.catalog === mode;
+    button.classList.toggle('is-active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  catalogCount.textContent = String(mode === 'plugins' ? allStudioPlugins.length : allApps.length).padStart(2, '0');
+  catalogCountLabel.textContent = mode === 'plugins' ? 'plugins to explore' : 'apps to explore';
+  catalogEyebrow.innerHTML = `<span class="intro-spark"></span> ${mode === 'plugins' ? 'THE STUDIO PLUGIN MARKETPLACE' : 'THE NOVABYTE APP CATALOG'}`;
+  catalogDescription.textContent = mode === 'plugins'
+    ? 'Discover community extensions for NovaByte Studio. Plugins run with full access to your computer; install only publishers you trust.'
+    : 'The NovaByte Store is a place to share and test apps for a Linux-based OS. Install packages only from sources you trust.';
+  storeHeading.innerHTML = mode === 'plugins'
+    ? 'Extend your workflow<br>in <span>NovaByte Studio.</span>'
+    : 'Apps to share and try<br>in <span>NovaByte.</span>';
+  renderFeatured();
+  renderGrid();
 }
 
 // ── Detail view ────────────────────────────────────────────────────────────
@@ -916,6 +1025,12 @@ window.addEventListener('popstate', () => {
 
 // ── Category filter ────────────────────────────────────────────────────────
 
+catalogSwitch.addEventListener('click', event => {
+  const button = event.target.closest('.catalog-switch-button');
+  if (!button) return;
+  setCatalogMode(button.dataset.catalog);
+});
+
 document.querySelector('.category-bar').addEventListener('click', e => {
   const btn = e.target.closest('.cat-btn');
   if (!btn) return;
@@ -975,4 +1090,5 @@ publisherPortal.init({
     window.scrollTo(0, 0);
   },
 });
+if (new URLSearchParams(location.search).get('view') === 'plugins') setCatalogMode('plugins');
 loadApps();

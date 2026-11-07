@@ -41,8 +41,10 @@
         <button class="publisher-nav-button publisher-nav-primary" id="publisher-signup" type="button">Sign up</button>
         <button class="publisher-nav-button hidden" id="publisher-publish" type="button">Publish apps</button>
         <button class="publisher-nav-button hidden" id="publisher-my-apps" type="button">My apps</button>
+        <button class="publisher-nav-button hidden" id="publisher-publish-plugin" type="button">Publish Studio plugin</button>
+        <button class="publisher-nav-button hidden" id="publisher-my-plugins" type="button">My Studio plugins</button>
         <button class="publisher-nav-button hidden" id="publisher-account" type="button">Manage account</button>
-        <button class="publisher-nav-button hidden" id="publisher-review" type="button">Review Apps</button>
+        <button class="publisher-nav-button hidden" id="publisher-review" type="button">Review submissions</button>
         <button class="publisher-nav-button hidden" id="publisher-signout" type="button">Sign out</button>
       </nav>
     </div>
@@ -55,7 +57,7 @@
       <button class="publisher-back" id="publisher-back" type="button">← Back to store</button>
       <p class="detail-kicker">NOVABYTE PUBLISHER PORTAL</p>
       <h1 id="publisher-title">Publisher account</h1>
-      <p id="publisher-subtitle">Sign in to submit an app for review.</p>
+      <p id="publisher-subtitle">Sign in to submit an app or Studio plugin for review.</p>
     </div>
     <p class="publisher-notice" id="publisher-notice" role="status" aria-live="polite" hidden></p>
     <section class="publisher-content" id="publisher-content"></section>
@@ -68,9 +70,9 @@
 
     <section class="store-intro" aria-labelledby="store-heading">
       <div class="intro-copy">
-        <p class="intro-eyebrow"><span class="intro-spark"></span> THE NOVABYTE APP CATALOG</p>
+        <p class="intro-eyebrow" id="catalog-eyebrow"><span class="intro-spark"></span> THE NOVABYTE APP CATALOG</p>
         <h1 id="store-heading">Apps to share and try<br>in <span>NovaByte.</span></h1>
-        <p class="intro-description">The NovaByte Store is a place to share and test apps for a Linux-based OS. Install packages only from sources you trust.</p>
+        <p class="intro-description" id="catalog-description">The NovaByte Store is a place to share and test apps for a Linux-based OS. Install packages only from sources you trust.</p>
       </div>
       <div class="intro-stats" aria-label="Catalog statistics">
         <div class="intro-stat-mark" aria-hidden="true">
@@ -78,7 +80,7 @@
         </div>
         <div>
           <strong id="catalog-count">—</strong>
-          <span>apps to explore</span>
+          <span id="catalog-count-label">apps to explore</span>
         </div>
         <div class="intro-stat-divider"></div>
         <div class="intro-trust">
@@ -88,6 +90,10 @@
       </div>
     </section>
 
+    <nav class="catalog-switch" aria-label="Choose a catalog">
+      <button class="catalog-switch-button is-active" data-catalog="apps" aria-pressed="true" type="button">NovaByte apps</button>
+      <button class="catalog-switch-button" data-catalog="plugins" aria-pressed="false" type="button">Studio plugins</button>
+    </nav>
     <nav class="category-bar" aria-label="Filter by category">
       <button class="cat-btn is-active" data-cat="all" aria-pressed="true">All apps</button>
     </nav>
@@ -122,6 +128,9 @@
         </div>
         <span class="results-count" id="results-count"></span>
       </div>
+      <p class="plugin-catalog-warning" id="plugin-catalog-warning" hidden>
+        Studio plugins run with full access to your computer. NovaByte reviews and signs marketplace packages, but a signature is not a guarantee of safety. Install only plugins you trust.
+      </p>
       <div class="apps-grid" id="apps-grid" aria-live="polite">
         <div class="grid-loading" id="grid-loading" aria-label="Loading apps">
           <span class="loading-dot"></span>

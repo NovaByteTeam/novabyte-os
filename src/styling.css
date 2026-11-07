@@ -151,6 +151,34 @@ code {
 
 /* ── Category bar ───────────────────────────────────────────────────────── */
 
+.catalog-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.catalog-switch-button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-pill);
+  background: var(--bg-1);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.catalog-switch-button:hover,
+.catalog-switch-button.is-active {
+  border-color: rgba(112, 217, 247, 0.4);
+  background: linear-gradient(120deg, rgba(72, 178, 207, 0.2), rgba(112, 126, 224, 0.16));
+  color: #a1eaff;
+}
+
 .category-bar {
   display: flex;
   gap: 6px;
@@ -330,6 +358,46 @@ code {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
   margin-bottom: 48px;
+}
+
+.app-card.studio-plugin-card {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  cursor: default;
+}
+
+.studio-plugin-card .card-body { min-height: 0; }
+.studio-plugin-card .card-desc { -webkit-line-clamp: 4; }
+.studio-plugin-card__compatibility { color: var(--text-tertiary); font-size: 0.72rem; }
+.studio-plugin-card__warning {
+  color: #ffc978;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.studio-plugin-card__download {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: fit-content;
+  min-height: 36px;
+  padding: 0 13px;
+  border-radius: var(--radius-pill);
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.studio-plugin-card__download:hover { background: var(--btn-bg-hover); }
+.plugin-catalog-warning {
+  margin: -4px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 185, 91, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 185, 91, 0.07);
+  color: #f0c98e;
+  font-size: 0.78rem;
+  line-height: 1.55;
 }
 
 .app-card {
@@ -1217,6 +1285,7 @@ body::before {
   backdrop-filter: blur(16px);
 }
 
+.category-bar[hidden] { display: none; }
 .category-bar::-webkit-scrollbar { display: none; }
 
 .cat-btn {
