@@ -4,7 +4,7 @@
 // localStorage store, the web-app entry builder, the URL/mailto openers and
 // the document-level link interceptor. (The platform-side registry is covered
 // by tests/platform/core/app-registry.test.js.)
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { resetTestStorage } from '../setup.js';
 import { loadServiceApp, settle } from '../helpers/app-harness.js';
 
@@ -192,6 +192,41 @@ describe('Registry service (js/apps/registry/service.js)', () => {
       bad.init(badContent);
       expect(badContent.textContent).toContain('External Web App');
     })();
+  });
+
+  it('buildWebAppEntry builds its guest through the System Webview service with its own partition', async () => {
+    const { window } = await boot();
+    const handle = { element: window.document.createElement('webview'), navigate: vi.fn(), destroy: vi.fn() };
+    window.NovaSystemWebview = { createTrustedGuest: vi.fn(() => handle) };
+
+    const entry = window.buildWebAppEntry({ id: 'wa_1.2/x', name: 'Maps', url: 'https://maps.example.com' });
+    const content = window.document.createElement('div');
+    const state = { cleanups: [] };
+    entry.init(content, state);
+
+    const [caller, options] = window.NovaSystemWebview.createTrustedGuest.mock.calls[0];
+    expect(caller).toEqual({ id: 'com.nbosp.service.registry', system: true });
+    expect(options.partition).toBe('persist:webapp_wa_1_2_x');
+    expect(options.sandbox).toBeNull();
+    expect(options.parent).toBe(content.firstChild);
+    expect(handle.navigate).toHaveBeenCalledWith('https://maps.example.com');
+
+    // window close runs the registered cleanup, which destroys the guest
+    expect(state.cleanups).toHaveLength(1);
+    state.cleanups[0]();
+    expect(handle.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('buildWebAppEntry falls back to a plain webview when the record has no usable id', async () => {
+    const { window } = await boot();
+    window.NovaSystemWebview = { createTrustedGuest: vi.fn() };
+
+    const entry = window.buildWebAppEntry({ name: 'NoId', url: 'https://x.example.com' });
+    const content = window.document.createElement('div');
+    entry.init(content, { cleanups: [] });
+
+    expect(window.NovaSystemWebview.createTrustedGuest).not.toHaveBeenCalled();
+    expect(content.querySelector('webview').src).toBe('https://x.example.com');
   });
 
   it('openWebApp registers an OS.apps entry, counts the launch and opens a window', async () => {

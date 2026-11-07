@@ -230,6 +230,21 @@ describe('NovaByte System Webview trusted guests', () => {
     expect(partition.startsWith('persist:')).toBe(false);
   });
 
+  it('rejects malformed partition names and can omit the sandbox attribute', () => {
+    const service = loadService();
+    for (const partition of ['', 'persist:', 'persist:a b', 'persist:../x', 'x'.repeat(200), 42]) {
+      vi.stubGlobal('document', { createElement: vi.fn(makeView) });
+      expect(() => service.createTrustedGuest(browser, { parent: parentOf(), partition }))
+        .toThrow(/Invalid partition/);
+    }
+
+    const view = makeView();
+    vi.stubGlobal('document', { createElement: vi.fn(() => view) });
+    service.createTrustedGuest(browser, { parent: parentOf(), partition: 'persist:webapp_wa_1', sandbox: null });
+    expect(view.attributes.has('sandbox')).toBe(false);
+    expect(view.attributes.get('partition')).toBe('persist:webapp_wa_1');
+  });
+
   it('blocks script-scheme navigation and exposes guest controls', async () => {
     const view = makeView();
     const service = loadService();

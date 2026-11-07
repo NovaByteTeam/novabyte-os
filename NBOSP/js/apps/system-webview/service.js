@@ -730,7 +730,12 @@
     const key = String(options.guestId || '').replace(/[^a-zA-Z0-9_-]/g, '');
     // No "persist:" prefix means in-memory, which is what incognito needs.
     if (options.incognito) return `incognito_${app.id}_${key || Date.now()}`;
-    if (typeof options.partition === 'string' && options.partition) return options.partition;
+    if (options.partition !== undefined && options.partition !== null) {
+      if (typeof options.partition !== 'string' || !/^(persist:)?[a-zA-Z0-9_.-]{1,160}$/.test(options.partition)) {
+        throw Object.assign(new Error('Invalid partition name'), { code: 'INVALID_ARGS' });
+      }
+      return options.partition;
+    }
     return `persist:app_${app.id}_trusted`;
   }
 
@@ -750,7 +755,10 @@
     view.setAttribute('nodeintegrationsubframes', 'false');
     view.setAttribute('enableremotemodule', 'false');
     if (options.allowFullscreen !== false) view.setAttribute('allowfullscreen', 'true');
-    view.setAttribute('sandbox', options.sandbox || 'allow-scripts allow-same-origin allow-forms allow-popups');
+    // sandbox: null leaves the attribute off entirely (web apps rely on that).
+    if (options.sandbox !== null) {
+      view.setAttribute('sandbox', options.sandbox || 'allow-scripts allow-same-origin allow-forms allow-popups');
+    }
     if (typeof options.style === 'string') view.style.cssText = options.style;
 
     const listeners = [];
