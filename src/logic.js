@@ -283,6 +283,7 @@ function packageDownloadUrl(value, fileName) {
 
 let allApps = [];
 let allStudioPlugins = [];
+let allCommunityTemplates = [];
 let activeCategory = 'all';
 let searchQuery = '';
 let catalogMode = 'apps';
@@ -305,7 +306,7 @@ const catalogDescription = document.getElementById('catalog-description');
 const storeHeading = document.getElementById('store-heading');
 const categoryBar   = document.querySelector('.category-bar');
 const catalogSwitch = document.querySelector('.catalog-switch');
-const pluginCatalogWarning = document.getElementById('plugin-catalog-warning');
+const catalogModeWarning = document.getElementById('catalog-mode-warning');
 const searchInput   = document.getElementById('search-input');
 const backBtn       = document.getElementById('back-btn');
 
@@ -360,7 +361,7 @@ async function loadApps() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const catalog = await res.json();
     if (!Array.isArray(catalog)) throw new Error('App catalog must contain a list.');
-    const [remoteCatalog, pluginCatalog] = await Promise.all([
+    const [remoteCatalog, pluginCatalog, templateCatalog] = await Promise.all([
       publisherPortal.fetchPublishedApps().catch(error => {
         console.warn('[Store] Could not load community-published apps:', error);
         return [];
@@ -369,12 +370,22 @@ async function loadApps() {
         console.warn('[Store] Could not load Studio plugins:', error);
         return [];
       }),
+      publisherPortal.fetchPublishedTemplates().catch(error => {
+        console.warn('[Store] Could not load Studio templates:', error);
+        return [];
+      }),
     ]);
     allStudioPlugins = pluginCatalog.filter(plugin =>
       plugin &&
       typeof plugin.id === 'string' &&
       typeof plugin.name === 'string' &&
       typeof plugin.file === 'string'
+    );
+    allCommunityTemplates = templateCatalog.filter(template =>
+      template &&
+      typeof template.id === 'string' &&
+      typeof template.name === 'string' &&
+      typeof template.file === 'string'
     );
     const mergedCatalog = new Map(catalog.map(app => [app.id, app]));
     for (const app of remoteCatalog) mergedCatalog.set(app.id, app);
@@ -385,7 +396,7 @@ async function loadApps() {
       typeof app.file === 'string'
     );
     renderCategories();
-    catalogCount.textContent = String(catalogMode === 'plugins' ? allStudioPlugins.length : allApps.length).padStart(2, '0');
+    catalogCount.textContent = String(catalogSize(catalogMode)).padStart(2, '0');
   } catch (err) {
     console.error('Could not load apps.json:', err);
     allApps = [];
@@ -526,7 +537,11 @@ function renderGrid() {
     renderStudioPluginGrid();
     return;
   }
-  pluginCatalogWarning.hidden = true;
+  if (catalogMode === 'templates') {
+    renderCommunityTemplateGrid();
+    return;
+  }
+  catalogModeWarning.hidden = true;
   gridEmpty.textContent = 'No apps match your search.';
   for (const card of grid.querySelectorAll('.app-card')) {
     badgeObserver?.unobserve(card);
@@ -610,7 +625,8 @@ function renderStudioPluginGrid() {
   sectionEyebrow.textContent = 'EXTEND YOUR WORKFLOW';
   featuredSection.hidden = true;
   categoryBar.hidden = true;
-  pluginCatalogWarning.hidden = false;
+  catalogModeWarning.hidden = false;
+  catalogModeWarning.textContent = 'Studio plugins run with full access to your computer. NovaByte reviews and signs marketplace packages, but a signature is not a guarantee of safety. Install only plugins you trust.';
   catalogCount.textContent = String(allStudioPlugins.length).padStart(2, '0');
   if (!plugins.length) {
     gridEmpty.textContent = searchQuery ? 'No Studio plugins match your search.' : 'No Studio plugins have been published yet.';
@@ -642,28 +658,96 @@ function renderStudioPluginGrid() {
   }
 }
 
+function renderCommunityTemplateGrid() {
+  for (const card of grid.querySelectorAll('.app-card')) {
+    badgeObserver?.unobserve(card);
+    card.remove();
+  }
+  const query = searchQuery.trim().toLowerCase();
+  const templates = allCommunityTemplates.filter(template =>
+    !query
+    || template.name.toLowerCase().includes(query)
+    || template.description?.toLowerCase().includes(query)
+    || template.id.toLowerCase().includes(query)
+    || template.author?.toLowerCase().includes(query)
+    || template.category?.toLowerCase().includes(query)
+  );
+  resultsCount.textContent = `${templates.length} ${templates.length === 1 ? 'template' : 'templates'}`;
+  gridHeading.hidden = false;
+  gridHeading.textContent = searchQuery ? `Studio template results for "${searchQuery}"` : 'Studio templates';
+  sectionEyebrow.textContent = searchQuery ? 'FIND A STARTING POINT' : 'START A NEW PROJECT';
+  featuredSection.hidden = true;
+  categoryBar.hidden = true;
+  catalogModeWarning.hidden = false;
+  catalogModeWarning.textContent = 'Community templates are signed .nbtemplate bundles. Review the publisher and verify the signature in Studio before using a template.';
+  catalogCount.textContent = String(allCommunityTemplates.length).padStart(2, '0');
+  if (!templates.length) {
+    gridEmpty.textContent = searchQuery
+      ? 'No Studio templates match your search.'
+      : 'No community templates have been published yet.';
+    gridEmpty.classList.remove('hidden');
+    return;
+  }
+  gridEmpty.classList.add('hidden');
+  for (const template of templates) {
+    const safeFile = safeWebUrl(template.file);
+    const fileName = `${template.id}-${template.version}.nbtemplate`;
+    const downloadUrl = safeFile ? packageDownloadUrl(safeFile, fileName) : null;
+    const card = document.createElement('article');
+    card.className = 'app-card studio-plugin-card community-template-card';
+    card.innerHTML = `
+      <div class="card-body">
+        <div class="card-name"><span>${escHtml(template.name)}</span><span class="verified-badge">.nbtemplate</span></div>
+        <div class="card-author">by ${escHtml(template.author || 'Community publisher')}</div>
+        <p class="card-desc">${escHtml(template.description || '')}</p>
+        <div class="card-footer">
+          <span class="card-version">${escHtml(template.category || 'General')} · v${escHtml(template.version)}</span>
+        </div>
+      </div>
+      ${downloadUrl ? `<a class="studio-plugin-card__download" href="${escHtml(downloadUrl)}" download="${escHtml(fileName)}">Download .nbtemplate</a>` : '<span class="catalog-mode-warning">Download link unavailable.</span>'}
+    `;
+    grid.appendChild(card);
+  }
+}
+
+function catalogSize(mode) {
+  if (mode === 'plugins') return allStudioPlugins.length;
+  if (mode === 'templates') return allCommunityTemplates.length;
+  return allApps.length;
+}
+
 function setCatalogMode(mode) {
-  if (mode !== 'apps' && mode !== 'plugins') return;
+  if (!['apps', 'plugins', 'templates'].includes(mode)) return;
   catalogMode = mode;
   activeCategory = 'all';
-  categoryBar.hidden = mode === 'plugins';
+  categoryBar.hidden = mode !== 'apps';
   renderCategories();
-  searchInput.placeholder = mode === 'plugins' ? 'Search Studio plugins…' : 'Search apps…';
-  searchInput.setAttribute('aria-label', mode === 'plugins' ? 'Search Studio plugins' : 'Search apps');
+  const labels = {
+    apps: { search: 'apps', count: 'apps to explore', eyebrow: 'THE NOVABYTE APP CATALOG' },
+    plugins: { search: 'Studio plugins', count: 'plugins to explore', eyebrow: 'THE STUDIO PLUGIN MARKETPLACE' },
+    templates: { search: 'Studio templates', count: 'templates to explore', eyebrow: 'THE COMMUNITY TEMPLATE CATALOG' },
+  };
+  const label = labels[mode];
+  searchInput.placeholder = `Search ${label.search}…`;
+  searchInput.setAttribute('aria-label', `Search ${label.search}`);
   catalogSwitch.querySelectorAll('.catalog-switch-button').forEach(button => {
     const selected = button.dataset.catalog === mode;
     button.classList.toggle('is-active', selected);
     button.setAttribute('aria-pressed', String(selected));
   });
-  catalogCount.textContent = String(mode === 'plugins' ? allStudioPlugins.length : allApps.length).padStart(2, '0');
-  catalogCountLabel.textContent = mode === 'plugins' ? 'plugins to explore' : 'apps to explore';
-  catalogEyebrow.innerHTML = `<span class="intro-spark"></span> ${mode === 'plugins' ? 'THE STUDIO PLUGIN MARKETPLACE' : 'THE NOVABYTE APP CATALOG'}`;
+  catalogCount.textContent = String(catalogSize(mode)).padStart(2, '0');
+  catalogCountLabel.textContent = label.count;
+  catalogEyebrow.innerHTML = `<span class="intro-spark"></span> ${label.eyebrow}`;
   catalogDescription.textContent = mode === 'plugins'
     ? 'Discover community extensions for NovaByte Studio. Plugins run with full access to your computer; install only publishers you trust.'
-    : 'The NovaByte Store is a place to share and test apps for a Linux-based OS. Install packages only from sources you trust.';
+    : mode === 'templates'
+      ? 'Browse community starter projects for NovaByte Studio. Download signed .nbtemplate bundles and verify them in Studio before use.'
+      : 'The NovaByte Store is a place to share and test apps for a Linux-based OS. Install packages only from sources you trust.';
   storeHeading.innerHTML = mode === 'plugins'
     ? 'Extend your workflow<br>in <span>NovaByte Studio.</span>'
-    : 'Apps to share and try<br>in <span>NovaByte.</span>';
+    : mode === 'templates'
+      ? 'Start your next project<br>with <span>a template.</span>'
+      : 'Apps to share and try<br>in <span>NovaByte.</span>';
   renderFeatured();
   renderGrid();
 }
@@ -1090,5 +1174,6 @@ publisherPortal.init({
     window.scrollTo(0, 0);
   },
 });
-if (new URLSearchParams(location.search).get('view') === 'plugins') setCatalogMode('plugins');
+const initialView = new URLSearchParams(location.search).get('view');
+if (initialView === 'plugins' || initialView === 'templates') setCatalogMode(initialView);
 loadApps();
