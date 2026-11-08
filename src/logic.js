@@ -549,9 +549,10 @@ function renderGrid() {
   }
 
   const apps = filteredApps();
-  // In default view, skip first app — it's in the featured slot
-  const gridApps = (activeCategory === 'all' && !searchQuery && apps.length > 0 && !featuredSection.hidden)
-    ? apps.filter(app => app.id !== (featuredSection.hidden ? null : featuredName.dataset.appId))
+  // In default view, skip the featured app — it already has the hero slot.
+  const featuredId = featuredSection.hidden ? null : featuredName.dataset.appId;
+  const gridApps = (activeCategory === 'all' && !searchQuery && featuredId)
+    ? apps.filter(app => app.id !== featuredId)
     : apps;
   resultsCount.textContent = `${apps.length} ${apps.length === 1 ? 'app' : 'apps'}`;
   gridHeading.textContent = activeCategory === 'all' && !searchQuery
@@ -562,6 +563,9 @@ function renderGrid() {
   sectionEyebrow.textContent = searchQuery ? 'FIND YOUR NEXT APP' : activeCategory === 'all' ? 'THE CATALOG' : 'BROWSE BY CATEGORY';
 
   if (apps.length === 0) {
+    gridEmpty.textContent = searchQuery
+      ? 'No apps match your search.'
+      : 'No apps in this category yet.';
     gridEmpty.classList.remove('hidden');
     gridHeading.hidden = true;
     return;
@@ -954,11 +958,11 @@ function renderVersionHistory(app) {
       // Current version always sorts first
       if (a.version === app.version) return -1;
       if (b.version === app.version) return 1;
-      // If both have dates, sort by date descending
-      if (a.date && b.date) return new Date(b.date) - new Date(a.date);
-      // Entries with a date outrank ones without
-      if (a.date) return -1;
-      if (b.date) return 1;
+      // If both have parseable dates, sort by date descending (invalid dates rank last)
+      const aDate = Date.parse(a.date);
+      const bDate = Date.parse(b.date);
+      if (Number.isFinite(aDate) && Number.isFinite(bDate) && aDate !== bDate) return bDate - aDate;
+      if (Number.isFinite(aDate) !== Number.isFinite(bDate)) return Number.isFinite(aDate) ? -1 : 1;
       return 0;
     });
 
@@ -1144,7 +1148,8 @@ function escHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ── Header height tracking ─────────────────────────────────────────────────

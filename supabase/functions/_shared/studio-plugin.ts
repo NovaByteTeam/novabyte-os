@@ -1,12 +1,15 @@
 import { valid, validRange } from 'npm:semver@7.8.5';
 import { unzipSync, zipSync } from 'npm:fflate@0.8.2';
 import { PublisherError, TRUSTED_SIGNING_PUBLIC_X } from './publisher.ts';
+import { LISTING_ID_PATTERN } from './validation.js';
 
 const MAX_ENTRIES = 500;
 const MAX_EXPANDED_BYTES = 100 * 1024 * 1024;
 const MAX_COMPRESSED_BYTES = 25 * 1024 * 1024;
-const PLUGIN_ID = /^[a-z0-9][a-z0-9.-]{2,127}$/;
+// Kept exported for Studio tooling that imports the pattern directly.
+export const PLUGIN_ID = LISTING_ID_PATTERN;
 const encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -148,9 +151,9 @@ function parsePlugin(bytes: Uint8Array) {
   }
   let manifest: Record<string, unknown>;
   try {
-    manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    manifest = JSON.parse(utf8Decoder.decode(manifestBytes));
   } catch {
-    throw new PublisherError('plugin.json must contain valid JSON.');
+    throw new PublisherError('plugin.json must contain valid UTF-8 JSON.');
   }
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)
     || typeof manifest.id !== 'string' || !PLUGIN_ID.test(manifest.id)
@@ -190,31 +193,30 @@ export function inspectStudioPlugin(bytes: Uint8Array) {
   return manifest;
 }
 
-export async function signStudioPlugin(bytes: Uint8Array) {
-  const { files, manifest } = parsePlugin(bytes);
+// Pure signing core: hashes every plugin file (excluding signature.json),
+// signs the canonical hash map with the caller-supplied Ed25519 key, writes
+// signature.json, and returns the repacked archive. Exposed so the Node test
+// suite can exercise the full signing path with generated keys.
+export async function buildSignedPluginArchive(
+  files: Map<string, Uint8Array>,
+  privateJwk: JsonWebKey,
+  publicX: string,
+) {
+  if (privateJwk.kty !== 'OKP' || privateJwk.crv !== 'Ed25519'
+    || typeof privateJwk.d !== 'string' || privateJwk.x !== publicX) {
+    throw new PublisherError('The configured signing key does not match NovaByte Trusted Signing.', 503);
+  }
   const hashes: Record<string, string> = {};
   for (const [filename, contents] of [...files.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (filename === 'signature.json') continue;
     hashes[filename] = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', arrayBuffer(contents))));
-  }
-  const privateJwkText = Deno.env.get('NOVABYTE_SIGNING_PRIVATE_JWK');
-  if (!privateJwkText) throw new PublisherError('NovaByte trusted signing is not configured. Publishing is disabled.', 503);
-  let privateJwk: JsonWebKey;
-  try {
-    privateJwk = JSON.parse(privateJwkText);
-  } catch {
-    throw new PublisherError('The trusted signing key configuration is invalid.', 503);
-  }
-  if (privateJwk.kty !== 'OKP' || privateJwk.crv !== 'Ed25519'
-    || typeof privateJwk.d !== 'string' || privateJwk.x !== TRUSTED_SIGNING_PUBLIC_X) {
-    throw new PublisherError('The configured signing key does not match NovaByte Trusted Signing.', 503);
   }
   const key = await crypto.subtle.importKey('jwk', privateJwk, { name: 'Ed25519' }, false, ['sign']);
   const payload = encoder.encode(canonicalJson({ files: hashes }));
   const signature = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key, payload));
   const verifyKey = await crypto.subtle.importKey(
     'jwk',
-    { kty: 'OKP', crv: 'Ed25519', x: TRUSTED_SIGNING_PUBLIC_X },
+    { kty: 'OKP', crv: 'Ed25519', x: publicX },
     { name: 'Ed25519' },
     false,
     ['verify'],
@@ -224,7 +226,7 @@ export async function signStudioPlugin(bytes: Uint8Array) {
   }
   files.set('signature.json', encoder.encode(JSON.stringify({
     algorithm: 'Ed25519',
-    publicKey: TRUSTED_SIGNING_PUBLIC_X,
+    publicKey: publicX,
     signature: base64Url(signature),
   })));
   const archive = Object.create(null) as Record<string, Uint8Array>;
@@ -233,5 +235,19 @@ export async function signStudioPlugin(bytes: Uint8Array) {
   if (signedBytes.byteLength > MAX_COMPRESSED_BYTES) {
     throw new PublisherError('The signed .nbplugin exceeds the 25 MB publishing limit.');
   }
+  return { bytes: signedBytes, hashes };
+}
+
+export async function signStudioPlugin(bytes: Uint8Array) {
+  const { files, manifest } = parsePlugin(bytes);
+  const privateJwkText = Deno.env.get('NOVABYTE_SIGNING_PRIVATE_JWK');
+  if (!privateJwkText) throw new PublisherError('NovaByte trusted signing is not configured. Publishing is disabled.', 503);
+  let privateJwk: JsonWebKey;
+  try {
+    privateJwk = JSON.parse(privateJwkText);
+  } catch {
+    throw new PublisherError('The trusted signing key configuration is invalid.', 503);
+  }
+  const { bytes: signedBytes } = await buildSignedPluginArchive(files, privateJwk, TRUSTED_SIGNING_PUBLIC_X);
   return { bytes: signedBytes, manifest };
 }

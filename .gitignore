@@ -28,3 +28,5 @@ server.log
 
 # prebuilt app packages — source lives in NBOSP/js/apps/<name>/, build with repackage.js
 /NBOSP/js/apps/*.novaapp
+# Supabase CLI local state
+supabase/.temp/

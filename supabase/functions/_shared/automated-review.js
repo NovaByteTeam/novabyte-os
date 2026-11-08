@@ -19,11 +19,13 @@ function lineNumberAt(source, index) {
   return line;
 }
 
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
 function decodeBase64(value) {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-  return new TextDecoder().decode(bytes);
+  return utf8Decoder.decode(bytes);
 }
 
 function hasBinaryPayload(value) {
@@ -45,6 +47,7 @@ function hasBinaryPayload(value) {
 export function runAutomatedReview(pkg, { appId, version, now = new Date().toISOString() }) {
   const errors = [];
   const warnings = [];
+  const findingsCapped = () => errors.length + warnings.length >= MAX_FINDINGS;
   const add = (target, finding) => {
     if (errors.length + warnings.length < MAX_FINDINGS) target.push(finding);
   };
@@ -146,6 +149,7 @@ export function runAutomatedReview(pkg, { appId, version, now = new Date().toISO
       if (entries.length > MAX_FILES) error('too_many_files', `Package cannot contain more than ${MAX_FILES} files.`);
 
       for (const [path, encoded] of entries.slice(0, MAX_FILES)) {
+        if (findingsCapped()) break;
         if (!path || path.startsWith('/') || path.includes('\\')
           || path.split('/').some(part => !part || part === '.' || part === '..')) {
           error('unsafe_file_path', 'Package contains an unsafe file path.', path);
@@ -182,8 +186,10 @@ export function runAutomatedReview(pkg, { appId, version, now = new Date().toISO
         ];
         for (const [code, pattern, message] of checks) {
           for (const match of source.matchAll(pattern)) {
+            if (findingsCapped()) break;
             error(code, message, path, lineNumberAt(source, match.index));
           }
+          if (findingsCapped()) break;
         }
 
         if (/\.(?:js|mjs|cjs)$/i.test(path)) {
