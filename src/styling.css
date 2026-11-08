@@ -4357,3 +4357,29 @@ a:focus-visible { outline-offset: 4px; }
     animation: none !important;
   }
 }
+
+@media (hover: none), (pointer: coarse) {
+  :hover {
+    transform: none !important;
+    filter: none !important;
+    text-shadow: none !important;
+    animation: none !important;
+  }
+
+  .featured-card:hover .featured-art,
+  .detail-screenshot-list figure:hover img {
+    transform: none !important;
+    filter: none !important;
+  }
+
+  .featured-card:hover::after,
+  .app-card:hover::before,
+  .featured-card:hover .featured-glow {
+    opacity: 0 !important;
+  }
+
+  .catalog-rating-field label:hover > span {
+    transform: none !important;
+    text-shadow: none !important;
+  }
+}
