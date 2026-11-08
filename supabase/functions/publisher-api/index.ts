@@ -56,6 +56,7 @@ import {
   requiredText,
 } from '../_shared/validation.js';
 import { runAutomatedReview } from '../_shared/automated-review.js';
+import { MAX_TEMPLATE_UPLOAD_BYTES } from '../_shared/community-template.js';
 import {
   myStudioPlugins,
   reviewStudioPlugin,
@@ -598,7 +599,7 @@ Deno.serve(async request => {
     }
     if (url.searchParams.get('action') === 'upload-reviewed-template') {
       requireAdmin(user);
-      const bytes = await readBoundedBody(request, 4 * 1024 * 1024, 'The signed .nbtemplate');
+      const bytes = await readBoundedBody(request, MAX_TEMPLATE_UPLOAD_BYTES, 'The signed .nbtemplate');
       return respond(await uploadReviewedCommunityTemplate(
         user,
         assertSubmissionId(url.searchParams.get('submissionId')),

@@ -180,10 +180,12 @@ validator.
 
 All template submissions require explicit human review. Reviewers must inspect
 the entire submitted bundle, sign the exact template with NovaByte Trusted
-Signing, then upload that signed `.nbtemplate` for approval. The Store verifies
-the Ed25519 signature, confirms the signed contents exactly match the original
-submission, and publishes those same uploaded bytes without conversion or
-re-signing. Approval cannot proceed without that signed review upload.
+Signing, then upload that signed `.nbtemplate` for approval. The upload may be
+the UTF-8 JSON bundle or its Base64-encoded contents; the Store decodes a
+Base64 upload before verifying it. The Store verifies the Ed25519 signature,
+confirms the signed contents exactly match the original submission, and
+publishes the verified JSON bundle without re-signing. Approval cannot proceed
+without that signed review upload.
 Publisher API actions are `submit-template`, `my-templates`,
 `withdraw-template`, `template-review-list`, `upload-reviewed-template`, and
 `review-template`. The Studio client reads the public catalog directly; no

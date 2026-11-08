@@ -88,6 +88,60 @@ test('rejects a signed template with an invalid Ed25519 signature', async () => 
   );
 });
 
+test('decodes a Base64-encoded signed template before verifying it', async () => {
+  const bundle = JSON.parse(new TextDecoder().decode(makeStudioBundle()));
+  bundle.signature = {
+    algorithm: 'Ed25519',
+    publicKey: NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY,
+    signature: btoa(String.fromCharCode(...new Uint8Array(64)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''),
+  };
+  const jsonBytes = new TextEncoder().encode(JSON.stringify(bundle));
+  const encoded = btoa(String.fromCharCode(...jsonBytes));
+  const inputs = [
+    encoded,
+    `base64:${encoded}`,
+    JSON.stringify(encoded),
+    `data:application/octet-stream;base64,${encoded}`,
+    `\uFEFF${encoded}`,
+  ];
+  for (const input of inputs) {
+    await assert.rejects(
+      parseSignedCommunityTemplateJson(new TextEncoder().encode(input)),
+      /failed NovaByte signature verification/,
+    );
+  }
+});
+
+test('accepts UTF-8 and UTF-16 JSON bundles with Base64 file contents', async () => {
+  const bundle = JSON.parse(new TextDecoder().decode(makeStudioBundle()));
+  bundle.signature = {
+    algorithm: 'Ed25519',
+    publicKey: NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY,
+    signature: btoa(String.fromCharCode(...new Uint8Array(64)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''),
+  };
+  const json = JSON.stringify(bundle);
+  const utf8 = new TextEncoder().encode(json);
+  const toUtf16le = text => {
+    const bytes = new Uint8Array(text.length * 2);
+    for (let index = 0; index < text.length; index++) {
+      const code = text.charCodeAt(index);
+      bytes[index * 2] = code & 0xff;
+      bytes[index * 2 + 1] = code >> 8;
+    }
+    return bytes;
+  };
+  const utf16 = toUtf16le(json);
+  const leadingSpaceUtf16 = toUtf16le(`  \n${json}`);
+  for (const bytes of [utf8, utf16, leadingSpaceUtf16]) {
+    await assert.rejects(
+      parseSignedCommunityTemplateJson(bytes),
+      /failed NovaByte signature verification/,
+    );
+  }
+});
+
 test('canonical JSON sorts keys recursively', () => {
   assert.equal(
     canonicalJson({ z: 1, a: { y: 2, b: 3 } }),
