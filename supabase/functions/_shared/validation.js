@@ -164,6 +164,14 @@ export function isSafePackagePath(path) {
     && !path.split('/').some(part => !part || part === '.' || part === '..');
 }
 
+// Storage uploads need a standalone ArrayBuffer. The bytes must be copied into
+// the new buffer itself: copying into a view of the source leaves it zero-filled.
+export function toArrayBuffer(bytes) {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 export function isCanonicalBase64(value) {
   return typeof value === 'string' && value.length > 0 && BASE64_PATTERN.test(value);
 }

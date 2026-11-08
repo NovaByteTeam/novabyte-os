@@ -22,6 +22,7 @@ import {
   readJsonBody,
   requiredText,
   screenshotReferences,
+  toArrayBuffer,
   validateLinks,
 } from '../validation.js';
 
@@ -313,4 +314,14 @@ test('escapeHtml neutralizes every HTML-significant character including quotes',
   assert.equal(escapeHtml(null), '');
   assert.equal(escapeHtml(undefined), '');
   assert.equal(escapeHtml(42), '42');
+});
+
+test('toArrayBuffer copies the bytes into the new buffer, not a zero-filled one', () => {
+  const source = new Uint8Array([123, 34, 102, 125]);
+  const buffer = toArrayBuffer(source);
+  assert.deepEqual([...new Uint8Array(buffer)], [123, 34, 102, 125]);
+  source[0] = 0;
+  assert.equal(new Uint8Array(buffer)[0], 123, 'must be an independent copy');
+  const view = new Uint8Array([1, 2, 3, 4, 5]).subarray(1, 4);
+  assert.deepEqual([...new Uint8Array(toArrayBuffer(view))], [2, 3, 4]);
 });

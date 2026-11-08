@@ -61,7 +61,7 @@ test('validation.js exports the pure rule surface', () => {
     'normalizeCategories', 'normalizeNewMetadata', 'isSafePackagePath',
     'isCanonicalBase64', 'assertSafePackageFiles', 'screenshotReferences',
     'packageScreenshots', 'preserveSubmissionScreenshots', 'missingPackageScreenshots',
-    'readBoundedBody', 'readJsonBody', 'escapeHtml',
+    'readBoundedBody', 'readJsonBody', 'escapeHtml', 'toArrayBuffer',
   ]) {
     assert.ok(name in validation, `validation.js must export ${name}`);
   }

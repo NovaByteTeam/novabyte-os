@@ -29,6 +29,7 @@ import {
   assertListingId,
   assertSubmissionId,
   requiredText,
+  toArrayBuffer,
 } from '../_shared/validation.js';
 import {
   CommunityTemplateError,
@@ -40,12 +41,6 @@ import {
   parseSignedCommunityTemplateJson,
   parseStudioCommunityTemplateBundle,
 } from '../_shared/community-template.js';
-
-function arrayBuffer(bytes: Uint8Array) {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(bytes).set(bytes);
-  return buffer;
-}
 
 function parseSubmittedTemplate(bytes: Uint8Array, packagePath: string) {
   try {
@@ -264,7 +259,7 @@ export async function uploadReviewedCommunityTemplate(
       'x-upsert': 'true',
       'cache-control': 'no-store',
     },
-    body: arrayBuffer(signedBytes),
+    body: toArrayBuffer(signedBytes),
   });
   await rest('publisher_template_submissions', {
     method: 'PATCH',
@@ -314,7 +309,7 @@ async function publishCommunityTemplate(submission: Record<string, any>) {
       'x-upsert': 'true',
       'cache-control': '3600',
     },
-    body: arrayBuffer(reviewedBytes),
+    body: toArrayBuffer(reviewedBytes),
   });
   const metadata = submission.metadata;
   const row = {
