@@ -62,8 +62,13 @@ email as confirmed.
 Deploy the API:
 
 ```powershell
-supabase functions deploy publisher-api
+supabase functions deploy publisher-api --project-ref jcrptxtmieveoijdbtqa
 ```
+
+The function disables Supabase's gateway-level JWT check so gateway errors
+cannot bypass its CORS responses. The handler still validates every user's
+bearer token with Supabase Auth and requires a confirmed email before allowing
+publisher actions.
 
 Set these values in the Supabase Dashboard's Edge Function secrets (or with
 `supabase secrets set` from a secure terminal):
