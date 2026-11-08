@@ -297,6 +297,7 @@ function decodeSignedTemplateJson(bytes) {
   text = text.replace(/^\uFEFF/, '').trim();
   const jsonStart = text.indexOf('{');
   const jsonEnd = text.lastIndexOf('}');
+  let rawJsonProblem = 'expected a JSON object';
   if (jsonStart !== -1 && jsonEnd > jsonStart) {
     const jsonBytes = encoder.encode(text.slice(jsonStart, jsonEnd + 1));
     if (jsonBytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
@@ -306,9 +307,15 @@ function decodeSignedTemplateJson(bytes) {
       if (isRecord(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(jsonBytes)))) {
         return jsonBytes;
       }
-    } catch {
-      // Try the Base64-wrapped form below.
+    } catch (error) {
+      rawJsonProblem = error.message;
     }
+  }
+
+  // Base64 can't contain "{", so text that starts with one was meant as raw
+  // JSON. Report the JSON failure instead of blaming the encoding.
+  if (text.startsWith('{')) {
+    throw new CommunityTemplateError(`The signed template is not valid JSON: ${rawJsonProblem}`);
   }
 
   if (text.startsWith('"')) {
@@ -316,7 +323,7 @@ function decodeSignedTemplateJson(bytes) {
       const wrapped = JSON.parse(text);
       if (typeof wrapped === 'string') text = wrapped.trim();
     } catch {
-      throw new CommunityTemplateError('The signed template must be Base64-encoded UTF-8 JSON.');
+      throw new CommunityTemplateError('The signed template must be UTF-8 JSON or Base64-encoded UTF-8 JSON.');
     }
     const wrappedJsonStart = text.indexOf('{');
     const wrappedJsonEnd = text.lastIndexOf('}');
@@ -348,7 +355,7 @@ function decodeSignedTemplateJson(bytes) {
     || /[+/].*[-_]|[-_].*[+/]/.test(encoded)
     || (padding.length === 1 && unpadded.length % 4 !== 3)
     || (padding.length === 2 && unpadded.length % 4 !== 2)) {
-    throw new CommunityTemplateError('The signed template must be Base64-encoded UTF-8 JSON.');
+    throw new CommunityTemplateError('The signed template must be UTF-8 JSON or Base64-encoded UTF-8 JSON.');
   }
   const normalized = unpadded.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
@@ -356,7 +363,7 @@ function decodeSignedTemplateJson(bytes) {
   try {
     binary = atob(padded);
   } catch {
-    throw new CommunityTemplateError('The signed template must be Base64-encoded UTF-8 JSON.');
+    throw new CommunityTemplateError('The signed template must be UTF-8 JSON or Base64-encoded UTF-8 JSON.');
   }
   const decoded = Uint8Array.from(binary, character => character.charCodeAt(0));
   if (decoded.byteLength > MAX_TEMPLATE_JSON_BYTES) {

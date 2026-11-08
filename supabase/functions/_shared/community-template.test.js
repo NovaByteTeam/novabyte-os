@@ -269,3 +269,30 @@ test('rejects .nbtemplate files whose base64 payloads decode to binary content',
     /not valid UTF-8 text/,
   );
 });
+
+test('reports malformed raw JSON as a JSON problem, not a Base64 one', async () => {
+  const bundle = new TextDecoder().decode(makeStudioBundle());
+  const broken = {
+    truncated: bundle.slice(0, -3),
+    'trailing comma': bundle.replace('"version":1,', '"version":1,,'),
+    'smart quote': bundle.replace('"format"', '\u201cformat"'),
+    'two objects': bundle + bundle,
+  };
+  for (const [label, text] of Object.entries(broken)) {
+    await assert.rejects(
+      parseSignedCommunityTemplateJson(new TextEncoder().encode(text)),
+      error => /is not valid JSON: /.test(error.message) && !/Base64/.test(error.message),
+      label,
+    );
+  }
+});
+
+test('still names both accepted formats when the upload is neither JSON nor Base64', async () => {
+  for (const text of ['not*base64*at*all', 'QUJD1', '"unterminated']) {
+    await assert.rejects(
+      parseSignedCommunityTemplateJson(new TextEncoder().encode(text)),
+      /must be UTF-8 JSON or Base64-encoded UTF-8 JSON/,
+      text,
+    );
+  }
+});
