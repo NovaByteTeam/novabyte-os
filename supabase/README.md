@@ -155,30 +155,25 @@ Publishers submit one UTF-8 JSON file with this unsigned wrapper:
 }
 ```
 
-The Publisher Portal accepts a Studio-exported `.nbtemplate` directly. Its
-Base64-encoded project files are decoded as UTF-8 text before submission; files
-that are not valid UTF-8 are rejected. Alternatively, publishers can submit
-this wrapper with each `files` value already represented as text.
+The Publisher Portal accepts the unsigned `.nbtemplate` exported by Studio.
+The original bundle is kept intact; the backend decodes Base64 file contents
+only to validate that they are UTF-8 text and safe to publish. Files that are
+not valid UTF-8 are rejected.
 
-The backend accepts JSON only and never executes template contents. It rejects
-unknown wrapper/template fields (including screenshots), prototype keys,
+The backend never executes template contents. It rejects unknown
+wrapper/template fields (including screenshots), prototype keys,
 unsafe/hidden/`node_modules` paths, manifest filename collisions, duplicate
-paths, binary file values, and metadata/version mismatches. Uploads and signed
-objects are limited to 4 MiB JSON, 2 MiB expanded UTF-8 file content, and 500
-files. Reviewed files are UTF-8 text in the upload and are converted to the
-base64 file representation Studio expects before signing. Template descriptions
-are limited to 240 characters, matching Studio's catalog validator. Each
-published release is signed with the same server-only
-`NOVABYTE_SIGNING_PRIVATE_JWK` and trusted Ed25519 public key used for Studio
-plugins; the signature's public key is the value pinned by Studio as
-`NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY`. The signature covers UTF-8 canonical
-sorted-key JSON of exactly `{format,version,template}`; the published object
-is stored at `published-packages/${template_id}/${releaseVersion}.nbtemplate`.
+paths, binary file values, and metadata/version mismatches. Uploads are limited
+to 4 MiB, 2 MiB expanded UTF-8 file content, and 500 files. Template
+descriptions are limited to 240 characters, matching Studio's catalog
+validator.
 
 All template submissions require explicit human review. Reviewers must inspect
-the entire submitted and reviewed JSON, upload the exact inspected version, then
-approve, request changes, or reject it. Approval cannot proceed without that
-review upload; submissions are never auto-approved or signed before approval.
+the entire submitted bundle, sign the exact template with NovaByte Trusted
+Signing, then upload that signed `.nbtemplate` for approval. The Store verifies
+the Ed25519 signature, confirms the signed contents exactly match the original
+submission, and publishes those same uploaded bytes without conversion or
+re-signing. Approval cannot proceed without that signed review upload.
 Publisher API actions are `submit-template`, `my-templates`,
 `withdraw-template`, `template-review-list`, `upload-reviewed-template`, and
 `review-template`. The Studio client reads the public catalog directly; no

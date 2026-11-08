@@ -750,7 +750,7 @@ Deno.serve(async request => {
     }
     if (url.searchParams.get('action') === 'upload-reviewed-template') {
       requireAdmin(user);
-      const bytes = await readBoundedBody(request, 4 * 1024 * 1024, 'The reviewed template JSON');
+      const bytes = await readBoundedBody(request, 4 * 1024 * 1024, 'The signed .nbtemplate');
       return respond(await uploadReviewedCommunityTemplate(
         user,
         requiredText(url.searchParams.get('submissionId'), 'Submission ID', 64),
