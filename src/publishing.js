@@ -34,6 +34,48 @@ function packageDownloadUrl(value, fileName) {
   return url.href;
 }
 
+async function normalizeSignedTemplateFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let text;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    text = new TextDecoder('utf-16le', { fatal: true }).decode(bytes);
+  } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    text = new TextDecoder('utf-16be', { fatal: true }).decode(bytes);
+  } else {
+    let evenNulls = 0;
+    let oddNulls = 0;
+    for (let index = 0; index < Math.min(bytes.length, 256); index++) {
+      if (bytes[index] === 0) {
+        if (index % 2) oddNulls++;
+        else evenNulls++;
+      }
+    }
+    const encoding = oddNulls >= 4 && oddNulls > evenNulls * 2
+      ? 'utf-16le'
+      : evenNulls >= 4 && evenNulls > oddNulls * 2
+        ? 'utf-16be'
+        : 'utf-8';
+    text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+  }
+  text = text.replace(/^\uFEFF/, '').trim();
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) {
+    throw new Error('The selected .nbtemplate must contain the complete JSON bundle.');
+  }
+  const json = text.slice(start, end + 1);
+  let bundle;
+  try {
+    bundle = JSON.parse(json);
+  } catch {
+    throw new Error('The selected .nbtemplate is not valid JSON. Save the complete bundle as a JSON .nbtemplate file.');
+  }
+  if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+    throw new Error('The selected .nbtemplate must be a JSON object.');
+  }
+  return new Blob([json], { type: 'application/octet-stream' });
+}
+
 function makeElement(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -467,6 +509,7 @@ class PublisherPortal {
   async uploadReviewedTemplate(submissionId, file) {
     await this.ensureSession();
     if (!this.user || !this.session) throw new Error('Sign in with a verified email to continue.');
+    const uploadBody = await normalizeSignedTemplateFile(file);
     const params = new URLSearchParams({ action: 'upload-reviewed-template', submissionId });
     const response = await fetch(`${this.baseUrl}/functions/v1/publisher-api?${params}`, {
       method: 'POST',
@@ -475,7 +518,7 @@ class PublisherPortal {
         Authorization: `Bearer ${this.session.access_token}`,
         'Content-Type': 'application/octet-stream',
       },
-      body: file,
+      body: uploadBody,
     });
     const text = await response.text();
     let result = null;

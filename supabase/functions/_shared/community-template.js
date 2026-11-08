@@ -295,12 +295,20 @@ function decodeSignedTemplateJson(bytes) {
     throw new CommunityTemplateError('The signed template must contain Base64 text or JSON.');
   }
   text = text.replace(/^\uFEFF/, '').trim();
-  if (text.trimStart().startsWith('{')) {
-    const jsonBytes = encoder.encode(text);
+  const jsonStart = text.indexOf('{');
+  const jsonEnd = text.lastIndexOf('}');
+  if (jsonStart !== -1 && jsonEnd > jsonStart) {
+    const jsonBytes = encoder.encode(text.slice(jsonStart, jsonEnd + 1));
     if (jsonBytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
       throw new CommunityTemplateError('The signed template must be no larger than 4 MiB.');
     }
-    return jsonBytes;
+    try {
+      if (isRecord(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(jsonBytes)))) {
+        return jsonBytes;
+      }
+    } catch {
+      // Try the Base64-wrapped form below.
+    }
   }
 
   if (text.startsWith('"')) {
@@ -309,6 +317,21 @@ function decodeSignedTemplateJson(bytes) {
       if (typeof wrapped === 'string') text = wrapped.trim();
     } catch {
       throw new CommunityTemplateError('The signed template must be Base64-encoded UTF-8 JSON.');
+    }
+    const wrappedJsonStart = text.indexOf('{');
+    const wrappedJsonEnd = text.lastIndexOf('}');
+    if (wrappedJsonStart !== -1 && wrappedJsonEnd > wrappedJsonStart) {
+      const jsonBytes = encoder.encode(text.slice(wrappedJsonStart, wrappedJsonEnd + 1));
+      if (jsonBytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
+        throw new CommunityTemplateError('The signed template must be no larger than 4 MiB.');
+      }
+      try {
+        if (isRecord(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(jsonBytes)))) {
+          return jsonBytes;
+        }
+      } catch {
+        // Continue with the Base64-wrapped form below.
+      }
     }
   }
   const dataUri = /^data:[^,]*;base64,/i.exec(text);
