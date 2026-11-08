@@ -296,3 +296,25 @@ test('still names both accepted formats when the upload is neither JSON nor Base
     );
   }
 });
+
+test('explains exactly what is wrong when an upload fails both the JSON and Base64 checks', async () => {
+  const json = new TextDecoder().decode(makeStudioBundle());
+  const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(json)));
+  const replaceAt = (text, index, character) => text.slice(0, index) + character + text.slice(index + 1);
+  const cases = [
+    ['junk prefix then broken JSON', `signed:\n${json.slice(0, -3)}`, /is not valid JSON: /],
+    ['unclosed brace', '{ "format": ', /is not valid JSON: .*no closing "\}"/],
+    ['quoted JSON broken inside', JSON.stringify(json.slice(0, -3)), /quoted signed template is not valid JSON/],
+    ['stray character in Base64', replaceAt(encoded, 50, '!'), /unexpected character \(U\+0021\) at position 51/],
+    ['smart quotes around Base64', `\u201c${encoded}\u201d`, /unexpected character \(U\+201C\) at position 1/],
+    ['truncated Base64', encoded.slice(0, 101), /impossible length/],
+    ['mixed Base64 alphabets', replaceAt(replaceAt(encoded, 20, '-'), 40, '+'), /mixes standard/],
+  ];
+  for (const [label, text, expected] of cases) {
+    await assert.rejects(
+      parseSignedCommunityTemplateJson(new TextEncoder().encode(text)),
+      error => expected.test(error.message),
+      label,
+    );
+  }
+});

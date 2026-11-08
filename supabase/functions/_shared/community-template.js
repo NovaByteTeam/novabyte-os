@@ -267,6 +267,25 @@ function decodeBase64Url(value, label) {
   return bytes;
 }
 
+function describeBase64Problem(encoded, unpadded, padding) {
+  const bad = /[^A-Za-z0-9+/_=-]/u.exec(encoded);
+  if (bad) {
+    const code = bad[0].codePointAt(0).toString(16).toUpperCase().padStart(4, '0');
+    return `contains an unexpected character (U+${code}) at position ${bad.index + 1}`;
+  }
+  if (!/^[A-Za-z0-9+/_-]*$/.test(unpadded) || !/^(?:|=|==)$/.test(padding)) {
+    return 'has "=" padding somewhere other than the end';
+  }
+  if (unpadded.length % 4 === 1) return 'has an impossible length, so the data looks truncated';
+  if (/[+/].*[-_]|[-_].*[+/]/.test(encoded)) return 'mixes standard (+ /) and URL-safe (- _) characters';
+  if ((padding && encoded.length % 4 !== 0)
+    || (padding.length === 1 && unpadded.length % 4 !== 3)
+    || (padding.length === 2 && unpadded.length % 4 !== 2)) {
+    return 'has padding that doesn\'t match its length';
+  }
+  return null;
+}
+
 function decodeSignedTemplateJson(bytes) {
   let text;
   try {
@@ -312,9 +331,11 @@ function decodeSignedTemplateJson(bytes) {
     }
   }
 
-  // Base64 can't contain "{", so text that starts with one was meant as raw
-  // JSON. Report the JSON failure instead of blaming the encoding.
-  if (text.startsWith('{')) {
+  // Base64 can't contain "{", so any brace means raw JSON was intended, even
+  // with junk in front of it. Report the JSON failure instead of blaming the
+  // encoding. A leading quote is the JSON-string-wrapped form, handled below.
+  if (jsonStart !== -1 && !text.startsWith('"')) {
+    if (jsonEnd <= jsonStart) rawJsonProblem = 'no closing "}" found';
     throw new CommunityTemplateError(`The signed template is not valid JSON: ${rawJsonProblem}`);
   }
 
@@ -327,6 +348,7 @@ function decodeSignedTemplateJson(bytes) {
     }
     const wrappedJsonStart = text.indexOf('{');
     const wrappedJsonEnd = text.lastIndexOf('}');
+    let wrappedJsonProblem = 'no closing "}" found';
     if (wrappedJsonStart !== -1 && wrappedJsonEnd > wrappedJsonStart) {
       const jsonBytes = encoder.encode(text.slice(wrappedJsonStart, wrappedJsonEnd + 1));
       if (jsonBytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
@@ -336,9 +358,13 @@ function decodeSignedTemplateJson(bytes) {
         if (isRecord(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(jsonBytes)))) {
           return jsonBytes;
         }
-      } catch {
-        // Continue with the Base64-wrapped form below.
+        wrappedJsonProblem = 'expected a JSON object';
+      } catch (error) {
+        wrappedJsonProblem = error.message;
       }
+    }
+    if (wrappedJsonStart !== -1) {
+      throw new CommunityTemplateError(`The quoted signed template is not valid JSON: ${wrappedJsonProblem}`);
     }
   }
   const dataUri = /^data:[^,]*;base64,/i.exec(text);
@@ -348,14 +374,11 @@ function decodeSignedTemplateJson(bytes) {
     : base64Prefix ? text.slice(base64Prefix[0].length) : text).replace(/\s/g, '');
   const unpadded = encoded.replace(/=+$/, '');
   const padding = encoded.slice(unpadded.length);
-  if (!/^[A-Za-z0-9+/_-]*$/.test(unpadded)
-    || !/^(?:|=|==)$/.test(padding)
-    || unpadded.length % 4 === 1
-    || (padding && encoded.length % 4 !== 0)
-    || /[+/].*[-_]|[-_].*[+/]/.test(encoded)
-    || (padding.length === 1 && unpadded.length % 4 !== 3)
-    || (padding.length === 2 && unpadded.length % 4 !== 2)) {
-    throw new CommunityTemplateError('The signed template must be UTF-8 JSON or Base64-encoded UTF-8 JSON.');
+  const base64Problem = describeBase64Problem(encoded, unpadded, padding);
+  if (base64Problem) {
+    throw new CommunityTemplateError(
+      `The signed template must be UTF-8 JSON or Base64-encoded UTF-8 JSON. It isn't JSON, and as Base64 it ${base64Problem}.`,
+    );
   }
   const normalized = unpadded.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
