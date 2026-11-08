@@ -1,4 +1,5 @@
 import { PUBLISHING_CONFIG } from './publishing-config.js';
+import { scrollToTop } from './smooth-scroll.js';
 
 const SESSION_KEY = 'novabyte-publisher-session';
 const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
@@ -164,10 +165,13 @@ class PublisherPortal {
     this.currentMode = 'signin';
     this.activeMenu = null;
     this.contentCleanup = null;
+    this.afterAuthAction = null;
     this.nodes = {
       header: document.querySelector('.site-header'),
+      nav: document.getElementById('publisher-nav'),
       store: document.getElementById('store-view'),
       detail: document.getElementById('detail-view'),
+      communityDetail: document.getElementById('community-detail-view'),
       view: document.getElementById('publisher-view'),
       content: document.getElementById('publisher-content'),
       title: document.getElementById('publisher-title'),
@@ -346,6 +350,13 @@ class PublisherPortal {
         const user = await this.request('/auth/v1/user', { token: this.session.access_token });
         if (user?.email_confirmed_at || user?.confirmed_at) {
           this.user = user;
+          if (this.afterAuthAction) {
+            const action = this.afterAuthAction;
+            this.afterAuthAction = null;
+            this.showStore();
+            await action();
+            return;
+          }
           await this.open('my-apps');
           this.setNotice('Your account is verified and ready to publish.', 'success');
           return;
@@ -369,6 +380,13 @@ class PublisherPortal {
     }
     this.user = user;
     this.updateNavigation();
+    if (this.afterAuthAction) {
+      const action = this.afterAuthAction;
+      this.afterAuthAction = null;
+      this.showStore();
+      await action();
+      return;
+    }
     await this.open(user.email?.trim().toLowerCase() === this.adminEmail ? 'review' : 'my-apps');
     this.setNotice(`Signed in as ${user.email}.`, 'success');
   }
@@ -511,6 +529,7 @@ class PublisherPortal {
       file: plugin.file,
       size: plugin.size,
       releaseNotes: plugin.release_notes,
+      publishedAt: plugin.published_at,
     }));
   }
 
@@ -533,6 +552,73 @@ class PublisherPortal {
       size: template.size,
       publishedAt: template.published_at,
     }));
+  }
+
+  async fetchCatalogRatingSummaries(catalogType, itemIds) {
+    if (!['apps', 'plugins', 'templates'].includes(catalogType)) {
+      throw new Error('Unsupported rating catalog.');
+    }
+    if (!Array.isArray(itemIds) || itemIds.some(id => typeof id !== 'string')) {
+      throw new Error('Rating item IDs must be a list of strings.');
+    }
+    if (!this.configured || !itemIds.length) return [];
+    return this.request('/rest/v1/rpc/get_catalog_rating_summaries', {
+      method: 'POST',
+      body: { p_catalog_type: catalogType, p_item_ids: itemIds },
+    });
+  }
+
+  async fetchCatalogRatingReviews(catalogType, itemId) {
+    if (!['apps', 'plugins', 'templates'].includes(catalogType)) {
+      throw new Error('Unsupported rating catalog.');
+    }
+    if (!this.configured) return [];
+    return this.request('/rest/v1/rpc/get_catalog_rating_reviews', {
+      method: 'POST',
+      body: { p_catalog_type: catalogType, p_item_id: itemId },
+    });
+  }
+
+  async fetchMyCatalogRating(catalogType, itemId) {
+    const user = await this.ensureSession();
+    if (!user || !this.session) return null;
+    const params = new URLSearchParams({
+      select: 'rating,review',
+      catalog_type: `eq.${catalogType}`,
+      item_id: `eq.${itemId}`,
+      user_id: `eq.${user.id}`,
+      limit: '1',
+    });
+    const result = await this.request(`/rest/v1/publisher_catalog_ratings?${params}`, {
+      token: this.session.access_token,
+    });
+    if (!Array.isArray(result)) throw new Error('Could not load your existing rating.');
+    return result[0] || null;
+  }
+
+  async submitCatalogRating(catalogType, itemId, rating, review) {
+    const user = await this.ensureSession();
+    if (!user || !this.session) throw new Error('Sign in with a verified email to rate catalog items.');
+    return this.request('/rest/v1/rpc/submit_catalog_rating', {
+      method: 'POST',
+      token: this.session.access_token,
+      body: {
+        p_catalog_type: catalogType,
+        p_item_id: itemId,
+        p_rating: rating,
+        p_review: review,
+      },
+    });
+  }
+
+  async startRatingAction(action) {
+    const user = await this.ensureSession();
+    if (user) {
+      await action();
+      return;
+    }
+    this.afterAuthAction = action;
+    await this.open('signin');
   }
 
   setNotice(message, kind = 'info') {
@@ -575,6 +661,7 @@ class PublisherPortal {
       this.nodes.view.classList.remove('hidden');
       this.nodes.store.classList.add('hidden');
       this.nodes.detail.classList.add('hidden');
+      this.nodes.communityDetail.classList.add('hidden');
       this.nodes.title.textContent = 'Publisher portal setup required';
       this.nodes.subtitle.textContent = 'Account publishing is not enabled until the site is connected to its Supabase project.';
       this.nodes.content.replaceChildren();
@@ -595,8 +682,9 @@ class PublisherPortal {
     this.nodes.view.classList.remove('hidden');
     this.nodes.store.classList.add('hidden');
     this.nodes.detail.classList.add('hidden');
+    this.nodes.communityDetail.classList.add('hidden');
     this.nodes.header.classList.remove('hidden');
-    window.scrollTo(0, 0);
+    scrollToTop();
     this.updateNavigation();
 
     if (page === 'signin' || page === 'signup') {
@@ -625,12 +713,27 @@ class PublisherPortal {
     this.setPage('Manage account', 'Update your publisher profile and password.');
     const form = makeElement('form', 'publisher-card publisher-account-form');
     const identity = makeElement('div', 'publisher-account-identity');
+    const avatar = makeElement('span', 'publisher-account-avatar',
+      (displayName || this.user?.email || 'N').trim().charAt(0).toUpperCase());
+    const identityCopy = makeElement('div', 'publisher-account-identity-copy');
     identity.append(
-      makeElement('span', 'publisher-account-label', 'Signed in as'),
-      makeElement('strong', 'publisher-account-email', this.user?.email || '')
+      avatar,
+      identityCopy,
+    );
+    identityCopy.append(
+      makeElement('span', 'publisher-account-label', 'SIGNED IN AS'),
+      makeElement('strong', 'publisher-account-email', this.user?.email || ''),
     );
     const verified = makeElement('p', 'publisher-account-verified',
       this.user?.email_confirmed_at || this.user?.confirmed_at ? 'Email verified' : 'Email not verified');
+    verified.classList.toggle('is-unverified', !(this.user?.email_confirmed_at || this.user?.confirmed_at));
+    identity.appendChild(verified);
+    const accountHeading = makeElement('div', 'publisher-account-heading');
+    accountHeading.append(
+      makeElement('p', 'publisher-review-eyebrow', 'ACCOUNT SETTINGS'),
+      makeElement('h2', '', 'Your publisher profile'),
+      makeElement('p', '', 'Keep your public identity up to date and protect your account.'),
+    );
     const name = makeField('Display name', {
       id: 'publisher-account-name',
       value: displayName,
@@ -640,15 +743,15 @@ class PublisherPortal {
     const section = makeElement('div', 'publisher-account-section');
     section.append(
       makeElement('h2', '', 'Profile'),
-      makeElement('p', 'publisher-form-intro', 'This name identifies you in your publisher profile and app listings.'),
+      makeElement('p', 'publisher-form-intro', 'This name appears on your publisher profile and listings.'),
       name.label
     );
-    form.append(identity, verified, section);
+    form.append(accountHeading, identity, section);
 
-    const passwordSection = makeElement('div', 'publisher-account-section');
+    const passwordSection = makeElement('div', 'publisher-account-section publisher-account-password');
     passwordSection.append(
       makeElement('h2', '', 'Change password'),
-      makeElement('p', 'publisher-form-intro', 'Leave these fields blank to keep your current password.')
+      makeElement('p', 'publisher-form-intro', 'Leave both fields blank to keep your current password.')
     );
     const password = makeField('New password', {
       id: 'publisher-account-password',
@@ -668,9 +771,14 @@ class PublisherPortal {
     passwordSection.append(password.label, confirmPassword.label);
     form.appendChild(passwordSection);
 
-    const save = makeElement('button', 'publisher-submit', 'Save account changes');
+    const actions = makeElement('div', 'publisher-account-actions');
+    const save = makeElement('button', 'publisher-submit', 'Save changes');
     save.type = 'submit';
-    form.appendChild(save);
+    actions.append(
+      save,
+      makeElement('p', 'publisher-account-save-note', 'Your changes apply to future submissions and listings.'),
+    );
+    form.appendChild(actions);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (!form.reportValidity()) return;
@@ -712,7 +820,7 @@ class PublisherPortal {
         this.setNotice(error.message || String(error), 'error');
       } finally {
         save.disabled = false;
-        save.textContent = 'Save account changes';
+        save.textContent = 'Save changes';
       }
     });
     this.nodes.content.appendChild(form);
@@ -722,9 +830,31 @@ class PublisherPortal {
     this.currentMode = mode;
     const signup = mode === 'signup';
     this.setPage(signup ? 'Create publisher account' : 'Sign in', signup
-      ? 'Verify your email before submitting apps for review.'
-      : 'Sign in with your verified email to publish and manage apps.');
+      ? 'Join the NovaByte community of creators and publishers.'
+      : 'Welcome back to your NovaByte publisher account.');
+    const layout = makeElement('div', 'publisher-auth-layout');
+    const info = makeElement('aside', 'publisher-auth-info');
+    info.append(
+      makeElement('p', 'publisher-review-eyebrow', signup ? 'CREATE YOUR ACCOUNT' : 'PUBLISHER PORTAL'),
+      makeElement('h2', '', signup ? 'Share your work with NovaByte.' : 'Your publishing workspace, all in one place.'),
+      makeElement('p', '', signup
+        ? 'One account lets you publish apps, Studio plugins, and community templates for review.'
+        : 'Sign in to manage your profile, submissions, and published content.'),
+    );
+    const benefits = makeElement('ul', 'publisher-auth-benefits');
+    for (const benefit of signup
+      ? ['Verified email protects publishing actions', 'Every release gets a human review', 'You stay in control of your listings']
+      : ['Track your submissions and releases', 'Update your publisher profile', 'Keep publishing access protected']) {
+      benefits.appendChild(makeElement('li', '', benefit));
+    }
+    info.appendChild(benefits);
     const form = makeElement('form', 'publisher-card publisher-auth-form');
+    const formHeading = makeElement('div', 'publisher-auth-form-heading');
+    formHeading.append(
+      makeElement('h2', '', signup ? 'Create your account' : 'Sign in'),
+      makeElement('p', '', signup ? 'Use a verified email to publish.' : 'Use the email address linked to your publisher account.'),
+    );
+    form.appendChild(formHeading);
 
     if (signup) {
       const name = makeField('Your name or publisher name', {
@@ -759,7 +889,12 @@ class PublisherPortal {
     );
     form.appendChild(alternate);
     if (!signup) {
-      form.appendChild(this.makeAction('Resend verification email', () => this.resendVerification(email.input.value.trim())));
+      const tools = makeElement('div', 'publisher-auth-tools');
+      tools.append(
+        makeElement('p', '', 'Didn’t receive a verification email?'),
+        this.makeAction('Resend verification email', () => this.resendVerification(email.input.value.trim())),
+      );
+      form.appendChild(tools);
     }
     form.addEventListener('submit', async event => {
       event.preventDefault();
@@ -779,10 +914,11 @@ class PublisherPortal {
         submit.textContent = signup ? 'Create account' : 'Sign in';
       }
     });
-    this.nodes.content.appendChild(form);
+    layout.append(info, form);
     if (signup) {
-      this.nodes.content.appendChild(makeElement('p', 'publisher-security-note', 'A verified email is required. Never upload signing keys; NovaByte signs packages only after review.'));
+      layout.appendChild(makeElement('p', 'publisher-security-note', 'A verified email is required before publishing. Never upload signing keys; NovaByte signs packages only after review.'));
     }
+    this.nodes.content.appendChild(layout);
   }
 
   makeAction(text, action, className = '') {
@@ -810,6 +946,37 @@ class PublisherPortal {
     } catch (error) {
       this.setNotice(error.message || String(error), 'error');
     }
+  }
+
+  makeSubmissionLayout(form, { kind, eyebrow, intro }) {
+    form.classList.add('publisher-submission-form', `publisher-submission-form-${kind}`);
+    const overview = makeElement('div', 'publisher-submission-intro');
+    overview.append(
+      makeElement('span', 'publisher-submission-type', eyebrow),
+      makeElement('p', 'publisher-form-intro', intro),
+    );
+    const layout = makeElement('div', 'publisher-submission-layout');
+    const main = makeElement('div', 'publisher-submission-main');
+    const aside = makeElement('aside', 'publisher-submission-aside');
+    const actions = makeElement('div', 'publisher-submission-actions');
+    layout.append(main, aside);
+    form.append(overview, layout, actions);
+    return { main, aside, actions };
+  }
+
+  makeSubmissionSection(step, title, description = '') {
+    const section = makeElement('section', 'publisher-submission-section');
+    const heading = makeElement('div', 'publisher-submission-section-heading');
+    const copy = makeElement('div', 'publisher-submission-section-copy');
+    heading.append(
+      makeElement('span', 'publisher-submission-step', step),
+      copy,
+    );
+    copy.appendChild(makeElement('h2', '', title));
+    if (description) copy.appendChild(makeElement('p', '', description));
+    const fields = makeElement('div', 'publisher-submission-fields');
+    section.append(heading, fields);
+    return { section, fields };
   }
 
   makePackagePicker(onPackage) {
@@ -856,10 +1023,22 @@ class PublisherPortal {
       ? 'Upload a newer package version. Automated checks run first, then human review. Anything they flag goes to the reviewer.'
       : 'Complete the listing details. Automated checks run first, then human review. Anything they flag goes to the reviewer.');
     const form = makeElement('form', 'publisher-card publisher-app-form');
-    const status = makeElement('p', 'publisher-form-intro', update
+    const status = update
       ? `Updating ${app.name} (${app.id}). The submitted package must contain a newer version. Automated checks run first, then human review.`
-      : 'All listing details are required. Automated checks run first, then human review. Anything they flag goes to the reviewer.');
-    form.appendChild(status);
+      : 'Add the details people need to understand your app, then upload the exact .novaapp build for review.';
+    const submission = this.makeSubmissionLayout(form, {
+      kind: 'app',
+      eyebrow: update ? 'APP UPDATE' : 'NOVABYTE APP LISTING',
+      intro: status,
+    });
+    const listingSection = this.makeSubmissionSection('01', update ? 'Release details' : 'App details',
+      update ? 'Describe this release and what has changed.' : 'Give your listing a clear identity and explain what the app does.');
+    const packageSection = this.makeSubmissionSection('02', 'Package',
+      'Upload the build that matches the version submitted for review.');
+    const screenshotSection = this.makeSubmissionSection('03', 'Screenshots',
+      'Show a few useful screens so people know what to expect.');
+    submission.main.append(listingSection.section, screenshotSection.section);
+    submission.aside.appendChild(packageSection.section);
 
     if (!update) {
       const rules = makeElement('details', 'publisher-rules');
@@ -955,7 +1134,7 @@ class PublisherPortal {
       const note = makeElement('p', 'publisher-rules-note',
         'These rules apply to store listings only. Apps reviewed and signed for self-hosting are not subject to them.');
       rules.appendChild(note);
-      form.appendChild(rules);
+      submission.aside.appendChild(rules);
     }
 
     let packageData = null;
@@ -975,7 +1154,7 @@ class PublisherPortal {
         fields.version.input.value = data.pkg.manifest.version || '';
       }
     });
-    form.appendChild(packagePicker.field.label);
+    packageSection.fields.appendChild(packagePicker.field.label);
 
     // ── Screenshot manager ──────────────────────────────────────────────────
     // For updates: shows existing screenshots with individual delete + add new.
@@ -1084,7 +1263,7 @@ class PublisherPortal {
     });
 
     screenshotsSection.append(screenshotHelp, existingGrid, screenshots.label, screenshotPreview);
-    form.appendChild(screenshotsSection);
+    screenshotSection.fields.appendChild(screenshotsSection);
     this.contentCleanup = () => {
       for (const url of screenshotObjectUrls) URL.revokeObjectURL(url);
       screenshotObjectUrls = [];
@@ -1101,10 +1280,10 @@ class PublisherPortal {
       fields.website = makeField('Website URL', { id: 'listing-website', value: '', required: false, placeholder: 'https://example.com', maxLength: 500 });
       fields.source = makeField('Source code URL', { id: 'listing-source', value: '', required: false, placeholder: 'https://github.com/…', maxLength: 500 });
       fields.support = makeField('Support URL', { id: 'listing-support', value: '', required: false, placeholder: 'https://example.com/support', maxLength: 500 });
-      form.append(fields.name.label, fields.appId.label, fields.author.label, fields.version.label,
+      listingSection.fields.append(fields.name.label, fields.appId.label, fields.author.label, fields.version.label,
         fields.description.label, fields.categories.label, fields.website.label, fields.source.label, fields.support.label);
       fields.changelog = makeField('Release notes / changelog', { id: 'listing-changelog', type: 'textarea', placeholder: 'Describe the first release.', maxLength: 4000 });
-      form.appendChild(fields.changelog.label);
+      listingSection.fields.appendChild(fields.changelog.label);
     } else {
       fields.version = makeField('New version', { id: 'update-version', value: '', placeholder: 'Read from .novaapp package', maxLength: 40 });
 
@@ -1132,14 +1311,14 @@ class PublisherPortal {
       descOverrideWrap.append(descToggle, descLabel);
 
       fields.changelog = makeField('What\'s new in this version?', { id: 'update-changelog', type: 'textarea', placeholder: 'Describe the changes in this release.', maxLength: 4000 });
-      form.append(fields.version.label, descOverrideWrap, fields.changelog.label);
+      listingSection.fields.append(fields.version.label, descOverrideWrap, fields.changelog.label);
     }
 
     const submit = makeElement('button', 'publisher-submit',
       update ? 'Submit update for review' : 'Submit app for review');
     submit.type = 'submit';
     const cancel = this.makeAction('Cancel', () => this.open('my-apps'), 'publisher-cancel');
-    form.append(submit, cancel);
+    submission.actions.append(submit, cancel);
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (!form.reportValidity()) return;
@@ -1298,7 +1477,20 @@ class PublisherPortal {
       ? 'Submit a newer .nbplugin for human review. NovaByte signs the reviewed plugin contents after approval.'
       : 'Submit an .nbplugin for human review. Studio plugins run with full access to the user account, so every submission is manually reviewed.');
     const form = makeElement('form', 'publisher-card publisher-app-form');
-    form.appendChild(makeElement('p', 'publisher-security-note',
+    const submission = this.makeSubmissionLayout(form, {
+      kind: 'plugin',
+      eyebrow: update ? 'STUDIO PLUGIN UPDATE' : 'STUDIO PLUGIN LISTING',
+      intro: update
+        ? 'Update your plugin listing and provide the matching archive and release notes for review.'
+        : 'Share your Studio extension with the community. Plugin submissions are manually reviewed before signing.',
+    });
+    const detailsSection = this.makeSubmissionSection('01', 'Plugin details',
+      'These values must match the plugin.json inside your archive.');
+    const packageSection = this.makeSubmissionSection('02', 'Plugin package',
+      'Upload a ZIP archive containing plugin.json at its root.');
+    submission.main.appendChild(detailsSection.section);
+    submission.aside.appendChild(packageSection.section);
+    submission.aside.appendChild(makeElement('p', 'publisher-security-note',
       'Plugins have full Node.js, filesystem, process, and network access. Upload readable code, disclose capabilities accurately, and never include private signing keys. NovaByte signs only the reviewed plugin contents.'));
     const fields = {
       pluginId: makeField('Plugin ID (must match plugin.json)', {
@@ -1334,15 +1526,22 @@ class PublisherPortal {
     };
     fields.pluginId.input.readOnly = update;
     fields.package.input.accept = '.nbplugin,application/zip,application/octet-stream';
-    form.append(
-      makeElement('p', 'publisher-form-intro',
-        'The plugin must contain plugin.json at its ZIP root. Its ID, name, version, and engines.studio range must exactly match these listing fields.'),
-      ...Object.values(fields).map(field => field.label),
+    detailsSection.fields.append(
+      fields.pluginId.label,
+      fields.name.label,
+      fields.publisher.label,
+      fields.version.label,
+      fields.compatibleStudio.label,
+      fields.description.label,
+      fields.changelog.label,
     );
+    packageSection.fields.appendChild(fields.package.label);
     const submit = makeElement('button', 'publisher-submit', update ? 'Submit plugin update for review' : 'Submit Studio plugin for review');
     submit.type = 'submit';
-    form.appendChild(submit);
-    form.appendChild(this.makeAction('Cancel', () => this.open('my-plugins'), 'is-secondary'));
+    submission.actions.append(
+      submit,
+      this.makeAction('Cancel', () => this.open('my-plugins'), 'is-secondary'),
+    );
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (!form.reportValidity()) return;
@@ -1415,7 +1614,18 @@ class PublisherPortal {
       ? 'Submit a newer Studio .nbtemplate for human review. The reviewer will upload the signed .nbtemplate that is published to Studio.'
       : 'Submit a Studio .nbtemplate for human review. The reviewer will upload the signed .nbtemplate that is published to Studio.');
     const form = makeElement('form', 'publisher-card publisher-app-form');
-    form.appendChild(makeElement('p', 'publisher-security-note',
+    const submission = this.makeSubmissionLayout(form, {
+      kind: 'template',
+      eyebrow: update ? 'STUDIO TEMPLATE UPDATE' : 'COMMUNITY TEMPLATE LISTING',
+      intro: 'Submit an unsigned Studio template bundle. A reviewer validates and signs the approved version before it is published.',
+    });
+    const detailsSection = this.makeSubmissionSection('01', 'Template details',
+      'Use the stable ID for this template. It cannot be changed in an update.');
+    const packageSection = this.makeSubmissionSection('02', 'Template bundle',
+      'Choose the unsigned .nbtemplate exported from Studio.');
+    submission.main.appendChild(detailsSection.section);
+    submission.aside.appendChild(packageSection.section);
+    submission.aside.appendChild(makeElement('p', 'publisher-security-note',
       'Templates are untrusted content. The publisher service validates the .nbtemplate but never executes its files. NovaByte staff must inspect the complete signed .nbtemplate before approval. Do not include secrets, binaries, screenshots, hidden files, or node_modules. Only text files are accepted. Limits: 4 MiB bundle, 2 MiB expanded text, 500 files.'));
     const templateId = makeField('Template ID (lowercase letters, digits, dots, and hyphens)', {
       id: 'community-template-id',
@@ -1432,12 +1642,16 @@ class PublisherPortal {
       required: true,
     });
     file.input.accept = '.nbtemplate';
-    const intro = makeElement('p', 'publisher-form-intro',
-      'Upload the unsigned .nbtemplate exported by Studio. Its Base64 file contents are kept intact; unsupported binary files are rejected during validation. The template metadata is taken from the bundle; releaseVersion must be valid semantic versioning. Signed .nbtemplate files are uploaded by the reviewer in the review step.');
     const submit = makeElement('button', 'publisher-submit', update ? 'Submit template update for review' : 'Submit community template for review');
     submit.type = 'submit';
-    form.append(intro, templateId.label, file.label, submit);
-    form.appendChild(this.makeAction('Cancel', () => this.open('my-templates'), 'is-secondary'));
+    detailsSection.fields.appendChild(templateId.label);
+    packageSection.fields.appendChild(file.label);
+    packageSection.fields.appendChild(makeElement('p', 'publisher-form-intro',
+      'Bundle contents are kept intact; unsupported binary files are rejected during validation. Metadata comes from the bundle, and releaseVersion must be valid semantic versioning.'));
+    submission.actions.append(
+      submit,
+      this.makeAction('Cancel', () => this.open('my-templates'), 'is-secondary'),
+    );
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (!form.reportValidity()) return;
@@ -1516,48 +1730,144 @@ class PublisherPortal {
     this.nodes.content.appendChild(form);
   }
 
+  activeSubmissions(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    return value.filter(submission => {
+      if (!submission || submission.status === 'published') return false;
+      const key = submission.id || [
+        submission.app_id || submission.plugin_id || submission.template_id,
+        submission.version,
+        submission.type,
+        submission.status,
+      ].join(':');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  createContentDashboard({ kind, published, submissions, actionLabel, action }) {
+    const dashboard = makeElement('div', 'publisher-content-dashboard');
+    const overview = makeElement('section', 'publisher-content-overview');
+    const copy = makeElement('div', 'publisher-content-overview-copy');
+    copy.append(
+      makeElement('p', 'publisher-review-eyebrow', 'PUBLISHER WORKSPACE'),
+      makeElement('h2', '', `Your ${kind}`),
+      makeElement('p', '', 'Published listings and active reviews are organized separately so it is easy to see what needs attention.'),
+    );
+    const metrics = makeElement('div', 'publisher-content-metrics');
+    const needsAttention = submissions.filter(submission =>
+      ['changes_requested', 'rejected', 'automated_rejected'].includes(submission.status)
+    ).length;
+    for (const [label, count] of [
+      ['Published', published],
+      ['In review', submissions.length],
+      ['Needs attention', needsAttention],
+    ]) {
+      const metric = makeElement('div', 'publisher-content-metric');
+      metric.append(makeElement('span', '', label), makeElement('strong', '', String(count)));
+      metrics.appendChild(metric);
+    }
+    overview.append(copy, metrics);
+    const toolbar = makeElement('div', 'publisher-content-toolbar');
+    toolbar.appendChild(this.makeAction(actionLabel, action, 'publisher-submit'));
+    dashboard.append(overview, toolbar);
+    return dashboard;
+  }
+
+  createContentSection(dashboard, title, count) {
+    const section = makeElement('section', 'publisher-content-section');
+    const heading = makeElement('div', 'publisher-content-section-heading');
+    heading.append(
+      makeElement('h2', '', title),
+      makeElement('span', 'publisher-review-count', String(count)),
+    );
+    const list = makeElement('div', 'publisher-app-list publisher-content-list');
+    section.append(heading, list);
+    dashboard.appendChild(section);
+    return list;
+  }
+
+  createContentEmptyState(title, description) {
+    const empty = makeElement('div', 'publisher-review-empty publisher-content-empty');
+    empty.append(
+      makeElement('span', 'publisher-review-empty-mark', '✦'),
+      makeElement('h3', '', title),
+      makeElement('p', '', description),
+    );
+    return empty;
+  }
+
+  contentCardActions(...actions) {
+    const container = makeElement('div', 'publisher-content-card-actions');
+    container.append(...actions);
+    return container;
+  }
+
+  submissionStatusBadge(status) {
+    const label = String(status || 'pending').replace(/_/g, ' ');
+    return makeElement('span', `publisher-submission-status is-${status || 'pending'}`, label);
+  }
+
   async renderMyCommunityTemplates() {
-    this.setPage('My community templates', `Signed in as ${this.user.email}. Every release remains private until NovaByte human review and signing are complete.`);
+    this.setPage('My community templates', `Signed in as ${this.user.email}. Manage published templates and follow each release through human review.`);
     const loading = makeElement('p', 'publisher-help', 'Loading your community templates…');
     this.nodes.content.appendChild(loading);
     try {
       const result = await this.call('my-templates');
       const templates = Array.isArray(result.templates) ? result.templates : [];
-      const submissions = Array.isArray(result.submissions) ? result.submissions : [];
+      const submissions = this.activeSubmissions(result.submissions);
       this.nodes.content.replaceChildren();
-      this.nodes.content.appendChild(this.makeAction(
-        '＋ Submit a community template',
-        () => this.open('publish-template'),
-        'publisher-submit',
-      ));
+      const dashboard = this.createContentDashboard({
+        kind: 'community templates',
+        published: templates.length,
+        submissions,
+        actionLabel: '＋ Submit a community template',
+        action: () => this.open('publish-template'),
+      });
       if (!templates.length && !submissions.length) {
-        this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'You have not published or submitted any community templates yet.'));
+        dashboard.appendChild(this.createContentEmptyState('Your template workspace is ready', 'Submit a community template to start building your publisher catalog.'));
+        this.nodes.content.appendChild(dashboard);
         return;
       }
-      const list = makeElement('div', 'publisher-app-list');
+      const publishedList = templates.length
+        ? this.createContentSection(dashboard, 'Published templates', templates.length)
+        : null;
       for (const template of templates) {
         const card = makeElement('article', 'publisher-app-card');
         const details = makeElement('div', 'publisher-app-main');
+        const title = makeElement('div', 'publisher-content-card-heading');
         details.append(
-          makeElement('h2', '', template.name),
+          title,
           makeElement('p', 'publisher-app-meta', `${template.template_id} · v${template.version} · ${template.category} · Published`),
           makeElement('p', 'publisher-app-description', template.description),
         );
-        card.append(details, this.makeAction('Submit update', () => this.renderCommunityTemplateForm({ type: 'update', template })));
-        list.appendChild(card);
+        title.append(makeElement('h2', '', template.name), this.submissionStatusBadge('published'));
+        const action = this.makeAction('Submit update', () => this.renderCommunityTemplateForm({ type: 'update', template }));
+        card.append(details, this.contentCardActions(action));
+        publishedList.appendChild(card);
       }
+      const submissionsList = submissions.length
+        ? this.createContentSection(dashboard, 'Submission activity', submissions.length)
+        : null;
       for (const submission of submissions) {
         const metadata = submission.metadata || {};
         const card = makeElement('article', 'publisher-app-card is-submission');
         const details = makeElement('div', 'publisher-app-main');
+        const title = makeElement('div', 'publisher-content-card-heading');
         details.append(
-          makeElement('h2', '', metadata.name || submission.template_id),
+          title,
           makeElement('p', 'publisher-app-meta', `${submission.template_id} · v${submission.version} · ${submission.type} · ${submission.status.replace(/_/g, ' ')}`),
           makeElement('p', 'publisher-app-description', submission.review_note || 'Waiting for human review.'),
         );
+        title.append(
+          makeElement('h2', '', metadata.name || submission.template_id),
+          this.submissionStatusBadge(submission.status),
+        );
         card.appendChild(details);
         if (['pending', 'changes_requested', 'rejected'].includes(submission.status)) {
-          card.appendChild(this.makeAction('Withdraw submission', async () => {
+          card.appendChild(this.contentCardActions(this.makeAction('Withdraw submission', async () => {
             if (!window.confirm('Withdraw this community template submission?')) return;
             try {
               await this.call('withdraw-template', { submissionId: submission.id });
@@ -1566,11 +1876,13 @@ class PublisherPortal {
             } catch (error) {
               this.setNotice(error.message || String(error), 'error');
             }
-          }, 'is-danger'));
+          }, 'is-danger')));
+        } else {
+          card.appendChild(this.contentCardActions());
         }
-        list.appendChild(card);
+        submissionsList.appendChild(card);
       }
-      this.nodes.content.appendChild(list);
+      this.nodes.content.appendChild(dashboard);
     } catch (error) {
       loading.textContent = error.message || 'Could not load your community templates.';
       loading.classList.add('is-error');
@@ -1578,43 +1890,63 @@ class PublisherPortal {
   }
 
   async renderMyStudioPlugins() {
-    this.setPage('My Studio plugins', `Signed in as ${this.user.email}. Published plugins and review submissions are managed separately from NovaByte OS apps.`);
+    this.setPage('My Studio plugins', `Signed in as ${this.user.email}. Manage published plugins and keep track of their review status.`);
     const loading = makeElement('p', 'publisher-help', 'Loading your Studio plugins…');
     this.nodes.content.appendChild(loading);
     try {
       const result = await this.call('my-plugins');
       const plugins = Array.isArray(result.plugins) ? result.plugins : [];
-      const submissions = Array.isArray(result.submissions) ? result.submissions : [];
+      const submissions = this.activeSubmissions(result.submissions);
       this.nodes.content.replaceChildren();
-      this.nodes.content.appendChild(this.makeAction('＋ Publish a Studio plugin', () => this.open('publish-plugin'), 'publisher-submit'));
+      const dashboard = this.createContentDashboard({
+        kind: 'Studio plugins',
+        published: plugins.length,
+        submissions,
+        actionLabel: '＋ Publish a Studio plugin',
+        action: () => this.open('publish-plugin'),
+      });
       if (!plugins.length && !submissions.length) {
-        this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'You have not published or submitted any Studio plugins yet.'));
+        dashboard.appendChild(this.createContentEmptyState('Your plugin workspace is ready', 'Publish a Studio plugin to share it with NovaByte Studio users.'));
+        this.nodes.content.appendChild(dashboard);
         return;
       }
-      const list = makeElement('div', 'publisher-app-list');
+      const publishedList = plugins.length
+        ? this.createContentSection(dashboard, 'Published plugins', plugins.length)
+        : null;
       for (const plugin of plugins) {
         const card = makeElement('article', 'publisher-app-card');
         const details = makeElement('div', 'publisher-app-main');
+        const title = makeElement('div', 'publisher-content-card-heading');
         details.append(
-          makeElement('h2', '', plugin.name),
+          title,
           makeElement('p', 'publisher-app-meta', `${plugin.plugin_id} · v${plugin.version} · Published`),
           makeElement('p', 'publisher-app-description', plugin.description),
         );
-        card.append(details, this.makeAction('Submit update', () => this.renderStudioPluginForm({ type: 'update', plugin })));
-        list.appendChild(card);
+        title.append(makeElement('h2', '', plugin.name), this.submissionStatusBadge('published'));
+        const action = this.makeAction('Submit update', () => this.renderStudioPluginForm({ type: 'update', plugin }));
+        card.append(details, this.contentCardActions(action));
+        publishedList.appendChild(card);
       }
+      const submissionsList = submissions.length
+        ? this.createContentSection(dashboard, 'Submission activity', submissions.length)
+        : null;
       for (const submission of submissions) {
         const metadata = submission.metadata || {};
         const card = makeElement('article', 'publisher-app-card is-submission');
         const details = makeElement('div', 'publisher-app-main');
+        const title = makeElement('div', 'publisher-content-card-heading');
         details.append(
-          makeElement('h2', '', metadata.name || submission.plugin_id),
+          title,
           makeElement('p', 'publisher-app-meta', `${submission.plugin_id} · v${submission.version} · ${submission.type} · ${submission.status.replace(/_/g, ' ')}`),
           makeElement('p', 'publisher-app-description', submission.review_note || submission.changelog || 'Waiting for review.'),
         );
+        title.append(
+          makeElement('h2', '', metadata.name || submission.plugin_id),
+          this.submissionStatusBadge(submission.status),
+        );
         card.appendChild(details);
         if (['pending', 'changes_requested', 'rejected'].includes(submission.status)) {
-          card.appendChild(this.makeAction('Withdraw submission', async () => {
+          card.appendChild(this.contentCardActions(this.makeAction('Withdraw submission', async () => {
             if (!window.confirm('Withdraw this Studio plugin submission?')) return;
             try {
               await this.call('withdraw-plugin', { submissionId: submission.id });
@@ -1623,11 +1955,13 @@ class PublisherPortal {
             } catch (error) {
               this.setNotice(error.message || String(error), 'error');
             }
-          }, 'is-danger'));
+          }, 'is-danger')));
+        } else {
+          card.appendChild(this.contentCardActions());
         }
-        list.appendChild(card);
+        submissionsList.appendChild(card);
       }
-      this.nodes.content.appendChild(list);
+      this.nodes.content.appendChild(dashboard);
     } catch (error) {
       loading.textContent = error.message || 'Could not load your Studio plugins.';
       loading.classList.add('is-error');
@@ -1635,7 +1969,7 @@ class PublisherPortal {
   }
 
   async renderMyApps() {
-    this.setPage('My apps', `Signed in as ${this.user.email}. Right-click an app or use its options menu to update or remove it from the public catalog.`);
+    this.setPage('My apps', `Signed in as ${this.user.email}. Manage published apps and review activity from one place.`);
     const loading = makeElement('p', 'publisher-help', 'Loading your apps…');
     this.nodes.content.appendChild(loading);
     try {
@@ -1643,18 +1977,29 @@ class PublisherPortal {
       const published = Array.isArray(result.apps)
         ? result.apps.map(app => ({ ...app, id: app.id || app.app_id }))
         : [];
-      const submissions = Array.isArray(result.submissions) ? result.submissions : [];
+      const submissions = this.activeSubmissions(result.submissions);
       this.nodes.content.replaceChildren();
-      const publishButton = this.makeAction('＋ Publish a new app', () => this.open('publish'), 'publisher-submit');
-      this.nodes.content.appendChild(publishButton);
+      const dashboard = this.createContentDashboard({
+        kind: 'NovaByte apps',
+        published: published.length,
+        submissions,
+        actionLabel: '＋ Publish a new app',
+        action: () => this.open('publish'),
+      });
       if (!published.length && !submissions.length) {
-        this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'You have not published or submitted any apps yet.'));
+        dashboard.appendChild(this.createContentEmptyState('Your app workspace is ready', 'Publish an app to create your first listing in the NovaByte Store.'));
+        this.nodes.content.appendChild(dashboard);
         return;
       }
-      const list = makeElement('div', 'publisher-app-list');
-      for (const app of published) list.appendChild(this.renderOwnedApp(app));
-      for (const submission of submissions) list.appendChild(this.renderSubmission(submission));
-      this.nodes.content.appendChild(list);
+      const publishedList = published.length
+        ? this.createContentSection(dashboard, 'Published apps', published.length)
+        : null;
+      for (const app of published) publishedList.appendChild(this.renderOwnedApp(app));
+      if (submissions.length) {
+        const submissionsList = this.createContentSection(dashboard, 'Submission activity', submissions.length);
+        for (const submission of submissions) submissionsList.appendChild(this.renderSubmission(submission));
+      }
+      this.nodes.content.appendChild(dashboard);
     } catch (error) {
       loading.textContent = error.message || 'Could not load your apps.';
       loading.classList.add('is-error');
@@ -1664,11 +2009,13 @@ class PublisherPortal {
   renderOwnedApp(app) {
     const card = makeElement('article', 'publisher-app-card');
     const details = makeElement('div', 'publisher-app-main');
+    const title = makeElement('div', 'publisher-content-card-heading');
     details.append(
-      makeElement('h2', '', app.name),
+      title,
       makeElement('p', 'publisher-app-meta', `${app.id} · v${app.version} · Published`),
       makeElement('p', 'publisher-app-description', app.description)
     );
+    title.append(makeElement('h2', '', app.name), this.submissionStatusBadge('published'));
     const menuButton = makeElement('button', 'publisher-menu-trigger', 'Options');
     menuButton.type = 'button';
     menuButton.setAttribute('aria-label', `Options for ${app.name}`);
@@ -1695,7 +2042,7 @@ class PublisherPortal {
     };
     card.addEventListener('contextmenu', toggleMenu);
     menuButton.addEventListener('click', toggleMenu);
-    card.append(details, menuButton, menu);
+    card.append(details, this.contentCardActions(menuButton, menu));
     return card;
   }
 
@@ -1703,15 +2050,23 @@ class PublisherPortal {
     const card = makeElement('article', 'publisher-app-card is-submission');
     const details = makeElement('div', 'publisher-app-main');
     const app = submission.metadata || {};
+    const title = makeElement('div', 'publisher-content-card-heading');
     details.append(
-      makeElement('h2', '', app.name || submission.app_id),
+      title,
       makeElement('p', 'publisher-app-meta', `${submission.app_id} · v${submission.version} · ${submission.type} · ${submission.status.replace(/_/g, ' ')}`),
       makeElement('p', 'publisher-app-description', submission.review_note || submission.changelog || 'Waiting for review.')
     );
+    title.append(
+      makeElement('h2', '', app.name || submission.app_id),
+      this.submissionStatusBadge(submission.status),
+    );
     card.appendChild(details);
     if (submission.automated_review) {
-      appendAutomatedReview(card, submission.automated_review);
+      const report = makeElement('div', 'publisher-content-card-report');
+      appendAutomatedReview(report, submission.automated_review);
+      card.appendChild(report);
     }
+    const actions = [];
     if (['pending', 'changes_requested', 'rejected', 'automated_rejected'].includes(submission.status)) {
       const withdraw = this.makeAction('Withdraw submission', async () => {
         if (!window.confirm('Withdraw this submission?')) return;
@@ -1723,8 +2078,9 @@ class PublisherPortal {
           this.setNotice(error.message || String(error), 'error');
         }
       }, 'is-danger');
-      card.appendChild(withdraw);
+      actions.push(withdraw);
     }
+    card.appendChild(this.contentCardActions(...actions));
     return card;
   }
 
@@ -1739,7 +2095,7 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Review submissions', 'Apps, Studio plugins, and community templates appear here for human review. Inspect each submission, upload the exact reviewed version, and explicitly approve or reject it.');
+    this.setPage('Review submissions', 'A focused workspace for reviewing releases, Studio extensions, and community templates.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
@@ -1754,13 +2110,74 @@ class PublisherPortal {
       const hostedApps = Array.isArray(hostedResult.apps) ? hostedResult.apps : [];
       const pluginQueue = Array.isArray(pluginResult.submissions) ? pluginResult.submissions : [];
       const templateQueue = Array.isArray(templateResult.submissions) ? templateResult.submissions : [];
-      if (!queue.length && !hostedApps.length && !pluginQueue.length && !templateQueue.length) {
-        this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'The review queue is clear.'));
+      const reviewCount = queue.length + pluginQueue.length + templateQueue.length;
+      const failedChecks = queue.filter(submission => submission.automated_review?.passed === false).length;
+      const dashboard = makeElement('div', 'publisher-review-dashboard');
+      const overview = makeElement('section', 'publisher-review-overview');
+      const overviewCopy = makeElement('div', 'publisher-review-overview-copy');
+      overviewCopy.append(
+        makeElement('p', 'publisher-review-eyebrow', 'REVIEW WORKSPACE'),
+        makeElement('h2', '', reviewCount
+          ? `${reviewCount} submission${reviewCount === 1 ? '' : 's'} need${reviewCount === 1 ? 's' : ''} review`
+          : 'You’re all caught up'),
+        makeElement('p', '', reviewCount
+          ? 'Review each package and its details before making a decision.'
+          : hostedApps.length
+            ? 'There are no pending submissions. You can still manage hosted community apps below.'
+            : 'There are no pending submissions or hosted apps to manage.'),
+      );
+      const metrics = makeElement('div', 'publisher-review-metrics');
+      const metricItems = [
+        ['App releases', queue.length],
+        ['Studio plugins', pluginQueue.length],
+        ['Community templates', templateQueue.length],
+        ['Hosted apps', hostedApps.length],
+      ];
+      for (const [label, count] of metricItems) {
+        const metric = makeElement('div', 'publisher-review-metric');
+        metric.append(
+          makeElement('span', '', label),
+          makeElement('strong', '', String(count)),
+        );
+        metrics.appendChild(metric);
+      }
+      overview.append(overviewCopy, metrics);
+      dashboard.appendChild(overview);
+      if (failedChecks) {
+        const alert = makeElement('p', 'publisher-review-alert');
+        alert.append(
+          makeElement('strong', '', `${failedChecks} app submission${failedChecks === 1 ? '' : 's'} failed automated checks`),
+          document.createTextNode(' — inspect the findings carefully before taking action.'),
+        );
+        dashboard.appendChild(alert);
+      }
+      if (!reviewCount && !hostedApps.length) {
+        const empty = makeElement('div', 'publisher-review-empty');
+        empty.append(
+          makeElement('span', 'publisher-review-empty-mark', '✓'),
+          makeElement('h3', '', 'The review queue is clear'),
+          makeElement('p', '', 'New submissions will appear here when they are ready for review.'),
+        );
+        dashboard.appendChild(empty);
+        this.nodes.content.appendChild(dashboard);
         return;
       }
+      const makeReviewSection = (title, count, description = '') => {
+        const section = makeElement('section', 'publisher-review-section');
+        const heading = makeElement('div', 'publisher-review-section-heading');
+        const titleElement = makeElement('h2', '', title);
+        const countElement = makeElement('span', 'publisher-review-count', String(count));
+        countElement.setAttribute('aria-label', `${count} ${count === 1 ? 'item' : 'items'}`);
+        heading.append(titleElement, countElement);
+        section.appendChild(heading);
+        if (description) section.appendChild(makeElement('p', 'publisher-review-section-description', description));
+        const list = makeElement('div', 'publisher-app-list publisher-review-list');
+        section.appendChild(list);
+        dashboard.appendChild(section);
+        return list;
+      };
       if (queue.length) {
-        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Submissions awaiting review'));
-        const list = makeElement('div', 'publisher-app-list');
+        const list = makeReviewSection('App submissions', queue.length);
         for (const submission of queue) {
           const item = makeElement('article', 'publisher-review-card');
           const info = submission.metadata || {};
@@ -1785,12 +2202,13 @@ class PublisherPortal {
           item.appendChild(reviewButton);
           list.appendChild(item);
         }
-        this.nodes.content.appendChild(list);
       }
       if (hostedApps.length) {
-        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Hosted community apps'));
-        this.nodes.content.appendChild(makeElement('p', 'publisher-help', 'Dehosting removes the app from the public catalog and deletes its published package files.'));
-        const list = makeElement('div', 'publisher-app-list');
+        const list = makeReviewSection(
+          'Hosted community apps',
+          hostedApps.length,
+          'Dehosting removes an app from the public catalog and deletes its published package files.',
+        );
         for (const app of hostedApps) {
           const item = makeElement('article', 'publisher-review-card');
           item.append(
@@ -1813,13 +2231,13 @@ class PublisherPortal {
           item.appendChild(dehost);
           list.appendChild(item);
         }
-        this.nodes.content.appendChild(list);
       }
       if (pluginQueue.length) {
-        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Studio plugin submissions'));
-        this.nodes.content.appendChild(makeElement('p', 'publisher-help',
-          'Studio plugins run with full user-account access. Inspect the complete archive, verify its declared behavior, upload the exact reviewed .nbplugin, then record your safety confidence before publishing.'));
-        const list = makeElement('div', 'publisher-app-list');
+        const list = makeReviewSection(
+          'Studio plugin submissions',
+          pluginQueue.length,
+          'Studio plugins run with full user-account access. Inspect the complete archive, verify its declared behavior, upload the exact reviewed .nbplugin, then record your safety confidence before publishing.',
+        );
         for (const submission of pluginQueue) {
           const metadata = submission.metadata || {};
           const item = makeElement('article', 'publisher-review-card');
@@ -1835,13 +2253,13 @@ class PublisherPortal {
           item.appendChild(reviewButton);
           list.appendChild(item);
         }
-        this.nodes.content.appendChild(list);
       }
       if (templateQueue.length) {
-        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Studio community template submissions'));
-        this.nodes.content.appendChild(makeElement('p', 'publisher-help',
-          'Template bundles are untrusted JSON and are never executed by publisher tooling. Inspect every manifest field and text file, including the reviewed version, before approval. Screenshots are unsupported.'));
-        const list = makeElement('div', 'publisher-app-list');
+        const list = makeReviewSection(
+          'Community template submissions',
+          templateQueue.length,
+          'Template bundles are untrusted JSON and are never executed by publisher tooling. Inspect every manifest field and text file, including the reviewed version, before approval. Screenshots are unsupported.',
+        );
         for (const submission of templateQueue) {
           const metadata = submission.metadata || {};
           const item = makeElement('article', 'publisher-review-card');
@@ -1867,8 +2285,8 @@ class PublisherPortal {
           ));
           list.appendChild(item);
         }
-        this.nodes.content.appendChild(list);
       }
+      this.nodes.content.appendChild(dashboard);
     } catch (error) {
       loading.textContent = error.message || 'Could not load the review queue.';
       loading.classList.add('is-error');
@@ -2303,6 +2721,12 @@ class PublisherPortal {
         this.updateNavigation();
         this.showStore();
       }
+    });
+    this.nodes.nav.addEventListener('click', event => {
+      if (!event.target.closest('.publisher-nav-button')) return;
+      this.nodes.nav.querySelectorAll('details[open]').forEach(menu => {
+        menu.open = false;
+      });
     });
     this.nodes.back.addEventListener('click', () => this.showStore());
     document.addEventListener('click', event => {

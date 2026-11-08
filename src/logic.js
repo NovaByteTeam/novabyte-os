@@ -1,5 +1,6 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import { publisherPortal } from './publishing.js';
+import { scrollToPosition, scrollToTop } from './smooth-scroll.js';
 
 // Icon SVG paths — Lucide-compatible strokes, inline so there's no icon library dep.
 const ICONS = {
@@ -287,6 +288,19 @@ let allCommunityTemplates = [];
 let activeCategory = 'all';
 let searchQuery = '';
 let catalogMode = 'apps';
+let pluginCollection = 'all';
+let pluginFavorites = new Set();
+const catalogRatingSummaries = new Map();
+const catalogRatingStatus = new Map();
+
+try {
+  const savedFavorites = JSON.parse(localStorage.getItem('novabyte-studio-plugin-favorites') || '[]');
+  if (Array.isArray(savedFavorites) && savedFavorites.every(id => typeof id === 'string')) {
+    pluginFavorites = new Set(savedFavorites);
+  }
+} catch (error) {
+  console.warn('[Store] Could not restore saved Studio plugin favorites:', error);
+}
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -306,9 +320,34 @@ const catalogDescription = document.getElementById('catalog-description');
 const storeHeading = document.getElementById('store-heading');
 const categoryBar   = document.querySelector('.category-bar');
 const catalogSwitch = document.querySelector('.catalog-switch');
+const pluginCatalogTools = document.getElementById('plugin-catalog-tools');
+const pluginCollections = document.getElementById('plugin-collections');
+const pluginSort = document.getElementById('plugin-sort');
+const pluginPublisherFilter = document.getElementById('plugin-publisher-filter');
+const pluginCompatibilityFilter = document.getElementById('plugin-compatibility-filter');
+const pluginRatingFilter = document.getElementById('plugin-rating-filter');
 const catalogModeWarning = document.getElementById('catalog-mode-warning');
 const searchInput   = document.getElementById('search-input');
 const backBtn       = document.getElementById('back-btn');
+const communityDetailView = document.getElementById('community-detail-view');
+const communityDetailBack = document.getElementById('community-detail-back');
+const communityDetailIcon = document.getElementById('community-detail-icon');
+const communityDetailKicker = document.getElementById('community-detail-kicker');
+const communityDetailName = document.getElementById('community-detail-name');
+const communityDetailAuthor = document.getElementById('community-detail-author');
+const communityDetailCats = document.getElementById('community-detail-cats');
+const communityDetailDownload = document.getElementById('community-detail-download');
+const communityDetailDownloadLabel = document.getElementById('community-detail-download-label');
+const communityDetailFormat = document.getElementById('community-detail-format');
+const communityDetailStats = document.getElementById('community-detail-stats');
+const communityDetailTrust = document.getElementById('community-detail-trust');
+const communityDetailAboutTitle = document.getElementById('community-detail-about-title');
+const communityDetailDescription = document.getElementById('community-detail-description');
+const communityDetailReleaseSection = document.getElementById('community-detail-release-section');
+const communityDetailReleaseNotes = document.getElementById('community-detail-release-notes');
+const communityDetailRatings = document.getElementById('community-detail-ratings');
+const communityDetailInfo = document.getElementById('community-detail-info');
+const communityDetailSafety = document.getElementById('community-detail-safety');
 
 const featuredSection = document.getElementById('featured-section');
 const featuredCard    = document.getElementById('featured-card');
@@ -345,6 +384,7 @@ const detailLicense      = document.getElementById('detail-license');
 const detailLicenseChip  = document.getElementById('detail-license-chip');
 const detailReleaseNotes = document.getElementById('detail-release-notes');
 const detailReleaseNotesSection = document.getElementById('detail-release-notes-section');
+const detailRatings = document.getElementById('detail-ratings');
 const detailLinks = document.getElementById('detail-links');
 const detailRootWarning   = document.getElementById('detail-root-warning');
 const detailSafetyBar     = document.getElementById('detail-safety-bar');
@@ -352,6 +392,112 @@ const detailSafetyFill    = document.getElementById('detail-safety-fill');
 const detailSafetyLabel   = document.getElementById('detail-safety-label');
 const detailVersionHistory = document.getElementById('detail-version-history');
 const detailVersionHistoryList = document.getElementById('detail-version-history-list');
+
+function catalogRatingKey(catalogType, itemId) {
+  return `${catalogType}:${itemId}`;
+}
+
+function catalogRatingErrorMessage(error) {
+  const message = error?.message || String(error);
+  return /get_catalog_rating_|publisher_catalog_ratings|schema cache/i.test(message)
+    ? 'Community ratings are not set up yet. Apply the catalog ratings migration to enable them.'
+    : message;
+}
+
+function ratingSummaryElement(catalogType, itemId) {
+  const element = document.createElement('span');
+  element.className = 'catalog-rating-summary';
+  const summary = catalogRatingSummaries.get(catalogRatingKey(catalogType, itemId));
+  if (!publisherPortal.configured || catalogRatingStatus.get(catalogType) === 'error') {
+    element.textContent = 'Ratings unavailable';
+    return element;
+  }
+  if (!summary?.ratingCount) {
+    element.textContent = '☆ No ratings yet';
+    return element;
+  }
+  const count = document.createElement('span');
+  count.textContent = `(${summary.ratingCount})`;
+  element.append(document.createTextNode(`★ ${Number(summary.averageRating).toFixed(1)} `), count);
+  return element;
+}
+
+async function loadCatalogRatingSummaries(catalogType, items) {
+  catalogRatingStatus.set(catalogType, 'loading');
+  try {
+    const summaries = await publisherPortal.fetchCatalogRatingSummaries(
+      catalogType,
+      items.map(item => item.id),
+    );
+    if (!Array.isArray(summaries)) throw new Error('The rating service returned an invalid response.');
+    for (const summary of summaries) {
+      if (typeof summary.item_id !== 'string') continue;
+      const averageRating = Number(summary.average_rating);
+      const ratingCount = Number(summary.rating_count);
+      if (!Number.isFinite(averageRating) || !Number.isInteger(ratingCount) || ratingCount < 1) continue;
+      catalogRatingSummaries.set(catalogRatingKey(catalogType, summary.item_id), {
+        averageRating,
+        ratingCount,
+      });
+    }
+    catalogRatingStatus.set(catalogType, 'loaded');
+  } catch (error) {
+    catalogRatingStatus.set(catalogType, 'error');
+    console.warn(`[Store] Could not load ${catalogType} ratings:`, error);
+  }
+}
+
+function updatePluginFilterOptions() {
+  const populate = (select, values, firstLabel) => {
+    const selected = select.value;
+    select.replaceChildren(new Option(firstLabel, 'all'));
+    for (const value of values) select.add(new Option(value, value));
+    select.value = values.includes(selected) ? selected : 'all';
+  };
+  populate(pluginPublisherFilter,
+    [...new Set(allStudioPlugins.map(plugin => plugin.publisher).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b)),
+    'All publishers');
+  populate(pluginCompatibilityFilter,
+    [...new Set(allStudioPlugins.map(plugin => plugin.compatibleStudio).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b)),
+    'All versions');
+}
+
+function savePluginFavorites() {
+  try {
+    localStorage.setItem('novabyte-studio-plugin-favorites', JSON.stringify([...pluginFavorites]));
+    return true;
+  } catch (error) {
+    console.warn('[Store] Could not save Studio plugin favorites:', error);
+    return false;
+  }
+}
+
+function pluginFavoriteButton(plugin) {
+  const saved = pluginFavorites.has(plugin.id);
+  const button = document.createElement('button');
+  button.className = `plugin-favorite${saved ? ' is-saved' : ''}`;
+  button.type = 'button';
+  button.setAttribute('aria-pressed', String(saved));
+  button.setAttribute('aria-label', `${saved ? 'Remove' : 'Save'} ${plugin.name} ${saved ? 'from' : 'to'} favorites`);
+  button.title = saved ? 'Remove from saved plugins' : 'Save plugin';
+  button.textContent = saved ? '♥' : '♡';
+  button.addEventListener('click', () => {
+    if (pluginFavorites.has(plugin.id)) pluginFavorites.delete(plugin.id);
+    else pluginFavorites.add(plugin.id);
+    const savedSuccessfully = savePluginFavorites();
+    renderGrid();
+    if (!savedSuccessfully) {
+      pluginCatalogTools.querySelector('.plugin-tools-notice')?.remove();
+      const warning = document.createElement('p');
+      warning.className = 'plugin-tools-notice';
+      warning.textContent = 'Your favorites changed for this session, but could not be saved on this device.';
+      pluginCatalogTools.appendChild(warning);
+    }
+  });
+  return button;
+}
 
 // ── Fetch apps ─────────────────────────────────────────────────────────────
 
@@ -395,8 +541,14 @@ async function loadApps() {
       typeof app.name === 'string' &&
       typeof app.file === 'string'
     );
+    updatePluginFilterOptions();
     renderCategories();
     catalogCount.textContent = String(catalogSize(catalogMode)).padStart(2, '0');
+    await Promise.all([
+      loadCatalogRatingSummaries('apps', allApps),
+      loadCatalogRatingSummaries('plugins', allStudioPlugins),
+      loadCatalogRatingSummaries('templates', allCommunityTemplates),
+    ]);
   } catch (err) {
     console.error('Could not load apps.json:', err);
     allApps = [];
@@ -404,11 +556,28 @@ async function loadApps() {
     gridLoading.classList.add('hidden');
     renderFeatured();
     renderGrid();
-    // Open deep-linked app on first load (e.g. #com.dirazcoder.focus)
+    // Open deep-linked catalog items on first load.
     if (location.hash.length > 1) {
-      const id = location.hash.slice(1);
-      const app = allApps.find(a => a.id === id);
-      if (app) openDetail(app);
+      const hash = location.hash.slice(1);
+      const [kind, ...path] = hash.split('/');
+      if (path.length) {
+        let itemId;
+        try {
+          itemId = decodeURIComponent(path.join('/'));
+        } catch (error) {
+          console.warn('[Store] Could not decode catalog detail route:', error);
+        }
+        if (itemId && kind === 'plugin') {
+          const plugin = allStudioPlugins.find(item => item.id === itemId);
+          if (plugin) openCommunityDetail(plugin, 'plugins');
+        } else if (itemId && kind === 'template') {
+          const template = allCommunityTemplates.find(item => item.id === itemId);
+          if (template) openCommunityDetail(template, 'templates');
+        }
+      } else {
+        const app = allApps.find(item => item.id === hash);
+        if (app) openDetail(app);
+      }
     }
   }
 }
@@ -451,6 +620,8 @@ function renderFeatured() {
   if (catalogMode !== 'apps') {
     featuredSection.hidden = true;
     featuredName.dataset.appId = '';
+    delete featuredCard.dataset.catalogItem;
+    delete featuredCard.dataset.catalogType;
     featuredArt.replaceChildren();
     return;
   }
@@ -460,11 +631,15 @@ function renderFeatured() {
   if (activeCategory !== 'all' || searchQuery || !app) {
     featuredSection.hidden = true;
     featuredName.dataset.appId = '';
+    delete featuredCard.dataset.catalogItem;
+    delete featuredCard.dataset.catalogType;
     featuredArt.replaceChildren();
     return;
   }
   featuredSection.hidden = false;
   featuredName.dataset.appId = app.id;
+  featuredCard.dataset.catalogItem = app.id;
+  featuredCard.dataset.catalogType = 'apps';
   setAppIcon(featuredIcon, app);
   featuredArt.replaceChildren();
   renderFeaturedScreenshot(app);
@@ -473,15 +648,18 @@ function renderFeatured() {
   featuredVerified.className = 'verified-badge';
   featuredVerified.textContent = '✓ Verified';
   attachVerifiedBadge(featuredVerified, app, featuredCard);
-  featuredName.appendChild(featuredVerified);
+  const featuredFormat = document.createElement('span');
+  featuredFormat.className = 'package-format-badge';
+  featuredFormat.textContent = '.novaapp';
+  featuredName.append(featuredVerified, featuredFormat);
   featuredAuthor.textContent = app.author ?? '';
   featuredDesc.textContent = app.description ?? '';
   featuredBadges.innerHTML = badgesHtml(app.categories);
   featuredVersion.textContent = `v${app.version}`;
   featuredCard.setAttribute('aria-label', `View ${app.name}`);
-  featuredCard.onclick = () => openDetail(app);
+  featuredCard.onclick = () => openCatalogDetail('apps', app, featuredCard);
   featuredCard.onkeydown = e => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(app); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCatalogDetail('apps', app, featuredCard); }
   };
 }
 
@@ -581,18 +759,21 @@ function renderGrid() {
     card.setAttribute('role', 'button');
     card.setAttribute('aria-label', `View ${app.name}`);
     card.dataset.id = app.id;
+    card.dataset.catalogItem = app.id;
+    card.dataset.catalogType = 'apps';
     card.dataset.category = app.categories?.[0] || 'other';
 
     card.innerHTML = `
       <div class="card-icon"></div>
       <div class="card-body">
-        <div class="card-name"><span>${escHtml(app.name)}</span><span class="verified-badge" hidden></span></div>
+        <div class="card-name"><span>${escHtml(app.name)}</span><span class="verified-badge" hidden></span><span class="package-format-badge">.novaapp</span></div>
         <div class="card-author">${escHtml(app.author ?? '')}</div>
         <p class="card-desc">${escHtml(app.description ?? '')}</p>
         <div class="card-footer">
           <div class="card-badges">${badgesHtml(app.categories)}</div>
           <span class="card-version">v${escHtml(app.version)}</span>
         </div>
+        <div class="card-rating-slot"></div>
       </div>
       <div class="card-chevron" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -600,10 +781,11 @@ function renderGrid() {
     `;
     attachVerifiedBadge(card.querySelector('.verified-badge'), app, card);
     setAppIcon(card.querySelector('.card-icon'), app);
+    card.querySelector('.card-rating-slot').appendChild(ratingSummaryElement('apps', app.id));
 
-    card.addEventListener('click', () => openDetail(app));
+    card.addEventListener('click', () => openCatalogDetail('apps', app, card));
     card.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(app); }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCatalogDetail('apps', app, card); }
     });
 
     grid.appendChild(card);
@@ -616,24 +798,65 @@ function renderStudioPluginGrid() {
     card.remove();
   }
   const query = searchQuery.trim().toLowerCase();
-  const plugins = allStudioPlugins.filter(plugin =>
-    !query
+  const publisher = pluginPublisherFilter.value;
+  const compatibility = pluginCompatibilityFilter.value;
+  const minimumRating = Number(pluginRatingFilter.value);
+  const matchesSearch = plugin => !query
     || plugin.name.toLowerCase().includes(query)
     || plugin.description?.toLowerCase().includes(query)
     || plugin.id.toLowerCase().includes(query)
     || plugin.publisher?.toLowerCase().includes(query)
-  );
+    || plugin.compatibleStudio?.toLowerCase().includes(query);
+  const plugins = allStudioPlugins.filter(plugin => {
+    const summary = catalogRatingSummaries.get(catalogRatingKey('plugins', plugin.id));
+    const matchesCollection = pluginCollection === 'favorites'
+      ? pluginFavorites.has(plugin.id)
+      : pluginCollection === 'top-rated'
+        ? Boolean(summary?.ratingCount)
+        : true;
+    return matchesCollection
+      && matchesSearch(plugin)
+      && (publisher === 'all' || plugin.publisher === publisher)
+      && (compatibility === 'all' || plugin.compatibleStudio === compatibility)
+      && (!minimumRating || (summary?.ratingCount && summary.averageRating >= minimumRating));
+  });
+  const sortBy = pluginCollection === 'top-rated' ? 'rating'
+    : pluginCollection === 'newest' ? 'newest'
+      : pluginSort.value;
+  plugins.sort((a, b) => {
+    if (sortBy === 'rating') {
+      const scoreDiff = (catalogRatingSummaries.get(catalogRatingKey('plugins', b.id))?.averageRating || 0)
+        - (catalogRatingSummaries.get(catalogRatingKey('plugins', a.id))?.averageRating || 0);
+      if (scoreDiff) return scoreDiff;
+    }
+    if (sortBy === 'newest') {
+      const dateDiff = (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0);
+      if (dateDiff) return dateDiff;
+    }
+    return a.name.localeCompare(b.name);
+  });
   resultsCount.textContent = `${plugins.length} ${plugins.length === 1 ? 'plugin' : 'plugins'}`;
   gridHeading.hidden = false;
-  gridHeading.textContent = searchQuery ? `Studio plugin results for "${searchQuery}"` : 'Studio plugins';
-  sectionEyebrow.textContent = 'EXTEND YOUR WORKFLOW';
+  gridHeading.textContent = searchQuery ? `Studio plugin results for "${searchQuery}"`
+    : pluginCollection === 'favorites' ? 'Saved plugins'
+      : pluginCollection === 'top-rated' ? 'Top-rated plugins'
+        : pluginCollection === 'newest' ? 'Recently added plugins'
+          : 'Studio plugins';
+  sectionEyebrow.textContent = searchQuery ? 'FIND A PLUGIN'
+    : pluginCollection === 'favorites' ? 'YOUR COLLECTION'
+      : pluginCollection === 'top-rated' ? 'COMMUNITY FAVORITES'
+        : pluginCollection === 'newest' ? 'FRESH RELEASES'
+          : 'EXTEND YOUR WORKFLOW';
   featuredSection.hidden = true;
   categoryBar.hidden = true;
   catalogModeWarning.hidden = false;
   catalogModeWarning.textContent = 'Studio plugins run with full access to your computer. NovaByte reviews and signs marketplace packages, but a signature is not a guarantee of safety. Install only plugins you trust.';
   catalogCount.textContent = String(allStudioPlugins.length).padStart(2, '0');
   if (!plugins.length) {
-    gridEmpty.textContent = searchQuery ? 'No Studio plugins match your search.' : 'No Studio plugins have been published yet.';
+    gridEmpty.textContent = searchQuery ? 'No Studio plugins match these search and filter settings.'
+      : pluginCollection === 'favorites' ? 'No saved plugins match these filters yet.'
+        : pluginCollection === 'top-rated' ? 'Plugins will appear here after the community rates them.'
+          : 'No Studio plugins match these filters.';
     gridEmpty.classList.remove('hidden');
     return;
   }
@@ -641,23 +864,36 @@ function renderStudioPluginGrid() {
   for (const plugin of plugins) {
     const card = document.createElement('article');
     card.className = 'app-card studio-plugin-card';
+    card.dataset.catalogItem = plugin.id;
+    card.dataset.catalogType = 'plugins';
     const safeFile = safeWebUrl(plugin.file);
     const downloadUrl = safeFile
       ? packageDownloadUrl(safeFile, `${plugin.id}-${plugin.version}.nbplugin`)
       : null;
     card.innerHTML = `
       <div class="card-body">
-        <div class="card-name"><span>${escHtml(plugin.name)}</span><span class="verified-badge">✓ NovaByte signed</span></div>
+        <div class="card-name"><a class="community-card-title" href="#plugin/${encodeURIComponent(plugin.id)}">${escHtml(plugin.name)}</a><span class="verified-badge">✓ Verified</span><span class="package-format-badge">.nbplugin</span></div>
         <div class="card-author">by ${escHtml(plugin.publisher || 'Community publisher')}</div>
         <p class="card-desc">${escHtml(plugin.description || '')}</p>
         <p class="studio-plugin-card__compatibility">Requires Studio ${escHtml(plugin.compatibleStudio || 'version range unavailable')}</p>
         <div class="card-footer">
           <span class="card-version">${escHtml(plugin.id)} · v${escHtml(plugin.version)}</span>
         </div>
+        <div class="card-rating-slot"></div>
       </div>
       <p class="studio-plugin-card__warning">Runs with full Node.js access. Review the publisher before enabling.</p>
       ${downloadUrl ? `<a class="studio-plugin-card__download" href="${escHtml(downloadUrl)}" download="${escHtml(`${plugin.id}-${plugin.version}.nbplugin`)}">Download .nbplugin</a>` : '<span class="studio-plugin-card__warning">Download link unavailable.</span>'}
     `;
+    card.querySelector('.card-name').appendChild(pluginFavoriteButton(plugin));
+    card.querySelector('.card-rating-slot').appendChild(ratingSummaryElement('plugins', plugin.id));
+    card.querySelector('.community-card-title').addEventListener('click', event => {
+      event.preventDefault();
+      openCatalogDetail('plugins', plugin, card);
+    });
+    card.addEventListener('click', event => {
+      if (event.target.closest('a, button')) return;
+      openCatalogDetail('plugins', plugin, card);
+    });
     grid.appendChild(card);
   }
 }
@@ -699,17 +935,29 @@ function renderCommunityTemplateGrid() {
     const downloadUrl = safeFile ? packageDownloadUrl(safeFile, fileName) : null;
     const card = document.createElement('article');
     card.className = 'app-card studio-plugin-card community-template-card';
+    card.dataset.catalogItem = template.id;
+    card.dataset.catalogType = 'templates';
     card.innerHTML = `
       <div class="card-body">
-        <div class="card-name"><span>${escHtml(template.name)}</span><span class="verified-badge">.nbtemplate</span></div>
+        <div class="card-name"><a class="community-card-title" href="#template/${encodeURIComponent(template.id)}">${escHtml(template.name)}</a><span class="verified-badge">✓ Verified</span><span class="package-format-badge">.nbtemplate</span></div>
         <div class="card-author">by ${escHtml(template.author || 'Community publisher')}</div>
         <p class="card-desc">${escHtml(template.description || '')}</p>
         <div class="card-footer">
           <span class="card-version">${escHtml(template.category || 'General')} · v${escHtml(template.version)}</span>
         </div>
+        <div class="card-rating-slot"></div>
       </div>
       ${downloadUrl ? `<a class="studio-plugin-card__download" href="${escHtml(downloadUrl)}" download="${escHtml(fileName)}">Download .nbtemplate</a>` : '<span class="catalog-mode-warning">Download link unavailable.</span>'}
     `;
+    card.querySelector('.card-rating-slot').appendChild(ratingSummaryElement('templates', template.id));
+    card.querySelector('.community-card-title').addEventListener('click', event => {
+      event.preventDefault();
+      openCatalogDetail('templates', template, card);
+    });
+    card.addEventListener('click', event => {
+      if (event.target.closest('a')) return;
+      openCatalogDetail('templates', template, card);
+    });
     grid.appendChild(card);
   }
 }
@@ -725,6 +973,7 @@ function setCatalogMode(mode) {
   catalogMode = mode;
   activeCategory = 'all';
   categoryBar.hidden = mode !== 'apps';
+  pluginCatalogTools.hidden = mode !== 'plugins';
   renderCategories();
   const labels = {
     apps: { search: 'apps', count: 'apps to explore', eyebrow: 'THE NOVABYTE APP CATALOG' },
@@ -812,9 +1061,10 @@ function appLinks(app, manifest) {
 
 function renderPackageDetails(app, pkg) {
   const manifest = pkg?.manifest || {};
-  const license = app.license || manifest.license;
-  detailLicense.textContent = license || '';
-  detailLicenseChip.hidden = !license;
+  const license = [app.license, manifest.license]
+    .find(value => typeof value === 'string' && value.trim());
+  detailLicense.textContent = license?.trim() || 'This app has no license';
+  detailLicenseChip.hidden = false;
 
   const releaseNotes = app.releaseNotes || manifest.releaseNotes;
   detailReleaseNotesSection.hidden = !(typeof releaseNotes === 'string' && releaseNotes.trim());
@@ -1009,25 +1259,352 @@ function renderVersionHistory(app) {
   detailVersionHistoryList.append(toggleBtn, olderList);
 }
 
+let screenshotZoomOrigin = null;
+let screenshotZoomAnimation = null;
+let screenshotParallaxFrame = 0;
+let screenshotPreviewClosing = false;
+const screenshotPreviewContent = screenshotPreviewDialog.querySelector('.screenshot-preview-content');
+const screenshotPreviewMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
 detailScreenshotList.addEventListener('click', event => {
   const trigger = event.target.closest('.detail-screenshot-trigger');
   if (!trigger) return;
   const image = trigger.querySelector('img');
   if (!image) return;
+  const origin = image.getBoundingClientRect();
+  screenshotZoomOrigin = {
+    left: origin.left,
+    top: origin.top,
+    width: origin.width,
+    height: origin.height,
+  };
   screenshotPreviewImage.src = image.currentSrc || image.src;
   screenshotPreviewImage.alt = image.alt;
   screenshotPreviewCaption.textContent = image.alt;
+  screenshotPreviewClosing = false;
+  screenshotPreviewDialog.classList.remove('is-closing');
+  screenshotZoomAnimation?.cancel();
+  screenshotPreviewImage.style.removeProperty('transform');
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', '0px');
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-y', '0px');
   screenshotPreviewDialog.showModal();
+  if (screenshotPreviewMotion.matches) return;
+  requestAnimationFrame(() => {
+    if (!screenshotPreviewDialog.open || !screenshotZoomOrigin) return;
+    const target = screenshotPreviewImage.getBoundingClientRect();
+    if (!target.width || !target.height) return;
+    const { left, top, width, height } = screenshotZoomOrigin;
+    screenshotZoomAnimation = screenshotPreviewImage.animate([
+      {
+        transform: `translate3d(${left - target.left}px, ${top - target.top}px, 0) scale(${width / target.width}, ${height / target.height})`,
+        filter: 'brightness(.78) saturate(.82)',
+      },
+      {
+        transform: 'translate3d(0, 0, 0) scale(1.018)',
+        filter: 'brightness(1) saturate(1)',
+      },
+    ], {
+      duration: 850,
+      easing: 'cubic-bezier(.16, 1, .3, 1)',
+    });
+  });
 });
 
-screenshotPreviewClose.addEventListener('click', () => screenshotPreviewDialog.close());
+function closeScreenshotPreview() {
+  if (!screenshotPreviewDialog.open || screenshotPreviewClosing) return;
+  if (screenshotPreviewMotion.matches || !screenshotZoomOrigin) {
+    screenshotZoomAnimation?.cancel();
+    screenshotPreviewDialog.close();
+    return;
+  }
+
+  screenshotPreviewClosing = true;
+  screenshotPreviewDialog.classList.add('is-closing');
+  const current = screenshotPreviewImage.getBoundingClientRect();
+  screenshotZoomAnimation?.cancel();
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', '0px');
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-y', '0px');
+  screenshotPreviewImage.style.transform = 'none';
+  const target = screenshotPreviewImage.getBoundingClientRect();
+  if (!target.width || !target.height) {
+    screenshotPreviewDialog.close();
+    return;
+  }
+  const { left, top, width, height } = screenshotZoomOrigin;
+  const currentTransform = `translate3d(${current.left - target.left}px, ${current.top - target.top}px, 0) scale(${current.width / target.width}, ${current.height / target.height})`;
+  const originTransform = `translate3d(${left - target.left}px, ${top - target.top}px, 0) scale(${width / target.width}, ${height / target.height})`;
+  screenshotZoomAnimation = screenshotPreviewImage.animate([
+    { transform: currentTransform, filter: 'brightness(1) saturate(1)', borderRadius: '15px' },
+    {
+      transform: originTransform,
+      filter: 'brightness(.78) saturate(.82)',
+      borderRadius: '9px',
+    },
+  ], {
+    duration: 720,
+    easing: 'cubic-bezier(.76, 0, .24, 1)',
+  });
+  screenshotZoomAnimation.onfinish = () => {
+    if (screenshotPreviewDialog.open) screenshotPreviewDialog.close();
+  };
+}
+
+screenshotPreviewClose.addEventListener('click', closeScreenshotPreview);
 screenshotPreviewDialog.addEventListener('click', event => {
-  if (event.target === screenshotPreviewDialog) screenshotPreviewDialog.close();
+  if (event.target === screenshotPreviewDialog) closeScreenshotPreview();
 });
+screenshotPreviewDialog.addEventListener('cancel', event => {
+  event.preventDefault();
+  closeScreenshotPreview();
+});
+screenshotPreviewDialog.addEventListener('close', () => {
+  screenshotZoomAnimation?.cancel();
+  screenshotZoomAnimation = null;
+  screenshotZoomOrigin = null;
+  screenshotPreviewClosing = false;
+  screenshotPreviewImage.style.removeProperty('transform');
+  screenshotPreviewDialog.classList.remove('is-closing');
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', '0px');
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-y', '0px');
+});
+
+screenshotPreviewContent.addEventListener('pointermove', event => {
+  if (screenshotPreviewMotion.matches || event.pointerType === 'touch') return;
+  if (screenshotParallaxFrame) cancelAnimationFrame(screenshotParallaxFrame);
+  screenshotParallaxFrame = requestAnimationFrame(() => {
+    const bounds = screenshotPreviewContent.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) / bounds.width - 0.5;
+    const y = (event.clientY - bounds.top) / bounds.height - 0.5;
+    screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', `${x * 12}px`);
+    screenshotPreviewContent.style.setProperty('--screenshot-parallax-y', `${y * 12}px`);
+    screenshotParallaxFrame = 0;
+  });
+});
+screenshotPreviewContent.addEventListener('pointerleave', () => {
+  if (screenshotParallaxFrame) cancelAnimationFrame(screenshotParallaxFrame);
+  screenshotParallaxFrame = 0;
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', '0px');
+  screenshotPreviewContent.style.setProperty('--screenshot-parallax-y', '0px');
+});
+
+function renderCatalogRatings(container, catalogType, itemId, onAuthenticated) {
+  const requestKey = catalogRatingKey(catalogType, itemId);
+  container.dataset.ratingKey = requestKey;
+  container.replaceChildren();
+
+  const heading = document.createElement('div');
+  heading.className = 'catalog-ratings-heading';
+  const copy = document.createElement('div');
+  copy.append(
+    document.createElement('p'),
+    document.createElement('h2'),
+  );
+  copy.children[0].className = 'detail-kicker';
+  copy.children[0].textContent = 'COMMUNITY FEEDBACK';
+  copy.children[1].className = 'detail-section-title';
+  copy.children[1].textContent = 'Ratings & reviews';
+  const summary = document.createElement('div');
+  summary.className = 'catalog-ratings-score';
+  summary.textContent = 'Loading ratings…';
+  heading.append(copy, summary);
+
+  const status = document.createElement('p');
+  status.className = 'catalog-ratings-status';
+  status.textContent = publisherPortal.configured
+    ? 'Ratings are submitted by verified accounts.'
+    : 'Community ratings are unavailable until the publisher service is configured.';
+  const reviews = document.createElement('div');
+  reviews.className = 'catalog-review-list';
+  const form = document.createElement('form');
+  form.className = 'catalog-rating-form';
+  const formHeading = document.createElement('h3');
+  formHeading.textContent = 'Your rating';
+  const ratingField = document.createElement('fieldset');
+  ratingField.className = 'catalog-rating-field';
+  const legend = document.createElement('legend');
+  legend.textContent = 'Choose a star rating';
+  ratingField.appendChild(legend);
+  for (let value = 1; value <= 5; value++) {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = `catalog-rating-${catalogType}`;
+    input.value = String(value);
+    input.required = value === 1;
+    input.setAttribute('aria-label', `${value} out of 5 stars`);
+    const stars = document.createElement('span');
+    stars.textContent = '★'.repeat(value);
+    label.append(input, stars);
+    ratingField.appendChild(label);
+  }
+  const reviewLabel = document.createElement('label');
+  reviewLabel.className = 'catalog-review-field';
+  reviewLabel.appendChild(document.createTextNode('Review (optional)'));
+  const reviewInput = document.createElement('textarea');
+  reviewInput.maxLength = 1000;
+  reviewInput.placeholder = 'Share a helpful note about your experience.';
+  reviewLabel.appendChild(reviewInput);
+  const submit = document.createElement('button');
+  submit.className = 'detail-download-btn catalog-rating-submit';
+  submit.type = 'submit';
+  submit.textContent = 'Submit rating';
+  submit.disabled = !publisherPortal.configured;
+  form.append(formHeading, ratingField, reviewLabel, submit);
+  if (!publisherPortal.configured) form.hidden = true;
+  container.append(heading, status, reviews, form);
+
+  const saveRating = async (rating, review) => {
+    submit.disabled = true;
+    status.textContent = 'Saving your rating…';
+    try {
+      await publisherPortal.submitCatalogRating(catalogType, itemId, rating, review);
+      status.textContent = 'Your rating has been saved.';
+      renderCatalogRatings(container, catalogType, itemId, onAuthenticated);
+    } catch (error) {
+      status.textContent = error.message || 'Could not save your rating.';
+      submit.disabled = false;
+    }
+  };
+
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const selectedRating = form.querySelector('input[type="radio"]:checked');
+    if (!selectedRating) {
+      status.textContent = 'Choose a star rating before submitting.';
+      return;
+    }
+    const rating = Number(selectedRating.value);
+    const review = reviewInput.value.trim();
+    void publisherPortal.startRatingAction(async () => {
+      if (detailView.classList.contains('hidden') && communityDetailView.classList.contains('hidden')) {
+        onAuthenticated();
+      }
+      await saveRating(rating, review);
+    }).catch(error => {
+      status.textContent = error.message || 'Could not start the sign-in flow.';
+      submit.disabled = false;
+    });
+  });
+
+  if (!publisherPortal.configured) return;
+  Promise.all([
+    publisherPortal.fetchCatalogRatingSummaries(catalogType, [itemId]),
+    publisherPortal.fetchCatalogRatingReviews(catalogType, itemId),
+    publisherPortal.fetchMyCatalogRating(catalogType, itemId),
+  ]).then(([summaryRows, reviewRows, myRating]) => {
+    if (container.dataset.ratingKey !== requestKey) return;
+    if (!Array.isArray(summaryRows) || !Array.isArray(reviewRows)) {
+      throw new Error('The rating service returned an invalid response.');
+    }
+    const summaryRow = summaryRows.find(row => row.item_id === itemId);
+    if (summaryRow) {
+      const average = Number(summaryRow.average_rating);
+      const count = Number(summaryRow.rating_count);
+      if (Number.isFinite(average) && Number.isInteger(count) && count > 0) {
+        catalogRatingSummaries.set(requestKey, { averageRating: average, ratingCount: count });
+        summary.textContent = `${average.toFixed(1)} / 5 · ${count} ${count === 1 ? 'rating' : 'ratings'}`;
+      } else {
+        summary.textContent = 'No ratings yet';
+      }
+    } else {
+      summary.textContent = 'No ratings yet';
+    }
+    if (myRating) {
+      const existing = form.querySelector(`input[value="${myRating.rating}"]`);
+      if (existing) existing.checked = true;
+      reviewInput.value = myRating.review || '';
+      submit.textContent = 'Update rating';
+    }
+    if (reviewRows.length) {
+      for (const review of reviewRows) {
+        const card = document.createElement('article');
+        card.className = 'catalog-review';
+        const top = document.createElement('div');
+        top.className = 'catalog-review-meta';
+        const stars = document.createElement('span');
+        stars.className = 'catalog-review-stars';
+        stars.textContent = `${'★'.repeat(Number(review.rating))}${'☆'.repeat(5 - Number(review.rating))}`;
+        const date = document.createElement('time');
+        const timestamp = Date.parse(review.created_at);
+        date.textContent = Number.isFinite(timestamp) ? new Date(timestamp).toLocaleDateString() : 'Community review';
+        if (Number.isFinite(timestamp)) date.dateTime = new Date(timestamp).toISOString();
+        top.append(stars, date);
+        card.appendChild(top);
+        const text = document.createElement('p');
+        text.textContent = review.review;
+        card.appendChild(text);
+        reviews.appendChild(card);
+      }
+    } else {
+      const empty = document.createElement('p');
+      empty.className = 'catalog-ratings-status';
+      empty.textContent = 'No written reviews yet.';
+      reviews.appendChild(empty);
+    }
+    if (!publisherPortal.user) {
+      submit.textContent = 'Sign in to submit your rating';
+      status.textContent = 'Sign in with a verified account to rate this item. Your review is public.';
+    }
+    renderGrid();
+  }).catch(error => {
+    if (container.dataset.ratingKey !== requestKey) return;
+    console.warn(`[Store] Could not load ratings for ${catalogType} item ${itemId}:`, error);
+    summary.textContent = 'Ratings unavailable';
+    status.textContent = catalogRatingErrorMessage(error);
+    submit.disabled = true;
+  });
+}
+
+let catalogTransitionActive = false;
+let activeCatalogSource = null;
+
+function openCatalogDetail(kind, item, sourceCard) {
+  activeCatalogSource = sourceCard ? {
+    kind,
+    itemId: item.id,
+    card: sourceCard,
+    scrollY: window.scrollY,
+  } : null;
+  const open = kind === 'apps'
+    ? () => openDetail(item)
+    : () => openCommunityDetail(item, kind);
+  if (!sourceCard || typeof document.startViewTransition !== 'function'
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    || catalogTransitionActive) {
+    open();
+    return;
+  }
+
+  const transitionName = 'catalog-detail-card';
+  const detailViewTarget = kind === 'apps' ? detailView : communityDetailView;
+  sourceCard.style.viewTransitionName = transitionName;
+  catalogTransitionActive = true;
+  let destination = null;
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    sourceCard.style.viewTransitionName = '';
+    if (destination) destination.style.viewTransitionName = '';
+    catalogTransitionActive = false;
+  };
+
+  const transition = document.startViewTransition(() => {
+    open();
+    destination = detailViewTarget.querySelector('.detail-hero-main');
+    if (destination) destination.style.viewTransitionName = transitionName;
+  });
+  transition.finished.then(cleanup, cleanup);
+}
 
 function openDetail(app) {
+  if (catalogMode !== 'apps') setCatalogMode('apps');
   setAppIcon(detailIcon, app);
-  detailName.replaceChildren(document.createTextNode(app.name), detailVerified);
+  const formatBadge = document.createElement('span');
+  formatBadge.className = 'package-format-badge';
+  formatBadge.textContent = '.novaapp';
+  detailName.replaceChildren(document.createTextNode(app.name), detailVerified, formatBadge);
   detailVerified.textContent = '✓ Verified';
   attachVerifiedBadge(detailVerified, app, null, true);
   detailAuthor.textContent = app.author ?? '';
@@ -1070,12 +1647,14 @@ function openDetail(app) {
 
   siteHeader.classList.add('hidden');
   storeView.classList.add('hidden');
+  communityDetailView.classList.add('hidden');
   detailView.classList.remove('hidden');
-  window.scrollTo(0, 0);
+  scrollToTop();
   backBtn.focus();
   if (location.hash !== `#${app.id}`) {
     history.pushState({ appId: app.id }, '', `#${app.id}`);
   }
+  renderCatalogRatings(detailRatings, 'apps', app.id, () => openDetail(app));
 
   fetchPackage(app).then(pkg => {
     if (detailId.textContent !== app.id || detailView.classList.contains('hidden')) return;
@@ -1085,14 +1664,136 @@ function openDetail(app) {
   });
 }
 
+function communityDetailStat(value, label) {
+  const item = document.createElement('div');
+  item.className = 'stat-item';
+  const statValue = document.createElement('span');
+  statValue.className = 'stat-value';
+  statValue.textContent = value || '—';
+  const statLabel = document.createElement('span');
+  statLabel.className = 'stat-label';
+  statLabel.textContent = label;
+  item.append(statValue, statLabel);
+  return item;
+}
+
+function communityInfoChip(label, value) {
+  const item = document.createElement('div');
+  item.className = 'chip';
+  const term = document.createElement('dt');
+  term.textContent = label;
+  const description = document.createElement('dd');
+  description.textContent = value || '—';
+  item.append(term, description);
+  return item;
+}
+
+function formatPackageSize(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function openCommunityDetail(item, catalogType) {
+  if (catalogMode !== catalogType) setCatalogMode(catalogType);
+  const isPlugin = catalogType === 'plugins';
+  const name = item.name || item.id;
+  const format = isPlugin ? '.nbplugin' : '.nbtemplate';
+  const fileName = `${item.id}-${item.version}${format}`;
+  const safeFile = safeWebUrl(item.file);
+  const downloadUrl = safeFile ? packageDownloadUrl(safeFile, fileName) : null;
+  communityDetailKicker.textContent = isPlugin ? 'NOVABYTE STUDIO PLUGIN' : 'COMMUNITY TEMPLATE';
+  communityDetailAboutTitle.textContent = isPlugin ? 'About this plugin' : 'About this template';
+  communityDetailName.replaceChildren(document.createTextNode(name));
+  const verified = document.createElement('span');
+  verified.className = 'verified-badge';
+  verified.textContent = '✓ Verified';
+  const packageBadge = document.createElement('span');
+  packageBadge.className = 'package-format-badge';
+  packageBadge.textContent = format;
+  communityDetailName.append(verified, packageBadge);
+  communityDetailAuthor.textContent = `by ${item.publisher || item.author || 'Community publisher'}`;
+  communityDetailCats.innerHTML = badgesHtml(isPlugin
+    ? ['Studio plugin']
+    : [item.category || 'General']);
+  setAppIcon(communityDetailIcon, { ...item, icon: '' });
+  communityDetailDownload.hidden = !downloadUrl;
+  if (downloadUrl) {
+    communityDetailDownload.href = downloadUrl;
+    communityDetailDownload.download = fileName;
+  } else {
+    communityDetailDownload.removeAttribute('href');
+    communityDetailDownload.removeAttribute('download');
+  }
+  communityDetailDownloadLabel.textContent = isPlugin ? 'Download plugin' : 'Download template';
+  communityDetailFormat.textContent = format;
+  communityDetailStats.replaceChildren(
+    communityDetailStat(`v${item.version}`, 'Version'),
+    communityDetailStat(formatPackageSize(item.size), 'Download size'),
+    communityDetailStat(format, 'Package format'),
+  );
+  communityDetailTrust.replaceChildren();
+  const trustMark = document.createElement('span');
+  trustMark.className = 'trust-check';
+  trustMark.setAttribute('aria-hidden', 'true');
+  trustMark.textContent = '✓';
+  const trustText = document.createElement('span');
+  trustText.append(
+    document.createElement('strong'),
+    document.createElement('br'),
+    document.createTextNode(isPlugin
+      ? 'Plugins run with full access to your computer. Install only publishers you trust.'
+      : 'Templates are untrusted JSON bundles. Inspect the publisher and verify the signature in Studio before use.'),
+  );
+  trustText.children[0].textContent = isPlugin ? 'Reviewed and verified' : 'Reviewed and signed';
+  communityDetailTrust.append(trustMark, trustText);
+  communityDetailDescription.textContent = item.description || 'No description supplied.';
+  communityDetailReleaseSection.hidden = !isPlugin || !item.releaseNotes;
+  communityDetailReleaseNotes.textContent = isPlugin ? item.releaseNotes || '' : '';
+  communityDetailInfo.replaceChildren(
+    communityInfoChip(isPlugin ? 'Publisher' : 'Author', item.publisher || item.author),
+    communityInfoChip(isPlugin ? 'Plugin ID' : 'Template ID', item.id),
+    communityInfoChip('Published version', `v${item.version}`),
+    ...(isPlugin
+      ? [communityInfoChip('Studio compatibility', item.compatibleStudio)]
+      : [communityInfoChip('Category', item.category)]),
+  );
+  communityDetailSafety.replaceChildren();
+  const safetyKicker = document.createElement('p');
+  safetyKicker.className = 'detail-kicker';
+  safetyKicker.textContent = isPlugin ? 'IMPORTANT' : 'BEFORE YOU USE IT';
+  const safetyHeading = document.createElement('h2');
+  safetyHeading.className = 'detail-section-title';
+  safetyHeading.textContent = isPlugin ? 'Full system access' : 'Verify the bundle';
+  const safetyCopy = document.createElement('p');
+  safetyCopy.textContent = isPlugin
+    ? 'Studio plugins can access your user account and local files. Review the publisher and only enable plugins you trust.'
+    : 'Template bundles are never executed by publisher tooling. Review their contents and confirm the signature in NovaByte Studio before importing.';
+  communityDetailSafety.append(safetyKicker, safetyHeading, safetyCopy);
+
+  siteHeader.classList.add('hidden');
+  storeView.classList.add('hidden');
+  detailView.classList.add('hidden');
+  communityDetailView.classList.remove('hidden');
+  scrollToTop();
+  communityDetailBack.focus();
+  const hash = `#${catalogType === 'plugins' ? 'plugin' : 'template'}/${encodeURIComponent(item.id)}`;
+  if (location.hash !== hash) history.pushState({ catalogType, itemId: item.id }, '', hash);
+  renderCatalogRatings(communityDetailRatings, catalogType, item.id,
+    () => openCommunityDetail(item, catalogType));
+}
+
 readMoreBtn.addEventListener('click', () => {
   const expanded = detailDesc.classList.toggle('is-expanded');
   readMoreBtn.setAttribute('aria-expanded', String(expanded));
   readMoreBtn.textContent = expanded ? 'Less' : 'More';
 });
 
-function closeDetail() {
+function finishClosingDetail() {
   detailView.classList.add('hidden');
+  communityDetailView.classList.add('hidden');
   siteHeader.classList.remove('hidden');
   storeView.classList.remove('hidden');
   if (location.hash) {
@@ -1100,15 +1801,87 @@ function closeDetail() {
   }
 }
 
+function findCatalogSource({ kind, itemId, card }) {
+  if (card?.isConnected && card.dataset.catalogItem === itemId && card.dataset.catalogType === kind) {
+    return card;
+  }
+  return [...grid.querySelectorAll('.app-card')].find(candidate =>
+    candidate.dataset.catalogItem === itemId && candidate.dataset.catalogType === kind
+  ) || null;
+}
+
+function closeDetail() {
+  const detailTarget = detailView.classList.contains('hidden') ? communityDetailView : detailView;
+  const source = activeCatalogSource;
+  const sourceCard = source && findCatalogSource(source);
+  const detailHero = detailTarget.querySelector('.detail-hero-main');
+  if (!sourceCard || !detailHero || typeof document.startViewTransition !== 'function'
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    || catalogTransitionActive) {
+    finishClosingDetail();
+    activeCatalogSource = null;
+    return;
+  }
+
+  const transitionName = 'catalog-detail-card';
+  detailHero.style.viewTransitionName = transitionName;
+  sourceCard.style.viewTransitionName = transitionName;
+  catalogTransitionActive = true;
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    detailHero.style.viewTransitionName = '';
+    sourceCard.style.viewTransitionName = '';
+    catalogTransitionActive = false;
+    activeCatalogSource = null;
+  };
+  const transition = document.startViewTransition(() => {
+    finishClosingDetail();
+    scrollToPosition(source.scrollY);
+  });
+  transition.finished.then(cleanup, cleanup);
+}
+
 backBtn.addEventListener('click', closeDetail);
+communityDetailBack.addEventListener('click', closeDetail);
 
 window.addEventListener('popstate', () => {
-  const id = location.hash.slice(1);
-  if (id) {
-    const app = allApps.find(a => a.id === id);
+  activeCatalogSource = null;
+  const hash = location.hash.slice(1);
+  if (!hash) {
+    detailView.classList.add('hidden');
+    communityDetailView.classList.add('hidden');
+    siteHeader.classList.remove('hidden');
+    storeView.classList.remove('hidden');
+    return;
+  }
+  const [kind, ...path] = hash.split('/');
+  if (path.length) {
+    let itemId;
+    try {
+      itemId = decodeURIComponent(path.join('/'));
+    } catch (error) {
+      console.warn('[Store] Could not decode catalog detail route:', error);
+      closeDetail();
+      return;
+    }
+    if (kind === 'plugin') {
+      const plugin = allStudioPlugins.find(item => item.id === itemId);
+      if (plugin) { openCommunityDetail(plugin, 'plugins'); return; }
+    }
+    if (kind === 'template') {
+      const template = allCommunityTemplates.find(item => item.id === itemId);
+      if (template) { openCommunityDetail(template, 'templates'); return; }
+    }
+  } else {
+    const app = allApps.find(item => item.id === hash);
     if (app) { openDetail(app); return; }
   }
-  closeDetail();
+  detailView.classList.add('hidden');
+  communityDetailView.classList.add('hidden');
+  siteHeader.classList.remove('hidden');
+  storeView.classList.remove('hidden');
 });
 
 // ── Category filter ────────────────────────────────────────────────────────
@@ -1118,6 +1891,27 @@ catalogSwitch.addEventListener('click', event => {
   if (!button) return;
   setCatalogMode(button.dataset.catalog);
 });
+
+pluginCollections.addEventListener('click', event => {
+  const button = event.target.closest('.plugin-collection-button');
+  if (!button) return;
+  pluginCollection = button.dataset.collection;
+  pluginCollections.querySelectorAll('.plugin-collection-button').forEach(item => {
+    const active = item === button;
+    item.classList.toggle('is-active', active);
+    item.setAttribute('aria-pressed', String(active));
+  });
+  renderGrid();
+});
+
+for (const filter of [
+  pluginSort,
+  pluginPublisherFilter,
+  pluginCompatibilityFilter,
+  pluginRatingFilter,
+]) {
+  filter.addEventListener('change', renderGrid);
+}
 
 document.querySelector('.category-bar').addEventListener('click', e => {
   const btn = e.target.closest('.cat-btn');
@@ -1174,9 +1968,10 @@ publisherPortal.init({
   showStore: () => {
     document.getElementById('publisher-view').classList.add('hidden');
     detailView.classList.add('hidden');
+    communityDetailView.classList.add('hidden');
     storeView.classList.remove('hidden');
     siteHeader.classList.remove('hidden');
-    window.scrollTo(0, 0);
+    scrollToTop();
   },
 });
 const initialView = new URLSearchParams(location.search).get('view');
