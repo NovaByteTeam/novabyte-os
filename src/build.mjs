@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { build as esbuildBuild, transform as esbuildTransform } from 'esbuild';
 import { minify as minifyHtml } from 'html-minifier-next';
 import { PurgeCSS } from 'purgecss';
+import postcss from 'postcss';
 
 const SRC_DIR = '.';
 const OUT_FILE = `${SRC_DIR}/index.html`;
@@ -30,6 +31,33 @@ writeFileSync(
 // esbuild first (which DOES understand it) so PurgeCSS only ever sees plain flat selectors.
 const { code: flattenedCss } = await esbuildTransform(css, { loader: 'css', minify: false });
 
+const touchSafeCss = postcss.parse(flattenedCss);
+const hoverRules = [];
+touchSafeCss.walkRules(rule => hoverRules.push(rule));
+for (const rule of hoverRules) {
+  const selectors = postcss.list.comma(rule.selector);
+  const hoverSelectors = selectors.filter(selector => selector.includes(':hover'));
+  if (!hoverSelectors.length) continue;
+
+  const nonHoverSelectors = selectors.filter(selector => !selector.includes(':hover'));
+  const guardedRule = rule.clone({
+    selector: hoverSelectors
+      .map(selector => `:root:not(.has-touch-input) ${selector}`)
+      .join(', '),
+  });
+  const hoverMedia = postcss.atRule({
+    name: 'media',
+    params: '(hover: hover) and (pointer: fine)',
+  }).append(guardedRule);
+
+  if (nonHoverSelectors.length) {
+    rule.selector = nonHoverSelectors.join(', ');
+    rule.after(hoverMedia);
+  } else {
+    rule.replaceWith(hoverMedia);
+  }
+}
+
 // --- Purge unused CSS rules (checks against tags/classes/ids actually used in the HTML + JS) ---
 const purgeResult = await new PurgeCSS().purge({
   content: [
@@ -37,7 +65,7 @@ const purgeResult = await new PurgeCSS().purge({
     { raw: js, extension: 'js' },
     { raw: publishingJs, extension: 'js' },
   ],
-  css: [{ raw: flattenedCss }],
+  css: [{ raw: touchSafeCss.toString() }],
   safelist: {
     // keep anything toggled purely via JS, plus scroll-triggered/state classes
     standard: [/^is-/, /^has-/, /^active$/, /^open$/, /^visible$/, /^lenis/],
