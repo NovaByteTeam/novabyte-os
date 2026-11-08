@@ -102,8 +102,11 @@ test('decodes a Base64-encoded signed template before verifying it', async () =>
     encoded,
     `base64:${encoded}`,
     JSON.stringify(encoded),
+    JSON.stringify(JSON.stringify(bundle)),
     `data:application/octet-stream;base64,${encoded}`,
     `\uFEFF${encoded}`,
+    `\u200B${JSON.stringify(bundle)}`,
+    ` \`\`\`json\n${JSON.stringify(bundle)}\n\`\`\` `,
   ];
   for (const input of inputs) {
     await assert.rejects(
