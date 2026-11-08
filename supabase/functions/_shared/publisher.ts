@@ -77,6 +77,12 @@ export async function rest(
   const result = await readResponse(response);
   if (!response.ok) {
     console.error(`[publisher-api] Database request failed (${response.status}):`, result);
+    if (['PGRST204', 'PGRST205', '42P01'].includes(result?.code)) {
+      throw new PublisherError(
+        'The Store database schema is missing or out of date. Apply the community templates migration with `supabase db push`, then retry.',
+        503,
+      );
+    }
     if (response.status === 409 || result?.code === '23505') {
       throw new PublisherError('This app already has a submission awaiting review.', 409);
     }
