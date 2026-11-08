@@ -389,7 +389,7 @@ code {
   font-weight: 700;
 }
 .studio-plugin-card__download:hover { background: var(--btn-bg-hover); }
-.plugin-catalog-warning {
+.catalog-mode-warning {
   margin: -4px 0 18px;
   padding: 12px 14px;
   border: 1px solid rgba(255, 185, 91, 0.28);
