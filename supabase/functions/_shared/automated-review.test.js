@@ -163,3 +163,74 @@ test('does not require permissionReasons when no permissions are declared', () =
   assert.equal(report.passed, true);
   assert.equal(report.errors.some(finding => finding.code.includes('permission_reason')), false);
 });
+
+test('rejects source files that are not valid UTF-8 instead of silently repairing them', () => {
+  // 0xff 0xfe cannot appear in valid UTF-8; the fatal decoder must flag it.
+  const pkg = packageWithFiles({
+    'index.html': '<h1>ok</h1>',
+  });
+  pkg.files['broken.js'] = Buffer.concat([
+    Buffer.from('const x = '),
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(';\n'),
+  ]).toString('base64');
+  const report = review(pkg);
+  assert.equal(report.passed, false);
+  assert.ok(report.errors.some(finding => finding.code === 'invalid_text_encoding' && finding.file === 'broken.js'));
+});
+
+test('caps total findings so hostile packages cannot pin the reviewer with regex loops', () => {
+  // 300 files × 50 eval matches each = 15,000 candidate findings; the review
+  // must stop at the cap and return quickly.
+  const files = { 'index.html': '<h1>ok</h1>' };
+  const evalBomb = 'eval(1);\n'.repeat(50);
+  for (let i = 0; i < 300; i++) files[`src/f${i}.js`] = evalBomb;
+  const report = review(packageWithFiles(files));
+  assert.equal(report.passed, false);
+  assert.ok(report.errors.length <= 100, `expected a cap, got ${report.errors.length}`);
+  assert.ok(report.warnings.length + report.errors.length <= 100);
+});
+
+test('flags timer-string execution and remote css imports', () => {
+  const report = review(packageWithFiles({
+    'index.html': '<h1>ok</h1>',
+    'app.js': 'setTimeout("doEvil()", 100);',
+    'style.css': '@import url(//evil.example.com/x.css);\nbody { color: red; }',
+  }));
+  assert.equal(report.passed, false);
+  assert.deepEqual(
+    new Set(report.errors.map(finding => finding.code)),
+    new Set(['string_timer', 'remote_css_import']),
+  );
+});
+
+test('validates unrestrictedEntry against packaged files', () => {
+  const ok = review(packageWithFiles({
+    'index.html': '<h1>ok</h1>',
+    'root.js': '/* privileged */',
+  }, { unrestrictedEntry: 'root.js' }));
+  assert.equal(ok.passed, true);
+
+  const missing = review(packageWithFiles({
+    'index.html': '<h1>ok</h1>',
+  }, { unrestrictedEntry: 'ghost.js' }));
+  assert.equal(missing.passed, false);
+  assert.ok(missing.errors.some(finding => finding.code === 'invalid_unrestricted_entry'));
+
+  const traversal = review(packageWithFiles({
+    'index.html': '<h1>ok</h1>',
+  }, { unrestrictedEntry: '../outside.js' }));
+  assert.equal(traversal.passed, false);
+  assert.ok(traversal.errors.some(finding => finding.code === 'invalid_unrestricted_entry'));
+});
+
+test('blocks backslash and dot-segment file paths', () => {
+  const report = review(packageWithFiles({
+    'index.html': '<h1>ok</h1>',
+    '..\\..\\windows\\evil.js': 'x',
+    'a/./b.js': 'x',
+    'a//b.js': 'x',
+  }));
+  assert.equal(report.passed, false);
+  assert.equal(report.errors.filter(finding => finding.code === 'unsafe_file_path').length, 3);
+});

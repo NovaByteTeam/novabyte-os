@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   canonicalJson,
+  compareCommunityTemplateVersions,
   encodeCommunityTemplateFiles,
   MAX_TEMPLATE_EXPANDED_BYTES,
   MAX_TEMPLATE_JSON_BYTES,
@@ -163,5 +164,51 @@ test('rejects unsupported fields, wrappers, and oversized JSON', () => {
   assert.throws(
     () => parseCommunityTemplateJson(new Uint8Array(MAX_TEMPLATE_JSON_BYTES + 1)),
     /between 1 byte and 4 MiB/i,
+  );
+});
+
+test('compareCommunityTemplateVersions follows semver prerelease ordering', () => {
+  assert.equal(compareCommunityTemplateVersions('1.0.0', '1.0.0'), 0);
+  assert.equal(compareCommunityTemplateVersions('1.0.1', '1.0.0'), 1);
+  assert.equal(compareCommunityTemplateVersions('2.0.0-rc.1', '2.0.0'), -1);
+  assert.equal(compareCommunityTemplateVersions('1.0.0-rc.2', '1.0.0-rc.10'), -1);
+  assert.equal(compareCommunityTemplateVersions('1.0.0+build', '1.0.0'), 0);
+  assert.throws(() => compareCommunityTemplateVersions('1.0', '1.0.0'), /semantic versioning/);
+});
+
+test('rejects prototype-pollution keys nested deep in the template JSON', () => {
+  const raw = JSON.stringify({
+    format: 'novapack-studio-user-template',
+    version: 1,
+    template: {
+      name: 'Starter Project',
+      description: 'A reviewed starter project template.',
+      author: 'NovaByte Community',
+      releaseVersion: '1.0.0',
+      category: 'general',
+      icon: '✨',
+      manifest: { nested: { ['__proto__']: 'nope' } },
+      files: { 'README.md': 'Starter content' },
+    },
+  });
+  assert.throws(
+    () => parseCommunityTemplateJson(new TextEncoder().encode(raw)),
+    /forbidden key/i,
+  );
+});
+
+test('rejects .nbtemplate files whose base64 payloads decode to binary content', async () => {
+  const template = JSON.parse(new TextDecoder().decode(makeUpload())).template;
+  template.files = {
+    'payload.bin': btoa(String.fromCharCode(0x00, 0x01, 0x02, 0xff)),
+  };
+  const bundle = new TextEncoder().encode(JSON.stringify({
+    format: 'novapack-studio-user-template',
+    version: 1,
+    template,
+  }));
+  assert.throws(
+    () => parseStudioCommunityTemplateBundle(bundle),
+    /not valid UTF-8 text/,
   );
 });

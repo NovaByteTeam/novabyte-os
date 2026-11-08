@@ -1,12 +1,21 @@
+// Community template submission, review, and publication actions.
+//
+// Hardening in this revision: UUID-validated submission IDs everywhere, a
+// status-guarded withdraw (closes the publish race), a per-user active
+// submission quota, and per-row fallbacks in the review queue.
 import {
   ADMIN_EMAIL,
   PUBLISHED_BUCKET,
   SUBMISSION_BUCKET,
   PublisherError,
+  assertNoActiveSubmission,
+  assertSubmissionQuota,
+  deleteSubmissionQuietly,
   downloadSubmissionBytes,
   escapeHtml,
   getAccountEmail,
   makeSignedDownloadUrl,
+  patchStatusGuarded,
   publicPackageUrl,
   queryString,
   requireAdmin,
@@ -14,6 +23,13 @@ import {
   sendEmail,
   storageRequest,
 } from '../_shared/publisher.ts';
+import {
+  ACTIVE_SUBMISSION_STATUSES,
+  WITHDRAWABLE_LISTING_STATUSES,
+  assertListingId,
+  assertSubmissionId,
+  requiredText,
+} from '../_shared/validation.js';
 import {
   CommunityTemplateError,
   MAX_TEMPLATE_JSON_BYTES,
@@ -24,21 +40,10 @@ import {
   parseStudioCommunityTemplateBundle,
 } from '../_shared/community-template.js';
 
-const TEMPLATE_ID = /^[a-z0-9][a-z0-9.-]{2,127}$/;
-
 function arrayBuffer(bytes: Uint8Array) {
   const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
+  new Uint8Array(bytes).set(bytes);
   return buffer;
-}
-
-function requiredText(value: unknown, label: string, maximum: number, minimum = 1) {
-  if (typeof value !== 'string') throw new PublisherError(`${label} is required.`);
-  const result = value.trim();
-  if (result.length < minimum || result.length > maximum) {
-    throw new PublisherError(`${label} must be between ${minimum} and ${maximum} characters.`);
-  }
-  return result;
 }
 
 function parseSubmittedTemplate(bytes: Uint8Array, packagePath: string) {
@@ -100,12 +105,10 @@ async function getSubmission(id: string) {
 }
 
 export async function submitCommunityTemplate(user: { id: string; email?: string }, body: Record<string, unknown>) {
-  const id = requiredText(body.submissionId, 'Submission ID', 64);
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
+  const id = assertSubmissionId(body.submissionId);
   const submission = body.submission as Record<string, unknown> | undefined;
   if (!submission || typeof submission !== 'object') throw new PublisherError('Submission details are required.');
-  const templateId = requiredText(submission.templateId, 'Template ID', 128);
-  if (!TEMPLATE_ID.test(templateId)) throw new PublisherError('Template ID must use lowercase letters, digits, dots, and hyphens.');
+  const templateId = assertListingId(submission.templateId, 'Template ID');
   const type = submission.type === 'update' ? 'update' : submission.type === 'new' ? 'new' : null;
   if (!type) throw new PublisherError('Submission type must be new or update.');
   const packagePath = requiredText(submission.packagePath, 'Template upload', 180);
@@ -114,62 +117,63 @@ export async function submitCommunityTemplate(user: { id: string; email?: string
     throw new PublisherError('The uploaded template does not belong to this account.');
   }
 
-  const owner = await getRow('publisher_template_owners', 'template_id', templateId);
-  const existing = type === 'new' ? await getRow('publisher_catalog_templates', 'template_id', templateId) : null;
-  if (type === 'new' && (owner || existing)) throw new PublisherError('That community template ID is already published.');
-  if (type === 'update' && (!owner || owner.owner_id !== user.id)) {
-    throw new PublisherError('You can submit updates only for community templates you own.');
-  }
-  const published = type === 'update' ? await getRow('publisher_catalog_templates', 'template_id', templateId) : null;
-  if (type === 'update' && !published) throw new PublisherError('This community template is not currently published.');
+  try {
+    await assertSubmissionQuota('publisher_template_submissions', user.id);
 
-  const bytes = await downloadSubmissionBytes(packagePath);
-  if (bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) throw new PublisherError('The .nbtemplate must be no larger than 4 MiB.');
-  const template = parseSubmittedTemplate(bytes, packagePath);
-  if (type === 'update') {
-    try {
-      if (compareCommunityTemplateVersions(template.releaseVersion as string, published.version) <= 0) {
-        throw new PublisherError('An update must use a releaseVersion newer than the currently published template.');
-      }
-    } catch (error) {
-      if (error instanceof CommunityTemplateError) throw new PublisherError(error.message);
-      throw error;
+    const owner = await getRow('publisher_template_owners', 'template_id', templateId);
+    const existing = type === 'new' ? await getRow('publisher_catalog_templates', 'template_id', templateId) : null;
+    if (type === 'new' && (owner || existing)) throw new PublisherError('That community template ID is already published.');
+    if (type === 'update' && (!owner || owner.owner_id !== user.id)) {
+      throw new PublisherError('You can submit updates only for community templates you own.');
     }
+    const published = type === 'update' ? await getRow('publisher_catalog_templates', 'template_id', templateId) : null;
+    if (type === 'update' && !published) throw new PublisherError('This community template is not currently published.');
+
+    const bytes = await downloadSubmissionBytes(packagePath);
+    if (bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) throw new PublisherError('The .nbtemplate must be no larger than 4 MiB.');
+    const template = parseSubmittedTemplate(bytes, packagePath);
+    if (type === 'update') {
+      try {
+        if (compareCommunityTemplateVersions(template.releaseVersion as string, published.version) <= 0) {
+          throw new PublisherError('An update must use a releaseVersion newer than the currently published template.');
+        }
+      } catch (error) {
+        if (error instanceof CommunityTemplateError) throw new PublisherError(error.message);
+        throw error;
+      }
+    }
+    await assertNoActiveSubmission(
+      'publisher_template_submissions', 'template_id', templateId,
+      'This community template already has a submission awaiting review.',
+    );
+    await rest('publisher_template_submissions', {
+      method: 'POST',
+      body: {
+        id,
+        owner_id: user.id,
+        template_id: templateId,
+        type,
+        version: template.releaseVersion,
+        metadata: metadataFor(template),
+        package_path: packagePath,
+        status: 'pending',
+      },
+      prefer: 'return=minimal',
+    });
+    const notification = await sendEmail(
+      ADMIN_EMAIL,
+      `Community template awaiting review: ${escapeHtml(String(template.name))} v${escapeHtml(String(template.releaseVersion))}`,
+      `<p><strong>${escapeHtml(String(template.name))}</strong> (${escapeHtml(templateId)}) v${escapeHtml(String(template.releaseVersion))} is waiting for human review.</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Open the NovaByte Publisher Portal and select Review submissions.</p>`,
+    );
+    return {
+      submitted: true,
+      notificationSent: notification.sent,
+      notificationError: notification.sent ? undefined : notification.reason,
+    };
+  } catch (error) {
+    await deleteSubmissionQuietly(packagePath);
+    throw error;
   }
-  const active = await rest('publisher_template_submissions', {
-    query: queryString({
-      select: 'id',
-      template_id: `eq.${templateId}`,
-      status: 'in.(pending,changes_requested)',
-      limit: '1',
-    }),
-  });
-  if (Array.isArray(active) && active.length) {
-    throw new PublisherError('This community template already has a submission awaiting review.');
-  }
-  await rest('publisher_template_submissions', {
-    method: 'POST',
-    body: {
-      id,
-      owner_id: user.id,
-      template_id: templateId,
-      type,
-      version: template.releaseVersion,
-      metadata: metadataFor(template),
-      package_path: packagePath,
-      status: 'pending',
-    },
-  });
-  const notification = await sendEmail(
-    ADMIN_EMAIL,
-    `Community template awaiting review: ${escapeHtml(String(template.name))} v${escapeHtml(String(template.releaseVersion))}`,
-    `<p><strong>${escapeHtml(String(template.name))}</strong> (${escapeHtml(templateId)}) v${escapeHtml(String(template.releaseVersion))} is waiting for human review.</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Open the NovaByte Publisher Portal and select Review submissions.</p>`,
-  );
-  return {
-    submitted: true,
-    notificationSent: notification.sent,
-    notificationError: notification.sent ? undefined : notification.reason,
-  };
 }
 
 export async function myCommunityTemplates(user: { id: string }) {
@@ -205,17 +209,23 @@ export async function communityTemplateReviewQueue(user: { email?: string }) {
   const rows = await rest('publisher_template_submissions', {
     query: queryString({
       select: 'id,owner_id,template_id,type,version,metadata,status,created_at,package_path,review_package_path',
-      status: 'in.(pending,changes_requested)',
+      status: `in.(${ACTIVE_SUBMISSION_STATUSES.join(',')})`,
       order: 'created_at.asc',
     }),
   });
   const submissions = await Promise.all((Array.isArray(rows) ? rows : []).map(async row => ({
     ...row,
-    owner_email: await getAccountEmail(row.owner_id),
+    owner_email: await getAccountEmail(row.owner_id).catch(error => {
+      console.error('[publisher-api] Could not resolve owner email for template review queue:', error);
+      return null;
+    }),
     download_url: await makeSignedDownloadUrl(
       row.package_path,
       `${row.template_id}-${row.version}.nbtemplate`,
-    ),
+    ).catch(error => {
+      console.error('[publisher-api] Could not create template review download link:', error);
+      return null;
+    }),
     has_reviewed_package: typeof row.review_package_path === 'string'
       && row.review_package_path.endsWith('.nbtemplate'),
   })));
@@ -228,12 +238,11 @@ export async function uploadReviewedCommunityTemplate(
   bytes: Uint8Array,
 ) {
   requireAdmin(user);
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
   if (!bytes.length || bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
     throw new PublisherError('The signed .nbtemplate must be between 1 byte and 4 MiB.');
   }
   const submission = await getSubmission(id);
-  if (!submission || !['pending', 'changes_requested'].includes(submission.status)) {
+  if (!submission || !ACTIVE_SUBMISSION_STATUSES.includes(submission.status)) {
     throw new PublisherError('This community template submission is no longer awaiting review.', 404);
   }
   const reviewed = await parseSignedTemplate(bytes);
@@ -327,7 +336,7 @@ async function publishCommunityTemplate(submission: Record<string, any>) {
 
 export async function reviewCommunityTemplate(user: { email?: string }, body: Record<string, unknown>) {
   requireAdmin(user);
-  const id = requiredText(body.submissionId, 'Submission ID', 64);
+  const id = assertSubmissionId(body.submissionId);
   const decision = body.decision;
   const note = typeof body.reviewNote === 'string' ? body.reviewNote.trim().slice(0, 2000) : '';
   if (!['publish', 'reject', 'request-changes'].includes(String(decision))) {
@@ -337,7 +346,7 @@ export async function reviewCommunityTemplate(user: { email?: string }, body: Re
     throw new PublisherError('Add a reviewer note before requesting changes or rejecting.');
   }
   const submission = await getSubmission(id);
-  if (!submission || !['pending', 'changes_requested'].includes(submission.status)) {
+  if (!submission || !ACTIVE_SUBMISSION_STATUSES.includes(submission.status)) {
     throw new PublisherError('This community template submission is no longer awaiting review.', 404);
   }
   if (decision === 'publish') {
@@ -346,14 +355,10 @@ export async function reviewCommunityTemplate(user: { email?: string }, body: Re
     }
     await publishCommunityTemplate(submission);
   } else {
-    await rest('publisher_template_submissions', {
-      method: 'PATCH',
-      query: queryString({ id: `eq.${id}` }),
-      body: {
-        status: decision === 'reject' ? 'rejected' : 'changes_requested',
-        reviewed_at: new Date().toISOString(),
-        review_note: note,
-      },
+    await patchStatusGuarded('publisher_template_submissions', id, ACTIVE_SUBMISSION_STATUSES, {
+      status: decision === 'reject' ? 'rejected' : 'changes_requested',
+      reviewed_at: new Date().toISOString(),
+      review_note: note,
     });
   }
   const recipient = await getAccountEmail(submission.owner_id);
@@ -371,21 +376,18 @@ export async function reviewCommunityTemplate(user: { email?: string }, body: Re
 }
 
 export async function withdrawCommunityTemplate(user: { id: string }, body: Record<string, unknown>) {
-  const id = requiredText(body.submissionId, 'Submission ID', 64);
+  const id = assertSubmissionId(body.submissionId);
   const submission = await getSubmission(id);
   if (!submission || submission.owner_id !== user.id) throw new PublisherError('Submission not found.', 404);
-  if (!['pending', 'changes_requested', 'rejected'].includes(submission.status)) {
+  if (!WITHDRAWABLE_LISTING_STATUSES.includes(submission.status)) {
     throw new PublisherError('This community template submission can no longer be withdrawn.');
   }
-  await rest('publisher_template_submissions', {
-    method: 'PATCH',
-    query: queryString({ id: `eq.${id}` }),
-    body: { status: 'withdrawn' },
-    prefer: 'return=minimal',
+  // Status-guarded PATCH: a concurrent approval can no longer be overwritten
+  // by a stale withdraw.
+  await patchStatusGuarded('publisher_template_submissions', id, WITHDRAWABLE_LISTING_STATUSES, {
+    status: 'withdrawn',
   });
-  await storageRequest(SUBMISSION_BUCKET, submission.package_path, { method: 'DELETE' });
-  if (submission.review_package_path) {
-    await storageRequest(SUBMISSION_BUCKET, submission.review_package_path, { method: 'DELETE' });
-  }
+  await deleteSubmissionQuietly(submission.package_path);
+  if (submission.review_package_path) await deleteSubmissionQuietly(submission.review_package_path);
   return { withdrawn: true };
 }

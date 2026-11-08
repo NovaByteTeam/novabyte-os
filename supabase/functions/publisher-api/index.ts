@@ -1,17 +1,33 @@
+// NovaByte publisher-api — apps, Studio plugins, and community templates.
+//
+// Hardening changes in this revision (see the audit report for detail):
+// - Every submission ID is UUID-validated before it reaches PostgREST.
+// - Withdraw actions PATCH with a status guard, closing the race where a
+//   concurrent publish could leave a live catalog app marked "withdrawn".
+// - Reviewed-package uploads stream through readBoundedBody instead of
+//   buffering request.arrayBuffer() on a client-controlled size.
+// - Per-user active submission caps stop queue flooding and email bombs.
+// - Failed submissions clean up their uploaded package from storage.
+// - Malformed JSON bodies return 400 instead of a 500 "unexpected error".
+// - The review queue degrades per-row (unknown owner email or a failed signed
+//   URL no longer blanks the entire queue for the reviewer).
 import {
   ADMIN_EMAIL,
   MAX_PACKAGE_BYTES,
   PUBLISHED_BUCKET,
   SUBMISSION_BUCKET,
   PublisherError,
+  assertNoActiveSubmission,
+  assertSubmissionQuota,
   corsHeaders,
+  deleteSubmissionQuietly,
   downloadPublishedPackage,
   downloadSubmission,
-  errorResponse,
-  escapeHtml,
+  fetchWithTimeout,
   getAccountEmail,
   getUser,
   makeSignedDownloadUrl,
+  patchStatusGuarded,
   publicPackageUrl,
   queryString,
   requireAdmin,
@@ -22,6 +38,22 @@ import {
   signAndVerifyPackage,
   storageRequest,
 } from '../_shared/publisher.ts';
+import {
+  ACTIVE_SUBMISSION_STATUSES,
+  WITHDRAWABLE_APP_STATUSES,
+  assertSafePackageFiles,
+  assertSubmissionId,
+  compareVersions,
+  escapeHtml,
+  missingPackageScreenshots,
+  normalizeNewMetadata,
+  packageScreenshots,
+  parseVersion,
+  preserveSubmissionScreenshots,
+  readBoundedBody,
+  readJsonBody,
+  requiredText,
+} from '../_shared/validation.js';
 import { runAutomatedReview } from '../_shared/automated-review.js';
 import {
   myStudioPlugins,
@@ -43,176 +75,26 @@ import {
 const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') || '').replace(/\/+$/, '');
 const STATIC_CATALOG_URL = Deno.env.get('PUBLIC_CATALOG_URL')
   || 'https://novabyteteam.github.io/novabyte-os/apps.json';
-const APP_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,119}$/;
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
-const SCREENSHOT_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/i;
-const SCREENSHOT_URL = /^https:\/\//i;
-const SCREENSHOT_PATH = /^screenshots\/[A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif)$/i;
 
-function screenshotReferences(pkg: Record<string, any>) {
-  const screenshots = pkg.manifest?.screenshots;
-  if (screenshots === undefined) return [];
-  if (!Array.isArray(screenshots) || screenshots.length > 5) {
-    throw new PublisherError('The package must contain no more than five valid screenshots.');
-  }
-  for (const screenshot of screenshots) {
-    if (typeof screenshot !== 'string') {
-      throw new PublisherError('The package contains an invalid screenshot reference.');
-    }
-  }
-  return screenshots;
-}
-
-function packageScreenshots(pkg: Record<string, any>) {
-  const screenshots = screenshotReferences(pkg);
-  for (const screenshot of screenshots) {
-    if (SCREENSHOT_DATA_URL.test(screenshot) || SCREENSHOT_URL.test(screenshot)) continue;
-    if (!SCREENSHOT_PATH.test(screenshot) || typeof pkg.files?.[screenshot] !== 'string') {
-      throw new PublisherError(`The package is missing screenshot file "${screenshot}".`);
-    }
-  }
-  return screenshots;
-}
-
-async function readBoundedBody(request: Request, maximumBytes: number, label: string) {
-  const contentLength = Number(request.headers.get('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
-    throw new PublisherError(`${label} must be no larger than ${maximumBytes / (1024 * 1024)} MiB.`);
-  }
-  if (!request.body) throw new PublisherError(`${label} is required.`);
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maximumBytes) {
-      await reader.cancel();
-      throw new PublisherError(`${label} must be no larger than ${maximumBytes / (1024 * 1024)} MiB.`);
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-function preserveSubmissionScreenshots(
-  submittedPackage: Record<string, any>,
-  reviewedPackage: Record<string, any>,
-) {
-  const submittedScreenshots = packageScreenshots(submittedPackage);
-  const reviewedScreenshots = screenshotReferences(reviewedPackage);
-  const screenshots = [...reviewedScreenshots];
-  for (const screenshot of reviewedScreenshots) {
-    if (SCREENSHOT_PATH.test(screenshot) && typeof reviewedPackage.files[screenshot] !== 'string') {
-      const submittedImage = submittedPackage.files[screenshot];
-      if (typeof submittedImage !== 'string') {
-        throw new PublisherError(`The reviewed package is missing screenshot file "${screenshot}".`);
-      }
-      reviewedPackage.files[screenshot] = submittedImage;
-    }
-  }
-  for (const screenshot of submittedScreenshots) {
-    if (!screenshots.includes(screenshot)) screenshots.push(screenshot);
-    if (SCREENSHOT_PATH.test(screenshot) && typeof reviewedPackage.files[screenshot] !== 'string') {
-      reviewedPackage.files[screenshot] = submittedPackage.files[screenshot];
-    }
-  }
-  packageScreenshots({ ...reviewedPackage, manifest: { ...reviewedPackage.manifest, screenshots } });
-  reviewedPackage.manifest.screenshots = screenshots;
-}
-
-function requiredText(value: unknown, label: string, maximum: number, minimum = 1) {
-  if (typeof value !== 'string') throw new PublisherError(`${label} is required.`);
-  const result = value.trim();
-  if (result.length < minimum || result.length > maximum) {
-    throw new PublisherError(`${label} must be between ${minimum} and ${maximum} characters.`);
-  }
-  return result;
-}
-
-function parseVersion(version: string) {
-  const match = version.match(VERSION_PATTERN);
-  if (!match) throw new PublisherError('Use a valid semantic version such as 1.2.3.');
-  return {
-    core: match.slice(1, 4).map(Number),
-    prerelease: match[4] ? match[4].split('.') : null,
-  };
-}
-
-function compareVersions(left: string, right: string) {
-  const a = parseVersion(left);
-  const b = parseVersion(right);
-  for (let index = 0; index < 3; index++) {
-    if (a.core[index] !== b.core[index]) return a.core[index] > b.core[index] ? 1 : -1;
-  }
-  if (!a.prerelease || !b.prerelease) {
-    if (a.prerelease === b.prerelease) return 0;
-    return a.prerelease ? -1 : 1;
-  }
-  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index++) {
-    if (a.prerelease[index] === undefined) return -1;
-    if (b.prerelease[index] === undefined) return 1;
-    if (a.prerelease[index] === b.prerelease[index]) continue;
-    const leftNumeric = /^\d+$/.test(a.prerelease[index]);
-    const rightNumeric = /^\d+$/.test(b.prerelease[index]);
-    if (leftNumeric && rightNumeric) return Number(a.prerelease[index]) > Number(b.prerelease[index]) ? 1 : -1;
-    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
-    return a.prerelease[index] > b.prerelease[index] ? 1 : -1;
-  }
-  return 0;
-}
-
-function validateLinks(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const result: Record<string, string> = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (!['website', 'source', 'support'].includes(key) || typeof raw !== 'string' || !raw.trim()) continue;
-    let url: URL;
-    try {
-      url = new URL(raw.trim());
-    } catch {
-      throw new PublisherError(`${key} must be a valid HTTPS URL.`);
-    }
-    if (url.protocol !== 'https:') throw new PublisherError(`${key} must use HTTPS.`);
-    result[key] = url.href;
-  }
-  return result;
-}
-
-function normalizeNewMetadata(value: Record<string, unknown>) {
-  const name = requiredText(value.name, 'App name', 80, 2);
-  const appId = requiredText(value.appId, 'App ID', 120, 2);
-  if (!APP_ID_PATTERN.test(appId)) throw new PublisherError('App ID may contain lowercase letters, digits, dots, underscores, and hyphens.');
-  const author = requiredText(value.author, 'Publisher name', 80, 2);
-  const version = requiredText(value.version, 'Version', 40);
-  parseVersion(version);
-  const description = requiredText(value.description, 'Description', 1000, 20);
-  const changelog = requiredText(value.changelog, 'Release notes', 4000, 3);
-  const rawCategories: unknown[] = Array.isArray(value.categories) ? value.categories : [];
-  if (!rawCategories.length || rawCategories.length > 8) {
-    throw new PublisherError('Add between one and eight valid categories.');
-  }
-  const categories = [...new Set(rawCategories.map(item => {
-    if (typeof item !== 'string') throw new PublisherError('Categories must be text values.');
-    return item.toLowerCase().trim().replace(/[\s_]+/g, '-');
-  }))];
-  if (categories.some(item => !/^[a-z0-9-]{2,32}$/.test(item))) {
-    throw new PublisherError('Categories may contain lowercase letters, numbers, and hyphens.');
-  }
-  return { appId, name, author, version, description, categories, links: validateLinks(value.links), changelog };
+function imageDataUri(pkg: Record<string, any>, value: unknown) {
+  if (typeof value !== 'string') return null;
+  if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,/i.test(value)) return value;
+  const encoded = pkg.files?.[value];
+  if (typeof encoded !== 'string') return null;
+  const extension = value.split('.').pop()?.toLowerCase();
+  const mime = extension === 'svg' ? 'image/svg+xml'
+    : extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg'
+    : extension === 'gif' ? 'image/gif'
+    : extension === 'webp' ? 'image/webp'
+    : extension === 'png' ? 'image/png'
+    : null;
+  return mime ? `data:${mime};base64,${encoded}` : null;
 }
 
 async function loadStaticAppIds() {
   let response: Response;
   try {
-    response = await fetch(STATIC_CATALOG_URL, { cache: 'no-store' });
+    response = await fetchWithTimeout(STATIC_CATALOG_URL, { cache: 'no-store' }, 10_000);
   } catch (error) {
     console.error('[publisher-api] Static catalog lookup failed:', error);
     throw new PublisherError('Could not confirm whether this app ID is already in use. Try again later.', 502);
@@ -231,8 +113,7 @@ async function getOne(table: string, key: string, value: string) {
 }
 
 async function submit(user: { id: string; email?: string }, body: Record<string, unknown>) {
-  const id = requiredText(body.submissionId, 'Submission ID', 64);
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
+  const id = assertSubmissionId(body.submissionId);
   const submission = body.submission as Record<string, unknown> | undefined;
   if (!submission || typeof submission !== 'object') throw new PublisherError('Submission details are required.');
   const packagePath = requiredText(submission.packagePath, 'Package upload', 160);
@@ -240,147 +121,133 @@ async function submit(user: { id: string; email?: string }, body: Record<string,
 
   const type = submission.type === 'update' ? 'update' : submission.type === 'new' ? 'new' : null;
   if (!type) throw new PublisherError('Submission type must be new or update.');
+  // Common identity fields, validated once here; full listing validation only
+  // runs for new apps (updates keep the published listing metadata).
   const appId = requiredText(submission.appId, 'App ID', 120, 2);
-  if (!APP_ID_PATTERN.test(appId)) throw new PublisherError('App ID may contain lowercase letters, digits, dots, underscores, and hyphens.');
   const version = requiredText(submission.version, 'Version', 40);
   parseVersion(version);
   const changelog = requiredText(submission.changelog, 'Release notes', 4000, 3);
+
   const existingOwner = await getOne('publisher_app_owners', 'app_id', appId);
   let publishedApp: Record<string, any> | null = null;
   let metadata: Record<string, unknown>;
 
-  if (type === 'new') {
-    if (existingOwner) throw new PublisherError('That app ID is already published.');
-    const staticIds = await loadStaticAppIds();
-    if (staticIds.has(appId)) throw new PublisherError('That app ID is already used in the public catalog.');
-    const active = await rest('publisher_submissions', {
-      query: queryString({
-        select: 'id',
-        app_id: `eq.${appId}`,
-        status: 'in.(pending,changes_requested)',
-        limit: '1',
-      }),
-    });
-    if (Array.isArray(active) && active.length) throw new PublisherError('This app already has a submission awaiting review.');
-    const normalized = normalizeNewMetadata(submission);
-    if (normalized.appId !== appId || normalized.version !== version || normalized.changelog !== changelog) {
-      throw new PublisherError('App details changed during submission. Refresh and try again.');
-    }
-    metadata = {
-      name: normalized.name,
-      author: normalized.author,
-      description: normalized.description,
-      categories: normalized.categories,
-      links: normalized.links,
-    };
-  } else {
-    if (!existingOwner || existingOwner.owner_id !== user.id) {
-      throw new PublisherError('You can submit updates only for apps you own.');
-    }
-    publishedApp = await getOne('publisher_catalog_apps', 'app_id', appId);
-    if (!publishedApp) throw new PublisherError('This app is not currently published.');
-    if (compareVersions(version, publishedApp.version) !== 1) {
-      throw new PublisherError('An update must use a version newer than the currently published version.');
-    }
-    const active = await rest('publisher_submissions', {
-      query: queryString({
-        select: 'id',
-        app_id: `eq.${appId}`,
-        status: 'in.(pending,changes_requested)',
-        limit: '1',
-      }),
-    });
-    if (Array.isArray(active) && active.length) throw new PublisherError('This app already has an update awaiting review.');
-    // Optional listing description override: the portal sends the edited description on
-    // updates (blank means keep the current one). Accept it with the same validation as
-    // new submissions so the published listing actually reflects the new text.
-    const submittedDescription = typeof submission.description === 'string' && submission.description.trim()
-      ? requiredText(submission.description, 'Description', 1000, 20)
-      : null;
-    metadata = {
-      name: publishedApp.name,
-      author: publishedApp.author,
-      description: submittedDescription ?? publishedApp.description,
-      categories: publishedApp.categories,
-      links: publishedApp.links,
-    };
-  }
+  try {
+    await assertSubmissionQuota('publisher_submissions', user.id);
 
-  const { pkg } = await downloadSubmission(packagePath);
-  if (pkg.novabyte_app !== true || !pkg.manifest || pkg.manifest.id !== appId) {
-    throw new PublisherError('The package manifest ID does not match this submission.');
-  }
-  if (pkg.manifest.version !== version) throw new PublisherError('The package manifest version does not match this submission.');
-  if (!pkg.files || typeof pkg.files !== 'object' || Array.isArray(pkg.files)) {
-    throw new PublisherError('The package does not contain a valid file map.');
-  }
-  if (type === 'update' && publishedApp) {
-    const missingScreenshots = screenshotReferences(pkg).filter(screenshot =>
-      SCREENSHOT_PATH.test(screenshot) && typeof pkg.files[screenshot] !== 'string'
-    );
-    if (missingScreenshots.length) {
-      const previousPackage = await downloadPublishedPackage(`${appId}/${publishedApp.version}.novaapp`);
-      for (const screenshot of missingScreenshots) {
-        const image = previousPackage.pkg.files?.[screenshot];
-        if (typeof image === 'string') pkg.files[screenshot] = image;
+    if (type === 'new') {
+      if (existingOwner) throw new PublisherError('That app ID is already published.');
+      const staticIds = await loadStaticAppIds();
+      if (staticIds.has(appId)) throw new PublisherError('That app ID is already used in the public catalog.');
+      await assertNoActiveSubmission(
+        'publisher_submissions', 'app_id', appId, 'This app already has a submission awaiting review.',
+      );
+      const normalized = normalizeNewMetadata(submission);
+      if (normalized.appId !== appId || normalized.version !== version || normalized.changelog !== changelog) {
+        throw new PublisherError('App details changed during submission. Refresh and try again.');
+      }
+      metadata = {
+        name: normalized.name,
+        author: normalized.author,
+        description: normalized.description,
+        categories: normalized.categories,
+        links: normalized.links,
+      };
+    } else {
+      if (!existingOwner || existingOwner.owner_id !== user.id) {
+        throw new PublisherError('You can submit updates only for apps you own.');
+      }
+      publishedApp = await getOne('publisher_catalog_apps', 'app_id', appId);
+      if (!publishedApp) throw new PublisherError('This app is not currently published.');
+      if (compareVersions(version, publishedApp.version) !== 1) {
+        throw new PublisherError('An update must use a version newer than the currently published version.');
+      }
+      await assertNoActiveSubmission(
+        'publisher_submissions', 'app_id', appId, 'This app already has an update awaiting review.',
+      );
+      // Optional listing description override: the portal sends the edited description on
+      // updates (blank means keep the current one). Accept it with the same validation as
+      // new submissions so the published listing actually reflects the new text.
+      const submittedDescription = typeof submission.description === 'string' && submission.description.trim()
+        ? requiredText(submission.description, 'Description', 1000, 20)
+        : null;
+      metadata = {
+        name: publishedApp.name,
+        author: publishedApp.author,
+        description: submittedDescription ?? publishedApp.description,
+        categories: publishedApp.categories,
+        links: publishedApp.links,
+      };
+    }
+
+    const { pkg } = await downloadSubmission(packagePath);
+    if (pkg.novabyte_app !== true || !pkg.manifest || pkg.manifest.id !== appId) {
+      throw new PublisherError('The package manifest ID does not match this submission.');
+    }
+    if (pkg.manifest.version !== version) throw new PublisherError('The package manifest version does not match this submission.');
+    assertSafePackageFiles(pkg);
+    if (type === 'update' && publishedApp) {
+      const missingScreenshots = missingPackageScreenshots(pkg);
+      if (missingScreenshots.length) {
+        const previousPackage = await downloadPublishedPackage(`${appId}/${publishedApp.version}.novaapp`);
+        for (const screenshot of missingScreenshots) {
+          const image = previousPackage.pkg.files?.[screenshot];
+          if (typeof image === 'string') pkg.files[screenshot] = image;
+        }
       }
     }
-  }
-  packageScreenshots(pkg);
-  const files = Object.entries(pkg.files);
-  const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-  if (!files.length || files.some(([path, encoded]) =>
-    !path || path.startsWith('/') || path.includes('\\')
-    || path.split('/').some(part => !part || part === '.' || part === '..')
-    || typeof encoded !== 'string' || !encoded || !base64Pattern.test(encoded)
-  )) {
-    throw new PublisherError('The package contains an invalid file or unsafe path.');
-  }
-  const submissionByteLength = new TextEncoder().encode(JSON.stringify(pkg)).byteLength;
-  if (submissionByteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The package exceeds the 25 MB upload limit.');
+    packageScreenshots(pkg);
+    const submissionByteLength = new TextEncoder().encode(JSON.stringify(pkg)).byteLength;
+    if (submissionByteLength > MAX_PACKAGE_BYTES) throw new PublisherError('The package exceeds the 25 MB upload limit.');
 
-  const automatedReview = runAutomatedReview(pkg, { appId, version });
-  // Failed checks still go to the human review queue (flagged via automated_review.passed).
-  // Approval re-runs the checks on the reviewed package, so nothing failing publishes as-is.
-  const status = 'pending';
-  await rest('publisher_submissions', {
-    method: 'POST',
-    body: {
-      id,
-      owner_id: user.id,
-      app_id: appId,
-      type,
-      version,
-      metadata,
-      changelog,
-      package_path: packagePath,
-      status,
-      automated_review: automatedReview,
-    },
-  });
-  const findingsHtml = automatedReview.errors.map(finding => `<li>${escapeHtml(finding.message)}</li>`).join('');
-  if (!automatedReview.passed) {
-    // Best effort: tell the publisher what was flagged. The reviewer is emailed below regardless.
-    await sendEmail(
-      user.email || '',
-      `NovaByte app flagged by automated checks: ${appId} v${version}`,
-      `<p>Automated checks flagged issues. Your submission has still been sent for human review, but it can't be published until they're fixed.</p><ul>${findingsHtml}</ul><p>You can update your package and submit it again.</p>`,
+    const automatedReview = runAutomatedReview(pkg, { appId, version });
+    // Failed checks still go to the human review queue (flagged via automated_review.passed).
+    // Approval re-runs the checks on the reviewed package, so nothing failing publishes as-is.
+    await rest('publisher_submissions', {
+      method: 'POST',
+      body: {
+        id,
+        owner_id: user.id,
+        app_id: appId,
+        type,
+        version,
+        metadata,
+        changelog,
+        package_path: packagePath,
+        status: 'pending',
+        automated_review: automatedReview,
+      },
+      prefer: 'return=minimal',
+    });
+    const findingsHtml = automatedReview.errors.map(finding => `<li>${escapeHtml(finding.message)}</li>`).join('');
+    if (!automatedReview.passed) {
+      // Best effort: tell the publisher what was flagged. The reviewer is emailed below regardless.
+      await sendEmail(
+        user.email || '',
+        `NovaByte app flagged by automated checks: ${appId} v${version}`,
+        `<p>Automated checks flagged issues. Your submission has still been sent for human review, but it can't be published until they're fixed.</p><ul>${findingsHtml}</ul><p>You can update your package and submit it again.</p>`,
+      );
+    }
+
+    const notification = await sendEmail(
+      ADMIN_EMAIL,
+      `Automated checks ${automatedReview.passed ? 'passed' : 'FAILED'}: ${String(metadata.name)} v${version}`,
+      `<p>${automatedReview.passed
+        ? "Automated checks passed. A verified publisher's app is ready for human review."
+        : 'Automated checks failed, but the submission was sent for your review anyway.'}</p>${automatedReview.passed ? '' : `<ul>${findingsHtml}</ul>`}<p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
     );
+    return {
+      submitted: true,
+      automatedReview,
+      notificationSent: notification.sent,
+      notificationError: notification.sent ? undefined : notification.reason,
+    };
+  } catch (error) {
+    // The client uploaded the package before calling submit; whatever made
+    // this call fail, no database row references that file anymore.
+    await deleteSubmissionQuietly(packagePath);
+    throw error;
   }
-
-  const notification = await sendEmail(
-    ADMIN_EMAIL,
-    `Automated checks ${automatedReview.passed ? 'passed' : 'FAILED'}: ${String(metadata.name)} v${version}`,
-    `<p>${automatedReview.passed
-      ? "Automated checks passed. A verified publisher's app is ready for human review."
-      : 'Automated checks failed, but the submission was sent for your review anyway.'}</p>${automatedReview.passed ? '' : `<ul>${findingsHtml}</ul>`}<p><strong>${escapeHtml(metadata.name)}</strong> (${escapeHtml(appId)}) v${escapeHtml(version)}</p><p>Publisher account: ${escapeHtml(user.email || 'unknown')}</p><p>Type: ${escapeHtml(type)}</p><p>Changelog: ${escapeHtml(changelog)}</p><p>Open the NovaByte Publisher Portal and select Review Apps.</p>`,
-  );
-  return {
-    submitted: true,
-    automatedReview,
-    notificationSent: notification.sent,
-    notificationError: notification.sent ? undefined : notification.reason,
-  };
 }
 
 async function myApps(user: { id: string }) {
@@ -411,17 +278,25 @@ async function reviewQueue(user: { email?: string }) {
   const rows = await rest('publisher_submissions', {
     query: queryString({
       select: 'id,owner_id,app_id,type,version,metadata,changelog,status,automated_review,safety_rating,created_at,package_path,review_package_path',
-      status: 'in.(pending,changes_requested)',
+      status: `in.(${ACTIVE_SUBMISSION_STATUSES.join(',')})`,
       order: 'created_at.asc',
     }),
   });
+  // Per-row fallbacks: one account whose email lookup fails (or one bad
+  // storage path) must not blank the whole reviewer queue.
   const submissions = await Promise.all((Array.isArray(rows) ? rows : []).map(async row => ({
     ...row,
-    owner_email: await getAccountEmail(row.owner_id),
+    owner_email: await getAccountEmail(row.owner_id).catch(error => {
+      console.error('[publisher-api] Could not resolve owner email for review queue:', error);
+      return null;
+    }),
     download_url: await makeSignedDownloadUrl(
       row.package_path,
       `${row.app_id}-${row.version}.novaapp`,
-    ),
+    ).catch(error => {
+      console.error('[publisher-api] Could not create review download link:', error);
+      return null;
+    }),
     has_reviewed_package: Boolean(row.review_package_path),
   })));
   return { submissions };
@@ -436,21 +311,6 @@ async function hostedAppsForReview(user: { email?: string }) {
     }),
   });
   return { apps: Array.isArray(apps) ? apps : [] };
-}
-
-function imageDataUri(pkg: Record<string, any>, value: unknown) {
-  if (typeof value !== 'string') return null;
-  if (/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,/i.test(value)) return value;
-  const encoded = pkg.files?.[value];
-  if (typeof encoded !== 'string') return null;
-  const extension = value.split('.').pop()?.toLowerCase();
-  const mime = extension === 'svg' ? 'image/svg+xml'
-    : extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg'
-    : extension === 'gif' ? 'image/gif'
-    : extension === 'webp' ? 'image/webp'
-    : extension === 'png' ? 'image/png'
-    : null;
-  return mime ? `data:${mime};base64,${encoded}` : null;
 }
 
 async function publishSubmission(submission: Record<string, any>) {
@@ -535,7 +395,7 @@ async function publishSubmission(submission: Record<string, any>) {
 
 async function review(user: { email?: string }, body: Record<string, unknown>) {
   requireAdmin(user);
-  const id = requiredText(body.submissionId, 'Submission ID', 64);
+  const id = assertSubmissionId(body.submissionId);
   const decision = body.decision;
   const note = typeof body.reviewNote === 'string' ? body.reviewNote.trim().slice(0, 2000) : '';
   if (!['publish', 'reject', 'request-changes'].includes(String(decision))) {
@@ -553,7 +413,7 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
     throw new PublisherError('Set a safety confidence rating before publishing.');
   }
   const submission = await getOne('publisher_submissions', 'id', id);
-  if (!submission || !['pending', 'changes_requested'].includes(submission.status)) {
+  if (!submission || !ACTIVE_SUBMISSION_STATUSES.includes(submission.status)) {
     throw new PublisherError('This submission is no longer awaiting review.', 404);
   }
   if (decision === 'publish') {
@@ -569,15 +429,11 @@ async function review(user: { email?: string }, body: Record<string, unknown>) {
     });
     await publishSubmission(submission);
   } else {
-    await rest('publisher_submissions', {
-      method: 'PATCH',
-      query: queryString({ id: `eq.${id}` }),
-      body: {
-        status: decision === 'reject' ? 'rejected' : 'changes_requested',
-        reviewed_at: new Date().toISOString(),
-        review_note: note,
-        ...(safetyRating !== null ? { safety_rating: safetyRating } : {}),
-      },
+    await patchStatusGuarded('publisher_submissions', id, ACTIVE_SUBMISSION_STATUSES, {
+      status: decision === 'reject' ? 'rejected' : 'changes_requested',
+      reviewed_at: new Date().toISOString(),
+      review_note: note,
+      ...(safetyRating !== null ? { safety_rating: safetyRating } : {}),
     });
   }
   const recipient = await getAccountEmail(submission.owner_id);
@@ -596,7 +452,7 @@ async function removePublishedApp(appId: string) {
   });
   if (!Array.isArray(matching) || !matching.length) throw new PublisherError('This app is not currently published.', 404);
 
-  const listResponse = await fetch(`${SUPABASE_URL}/storage/v1/object/list/${PUBLISHED_BUCKET}`, {
+  const listResponse = await fetchWithTimeout(`${SUPABASE_URL}/storage/v1/object/list/${PUBLISHED_BUCKET}`, {
     method: 'POST',
     headers: {
       apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
@@ -614,7 +470,7 @@ async function removePublishedApp(appId: string) {
     ? objects.filter(item => typeof item?.name === 'string').map(item => `${appId}/${item.name}`)
     : [];
   if (paths.length) {
-    const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${PUBLISHED_BUCKET}`, {
+    const response = await fetchWithTimeout(`${SUPABASE_URL}/storage/v1/object/${PUBLISHED_BUCKET}`, {
       method: 'DELETE',
       headers: {
         apikey: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '',
@@ -646,18 +502,20 @@ async function dehostPublishedApp(user: { email?: string }, body: Record<string,
 }
 
 async function withdraw(user: { id: string }, body: Record<string, unknown>) {
-  const id = requiredText(body.submissionId, 'Submission ID', 64);
+  const id = assertSubmissionId(body.submissionId);
   const submission = await getOne('publisher_submissions', 'id', id);
   if (!submission || submission.owner_id !== user.id) throw new PublisherError('Submission not found.', 404);
-  if (!['pending', 'changes_requested', 'rejected', 'automated_rejected'].includes(submission.status)) {
+  if (!WITHDRAWABLE_APP_STATUSES.includes(submission.status)) {
     throw new PublisherError('This submission can no longer be withdrawn.');
   }
-  await rest('publisher_submissions', {
-    method: 'PATCH',
-    query: queryString({ id: `eq.${id}` }),
-    body: { status: 'withdrawn' },
+  // Status-guarded PATCH: if a reviewer published (or another tab withdrew)
+  // between the read above and this write, zero rows match and we abort
+  // instead of leaving a live catalog app marked "withdrawn".
+  await patchStatusGuarded('publisher_submissions', id, WITHDRAWABLE_APP_STATUSES, {
+    status: 'withdrawn',
   });
-  await storageRequest(SUBMISSION_BUCKET, submission.package_path, { method: 'DELETE' });
+  await deleteSubmissionQuietly(submission.package_path);
+  if (submission.review_package_path) await deleteSubmissionQuietly(submission.review_package_path);
   return { withdrawn: true };
 }
 
@@ -672,20 +530,13 @@ Deno.serve(async request => {
     const url = new URL(request.url);
     if (url.searchParams.get('action') === 'upload-reviewed-package') {
       requireAdmin(user);
-      const id = requiredText(url.searchParams.get('submissionId'), 'Submission ID', 64);
-      if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
+      const id = assertSubmissionId(url.searchParams.get('submissionId'));
       const submission = await getOne('publisher_submissions', 'id', id);
-      if (!submission || !['pending', 'changes_requested'].includes(submission.status)) {
+      if (!submission || !ACTIVE_SUBMISSION_STATUSES.includes(submission.status)) {
         throw new PublisherError('This submission is no longer awaiting review.', 404);
       }
-      const contentLength = Number(request.headers.get('content-length'));
-      if (Number.isFinite(contentLength) && contentLength > MAX_PACKAGE_BYTES) {
-        throw new PublisherError('The reviewed package must be no larger than 25 MB.');
-      }
-      const bytes = new Uint8Array(await request.arrayBuffer());
-      if (!bytes.length || bytes.byteLength > MAX_PACKAGE_BYTES) {
-        throw new PublisherError('The reviewed package must be between 1 byte and 25 MB.');
-      }
+      const bytes = await readBoundedBody(request, MAX_PACKAGE_BYTES, 'The reviewed package');
+      if (!bytes.length) throw new PublisherError('The reviewed package must be between 1 byte and 25 MB.');
       let pkg: Record<string, any>;
       try {
         pkg = JSON.parse(new TextDecoder().decode(bytes));
@@ -737,14 +588,10 @@ Deno.serve(async request => {
       return respond({ uploaded: true });
     }
     if (url.searchParams.get('action') === 'upload-reviewed-plugin') {
-      const contentLength = Number(request.headers.get('content-length'));
-      if (Number.isFinite(contentLength) && contentLength > MAX_PACKAGE_BYTES) {
-        throw new PublisherError('The reviewed .nbplugin must be no larger than 25 MB.');
-      }
-      const bytes = new Uint8Array(await request.arrayBuffer());
+      const bytes = await readBoundedBody(request, MAX_PACKAGE_BYTES, 'The reviewed .nbplugin');
       return respond(await uploadReviewedStudioPlugin(
         user,
-        requiredText(url.searchParams.get('submissionId'), 'Submission ID', 64),
+        assertSubmissionId(url.searchParams.get('submissionId')),
         bytes,
       ));
     }
@@ -753,12 +600,12 @@ Deno.serve(async request => {
       const bytes = await readBoundedBody(request, 4 * 1024 * 1024, 'The signed .nbtemplate');
       return respond(await uploadReviewedCommunityTemplate(
         user,
-        requiredText(url.searchParams.get('submissionId'), 'Submission ID', 64),
+        assertSubmissionId(url.searchParams.get('submissionId')),
         bytes,
       ));
     }
-    const body = await request.json();
-    const action = body?.action;
+    const body = await readJsonBody(request);
+    const action = (body as Record<string, unknown>)?.action;
     if (typeof action !== 'string') throw new PublisherError('Choose a publisher action.');
 
     if (action === 'submit') return respond(await submit(user, body));
@@ -779,7 +626,6 @@ Deno.serve(async request => {
     if (action === 'withdraw') return respond(await withdraw(user, body));
     if (action === 'withdraw-plugin') return respond(await withdrawStudioPlugin(user, body));
     if (action === 'withdraw-template') return respond(await withdrawCommunityTemplate(user, body));
-    if (user.email?.trim().toLowerCase() === ADMIN_EMAIL) requireAdmin(user);
     throw new PublisherError('Unknown publisher action.', 404);
   } catch (error) {
     return errorResponse(error);

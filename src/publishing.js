@@ -558,7 +558,7 @@ class PublisherPortal {
       'hidden',
       !signedIn || this.user?.email?.trim().toLowerCase() !== this.adminEmail
     );
-    this.nodes.signOut.textContent = signedIn ? 'Sign out' : 'Sign out';
+    this.nodes.signOut.textContent = 'Sign out';
   }
 
   setPage(title, subtitle) {
@@ -725,7 +725,6 @@ class PublisherPortal {
       ? 'Verify your email before submitting apps for review.'
       : 'Sign in with your verified email to publish and manage apps.');
     const form = makeElement('form', 'publisher-card publisher-auth-form');
-    form.noValidate = false;
 
     if (signup) {
       const name = makeField('Your name or publisher name', {
@@ -1155,12 +1154,15 @@ class PublisherPortal {
       }
       submit.disabled = true;
       submit.textContent = 'Uploading package…';
+      let packagePath;
+      let submitted = false;
       try {
         const submissionId = crypto.randomUUID();
-        const packagePath = `${this.user.id}/${submissionId}.novaapp`;
+        packagePath = `${this.user.id}/${submissionId}.novaapp`;
         const packageForUpload = JSON.parse(JSON.stringify(packageData.pkg));
         // Strip store-only data before upload — none of this belongs in the installable package.
-        // Screenshot image data: paths in manifest.screenshots cover the store listing.
+        // Screenshot image data: paths in manifest.screenshots cover the store listing, and the
+        // server backfills kept screenshots from the previously published package on updates.
         for (const path of Object.keys(packageForUpload.files)) {
           if (path.startsWith('screenshots/')) delete packageForUpload.files[path];
         }
@@ -1250,6 +1252,7 @@ class PublisherPortal {
           changelog: fields.changelog.input.value.trim(),
         };
         const result = await this.call('submit', { submissionId, submission: metadata });
+        submitted = true;
         await this.open('my-apps');
         if (result.automatedReview?.passed === false) {
           this.setNotice(
@@ -1264,6 +1267,18 @@ class PublisherPortal {
             : 'Automated checks passed. Your submission is waiting for human review.', result.notificationSent === false ? 'warning' : 'success');
         }
       } catch (error) {
+        // The upload happened before the submit call; if submission failed, remove
+        // the orphaned private file so rejected packages never pile up in storage.
+        if (packagePath && !submitted) {
+          try {
+            await this.request(`/storage/v1/object/publisher-submissions/${encodePath(packagePath)}`, {
+              method: 'DELETE',
+              token: this.session.access_token,
+            });
+          } catch {
+            // The private upload may be cleaned up later if storage is temporarily unavailable.
+          }
+        }
         this.setNotice(error.message || String(error), 'error');
       } finally {
         submit.disabled = false;
@@ -1298,7 +1313,7 @@ class PublisherPortal {
         required: true, maxLength: 80,
       }),
       version: makeField('Version (must match plugin.json)', {
-        id: 'studio-plugin-version', value: update ? '' : '', required: true, maxLength: 40,
+        id: 'studio-plugin-version', value: '', required: true, maxLength: 40,
         placeholder: '1.0.0',
       }),
       compatibleStudio: makeField('Compatible Studio versions (must match engines.studio)', {
@@ -1343,10 +1358,12 @@ class PublisherPortal {
       }
       submit.disabled = true;
       submit.textContent = 'Uploading plugin…';
+      let pluginPackagePath;
+      let pluginSubmitted = false;
       try {
         const submissionId = crypto.randomUUID();
-        const packagePath = `${this.user.id}/${submissionId}.nbplugin`;
-        await this.request(`/storage/v1/object/publisher-submissions/${encodePath(packagePath)}`, {
+        pluginPackagePath = `${this.user.id}/${submissionId}.nbplugin`;
+        await this.request(`/storage/v1/object/publisher-submissions/${encodePath(pluginPackagePath)}`, {
           method: 'POST',
           token: this.session.access_token,
           rawBody: file,
@@ -1364,14 +1381,25 @@ class PublisherPortal {
             compatibleStudio: fields.compatibleStudio.input.value.trim(),
             description: fields.description.input.value.trim(),
             changelog: fields.changelog.input.value.trim(),
-            packagePath,
+            packagePath: pluginPackagePath,
           },
         });
+        pluginSubmitted = true;
         await this.open('my-plugins');
         this.setNotice(result.notificationSent === false
           ? `Plugin submitted for review. ${emailFailureNotice(result.notificationError)}`
           : 'Studio plugin submitted. It will be published only after human review.', result.notificationSent === false ? 'warning' : 'success');
       } catch (error) {
+        if (pluginPackagePath && !pluginSubmitted) {
+          try {
+            await this.request(`/storage/v1/object/publisher-submissions/${encodePath(pluginPackagePath)}`, {
+              method: 'DELETE',
+              token: this.session.access_token,
+            });
+          } catch {
+            // The private upload may be cleaned up later if storage is temporarily unavailable.
+          }
+        }
         this.setNotice(error.message || String(error), 'error');
       } finally {
         submit.disabled = false;
