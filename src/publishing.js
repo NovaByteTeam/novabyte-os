@@ -180,6 +180,8 @@ class PublisherPortal {
       myApps: document.getElementById('publisher-my-apps'),
       publishPlugin: document.getElementById('publisher-publish-plugin'),
       myPlugins: document.getElementById('publisher-my-plugins'),
+      publishTemplate: document.getElementById('publisher-publish-template'),
+      myTemplates: document.getElementById('publisher-my-templates'),
       account: document.getElementById('publisher-account'),
       review: document.getElementById('publisher-review'),
       signOut: document.getElementById('publisher-signout'),
@@ -384,6 +386,8 @@ class PublisherPortal {
       if (error.message === 'Unknown publisher action.' && [
         'hosted-apps', 'dehost-app', 'submit-plugin', 'my-plugins',
         'plugin-review-list', 'review-plugin', 'withdraw-plugin',
+        'submit-template', 'my-templates', 'template-review-list',
+        'review-template', 'withdraw-template',
       ].includes(action)) {
         throw new Error('The publisher API is outdated. Deploy the latest function with: npx supabase functions deploy publisher-api --project-ref jcrptxtmieveoijdbtqa');
       }
@@ -442,6 +446,28 @@ class PublisherPortal {
     return result;
   }
 
+  async uploadReviewedTemplate(submissionId, file) {
+    await this.ensureSession();
+    if (!this.user || !this.session) throw new Error('Sign in with a verified email to continue.');
+    const params = new URLSearchParams({ action: 'upload-reviewed-template', submissionId });
+    const response = await fetch(`${this.baseUrl}/functions/v1/publisher-api?${params}`, {
+      method: 'POST',
+      headers: {
+        apikey: this.anonKey,
+        Authorization: `Bearer ${this.session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: file,
+    });
+    const text = await response.text();
+    let result = null;
+    if (text) {
+      try { result = JSON.parse(text); } catch { result = text; }
+    }
+    if (!response.ok) throw new Error(errorMessage(result, `Template upload failed (${response.status}).`));
+    return result;
+  }
+
   async fetchPublishedApps() {
     if (!this.configured) return [];
     const params = new URLSearchParams({
@@ -488,6 +514,27 @@ class PublisherPortal {
     }));
   }
 
+  async fetchPublishedTemplates() {
+    if (!this.configured) return [];
+    const params = new URLSearchParams({
+      select: 'template_id,name,version,author,description,category,file,size,published_at',
+      order: 'published_at.desc',
+    });
+    const result = await this.request(`/rest/v1/publisher_catalog_templates?${params}`);
+    if (!Array.isArray(result)) throw new Error('The Studio community template catalog returned an invalid response.');
+    return result.map(template => ({
+      id: template.template_id,
+      name: template.name,
+      version: template.version,
+      author: template.author,
+      description: template.description,
+      category: template.category,
+      file: template.file,
+      size: template.size,
+      publishedAt: template.published_at,
+    }));
+  }
+
   setNotice(message, kind = 'info') {
     const notice = this.nodes.notice;
     notice.textContent = message;
@@ -503,6 +550,8 @@ class PublisherPortal {
     this.nodes.myApps.classList.toggle('hidden', !signedIn);
     this.nodes.publishPlugin.classList.toggle('hidden', !signedIn);
     this.nodes.myPlugins.classList.toggle('hidden', !signedIn);
+    this.nodes.publishTemplate.classList.toggle('hidden', !signedIn);
+    this.nodes.myTemplates.classList.toggle('hidden', !signedIn);
     this.nodes.account.classList.toggle('hidden', !signedIn);
     this.nodes.signOut.classList.toggle('hidden', !signedIn);
     this.nodes.review.classList.toggle(
@@ -560,6 +609,10 @@ class PublisherPortal {
       this.renderStudioPluginForm({ type: 'new' });
     } else if (page === 'my-plugins') {
       await this.renderMyStudioPlugins();
+    } else if (page === 'publish-template') {
+      this.renderCommunityTemplateForm({ type: 'new' });
+    } else if (page === 'my-templates') {
+      await this.renderMyCommunityTemplates();
     } else if (page === 'account') {
       this.renderAccount();
     } else if (page === 'review') {
@@ -1328,6 +1381,203 @@ class PublisherPortal {
     this.nodes.content.appendChild(form);
   }
 
+  renderCommunityTemplateForm({ type, template } = {}) {
+    const update = type === 'update';
+    this.setPage(update ? `Update ${template.name}` : 'Submit a community template', update
+      ? 'Submit a newer JSON template bundle for human review. NovaByte signs the reviewed template before it is listed in Studio.'
+      : 'Submit one JSON file containing the template, author details, and all text files for human review. NovaByte signs only after approval.');
+    const form = makeElement('form', 'publisher-card publisher-app-form');
+    form.appendChild(makeElement('p', 'publisher-security-note',
+      'Templates are untrusted content. The publisher service parses JSON only and never executes template files. NovaByte staff must inspect the complete reviewed JSON before approval. Do not include secrets, binaries, screenshots, hidden files, or node_modules. Only text files are accepted. Limits: 4 MiB JSON, 2 MiB expanded text, 500 files.'));
+    const templateId = makeField('Template ID (lowercase letters, digits, dots, and hyphens)', {
+      id: 'community-template-id',
+      value: template?.template_id || '',
+      required: true,
+      maxLength: 128,
+      placeholder: 'com.example.starter',
+    });
+    templateId.input.pattern = '[a-z0-9][a-z0-9.-]{2,127}';
+    templateId.input.readOnly = update;
+    const file = makeField('Studio template (.nbtemplate) or unsigned JSON (max 4 MiB)', {
+      id: 'community-template-json',
+      type: 'file',
+      required: true,
+    });
+    file.input.accept = '.nbtemplate,.json,application/json';
+    const intro = makeElement('p', 'publisher-form-intro',
+      'Upload an exported .nbtemplate from Studio or UTF-8 JSON with exactly this unsigned wrapper: { format: "novapack-studio-user-template", version: 1, template: { name, description, author, releaseVersion, category, icon, manifest, files } }. ' +
+      'Studio exports are converted from base64 file data to UTF-8 text for review; unsupported binary files are rejected. The template metadata is taken from the file; releaseVersion must be valid semantic versioning.');
+    const submit = makeElement('button', 'publisher-submit', update ? 'Submit template update for review' : 'Submit community template for review');
+    submit.type = 'submit';
+    form.append(intro, templateId.label, file.label, submit);
+    form.appendChild(this.makeAction('Cancel', () => this.open('my-templates'), 'is-secondary'));
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const upload = file.input.files?.[0];
+      if (!upload) {
+        this.setNotice('Choose an unsigned template JSON file first.', 'error');
+        file.input.focus();
+        return;
+      }
+      if (upload.size > 4 * 1024 * 1024) {
+        this.setNotice('The template JSON must be no larger than 4 MiB.', 'error');
+        return;
+      }
+      const fileName = upload.name.toLowerCase();
+      const studioExport = fileName.endsWith('.nbtemplate');
+      if (!studioExport && !fileName.endsWith('.json')) {
+        this.setNotice('Choose a .nbtemplate or .json template bundle.', 'error');
+        return;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(await upload.text());
+      } catch {
+        this.setNotice('The selected file is not valid JSON.', 'error');
+        return;
+      }
+      if (parsed?.format !== 'novapack-studio-user-template' || parsed?.version !== 1
+        || !parsed.template || typeof parsed.template !== 'object') {
+        this.setNotice('The JSON must use the novapack-studio-user-template version 1 wrapper.', 'error');
+        return;
+      }
+      let uploadBody = upload;
+      if (studioExport) {
+        try {
+          if (!parsed.template.files || typeof parsed.template.files !== 'object' || Array.isArray(parsed.template.files)) {
+            throw new Error('The Studio template must contain a files object.');
+          }
+          const files = {};
+          for (const [path, encoded] of Object.entries(parsed.template.files)) {
+            if (typeof encoded !== 'string'
+              || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+              throw new Error(`Invalid base64 file data for ${path}.`);
+            }
+            const binary = atob(encoded);
+            const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+            if (btoa(binary) !== encoded) throw new Error(`Invalid base64 file data for ${path}.`);
+            files[path] = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+          }
+          parsed.template = { ...parsed.template, files };
+          uploadBody = new Blob([JSON.stringify(parsed)], { type: 'application/json' });
+          if (uploadBody.size > 4 * 1024 * 1024) {
+            throw new Error('The converted template JSON exceeds the 4 MiB upload limit.');
+          }
+        } catch (error) {
+          this.setNotice(`Could not prepare the Studio template: ${error.message}`, 'error');
+          return;
+        }
+      }
+      submit.disabled = true;
+      submit.textContent = 'Uploading template…';
+      let packagePath;
+      let submitted = false;
+      try {
+        const submissionId = crypto.randomUUID();
+        packagePath = `${this.user.id}/${submissionId}.nbtemplate.json`;
+        await this.request(`/storage/v1/object/publisher-submissions/${encodePath(packagePath)}`, {
+          method: 'POST',
+          token: this.session.access_token,
+          rawBody: uploadBody,
+          headers: { 'Content-Type': 'application/json', 'x-upsert': 'true' },
+        });
+        submit.textContent = 'Sending for review…';
+        const result = await this.call('submit-template', {
+          submissionId,
+          submission: {
+            type: update ? 'update' : 'new',
+            templateId: templateId.input.value.trim(),
+            packagePath,
+          },
+        });
+        submitted = true;
+        await this.open('my-templates');
+        this.setNotice(result.notificationSent === false
+          ? `Template submitted for human review. ${emailFailureNotice(result.notificationError)}`
+          : 'Community template submitted. It will be published only after human review and NovaByte signing.',
+        result.notificationSent === false ? 'warning' : 'success');
+      } catch (error) {
+        if (packagePath && !submitted) {
+          try {
+            await this.request(`/storage/v1/object/publisher-submissions/${encodePath(packagePath)}`, {
+              method: 'DELETE',
+              token: this.session.access_token,
+            });
+          } catch {
+            // The private upload may be cleaned up later if storage is temporarily unavailable.
+          }
+        }
+        this.setNotice(error.message || String(error), 'error');
+      } finally {
+        submit.disabled = false;
+        submit.textContent = update ? 'Submit template update for review' : 'Submit community template for review';
+      }
+    });
+    this.nodes.content.appendChild(form);
+  }
+
+  async renderMyCommunityTemplates() {
+    this.setPage('My community templates', `Signed in as ${this.user.email}. Every release remains private until NovaByte human review and signing are complete.`);
+    const loading = makeElement('p', 'publisher-help', 'Loading your community templates…');
+    this.nodes.content.appendChild(loading);
+    try {
+      const result = await this.call('my-templates');
+      const templates = Array.isArray(result.templates) ? result.templates : [];
+      const submissions = Array.isArray(result.submissions) ? result.submissions : [];
+      this.nodes.content.replaceChildren();
+      this.nodes.content.appendChild(this.makeAction(
+        '＋ Submit a community template',
+        () => this.open('publish-template'),
+        'publisher-submit',
+      ));
+      if (!templates.length && !submissions.length) {
+        this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'You have not published or submitted any community templates yet.'));
+        return;
+      }
+      const list = makeElement('div', 'publisher-app-list');
+      for (const template of templates) {
+        const card = makeElement('article', 'publisher-app-card');
+        const details = makeElement('div', 'publisher-app-main');
+        details.append(
+          makeElement('h2', '', template.name),
+          makeElement('p', 'publisher-app-meta', `${template.template_id} · v${template.version} · ${template.category} · Published`),
+          makeElement('p', 'publisher-app-description', template.description),
+        );
+        card.append(details, this.makeAction('Submit update', () => this.renderCommunityTemplateForm({ type: 'update', template })));
+        list.appendChild(card);
+      }
+      for (const submission of submissions) {
+        const metadata = submission.metadata || {};
+        const card = makeElement('article', 'publisher-app-card is-submission');
+        const details = makeElement('div', 'publisher-app-main');
+        details.append(
+          makeElement('h2', '', metadata.name || submission.template_id),
+          makeElement('p', 'publisher-app-meta', `${submission.template_id} · v${submission.version} · ${submission.type} · ${submission.status.replace(/_/g, ' ')}`),
+          makeElement('p', 'publisher-app-description', submission.review_note || 'Waiting for human review.'),
+        );
+        card.appendChild(details);
+        if (['pending', 'changes_requested', 'rejected'].includes(submission.status)) {
+          card.appendChild(this.makeAction('Withdraw submission', async () => {
+            if (!window.confirm('Withdraw this community template submission?')) return;
+            try {
+              await this.call('withdraw-template', { submissionId: submission.id });
+              await this.renderMyCommunityTemplates();
+              this.setNotice('Community template submission withdrawn.', 'success');
+            } catch (error) {
+              this.setNotice(error.message || String(error), 'error');
+            }
+          }, 'is-danger'));
+        }
+        list.appendChild(card);
+      }
+      this.nodes.content.appendChild(list);
+    } catch (error) {
+      loading.textContent = error.message || 'Could not load your community templates.';
+      loading.classList.add('is-error');
+    }
+  }
+
   async renderMyStudioPlugins() {
     this.setPage('My Studio plugins', `Signed in as ${this.user.email}. Published plugins and review submissions are managed separately from NovaByte OS apps.`);
     const loading = makeElement('p', 'publisher-help', 'Loading your Studio plugins…');
@@ -1490,20 +1740,22 @@ class PublisherPortal {
       this.setNotice('Your verified account is not authorized to review submissions.', 'error');
       return;
     }
-    this.setPage('Review submissions', 'Apps and Studio plugins appear here for human review. Inspect each package, upload the reviewed version, and explicitly approve or reject it.');
+    this.setPage('Review submissions', 'Apps, Studio plugins, and community templates appear here for human review. Inspect each submission, upload the exact reviewed version, and explicitly approve or reject it.');
     const loading = makeElement('p', 'publisher-help', 'Loading review queue…');
     this.nodes.content.appendChild(loading);
     try {
-      const [result, hostedResult, pluginResult] = await Promise.all([
+      const [result, hostedResult, pluginResult, templateResult] = await Promise.all([
         this.call('review-list'),
         this.call('hosted-apps'),
         this.call('plugin-review-list'),
+        this.call('template-review-list'),
       ]);
       this.nodes.content.replaceChildren();
       const queue = Array.isArray(result.submissions) ? result.submissions : [];
       const hostedApps = Array.isArray(hostedResult.apps) ? hostedResult.apps : [];
       const pluginQueue = Array.isArray(pluginResult.submissions) ? pluginResult.submissions : [];
-      if (!queue.length && !hostedApps.length && !pluginQueue.length) {
+      const templateQueue = Array.isArray(templateResult.submissions) ? templateResult.submissions : [];
+      if (!queue.length && !hostedApps.length && !pluginQueue.length && !templateQueue.length) {
         this.nodes.content.appendChild(makeElement('p', 'publisher-empty', 'The review queue is clear.'));
         return;
       }
@@ -1582,6 +1834,38 @@ class PublisherPortal {
           );
           const reviewButton = this.makeAction('Review Studio plugin', () => this.renderStudioPluginReviewForm(submission));
           item.appendChild(reviewButton);
+          list.appendChild(item);
+        }
+        this.nodes.content.appendChild(list);
+      }
+      if (templateQueue.length) {
+        this.nodes.content.appendChild(makeElement('h2', 'publisher-section-heading', 'Studio community template submissions'));
+        this.nodes.content.appendChild(makeElement('p', 'publisher-help',
+          'Template bundles are untrusted JSON and are never executed by publisher tooling. Inspect every manifest field and text file, including the reviewed version, before approval. Screenshots are unsupported.'));
+        const list = makeElement('div', 'publisher-app-list');
+        for (const submission of templateQueue) {
+          const metadata = submission.metadata || {};
+          const item = makeElement('article', 'publisher-review-card');
+          item.append(
+            makeElement('p', 'detail-kicker', `${submission.type} · ${submission.status} · COMMUNITY TEMPLATE`),
+            makeElement('h2', '', `${metadata.name || submission.template_id} v${submission.version}`),
+            makeElement('p', 'publisher-app-meta', `${submission.template_id} · by ${metadata.author || 'unknown author'} · submitted ${new Date(submission.created_at).toLocaleString()}`),
+            makeElement('p', 'publisher-app-description', metadata.description || ''),
+            makeElement('p', 'publisher-review-line', `Category: ${metadata.category || 'not specified'} · Publisher: ${submission.owner_email || 'verified publisher'}`),
+          );
+          if (submission.download_url) {
+            const download = makeElement('a', 'publisher-download', 'Download template JSON for inspection');
+            download.href = packageDownloadUrl(
+              submission.download_url,
+              `${submission.template_id}-${submission.version}.nbtemplate.json`,
+            );
+            download.download = `${submission.template_id}-${submission.version}.nbtemplate.json`;
+            item.appendChild(download);
+          }
+          item.appendChild(this.makeAction(
+            'Review community template',
+            () => this.renderCommunityTemplateReviewForm(submission),
+          ));
           list.appendChild(item);
         }
         this.nodes.content.appendChild(list);
@@ -1711,6 +1995,128 @@ class PublisherPortal {
       this.makeAction('Request changes', () => perform('request-changes', 'Changes requested'), 'is-secondary'),
       this.makeAction('Reject', () => perform('reject', 'Studio plugin submission rejected'), 'is-danger'),
       this.makeAction('Approve & sign', () => perform('publish', 'Studio plugin approved and signed'), 'publisher-submit'),
+    );
+    card.append(buttons, this.makeAction('Back to review queue', () => this.renderReviewQueue()));
+    this.nodes.content.appendChild(card);
+  }
+
+  renderCommunityTemplateReviewForm(submission) {
+    const metadata = submission.metadata || {};
+    this.setPage(`Review ${metadata.name || submission.template_id}`,
+      `Community template · submitted by ${submission.owner_email || 'verified publisher'} · ${submission.type} · v${submission.version}`);
+    const card = makeElement('article', 'publisher-card publisher-review-form');
+    for (const line of [
+      `Template ID: ${submission.template_id}`,
+      `Version: ${submission.version}`,
+      `Author: ${metadata.author || '—'}`,
+      `Category: ${metadata.category || '—'}`,
+      `Description: ${metadata.description || '—'}`,
+    ]) card.appendChild(makeElement('p', 'publisher-review-line', line));
+    card.appendChild(makeElement('p', 'publisher-security-note',
+      'Treat every field and text file as untrusted. Read the complete JSON and inspect all paths and contents; do not execute or import anything from the submission. Only the exact reviewed JSON uploaded here can be approved and NovaByte-signed.'));
+    if (submission.download_url) {
+      const download = makeElement('a', 'publisher-download', 'Download original template JSON for inspection');
+      download.href = packageDownloadUrl(
+        submission.download_url,
+        `${submission.template_id}-${submission.version}.nbtemplate.json`,
+      );
+      download.download = `${submission.template_id}-${submission.version}.nbtemplate.json`;
+      card.appendChild(download);
+    }
+    card.appendChild(makeElement('p', 'publisher-review-upload-help',
+      submission.has_reviewed_package
+        ? 'Reviewed JSON uploaded. You may replace it with a different inspected file before approval.'
+        : 'Upload the exact inspected unsigned JSON wrapper. Approval stays disabled until this human-review step is complete.'));
+    const uploadField = makeField('Reviewed template JSON', {
+      id: 'reviewed-community-template',
+      type: 'file',
+      required: false,
+    });
+    uploadField.input.accept = '.json,application/json';
+    const upload = this.makeAction(
+      submission.has_reviewed_package ? 'Replace reviewed template JSON' : 'Upload reviewed template JSON',
+      async () => {
+        const file = uploadField.input.files?.[0];
+        if (!file) {
+          this.setNotice('Choose the inspected template JSON first.', 'error');
+          uploadField.input.focus();
+          return;
+        }
+        if (file.size > 4 * 1024 * 1024) {
+          this.setNotice('The reviewed template JSON must be no larger than 4 MiB.', 'error');
+          return;
+        }
+        if (!file.name.toLowerCase().endsWith('.json')) {
+          this.setNotice('Choose a .json template bundle.', 'error');
+          return;
+        }
+        upload.disabled = true;
+        upload.textContent = 'Uploading reviewed template…';
+        try {
+          await this.uploadReviewedTemplate(submission.id, file);
+          submission.has_reviewed_package = true;
+          this.renderCommunityTemplateReviewForm(submission);
+          this.setNotice('Reviewed JSON uploaded and validated. NovaByte will sign this exact content only after approval.', 'success');
+        } catch (error) {
+          this.setNotice(error.message || String(error), 'error');
+          upload.disabled = false;
+          upload.textContent = submission.has_reviewed_package
+            ? 'Replace reviewed template JSON'
+            : 'Upload reviewed template JSON';
+        }
+      },
+      'is-secondary',
+    );
+    upload.disabled = !uploadField.input.files?.length;
+    uploadField.input.addEventListener('change', () => { upload.disabled = !uploadField.input.files?.length; });
+    card.append(uploadField.label, upload);
+
+    const note = makeField('Reviewer note (required for rejection or change requests)', {
+      id: 'community-template-review-note',
+      type: 'textarea',
+      required: false,
+      maxLength: 2000,
+    });
+    card.appendChild(note.label);
+    const buttons = makeElement('div', 'publisher-review-actions');
+    const perform = async (decision, label) => {
+      const reviewNote = note.input.value.trim();
+      if (decision !== 'publish' && !reviewNote) {
+        this.setNotice('Add a reviewer note before requesting changes or rejecting.', 'error');
+        note.input.focus();
+        return;
+      }
+      if (decision === 'publish' && !submission.has_reviewed_package) {
+        this.setNotice('Upload the complete inspected JSON before approval.', 'error');
+        return;
+      }
+      buttons.querySelectorAll('button').forEach(button => { button.disabled = true; });
+      try {
+        const result = await this.call('review-template', {
+          submissionId: submission.id,
+          decision,
+          reviewNote,
+        });
+        await this.renderReviewQueue();
+        this.setNotice(result.notificationSent === false
+          ? `${label}. ${emailFailureNotice(result.notificationError)}`
+          : `${label}.`, result.notificationSent === false ? 'warning' : 'success');
+        if (decision === 'publish') this.onCatalogChanged();
+      } catch (error) {
+        this.setNotice(error.message || String(error), 'error');
+        buttons.querySelectorAll('button').forEach(button => { button.disabled = false; });
+      }
+    };
+    const approve = this.makeAction(
+      'Approve & NovaByte-sign',
+      () => perform('publish', 'Community template approved and signed'),
+      'publisher-submit',
+    );
+    approve.disabled = !submission.has_reviewed_package;
+    buttons.append(
+      this.makeAction('Request changes', () => perform('request-changes', 'Changes requested'), 'is-secondary'),
+      this.makeAction('Reject', () => perform('reject', 'Community template rejected'), 'is-danger'),
+      approve,
     );
     card.append(buttons, this.makeAction('Back to review queue', () => this.renderReviewQueue()));
     this.nodes.content.appendChild(card);
@@ -1882,6 +2288,8 @@ class PublisherPortal {
     this.nodes.myApps.addEventListener('click', () => navigate('my-apps'));
     this.nodes.publishPlugin.addEventListener('click', () => navigate('publish-plugin'));
     this.nodes.myPlugins.addEventListener('click', () => navigate('my-plugins'));
+    this.nodes.publishTemplate.addEventListener('click', () => navigate('publish-template'));
+    this.nodes.myTemplates.addEventListener('click', () => navigate('my-templates'));
     this.nodes.account.addEventListener('click', () => navigate('account'));
     this.nodes.review.addEventListener('click', () => navigate('review'));
     this.nodes.signOut.addEventListener('click', async () => {

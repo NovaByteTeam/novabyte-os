@@ -125,3 +125,61 @@ Before announcing the portal, test a new submission and an update using a
 non-production app, verify the package signature from the live site and NBOSP,
 and confirm the admin account can review while an ordinary verified account
 cannot.
+
+## Studio community starter templates
+
+The `20261108000000_community_templates.sql` migration adds the public,
+read-only `publisher_catalog_templates` table and private owner/submission
+tables. It reuses the existing private `publisher-submissions` bucket and the
+public-read, service-role-write `published-packages` bucket. Apply it with
+`supabase db push` before deploying the updated `publisher-api` function.
+
+Publishers submit one UTF-8 JSON file with this unsigned wrapper:
+
+```json
+{
+  "format": "novapack-studio-user-template",
+  "version": 1,
+  "template": {
+    "name": "Starter",
+    "description": "A starter project template.",
+    "author": "Publisher",
+    "releaseVersion": "1.0.0",
+    "category": "general",
+    "icon": "✨",
+    "manifest": {},
+    "files": {
+      "README.md": "Starter project contents"
+    }
+  }
+}
+```
+
+The Publisher Portal accepts a Studio-exported `.nbtemplate` directly. Its
+Base64-encoded project files are decoded as UTF-8 text before submission; files
+that are not valid UTF-8 are rejected. Alternatively, publishers can submit
+this wrapper with each `files` value already represented as text.
+
+The backend accepts JSON only and never executes template contents. It rejects
+unknown wrapper/template fields (including screenshots), prototype keys,
+unsafe/hidden/`node_modules` paths, manifest filename collisions, duplicate
+paths, binary file values, and metadata/version mismatches. Uploads and signed
+objects are limited to 4 MiB JSON, 2 MiB expanded UTF-8 file content, and 500
+files. Reviewed files are UTF-8 text in the upload and are converted to the
+base64 file representation Studio expects before signing. Template descriptions
+are limited to 240 characters, matching Studio's catalog validator. Each
+published release is signed with the same server-only
+`NOVABYTE_SIGNING_PRIVATE_JWK` and trusted Ed25519 public key used for Studio
+plugins; the signature's public key is the value pinned by Studio as
+`NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY`. The signature covers UTF-8 canonical
+sorted-key JSON of exactly `{format,version,template}`; the published object
+is stored at `published-packages/${template_id}/${releaseVersion}.nbtemplate`.
+
+All template submissions require explicit human review. Reviewers must inspect
+the entire submitted and reviewed JSON, upload the exact inspected version, then
+approve, request changes, or reject it. Approval cannot proceed without that
+review upload; submissions are never auto-approved or signed before approval.
+Publisher API actions are `submit-template`, `my-templates`,
+`withdraw-template`, `template-review-list`, `upload-reviewed-template`, and
+`review-template`. The Studio client reads the public catalog directly; no
+additional browser-side signing key or publishing secret is needed.

@@ -31,6 +31,14 @@ import {
   uploadReviewedStudioPlugin,
   withdrawStudioPlugin,
 } from './studio-plugins.ts';
+import {
+  communityTemplateReviewQueue,
+  myCommunityTemplates,
+  reviewCommunityTemplate,
+  submitCommunityTemplate,
+  uploadReviewedCommunityTemplate,
+  withdrawCommunityTemplate,
+} from './community-templates.ts';
 
 const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') || '').replace(/\/+$/, '');
 const STATIC_CATALOG_URL = Deno.env.get('PUBLIC_CATALOG_URL')
@@ -64,6 +72,34 @@ function packageScreenshots(pkg: Record<string, any>) {
     }
   }
   return screenshots;
+}
+
+async function readBoundedBody(request: Request, maximumBytes: number, label: string) {
+  const contentLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
+    throw new PublisherError(`${label} must be no larger than ${maximumBytes / (1024 * 1024)} MiB.`);
+  }
+  if (!request.body) throw new PublisherError(`${label} is required.`);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel();
+      throw new PublisherError(`${label} must be no larger than ${maximumBytes / (1024 * 1024)} MiB.`);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 function preserveSubmissionScreenshots(
@@ -712,23 +748,37 @@ Deno.serve(async request => {
         bytes,
       ));
     }
+    if (url.searchParams.get('action') === 'upload-reviewed-template') {
+      requireAdmin(user);
+      const bytes = await readBoundedBody(request, 4 * 1024 * 1024, 'The reviewed template JSON');
+      return respond(await uploadReviewedCommunityTemplate(
+        user,
+        requiredText(url.searchParams.get('submissionId'), 'Submission ID', 64),
+        bytes,
+      ));
+    }
     const body = await request.json();
     const action = body?.action;
     if (typeof action !== 'string') throw new PublisherError('Choose a publisher action.');
 
     if (action === 'submit') return respond(await submit(user, body));
     if (action === 'submit-plugin') return respond(await submitStudioPlugin(user, body));
+    if (action === 'submit-template') return respond(await submitCommunityTemplate(user, body));
     if (action === 'my-apps') return respond(await myApps(user));
     if (action === 'my-plugins') return respond(await myStudioPlugins(user));
+    if (action === 'my-templates') return respond(await myCommunityTemplates(user));
     if (action === 'review-list') return respond(await reviewQueue(user));
     if (action === 'plugin-review-list') return respond(await studioPluginReviewQueue(user));
+    if (action === 'template-review-list') return respond(await communityTemplateReviewQueue(user));
     if (action === 'hosted-apps') return respond(await hostedAppsForReview(user));
     if (action === 'review') return respond(await review(user, body));
     if (action === 'review-plugin') return respond(await reviewStudioPlugin(user, body));
+    if (action === 'review-template') return respond(await reviewCommunityTemplate(user, body));
     if (action === 'delete-app') return respond(await deletePublishedApp(user, body));
     if (action === 'dehost-app') return respond(await dehostPublishedApp(user, body));
     if (action === 'withdraw') return respond(await withdraw(user, body));
     if (action === 'withdraw-plugin') return respond(await withdrawStudioPlugin(user, body));
+    if (action === 'withdraw-template') return respond(await withdrawCommunityTemplate(user, body));
     if (user.email?.trim().toLowerCase() === ADMIN_EMAIL) requireAdmin(user);
     throw new PublisherError('Unknown publisher action.', 404);
   } catch (error) {
