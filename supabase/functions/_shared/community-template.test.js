@@ -5,7 +5,10 @@ import {
   encodeCommunityTemplateFiles,
   MAX_TEMPLATE_EXPANDED_BYTES,
   MAX_TEMPLATE_JSON_BYTES,
+  NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY,
   parseCommunityTemplateJson,
+  parseSignedCommunityTemplateJson,
+  parseStudioCommunityTemplateBundle,
 } from './community-template.js';
 
 function makeUpload(overrides = {}) {
@@ -26,11 +29,62 @@ function makeUpload(overrides = {}) {
   }));
 }
 
+function makeStudioBundle() {
+  const template = JSON.parse(new TextDecoder().decode(makeUpload())).template;
+  template.files = Object.fromEntries(Object.entries(template.files).map(([path, text]) => [
+    path,
+    btoa(String.fromCharCode(...new TextEncoder().encode(text))),
+  ]));
+  return new TextEncoder().encode(JSON.stringify({
+    format: 'novapack-studio-user-template',
+    version: 1,
+    template,
+  }));
+}
+
 test('accepts an unsigned version-one template wrapper and preserves content', () => {
   const parsed = parseCommunityTemplateJson(makeUpload());
   assert.equal(parsed.format, 'novapack-studio-user-template');
   assert.equal(parsed.version, 1);
   assert.equal(parsed.template.files['README.md'], 'Starter content');
+});
+
+test('accepts an exported .nbtemplate and decodes files only for validation', () => {
+  const parsed = parseStudioCommunityTemplateBundle(makeStudioBundle());
+  assert.equal(parsed.format, 'novapack-studio-user-template');
+  assert.equal(parsed.template.files['README.md'], 'Starter content');
+});
+
+test('rejects a signed bundle as an initial unsigned template submission', () => {
+  const bundle = JSON.parse(new TextDecoder().decode(makeStudioBundle()));
+  bundle.signature = { algorithm: 'Ed25519', publicKey: NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY, signature: 'invalid' };
+  assert.throws(
+    () => parseStudioCommunityTemplateBundle(new TextEncoder().encode(JSON.stringify(bundle))),
+    /unsigned Studio \.nbtemplate/i,
+  );
+});
+
+test('requires the pinned NovaByte signing key for signed templates', async () => {
+  const bundle = JSON.parse(new TextDecoder().decode(makeStudioBundle()));
+  bundle.signature = { algorithm: 'Ed25519', publicKey: 'not-the-pinned-key', signature: 'AA' };
+  await assert.rejects(
+    parseSignedCommunityTemplateJson(new TextEncoder().encode(JSON.stringify(bundle))),
+    /NovaByte Trusted Signing/,
+  );
+});
+
+test('rejects a signed template with an invalid Ed25519 signature', async () => {
+  const bundle = JSON.parse(new TextDecoder().decode(makeStudioBundle()));
+  const zeros = String.fromCharCode(...new Uint8Array(64));
+  bundle.signature = {
+    algorithm: 'Ed25519',
+    publicKey: NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY,
+    signature: btoa(zeros).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''),
+  };
+  await assert.rejects(
+    parseSignedCommunityTemplateJson(new TextEncoder().encode(JSON.stringify(bundle))),
+    /failed NovaByte signature verification/,
+  );
 });
 
 test('canonical JSON sorts keys recursively', () => {

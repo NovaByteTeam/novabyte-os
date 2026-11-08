@@ -3,7 +3,6 @@ import {
   PUBLISHED_BUCKET,
   SUBMISSION_BUCKET,
   PublisherError,
-  TRUSTED_SIGNING_PUBLIC_X as NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY,
   downloadSubmissionBytes,
   escapeHtml,
   getAccountEmail,
@@ -20,12 +19,12 @@ import {
   MAX_TEMPLATE_JSON_BYTES,
   canonicalJson,
   compareCommunityTemplateVersions,
-  encodeCommunityTemplateFiles,
   parseCommunityTemplateJson,
+  parseSignedCommunityTemplateJson,
+  parseStudioCommunityTemplateBundle,
 } from '../_shared/community-template.js';
 
 const TEMPLATE_ID = /^[a-z0-9][a-z0-9.-]{2,127}$/;
-const encoder = new TextEncoder();
 
 function arrayBuffer(bytes: Uint8Array) {
   const buffer = new ArrayBuffer(bytes.byteLength);
@@ -42,12 +41,32 @@ function requiredText(value: unknown, label: string, maximum: number, minimum = 
   return result;
 }
 
-function parseTemplate(bytes: Uint8Array) {
+function parseSubmittedTemplate(bytes: Uint8Array, packagePath: string) {
   try {
-    return parseCommunityTemplateJson(bytes).template;
+    return packagePath.endsWith('.nbtemplate')
+      ? parseStudioCommunityTemplateBundle(bytes).template
+      : parseCommunityTemplateJson(bytes).template;
   } catch (error) {
     if (error instanceof CommunityTemplateError) throw new PublisherError(error.message);
     throw error;
+  }
+}
+
+async function parseSignedTemplate(bytes: Uint8Array) {
+  try {
+    return await parseSignedCommunityTemplateJson(bytes);
+  } catch (error) {
+    if (error instanceof CommunityTemplateError) throw new PublisherError(error.message);
+    throw error;
+  }
+}
+
+function assertMatchesSubmittedTemplate(
+  reviewed: Record<string, unknown>,
+  submitted: Record<string, unknown>,
+) {
+  if (canonicalJson(reviewed) !== canonicalJson(submitted)) {
+    throw new PublisherError('The signed .nbtemplate must contain the exact template submitted for review.');
   }
 }
 
@@ -90,7 +109,8 @@ export async function submitCommunityTemplate(user: { id: string; email?: string
   const type = submission.type === 'update' ? 'update' : submission.type === 'new' ? 'new' : null;
   if (!type) throw new PublisherError('Submission type must be new or update.');
   const packagePath = requiredText(submission.packagePath, 'Template upload', 180);
-  if (packagePath !== `${user.id}/${id}.nbtemplate.json`) {
+  if (packagePath !== `${user.id}/${id}.nbtemplate`
+    && packagePath !== `${user.id}/${id}.nbtemplate.json`) {
     throw new PublisherError('The uploaded template does not belong to this account.');
   }
 
@@ -104,8 +124,8 @@ export async function submitCommunityTemplate(user: { id: string; email?: string
   if (type === 'update' && !published) throw new PublisherError('This community template is not currently published.');
 
   const bytes = await downloadSubmissionBytes(packagePath);
-  if (bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) throw new PublisherError('The template JSON must be no larger than 4 MiB.');
-  const template = parseTemplate(bytes);
+  if (bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) throw new PublisherError('The .nbtemplate must be no larger than 4 MiB.');
+  const template = parseSubmittedTemplate(bytes, packagePath);
   if (type === 'update') {
     try {
       if (compareCommunityTemplateVersions(template.releaseVersion as string, published.version) <= 0) {
@@ -194,9 +214,10 @@ export async function communityTemplateReviewQueue(user: { email?: string }) {
     owner_email: await getAccountEmail(row.owner_id),
     download_url: await makeSignedDownloadUrl(
       row.package_path,
-      `${row.template_id}-${row.version}.nbtemplate.json`,
+      `${row.template_id}-${row.version}.nbtemplate`,
     ),
-    has_reviewed_package: Boolean(row.review_package_path),
+    has_reviewed_package: typeof row.review_package_path === 'string'
+      && row.review_package_path.endsWith('.nbtemplate'),
   })));
   return { submissions };
 }
@@ -209,22 +230,26 @@ export async function uploadReviewedCommunityTemplate(
   requireAdmin(user);
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new PublisherError('Invalid submission ID.');
   if (!bytes.length || bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
-    throw new PublisherError('The reviewed template JSON must be between 1 byte and 4 MiB.');
+    throw new PublisherError('The signed .nbtemplate must be between 1 byte and 4 MiB.');
   }
   const submission = await getSubmission(id);
   if (!submission || !['pending', 'changes_requested'].includes(submission.status)) {
     throw new PublisherError('This community template submission is no longer awaiting review.', 404);
   }
-  const template = parseTemplate(bytes);
+  const reviewed = await parseSignedTemplate(bytes);
+  const template = reviewed.template;
   if (template.releaseVersion !== submission.version) {
     throw new PublisherError('The reviewed template releaseVersion must match the submitted version.');
   }
   matchMetadata(template, submission.metadata);
-  const reviewPath = `${id}/reviewed.nbtemplate.json`;
+  const submittedBytes = await downloadSubmissionBytes(submission.package_path);
+  const submittedTemplate = parseSubmittedTemplate(submittedBytes, submission.package_path);
+  assertMatchesSubmittedTemplate(template, submittedTemplate);
+  const reviewPath = `${id}/reviewed.nbtemplate`;
   await storageRequest(SUBMISSION_BUCKET, reviewPath, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/octet-stream',
       'x-upsert': 'true',
       'cache-control': 'no-store',
     },
@@ -239,64 +264,20 @@ export async function uploadReviewedCommunityTemplate(
   return { uploaded: true };
 }
 
-async function signCommunityTemplate(template: Record<string, unknown>) {
-  const privateKeyText = Deno.env.get('NOVABYTE_SIGNING_PRIVATE_JWK');
-  if (!privateKeyText) {
-    throw new PublisherError('NovaByte trusted signing is not configured. Publishing is disabled.', 503);
-  }
-  let privateJwk: JsonWebKey;
-  try {
-    privateJwk = JSON.parse(privateKeyText);
-  } catch {
-    throw new PublisherError('The trusted signing key configuration is invalid.', 503);
-  }
-  if (privateJwk.kty !== 'OKP' || privateJwk.crv !== 'Ed25519'
-    || typeof privateJwk.d !== 'string' || privateJwk.x !== NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY) {
-    throw new PublisherError('The configured signing key does not match NovaByte Trusted Signing.', 503);
-  }
-  const unsigned = {
-    format: 'novapack-studio-user-template',
-    version: 1,
-    template: encodeCommunityTemplateFiles(template as {
-      files: Record<string, string>;
-      [key: string]: unknown;
-    }),
-  };
-  const payload = encoder.encode(canonicalJson(unsigned));
-  const key = await crypto.subtle.importKey('jwk', privateJwk, { name: 'Ed25519' }, false, ['sign']);
-  const signature = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, key, payload));
-  const verifyKey = await crypto.subtle.importKey(
-    'jwk',
-    { kty: 'OKP', crv: 'Ed25519', x: NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY },
-    { name: 'Ed25519' },
-    false,
-    ['verify'],
-  );
-  if (!await crypto.subtle.verify({ name: 'Ed25519' }, verifyKey, signature, payload)) {
-    throw new PublisherError('The signing key failed its self-check; the template was not published.', 503);
-  }
-  let binary = '';
-  for (const byte of signature) binary += String.fromCharCode(byte);
-  return {
-    ...unsigned,
-    signature: {
-      algorithm: 'Ed25519',
-      publicKey: NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY,
-      signature: btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''),
-    },
-  };
-}
-
 async function publishCommunityTemplate(submission: Record<string, any>) {
   const reviewedBytes = await downloadSubmissionBytes(submission.review_package_path);
   if (reviewedBytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
-    throw new PublisherError('The reviewed template JSON exceeds the 4 MiB limit.');
+    throw new PublisherError('The signed .nbtemplate exceeds the 4 MiB limit.');
   }
-  const template = parseTemplate(reviewedBytes);
+  const reviewed = await parseSignedTemplate(reviewedBytes);
+  const template = reviewed.template;
   if (template.releaseVersion !== submission.version) {
     throw new PublisherError('The reviewed template no longer matches the submitted version.');
   }
   matchMetadata(template, submission.metadata);
+  const submittedBytes = await downloadSubmissionBytes(submission.package_path);
+  const submittedTemplate = parseSubmittedTemplate(submittedBytes, submission.package_path);
+  assertMatchesSubmittedTemplate(template, submittedTemplate);
 
   const previous = await getRow('publisher_catalog_templates', 'template_id', submission.template_id);
   if (submission.type === 'new' && previous) {
@@ -314,11 +295,6 @@ async function publishCommunityTemplate(submission: Record<string, any>) {
     }
   }
 
-  const signedPackage = await signCommunityTemplate(template);
-  const packageBytes = encoder.encode(JSON.stringify(signedPackage));
-  if (packageBytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
-    throw new PublisherError('The signed template JSON exceeds the 4 MiB publishing limit.');
-  }
   const path = `${submission.template_id}/${submission.version}.nbtemplate`;
   await storageRequest(PUBLISHED_BUCKET, path, {
     method: 'POST',
@@ -327,7 +303,7 @@ async function publishCommunityTemplate(submission: Record<string, any>) {
       'x-upsert': 'true',
       'cache-control': '3600',
     },
-    body: arrayBuffer(packageBytes),
+    body: arrayBuffer(reviewedBytes),
   });
   const metadata = submission.metadata;
   const row = {
@@ -338,7 +314,7 @@ async function publishCommunityTemplate(submission: Record<string, any>) {
     description: metadata.description,
     category: metadata.category,
     file: publicPackageUrl(path),
-    size: packageBytes.byteLength,
+    size: reviewedBytes.byteLength,
     published_at: new Date().toISOString(),
   };
   await rest('rpc/commit_publisher_template_publish', {
@@ -366,7 +342,7 @@ export async function reviewCommunityTemplate(user: { email?: string }, body: Re
   }
   if (decision === 'publish') {
     if (!submission.review_package_path) {
-      throw new PublisherError('Upload the exact inspected template JSON before approving this submission.');
+      throw new PublisherError('Upload the exact inspected signed .nbtemplate before approving this submission.');
     }
     await publishCommunityTemplate(submission);
   } else {
@@ -385,7 +361,7 @@ export async function reviewCommunityTemplate(user: { email?: string }, body: Re
   const notification = await sendEmail(
     recipient,
     `NovaByte community template ${label}: ${escapeHtml(submission.template_id)} v${escapeHtml(submission.version)}`,
-    `<p>Your submission for <strong>${escapeHtml(submission.template_id)}</strong> v${escapeHtml(submission.version)} was ${escapeHtml(label)}.</p>${note ? `<p>Reviewer note: ${escapeHtml(note)}</p>` : ''}${decision === 'publish' ? '<p>NovaByte reviewed and signed your community template. It is now available in the Studio template catalog.</p>' : '<p>Sign in to My Community Templates to see the review status.</p>'}`,
+    `<p>Your submission for <strong>${escapeHtml(submission.template_id)}</strong> v${escapeHtml(submission.version)} was ${escapeHtml(label)}.</p>${note ? `<p>Reviewer note: ${escapeHtml(note)}</p>` : ''}${decision === 'publish' ? '<p>NovaByte reviewed and published your signed community template. It is now available in the Studio template catalog.</p>' : '<p>Sign in to My Community Templates to see the review status.</p>'}`,
   );
   return {
     reviewed: true,

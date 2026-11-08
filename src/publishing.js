@@ -455,7 +455,7 @@ class PublisherPortal {
       headers: {
         apikey: this.anonKey,
         Authorization: `Bearer ${this.session.access_token}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/octet-stream',
       },
       body: file,
     });
@@ -1384,11 +1384,11 @@ class PublisherPortal {
   renderCommunityTemplateForm({ type, template } = {}) {
     const update = type === 'update';
     this.setPage(update ? `Update ${template.name}` : 'Submit a community template', update
-      ? 'Submit a newer JSON template bundle for human review. NovaByte signs the reviewed template before it is listed in Studio.'
-      : 'Submit one JSON file containing the template, author details, and all text files for human review. NovaByte signs only after approval.');
+      ? 'Submit a newer Studio .nbtemplate for human review. The reviewer will upload the signed .nbtemplate that is published to Studio.'
+      : 'Submit a Studio .nbtemplate for human review. The reviewer will upload the signed .nbtemplate that is published to Studio.');
     const form = makeElement('form', 'publisher-card publisher-app-form');
     form.appendChild(makeElement('p', 'publisher-security-note',
-      'Templates are untrusted content. The publisher service parses JSON only and never executes template files. NovaByte staff must inspect the complete reviewed JSON before approval. Do not include secrets, binaries, screenshots, hidden files, or node_modules. Only text files are accepted. Limits: 4 MiB JSON, 2 MiB expanded text, 500 files.'));
+      'Templates are untrusted content. The publisher service validates the .nbtemplate but never executes its files. NovaByte staff must inspect the complete signed .nbtemplate before approval. Do not include secrets, binaries, screenshots, hidden files, or node_modules. Only text files are accepted. Limits: 4 MiB bundle, 2 MiB expanded text, 500 files.'));
     const templateId = makeField('Template ID (lowercase letters, digits, dots, and hyphens)', {
       id: 'community-template-id',
       value: template?.template_id || '',
@@ -1398,15 +1398,14 @@ class PublisherPortal {
     });
     templateId.input.pattern = '[a-z0-9][a-z0-9.-]{2,127}';
     templateId.input.readOnly = update;
-    const file = makeField('Studio template (.nbtemplate) or unsigned JSON (max 4 MiB)', {
+    const file = makeField('Unsigned Studio template (.nbtemplate, max 4 MiB)', {
       id: 'community-template-json',
       type: 'file',
       required: true,
     });
-    file.input.accept = '.nbtemplate,.json,application/json';
+    file.input.accept = '.nbtemplate';
     const intro = makeElement('p', 'publisher-form-intro',
-      'Upload an exported .nbtemplate from Studio or UTF-8 JSON with exactly this unsigned wrapper: { format: "novapack-studio-user-template", version: 1, template: { name, description, author, releaseVersion, category, icon, manifest, files } }. ' +
-      'Studio exports are converted from base64 file data to UTF-8 text for review; unsupported binary files are rejected. The template metadata is taken from the file; releaseVersion must be valid semantic versioning.');
+      'Upload the unsigned .nbtemplate exported by Studio. Its Base64 file contents are kept intact; unsupported binary files are rejected during validation. The template metadata is taken from the bundle; releaseVersion must be valid semantic versioning. Signed .nbtemplate files are uploaded by the reviewer in the review step.');
     const submit = makeElement('button', 'publisher-submit', update ? 'Submit template update for review' : 'Submit community template for review');
     submit.type = 'submit';
     form.append(intro, templateId.label, file.label, submit);
@@ -1416,58 +1415,30 @@ class PublisherPortal {
       if (!form.reportValidity()) return;
       const upload = file.input.files?.[0];
       if (!upload) {
-        this.setNotice('Choose an unsigned template JSON file first.', 'error');
+        this.setNotice('Choose an unsigned Studio .nbtemplate file first.', 'error');
         file.input.focus();
         return;
       }
       if (upload.size > 4 * 1024 * 1024) {
-        this.setNotice('The template JSON must be no larger than 4 MiB.', 'error');
+        this.setNotice('The .nbtemplate must be no larger than 4 MiB.', 'error');
         return;
       }
-      const fileName = upload.name.toLowerCase();
-      const studioExport = fileName.endsWith('.nbtemplate');
-      if (!studioExport && !fileName.endsWith('.json')) {
-        this.setNotice('Choose a .nbtemplate or .json template bundle.', 'error');
+      if (!upload.name.toLowerCase().endsWith('.nbtemplate')) {
+        this.setNotice('Choose a .nbtemplate template bundle.', 'error');
         return;
       }
-      let parsed;
+      let bundle;
       try {
-        parsed = JSON.parse(await upload.text());
+        bundle = JSON.parse(await upload.text());
       } catch {
-        this.setNotice('The selected file is not valid JSON.', 'error');
+        this.setNotice('The selected .nbtemplate is not valid JSON.', 'error');
         return;
       }
-      if (parsed?.format !== 'novapack-studio-user-template' || parsed?.version !== 1
-        || !parsed.template || typeof parsed.template !== 'object') {
-        this.setNotice('The JSON must use the novapack-studio-user-template version 1 wrapper.', 'error');
+      if (bundle?.format !== 'novapack-studio-user-template' || bundle?.version !== 1
+        || !bundle.template || typeof bundle.template !== 'object' || Array.isArray(bundle.template)
+        || Object.hasOwn(bundle, 'signature')) {
+        this.setNotice('Choose an unsigned Studio .nbtemplate using format version 1. Signed files belong in the reviewer upload step.', 'error');
         return;
-      }
-      let uploadBody = upload;
-      if (studioExport) {
-        try {
-          if (!parsed.template.files || typeof parsed.template.files !== 'object' || Array.isArray(parsed.template.files)) {
-            throw new Error('The Studio template must contain a files object.');
-          }
-          const files = {};
-          for (const [path, encoded] of Object.entries(parsed.template.files)) {
-            if (typeof encoded !== 'string'
-              || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
-              throw new Error(`Invalid base64 file data for ${path}.`);
-            }
-            const binary = atob(encoded);
-            const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-            if (btoa(binary) !== encoded) throw new Error(`Invalid base64 file data for ${path}.`);
-            files[path] = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-          }
-          parsed.template = { ...parsed.template, files };
-          uploadBody = new Blob([JSON.stringify(parsed)], { type: 'application/json' });
-          if (uploadBody.size > 4 * 1024 * 1024) {
-            throw new Error('The converted template JSON exceeds the 4 MiB upload limit.');
-          }
-        } catch (error) {
-          this.setNotice(`Could not prepare the Studio template: ${error.message}`, 'error');
-          return;
-        }
       }
       submit.disabled = true;
       submit.textContent = 'Uploading template…';
@@ -1475,12 +1446,12 @@ class PublisherPortal {
       let submitted = false;
       try {
         const submissionId = crypto.randomUUID();
-        packagePath = `${this.user.id}/${submissionId}.nbtemplate.json`;
+        packagePath = `${this.user.id}/${submissionId}.nbtemplate`;
         await this.request(`/storage/v1/object/publisher-submissions/${encodePath(packagePath)}`, {
           method: 'POST',
           token: this.session.access_token,
-          rawBody: uploadBody,
-          headers: { 'Content-Type': 'application/json', 'x-upsert': 'true' },
+          rawBody: upload,
+          headers: { 'Content-Type': 'application/octet-stream', 'x-upsert': 'true' },
         });
         submit.textContent = 'Sending for review…';
         const result = await this.call('submit-template', {
@@ -1495,7 +1466,7 @@ class PublisherPortal {
         await this.open('my-templates');
         this.setNotice(result.notificationSent === false
           ? `Template submitted for human review. ${emailFailureNotice(result.notificationError)}`
-          : 'Community template submitted. It will be published only after human review and NovaByte signing.',
+          : 'Community template submitted. It will be published only after human review and signed-bundle verification.',
         result.notificationSent === false ? 'warning' : 'success');
       } catch (error) {
         if (packagePath && !submitted) {
@@ -1854,12 +1825,12 @@ class PublisherPortal {
             makeElement('p', 'publisher-review-line', `Category: ${metadata.category || 'not specified'} · Publisher: ${submission.owner_email || 'verified publisher'}`),
           );
           if (submission.download_url) {
-            const download = makeElement('a', 'publisher-download', 'Download template JSON for inspection');
+            const download = makeElement('a', 'publisher-download', 'Download .nbtemplate for inspection');
             download.href = packageDownloadUrl(
               submission.download_url,
-              `${submission.template_id}-${submission.version}.nbtemplate.json`,
+              `${submission.template_id}-${submission.version}.nbtemplate`,
             );
-            download.download = `${submission.template_id}-${submission.version}.nbtemplate.json`;
+            download.download = `${submission.template_id}-${submission.version}.nbtemplate`;
             item.appendChild(download);
           }
           item.appendChild(this.makeAction(
@@ -2013,56 +1984,56 @@ class PublisherPortal {
       `Description: ${metadata.description || '—'}`,
     ]) card.appendChild(makeElement('p', 'publisher-review-line', line));
     card.appendChild(makeElement('p', 'publisher-security-note',
-      'Treat every field and text file as untrusted. Read the complete JSON and inspect all paths and contents; do not execute or import anything from the submission. Only the exact reviewed JSON uploaded here can be approved and NovaByte-signed.'));
+      'Treat every field and text file as untrusted. Inspect every path and file in the complete signed .nbtemplate; do not execute or import anything from it. Approval publishes this exact signed bundle without converting or re-signing it.'));
     if (submission.download_url) {
-      const download = makeElement('a', 'publisher-download', 'Download original template JSON for inspection');
+      const download = makeElement('a', 'publisher-download', 'Download original .nbtemplate for inspection');
       download.href = packageDownloadUrl(
         submission.download_url,
-        `${submission.template_id}-${submission.version}.nbtemplate.json`,
+        `${submission.template_id}-${submission.version}.nbtemplate`,
       );
-      download.download = `${submission.template_id}-${submission.version}.nbtemplate.json`;
+      download.download = `${submission.template_id}-${submission.version}.nbtemplate`;
       card.appendChild(download);
     }
     card.appendChild(makeElement('p', 'publisher-review-upload-help',
       submission.has_reviewed_package
-        ? 'Reviewed JSON uploaded. You may replace it with a different inspected file before approval.'
-        : 'Upload the exact inspected unsigned JSON wrapper. Approval stays disabled until this human-review step is complete.'));
-    const uploadField = makeField('Reviewed template JSON', {
+        ? 'Signed .nbtemplate uploaded and verified. You may replace it with another inspected file before approval.'
+        : 'Upload the exact inspected signed .nbtemplate. Approval stays disabled until this human-review step is complete.'));
+    const uploadField = makeField('Reviewed signed template (.nbtemplate)', {
       id: 'reviewed-community-template',
       type: 'file',
       required: false,
     });
-    uploadField.input.accept = '.json,application/json';
+    uploadField.input.accept = '.nbtemplate';
     const upload = this.makeAction(
-      submission.has_reviewed_package ? 'Replace reviewed template JSON' : 'Upload reviewed template JSON',
+      submission.has_reviewed_package ? 'Replace signed .nbtemplate' : 'Upload signed .nbtemplate',
       async () => {
         const file = uploadField.input.files?.[0];
         if (!file) {
-          this.setNotice('Choose the inspected template JSON first.', 'error');
+          this.setNotice('Choose the inspected signed .nbtemplate first.', 'error');
           uploadField.input.focus();
           return;
         }
         if (file.size > 4 * 1024 * 1024) {
-          this.setNotice('The reviewed template JSON must be no larger than 4 MiB.', 'error');
+          this.setNotice('The signed .nbtemplate must be no larger than 4 MiB.', 'error');
           return;
         }
-        if (!file.name.toLowerCase().endsWith('.json')) {
-          this.setNotice('Choose a .json template bundle.', 'error');
+        if (!file.name.toLowerCase().endsWith('.nbtemplate')) {
+          this.setNotice('Choose a signed .nbtemplate bundle.', 'error');
           return;
         }
         upload.disabled = true;
-        upload.textContent = 'Uploading reviewed template…';
+        upload.textContent = 'Uploading signed .nbtemplate…';
         try {
           await this.uploadReviewedTemplate(submission.id, file);
           submission.has_reviewed_package = true;
           this.renderCommunityTemplateReviewForm(submission);
-          this.setNotice('Reviewed JSON uploaded and validated. NovaByte will sign this exact content only after approval.', 'success');
+          this.setNotice('Signed .nbtemplate uploaded, signature verified, and contents matched to the submission.', 'success');
         } catch (error) {
           this.setNotice(error.message || String(error), 'error');
           upload.disabled = false;
           upload.textContent = submission.has_reviewed_package
-            ? 'Replace reviewed template JSON'
-            : 'Upload reviewed template JSON';
+            ? 'Replace signed .nbtemplate'
+            : 'Upload signed .nbtemplate';
         }
       },
       'is-secondary',
@@ -2087,7 +2058,7 @@ class PublisherPortal {
         return;
       }
       if (decision === 'publish' && !submission.has_reviewed_package) {
-        this.setNotice('Upload the complete inspected JSON before approval.', 'error');
+        this.setNotice('Upload the complete inspected signed .nbtemplate before approval.', 'error');
         return;
       }
       buttons.querySelectorAll('button').forEach(button => { button.disabled = true; });
@@ -2108,8 +2079,8 @@ class PublisherPortal {
       }
     };
     const approve = this.makeAction(
-      'Approve & NovaByte-sign',
-      () => perform('publish', 'Community template approved and signed'),
+      'Approve & publish signed template',
+      () => perform('publish', 'Community template approved and published'),
       'publisher-submit',
     );
     approve.disabled = !submission.has_reviewed_package;

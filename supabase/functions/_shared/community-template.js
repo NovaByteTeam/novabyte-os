@@ -3,6 +3,7 @@ export const MAX_TEMPLATE_EXPANDED_BYTES = 2 * 1024 * 1024;
 export const MAX_TEMPLATE_FILES = 500;
 const MAX_TEMPLATE_DESCRIPTION_LENGTH = 240;
 const MAX_TEMPLATE_ICON_LENGTH = 100;
+export const NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY = 'Id_PakcUqjCM2k3i7mSkQy7LadrM_PwVz9S1ikYAzEY';
 
 const TEMPLATE_KEYS = [
   'author',
@@ -173,12 +174,177 @@ export function parseCommunityTemplateJson(bytes) {
   };
 }
 
+function decodeTemplateFile(encoded, path) {
+  if (typeof encoded !== 'string'
+    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+    throw new CommunityTemplateError(`Template file "${path}" must contain canonical Base64 text.`);
+  }
+  let binary;
+  try {
+    binary = atob(encoded);
+  } catch {
+    throw new CommunityTemplateError(`Template file "${path}" contains invalid Base64.`);
+  }
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  let canonical = '';
+  for (const byte of bytes) canonical += String.fromCharCode(byte);
+  if (btoa(canonical) !== encoded) {
+    throw new CommunityTemplateError(`Template file "${path}" contains non-canonical Base64.`);
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new CommunityTemplateError(`Template file "${path}" is not valid UTF-8 text.`);
+  }
+}
+
+export function parseStudioCommunityTemplateBundle(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
+    throw new CommunityTemplateError('The .nbtemplate must be between 1 byte and 4 MiB.');
+  }
+  let bundle;
+  try {
+    bundle = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    throw new CommunityTemplateError('The .nbtemplate must be valid UTF-8 JSON.');
+  }
+  if (!isRecord(bundle)) throw new CommunityTemplateError('The .nbtemplate must be a JSON object.');
+  validateJsonKeys(bundle);
+  const keys = Object.keys(bundle).sort();
+  if (keys.length !== 3 || keys[0] !== 'format' || keys[1] !== 'template' || keys[2] !== 'version') {
+    throw new CommunityTemplateError('Upload an unsigned Studio .nbtemplate containing format, version, and template.');
+  }
+  if (bundle.format !== 'novapack-studio-user-template' || bundle.version !== 1) {
+    throw new CommunityTemplateError('The .nbtemplate must use the Studio template format, version 1.');
+  }
+  if (!isRecord(bundle.template) || !isRecord(bundle.template.files)) {
+    throw new CommunityTemplateError('The .nbtemplate must contain a template and Base64 files map.');
+  }
+  const entries = Object.entries(bundle.template.files);
+  if (!entries.length || entries.length > MAX_TEMPLATE_FILES) {
+    throw new CommunityTemplateError(`A template must contain between 1 and ${MAX_TEMPLATE_FILES} files.`);
+  }
+  let expandedBytes = 0;
+  const files = Object.create(null);
+  for (const [path, encoded] of entries) {
+    const text = decodeTemplateFile(encoded, path);
+    expandedBytes += encoder.encode(text).byteLength;
+    if (expandedBytes > MAX_TEMPLATE_EXPANDED_BYTES) {
+      throw new CommunityTemplateError('Template files exceed the 2 MiB expanded-content limit.');
+    }
+    files[path] = text;
+  }
+  const template = validateCommunityTemplate({ ...bundle.template, files });
+  return { format: bundle.format, version: bundle.version, template };
+}
+
 export function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (isRecord(value)) {
     return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
   }
   return JSON.stringify(value);
+}
+
+function decodeBase64Url(value, label) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new CommunityTemplateError(`${label} must be unpadded Base64URL.`);
+  }
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+    + '='.repeat((4 - value.length % 4) % 4);
+  let binary;
+  try {
+    binary = atob(padded);
+  } catch {
+    throw new CommunityTemplateError(`${label} is not valid Base64URL.`);
+  }
+  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+  let canonical = '';
+  for (const byte of bytes) canonical += String.fromCharCode(byte);
+  canonical = btoa(canonical).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  if (canonical !== value) throw new CommunityTemplateError(`${label} is not canonical Base64URL.`);
+  return bytes;
+}
+
+function validateSignedTemplateContent(value) {
+  if (!isRecord(value)) throw new CommunityTemplateError('The signed template must contain a template object.');
+  const keys = Object.keys(value).sort();
+  if (keys.length !== TEMPLATE_KEYS.length || keys.some((key, index) => key !== TEMPLATE_KEYS[index])) {
+    throw new CommunityTemplateError(`The signed template must contain exactly: ${TEMPLATE_KEYS.join(', ')}.`);
+  }
+  if (!isRecord(value.files)) throw new CommunityTemplateError('Template files must be a Base64 file map.');
+  const entries = Object.entries(value.files);
+  if (!entries.length || entries.length > MAX_TEMPLATE_FILES) {
+    throw new CommunityTemplateError(`A template must contain between 1 and ${MAX_TEMPLATE_FILES} files.`);
+  }
+  const files = Object.create(null);
+  for (const [path, encoded] of entries) {
+    files[path] = decodeTemplateFile(encoded, path);
+  }
+  return validateCommunityTemplate({ ...value, files });
+}
+
+export async function parseSignedCommunityTemplateJson(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
+    throw new CommunityTemplateError('The signed template must be between 1 byte and 4 MiB.');
+  }
+  let bundle;
+  try {
+    bundle = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    throw new CommunityTemplateError('The signed template must be valid UTF-8 JSON.');
+  }
+  if (!isRecord(bundle)) throw new CommunityTemplateError('The signed template must be a JSON object.');
+  validateJsonKeys(bundle);
+  const bundleKeys = Object.keys(bundle).sort();
+  const allowedBundleKeys = ['format', 'signature', 'template', 'version'];
+  if (bundleKeys.length !== allowedBundleKeys.length
+    || bundleKeys.some((key, index) => key !== allowedBundleKeys[index])) {
+    throw new CommunityTemplateError('Upload the complete signed .nbtemplate bundle.');
+  }
+  if (bundle.format !== 'novapack-studio-user-template' || bundle.version !== 1) {
+    throw new CommunityTemplateError('The signed bundle must use the Studio template format, version 1.');
+  }
+  const signature = bundle.signature;
+  if (!isRecord(signature)
+    || Object.keys(signature).sort().join(',') !== 'algorithm,publicKey,signature'
+    || signature.algorithm !== 'Ed25519'
+    || signature.publicKey !== NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY) {
+    throw new CommunityTemplateError('The template must be signed with NovaByte Trusted Signing.');
+  }
+  const signatureBytes = decodeBase64Url(signature.signature, 'Template signature');
+  if (signatureBytes.byteLength !== 64) {
+    throw new CommunityTemplateError('The template signature must be a 64-byte Ed25519 signature.');
+  }
+  const template = validateSignedTemplateContent(bundle.template);
+  const publicKeyBytes = decodeBase64Url(NOVABYTE_TEMPLATE_SIGNING_PUBLIC_KEY, 'NovaByte signing public key');
+  if (publicKeyBytes.byteLength !== 32) {
+    throw new CommunityTemplateError('The pinned NovaByte signing key is invalid.');
+  }
+  let publicKey;
+  try {
+    publicKey = await crypto.subtle.importKey(
+      'raw',
+      publicKeyBytes,
+      { name: 'Ed25519' },
+      false,
+      ['verify'],
+    );
+  } catch (error) {
+    throw new CommunityTemplateError(`Could not load the NovaByte template verification key: ${error.message}`);
+  }
+  const payload = encoder.encode(canonicalJson({
+    format: bundle.format,
+    version: bundle.version,
+    template: bundle.template,
+  }));
+  if (!await crypto.subtle.verify({ name: 'Ed25519' }, publicKey, signatureBytes, payload)) {
+    throw new CommunityTemplateError('The signed template failed NovaByte signature verification.');
+  }
+  return {
+    bundle,
+    template,
+  };
 }
 
 export function encodeCommunityTemplateFiles(template) {
