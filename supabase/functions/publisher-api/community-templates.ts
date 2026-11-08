@@ -33,6 +33,7 @@ import {
 import {
   CommunityTemplateError,
   MAX_TEMPLATE_JSON_BYTES,
+  MAX_TEMPLATE_UPLOAD_BYTES,
   canonicalJson,
   compareCommunityTemplateVersions,
   parseCommunityTemplateJson,
@@ -238,14 +239,15 @@ export async function uploadReviewedCommunityTemplate(
   bytes: Uint8Array,
 ) {
   requireAdmin(user);
-  if (!bytes.length || bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
-    throw new PublisherError('The signed .nbtemplate must be between 1 byte and 4 MiB.');
+  if (!bytes.length || bytes.byteLength > MAX_TEMPLATE_UPLOAD_BYTES) {
+    throw new PublisherError('The signed .nbtemplate must be between 1 byte and 5.34 MiB.');
   }
   const submission = await getSubmission(id);
   if (!submission || !ACTIVE_SUBMISSION_STATUSES.includes(submission.status)) {
     throw new PublisherError('This community template submission is no longer awaiting review.', 404);
   }
   const reviewed = await parseSignedTemplate(bytes);
+  const signedBytes = reviewed.bytes;
   const template = reviewed.template;
   if (template.releaseVersion !== submission.version) {
     throw new PublisherError('The reviewed template releaseVersion must match the submitted version.');
@@ -262,7 +264,7 @@ export async function uploadReviewedCommunityTemplate(
       'x-upsert': 'true',
       'cache-control': 'no-store',
     },
-    body: arrayBuffer(bytes),
+    body: arrayBuffer(signedBytes),
   });
   await rest('publisher_template_submissions', {
     method: 'PATCH',

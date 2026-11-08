@@ -1,4 +1,5 @@
 export const MAX_TEMPLATE_JSON_BYTES = 4 * 1024 * 1024;
+export const MAX_TEMPLATE_UPLOAD_BYTES = Math.ceil(MAX_TEMPLATE_JSON_BYTES / 3) * 4;
 export const MAX_TEMPLATE_EXPANDED_BYTES = 2 * 1024 * 1024;
 export const MAX_TEMPLATE_FILES = 500;
 const MAX_TEMPLATE_DESCRIPTION_LENGTH = 240;
@@ -266,6 +267,86 @@ function decodeBase64Url(value, label) {
   return bytes;
 }
 
+function decodeSignedTemplateJson(bytes) {
+  let text;
+  try {
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      text = new TextDecoder('utf-16le', { fatal: true }).decode(bytes);
+    } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      text = new TextDecoder('utf-16be', { fatal: true }).decode(bytes);
+    } else {
+      let evenNulls = 0;
+      let oddNulls = 0;
+      for (let index = 0; index < Math.min(bytes.length, 256); index++) {
+        if (bytes[index] === 0) {
+          if (index % 2) oddNulls++;
+          else evenNulls++;
+        }
+      }
+      if (oddNulls >= 4 && oddNulls > evenNulls * 2) {
+        text = new TextDecoder('utf-16le', { fatal: true }).decode(bytes);
+      } else if (evenNulls >= 4 && evenNulls > oddNulls * 2) {
+        text = new TextDecoder('utf-16be', { fatal: true }).decode(bytes);
+      } else {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      }
+    }
+  } catch {
+    throw new CommunityTemplateError('The signed template must contain Base64 text or JSON.');
+  }
+  text = text.replace(/^\uFEFF/, '').trim();
+  if (text.trimStart().startsWith('{')) {
+    const jsonBytes = encoder.encode(text);
+    if (jsonBytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
+      throw new CommunityTemplateError('The signed template must be no larger than 4 MiB.');
+    }
+    return jsonBytes;
+  }
+
+  if (text.startsWith('"')) {
+    try {
+      const wrapped = JSON.parse(text);
+      if (typeof wrapped === 'string') text = wrapped.trim();
+    } catch {
+      throw new CommunityTemplateError('The signed template must be Base64-encoded UTF-8 JSON.');
+    }
+  }
+  const dataUri = /^data:[^,]*;base64,/i.exec(text);
+  const base64Prefix = /^base64:/i.exec(text);
+  const encoded = (dataUri
+    ? text.slice(dataUri[0].length)
+    : base64Prefix ? text.slice(base64Prefix[0].length) : text).replace(/\s/g, '');
+  const unpadded = encoded.replace(/=+$/, '');
+  const padding = encoded.slice(unpadded.length);
+  if (!/^[A-Za-z0-9+/_-]*$/.test(unpadded)
+    || !/^(?:|=|==)$/.test(padding)
+    || unpadded.length % 4 === 1
+    || (padding && encoded.length % 4 !== 0)
+    || /[+/].*[-_]|[-_].*[+/]/.test(encoded)
+    || (padding.length === 1 && unpadded.length % 4 !== 3)
+    || (padding.length === 2 && unpadded.length % 4 !== 2)) {
+    throw new CommunityTemplateError('The signed template must be Base64-encoded UTF-8 JSON.');
+  }
+  const normalized = unpadded.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+  let binary;
+  try {
+    binary = atob(padded);
+  } catch {
+    throw new CommunityTemplateError('The signed template must be Base64-encoded UTF-8 JSON.');
+  }
+  const decoded = Uint8Array.from(binary, character => character.charCodeAt(0));
+  if (decoded.byteLength > MAX_TEMPLATE_JSON_BYTES) {
+    throw new CommunityTemplateError('The signed template must be no larger than 4 MiB when decoded.');
+  }
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(decoded);
+  } catch {
+    throw new CommunityTemplateError('The Base64-encoded signed template must decode to UTF-8 JSON.');
+  }
+  return decoded;
+}
+
 function validateSignedTemplateContent(value) {
   if (!isRecord(value)) throw new CommunityTemplateError('The signed template must contain a template object.');
   const keys = Object.keys(value).sort();
@@ -285,12 +366,13 @@ function validateSignedTemplateContent(value) {
 }
 
 export async function parseSignedCommunityTemplateJson(bytes) {
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > MAX_TEMPLATE_JSON_BYTES) {
-    throw new CommunityTemplateError('The signed template must be between 1 byte and 4 MiB.');
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0 || bytes.byteLength > MAX_TEMPLATE_UPLOAD_BYTES) {
+    throw new CommunityTemplateError('The signed template must be between 1 byte and 5.34 MiB.');
   }
+  const jsonBytes = decodeSignedTemplateJson(bytes);
   let bundle;
   try {
-    bundle = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    bundle = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(jsonBytes));
   } catch {
     throw new CommunityTemplateError('The signed template must be valid UTF-8 JSON.');
   }
@@ -344,6 +426,7 @@ export async function parseSignedCommunityTemplateJson(bytes) {
   return {
     bundle,
     template,
+    bytes: jsonBytes,
   };
 }
 

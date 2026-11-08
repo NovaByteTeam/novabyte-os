@@ -2459,8 +2459,8 @@ class PublisherPortal {
           uploadField.input.focus();
           return;
         }
-        if (file.size > 4 * 1024 * 1024) {
-          this.setNotice('The signed .nbtemplate must be no larger than 4 MiB.', 'error');
+        if (file.size > Math.ceil((4 * 1024 * 1024) / 3) * 4) {
+          this.setNotice('The signed .nbtemplate must be no larger than 5.34 MiB.', 'error');
           return;
         }
         if (!file.name.toLowerCase().endsWith('.nbtemplate')) {
