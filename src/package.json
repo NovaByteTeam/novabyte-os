@@ -9,6 +9,7 @@
     "@noble/hashes": "^2.4.0",
     "esbuild": "^0.28.2",
     "html-minifier-next": "^9.1.2",
+    "postcss": "^8.5.32",
     "purgecss": "^9.1.0"
   },
   "dependencies": {

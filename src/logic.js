@@ -2,6 +2,18 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import { publisherPortal } from './publishing.js';
 import { scrollToPosition, scrollToTop } from './smooth-scroll.js';
 
+const touchHoverGuard = document.documentElement;
+document.addEventListener('touchstart', () => {
+  touchHoverGuard.classList.add('has-touch-input');
+}, { passive: true });
+document.addEventListener('pointerdown', event => {
+  if (event.pointerType === 'touch') {
+    touchHoverGuard.classList.add('has-touch-input');
+  } else if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
+    touchHoverGuard.classList.remove('has-touch-input');
+  }
+}, { passive: true });
+
 // Icon SVG paths — Lucide-compatible strokes, inline so there's no icon library dep.
 const ICONS = {
   'file-text': `<polyline points="14 2 14 8 20 8"/><path d="M20 8V20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>`,
