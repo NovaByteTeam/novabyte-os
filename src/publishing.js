@@ -1396,7 +1396,7 @@ class PublisherPortal {
       maxLength: 128,
       placeholder: 'com.example.starter',
     });
-    templateId.input.pattern = '[a-z0-9][a-z0-9.-]{2,127}';
+    templateId.input.pattern = '[a-z0-9][a-z0-9.\\-]{2,127}';
     templateId.input.readOnly = update;
     const file = makeField('Unsigned Studio template (.nbtemplate, max 4 MiB)', {
       id: 'community-template-json',
