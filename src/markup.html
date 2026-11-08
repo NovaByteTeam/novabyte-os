@@ -40,15 +40,30 @@
       <nav class="publisher-nav" id="publisher-nav" aria-label="Publisher account">
         <button class="publisher-nav-button" id="publisher-signin" type="button">Sign in</button>
         <button class="publisher-nav-button publisher-nav-primary" id="publisher-signup" type="button">Sign up</button>
-        <button class="publisher-nav-button hidden" id="publisher-publish" type="button">Publish apps</button>
-        <button class="publisher-nav-button hidden" id="publisher-my-apps" type="button">My apps</button>
-        <button class="publisher-nav-button hidden" id="publisher-publish-plugin" type="button">Publish Studio plugin</button>
-        <button class="publisher-nav-button hidden" id="publisher-my-plugins" type="button">My Studio plugins</button>
-        <button class="publisher-nav-button hidden" id="publisher-publish-template" type="button">Submit community template</button>
-        <button class="publisher-nav-button hidden" id="publisher-my-templates" type="button">My community templates</button>
-        <button class="publisher-nav-button hidden" id="publisher-account" type="button">Manage account</button>
-        <button class="publisher-nav-button hidden" id="publisher-review" type="button">Review submissions</button>
-        <button class="publisher-nav-button hidden" id="publisher-signout" type="button">Sign out</button>
+        <details class="publisher-nav-group">
+          <summary>Publish</summary>
+          <div class="publisher-nav-menu">
+            <button class="publisher-nav-button hidden" id="publisher-publish" type="button">Publish apps</button>
+            <button class="publisher-nav-button hidden" id="publisher-publish-plugin" type="button">Publish Studio plugin</button>
+            <button class="publisher-nav-button hidden" id="publisher-publish-template" type="button">Submit community template</button>
+          </div>
+        </details>
+        <details class="publisher-nav-group">
+          <summary>My content</summary>
+          <div class="publisher-nav-menu">
+            <button class="publisher-nav-button hidden" id="publisher-my-apps" type="button">My apps</button>
+            <button class="publisher-nav-button hidden" id="publisher-my-plugins" type="button">My Studio plugins</button>
+            <button class="publisher-nav-button hidden" id="publisher-my-templates" type="button">My community templates</button>
+          </div>
+        </details>
+        <details class="publisher-nav-group">
+          <summary>Account</summary>
+          <div class="publisher-nav-menu">
+            <button class="publisher-nav-button hidden" id="publisher-account" type="button">Manage account</button>
+            <button class="publisher-nav-button hidden" id="publisher-review" type="button">Review submissions</button>
+            <button class="publisher-nav-button hidden" id="publisher-signout" type="button">Sign out</button>
+          </div>
+        </details>
       </nav>
     </div>
   </div>
@@ -101,6 +116,42 @@
     <nav class="category-bar" aria-label="Filter by category">
       <button class="cat-btn is-active" data-cat="all" aria-pressed="true">All apps</button>
     </nav>
+
+    <section class="plugin-catalog-tools" id="plugin-catalog-tools" aria-label="Explore Studio plugins" hidden>
+      <nav class="plugin-collections" id="plugin-collections" aria-label="Plugin collections">
+        <button class="plugin-collection-button is-active" data-collection="all" aria-pressed="true" type="button">All plugins</button>
+        <button class="plugin-collection-button" data-collection="top-rated" aria-pressed="false" type="button">Top rated</button>
+        <button class="plugin-collection-button" data-collection="newest" aria-pressed="false" type="button">Recently added</button>
+        <button class="plugin-collection-button" data-collection="favorites" aria-pressed="false" type="button">Saved</button>
+      </nav>
+      <div class="plugin-filters">
+        <label class="plugin-filter">Sort by
+          <select id="plugin-sort">
+            <option value="newest">Recently added</option>
+            <option value="rating">Top rated</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
+        <label class="plugin-filter">Publisher
+          <select id="plugin-publisher-filter">
+            <option value="all">All publishers</option>
+          </select>
+        </label>
+        <label class="plugin-filter">Studio compatibility
+          <select id="plugin-compatibility-filter">
+            <option value="all">All versions</option>
+          </select>
+        </label>
+        <label class="plugin-filter">Rating
+          <select id="plugin-rating-filter">
+            <option value="0">Any rating</option>
+            <option value="3">3 stars and up</option>
+            <option value="4">4 stars and up</option>
+          </select>
+        </label>
+      </div>
+      <p class="plugin-tools-caption">Saved plugins stay on this device.</p>
+    </section>
 
     <!-- Featured slot — first app gets promoted here -->
     <section class="featured-section" id="featured-section" aria-label="Featured app" hidden>
@@ -228,6 +279,8 @@
           <p class="detail-release-notes-copy" id="detail-release-notes"></p>
         </section>
 
+        <section class="detail-section catalog-ratings-section" id="detail-ratings" aria-label="Community ratings"></section>
+
         <section class="detail-section detail-permissions" id="detail-permissions" aria-label="Requested permissions" hidden>
           <p class="detail-kicker">TRANSPARENCY</p>
           <h2 class="detail-section-title">Permissions</h2>
@@ -292,9 +345,9 @@
           <p class="detail-kicker">GETTING STARTED</p>
           <h2 class="detail-section-title">Install in a few steps</h2>
           <ol class="install-steps">
-            <li>Download the package above.</li>
-            <li>Open <strong>App Manager</strong> on NovaByte OS.</li>
-            <li>Choose <em>Install package</em> and select the downloaded file.</li>
+            <li><span>Download the package above.</span></li>
+            <li><span>Open <strong>App Manager</strong><img class="install-app-manager-icon" src="icons/icons8-package-94.png" alt=""> on NovaByte OS.</span></li>
+            <li><span>Choose <em>Install package</em> and select the downloaded file.</span></li>
           </ol>
         </section>
       </aside>
@@ -308,6 +361,64 @@
       <p class="screenshot-preview-caption" id="screenshot-preview-caption"></p>
     </div>
   </dialog>
+</div>
+
+<div class="detail-view community-detail-view hidden" id="community-detail-view" role="region" aria-label="Studio catalog item detail">
+  <div class="detail-topbar">
+    <button class="back-btn" id="community-detail-back" type="button" aria-label="Back to store">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+      Store
+    </button>
+  </div>
+  <div class="detail-shell">
+    <section class="detail-hero-layout" aria-label="Studio catalog item overview">
+      <div class="detail-hero-main">
+        <div class="detail-identity">
+          <div class="detail-icon community-detail-icon" id="community-detail-icon" aria-hidden="true"></div>
+          <div class="detail-identity-body">
+            <p class="detail-kicker" id="community-detail-kicker">STUDIO PLUGIN</p>
+            <h1 class="detail-name" id="community-detail-name"></h1>
+            <p class="detail-author" id="community-detail-author"></p>
+            <div class="detail-cats" id="community-detail-cats"></div>
+          </div>
+        </div>
+        <div class="detail-install-row">
+          <a class="detail-download-btn" id="community-detail-download" href="#" download>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+            <span id="community-detail-download-label">Download plugin</span>
+          </a>
+          <span class="detail-install-hint" id="community-detail-format">.nbplugin</span>
+        </div>
+        <div class="detail-stats" id="community-detail-stats"></div>
+        <div class="detail-trust-callout" id="community-detail-trust"></div>
+      </div>
+    </section>
+    <div class="detail-content-grid">
+      <main class="detail-primary">
+        <section class="detail-section" aria-label="About this item">
+          <p class="detail-kicker">OVERVIEW</p>
+          <h2 class="detail-section-title" id="community-detail-about-title">About this plugin</h2>
+          <p class="detail-desc" id="community-detail-description"></p>
+        </section>
+        <section class="detail-section" id="community-detail-release-section" aria-label="Release notes" hidden>
+          <p class="detail-kicker">LATEST RELEASE</p>
+          <h2 class="detail-section-title">What’s new</h2>
+          <p class="detail-release-notes-copy" id="community-detail-release-notes"></p>
+        </section>
+        <section class="detail-section catalog-ratings-section" id="community-detail-ratings" aria-label="Community ratings"></section>
+      </main>
+      <aside class="detail-sidebar">
+        <section class="detail-section" aria-label="Item information">
+          <p class="detail-kicker">AT A GLANCE</p>
+          <h2 class="detail-section-title">Details</h2>
+          <dl class="detail-chips" id="community-detail-info"></dl>
+        </section>
+        <section class="detail-section community-detail-safety" id="community-detail-safety"></section>
+      </aside>
+    </div>
+  </div>
 </div>
 
 <!-- ── Footer ─────────────────────────────────────────────────── -->

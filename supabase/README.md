@@ -37,6 +37,11 @@ The migration creates:
 Do not weaken the RLS policies or expose the private submission bucket.
 The follow-up migration adds server-generated automated review reports and an
 `automated_rejected` status for packages that fail blocking checks.
+The catalog-ratings migration adds public aggregate scores and written reviews
+for NovaByte apps, Studio plugins, and community templates. Verified accounts
+may keep one editable rating per catalog item; reviewer account IDs remain
+private, and public review endpoints return only the rating, text, and date.
+Apply it with `supabase db push` before enabling ratings in the site.
 
 ## 3. Configure account verification
 
