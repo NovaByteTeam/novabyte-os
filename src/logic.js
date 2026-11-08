@@ -1293,15 +1293,16 @@ detailScreenshotList.addEventListener('click', event => {
     if (!screenshotPreviewDialog.open || !screenshotZoomOrigin) return;
     const target = screenshotPreviewImage.getBoundingClientRect();
     if (!target.width || !target.height) return;
-    const { left, top, width, height } = screenshotZoomOrigin;
     screenshotZoomAnimation = screenshotPreviewImage.animate([
       {
-        transform: `translate3d(${left - target.left}px, ${top - target.top}px, 0) scale(${width / target.width}, ${height / target.height})`,
+        transform: aspectPreservingTransform(screenshotZoomOrigin, target),
         filter: 'brightness(.78) saturate(.82)',
+        opacity: 0.82,
       },
       {
-        transform: 'translate3d(0, 0, 0) scale(1.018)',
+        transform: 'translate3d(0, 0, 0) scale(1)',
         filter: 'brightness(1) saturate(1)',
+        opacity: 1,
       },
     ], {
       duration: 850,
@@ -1330,15 +1331,18 @@ function closeScreenshotPreview() {
     screenshotPreviewDialog.close();
     return;
   }
-  const { left, top, width, height } = screenshotZoomOrigin;
-  const currentTransform = `translate3d(${current.left - target.left}px, ${current.top - target.top}px, 0) scale(${current.width / target.width}, ${current.height / target.height})`;
-  const originTransform = `translate3d(${left - target.left}px, ${top - target.top}px, 0) scale(${width / target.width}, ${height / target.height})`;
   screenshotZoomAnimation = screenshotPreviewImage.animate([
-    { transform: currentTransform, filter: 'brightness(1) saturate(1)', borderRadius: '15px' },
     {
-      transform: originTransform,
+      transform: aspectPreservingTransform(current, target),
+      filter: 'brightness(1) saturate(1)',
+      borderRadius: '15px',
+      opacity: 1,
+    },
+    {
+      transform: aspectPreservingTransform(screenshotZoomOrigin, target),
       filter: 'brightness(.78) saturate(.82)',
       borderRadius: '9px',
+      opacity: 0.82,
     },
   ], {
     duration: 720,
@@ -1615,6 +1619,13 @@ function createTransitionSnapshot(element, rect) {
   return snapshot;
 }
 
+function aspectPreservingTransform(fromRect, toRect) {
+  const scale = Math.min(fromRect.width / toRect.width, fromRect.height / toRect.height);
+  const left = fromRect.left + (fromRect.width - toRect.width * scale) / 2;
+  const top = fromRect.top + (fromRect.height - toRect.height * scale) / 2;
+  return `translate3d(${left - toRect.left}px, ${top - toRect.top}px, 0) scale(${scale})`;
+}
+
 function runCompatibilityCatalogTransition(sourceElement, update, getDestination, direction) {
   const sourceRect = sourceElement.getBoundingClientRect();
   if (!sourceRect.width || !sourceRect.height || typeof Element.prototype.animate !== 'function') {
@@ -1662,29 +1673,42 @@ function runCompatibilityCatalogTransition(sourceElement, update, getDestination
     cleanup(destination, destinationVisibility);
     return true;
   }
-  destination.style.visibility = 'hidden';
 
-  const transform = `translate(${destinationRect.left - sourceRect.left}px, ${destinationRect.top - sourceRect.top}px) scale(${destinationRect.width / sourceRect.width}, ${destinationRect.height / sourceRect.height})`;
+  const transform = aspectPreservingTransform(destinationRect, sourceRect);
   const safari = catalogTransitionBrowser === 'safari';
   let animation;
+  let destinationAnimation;
   try {
     animation = snapshot.animate([
       { transform: 'translate(0, 0) scale(1, 1)', opacity: 1 },
-      { transform, opacity: safari ? 0.96 : 1 },
+      { transform, opacity: 0 },
+    ], {
+      duration: safari ? 900 : 780,
+      easing: safari ? 'cubic-bezier(.22, 1, .36, 1)' : 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    });
+    destinationAnimation = destination.animate([
+      { opacity: 0 },
+      { opacity: Number.parseFloat(window.getComputedStyle(destination).opacity) || 1 },
     ], {
       duration: safari ? 900 : 780,
       easing: safari ? 'cubic-bezier(.22, 1, .36, 1)' : 'cubic-bezier(.16, 1, .3, 1)',
       fill: 'both',
     });
   } catch (error) {
+    destinationAnimation?.cancel();
+    animation?.cancel();
     cleanup(destination, destinationVisibility);
     console.warn(`[Store] Could not animate catalog transition in ${catalogTransitionBrowser}:`, error);
     return true;
   }
-  animation.finished.then(
-    () => cleanup(destination, destinationVisibility),
-    () => cleanup(destination, destinationVisibility),
-  );
+  animation.finished.then(() => {
+    destinationAnimation.cancel();
+    cleanup(destination, destinationVisibility);
+  }, () => {
+    destinationAnimation.cancel();
+    cleanup(destination, destinationVisibility);
+  });
   return true;
 }
 
