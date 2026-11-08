@@ -1558,6 +1558,135 @@ function renderCatalogRatings(container, catalogType, itemId, onAuthenticated) {
 
 let catalogTransitionActive = false;
 let activeCatalogSource = null;
+const catalogTransitionBrowser = (() => {
+  const userAgent = navigator.userAgent;
+  if (/(?:Firefox|FxiOS)\//i.test(userAgent)) return 'firefox';
+  if (/\bSafari\//i.test(userAgent)
+    && !/(?:Chrome|Chromium|CriOS|Edg|OPR|FxiOS|Firefox|Android)\//i.test(userAgent)) {
+    return 'safari';
+  }
+  return 'native';
+})();
+
+function copyComputedStyles(source, clone) {
+  const sourceElements = [source, ...source.querySelectorAll('*')];
+  const cloneElements = [clone, ...clone.querySelectorAll('*')];
+  sourceElements.forEach((element, index) => {
+    const computed = window.getComputedStyle(element);
+    for (let property = 0; property < computed.length; property += 1) {
+      const name = computed.item(property);
+      cloneElements[index].style.setProperty(name, computed.getPropertyValue(name));
+    }
+    cloneElements[index].style.animation = 'none';
+    cloneElements[index].style.transition = 'none';
+    cloneElements[index].removeAttribute('id');
+    cloneElements[index].removeAttribute('tabindex');
+  });
+  clone.setAttribute('aria-hidden', 'true');
+  clone.inert = true;
+}
+
+function createTransitionSnapshot(element, rect) {
+  const snapshot = document.createElement('div');
+  const clone = element.cloneNode(true);
+  copyComputedStyles(element, clone);
+  snapshot.style.cssText = [
+    'position:fixed',
+    `left:${rect.left}px`,
+    `top:${rect.top}px`,
+    `width:${rect.width}px`,
+    `height:${rect.height}px`,
+    `border-radius:${window.getComputedStyle(element).borderRadius}`,
+    'overflow:hidden',
+    'z-index:9999',
+    'pointer-events:none',
+    'transform-origin:top left',
+    'will-change:transform,opacity',
+  ].join(';');
+  clone.style.position = 'relative';
+  clone.style.inset = 'auto';
+  clone.style.width = '100%';
+  clone.style.height = '100%';
+  clone.style.maxWidth = 'none';
+  clone.style.maxHeight = 'none';
+  clone.style.margin = '0';
+  clone.style.transform = 'none';
+  snapshot.appendChild(clone);
+  return snapshot;
+}
+
+function runCompatibilityCatalogTransition(sourceElement, update, getDestination, direction) {
+  const sourceRect = sourceElement.getBoundingClientRect();
+  if (!sourceRect.width || !sourceRect.height || typeof Element.prototype.animate !== 'function') {
+    update();
+    return false;
+  }
+
+  const sourceVisibility = sourceElement.style.visibility;
+  const snapshot = createTransitionSnapshot(sourceElement, sourceRect);
+  document.body.appendChild(snapshot);
+  sourceElement.style.visibility = 'hidden';
+
+  const cleanup = (destination, destinationVisibility) => {
+    sourceElement.style.visibility = sourceVisibility;
+    if (destination) destination.style.visibility = destinationVisibility;
+    snapshot.remove();
+    catalogTransitionActive = false;
+    if (direction === 'reverse') activeCatalogSource = null;
+  };
+
+  try {
+    update();
+  } catch (error) {
+    cleanup(null, '');
+    throw error;
+  }
+
+  let destination;
+  try {
+    destination = getDestination();
+  } catch (error) {
+    cleanup(null, '');
+    console.warn(`[Store] Could not find the catalog transition destination in ${catalogTransitionBrowser}:`, error);
+    return true;
+  }
+  if (!destination) {
+    cleanup(null, '');
+    console.warn(`[Store] ${catalogTransitionBrowser} transition destination was not found.`);
+    return true;
+  }
+
+  const destinationVisibility = destination.style.visibility;
+  const destinationRect = destination.getBoundingClientRect();
+  if (!destinationRect.width || !destinationRect.height) {
+    cleanup(destination, destinationVisibility);
+    return true;
+  }
+  destination.style.visibility = 'hidden';
+
+  const transform = `translate(${destinationRect.left - sourceRect.left}px, ${destinationRect.top - sourceRect.top}px) scale(${destinationRect.width / sourceRect.width}, ${destinationRect.height / sourceRect.height})`;
+  const safari = catalogTransitionBrowser === 'safari';
+  let animation;
+  try {
+    animation = snapshot.animate([
+      { transform: 'translate(0, 0) scale(1, 1)', opacity: 1 },
+      { transform, opacity: safari ? 0.96 : 1 },
+    ], {
+      duration: safari ? 900 : 780,
+      easing: safari ? 'cubic-bezier(.22, 1, .36, 1)' : 'cubic-bezier(.16, 1, .3, 1)',
+      fill: 'both',
+    });
+  } catch (error) {
+    cleanup(destination, destinationVisibility);
+    console.warn(`[Store] Could not animate catalog transition in ${catalogTransitionBrowser}:`, error);
+    return true;
+  }
+  animation.finished.then(
+    () => cleanup(destination, destinationVisibility),
+    () => cleanup(destination, destinationVisibility),
+  );
+  return true;
+}
 
 function openCatalogDetail(kind, item, sourceCard) {
   activeCatalogSource = sourceCard ? {
@@ -1569,9 +1698,24 @@ function openCatalogDetail(kind, item, sourceCard) {
   const open = kind === 'apps'
     ? () => openDetail(item)
     : () => openCommunityDetail(item, kind);
-  if (!sourceCard || typeof document.startViewTransition !== 'function'
-    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!sourceCard || window.matchMedia('(prefers-reduced-motion: reduce)').matches
     || catalogTransitionActive) {
+    open();
+    return;
+  }
+
+  if (catalogTransitionBrowser !== 'native') {
+    catalogTransitionActive = true;
+    const detailViewTarget = kind === 'apps' ? detailView : communityDetailView;
+    if (!runCompatibilityCatalogTransition(
+      sourceCard,
+      open,
+      () => detailViewTarget.querySelector('.detail-hero-main'),
+      'forward',
+    )) catalogTransitionActive = false;
+    return;
+  }
+  if (typeof document.startViewTransition !== 'function') {
     open();
     return;
   }
@@ -1815,9 +1959,30 @@ function closeDetail() {
   const source = activeCatalogSource;
   const sourceCard = source && findCatalogSource(source);
   const detailHero = detailTarget.querySelector('.detail-hero-main');
-  if (!sourceCard || !detailHero || typeof document.startViewTransition !== 'function'
-    || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!sourceCard || !detailHero || window.matchMedia('(prefers-reduced-motion: reduce)').matches
     || catalogTransitionActive) {
+    finishClosingDetail();
+    activeCatalogSource = null;
+    return;
+  }
+
+  if (catalogTransitionBrowser !== 'native') {
+    catalogTransitionActive = true;
+    if (!runCompatibilityCatalogTransition(
+      detailHero,
+      () => {
+        finishClosingDetail();
+        scrollToPosition(source.scrollY);
+      },
+      () => sourceCard,
+      'reverse',
+    )) {
+      catalogTransitionActive = false;
+      activeCatalogSource = null;
+    }
+    return;
+  }
+  if (typeof document.startViewTransition !== 'function') {
     finishClosingDetail();
     activeCatalogSource = null;
     return;
