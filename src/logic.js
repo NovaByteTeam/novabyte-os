@@ -340,6 +340,7 @@ const pluginCompatibilityFilter = document.getElementById('plugin-compatibility-
 const pluginRatingFilter = document.getElementById('plugin-rating-filter');
 const catalogModeWarning = document.getElementById('catalog-mode-warning');
 const searchInput   = document.getElementById('search-input');
+const blurToggle = document.getElementById('blur-toggle');
 const backBtn       = document.getElementById('back-btn');
 const communityDetailView = document.getElementById('community-detail-view');
 const communityDetailBack = document.getElementById('community-detail-back');
@@ -404,6 +405,28 @@ const detailSafetyFill    = document.getElementById('detail-safety-fill');
 const detailSafetyLabel   = document.getElementById('detail-safety-label');
 const detailVersionHistory = document.getElementById('detail-version-history');
 const detailVersionHistoryList = document.getElementById('detail-version-history-list');
+
+const blurPreferenceKey = 'novabyte-disable-blur';
+let blurDisabled = false;
+try {
+  blurDisabled = localStorage.getItem(blurPreferenceKey) === 'true';
+} catch (error) {
+  console.warn('[Store] Could not restore blur preference:', error);
+}
+document.documentElement.classList.toggle('no-blur', blurDisabled);
+blurToggle.setAttribute('aria-pressed', String(blurDisabled));
+blurToggle.textContent = blurDisabled ? 'Enable blur' : 'Disable blur';
+blurToggle.addEventListener('click', () => {
+  blurDisabled = !blurDisabled;
+  document.documentElement.classList.toggle('no-blur', blurDisabled);
+  blurToggle.setAttribute('aria-pressed', String(blurDisabled));
+  blurToggle.textContent = blurDisabled ? 'Enable blur' : 'Disable blur';
+  try {
+    localStorage.setItem(blurPreferenceKey, String(blurDisabled));
+  } catch (error) {
+    console.warn('[Store] Could not save blur preference:', error);
+  }
+});
 
 function catalogRatingKey(catalogType, itemId) {
   return `${catalogType}:${itemId}`;
@@ -1272,8 +1295,10 @@ function renderVersionHistory(app) {
 }
 
 let screenshotZoomOrigin = null;
+let screenshotZoomOriginElement = null;
 let screenshotZoomAnimation = null;
 let screenshotParallaxFrame = 0;
+let screenshotZoomingIn = false;
 let screenshotPreviewClosing = false;
 const screenshotPreviewContent = screenshotPreviewDialog.querySelector('.screenshot-preview-content');
 const screenshotPreviewMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -1289,30 +1314,40 @@ detailScreenshotList.addEventListener('click', event => {
     top: origin.top,
     width: origin.width,
     height: origin.height,
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
   };
+  screenshotZoomOriginElement = image;
   screenshotPreviewImage.src = image.currentSrc || image.src;
   screenshotPreviewImage.alt = image.alt;
   screenshotPreviewCaption.textContent = image.alt;
   screenshotPreviewClosing = false;
+  screenshotZoomingIn = !screenshotPreviewMotion.matches;
+  if (screenshotZoomingIn) screenshotPreviewDialog.classList.add('is-zooming');
   screenshotPreviewDialog.classList.remove('is-closing');
   screenshotZoomAnimation?.cancel();
-  screenshotPreviewImage.style.removeProperty('transform');
+  screenshotPreviewImage.style.transform = 'none';
   screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', '0px');
   screenshotPreviewContent.style.setProperty('--screenshot-parallax-y', '0px');
   screenshotPreviewDialog.showModal();
   if (screenshotPreviewMotion.matches) return;
   requestAnimationFrame(() => {
-    if (!screenshotPreviewDialog.open || !screenshotZoomOrigin) return;
+    if (!screenshotPreviewDialog.open || !screenshotZoomOrigin || screenshotPreviewClosing) return;
+    screenshotZoomOrigin = getScreenshotZoomOriginRect();
     const target = screenshotPreviewImage.getBoundingClientRect();
-    if (!target.width || !target.height) return;
-    screenshotZoomAnimation = screenshotPreviewImage.animate([
+    if (!target.width || !target.height) {
+      screenshotZoomingIn = false;
+      screenshotPreviewDialog.classList.remove('is-zooming');
+      return;
+    }
+    const animation = screenshotPreviewImage.animate([
       {
-        transform: aspectPreservingTransform(screenshotZoomOrigin, target),
+        transform: screenshotRectTransform(screenshotZoomOrigin, target),
         filter: 'brightness(.78) saturate(.82)',
         opacity: 0.82,
       },
       {
-        transform: 'translate3d(0, 0, 0) scale(1)',
+        transform: 'translate3d(0, 0, 0) scale(1.018)',
         filter: 'brightness(1) saturate(1)',
         opacity: 1,
       },
@@ -1320,6 +1355,13 @@ detailScreenshotList.addEventListener('click', event => {
       duration: 850,
       easing: 'cubic-bezier(.16, 1, .3, 1)',
     });
+    screenshotZoomAnimation = animation;
+    animation.onfinish = () => {
+      if (screenshotZoomAnimation !== animation) return;
+      screenshotZoomingIn = false;
+      screenshotZoomAnimation = null;
+      screenshotPreviewDialog.classList.remove('is-zooming');
+    };
   });
 });
 
@@ -1333,6 +1375,8 @@ function closeScreenshotPreview() {
 
   screenshotPreviewClosing = true;
   screenshotPreviewDialog.classList.add('is-closing');
+  screenshotPreviewDialog.classList.add('is-zooming');
+  screenshotZoomOrigin = getScreenshotZoomOriginRect();
   const current = screenshotPreviewImage.getBoundingClientRect();
   screenshotZoomAnimation?.cancel();
   screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', '0px');
@@ -1345,13 +1389,13 @@ function closeScreenshotPreview() {
   }
   screenshotZoomAnimation = screenshotPreviewImage.animate([
     {
-      transform: aspectPreservingTransform(current, target),
+      transform: screenshotRectTransform(current, target),
       filter: 'brightness(1) saturate(1)',
       borderRadius: '15px',
       opacity: 1,
     },
     {
-      transform: aspectPreservingTransform(screenshotZoomOrigin, target),
+      transform: screenshotRectTransform(screenshotZoomOrigin, target),
       filter: 'brightness(.78) saturate(.82)',
       borderRadius: '9px',
       opacity: 0.82,
@@ -1359,6 +1403,7 @@ function closeScreenshotPreview() {
   ], {
     duration: 720,
     easing: 'cubic-bezier(.76, 0, .24, 1)',
+    fill: 'forwards',
   });
   screenshotZoomAnimation.onfinish = () => {
     if (screenshotPreviewDialog.open) screenshotPreviewDialog.close();
@@ -1377,15 +1422,39 @@ screenshotPreviewDialog.addEventListener('close', () => {
   screenshotZoomAnimation?.cancel();
   screenshotZoomAnimation = null;
   screenshotZoomOrigin = null;
+  screenshotZoomOriginElement = null;
+  screenshotZoomingIn = false;
   screenshotPreviewClosing = false;
   screenshotPreviewImage.style.removeProperty('transform');
   screenshotPreviewDialog.classList.remove('is-closing');
   screenshotPreviewContent.style.setProperty('--screenshot-parallax-x', '0px');
   screenshotPreviewContent.style.setProperty('--screenshot-parallax-y', '0px');
+  screenshotPreviewDialog.classList.remove('is-zooming');
 });
 
+function getScreenshotZoomOriginRect() {
+  const liveRect = screenshotZoomOriginElement?.isConnected
+    ? screenshotZoomOriginElement.getBoundingClientRect()
+    : null;
+  if (liveRect?.width && liveRect.height) {
+    return {
+      left: liveRect.left,
+      top: liveRect.top,
+      width: liveRect.width,
+      height: liveRect.height,
+    };
+  }
+
+  return {
+    left: screenshotZoomOrigin.left + screenshotZoomOrigin.scrollX - window.scrollX,
+    top: screenshotZoomOrigin.top + screenshotZoomOrigin.scrollY - window.scrollY,
+    width: screenshotZoomOrigin.width,
+    height: screenshotZoomOrigin.height,
+  };
+}
+
 screenshotPreviewContent.addEventListener('pointermove', event => {
-  if (screenshotPreviewMotion.matches || event.pointerType === 'touch') return;
+  if (screenshotPreviewMotion.matches || screenshotPreviewClosing || screenshotZoomingIn || event.pointerType === 'touch') return;
   if (screenshotParallaxFrame) cancelAnimationFrame(screenshotParallaxFrame);
   screenshotParallaxFrame = requestAnimationFrame(() => {
     const bounds = screenshotPreviewContent.getBoundingClientRect();
@@ -1636,6 +1705,10 @@ function aspectPreservingTransform(fromRect, toRect) {
   const left = fromRect.left + (fromRect.width - toRect.width * scale) / 2;
   const top = fromRect.top + (fromRect.height - toRect.height * scale) / 2;
   return `translate3d(${left - toRect.left}px, ${top - toRect.top}px, 0) scale(${scale})`;
+}
+
+function screenshotRectTransform(fromRect, toRect) {
+  return `translate3d(${fromRect.left - toRect.left}px, ${fromRect.top - toRect.top}px, 0) scale(${fromRect.width / toRect.width}, ${fromRect.height / toRect.height})`;
 }
 
 function runCompatibilityCatalogTransition(sourceElement, update, getDestination, direction) {

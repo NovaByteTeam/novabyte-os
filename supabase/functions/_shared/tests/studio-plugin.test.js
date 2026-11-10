@@ -147,6 +147,16 @@ test('inspectStudioPlugin parses a valid archive and returns the manifest', () =
   assert.equal(manifest.main, 'main.js');
 });
 
+test('inspectStudioPlugin accepts a plugin archive wrapped in one top-level folder', () => {
+  const wrapped = new Uint8Array(zipSync({
+    'example-plugin/plugin.json': strToU8(PLUGIN_JSON),
+    'example-plugin/main.js': strToU8('export function activate() {}\n'),
+  }, { level: 0 }));
+  const manifest = inspectStudioPlugin(wrapped);
+  assert.equal(manifest.id, 'com.example.plugin');
+  assert.equal(manifest.main, 'main.js');
+});
+
 test('plugin.json must be UTF-8: invalid byte sequences are rejected', () => {
   // 0xff 0xfe is never valid UTF-8; the fatal decoder must reject it instead
   // of silently replacing it with U+FFFD.
@@ -272,15 +282,15 @@ test('rejects corrupted end-of-central-directory records', () => {
   assert.throws(() => inspectStudioPlugin(trailingJunk), /ZIP directory is invalid|not a valid ZIP/);
 });
 
-test('rejects a plugin.json larger than 256 KB or missing entirely', () => {
+test('rejects a plugin.json larger than 256 KB and reports a missing root manifest', () => {
   const huge = buildZip([
     { name: 'plugin.json', data: strToU8(`{"pad":"${'x'.repeat(300 * 1024)}"}`) },
     { name: 'main.js', data: strToU8('x') },
   ]);
-  assert.throws(() => inspectStudioPlugin(huge), /256 KB/);
+  assert.throws(() => inspectStudioPlugin(huge), /plugin\.json is 307210 bytes; the maximum is 262144 bytes \(256 KB\)/);
 
   const missing = buildZip([{ name: 'main.js', data: strToU8('x') }]);
-  assert.throws(() => inspectStudioPlugin(missing), /plugin\.json/);
+  assert.throws(() => inspectStudioPlugin(missing), /must contain plugin\.json at its root/);
 });
 
 // ── Signing roundtrip ───────────────────────────────────────────────────────

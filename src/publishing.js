@@ -1489,7 +1489,7 @@ class PublisherPortal {
     const detailsSection = this.makeSubmissionSection('01', 'Plugin details',
       'These values must match the plugin.json inside your archive.');
     const packageSection = this.makeSubmissionSection('02', 'Plugin package',
-      'Upload a ZIP archive containing plugin.json at its root.');
+      'Upload a ZIP archive containing plugin.json at its root, directly or inside one top-level plugin folder. plugin.json must be no larger than 256 KB.');
     submission.main.appendChild(detailsSection.section);
     submission.aside.appendChild(packageSection.section);
     submission.aside.appendChild(makeElement('p', 'publisher-security-note',
