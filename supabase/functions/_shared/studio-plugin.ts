@@ -145,9 +145,26 @@ function parsePlugin(bytes: Uint8Array) {
     files.set(filename, contents);
   }
   if (files.size !== inspected.files.size) throw new PublisherError('The plugin ZIP file table is incomplete.');
-  const manifestBytes = files.get('plugin.json');
-  if (!manifestBytes || manifestBytes.byteLength > 256 * 1024) {
-    throw new PublisherError('The archive must contain a root plugin.json no larger than 256 KB.');
+  let pluginFiles = files;
+  if (!pluginFiles.has('plugin.json')) {
+    const wrappedManifests = [...pluginFiles.keys()].filter(filename =>
+      filename.endsWith('/plugin.json') && filename.indexOf('/') === filename.lastIndexOf('/'));
+    if (wrappedManifests.length === 1) {
+      const wrapper = wrappedManifests[0].slice(0, -'plugin.json'.length);
+      if ([...pluginFiles.keys()].every(filename => filename.startsWith(wrapper))) {
+        pluginFiles = new Map([...pluginFiles].map(([filename, contents]) => [
+          filename.slice(wrapper.length),
+          contents,
+        ]));
+      }
+    }
+  }
+  const manifestBytes = pluginFiles.get('plugin.json');
+  if (!manifestBytes) {
+    throw new PublisherError('The archive must contain plugin.json at its root, either directly or inside one top-level plugin folder.');
+  }
+  if (manifestBytes.byteLength > 256 * 1024) {
+    throw new PublisherError(`plugin.json is ${manifestBytes.byteLength} bytes; the maximum is 262144 bytes (256 KB).`);
   }
   let manifest: Record<string, unknown>;
   try {
@@ -159,7 +176,7 @@ function parsePlugin(bytes: Uint8Array) {
     || typeof manifest.id !== 'string' || !PLUGIN_ID.test(manifest.id)
     || typeof manifest.name !== 'string' || !manifest.name.trim() || manifest.name.length > 100
     || typeof manifest.version !== 'string' || !valid(manifest.version)
-    || typeof manifest.main !== 'string' || !files.has(validatePath(manifest.main))
+    || typeof manifest.main !== 'string' || !pluginFiles.has(validatePath(manifest.main))
     || !manifest.engines || typeof manifest.engines !== 'object'
     || typeof (manifest.engines as Record<string, unknown>).studio !== 'string'
     || !validRange((manifest.engines as Record<string, string>).studio)) {
@@ -169,7 +186,7 @@ function parsePlugin(bytes: Uint8Array) {
     && (typeof manifest.description !== 'string' || manifest.description.length > 500)) {
     throw new PublisherError('Plugin description must be no more than 500 characters.');
   }
-  return { files, manifest };
+  return { files: pluginFiles, manifest };
 }
 
 function hex(bytes: Uint8Array) {
