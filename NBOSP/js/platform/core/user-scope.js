@@ -35,8 +35,20 @@
   }
 
   const UserScope = {
-    /** Multi-user mode enabled (feature flag HKNS/system/features/multiUser). */
+    /**
+     * Multi-user mode is the default: accounts are how the OS works, so an
+     * unset flag means ON and only an explicit '0' (disable()) turns it off.
+     * That lets a factory-fresh machine reach the first-boot wizard.
+     */
     enabled() {
+      return lsGet(FLAG_KEY) !== '0';
+    },
+    /**
+     * True only once this machine has actually been through account setup or
+     * the legacy migration (flag written as '1'). The migration uses this,
+     * not enabled(), to decide whether it already ran.
+     */
+    explicitlyEnabled() {
       return lsGet(FLAG_KEY) === '1';
     },
     enable() {

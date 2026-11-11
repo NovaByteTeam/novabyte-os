@@ -79,8 +79,12 @@
     const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
     const registry = (typeof NovaRegistry !== 'undefined' && NovaRegistry) || null;
 
-    // Multi-user already enabled (or explicitly disabled) → nothing to do.
-    if (scope && scope.enabled()) return { skipped: 'already-enabled' };
+    // This machine already went through account setup or an earlier
+    // migration (flag written as '1') → nothing to do. enabled() can't be used
+    // here: multi-user is on by default, so it is true on every fresh machine.
+    if (scope && (scope.explicitlyEnabled ? scope.explicitlyEnabled() : scope.enabled())) {
+      return { skipped: 'already-enabled' };
+    }
 
     // The marker lives in HKNS — the machine hive, mounted at boot before
     // any account is mounted, so pre-login reads are safe.
@@ -146,8 +150,8 @@
     } else {
       // No legacy PIN and no accounts: this is either a factory-fresh
       // machine (the first-boot wizard will create the owner) or a legacy
-      // machine that never set a PIN. Both stay single-user until the user
-      // opts in — no silent identity changes.
+      // machine that never set a PIN. Neither has anything to import; the
+      // first-boot wizard creates the owner account on the next gate.
       return { skipped: 'no-legacy-state' };
     }
 
