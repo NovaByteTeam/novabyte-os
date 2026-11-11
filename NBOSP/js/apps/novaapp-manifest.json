@@ -262,11 +262,11 @@
   {
     "id": "com.nbosp.service.session",
     "file": "js/apps/com.nbosp.service.session.novaapp",
-    "cacheKey": "9445deda5985ca9567da3c7e845f7894383812f1c31286781b679e6e763515a8"
+    "cacheKey": "49365ea0aee4ce937555a3f6aea987a7f9be91c4770834c885d963b1f03d16ce"
   },
   {
     "id": "com.nbosp.users",
     "file": "js/apps/com.nbosp.users.novaapp",
-    "cacheKey": "28caea0896705e09414ee07e82ad425ce4e15239055dd54dfae93ae397223239"
+    "cacheKey": "960bbd0f443c7fbb47d6765f89e9ea1cea85c6f852fe8a5ccf185467f56f3261"
   }
 ]
