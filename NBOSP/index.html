@@ -191,6 +191,10 @@
   <!-- Performance Configuration (must load first) -->
   <!-- NW.js Frame Security (must load early, before app sandbox) -->
   <script src="/js/platform/security/frame-security.js" defer></script>
+  <!-- Per-user scoping must load before every storage consumer (sandbox,
+       registry, FS, AppDirs) so owner stamping is available from the first
+       byte of boot. -->
+  <script src="/js/platform/core/user-scope.js" defer></script>
   <!-- Signs same-origin /api/ fetches with the per-launch system secret so
        OS-UI traffic (launcher, shell, Settings) is trusted by the server's
        rate limiter instead of competing for the untrusted per-IP budget.
@@ -211,6 +215,10 @@
   <script src="js/core/services/connectivity.js" defer></script>
   <script src="js/core/services/factory-reset.js" defer></script>
   <script src="js/core/core/init.js" defer></script>
+  <!-- The 3.0.2 → accounts migration must run inside boot() BEFORE the
+       subsystems open the storage schemas — it needs NovaUserScope (loaded
+       first) and NovaRegistry (opened at boot step 0). -->
+  <script src="js/core/services/multiuser-migration.js" defer></script>
   <script src="js/core/utils/base-utils.js" defer></script>
   <script src="js/core/services/workers.js" defer></script>
   <script src="js/core/core/kernel.js" defer></script>

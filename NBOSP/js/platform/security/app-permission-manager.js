@@ -641,6 +641,20 @@ const AppPermissionManager = (() => {
   function isGranted(permission, appId) {
     if (isUnrestrictedSettingsApp(appId)) return true;
     if (permission === PERMISSION_TYPES.SYSTEM_ROOT && !isRootModeEnabled()) return false;
+    // ── Multi-user enforcement (three independent layers, all must agree) ──
+    // 1. admin:* grants require an admin-role session: an app holding
+    //    admin:users under a standard account receives nothing.
+    if (typeof permission === 'string' && permission.indexOf('admin:') === 0 && !isAdminSessionActive()) {
+      return false;
+    }
+    // 2. Machine policy floors/ceilings at HKNS/security/policy/appPolicy/
+    //    <appId>: a kiosk can pin a permission always-granted or forbid it
+    //    machine-wide entirely, overriding the per-account consent.
+    const policy = appPolicyFor(appId);
+    if (policy) {
+      if (Array.isArray(policy.deny) && policy.deny.includes(permission)) return false;
+      if (Array.isArray(policy.pin) && policy.pin.includes(permission)) return true;
+    }
     const grant = permissionGrants.get(makeAppScopedKey(appId, permission));
     if (!grant) return false;
     if (grant.expiresAt && Date.parse(grant.expiresAt) < Date.now()) {
@@ -653,6 +667,36 @@ const AppPermissionManager = (() => {
       return false;
     }
     return grant.granted === true;
+  }
+
+  /** True while an admin-role account session is active (multi-user). */
+  function isAdminSessionActive() {
+    if (typeof NovaUserScope === 'undefined' || !NovaUserScope?.enabled?.()) return true;
+    return typeof window !== 'undefined' && !!window.SessionManager?.isAdmin?.();
+  }
+
+  /** Machine-level floors/ceilures for one app, or null. Fail-soft. */
+  function appPolicyFor(appId) {
+    try {
+      if (typeof window === 'undefined' || !window.NovaRegistry?.get) return null;
+      const value = window.NovaRegistry.get(`HKNS/security/policy/appPolicy/${String(appId || '')}`);
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    } catch (_) { return null; }
+  }
+
+  /**
+   * Re-loads the grant table after the mounted account changed (login or
+   * user switch): grants are per-account now, so the SessionManager calls
+   * this as part of the per-user mount sequence. Fail-soft: an unreadable
+   * hive leaves the previous in-memory table untouched.
+   */
+  function reloadForUser() {
+    try {
+      permissionGrants.clear();
+      rateLimitState.clear();
+      initialize();
+      return true;
+    } catch (_) { return false; }
   }
 
   function isDenied(permission, appId) {
@@ -1223,6 +1267,7 @@ const AppPermissionManager = (() => {
 
   return {
     initialize,
+    reloadForUser,
     isGranted,
     isDenied,
     isRateLimited,
