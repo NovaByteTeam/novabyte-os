@@ -72,6 +72,7 @@ describe('built-in service boundaries', () => {
     const shellDesktopSource = readWorkspaceFile('../../../js/apps/shell-ui/desktop.js');
     const shellWindowManagerSource = readWorkspaceFile('../../../js/apps/shell-ui/wm.js');
     const launcherSource = readWorkspaceFile('../../../js/apps/launcher/app.js');
+    const traySource = readWorkspaceFile('../../../js/apps/tray/service.js');
     const sourceManifest = JSON.parse(readWorkspaceFile('../../../js/apps/novabyte-system/manifest.json'));
 
     expect(runtimeServices).toContainEqual({ id: appId, entry: 'service.js' });
@@ -87,10 +88,12 @@ describe('built-in service boundaries', () => {
     expect(shellDesktopSource).not.toMatch(/OS\.settings(?:\.get|\._cache)/);
     expect(shellWindowManagerSource).toContain('window.NovaByteSystem?.settings');
     expect(shellWindowManagerSource).not.toContain('OS.settings.get(');
-    expect(launcherSource).toContain('window.NovaByteSystem?.hardware?.power');
+    expect(traySource).toContain('window.NovaByteSystem?.hardware?.power');
+    expect(launcherSource).not.toContain('hardware?.power');
     expect(launcherSource).toContain('window.NovaByteSystem?.developer?.setRootAccess');
     expect(launcherSource).not.toMatch(/OS\.settings\.(?:get|set)\(['"](?:devMode|rootAccessEnabled)['"]/);
     expect(launcherSource).not.toContain("execFile('/usr/bin/nbosp-power'");
+    expect(traySource).not.toContain("execFile('/usr/bin/nbosp-power'");
   });
 
   it('keeps core service dependencies ordered before boot', () => {

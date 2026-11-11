@@ -86,9 +86,9 @@ describe('Launcher shell (js/apps/launcher)', () => {
     expect(typeof window.toggleLaunchpad).toBe('function');
     expect(typeof window.applyLauncherSettings).toBe('function');
     expect(typeof window.configureLauncherTaskbar).toBe('function');
-    // jsdom has no `process`, so the Linux-only restart/power-off actions are hidden
-    const power = window.document.getElementById('launchpad-power-actions');
-    expect(power.style.display).toBe('none');
+    // Power actions live in the taskbar tray menu now, not the launchpad.
+    expect(window.document.getElementById('launchpad-power-actions')).toBeNull();
+    expect(window.document.getElementById('restart-system-btn')).toBeNull();
   });
 
   it('opens the launchpad from the Start button and closes it again', async () => {

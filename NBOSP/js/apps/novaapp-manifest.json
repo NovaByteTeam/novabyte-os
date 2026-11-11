@@ -162,7 +162,7 @@
   {
     "id": "com.nbosp.launcher",
     "file": "js/apps/com.nbosp.launcher.novaapp",
-    "cacheKey": "7e059da812e2f180702f96353830512e2ebb858c1b33655c9498bca743a0db8c"
+    "cacheKey": "3a3cb115ddd4c2a19a23b426a480751903acab13f63c2d0cf2731c248c42aa4d"
   },
   {
     "id": "com.nbosp.service.lock-screen",
@@ -227,7 +227,7 @@
   {
     "id": "com.nbosp.service.tray",
     "file": "js/apps/com.nbosp.service.tray.novaapp",
-    "cacheKey": "8fdd098b389f76fea7dad88c3b9f2741242091c9d6da0aae5d2b526c3b54c214"
+    "cacheKey": "a93649e8b7cc106b9409827ac6320293b202f6f46079c5c92da98d1c3a8016c3"
   },
   {
     "id": "com.nbosp.service.wallpaper",
