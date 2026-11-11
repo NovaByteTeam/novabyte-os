@@ -740,18 +740,40 @@ registerApp({
     function renderSystem() {
       mainContent.appendChild(createEl('h2', { textContent: 'System', style: { marginBottom: '20px' } }));
 
-      // Accounts live in the Users app now; the old single-username field is gone.
-      const accountsGroup = createEl('div', { className: 'nook-group' });
-      accountsGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Accounts' }));
-      const accountsRow = createEl('div', { className: 'nook-row' });
-      accountsRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Manage user accounts' }));
-      const usersBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Open Users' });
-      usersBtn.addEventListener('click', () => {
-        WM.createWindow('com.nbosp.users');
-      }, { signal: lifecycle.signal });
-      accountsRow.appendChild(usersBtn);
-      accountsGroup.appendChild(accountsRow);
-      mainContent.appendChild(accountsGroup);
+      // Multi-user machines manage accounts and PINs in the Users app; the
+      // single-user username/PIN controls only apply while multi-user is off.
+      const multiUser = typeof NovaUserScope !== 'undefined' && !!NovaUserScope?.enabled?.();
+
+      if (multiUser) {
+        const accountsGroup = createEl('div', { className: 'nook-group' });
+        accountsGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'Accounts' }));
+        const accountsRow = createEl('div', { className: 'nook-row' });
+        accountsRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Manage user accounts' }));
+        const usersBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Open Users' });
+        usersBtn.addEventListener('click', () => {
+          WM.createWindow('com.nbosp.users');
+        }, { signal: lifecycle.signal });
+        accountsRow.appendChild(usersBtn);
+        accountsGroup.appendChild(accountsRow);
+        mainContent.appendChild(accountsGroup);
+      } else {
+        // User
+        const userGroup = createEl('div', { className: 'nook-group' });
+        userGroup.appendChild(createEl('div', { className: 'nook-group-title', textContent: 'User' }));
+        const userRow = createEl('div', { className: 'nook-row' });
+        const userLabel = createEl('label', { className: 'nook-row-label', htmlFor: 'system-username-input', textContent: 'Username' });
+        userRow.appendChild(userLabel);
+        const userInput = createEl('input', {
+          className: 'input', id: 'system-username-input', name: 'system-username',
+          style: { width: '150px' }, value: OS.username
+        });
+        userInput.addEventListener('change', () => {
+          systemSettings.set('username', userInput.value || 'user');
+        }, { signal: lifecycle.signal });
+        userRow.appendChild(userInput);
+        userGroup.appendChild(userRow);
+        mainContent.appendChild(userGroup);
+      }
 
       // Lock screen
       const lockGroup = createEl('div', { className: 'nook-group' });
@@ -817,7 +839,7 @@ registerApp({
         pinRow.appendChild(removePinBtn);
       }
       lockGroup.appendChild(pinRow);
-      mainContent.appendChild(lockGroup);
+      if (!multiUser) mainContent.appendChild(lockGroup);
 
       // Recovery
       const recoveryGroup = createEl('div', { className: 'nook-group' });
