@@ -260,13 +260,13 @@ registerApp({
         row.appendChild(cellAccount);
 
         row.appendChild(createEl('td', { textContent: user.username }));
-        row.appendChild(createEl('td', {
-          html: `<span class="nbusers-chip ${user.role}">${user.roleLabel || user.role}</span>`,
-        }));
-        row.appendChild(createEl('td', {
-          html: `<span class="nbusers-chip ${user.status}">${user.status}</span>` +
-            (user.locked ? `<span class="nbusers-chip locked">locked</span>` : ''),
-        }));
+        row.appendChild(createEl('td', null, [
+          createEl('span', { className: `nbusers-chip ${user.role}`, textContent: user.roleLabel || user.role }),
+        ]));
+        row.appendChild(createEl('td', null, [
+          createEl('span', { className: `nbusers-chip ${user.status}`, textContent: user.status }),
+          user.locked ? createEl('span', { className: 'nbusers-chip locked', textContent: 'locked' }) : null,
+        ]));
         row.appendChild(createEl('td', { textContent: fmtDate(user.lastLoginAt) }));
 
         const cellQuota = createEl('td');
@@ -639,8 +639,10 @@ registerApp({
         const el = createEl('div', { className: `nbusers-event ${event.severity || 'info'}` });
         el.appendChild(createEl('div', {
           style: 'display:flex;justify-content:space-between;gap:10px;color:var(--text-muted);font-size:11px;',
-          html: `<span>${fmtDate(event.ts)}</span><span>${event.actor || ''}</span>`,
-        }));
+        }, [
+          createEl('span', { textContent: fmtDate(event.ts) }),
+          createEl('span', { textContent: event.actor || '' }),
+        ]));
         el.appendChild(createEl('div', { style: 'font-weight:600', textContent: event.action }));
         if (event.target) el.appendChild(createEl('div', { style: 'color:var(--text-muted)', textContent: `target: ${event.target}` }));
         if (event.detail && typeof event.detail === 'object') {
