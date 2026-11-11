@@ -3,7 +3,7 @@
   "name": "Session Manager",
   "author": "DirazCoder",
   "description": "Owns account sessions: login, lock, unlock, fast user switching, per-user storage mounting, and the account lifecycle events the shell subscribes to.",
-  "version": "4.0.0",
+  "version": "3.0.2",
   "entry": "service.js",
   "unrestrictedEntry": "service.js",
   "system": true,
