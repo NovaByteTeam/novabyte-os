@@ -207,6 +207,17 @@
       console.warn('[SessionManager] Permission re-load failed:', err);
     }
 
+    // 5c. Per-account installed apps: drop the previous account's .novaapp
+    // registrations and register this one's. Runs for guests too, so a guest
+    // never sees the last user's installs.
+    try {
+      if (typeof Boot !== 'undefined' && Boot?.reloadUserNovaApps) {
+        await Boot.reloadUserNovaApps();
+      }
+    } catch (err) {
+      console.warn('[SessionManager] Installed-app reload failed:', err);
+    }
+
     // 6. Desktop: icons, launchpad, the trusted launcher, autostart.
     try {
       if (typeof renderDesktopIcons === 'function') renderDesktopIcons();

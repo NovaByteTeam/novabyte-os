@@ -239,14 +239,14 @@ registerApp({
     function errorMessage(err) { return (err && err.message) ? err.message : String(err); }
 
     // Display names for HKNA/<appId> and HKNU/software/<appId> come from the
-    // installed-app inventory (HKNS/apps/installed); cached until a registry
+    // installed-app inventory (system packages in HKNS, the account's own in HKNU); cached until a registry
     // change invalidates it. Everything else resolves through the static
     // keyInfo catalog at the top of this file.
     let inventoryCache = null;
     function appDisplayName(appId) {
       if (!inventoryCache) {
         let installed = null;
-        try { installed = Reg.get('HKNS/apps/installed'); } catch (_) { /* unreadable — fall through */ }
+        try { installed = window.RegistrySystemState?.installedApps?.() ?? Reg.get('HKNS/apps/installed'); } catch (_) { /* unreadable — fall through */ }
         inventoryCache = Array.isArray(installed) ? installed : [];
       }
       const hit = inventoryCache.find((app) => app && app.id === appId);

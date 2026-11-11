@@ -1011,15 +1011,22 @@ async function startConfiguredHomeApp() {
     }
   }
 
-  async function loadInstalledNovaApps() {
-    // The inventory is registry-backed (HKNS/apps/installed via the package
-    // store); the localStorage key is only the pre-registry fallback.
+  // `userOnly` re-registers just the mounted account's own apps (see
+  // reloadUserNovaApps); bundled system packages are machine-wide and were
+  // already registered at boot.
+  async function loadInstalledNovaApps({ userOnly = false } = {}) {
+    // The inventory is registry-backed (HKNS/apps/installed for system
+    // packages, the account's HKNU/apps/installed for its own installs, both
+    // through the package store); the localStorage key is only the
+    // pre-registry fallback.
     const storedApps = window.NovaAppPackageStore?.loadRegistry
       ? NovaAppPackageStore.loadRegistry()
       : Storage.get(KEYS.INSTALLED_APPS, []);
+    const isMachineApp = app => window.RegistrySystemState?.isMachineApp?.(app) === true;
+    const listed = userOnly ? storedApps.filter(app => !isMachineApp(app)) : storedApps;
     const apps = window.NovaAppPackageStore?.hydrateApps
-      ? await NovaAppPackageStore.hydrateApps(storedApps)
-      : storedApps;
+      ? await NovaAppPackageStore.hydrateApps(listed)
+      : listed;
 
     let trustRegistryChanged = false;
     for (let i = 0; i < apps.length; i++) {
@@ -1046,7 +1053,10 @@ async function startConfiguredHomeApp() {
 
     if (trustRegistryChanged && window.NovaAppPackageStore?.saveRegistry) {
       try {
-        NovaAppPackageStore.saveRegistry(apps);
+        // A user-only pass must write the whole list back: saving just the
+        // account's apps would drop the system packages from the machine list.
+        const toSave = userOnly ? [...storedApps.filter(isMachineApp), ...apps] : apps;
+        NovaAppPackageStore.saveRegistry(toSave);
       } catch (e) {
         console.warn('[BOOT] Failed to persist refreshed package trust state:', e);
       }
@@ -1061,6 +1071,26 @@ async function startConfiguredHomeApp() {
     // starts, regardless of whether App Manager is ever opened.
     scanForRevokedApps(apps).catch(e =>
       console.error('[BOOT] Revocation scan failed:', e));
+  }
+
+  /**
+   * Account switch: swap the registered third-party .novaapps over to the
+   * account that just mounted. Boot registers installed apps once, before
+   * anyone is signed in, so without this a second user would keep seeing the
+   * previous user's apps (and none of their own) until a reload.
+   */
+  async function reloadUserNovaApps() {
+    const isMachineApp = app => window.RegistrySystemState?.isMachineApp?.(app) === true;
+    for (const id of Object.keys(OS.apps)) {
+      const cfg = OS.apps[id];
+      // Built-in JS apps carry no package files and system packages are
+      // machine-wide; what's left is the previous account's installs.
+      if (!cfg?.files || isMachineApp(cfg)) continue;
+      delete OS.apps[id];
+      const index = APP_REGISTRY.findIndex(app => app.id === id);
+      if (index > -1) APP_REGISTRY.splice(index, 1);
+    }
+    await loadInstalledNovaApps({ userOnly: true });
   }
 
   /**
@@ -1421,3 +1451,7 @@ Object.defineProperty(Boot, 'startConfiguredHomeApp', {
   configurable: true,
 });
 Boot.launchAutostartApps = () => {}; // replaced by boot() with the closure
+Object.defineProperty(Boot, 'reloadUserNovaApps', {
+  get: () => reloadUserNovaApps,
+  configurable: true,
+});
