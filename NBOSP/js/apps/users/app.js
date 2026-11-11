@@ -4,10 +4,10 @@
  * com.nbosp.users — the admin console for accounts.
  *
  * First-class console, not another Settings section: launching requires an
- * admin-role session, and its data access rides the admin:users grant the
- * sandbox reserved all along (nova:admin:users IPC, host-mediated, server
- * re-checks the role on every route). Standard users who launch it get a
- * role-denied splash rather than a silent failure.
+ * admin-role session. It runs in the trusted host (unrestrictedEntry) and
+ * calls the /api/auth/admin routes through SessionManager.authFetch; the
+ * server re-checks the role on every route. Standard users who launch it get
+ * a role-denied splash rather than a silent failure.
  *
  * Three tabs:
  *   Users    — every account: avatar, display name, username, role chip
@@ -80,14 +80,62 @@ registerApp({
     const root = createEl('div', { className: 'nbusers-root' });
     content.appendChild(root);
 
-    // ── IPC helper (admin:users grant + server role re-check on the other end) ──
+    // ── Admin API transport ───────────────────────────────────────────────
+    // System apps run in the trusted host, so this talks to the role-gated
+    // /api/auth/admin family through SessionManager.authFetch (bearer + CSRF).
+    // The server re-checks the session role on every route.
+    const uidPath = (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}`;
+    const ROUTES = {
+      'accounts.list':            { method: 'GET',    path: () => '/api/auth/admin/users' },
+      'accounts.create':          { method: 'POST',   path: () => '/api/auth/admin/users', body: (p) => p.account },
+      'accounts.update':          { method: 'PATCH',  path: uidPath, body: (p) => p.patch },
+      'accounts.disable':         { method: 'POST',   path: (p) => `${uidPath(p)}/disable` },
+      'accounts.enable':          { method: 'POST',   path: (p) => `${uidPath(p)}/enable` },
+      'accounts.lock':            { method: 'POST',   path: (p) => `${uidPath(p)}/lock` },
+      'accounts.unlock':          { method: 'POST',   path: (p) => `${uidPath(p)}/unlock` },
+      'accounts.forceLogout':     { method: 'POST',   path: (p) => `${uidPath(p)}/force-logout` },
+      'accounts.resetCredential': { method: 'POST',   path: (p) => `${uidPath(p)}/reset-credential` },
+      'accounts.delete':          { method: 'DELETE', path: (p) => `${uidPath(p)}${p.mode === 'wipe' ? '?mode=wipe' : ''}`, body: (p) => (p.mode ? { mode: p.mode } : undefined) },
+      'accounts.setPin':          { method: 'POST',   path: (p) => `${uidPath(p)}/credentials/pin`, body: (p) => ({ pin: p.pin }) },
+      'accounts.setPassphrase':   { method: 'POST',   path: (p) => `${uidPath(p)}/credentials/passphrase`, body: (p) => ({ passphrase: p.passphrase ?? null }) },
+      'accounts.webauthn.list':   { method: 'GET',    path: (p) => `${uidPath(p)}/webauthn` },
+      'accounts.webauthn.remove': { method: 'DELETE', path: (p) => `${uidPath(p)}/webauthn/${encodeURIComponent(p.credentialId)}` },
+      'policies.get':             { method: 'GET',    path: () => '/api/auth/admin/policies' },
+      'policies.set':             { method: 'PUT',    path: () => '/api/auth/admin/policies', body: (p) => p.policies },
+      'events.list':              { method: 'GET',    path: (p) => { const q = new URLSearchParams(); for (const k of ['uid', 'severity', 'action', 'limit', 'offset']) if (p?.[k] !== undefined && p?.[k] !== null) q.set(k, String(p[k])); return `/api/auth/admin/events${q.toString() ? '?' + q.toString() : ''}`; } },
+      'usage.get':                { method: 'GET',    path: () => '/api/auth/admin/usage' },
+    };
+
     async function adminUsers(action, payload = {}) {
-      return window.nova.ipc('nova:admin:users', { action, ...payload });
+      const sm = window.SessionManager;
+      if (!sm || typeof sm.authFetch !== 'function') {
+        return { success: false, code: 'UNAVAILABLE', message: 'Session service is not available' };
+      }
+      if (typeof NovaUserScope === 'undefined' || !NovaUserScope.enabled()) {
+        return { success: false, code: 'MULTI_USER_DISABLED', message: 'Multi-user is off. Enable it to manage accounts.' };
+      }
+      if (!sm.isAdmin()) {
+        return { success: false, code: 'PERMISSION_DENIED', message: 'An administrator account is required for account management' };
+      }
+      if (!Object.prototype.hasOwnProperty.call(ROUTES, action)) {
+        return { success: false, code: 'UNAVAILABLE', message: `Unknown action: ${action}` };
+      }
+      const route = ROUTES[action];
+      const args = { ...payload };
+      const { status, json, error } = await sm.authFetch(route.path(args), {
+        method: route.method,
+        body: route.body ? route.body(args) : undefined,
+      });
+      if (!json || json.success !== true) {
+        const code = status === 403 ? 'PERMISSION_DENIED' : (status === 404 ? 'NOT_FOUND' : 'UNAVAILABLE');
+        return { success: false, code, message: json?.message || error || `Account management request failed (${status})` };
+      }
+      return { success: true, data: json.data };
     }
 
     function isPermissionDenied(result) {
       return result && result.success !== true &&
-        (result.code === 'PERMISSION_DENIED' || result.error === 'PERMISSION_DENIED' ||
+        (result.code === 'PERMISSION_DENIED' || result.code === 'MULTI_USER_DISABLED' || result.error === 'PERMISSION_DENIED' ||
           /administrator account is required|not in admin mode|admin:users permission/i.test(String(result.message || result.error || '')));
     }
 
@@ -117,7 +165,7 @@ registerApp({
         style: 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;',
       });
       splash.appendChild(createEl('div', { style: 'font-size:34px', textContent: '🔒' }));
-      splash.appendChild(createEl('div', { style: 'font-size:15px;font-weight:600', textContent: 'Administrator account required' }));
+      splash.appendChild(createEl('div', { style: 'font-size:15px;font-weight:600', textContent: /multi-user is off/i.test(message || '') ? 'Multi-user is off' : 'Administrator account required' }));
       splash.appendChild(createEl('div', { style: 'font-size:12px;max-width:380px;text-align:center', textContent: message || 'The Users console manages accounts machine-wide. Sign in with an Admin or Owner account to use it.' }));
       root.appendChild(splash);
     }
@@ -157,7 +205,7 @@ registerApp({
 
     async function loadUsers() {
       const result = await adminUsers('accounts.list');
-      if (isPermissionDenied(result)) return { denied: true };
+      if (isPermissionDenied(result)) return { denied: true, message: result.message };
       usersCache = result.data?.users || result.users || [];
       const usageResult = await adminUsers('usage.get');
       usageCache = usageResult.data?.usage || usageResult.usage || [];
@@ -485,7 +533,7 @@ registerApp({
 
     async function loadPolicies() {
       const result = await adminUsers('policies.get');
-      if (isPermissionDenied(result)) return { denied: true };
+      if (isPermissionDenied(result)) return { denied: true, message: result.message };
       policiesCache = result.data?.policies || result.policies || null;
       return { denied: false };
     }
@@ -614,11 +662,15 @@ registerApp({
         lines.push([new Date(event.ts).toISOString(), event.actor || '', event.action, event.target || '', event.severity || '', event.ip || ''].map(escapeCell).join(','));
       }
       try {
-        await window.nova.ipc('nova:download', {
-          filename: 'novabyte-account-events.csv',
-          mimeType: 'text/csv; charset=utf-8',
-          base64Data: btoa(lines.join('\n')),
-        });
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv; charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'novabyte-account-events.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (err) {
         toast('CSV export failed: ' + (err?.message || err), true);
       }
@@ -628,7 +680,7 @@ registerApp({
     async function refresh() {
       const users = await loadUsers();
       if (users.denied) {
-        roleDeniedSplash();
+        roleDeniedSplash(users.message);
         return;
       }
       if (activeTab === 'users') renderUsers();
@@ -637,11 +689,11 @@ registerApp({
     async function renderTab() {
       if (activeTab === 'users') {
         const users = await loadUsers();
-        if (users.denied) { roleDeniedSplash(); return; }
+        if (users.denied) { roleDeniedSplash(users.message); return; }
         renderUsers();
       } else if (activeTab === 'policies') {
         const policies = await loadPolicies();
-        if (policies.denied) { roleDeniedSplash(); return; }
+        if (policies.denied) { roleDeniedSplash(policies.message); return; }
         renderPolicies();
       } else if (activeTab === 'audit') {
         renderAudit();
@@ -652,7 +704,7 @@ registerApp({
     try {
       const users = await loadUsers();
       if (users.denied) {
-        roleDeniedSplash();
+        roleDeniedSplash(users.message);
         return;
       }
     } catch (err) {
