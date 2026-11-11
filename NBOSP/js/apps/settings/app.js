@@ -755,6 +755,49 @@ registerApp({
         }, { signal: lifecycle.signal });
         accountsRow.appendChild(usersBtn);
         accountsGroup.appendChild(accountsRow);
+
+        // Voluntary PIN change for the signed-in account. The server wants the
+        // current PIN here; only the forced post-reset flow skips it.
+        if (typeof SessionManager !== 'undefined' && SessionManager?.changePin) {
+          const myPinRow = createEl('div', { className: 'nook-row' });
+          myPinRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Your PIN' }));
+          const myPinBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Change PIN' });
+          myPinBtn.addEventListener('click', async () => {
+            const currentPin = await showModal('Change PIN', 'Enter current PIN:', [
+              { label: 'Cancel' }, { label: 'Next', value: 'next' }
+            ], 'password');
+            if (!isAlive() || !currentPin) return;
+
+            const pin1 = await showModal('New PIN', 'Enter a new PIN (4–6 digits):', [
+              { label: 'Cancel' }, { label: 'Next', value: 'next' }
+            ], 'password');
+            if (!isAlive() || !pin1) return;
+            if (!/^\d{4,6}$/.test(pin1)) {
+              showModal('Invalid PIN', 'PIN must be 4 to 6 digits.');
+              return;
+            }
+
+            const pin2 = await showModal('Confirm PIN', 'Re-enter your new PIN:', [
+              { label: 'Cancel' }, { label: 'Set PIN', value: 'confirm' }
+            ], 'password');
+            if (!isAlive()) return;
+            if (pin1 !== pin2) {
+              showModal('PIN Mismatch', 'The PINs do not match. Please try again.');
+              return;
+            }
+
+            const result = await SessionManager.changePin(currentPin, pin1);
+            if (!isAlive()) return;
+            if (!result?.ok) {
+              showModal('PIN not changed', result?.message || 'PIN change failed.');
+              return;
+            }
+            Notify.show({ title: 'PIN Updated', body: 'Your PIN has been changed', type: 'success', appName: 'Settings' });
+          }, { signal: lifecycle.signal });
+          myPinRow.appendChild(myPinBtn);
+          accountsGroup.appendChild(myPinRow);
+        }
+
         mainContent.appendChild(accountsGroup);
       } else {
         // User
