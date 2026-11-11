@@ -25,11 +25,11 @@
 registerApp({
   id: 'com.nbosp.users',
   name: 'Users',
-  version: '4.0.0',
+  version: '3.0.2',
   icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0Ij48Y2lyY2xlIGN4PSIzMiIgY3k9IjM4IiByPSIxMCIgZmlsbD0iIzkzYzVmZCIvPjxwYXRoIGQ9Ik0yIDc0IHYtMSBjMC05IDEzLTE0IDMwLTE0czMwIDUgMzAgMTR2MSB6IiBmaWxsPSIjOTNjNWZkIi8+PGNpcmNsZSBjeD0iNjQiIGN5PSIzMiIgcj0iMTIiIGZpbGw9IiMyNTYzZWIiLz48cGF0aCBkPSJNNDAgNzQgdi0yIGMwLTExIDEwLTIgMjQtMTIgMjQgMTJ2MSB6IiBmaWxsPSIjMjU2M2ViIi8+PHBhdGggZD0iTTY4IDQ2IDIwIDcyIGw2IDcgMjQtMTAgMTAgOSA0LTcgMjQgMjQtMTQgMy0yMCA5LTItNCA1IDcgNC01LTkgMSA0IDctNS0zIDcgMTAgMy0yMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmRlNjhhIiBzdHJva2Utd2lkdGg9IjIuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGNpcmNsZSBjeD0iNzAiIGN5PSI0NCIgcj0iNSIgZmlsbD0iI2ZkZTY4YSIvPjwvc3ZnPg==',
   description: 'Admin console for accounts: create, edit, reset, disable, delete, machine policies and the per-user audit feed.',
   category: 'admin',
-  permissions: ['admin:users'],
+  permissions: [],
   defaultSize: [880, 640],
   minSize: [560, 420],
   resizable: true,
