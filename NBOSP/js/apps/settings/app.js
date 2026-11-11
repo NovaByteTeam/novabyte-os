@@ -796,6 +796,44 @@ registerApp({
           }, { signal: lifecycle.signal });
           myPinRow.appendChild(myPinBtn);
           accountsGroup.appendChild(myPinRow);
+
+          // Passphrase: min length comes from the machine policy, so the server
+          // does the length check and we just show its message.
+          if (SessionManager.changePassphrase) {
+            const phraseRow = createEl('div', { className: 'nook-row' });
+            phraseRow.appendChild(createEl('span', { className: 'nook-row-label', textContent: 'Your passphrase' }));
+            const phraseBtn = createEl('button', { className: 'btn btn-sm', textContent: 'Change passphrase' });
+            phraseBtn.addEventListener('click', async () => {
+              const current = await showModal('Change passphrase', 'Enter your current PIN or passphrase:', [
+                { label: 'Cancel' }, { label: 'Next', value: 'next' }
+              ], 'password');
+              if (!isAlive() || !current) return;
+
+              const phrase1 = await showModal('New passphrase', 'Enter a new passphrase:', [
+                { label: 'Cancel' }, { label: 'Next', value: 'next' }
+              ], 'password');
+              if (!isAlive() || !phrase1) return;
+
+              const phrase2 = await showModal('Confirm passphrase', 'Re-enter your new passphrase:', [
+                { label: 'Cancel' }, { label: 'Set passphrase', value: 'confirm' }
+              ], 'password');
+              if (!isAlive()) return;
+              if (phrase1 !== phrase2) {
+                showModal('Passphrase Mismatch', 'The passphrases do not match. Please try again.');
+                return;
+              }
+
+              const result = await SessionManager.changePassphrase(current, phrase1);
+              if (!isAlive()) return;
+              if (!result?.ok) {
+                showModal('Passphrase not changed', result?.message || 'Passphrase change failed.');
+                return;
+              }
+              Notify.show({ title: 'Passphrase Updated', body: 'Your passphrase has been changed', type: 'success', appName: 'Settings' });
+            }, { signal: lifecycle.signal });
+            phraseRow.appendChild(phraseBtn);
+            accountsGroup.appendChild(phraseRow);
+          }
         }
 
         mainContent.appendChild(accountsGroup);
