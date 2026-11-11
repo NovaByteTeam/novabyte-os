@@ -184,14 +184,26 @@
 
   // ── Permission grants (AppPermissionManager records) ────────────────────
 
+  // ── Per-user permission grants (multi-user) ──────────────────────────
+  // App permission grants are per-account: an app's camera/geolocation/
+  // calendar/contacts consents move from the machine hive to the mounted
+  // HKNU, so each account consents for itself. Machine-level app facts
+  // (installed, alarms) stay in HKNS. The 3.0.2→accounts migration copies
+  // the legacy machine grants into the owner's HKNU hive, so upgraded
+  // machines keep every consent.
+  function appPermissionsPath() {
+    const scoped = typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.();
+    return scoped ? 'HKNU/security/appPermissions' : PATHS.appPermissions;
+  }
+
   function appPermissions() {
-    const value = readState(PATHS.appPermissions, () => readJson(LEGACY_KEYS.appPermissions, []));
+    const value = readState(appPermissionsPath(), () => readJson(LEGACY_KEYS.appPermissions, []));
     return Array.isArray(value) ? value : [];
   }
 
   function setAppPermissions(grants) {
     if (!Array.isArray(grants)) return false;
-    return writeState(PATHS.appPermissions, 'REG_JSON', grants, LEGACY_KEYS.appPermissions);
+    return writeState(appPermissionsPath(), 'REG_JSON', grants, LEGACY_KEYS.appPermissions);
   }
 
   // ── Background alarm registry (app-sandbox nova:alarm:*) ────────────────

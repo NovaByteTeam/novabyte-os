@@ -896,7 +896,21 @@ const AppDirs = {
   },
 
   _linuxDataRoot() {
-    return require('path').join(require('os').homedir(), '.local', 'share', 'novabyte', 'data');
+    const path = require('path');
+    const os = require('os');
+    // Multi-user: AppDirs roots move to ~/.local/share/novabyte/
+    // users/<uid>/apps/<appId>/{files,cache,databases,shared_prefs} — the
+    // /data alias resolves against the active user and app subtree (fs.js
+    // re-roots its appDataRoot to the same location, so the VFS /data
+    // mount and this tree stay the same disk bytes). Single-user machines
+    // keep the legacy flat data root byte-for-byte.
+    if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
+      const uid = String(NovaUserScope.uid() || '');
+      if (uid) {
+        return path.join(os.homedir(), '.local', 'share', 'novabyte', 'users', uid, 'apps');
+      }
+    }
+    return path.join(os.homedir(), '.local', 'share', 'novabyte', 'data');
   },
   _linuxAppPath(pkg, subdir = '') {
     const path = require('path');
@@ -929,7 +943,18 @@ const AppDirs = {
   },
   _nativePersistenceInstalled: false,
   _nativeBrowserStatePath() {
-    return require('path').join(require('os').homedir(), '.local', 'share', 'novabyte', 'browser-state.json');
+    const path = require('path');
+    const os = require('os');
+    // Full-machine localStorage dump becomes per-user at
+    // users/<uid>/browser-state.json (multi-user) — the LS_MAP keys it
+    // mirrors are per-account now.
+    if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
+      const uid = String(NovaUserScope.uid() || '');
+      if (uid) {
+        return path.join(os.homedir(), '.local', 'share', 'novabyte', 'users', uid, 'browser-state.json');
+      }
+    }
+    return path.join(os.homedir(), '.local', 'share', 'novabyte', 'browser-state.json');
   },
   _persistBrowserState() {
     const fs = require('fs');
@@ -1623,6 +1648,53 @@ const AppDirs = {
   },
   getFSDir(appIdOrPkg, subdir) {
     return this.getAppDataPath(appIdOrPkg, subdir);
+  },
+
+  /**
+   * Mount-time re-hydration (multi-user): seed the LS_MAP user-data keys
+   * from the mounted account's per-app files into localStorage, so the
+   * first-party apps read the account's calendar/contacts/bookmarks/…
+   * through their existing localStorage reads. Called by the
+   * SessionManager as part of the per-user mount sequence.
+   */
+  syncAllFromUser() {
+    if (typeof process === 'undefined' || process.platform !== 'linux') {
+      return; // web build: the LS_MAP strata stay on the legacy channel
+    }
+    for (const lsKey of Object.keys(this.LS_MAP)) {
+      const mapping = this.LS_MAP[lsKey];
+      try {
+        const pkg = window.NovaAppIdAliases?.canonicalize(mapping.pkg) || mapping.pkg;
+        const fs = require('fs');
+        const path = require('path');
+        const target = path.join(this._linuxAppPath(pkg, mapping.subdir), mapping.file);
+        if (fs.existsSync(target)) {
+          localStorage.setItem(lsKey, fs.readFileSync(target, 'utf8'));
+        } else {
+          localStorage.removeItem(lsKey);
+        }
+      } catch { /* silent — absent stratum just means an empty app state */ }
+    }
+  },
+
+  /**
+   * Flush-time mirror (multi-user): write the LS_MAP user-data keys into the
+   * mounted account's per-app files, then drop them from localStorage —
+   * the global namespace holds nothing personal between accounts. Called
+   * by the SessionManager at suspend/logout.
+   */
+  syncAllToUser() {
+    if (typeof process === 'undefined' || process.platform !== 'linux') {
+      return;
+    }
+    for (const lsKey of Object.keys(this.LS_MAP)) {
+      const raw = localStorage.getItem(lsKey);
+      if (raw === null) continue;
+      try {
+        this._writeNativeStorageKey(lsKey, raw);
+      } catch { /* silent */ }
+      localStorage.removeItem(lsKey);
+    }
   },
 
   async syncKey(lsKey, value) {

@@ -446,6 +446,20 @@ async function boot() {
   // flags fall back to their legacy localStorage keys via BootState.
   Boot.ensureRegistry();
 
+  // 0.5 Multi-user migration ───────────────────────────────────────
+  // The one-time 3.0.2 → accounts migration runs BEFORE any hive is
+  // mounted for a user and BEFORE the storage schemas stamp owners, so
+  // every legacy byte is stamped to the owner it belongs to. Idempotent
+  // behind the HKNS/system/migration/v1 marker; multi-user disabled ⇒
+  // no-op, byte-identical single-user boot.
+  if (typeof MultiUserMigration !== 'undefined' && MultiUserMigration?.run) {
+    try {
+      await MultiUserMigration.run();
+    } catch (e) {
+      console.error('[BOOT] Multi-user migration failed — continuing single-user:', e);
+    }
+  }
+
   // 1. Watchdog ────────────────────────────────────────────────────
   const forceRecovery = BootState.flag('forceRecovery');
   const watchdog      = Boot._setupWatchdog(bootStartTime, uaShort);
@@ -544,18 +558,34 @@ async function boot() {
     }
   }
 
-  try {
-    await startConfiguredHomeApp();
-  } catch (e) {
-    console.error('[BOOT] Failed to start the trusted launcher in the OS page:', e);
+  // Multi-user login gate: while no account session is live, the desktop
+  // is NOT brought up — the login picker (or first-boot wizard) is the
+  // surface, and the SessionManager mounts the desktop per account after
+  // authentication. Single-user machines skip this branch entirely.
+  const multiUserGateActive = typeof NovaUserScope !== 'undefined' &&
+    NovaUserScope?.enabled?.() &&
+    !(typeof SessionManager !== 'undefined' && SessionManager.active?.());
+
+  // Publish the closure-scoped autostart pass for the SessionManager's
+  // per-account mount sequence.
+  Boot.launchAutostartApps = launchAutostartApps;
+
+  if (!multiUserGateActive) {
+    try {
+      await startConfiguredHomeApp();
+    } catch (e) {
+      console.error('[BOOT] Failed to start the trusted launcher in the OS page:', e);
+    }
+
+    if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
+    if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
+    if (typeof renderLaunchpad === 'function') renderLaunchpad();
+
+    // Apps are now guaranteed to reflect the current bundled package contents.
+    launchAutostartApps();
+  } else if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') {
+    WM.updateTaskbar();
   }
-
-  if (typeof WM !== 'undefined' && typeof WM.updateTaskbar === 'function') WM.updateTaskbar();
-  if (typeof renderDesktopIcons === 'function') renderDesktopIcons();
-  if (typeof renderLaunchpad === 'function') renderLaunchpad();
-
-  // Apps are now guaranteed to reflect the current bundled package contents.
-  launchAutostartApps();
 
   if (typeof AppScheduler !== 'undefined') {
     AppScheduler.start();
@@ -569,7 +599,16 @@ async function boot() {
   markBootSuccess();
   WM.updateTaskbar();
 
-  if (OS.lockPin) {
+  if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
+    // Multi-user: the login picker (or first-boot setup wizard when
+    // users.db is empty) is the gate at every cold boot — the lock screen
+    // service owns the surface, the SessionManager owns the verbs.
+    try {
+      await window.LockScreenService?.showLoginPicker?.();
+    } catch (e) {
+      console.error('[BOOT] Login picker failed to present:', e);
+    }
+  } else if (OS.lockPin) {
     window.LockScreenService.lockScreen();
   } else {
     renderDesktopIcons();
@@ -1371,3 +1410,14 @@ function consumeSafeModeFile() {
 // ── Global Exports ─────────────────────────────────────────────────
 window.boot = boot;
 window.Boot = Boot; // expose namespace so plugins/forks can hook in
+
+// Per-account desktop helpers: the SessionManager re-runs these after a
+// login (mount sequence) so each account gets its launcher, desktop icons
+// and autostart pass under its own mounted HKNU. Assigned inside boot()
+// as well (launchAutostartApps is a boot() closure), so this stays valid
+// whether or not boot() has run yet.
+Object.defineProperty(Boot, 'startConfiguredHomeApp', {
+  get: () => startConfiguredHomeApp,
+  configurable: true,
+});
+Boot.launchAutostartApps = () => {}; // replaced by boot() with the closure

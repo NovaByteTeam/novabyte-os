@@ -4560,7 +4560,29 @@ const AppSandbox = (() => {
   // for now since nothing else under /api/security exists for it.
 
   function csrfToken() {
+    // Multi-user: the CSRF token belongs to the SESSION, and the active
+    // account's session is the one this host fetches with (X-Nova-Session
+    // below). The boot-injected meta tag belongs to the anonymous page
+    // session — using it for an authed request would fail the CSRF check.
+    if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() &&
+        typeof window !== 'undefined' && window.SessionManager?.csrf) {
+      const active = window.SessionManager.csrf();
+      if (active) return active;
+    }
     return document.querySelector('meta[name="csrf-token"]')?.content || '';
+  }
+
+  /** Owner uid stamped onto storage by the trusted host (never app-supplied). */
+  function storageOwnerUid() {
+    return (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.())
+      ? String(NovaUserScope.ownerUid() || '')
+      : '';
+  }
+
+  /** True while an admin-role account session is active (multi-user). */
+  function isAdminSession() {
+    if (typeof NovaUserScope === 'undefined' || !NovaUserScope?.enabled?.()) return true;
+    return typeof window !== 'undefined' && !!window.SessionManager?.isAdmin?.();
   }
 
   function systemAppRateLimitHeaders(app) {
@@ -4591,11 +4613,20 @@ const AppSandbox = (() => {
   // JSON-in/JSON-out shape with a CSRF header. Previously duplicated as
   // adminFetch and mailFetch with identical bodies.
   async function authedJsonFetch(path, options = {}) {
+    // Multi-user: present the active session's bearer token so admin/mail
+    // proxies authenticate as the signed-in account. The token lives in host
+    // memory only — this is host-realm code, never handed to webviews.
+    const sessionHeaders = {};
+    if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.() && window.SessionManager?.token) {
+      const token = window.SessionManager.token();
+      if (token) sessionHeaders['X-Nova-Session'] = token;
+    }
     const res = await fetch(path, {
       method: options.method || 'GET',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Token': csrfToken(),
+        ...sessionHeaders,
         ...(options.headers || {}),
         ...systemAppRateLimitHeaders(options.app),
       },
@@ -4676,9 +4707,55 @@ const AppSandbox = (() => {
     if (!(await isAdminEnabledClient(app))) {
       return respondError(webview, 'nova:admin:users', requestId, 'PERMISSION_DENIED', 'This machine is not in admin mode — enable it in Settings first');
     }
-    // No account system exists in this codebase — this maps to session
-    // management (list/revoke), the closest real equivalent to "manage
-    // other users' access" that /api/security actually implements.
+    // Multi-user: the admin:* permission grants gain one additional
+    // requirement — the session must belong to an admin-role account. An
+    // app holding admin:users under a standard session receives nothing.
+    if (!isAdminSession()) {
+      return respondError(webview, 'nova:admin:users', requestId, 'PERMISSION_DENIED', 'An administrator account is required for account management');
+    }
+    // ── Multi-user account management (the Users app console) ──────────
+    // Every account verb proxies to the role-gated /api/auth/admin family
+    // through authedJsonFetch (bearer token + CSRF), so the server re-checks
+    // the session role on every route — never trusting this client claim.
+    const ACCOUNT_ROUTES = {
+      'accounts.list':        { method: 'GET',    path: () => '/api/auth/admin/users' },
+      'accounts.create':      { method: 'POST',   path: () => '/api/auth/admin/users', body: (p) => p.account },
+      'accounts.update':      { method: 'PATCH',  path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}`, body: (p) => p.patch },
+      'accounts.disable':     { method: 'POST',   path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/disable` },
+      'accounts.enable':      { method: 'POST',   path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/enable` },
+      'accounts.lock':        { method: 'POST',   path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/lock` },
+      'accounts.unlock':      { method: 'POST',   path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/unlock` },
+      'accounts.forceLogout': { method: 'POST',   path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/force-logout` },
+      'accounts.resetCredential': { method: 'POST', path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/reset-credential` },
+      'accounts.delete':      { method: 'DELETE', path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}${p.mode === 'wipe' ? '?mode=wipe' : ''}`, body: (p) => (p.mode ? { mode: p.mode } : undefined) },
+      'accounts.setPin':      { method: 'POST',   path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/credentials/pin`, body: (p) => ({ pin: p.pin }) },
+      'accounts.setPassphrase': { method: 'POST', path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/credentials/passphrase`, body: (p) => ({ passphrase: p.passphrase ?? null }) },
+      'accounts.webauthn.list':   { method: 'GET',  path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/webauthn` },
+      'accounts.webauthn.remove': { method: 'DELETE', path: (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}/webauthn/${encodeURIComponent(p.credentialId)}` },
+      'policies.get':         { method: 'GET',    path: () => '/api/auth/admin/policies' },
+      'policies.set':         { method: 'PUT',    path: () => '/api/auth/admin/policies', body: (p) => p.policies },
+      'events.list':          { method: 'GET',    path: (p) => { const q = new URLSearchParams(); for (const k of ['uid', 'severity', 'action', 'limit', 'offset']) if (p?.[k] !== undefined && p?.[k] !== null) q.set(k, String(p[k])); return `/api/auth/admin/events${q.toString() ? '?' + q.toString() : ''}`; } },
+      'usage.get':            { method: 'GET',    path: () => '/api/auth/admin/usage' },
+    };
+    if (Object.prototype.hasOwnProperty.call(ACCOUNT_ROUTES, payload?.action)) {
+      const route = ACCOUNT_ROUTES[payload.action];
+      try {
+        const { status, json } = await authedJsonFetch(route.path(payload), {
+          method: route.method,
+          body: route.body ? route.body(payload) : undefined,
+          app,
+        });
+        if (!json || json.success !== true) {
+          return respondError(webview, 'nova:admin:users', requestId,
+            status === 403 ? 'PERMISSION_DENIED' : (status === 404 ? 'NOT_FOUND' : 'UNAVAILABLE'),
+            json?.message || `Account management request failed (${status})`);
+        }
+        return respond(webview, 'nova:admin:users', requestId, { success: true, data: json.data });
+      } catch (e) {
+        return respondError(webview, 'nova:admin:users', requestId, 'UNAVAILABLE', e?.message || 'Account management request failed');
+      }
+    }
+    // ── Legacy session management verbs (pre-accounts surface) ─────────
     const action = payload?.action === 'revoke' ? 'revoke' : 'list';
     try {
       if (action === 'list') {
@@ -5134,6 +5211,22 @@ const AppSandbox = (() => {
 
       // Full wipe mirrors the recovery/factory-reset path and, critically,
       // runs in the HOST context so it can reach every app partition.
+      // Multi-user machines: the account store is wiped server-side too —
+      // an owner-role session must be live for that (the wipe verb is
+      // host-only and dialog-gated); the local scope flags reset so the
+      // machine returns to first-boot.
+      let accountsWiped = false;
+      if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
+        try {
+          const manager = (typeof window !== 'undefined' && window.SessionManager) || null;
+          if (manager && manager.isAdmin()) {
+            const result = await authedJsonFetch('/api/auth/admin/wipe', { method: 'POST' });
+            accountsWiped = !!(result.ok && result.json?.success);
+          }
+        } catch (e) { console.warn('[Settings] account store wipe failed:', e); }
+        try { NovaUserScope.reset(); } catch (e) { console.warn('[Settings] user scope reset failed:', e); }
+      }
+
       try { localStorage.clear(); } catch {}
       try { sessionStorage.clear(); } catch {}
       try { if (typeof OPFS !== 'undefined' && OPFS.clear) await OPFS.clear(); } catch (e) { console.warn('[Settings] OPFS clear failed:', e); }
@@ -5157,6 +5250,7 @@ const AppSandbox = (() => {
       const blocked = dbResults.filter(r => !r.ok);
 
       cleared.push('host settings', 'files', 'application data');
+      if (accountsWiped) cleared.push('account store');
       if (blocked.length) cleared.push(blocked.length + ' database(s) could not be deleted because they were blocked');
 
       setTimeout(() => {
@@ -6546,8 +6640,13 @@ const AppSandbox = (() => {
   // injection confusing downstream consumers of the raw key string.
 
   const STORAGE_DB_NAME = 'NovaByte_AppStorage';
-  const STORAGE_DB_VERSION = 1;
-  const STORAGE_STORE = 'kv';
+  // Schema v2: every row gains an ownerUid — the sandboxed kv store re-keys
+  // from [appId, key] to [ownerUid, appId, key]. Apps keep addressing their
+  // data as [appId, key]; the uid dimension is invisible to them, enforced
+  // here at the point of stamping (the trusted host resolves the owner from
+  // the active session — a guest can never construct a cross-owner address).
+  const STORAGE_DB_VERSION = 2;
+  const STORAGE_STORE = 'kv2';
   let storageDbPromise = null;
 
   function openStorageDB() {
@@ -6563,11 +6662,32 @@ const AppSandbox = (() => {
       req.onupgradeneeded = (e) => {
         const d = e.target.result;
         if (!d.objectStoreNames.contains(STORAGE_STORE)) {
-          // Composite keyPath so [appId, key] is unique and directly
-          // addressable; the appId index lets clear/keys range-scan just
-          // that app's rows instead of iterating every app's data.
-          const store = d.createObjectStore(STORAGE_STORE, { keyPath: ['appId', 'key'] });
+          // Composite keyPath so [ownerUid, appId, key] is unique and
+          // directly addressable; the by_owner_app index lets usage/clear/
+          // keys range-scan one owner+app pair, by_appId one app across
+          // owners (uninstall-style sweeps).
+          const store = d.createObjectStore(STORAGE_STORE, { keyPath: ['ownerUid', 'appId', 'key'] });
+          store.createIndex('by_owner_app', ['ownerUid', 'appId']);
           store.createIndex('by_appId', 'appId');
+          // v1 → v2 migration: carry every legacy row across, stamped with
+          // the owner the 3.0.2 single-user data belongs to (the multi-user
+          // migration sets it before this DB first opens; '' on single-user
+          // machines, which keeps the addressing semantics identical).
+          if (d.objectStoreNames.contains('kv')) {
+            try {
+              const legacyOwner = storageOwnerUid() ||
+                (typeof NovaUserScope !== 'undefined' && NovaUserScope ? String(NovaUserScope.legacyOwnerUid() || '') : '');
+              const oldStore = e.target.transaction.objectStore('kv');
+              const copy = oldStore.getAll();
+              copy.onsuccess = () => {
+                for (const row of copy.result || []) {
+                  if (row && typeof row === 'object') {
+                    store.put({ ...row, ownerUid: legacyOwner });
+                  }
+                }
+              };
+            } catch (_) { /* legacy copy is best-effort; fresh installs have none */ }
+          }
         }
       };
       req.onsuccess = (e) => resolve(e.target.result);
@@ -6579,15 +6699,20 @@ const AppSandbox = (() => {
     return storageDbPromise;
   }
 
+  function storageOwnerKey(owner, appId, key) {
+    return [owner, appId, key];
+  }
+
   function storageAppRange(appId) {
-    return IDBKeyRange.bound([appId, ''], [appId, '\uffff'], false, false);
+    const owner = storageOwnerUid();
+    return IDBKeyRange.bound([owner, appId, ''], [owner, appId, '\uffff'], false, false);
   }
 
   async function storageGet(appId, key) {
     const db = await openStorageDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORAGE_STORE, 'readonly');
-      const req = tx.objectStore(STORAGE_STORE).get([appId, key]);
+      const req = tx.objectStore(STORAGE_STORE).get(storageOwnerKey(storageOwnerUid(), appId, key));
       req.onsuccess = () => resolve(req.result ? req.result.value : null);
       req.onerror = () => reject(req.error);
     });
@@ -6598,17 +6723,18 @@ const AppSandbox = (() => {
   function storageExistingByteSize(db, appId, key) {
     return new Promise((resolve) => {
       const tx = db.transaction(STORAGE_STORE, 'readonly');
-      const req = tx.objectStore(STORAGE_STORE).get([appId, key]);
+      const req = tx.objectStore(STORAGE_STORE).get(storageOwnerKey(storageOwnerUid(), appId, key));
       req.onsuccess = () => resolve(req.result ? (req.result.byteSize || 0) : 0);
       req.onerror = () => resolve(0);
     });
   }
 
   async function storageAppUsageBytes(appId, db) {
+    const owner = storageOwnerUid();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORAGE_STORE, 'readonly');
-      const idx = tx.objectStore(STORAGE_STORE).index('by_appId');
-      const req = idx.openCursor(IDBKeyRange.only(appId));
+      const idx = tx.objectStore(STORAGE_STORE).index('by_owner_app');
+      const req = idx.openCursor(IDBKeyRange.only([owner, appId]));
       let total = 0;
       req.onsuccess = (e) => {
         const cursor = e.target.result;
@@ -6625,6 +6751,7 @@ const AppSandbox = (() => {
 
   async function storageSet(appId, key, value, valueBytes) {
     const db = await openStorageDB();
+    const owner = storageOwnerUid();
     // Check quota against existing usage for this app minus whatever this
     // key already costs (so overwriting an existing key isn't double-counted).
     // Previously this made two redundant storageGet round-trips — one
@@ -6633,17 +6760,57 @@ const AppSandbox = (() => {
       storageAppUsageBytes(appId, db),
       storageExistingByteSize(db, appId, key),
     ]);
-    const quotaBytes = StorageLedger.getBudget(appId, 'storageQuotaBytes');
+    // Budgets are per (owner, app): one account filling its quota cannot
+    // starve another account's headroom, because the ceiling is charged to
+    // the account+app pair, not the machine.
+    const ledgerAppKey = owner ? `${owner}~${appId}` : appId;
+    const quotaBytes = StorageLedger.getBudget(ledgerAppKey, 'storageQuotaBytes');
     if (usage - existing + valueBytes > quotaBytes) {
       const err = new Error('Storage quota exceeded');
       err.code = 'STORAGE_FULL';
       throw err;
     }
+    // Per-USER total ceiling (default 2 GB, admin-adjustable per account):
+    // the whole account's AppStorage footprint, not just this app's.
+    if (owner) {
+      const userUsage = await storageOwnerUsageBytes(owner, db);
+      const userQuota = storageUserQuotaBytes();
+      if (userUsage - existing + valueBytes > userQuota) {
+        const err = new Error('Account storage quota exceeded');
+        err.code = 'STORAGE_FULL';
+        throw err;
+      }
+    }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORAGE_STORE, 'readwrite');
-      tx.objectStore(STORAGE_STORE).put({ appId, key, value, byteSize: valueBytes });
+      tx.objectStore(STORAGE_STORE).put({ ownerUid: owner, appId, key, value, byteSize: valueBytes });
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /** Default per-account storage ceiling (2 GB) — admin-adjustable later. */
+  function storageUserQuotaBytes() {
+    return 2 * 1024 * 1024 * 1024;
+  }
+
+  /** The active account's total AppStorage footprint (one index pass). */
+  function storageOwnerUsageBytes(owner, db) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORAGE_STORE, 'readonly');
+      const idx = tx.objectStore(STORAGE_STORE).index('by_owner_app');
+      const req = idx.openCursor(IDBKeyRange.bound([owner, ''], [owner, '\uffff'], false, false));
+      let total = 0;
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          total += cursor.value.byteSize || 0;
+          cursor.continue();
+        } else {
+          resolve(total);
+        }
+      };
+      req.onerror = () => reject(req.error);
     });
   }
 
@@ -6651,7 +6818,7 @@ const AppSandbox = (() => {
     const db = await openStorageDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORAGE_STORE, 'readwrite');
-      tx.objectStore(STORAGE_STORE).delete([appId, key]);
+      tx.objectStore(STORAGE_STORE).delete(storageOwnerKey(storageOwnerUid(), appId, key));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -6659,9 +6826,12 @@ const AppSandbox = (() => {
 
   async function storageClear(appId) {
     const db = await openStorageDB();
+    const owner = storageOwnerUid();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORAGE_STORE, 'readwrite');
-      tx.objectStore(STORAGE_STORE).index('by_appId').openCursor(IDBKeyRange.only(appId)).onsuccess = (e) => {
+      // Clear only THIS owner's rows for the app — another account's data
+      // for the same app is not "clear app data"'s to take.
+      tx.objectStore(STORAGE_STORE).index('by_owner_app').openCursor(IDBKeyRange.only([owner, appId])).onsuccess = (e) => {
         const cursor = e.target.result;
         if (cursor) {
           cursor.delete();
@@ -6697,7 +6867,7 @@ const AppSandbox = (() => {
     const db = await openStorageDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORAGE_STORE, 'readonly');
-      const req = tx.objectStore(STORAGE_STORE).index('by_appId').openCursor(IDBKeyRange.only(appId));
+      const req = tx.objectStore(STORAGE_STORE).index('by_owner_app').openCursor(IDBKeyRange.only([storageOwnerUid(), appId]));
       const keys = [];
       req.onsuccess = (e) => {
         const cursor = e.target.result;
@@ -6763,8 +6933,10 @@ const AppSandbox = (() => {
     }
     try {
       await storageSet(app.id, rawKey, value, valueBytes);
-      StorageLedger.noteRequest(app.id);
-      StorageLedger.noteBytes(app.id, { written: valueBytes });
+      const ledgerOwner = storageOwnerUid();
+      const ledgerKey = ledgerOwner ? `${ledgerOwner}~${app.id}` : app.id;
+      StorageLedger.noteRequest(ledgerKey);
+      StorageLedger.noteBytes(ledgerKey, { written: valueBytes });
       return respond(webview, 'nova:storage:set', requestId, { success: true });
     } catch (e) {
       if (e && e.code === 'STORAGE_FULL') {
@@ -9163,6 +9335,12 @@ const AppSandbox = (() => {
     'nova:clock:timer:start', 'nova:clock:timer:pause', 'nova:clock:timer:restart',
     'nova:clock:timer:reset', 'nova:clock:stopwatch:start', 'nova:clock:stopwatch:pause',
     'nova:clock:stopwatch:reset', 'nova:clock:stopwatch:lap',
+    // Session machinery is host-only, exactly like nova:admin — no app may
+    // drive login/logout/switch/reverify. Host code calls the SessionManager
+    // service directly (trusted OS page realm), never this IPC bridge.
+    'nova:auth:login', 'nova:auth:logout', 'nova:auth:lock', 'nova:auth:unlock',
+    'nova:auth:reverify', 'nova:auth:switch', 'nova:auth:suspend',
+    'nova:auth:resume', 'nova:auth:setup',
   ]);
 
   const API_HANDLERS = {
@@ -13570,8 +13748,29 @@ const AppSandbox = (() => {
     // that partition's own lifetime — it does nothing to unify two
     // different partition names. Keying by app.id alone means every
     // launch of the same app resolves to the same on-disk partition.
-    const partitionId = `app_${app.id}`;
-    webview.setAttribute('partition', `persist:${partitionId}`);
+    //
+    // Multi-user: cookies and site storage are per-account — the name
+    // gains the active owner (persist:u<uid>_app_<appId>), resolved from
+    // the trusted host's user scope so apps never choose their own uid
+    // dimension. Guests ride a volatile (non-persist) partition: an
+    // ephemeral session leaves nothing behind.
+    let partitionId;
+    if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
+      const owner = String(NovaUserScope.uid() || '');
+      if (owner === 'guest') {
+        partitionId = `guest_app_${app.id}`;
+        webview.setAttribute('partition', partitionId);
+      } else if (owner) {
+        partitionId = `u${owner}_app_${app.id}`;
+        webview.setAttribute('partition', `persist:${partitionId}`);
+      } else {
+        partitionId = `app_${app.id}`;
+        webview.setAttribute('partition', `persist:${partitionId}`);
+      }
+    } else {
+      partitionId = `app_${app.id}`;
+      webview.setAttribute('partition', `persist:${partitionId}`);
+    }
 
     // Guest console mirror. The serial mirror above carries every decision
     // THIS module makes, but a guest-side flow has a second half that used
@@ -14524,15 +14723,29 @@ const AppSandbox = (() => {
     }
   }
 
+  /** Every partition name an app has ever ridden: legacy single-user and
+   *  the active owner's scoped variants (guest partitions are volatile and
+   *  need no clearing). */
+  function appPartitionNames(appId) {
+    const names = [
+      `app_${appId}`,
+      `app_${appId}_webcontent`,
+    ];
+    if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
+      const owner = String(NovaUserScope.ownerUid() || '');
+      if (owner) {
+        names.push(`u${owner}_app_${appId}`, `u${owner}_app_${appId}_webcontent`);
+      }
+    }
+    return names;
+  }
+
   async function clearAppExecutionPartition(appId) {
-    return clearAppPartitionsByName(appId, [`app_${appId}`]);
+    return clearAppPartitionsByName(appId, appPartitionNames(appId).slice(0, 2));
   }
 
   async function clearAppPartition(appId) {
-    return clearAppPartitionsByName(appId, [
-      `app_${appId}`,
-      `app_${appId}_webcontent`,
-    ]);
+    return clearAppPartitionsByName(appId, appPartitionNames(appId));
   }
 
   // Clear storage partitions for multiple apps in parallel. Used by

@@ -58,18 +58,157 @@ async function pressPin(document, window, pin) {
   }
 }
 
+
+// ── Multi-user surfaces (v2) ───────────────────────────────────────────────
+// Picker + per-account auth sheet: server round-trip verification through
+// the SessionManager stub; multi-user machines never touch the client-side
+// hash worker at all.
+describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
+  afterEach(() => { try { dom?.window.close(); } catch { /* already closed */ } });
+  beforeEach(() => resetTestStorage());
+
+  const ACCOUNTS = [
+    { uid: 'u-ada-001', displayName: 'Ada', username: 'ada', role: 'owner', roleLabel: 'Owner', status: 'active', locked: false, pinLength: 6, hasPassphrase: true, hasBiometric: true, mustChangePin: false },
+    { uid: 'u-sam-002', displayName: 'Sam', username: 'sam', role: 'standard', roleLabel: 'Standard', status: 'active', locked: false, pinLength: 4, hasPassphrase: false, hasBiometric: false, mustChangePin: false },
+  ];
+
+  async function loadMultiUser({ loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' } } = {}) {
+    const loginCalls = [];
+    const workerCalls = [];
+    const manager = {
+      state: () => ({ status: 'loggedout', uid: null, uname: null, displayName: null, role: null }),
+      active: () => false,
+      isActive: () => false,
+      isAdmin: () => false,
+      suspendedUsers: () => [],
+      listAccounts: async () => ({ ok: true, users: ACCOUNTS, policies: { guestAccess: true, showUsernames: true } }),
+      login: async (args) => { loginCalls.push(args); return loginResult; },
+      unlock: async (secret) => ({ ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' }),
+      resumeUser: async () => ({ ok: false }),
+      suspendForSwitch: async () => ({ ok: true }),
+      guestLogin: async () => ({ ok: true, guest: true }),
+      webauthnLogin: async () => ({ ok: false, code: 'UNAVAILABLE', message: 'no webauthn' }),
+      on: () => () => {},
+    };
+    const scope = {
+      enabled: () => true,
+      uid: () => '',
+      ownerUid: () => '',
+      legacyOwnerUid: () => '',
+      isActiveAdmin: () => false,
+    };
+    const wmCalls = [];
+    const loaded = await loadServiceApp('lock-screen', {
+      withBaseUtils: true,
+      stubs: {
+        extra: {
+          OS: {
+            lockPin: 'hashed-1111', username: 'Nova', isLocked: false,
+            lockoutUntil: 0, wrongPinCount: 0, idleTimeout: Infinity,
+            settings: { get: () => null },
+            workers: { crypto: { call: async (op, pin, salt) => { workerCalls.push([op, pin, salt]); return `hashed-${pin}`; } } },
+          },
+          WM: { minimizeAll: () => wmCalls.push('minimizeAll'), updateTaskbar: () => wmCalls.push('updateTaskbar') },
+          EventLog: { log: () => {} },
+          Notify: { show: () => {} },
+          getPinSalt: () => 'static-salt',
+          renderDesktopIcons: () => wmCalls.push('renderDesktopIcons'),
+          NovaUserScope: scope,
+          SessionManager: manager,
+        },
+      },
+    });
+    dom = loaded.dom;
+    loaded.document.body.innerHTML = LOCK_SCREEN_MARKUP;
+    return { ...loaded, manager, loginCalls, wmCalls, workerCalls, scope };
+  }
+
+  it('showLoginPicker() renders account tiles with role chips and a guest tile', async () => {
+    const { window, document } = await loadMultiUser();
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+
+    const tiles = [...document.querySelectorAll('.lp-tile')];
+    expect(tiles).toHaveLength(3); // two accounts + guest tile (policy on)
+    expect(tiles[0].querySelector('.lp-name').textContent).toBe('Ada');
+    expect(tiles[0].querySelector('.lp-uname').textContent).toBe('ada'); // showUsernames policy
+    expect(tiles[0].querySelector('.lp-chip-admin')).toBeTruthy();
+    expect(tiles[1].querySelector('.lp-name').textContent).toBe('Sam');
+    expect(tiles[1].querySelector('.lp-chip-admin')).toBeNull();
+    expect(tiles[2].className).toContain('lp-tile-guest');
+    expect(document.querySelector('.lock-picker-clock')).toBeTruthy();
+    expect(document.getElementById('lock-screen').className).toContain('active');
+  });
+
+  it('selecting an account shows the adaptive sheet — 6 dots for a 6-digit PIN account', async () => {
+    const { window, document } = await loadMultiUser();
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][0].click();
+    await settle();
+
+    expect(document.getElementById('lock-username').textContent).toBe('Ada');
+    expect(document.querySelectorAll('.lock-pin-dot')).toHaveLength(6);
+    expect(numpadButtons(document)).toHaveLength(12);
+    // Passphrase affordance only for accounts that carry one.
+    expect(document.getElementById('lock-passphrase-toggle')).toBeTruthy();
+  });
+
+  it('sheet verification is a server round-trip: failed login surfaces the server message', async () => {
+    const { window, document, loginCalls } = await loadMultiUser();
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][1].click(); // Sam, 4-digit PIN
+    await settle();
+
+    await pressPin(document, window, '9999'); // 4th digit auto-submits
+    await settle(50);
+
+    expect(loginCalls).toEqual([{ uid: 'u-sam-002', secret: '9999' }]);
+    expect(document.getElementById('lock-status').textContent).toBe('Incorrect PIN');
+  });
+
+  it('successful login hides the sheet and the hash worker is never used', async () => {
+    const { window, document, workerCalls } = await loadMultiUser({
+      loginResult: { ok: true, user: ACCOUNTS[1], mustChangePin: false },
+    });
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][1].click();
+    await settle();
+    // The worker stub is absent for multi-user sheets: no client hashing.
+    await pressPin(document, window, '4321');
+    await settle(50);
+
+    expect(document.getElementById('lock-screen').className).not.toContain('active');
+    expect(workerCalls).toEqual([]); // multi-user verification never hashes client-side
+  });
+
+  it('the guest tile starts an ephemeral session and unlocks the gate', async () => {
+    const { window, document, manager } = await loadMultiUser();
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    [...document.querySelectorAll('.lp-tile')][2].click();
+    await settle(50);
+    expect(document.getElementById('lock-screen').className).not.toContain('active');
+    expect(manager.state()).toBeTruthy(); // the guest tile path ran through the manager
+  });
+});
+
 describe('LockScreenService service (js/apps/lock-screen)', () => {
   afterEach(() => { try { dom?.window.close(); } catch { /* already closed */ } });
 
   beforeEach(() => resetTestStorage());
 
-  it('attaches a frozen LockScreenService exposing only lockScreen()', async () => {
+  it('attaches a frozen LockScreenService with the v2 API surface', async () => {
     await loadLockScreen({ markup: '' });
     const svc = dom.window.LockScreenService;
     expect(svc).toBeTruthy();
     expect(Object.isFrozen(svc)).toBe(true);
-    expect(Object.keys(svc)).toEqual(['lockScreen']);
+    expect(Object.keys(svc)).toEqual(['lockScreen', 'showLoginPicker', 'lockForUser', 'state']);
     expect(typeof svc.lockScreen).toBe('function');
+    expect(typeof svc.showLoginPicker).toBe('function');
+    expect(typeof svc.lockForUser).toBe('function');
   });
 
   it('lockScreen() without a configured PIN just minimizes all windows', async () => {
