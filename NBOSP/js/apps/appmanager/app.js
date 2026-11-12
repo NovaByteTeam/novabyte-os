@@ -2140,18 +2140,21 @@ registerApp({
         }
 
         const managedService = isManagedSystemPackage(app);
+        const firstBootOnly = app.id === 'com.nbosp.setup';
         const launchBtn = makeActionBtn(
           managedService
             ? 'Managed by OS'
-            : app.id === 'com.nbosp.launcher'
+            : firstBootOnly
+              ? 'First-boot only'
+              : app.id === 'com.nbosp.launcher'
               ? 'Open (Managed Home)'
               : (app.id === APP_MANAGER_ID) ? 'Already Running' : (isDis ? 'Disabled' : 'Launch'),
           'play',
-          (managedService || app.id === 'com.nbosp.launcher' || app.id === APP_MANAGER_ID || isDis)
+          (managedService || firstBootOnly || app.id === 'com.nbosp.launcher' || app.id === APP_MANAGER_ID || isDis)
             ? 'background:var(--bg-elevated);border:1px solid var(--border-default);color:var(--text-muted);cursor:not-allowed;'
             : 'background:var(--accent);border:1px solid transparent;color:#fff;',
           () => {
-            if (managedService || app.id === 'com.nbosp.launcher' ||
+            if (managedService || firstBootOnly || app.id === 'com.nbosp.launcher' ||
                 isDis || app.id === APP_MANAGER_ID) return;
             if ((app.devOnly === true || app.manifest?.devOnly === true || DEV_ONLY_APP_IDS.has(app.id)) &&
                 OS.settings.get('devMode') !== true) {
@@ -2165,7 +2168,7 @@ registerApp({
             WM.createWindow(app.id);
           }
         );
-        if (managedService || app.id === 'com.nbosp.launcher') {
+        if (managedService || firstBootOnly || app.id === 'com.nbosp.launcher') {
           launchBtn.disabled = true;
         }
 

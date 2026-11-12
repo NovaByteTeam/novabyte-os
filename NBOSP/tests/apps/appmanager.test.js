@@ -88,7 +88,7 @@ describe('App Manager app (js/apps/appmanager)', () => {
   });
 
   it('reveals Setup and NovaReg only when Show hidden apps is enabled', async () => {
-    const { content } = await loadAppManager({
+    const { content, WM } = await loadAppManager({
       seedApps: [
         { id: 'com.nbosp.setup', name: 'NovaByte Setup', system: true, version: '3.0.2' },
         { id: 'com.nbosp.novareg', name: 'NovaReg', system: true, version: '3.0.2' },
@@ -104,6 +104,13 @@ describe('App Manager app (js/apps/appmanager)', () => {
     expect(listRows(content).map(row => row.textContent)).toEqual(
       expect.arrayContaining([expect.stringContaining('NovaByte Setup'), expect.stringContaining('NovaReg')]),
     );
+
+    listRows(content).find(row => row.textContent.includes('NovaByte Setup')).click();
+    const launch = [...content.querySelectorAll('button')].find(button => button.textContent.includes('First-boot only'));
+    expect(launch.disabled).toBe(true);
+    launch.disabled = false;
+    launch.click();
+    expect(WM.createWindow).not.toHaveBeenCalled();
   });
 
   it('lists installed packages sorted by name and shows a detail view on click', async () => {
