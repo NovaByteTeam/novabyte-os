@@ -70,11 +70,14 @@ describe('NovaUserScope — the mounted account (uid + username)', () => {
   });
 });
 
-describe('MultiUserMigration.upgradeUserLayout — uid segment → username segment', () => {
+describe('MultiUserMigration.upgradeUserLayout — onto the ~/users/<username> layout', () => {
   // The production NBOSP runtime IS a linux native runtime, so this is the
-  // real path: directories under ~/.local/share/novabyte/users and
-  // ~/.config/novabyte/users move from users/<uid> to users/<username>.
-  // A temp home keeps the test off the developer's real machine.
+  // real path: an account's visible filesystem must BE <machine home>/users/
+  // <username>/ — a real, separated tree — with the standard folders directly
+  // inside it and app data at .apps/. Older layout generations (uid-keyed
+  // segments; the nested ~/.local/share/novabyte/users/<name>/home tree) are
+  // renamed/lifted onto it at login. A temp home keeps the test off the
+  // developer's real machine.
   function withTempHome(run) {
     const realHome = os.homedir;
     const tmp = mkdtempSync(path.join(os.tmpdir(), 'nb-userlayout-'));
@@ -87,24 +90,49 @@ describe('MultiUserMigration.upgradeUserLayout — uid segment → username segm
     }
   }
 
-  it('moves the account\u2019s whole tree onto users/<username> exactly once', () => {
+  it('moves the account’s whole tree onto ~/users/<username> exactly once', () => {
     withTempHome((tmp) => {
       const shareUsers = path.join(tmp, '.local', 'share', 'novabyte', 'users');
       const configUsers = path.join(tmp, '.config', 'novabyte', 'users');
-      mkdirSync(path.join(shareUsers, 'u1', 'home'), { recursive: true });
-      writeFileSync(path.join(shareUsers, 'u1', 'home', 'notes.txt'), 'account data');
+      // Pre-flat generations: uid-keyed segment, nested home tree.
+      mkdirSync(path.join(shareUsers, 'u1', 'home', 'Documents'), { recursive: true });
+      writeFileSync(path.join(shareUsers, 'u1', 'home', 'Documents', 'notes.txt'), 'account data');
+      mkdirSync(path.join(shareUsers, 'u1', 'apps'), { recursive: true });
+      writeFileSync(path.join(shareUsers, 'u1', 'apps', 'app-state.json'), '{}');
       mkdirSync(path.join(configUsers, 'u1', 'registry'), { recursive: true });
       writeFileSync(path.join(configUsers, 'u1', 'registry', 'HKNU.json'), '{"hive":true}');
 
       const result = MultiUserMigration.upgradeUserLayout('u1', 'ada');
-      expect(result.moved).toBe(2);
-      expect(existsSync(path.join(shareUsers, 'ada', 'home', 'notes.txt'))).toBe(true);
-      expect(existsSync(path.join(shareUsers, 'u1'))).toBe(false);
+      expect(result.moved).toBeGreaterThan(0);
+      // The account tree root IS ~/users/ada — notes.txt sits directly in
+      // its Documents, app data is the hidden .apps, no nested "home".
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'Documents', 'notes.txt'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'users', 'ada', '.apps', 'app-state.json'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'home'))).toBe(false);
+      // The registry hives renamed onto the username segment, uid dirs gone.
       expect(existsSync(path.join(configUsers, 'ada', 'registry', 'HKNU.json'))).toBe(true);
       expect(existsSync(path.join(configUsers, 'u1'))).toBe(false);
+      expect(existsSync(path.join(shareUsers, 'u1'))).toBe(false);
 
-      // Idempotent: the second run finds nothing left at the uid segment.
+      // Idempotent: the second run finds nothing left to move.
       expect(MultiUserMigration.upgradeUserLayout('u1', 'ada').moved).toBe(0);
+    });
+  });
+
+  it('lifts a username-keyed nested tree even with no uid rename to do', () => {
+    withTempHome((tmp) => {
+      const shareUsers = path.join(tmp, '.local', 'share', 'novabyte', 'users');
+      mkdirSync(path.join(shareUsers, 'sam', 'home', 'Desktop'), { recursive: true });
+      writeFileSync(path.join(shareUsers, 'sam', 'home', 'Desktop', 'todo.txt'), 'x');
+      writeFileSync(path.join(shareUsers, 'sam', 'browser-state.json'), '{}');
+
+      const result = MultiUserMigration.upgradeUserLayout('u-sam', 'sam');
+      expect(result.moved).toBe(1);
+      expect(existsSync(path.join(tmp, 'users', 'sam', 'Desktop', 'todo.txt'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'users', 'sam', '.browser-state.json'))).toBe(true);
+      expect(existsSync(path.join(shareUsers, 'sam'))).toBe(false);
+
+      expect(MultiUserMigration.upgradeUserLayout('u-sam', 'sam').moved).toBe(0);
     });
   });
 
@@ -115,11 +143,20 @@ describe('MultiUserMigration.upgradeUserLayout — uid segment → username segm
       mkdirSync(path.join(shareUsers, 'ada', 'home'), { recursive: true });
       writeFileSync(path.join(shareUsers, 'u1', 'home', 'old.txt'), 'old');
       writeFileSync(path.join(shareUsers, 'ada', 'home', 'new.txt'), 'new');
+      // The current-layout tree for ada already exists: the lift must not
+      // merge the nested copy over it.
+      mkdirSync(path.join(tmp, 'users', 'ada', 'Desktop'), { recursive: true });
+      writeFileSync(path.join(tmp, 'users', 'ada', 'Desktop', 'current.txt'), 'current');
 
-      expect(MultiUserMigration.upgradeUserLayout('u1', 'ada').moved).toBe(0);
-      // Both trees survive untouched — no merge, no data loss.
+      MultiUserMigration.upgradeUserLayout('u1', 'ada');
+      // The uid tree survives untouched — no merge, no data loss.
       expect(existsSync(path.join(shareUsers, 'u1', 'home', 'old.txt'))).toBe(true);
-      expect(existsSync(path.join(shareUsers, 'ada', 'home', 'new.txt'))).toBe(true);
+      // The current-layout tree kept every byte of its own content.
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'Desktop', 'current.txt'))).toBe(true);
+      // The nested copy's loose entries relocate entry-by-entry (never over
+      // an existing name) and never leave a stray "home/" folder behind.
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'new.txt'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'home'))).toBe(false);
     });
   });
 

@@ -165,10 +165,12 @@
    * VFS root, theme, desktop. This is the ONLY code path that performs it.
    *
    * The account's USERNAME is the on-disk segment for every per-user
-   * stratum (users/<username>/{home,apps} on the filesystem, the hive
-   * documents under users/<username>/registry/): the login-time layout
-   * upgrade (uid → username directories) runs first so machines created
-   * before that layout keep every byte.
+   * stratum: its filesystem IS users/<username>/ (Desktop, Documents,
+   * Trash and the hidden .apps app-data root all directly inside it) and
+   * the hive documents live under users/<username>/registry/ — the
+   * login-time layout upgrade (uid → username directories, nested → flat
+   * tree) runs first so machines created under earlier layouts keep
+   * every byte.
    */
   async function mountUserScope(user, { volatile: isGuest = false } = {}) {
     flushCurrentUserHives();
@@ -214,7 +216,7 @@
     }
 
     // 3. VFS: re-root the filesystem service onto this account's tree —
-    //    users/<username>/home (guests get their volatile tree).
+    //    ~/users/<username>/ itself (guests get their volatile tree).
     try {
       if (typeof FS !== 'undefined' && FS?.setUserRoot) {
         await FS.setUserRoot(isGuest ? 'guest' : user.uid, { guest: isGuest, username });

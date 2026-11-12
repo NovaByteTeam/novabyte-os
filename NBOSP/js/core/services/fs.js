@@ -579,10 +579,14 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
   // any pre-login phase) keep exactly today's layout, because
   // setUserRoot() is only ever called by the SessionManager, and only
   // after a successful account login. When it IS called, the active
-  // account gets ~/.local/share/novabyte/users/<username>/home as its
-  // tree, its own Trash, its own app-data root, and the /Shared drop box
-  // (machine-wide) joins the jail as a second legal root.
+  // account's filesystem IS <machine home>/users/<username>/ — a real,
+  // separately-rooted tree beside the other accounts (users/sam/,
+  // users/ada/…), not a "home inside the machine home" buried under
+  // ~/.local/share. Its Trash and per-app data (.apps) live inside it,
+  // and the machine-wide /Shared drop box joins the jail as a second
+  // legal root.
   const machineHome = nativePath.resolve(nativeOs.homedir());
+  const usersRoot = nativePath.join(machineHome, 'users');
   const sharedRoot = nativePath.join(machineHome, '.local', 'share', 'novabyte', 'shared');
   const defaultTrashPath = nativePath.join(machineHome, '.local', 'share', 'Trash', 'files');
   const defaultAppDataRoot = nativePath.join(machineHome, '.local', 'share', 'novabyte', 'data');
@@ -593,20 +597,25 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
   let allowedRoots = [home];
   let scopedUser = '';
 
-  /* The on-disk segment for an account: the USERNAME (users/diraz/home),
-   * matching what a person sees when they open ~/.local/share/novabyte.
+  /* The on-disk segment for an account: the USERNAME (users/sam/),
+   * matching what a person sees when they open /home/<linux-user>/users.
    * Usernames are immutable in the account database, so the segment is
-   * stable; accounts created before this layout (users/<uid>) are renamed
-   * onto it by the SessionManager's login-time layout upgrade before any
-   * root is applied. */
+   * stable; accounts created under earlier layouts (users/<uid>, or the
+   * nested users/<name>/home tree) are renamed/lifted onto this layout by
+   * the SessionManager's login-time upgrade before any root is applied. */
   const safeUsername = (uname) =>
     /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())
       ? String(uname || '').toLowerCase() : '';
 
+  /* Per-account roots. Accounts live at ~/users/<username>/ with the
+   * standard folders directly inside it. Guest sessions are volatile and
+   * never real accounts, so they stay under the hidden machine state tree
+   * (~/.local/share/novabyte/guest/<g-id>) where they never pollute users/. */
   const userRootsFor = (segment, guest) => {
-    const base = nativePath.join(machineHome, '.local', 'share', 'novabyte',
-      guest ? 'guest' : 'users', guest ? `g-${Date.now().toString(36)}` : String(segment || ''));
-    return { home: nativePath.join(base, 'home'), apps: nativePath.join(base, 'apps') };
+    const base = guest
+      ? nativePath.join(machineHome, '.local', 'share', 'novabyte', 'guest', `g-${Date.now().toString(36)}`)
+      : nativePath.join(usersRoot, safeUsername(segment) || String(segment || ''));
+    return { home: base, apps: nativePath.join(base, '.apps') };
   };
 
   const applyRoots = (newHome, uid, { scoped = false, guest = false } = {}) => {
@@ -614,11 +623,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     homePrefix = home.endsWith(nativePath.sep) ? home : home + nativePath.sep;
     scopedUser = scoped ? String(uid) : '';
     if (scoped || guest) {
+      // The account tree owns its Trash and its app data directly: both
+      // are first-class children of ~/users/<name>/ (.apps is dot-hidden
+      // from listings, exactly like ~/.local on a real Linux home).
       trashPath = nativePath.join(home, 'Trash');
-      const roots = guest
-        ? { apps: nativePath.join(nativePath.dirname(home), 'apps') }
-        : userRootsFor(uid, false);
-      appDataRoot = roots.apps;
+      appDataRoot = nativePath.join(home, '.apps');
       allowedRoots = scoped ? [home, appDataRoot, sharedRoot] : [home, appDataRoot]; // guests get no /Shared access
     } else {
       trashPath = defaultTrashPath;
@@ -626,11 +635,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       allowedRoots = [home];
     }
   };
-  // The per-app data root — the same tree AppDirs bootstraps as
-  // ~/.local/share/novabyte/data/<appId>/{files,cache,databases,shared_prefs}.
+  // The per-app data root — ~/users/<name>/.apps on multi-user machines
+  // (the tree AppDirs bootstraps as .apps/<appId>/…), or the legacy
+  // ~/.local/share/novabyte/data/<appId>/… on single-user machines.
   // The VFS exposes it as /data so sandboxed apps' appdata:/ and /data/
-  // paths land in the documented NovaByte data root instead of a stray
-  // ~/data folder alongside the home directories.
+  // paths land in the account's own tree, hidden from listings.
   const oldVfsMigrated = nativePath.join(machineHome, '.local', 'share', 'novabyte', 'migration', 'vfs-imported');
 
   const assertUserPath = path => {
@@ -741,7 +750,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     const folder = assertHomePath(folderId);
     try {
       const entries = nativeFs.readdirSync(folder, { withFileTypes: true })
-        .filter(entry => !entry.isSymbolicLink())
+        // Dot entries are machine plumbing (.apps, .browser-state.json):
+        // hidden from every listing exactly like a real OS file manager,
+        // and consistent with the virtual backend whose tree only ever
+        // contains the folders the user (or the OS shell) created.
+        .filter(entry => !entry.isSymbolicLink() && !entry.name.startsWith('.'))
         .map(entry => nodeForPath(nativePath.join(folder, entry.name)))
         .sort((a, b) => a.type !== b.type
           ? (a.type === 'folder' ? -1 : 1)

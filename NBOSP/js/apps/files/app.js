@@ -316,7 +316,20 @@
       });
       this.emptyTrashBtn.innerHTML = svgIcon('trash', 16);
 
-      toolbar.append(this.backBtn, this.upBtn, pathBarWrap, this.searchInput, this.emptyTrashBtn);
+      // Account chip: whose tree is mounted. Multi-user machines show the
+      // signed-in account's username beside the navigation, so the app makes
+      // it visible which account's filesystem (~/users/<username>/) you are
+      // browsing; single-user and guest sessions show nothing.
+      this.accountChip = createEl('span', {
+        className: 'browser-account-chip',
+        title: 'Signed-in account',
+        style: 'display:none;align-self:center;margin:0 6px 0 2px;padding:3px 10px;' +
+          'border-radius:999px;background:var(--bg-sunken,#e8e8ee);color:var(--text-muted,#666);' +
+          'font-size:12px;font-weight:600;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;',
+      });
+      this.updateAccountChip();
+
+      toolbar.append(this.accountChip, this.backBtn, this.upBtn, pathBarWrap, this.searchInput, this.emptyTrashBtn);
       root.appendChild(toolbar);
 
       // Files area: icon view + list view (only one visible at a time)
@@ -435,6 +448,23 @@
       if (document.activeElement !== this.pathBar) {
         this.pathBar.value = FS.getPath(this.nav.cwd);
       }
+    }
+
+    // Refresh the account chip from the trusted scope module. The username
+    // is what the per-user filesystem root is keyed by (users/<username>),
+    // so the chip IS the detection of "which account's files am I in".
+    updateAccountChip() {
+      if (!this.accountChip) return;
+      const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
+      const uname = scope && typeof scope.activeUsername === 'function'
+        ? String(scope.activeUsername() || '') : '';
+      if (!uname) {
+        this.accountChip.style.display = 'none';
+        return;
+      }
+      this.accountChip.textContent = uname;
+      this.accountChip.title = `Browsing ${uname}'s account tree (users/${uname})`;
+      this.accountChip.style.display = 'inline-block';
     }
 
     // Ensure the canonical system folders exist at the root. Best-effort:

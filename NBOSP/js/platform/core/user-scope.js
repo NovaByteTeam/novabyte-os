@@ -36,9 +36,9 @@
   }
 
   /* Usernames are the human-facing directory segment under the NovaByte
-   * roots (users/<username>/home), so they get the same shape check the
-   * account database enforces: lowercase letters, digits, dots, dashes,
-   * 3–32 chars, leading alphanumeric. */
+   * roots (the account's filesystem IS users/<username>/), so they get the
+   * same shape check the account database enforces: lowercase letters,
+   * digits, dots, dashes, 3–32 chars, leading alphanumeric. */
   function safeUsername(uname) {
     return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())
       ? String(uname || '').toLowerCase() : '';

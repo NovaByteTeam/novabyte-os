@@ -746,11 +746,36 @@ router.delete('/webauthn/credentials/:credId', (req, res) => {
 // ── Storage roots (server-side file work for archive/wipe/usage) ──────────
 
 function usersStorageRoot() {
+    // Accounts live as real, separated trees at <machine home>/users/
+    // (users/<username>/ is the account's filesystem root).
+    return path.join(os.homedir(), 'users');
+}
+
+function legacyUsersStorageRoot() {
+    // The pre-flat layout: accounts nested under hidden machine state
+    // (~/.local/share/novabyte/users/<name|uid>/…). Machines that have not
+    // logged in since the layout upgrade still carry data here.
     return path.join(os.homedir(), '.local', 'share', 'novabyte', 'users');
 }
 
-function userStorageDir(uid) {
-    return path.join(usersStorageRoot(), String(uid));
+function userStorageDirs(user) {
+    // Every on-disk home this account may still occupy: the current
+    // ~/users/<username> tree first, then the legacy nested-layout
+    // locations (username- and uid-keyed). Archive/wipe/usage cover them all
+    // so no bytes survive an account removal by hiding in an old root.
+    const name = String(user?.username || '');
+    const uid = String(user?.uid || '');
+    const dirs = [];
+    if (name) dirs.push(path.join(usersStorageRoot(), name));
+    if (name || uid) {
+        const base = legacyUsersStorageRoot();
+        for (const seg of [name, uid]) {
+            if (!seg) continue;
+            const dir = path.join(base, seg);
+            if (!dirs.includes(dir)) dirs.push(dir);
+        }
+    }
+    return dirs;
 }
 
 function sharedRoot() {
@@ -916,22 +941,35 @@ router.delete('/admin/users/:uid', requireAdminRole, (req, res) => {
         user = usersDb.getUser(req.params.uid);
         if (!user) throw Object.assign(new Error('No such account'), { code: 'NOT_FOUND' });
         const result = usersDb.deleteUser(req.params.uid, mode, actorUid(req));
-        // Row-level guards passed — perform the file work for the account tree.
-        const storageDir = userStorageDir(user.uid);
-        if (mode === 'archive' && fs.existsSync(storageDir)) {
-            const backupDir = path.join(sharedRoot(), 'admin-backups');
+        // Row-level guards passed — perform the file work for every on-disk
+        // tree the account occupies (current ~/users/<name> + any legacy
+        // nested-layout roots still holding bytes).
+        const storageDirs = userStorageDirs(user).filter(dir => fs.existsSync(dir));
+        const backupDir = path.join(sharedRoot(), 'admin-backups');
+        if (mode === 'archive' && storageDirs.length) {
             fs.mkdirSync(backupDir, { recursive: true });
             const stamp = new Date().toISOString().slice(0, 10);
-            const target = path.join(backupDir, `${user.username}-${stamp}-${String(user.uid).slice(0, 8)}`);
+            const baseName = `${user.username}-${stamp}-${String(user.uid).slice(0, 8)}`;
+            const archived = [];
             try {
-                fs.cpSync(storageDir, target, { recursive: true });
-                fs.rmSync(storageDir, { recursive: true, force: true });
-                result.archivedTo = target;
+                let suffix = 0;
+                for (const dir of storageDirs) {
+                    const target = suffix === 0
+                        ? path.join(backupDir, baseName)
+                        : path.join(backupDir, `${baseName}-legacy-${suffix}`);
+                    suffix++;
+                    fs.cpSync(dir, target, { recursive: true });
+                    fs.rmSync(dir, { recursive: true, force: true });
+                    archived.push(target);
+                }
+                result.archivedTo = archived.length === 1 ? archived[0] : archived;
             } catch (err) {
                 result.archiveError = err.message;
             }
-        } else if (mode === 'wipe' && fs.existsSync(storageDir)) {
-            try { fs.rmSync(storageDir, { recursive: true, force: true }); } catch (_) { }
+        } else if (mode === 'wipe' && storageDirs.length) {
+            for (const dir of storageDirs) {
+                try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { }
+            }
         }
         res.json({ success: true, data: result });
     } catch (err) {
@@ -967,13 +1005,16 @@ router.get('/admin/events/export', requireAdminRole, (req, res) => {
 });
 
 // Per-account usage: the native tree byte count against the account quota.
+// Counts every on-disk root the account occupies (current layout + legacy).
 router.get('/admin/usage', requireAdminRole, (req, res) => {
     const users = usersDb.listAdminUsers();
     const data = users.map(user => ({
         uid: user.uid,
         username: user.username,
         quotaBytes: user.quotaBytes,
-        usageBytes: dirSizeBytes(userStorageDir(user.uid)),
+        usageBytes: userStorageDirs(user)
+            .filter(dir => fs.existsSync(dir))
+            .reduce((total, dir) => total + dirSizeBytes(dir), 0),
     }));
     res.json({ success: true, data: { usage: data } });
 });
@@ -981,11 +1022,12 @@ router.get('/admin/usage', requireAdminRole, (req, res) => {
 // Full account-store teardown — factory reset support. Owner only.
 router.post('/admin/wipe', requireOwnerRole, (req, res) => {
     usersDb.wipeAll(req.session.uid);
-    // Also drop the per-user storage roots so the machine returns to
-    // first-boot state.
+    // Also drop every per-user storage root — the account trees and the
+    // legacy nested roots — so the machine returns to first-boot state.
     try {
-        const root = usersStorageRoot();
-        if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true });
+        for (const root of [usersStorageRoot(), legacyUsersStorageRoot()]) {
+            if (fs.existsSync(root)) fs.rmSync(root, { recursive: true, force: true });
+        }
     } catch (_) { }
     res.json({ success: true, data: { wiped: true } });
 });

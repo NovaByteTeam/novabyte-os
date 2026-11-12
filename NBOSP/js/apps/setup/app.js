@@ -267,7 +267,7 @@ registerApp({
 
       const note = createEl('div', { className: 'nvsetup-note' });
       note.innerHTML = '';
-      note.appendChild(createEl('div', { textContent: 'Each account lives under its own directory — users/<username>/home for files, users/<username>/registry for settings — with a machine-wide Shared drop box in between. The account you create next becomes this machine\u2019s owner (administrator).' }));
+      note.appendChild(createEl('div', { textContent: 'Each account lives under its own directory — users/<username>/ is the account\u2019s filesystem (files, folders, Trash and app data all inside it), users/<username>/registry holds its settings — with a machine-wide Shared drop box in between. The account you create next becomes this machine\u2019s owner (administrator).' }));
 
       const mkRow = (heading, small, value, key, onToggle) => {
         const row = createEl('button', { className: 'nvsetup-row', type: 'button', 'aria-pressed': String(value) });
@@ -314,7 +314,7 @@ registerApp({
       );
       const userRow = createEl('div');
       userRow.append(
-        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: 'Username \u2014 your storage directory (users/<username>/home)' })),
+        Object.assign(createEl('div', { className: 'nvsetup-label', textContent: 'Username \u2014 your storage directory (users/<username>)' })),
         username,
       );
       const credsGrid = createEl('div', { className: 'nvsetup-grid2' });

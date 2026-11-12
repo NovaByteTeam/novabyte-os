@@ -575,18 +575,43 @@ describe('FS linux-native backend (real disk contract)', () => {
     expect(FS.rootId).toBe(nodePath.resolve(fakeHome));
   });
 
-  it('allows the per-user app-data root while keeping it inside the account tree', async () => {
+  it('roots each account at <machine home>/users/<username>/ — a real, separated tree', async () => {
     const previousScope = globalThis.NovaUserScope;
     globalThis.NovaUserScope = { enabled: () => true, activeUsername: () => '' };
     try {
+      // ada's filesystem IS fakeHome/users/ada — no nested "home", no
+      // .local/share nesting. Her files land directly inside it.
       await FS.setUserRoot('u-owner', { username: 'ada' });
-      const userBase = nodePath.join(fakeHome, '.local', 'share', 'novabyte', 'users', 'ada');
-      expect(FS.rootId).toBe(nodePath.join(userBase, 'home'));
-      expect(FS.specialFolders.data).toBe(nodePath.join(userBase, 'apps'));
+      const adaRoot = nodePath.join(fakeHome, 'users', 'ada');
+      expect(FS.rootId).toBe(adaRoot);
+      expect(FS.specialFolders.documents).toBe(nodePath.join(adaRoot, 'Documents'));
+      expect(FS.specialFolders.trash).toBe(nodePath.join(adaRoot, 'Trash'));
+      await FS.createFile(FS.specialFolders.documents, 'mine.txt', 'a-data');
+      expect(nodeFs.readFileSync(nodePath.join(adaRoot, 'Documents', 'mine.txt'), 'utf8')).toBe('a-data');
+
+      // The per-account app-data root is the hidden .apps inside the tree,
+      // and it never shows up in a folder listing.
+      expect(FS.specialFolders.data).toBe(nodePath.join(adaRoot, '.apps'));
       expect(FS.getByPath('/data').id).toBe(FS.specialFolders.data);
       expect(FS.listDir(FS.specialFolders.data)).toEqual([]);
+      expect(FS.listDir(FS.rootId).map((n) => n.name)).not.toContain('.apps');
+
+      // sam's tree is physically separate (fakeHome/users/sam): ada's file
+      // is invisible there, and her bytes stay untouched on disk.
+      await FS.setUserRoot('u-other', { username: 'sam' });
+      expect(FS.rootId).toBe(nodePath.join(fakeHome, 'users', 'sam'));
+      expect(FS.listDir(FS.specialFolders.documents).map((f) => f.name)).toEqual([]);
+      expect(nodeFs.existsSync(nodePath.join(adaRoot, 'Documents', 'mine.txt'))).toBe(true);
+
+      // Teardown (logout): back on the machine tree, then ada's files come
+      // right back on her next mount.
+      await FS.setUserRoot(null);
+      expect(FS.rootId).toBe(nodePath.resolve(fakeHome));
+      await FS.setUserRoot('u-owner', { username: 'ada' });
+      expect(FS.listDir(FS.specialFolders.documents).map((f) => f.name)).toEqual(['mine.txt']);
     } finally {
       await FS.setUserRoot('', {});
+      nodeFs.rmSync(nodePath.join(fakeHome, 'users'), { recursive: true, force: true });
       if (previousScope === undefined) delete globalThis.NovaUserScope;
       else globalThis.NovaUserScope = previousScope;
     }

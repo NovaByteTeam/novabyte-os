@@ -149,10 +149,11 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(loginCall.headers['X-Nova-Session']).toBeUndefined();
 
     // The per-user mount sequence ran exactly once: scope flag (uid +
-    // username), the login-time uid→username layout upgrade, hive mount on
-    // the USERNAME segment, settings re-hydration, VFS re-root, permission
-    // reload. The VFS re-root keeps the uid as its identity arg but carries
-    // the username so fs.js roots the tree at users/<username>/home.
+    // username), the login-time layout upgrade (uid→username rename +
+    // nested→flat lift), hive mount on the USERNAME segment, settings
+    // re-hydration, VFS re-root, permission reload. The VFS re-root keeps
+    // the uid as its identity arg but carries the username so fs.js roots
+    // the tree at ~/users/<username>/.
     expect(mounts.scopeActive).toEqual(['u1']);
     expect(mounts.scopeUsernames).toEqual(['ada']);
     expect(mounts.layoutUpgrades).toEqual([['u1', 'ada']]);
