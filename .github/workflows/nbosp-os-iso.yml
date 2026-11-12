@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-iso:
@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: gl-debug
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -37,6 +39,37 @@ jobs:
         run: >-
           node --test
           NBOSP/os/package/nbosp-kiosk/test-cage-kiosk.mjs
+
+      - name: Update and push Settings source date
+        env:
+          TARGET_BRANCH: gl-debug
+        run: |
+          SOURCE_DATE="$(TZ=Europe/London date +'%Y-%m-%d')"
+          export SOURCE_DATE
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = 'NBOSP/js/apps/settings/app.js';
+          const content = fs.readFileSync(file, 'utf8');
+          const pattern = /mkRow\('Source Date',\s*'\d{4}-\d{2}-\d{2}'\)/g;
+          const matches = content.match(pattern) || [];
+          if (matches.length !== 1) {
+            throw new Error(`Expected one Settings Source Date value, found ${matches.length}.`);
+          }
+          const updated = content.replace(pattern, `mkRow('Source Date',  '${process.env.SOURCE_DATE}')`);
+          if (updated !== content) fs.writeFileSync(file, updated);
+          NODE
+
+          if ! git diff --quiet -- NBOSP/js/apps/settings/app.js; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add NBOSP/js/apps/settings/app.js
+            git commit \
+              -m "chore: update Settings source date" \
+              -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+            git push origin "HEAD:${TARGET_BRANCH}"
+          else
+            echo "Settings Source Date is already ${SOURCE_DATE}; no commit needed."
+          fi
 
       - name: Build Linux NW.js app
         working-directory: NBOSP

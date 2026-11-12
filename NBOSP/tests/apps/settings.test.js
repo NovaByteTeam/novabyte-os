@@ -236,6 +236,7 @@ describe("'Settings' app (js/apps/settings)", () => {
     expect(about.textContent).toContain('Software Information');
     expect(about.textContent).toContain('NovaByte Version');
     expect(about.textContent).toContain('v3.0.2');
+    expect(about.textContent).toMatch(/Source Date\s*\d{4}-\d{2}-\d{2}/);
     // jsdom has no Node process → the non-Linux fallback values.
     expect(about.textContent).toContain('Not running on Linux');
     expect(about.textContent).toContain('Unavailable');
