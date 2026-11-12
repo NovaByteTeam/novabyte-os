@@ -341,4 +341,54 @@ describe('server/core/index.js — server bootstrap', () => {
     expect(routes.mountRoutes).toHaveBeenCalled();
     expect(favicons.setupFaviconRoutes).toHaveBeenCalled();
   });
+
+  // ── GET / — System signing anchor injection (AOSP-style test keys) ─────────
+  // Default build: only the CSRF meta is injected — the committed test key
+  // (test-keys tier) ships inside the static trust-store.js. Release build:
+  // NBOSP_SYSTEM_SIGNING_PUBLIC_JWK makes the server inject the rotated
+  // anchor, which trust-store.js swaps in at page load (release-keys).
+  describe('GET / — system signing anchor injection', () => {
+    it('injects the CSRF meta and no signing-key meta by default (test-keys)', async () => {
+      delete process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK;
+      const mod = await import('../../server/core/index.js');
+      importedServers.push(mod.server);
+      const request = (await import('supertest')).default;
+      const res = await request(mod.app).get('/').expect(200);
+      expect(res.text).toContain('<meta name="csrf-token"');
+      expect(res.text).not.toContain('nova-system-signing-jwk');
+    });
+
+    it('injects the full release JWK as an attribute-escaped meta when NBOSP_SYSTEM_SIGNING_PUBLIC_JWK is set', async () => {
+      process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK = JSON.stringify({ kty: 'OKP', crv: 'Ed25519', x: 'release-anchor-x' });
+      try {
+        const mod = await import('../../server/core/index.js');
+        importedServers.push(mod.server);
+        const request = (await import('supertest')).default;
+        const res = await request(mod.app).get('/').expect(200);
+        expect(res.text).toContain('<meta name="nova-system-signing-jwk"');
+        // Attribute-escaped JSON: the browser's HTML parser decodes the
+        // &quot; entities back into valid JWK JSON for trust-store.js.
+        expect(res.text).toContain('&quot;kty&quot;:&quot;OKP&quot;');
+        expect(res.text).toContain('&quot;x&quot;:&quot;release-anchor-x&quot;');
+        expect(res.text).toContain('<meta name="csrf-token"');
+      } finally {
+        delete process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK;
+      }
+    });
+
+    it('ignores a malformed or non-Ed25519 NBOSP_SYSTEM_SIGNING_PUBLIC_JWK and keeps the test-key anchor', async () => {
+      for (const bad of ['not-json', JSON.stringify({ kty: 'EC', crv: 'P-256', x: 'abc' })]) {
+        process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK = bad;
+        try {
+          const mod = await import('../../server/core/index.js');
+          importedServers.push(mod.server);
+          const request = (await import('supertest')).default;
+          const res = await request(mod.app).get('/').expect(200);
+          expect(res.text).not.toContain('nova-system-signing-jwk');
+        } finally {
+          delete process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK;
+        }
+      }
+    });
+  });
 });

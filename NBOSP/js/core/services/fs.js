@@ -36,16 +36,49 @@ const FS = {
   async setUserRoot(uid, options = {}) {
     const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
     if (!scope || !scope.enabled()) return false;
-    let owner;
     if (options && options.guest) {
-      // Guest trees are volatile and unique per session — never reused.
-      owner = 'guest_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      // Guest trees are volatile and unique per session — never reused, and
+      // previous sessions' rows are dead weight (their owner id can never
+      // be re-mounted), so wipe them before minting the fresh one.
+      try {
+        await OS.workers.fs.call('purgeGuestOwners');
+      } catch (err) {
+        console.warn('[FS] Guest tree cleanup failed:', err);
+      }
+      await OS.workers.fs.call('setOwner', 'guest_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+      await this.init();
+      this._hideSharedForGuest();
+    } else if (uid === null || uid === undefined || uid === '') {
+      // Explicit teardown (logout / user switch): back to the MACHINE tree —
+      // unscoped rows only. Previously a falsy uid fell back to the legacy
+      // owner uid, so after logout the FS cache kept serving the departed
+      // account's tree (and a guest desktop rode straight onto it) — the
+      // "filesystem shared as one" leak. Nothing personal is mounted while
+      // the picker is up; the next login re-roots onto the right account.
+      await OS.workers.fs.call('setOwner', null);
+      await this.init();
     } else {
-      owner = String(uid || scope.ownerUid() || '');
+      await OS.workers.fs.call('setOwner', String(uid));
+      await this.init();
     }
-    await OS.workers.fs.call('setOwner', owner);
-    await this.init();
     return true;
+  },
+
+  /**
+   * Guests get no /Shared access (the native backend's jail-root rule): the
+   * worker already excludes '__shared__' rows from guest mounts, so drop the
+   * folder from this mount's cache too — createDefaultFS builds it before
+   * the owner id exists to know better.
+   */
+  _hideSharedForGuest() {
+    const sharedId = this.specialFolders.shared;
+    if (!sharedId) return;
+    const node = this.files.get(sharedId);
+    if (node) {
+      this._unindexFile(sharedId);
+      this.files.delete(sharedId);
+    }
+    delete this.specialFolders.shared;
   },
 
   /** Creator of a /Shared entry, for the write-own-entries-only rule. */
@@ -65,6 +98,13 @@ const FS = {
     const parentIsShared = parentId === this.specialFolders.shared ||
       (parent && (parent.ownerUid === '__shared__' || parentId === parent.id && parent.name === 'Shared' && parent.parentId === this.rootId));
     if (!parentIsShared) return node;
+    // Guests never write into the cross-account drop box: without this a
+    // guest-created entry would ride the '__shared__' owner into every
+    // account's tree (the native backend already excludes /Shared from a
+    // guest's jail roots — setUserRoot hides the folder from guest mounts).
+    if (scope.uid() === 'guest') {
+      throw new Error('Guest sessions cannot write to the shared drop box');
+    }
     node.ownerUid = '__shared__';
     node.creator = scope.uid() || '__anonymous__';
     return node;
@@ -79,6 +119,9 @@ const FS = {
     if (!node) return;
     const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
     if (!scope || !scope.enabled()) return;
+    if (scope.uid() === 'guest') {
+      throw new Error('Guest sessions cannot write to the shared drop box');
+    }
     const isSharedEntry = node.ownerUid === '__shared__';
     if (!isSharedEntry) return;
     const creator = this.creatorOf(node);
@@ -99,6 +142,7 @@ const FS = {
           this._indexFile(f);
         }
         this.findSpecialFolders();
+        this._ensureSharedFolder();
       } else {
         await this.createDefaultFS();
       }
@@ -110,6 +154,31 @@ const FS = {
       }
       await this.createDefaultFS();
     }
+  },
+
+  /**
+   * Self-heal for trees created before /Shared was persisted (createDefaultFS
+   * used to build the node and then drop it from allFiles): on a multi-user
+   * machine whose mounted tree has no Shared root child, create + persist
+   * it now. Single-user machines (scope disabled) keep the exact 3.0.2 tree.
+   */
+  async _ensureSharedFolder() {
+    const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
+    if (!scope || !scope.enabled()) return;
+    if (this.rootId === null || this.specialFolders.shared) return;
+    const now = Date.now();
+    const shared = {
+      id: generateId(), name: 'Shared', type: 'folder', parentId: this.rootId,
+      content: null, blobKey: null, size: 0, mimeType: 'inode/directory',
+      created: now, modified: now, accessed: now,
+      permissions: { read: true, write: true, execute: true },
+      tags: [], sha256: null, icon: null,
+      ownerUid: '__shared__', creator: '__system__',
+    };
+    this.files.set(shared.id, shared);
+    this._indexFile(shared);
+    this.specialFolders.shared = shared.id;
+    await OS.workers.fs.call('putFiles', [shared]);
   },
 
   findSpecialFolders() {
@@ -165,11 +234,14 @@ const FS = {
     // The cross-account drop box rides the owner-scoped store under the
     // '__shared__' pseudo-owner: visible to every account, ownership-
     // tracked by the FS service layer (see assertSharedWriteAllowed).
+    // PERSISTED here too — the node used to be built and then dropped from
+    // allFiles, so no account's tree ever contained a /Shared folder and
+    // the feature was unreachable on the virtual backend.
     const shared = mkNode('Shared', 'folder', root.id);
     shared.ownerUid = '__shared__';
     shared.creator = '__system__';
 
-    const allFiles = [root, desktop, documents, downloads, music, pictures, videos, trash, screenshots];
+    const allFiles = [root, desktop, documents, downloads, music, pictures, videos, trash, screenshots, shared];
 
     this.files.clear();
     this._childrenByParent.clear();
@@ -181,7 +253,8 @@ const FS = {
 
     this.specialFolders = {
       desktop: desktop.id, documents: documents.id, downloads: downloads.id,
-      music: music.id, pictures: pictures.id, videos: videos.id, trash: trash.id
+      music: music.id, pictures: pictures.id, videos: videos.id, trash: trash.id,
+      shared: shared.id
     };
 
     await OS.workers.fs.call('putFiles', allFiles);

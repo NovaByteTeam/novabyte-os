@@ -216,7 +216,15 @@ router.post('/login', (req, res) => {
     }
     const result = usersDb.verifyCredential(targetUid, secret, { kind: kind === 'pin' || kind === 'passphrase' ? kind : 'auto' });
     if (!result.ok) {
-        res.status(result.code === 'ACCOUNT_DISABLED' || result.code === 'ACCOUNT_LOCKED' ? 423 : 401);
+        // A wrong PIN / lockout / disabled account is a NORMAL outcome of the
+        // login form, not a protocol error — and every non-2xx response makes
+        // the browser itself log "Failed to load resource … 401" in the console
+        // (the exact noise reported on the lock screen), no matter how well the
+        // client handles it. Same policy /api/auth/session already follows for
+        // {authenticated:false}: HTTP 200 with success:false + a machine code
+        // the sheet renders. The lockout ladder still runs server-side and the
+        // retryAfterMs rides along; monitoring keeps the users.db event log.
+        res.status(200);
         return res.json({ success: false, code: result.code, message: result.message, retryAfterMs: result.retryAfterMs || undefined });
     }
     establishSession(req, res, usersDb.getUser(result.uid), (err, payload) => {
@@ -358,7 +366,11 @@ router.post('/reverify', (req, res) => {
     }
     const result = usersDb.verifyCredential(s.uid, secret, { kind: 'auto' });
     if (!result.ok) {
-        res.status(401);
+        // Same policy as /login: a wrong secret at the unlock sheet is a normal
+        // form outcome, so it rides HTTP 200 with success:false + code (and the
+        // lockout retryAfterMs) instead of lighting the console up with
+        // "Failed to load resource … 401" on every mistyped unlock.
+        res.status(200);
         return res.json({ success: false, code: result.code, message: result.message, retryAfterMs: result.retryAfterMs || undefined });
     }
     s.suspended = false;
@@ -396,7 +408,9 @@ router.post('/change-pin', (req, res) => {
             ? usersDb.verifyCredential(s.uid, currentSecret, { kind: 'auto' })
             : { ok: false };
         if (!check.ok) {
-            return res.status(401).json({ success: false, code: 'BAD_CREDENTIAL', message: 'Current PIN is incorrect' });
+            // Wrong current secret on a settings form — normal outcome, HTTP 200
+            // + success:false like the rest of the credential family (see /login).
+            return res.json({ success: false, code: 'BAD_CREDENTIAL', message: 'Current PIN is incorrect' });
         }
     }
     try {
@@ -419,7 +433,9 @@ router.post('/change-passphrase', (req, res) => {
         ? usersDb.verifyCredential(s.uid, currentSecret, { kind: 'auto' })
         : { ok: false };
     if (!check.ok) {
-        return res.status(401).json({ success: false, code: 'BAD_CREDENTIAL', message: 'Current secret is incorrect' });
+        // Wrong current secret on a settings form — normal outcome, HTTP 200
+        // + success:false like the rest of the credential family (see /login).
+        return res.json({ success: false, code: 'BAD_CREDENTIAL', message: 'Current secret is incorrect' });
     }
     try {
         usersDb.setCredential(s.uid, 'passphrase', passphrase === null || passphrase === undefined ? passphrase : String(passphrase));

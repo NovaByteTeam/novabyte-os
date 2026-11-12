@@ -104,6 +104,39 @@ async function getIndexHtml() {
 }
 const _indexHtmlWatcher = fs.watch(path.join(__dirname, '..', '..', 'index.html'), () => { _indexHtmlRaw = null; });
 
+// 2.5b. System signing anchor override (release-keys rotation).
+// NBOSP_SYSTEM_SIGNING_PUBLIC_JWK holds the operator's OFFLINE release key's
+// PUBLIC JWK (never the private half). When set and well-formed, it is
+// injected into the page as <meta name="nova-system-signing-jwk"> and
+// trust-store.js swaps the default AOSP-style test-key anchor for it
+// (TrustStore.systemSignatureTier() → 'release-keys'). Unset/invalid →
+// the committed test key stays the anchor (test-keys), which is what every
+// fresh clone and fork runs on. See NBOSP/keys/README.md.
+let _systemKeyMetaHtml = '';
+try {
+    const rawJwk = process.env.NBOSP_SYSTEM_SIGNING_PUBLIC_JWK;
+    if (typeof rawJwk === 'string' && rawJwk.trim().length > 0) {
+        const jwk = JSON.parse(rawJwk);
+        if (
+            jwk && typeof jwk === 'object' &&
+            jwk.kty === 'OKP' && jwk.crv === 'Ed25519' &&
+            typeof jwk.x === 'string' && jwk.x
+        ) {
+            // Carry the whole public JWK (the browser's HTML parser decodes
+            // the attribute entities back to valid JSON, which trust-store.js
+            // JSON.parses — a bare x string would not parse back into a JWK).
+            const safe = JSON.stringify({ kty: 'OKP', crv: 'Ed25519', x: jwk.x })
+                .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            _systemKeyMetaHtml = `<meta name="nova-system-signing-jwk" content="${safe}">`;
+            console.info('[OS] System signing anchor: rotated to the NBOSP_SYSTEM_SIGNING_PUBLIC_JWK release key (release-keys)');
+        } else {
+            console.warn('[OS] NBOSP_SYSTEM_SIGNING_PUBLIC_JWK is set but is not an Ed25519 OKP JWK — keeping the default test-key anchor');
+        }
+    }
+} catch (err) {
+    console.warn('[OS] NBOSP_SYSTEM_SIGNING_PUBLIC_JWK could not be parsed — keeping the default test-key anchor:', err.message);
+}
+
 // GET / (MUST come before static middleware!)
 app.get('/', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -114,7 +147,7 @@ app.get('/', async (req, res) => {
 
     // Inject CSRF token meta tag — the only runtime injection needed
     const csrfToken = req.session?.csrfToken || res.locals.csrfToken || '';
-    html = html.replace('</head>', `<meta name="csrf-token" content="${csrfToken}"></head>`);
+    html = html.replace('</head>', `<meta name="csrf-token" content="${csrfToken}">${_systemKeyMetaHtml}</head>`);
 
     res.send(html);
 });

@@ -3383,6 +3383,31 @@ registerApp({
       secRowRight.appendChild(secBadge);
       secRow.appendChild(secRowRight);
       swRows.appendChild(secRow);
+
+      // Platform signature tier — the AOSP ro.build.tags-style label for
+      // the active System signing key: 'test-keys' when the OS runs on the
+      // committed public test pair (every default clone/fork build),
+      // 'release-keys' when the operator rotated to an offline release key.
+      // Shown next to the patch level so a test-key build can never
+      // masquerade as a release-key one (see keys/README.md).
+      const signatureTier = (typeof TrustStore !== 'undefined' && TrustStore?.systemSignatureTier)
+        ? TrustStore.systemSignatureTier()
+        : 'test-keys';
+      const tierRow      = createEl('div', { style: 'display:flex;justify-content:space-between;align-items:center;padding:9px 0;font-size:12.5px;border-radius:6px;' });
+      tierRow.appendChild(createEl('span', { textContent: 'Platform Signature', style: 'color:var(--text-secondary);' }));
+      const tierBadge    = createEl('span', {
+        style: signatureTier === 'release-keys'
+          ? 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;'
+          : 'display:inline-flex;align-items:center;gap:5px;background:rgba(255,159,10,0.12);border:1px solid rgba(255,159,10,0.35);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#ff9f0a;',
+        title: signatureTier === 'release-keys'
+          ? 'System packages are verified against the operator\u2019s rotated release key.'
+          : 'System packages are verified against the AOSP-style public test key committed in the repository (NBOSP/keys/). Fine for development and forks; production machines should rotate to a release key.',
+        textContent: signatureTier === 'release-keys' ? '\uD83D\uDD12 Release keys' : '\u26A0\uFE0F Test keys',
+      });
+      const tierRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
+      tierRowRight.appendChild(tierBadge);
+      tierRow.appendChild(tierRowRight);
+      swRows.appendChild(tierRow);
       body.appendChild(swWrap);
 
       // Hardware
@@ -3440,6 +3465,7 @@ registerApp({
           'Linux Kernel: ' + linuxInfo.kernel,
           'Architecture: ' + linuxInfo.architecture,
           'Security Update: ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12'),
+          'Platform Signature: ' + ((typeof TrustStore !== 'undefined' && TrustStore?.systemSignatureTier) ? TrustStore.systemSignatureTier() : 'test-keys'),
           'Browser: '   + detectBrowser(),
           'Platform: '  + navigator.platform,
           'Screen: '    + screen.width + '\u00D7' + screen.height,

@@ -18,28 +18,39 @@
  * This script never deletes or modifies the source folder. It only
  * writes the .novaapp file alongside it.
  *
- * ── Signing ─────────────────────────────────────────────────
+ * ── Signing (AOSP-style test keys) ──────────────────────────
  *
  * Generated packages are signed with the NovaByte System Ed25519 key
  * (signer identity "NovaByte System").
  *
- * The private key is NEVER committed to this repository (see the
- * 2026-11-12 security audit: the old development key committed under
- * keys/test-system-key.json matched the trust-store anchor, letting
- * anyone who could read the repo forge System-signed packages — it was
- * removed and the anchor rotated).
+ * Key selection follows the Android/AOSP model (see keys/README.md):
  *
- * The key is supplied through the environment, in either form:
+ *   1. NBOSP_SYSTEM_SIGNING_KEY_PATH — path to a JWK JSON file holding
+ *      your OFFLINE release private key (never committed).
+ *   2. NBOSP_SYSTEM_SIGNING_KEY      — inline JWK JSON (same rule).
+ *   3. Default: the PUBLIC test pair committed at
+ *      NBOSP/keys/test-system-key.json — NovaByte's equivalent of
+ *      AOSP's platform test keys.
  *
- *   NBOSP_SYSTEM_SIGNING_KEY_PATH=/path/to/private.json   (file, JWK)
- *   NBOSP_SYSTEM_SIGNING_KEY='{"kty":"OKP",...}'        (inline JWK JSON)
+ * A fresh clone or fork with no configuration therefore builds
+ * TEST-SIGNED packages that verify as "NovaByte System" against the
+ * trust-store anchor — exactly like an AOSP build signed with the
+ * public platform test keys boots and works out of the box. Packages
+ * built this way carry signing.tier "test" and the OS reports
+ * systemSignatureTier() "test-keys".
  *
- * When neither is set, packages are built UNSIGNED (signing/signature
- * null). Bundled first-party apps do not depend on the signature — boot
- * installs them by immutable build provenance (source 'system-bundle',
- * see AppPackage.installPackage) — so unsigned dev bundles still install
- * and boot correctly. Only user-installed copies of those packages show
- * up as unverified, which is the truthful state for an unsigned build.
+ * A configured env key is treated as the RELEASE key: packages carry
+ * signing.tier "release" and the matching trust anchor must be rotated
+ * on the serving side through NBOSP_SYSTEM_SIGNING_PUBLIC_JWK (the
+ * server injects it into the page; see trust-store.js).
+ *
+ * The 2026-11-12 audit (F1) removed a committed development key whose
+ * private half matched the trust anchor while the build still REQUIRED
+ * an env key — producing unsigned, unverifiable packages for every
+ * fresh clone, which broke forks. The AOSP-style committed test key
+ * restores the working default without pretending the test key is a
+ * secret: it is public on purpose, honestly labelled, and production
+ * machines rotate per keys/README.md.
  *
  * Usage:
  *
@@ -82,11 +93,18 @@ const requestedApps = process.argv.slice(3);
 /*
  * ── Signing configuration ─────────────────────────────────────────────
  *
- * The private signing key comes from the environment (JWK file path or
- * inline JWK JSON) — never from the repository. See the header comment
- * for the full rationale and the unsigned-build fallback.
+ * Priority (Android/AOSP model — see the header comment and
+ * NBOSP/keys/README.md):
+ *   1. NBOSP_SYSTEM_SIGNING_KEY_PATH — release private key file (JWK)
+ *   2. NBOSP_SYSTEM_SIGNING_KEY     — release private key inline JWK JSON
+ *   3. The committed public test pair at keys/test-system-key.json
+ * A supplied-but-malformed key is a hard error — a silently-wrong
+ * signature would be worse than no signature. An empty-string env var
+ * counts as unset, so a plain `node build-apps.mjs` in a fresh clone
+ * still gets test-key signing.
  */
 const DEFAULT_SIGNER = 'NovaByte System';
+const TEST_KEY_PATH = path.join(projectRoot, 'keys', 'test-system-key.json');
 
 
 /**
@@ -139,43 +157,10 @@ async function collectFiles(dir, baseDir) {
 }
 
 /**
- * Loads the Ed25519 private signing key from the environment.
- *
- * Priority:
- *   1. NBOSP_SYSTEM_SIGNING_KEY_PATH — path to a JWK JSON file
- *      (keep the file outside this repository).
- *   2. NBOSP_SYSTEM_SIGNING_KEY     — inline JWK JSON string.
- *
- * Returns null when neither variable is set: the caller then builds
- * UNSIGNED packages (bundled system apps install by provenance; see the
- * header comment). A key that IS supplied but malformed is a hard error —
- * a silently-wrong signature would be worse than no signature.
+ * Parses and validates an Ed25519 OKP private-key JWK.
+ * @throws on malformed input — never silently.
  */
-async function loadSigningKey() {
-  const keyPath = process.env.NBOSP_SYSTEM_SIGNING_KEY_PATH;
-  const keyInline = process.env.NBOSP_SYSTEM_SIGNING_KEY;
-
-  let raw = null;
-  let origin = '';
-
-  if (typeof keyPath === 'string' && keyPath.length > 0) {
-    origin = keyPath;
-    try {
-      raw = await readFile(keyPath, 'utf8');
-    } catch (err) {
-      throw new Error(
-        `Unable to read signing key at ${keyPath}: ${err.message}`
-      );
-    }
-  } else if (typeof keyInline === 'string' && keyInline.trim().length > 0) {
-    origin = 'NBOSP_SYSTEM_SIGNING_KEY (inline)';
-    raw = keyInline;
-  }
-
-  if (raw === null) {
-    return null;
-  }
-
+function parseEd25519PrivateJwk(raw, origin) {
   let jwk;
 
   try {
@@ -219,10 +204,72 @@ async function loadSigningKey() {
     );
   }
 
-  return createPrivateKey({
-    key: jwk,
-    format: 'jwk',
-  });
+  return jwk;
+}
+
+/**
+ * Loads the Ed25519 private signing key.
+ *
+ * Priority:
+ *   1. NBOSP_SYSTEM_SIGNING_KEY_PATH — path to a JWK JSON file holding
+ *      the operator's OFFLINE release key (keep the file outside this
+ *      repository).
+ *   2. NBOSP_SYSTEM_SIGNING_KEY     — inline JWK JSON string (release).
+ *   3. The committed AOSP-style public test pair at
+ *      NBOSP/keys/test-system-key.json — the default every fresh clone
+ *      and fork signs with, so default builds verify as
+ *      'NovaByte System' everywhere.
+ *
+ * Returns { key, tier, origin } — tier is 'release' for env-supplied
+ * keys and 'test' for the committed test pair. A key that IS supplied
+ * but malformed is a hard error — a silently-wrong signature would be
+ * worse than no signature.
+ */
+async function loadSigningKey() {
+  const keyPath = process.env.NBOSP_SYSTEM_SIGNING_KEY_PATH;
+  const keyInline = process.env.NBOSP_SYSTEM_SIGNING_KEY;
+
+  let raw = null;
+  let origin = '';
+  let tier = 'test';
+
+  if (typeof keyPath === 'string' && keyPath.length > 0) {
+    origin = keyPath;
+    tier = 'release';
+    try {
+      raw = await readFile(keyPath, 'utf8');
+    } catch (err) {
+      throw new Error(
+        `Unable to read signing key at ${keyPath}: ${err.message}`
+      );
+    }
+  } else if (typeof keyInline === 'string' && keyInline.trim().length > 0) {
+    origin = 'NBOSP_SYSTEM_SIGNING_KEY (inline)';
+    tier = 'release';
+    raw = keyInline;
+  } else {
+    origin = TEST_KEY_PATH;
+    try {
+      raw = await readFile(TEST_KEY_PATH, 'utf8');
+    } catch (err) {
+      throw new Error(
+        `Default test signing key missing at ${TEST_KEY_PATH}: ${err.message}. ` +
+        'Restore NBOSP/keys/test-system-key.json (see keys/README.md) or set ' +
+        'NBOSP_SYSTEM_SIGNING_KEY_PATH / NBOSP_SYSTEM_SIGNING_KEY.'
+      );
+    }
+  }
+
+  const jwk = parseEd25519PrivateJwk(raw, origin);
+
+  return {
+    key: createPrivateKey({
+      key: jwk,
+      format: 'jwk',
+    }),
+    tier,
+    origin,
+  };
 }
 
 /**
@@ -246,15 +293,22 @@ function createSigningPayload(pkg) {
 }
 
 /**
- * Signs the canonical payload using Ed25519.
+ * Signs the canonical payload using Ed25519. `tier` records HOW the
+ * build was signed — 'test' (the committed AOSP-style public test key)
+ * or 'release' (an env-supplied offline key) — so downstream surfaces
+ * can label test-key builds honestly, the way Android tags
+ * ro.build.tags=test-keys. The tier lives INSIDE pkg.signing, which is
+ * excluded from createSigningPayload(), so it cannot affect the
+ * signature bytes.
  */
-function signPackage(pkg, privateKey) {
+function signPackage(pkg, privateKey, tier) {
   const payload = createSigningPayload(pkg);
   const signature = sign(null, Buffer.from(payload, 'utf8'), privateKey);
 
   return {
     method: 'ed25519',
     signer: DEFAULT_SIGNER,
+    tier: tier === 'release' ? 'release' : 'test',
     signature: signature.toString('hex'),
   };
 }
@@ -401,7 +455,7 @@ async function packageApp(appDir) {
 
 async function buildOne(
   appDirName,
-  privateKey
+  signing
 ) {
   const appDir = path.join(
     appsDir,
@@ -433,21 +487,18 @@ async function buildOne(
     appDirName;
 
   /*
-   * Sign the package before writing it — but only when a private key was
-   * supplied through the environment. Without one, the package is built
-   * unsigned (signing/signature null): bundled system apps install by
-   * immutable build provenance, and an unsigned user-installed copy is
-   * the truthful state for an unsigned build. `signing` itself is
-   * excluded from the signing payload, so the signature does not end up
-   * signing itself.
+   * Sign the package before writing it. Every build signs now — default
+   * builds with the committed AOSP-style test pair (tier 'test'), env-
+   * configured builds with the operator's offline release key (tier
+   * 'release'). `signing` itself is excluded from the signing payload,
+   * so the signature does not end up signing itself.
    */
-  if (privateKey) {
-    pkg.signing = signPackage(
-      pkg,
-      privateKey
-    );
-    pkg.signature = pkg.signing.signature;
-  }
+  pkg.signing = signPackage(
+    pkg,
+    signing.key,
+    signing.tier
+  );
+  pkg.signature = pkg.signing.signature;
   pkg.integrity = computePackageIntegrity(pkg);
   const cacheKey = computePackageCacheKey(pkg);
 
@@ -470,7 +521,7 @@ async function buildOne(
       outPath
     )} (${fileCount} file${
       fileCount === 1 ? '' : 's'
-    }, ${privateKey ? `signed as ${pkg.signing.signer}` : 'UNSIGNED'}, source untouched)`
+    }, ${`signed as ${pkg.signing.signer} (${signing.tier === 'release' ? 'release key' : 'TEST KEY'})`}, source untouched)`
   );
   return { id: appId, cacheKey, systemService: manifest.systemService === true };
 }
@@ -510,31 +561,34 @@ async function main() {
     return;
   }
 
-  const privateKey =
+  const signing =
     await loadSigningKey();
 
-  if (privateKey) {
+  if (signing.tier === 'release') {
     console.log(
-      'Signing key: loaded from the environment'
+      `Signing key: RELEASE key from ${signing.origin}`
     );
     console.log(
-      `Signer: ${DEFAULT_SIGNER}`
+      `Signer: ${DEFAULT_SIGNER} (tier: release)`
     );
     console.log(
       'Signature: Ed25519'
     );
+    console.log(
+      'Rotate the runtime anchor to match: set NBOSP_SYSTEM_SIGNING_PUBLIC_JWK'
+    );
+    console.log(
+      'for the server so trust-store.js verifies against this key (see keys/README.md).'
+    );
   } else {
     console.log(
-      'Signing key: NOT set (NBOSP_SYSTEM_SIGNING_KEY_PATH / NBOSP_SYSTEM_SIGNING_KEY)'
+      'Signing key: AOSP-style PUBLIC test key (NBOSP/keys/test-system-key.json)'
     );
     console.log(
-      'Building UNSIGNED packages — bundled system apps still install by'
+      `Signer: ${DEFAULT_SIGNER} (tier: test — build reports test-keys)`
     );
     console.log(
-      "build provenance ('system-bundle'), but user-installed copies will"
-    );
-    console.log(
-      'show as unverified. Supply the System signing key for signed builds.'
+      'Signature: Ed25519'
     );
   }
 
@@ -546,7 +600,7 @@ async function main() {
   for (const dirName of dirs) {
     const built = await buildOne(
       dirName,
-      privateKey
+      signing
     );
     if (built) builtPackages.set(built.id, built);
   }

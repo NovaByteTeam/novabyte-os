@@ -31,6 +31,9 @@ server.log
 # Supabase CLI local state
 supabase/.temp/
 
-# System signing private keys must never live in the repo (rotated 2026-11-12 after audit F1)
-/NBOSP/keys/*.json
+# NBOSP/keys/ holds the AOSP-style PUBLIC test signing key plus its README.
+# Everything else there (release keys, rotation candidates) stays ignored —
+# only the deliberately-public test key pair is committed. See keys/README.md.
 /NBOSP/keys/*
+!/NBOSP/keys/test-system-key.json
+!/NBOSP/keys/README.md

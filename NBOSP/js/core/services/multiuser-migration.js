@@ -178,6 +178,24 @@
       } catch (err) {
         warn('web storage move failed:', err);
       }
+      // NovaByte_FS (IndexedDB): stamp every unscoped 3.0.2 row with the
+      // owner's uid. The worker's stampOwner() method existed but was never
+      // called by anything, so after the migration a login re-rooted onto
+      // "rows owned by uid" — which is empty — and the account's whole
+      // pre-existing tree vanished from every view. This is the wiring the
+      // header's step 4 always promised: stamp, then the first login mounts
+      // the exact tree the machine always had. Idempotent behind the
+      // 'nova_fs_owner_stamped' settings marker, so re-running is a no-op.
+      try {
+        if (typeof OS !== 'undefined' && OS?.workers?.fs?.call) {
+          const stamped = await OS.workers.fs.call('stampOwner', ownerUid);
+          if (stamped && typeof stamped.stamped === 'number' && stamped.stamped > 0) {
+            log(`stamped ${stamped.stamped} legacy filesystem rows to the owner`);
+          }
+        }
+      } catch (err) {
+        warn('legacy filesystem stamping failed (rows stay unscoped):', err);
+      }
     }
 
     // The credential keys are deleted at migration time: users.db owns

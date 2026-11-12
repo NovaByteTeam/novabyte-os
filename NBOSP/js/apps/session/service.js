@@ -409,6 +409,16 @@
     if (typeof NovaRegistry !== 'undefined' && NovaRegistry?.unmountUserHives) {
       try { NovaRegistry.unmountUserHives(); } catch (_) { }
     }
+    // The departed account's tree must stop being the mounted one: re-root
+    // onto the machine tree so nothing personal stays reachable from the
+    // picker (and a following guest session starts from a clean slate).
+    try {
+      if (typeof FS !== 'undefined' && FS?.setUserRoot) {
+        await FS.setUserRoot(null);
+      }
+    } catch (err) {
+      console.warn('[SessionManager] VFS re-root to machine tree failed:', err);
+    }
     suspendedSessions.clear();
     await authFetch('/api/auth/logout', { method: 'POST' });
     state.status = 'loggedout';
@@ -429,6 +439,12 @@
     state.role = 'guest';
     state.token = null;
     state.csrfToken = metaCsrf();
+    // A guest desktop used to ride on whatever tree happened to be mounted —
+    // the previous user's after a logout, or the machine tree at boot —
+    // which handed the guest (and anyone watching) the last account's files.
+    // Guests now mount their own volatile tree/hives/app roots through the
+    // same sequence every other session uses.
+    await mountUserScope({ uid: 'guest', username: '', role: 'guest' }, { volatile: true });
     emit('session:changed', { uid: null, role: 'guest', via: 'guest' });
     return { ok: true, guest: true };
   }
@@ -504,6 +520,15 @@
       try { NovaRegistry.unmountUserHives(); } catch (_) { }
     }
     state.status = 'suspended';
+    // Same re-root as logout: the picker replaces the departing account's
+    // desktop, and its tree has no business staying mounted underneath it.
+    try {
+      if (typeof FS !== 'undefined' && FS?.setUserRoot) {
+        await FS.setUserRoot(null);
+      }
+    } catch (err) {
+      console.warn('[SessionManager] VFS re-root to machine tree failed:', err);
+    }
     emit('session:suspended', { uid });
     emit('session:changed', { uid: null, switchedFrom: uid });
     return { ok: result.ok && result.json?.success !== false, parked };

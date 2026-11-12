@@ -105,13 +105,19 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
     expect(again.body.code).toBe('ALREADY_SET_UP');
   });
 
-  it('POST /login verifies the PIN server-side and refuses bad secrets', async () => {
+  it('POST /login verifies the PIN server-side; a bad secret is a normal outcome (200 + code), not an HTTP error', async () => {
     const users = (await request(app).get('/api/auth/users')).body.data.users;
     const owner = users.find(u => u.username === 'ada');
 
     const bad = await request(app).post('/api/auth/login').send({ uid: owner.uid, secret: '999999' });
-    expect(bad.status).toBe(401);
+    // Credential outcomes ride HTTP 200 with success:false + a machine code —
+    // non-2xx statuses make the browser log "Failed to load resource: 401"
+    // on the lock screen even when the client handles them, which is the
+    // exact console noise this contract removes (see /api/auth/session's
+    // authenticated:false precedent).
+    expect(bad.status).toBe(200);
     expect(bad.body.success).toBe(false);
+    expect(bad.body.code).toBe('BAD_CREDENTIAL');
 
     const good = await request(app).post('/api/auth/login').send({ uid: owner.uid, secret: '123456' });
     expect(good.status).toBe(200);
@@ -158,7 +164,9 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
     expect(lock.status).toBe(200);
 
     const wrong = await request(app).post('/api/auth/reverify').set(authHeaders(session)).send({ secret: '0000' });
-    expect(wrong.status).toBe(401);
+    expect(wrong.status).toBe(200);
+    expect(wrong.body.success).toBe(false);
+    expect(wrong.body.code).toBe('BAD_CREDENTIAL');
 
     const right = await request(app).post('/api/auth/reverify').set(authHeaders(session)).send({ secret: '4321' });
     expect(right.status).toBe(200);
@@ -216,6 +224,44 @@ describe('server/security/auth-routes.js — /api/auth family', () => {
     expect(change.status).toBe(200);
     const relogin = await request(app).post('/api/auth/login').send({ uid: sam.uid, secret: '5678' });
     expect(relogin.body.data.mustChangePin).toBe(false);
+  });
+
+  it('a legacy-imported account whose 3.0.2 PIN is not digit-only can still log in', async () => {
+    // The auto-detect used to only try the PIN branch for 4–6 digit secrets,
+    // so a migrated machine with an alphanumeric lock PIN failed every login
+    // with BAD_CREDENTIAL/401 (the secret fell through to the passphrase
+    // branch, which legacy imports never have). Any non-empty secret is a
+    // PIN candidate for PBKDF2 rows now; the first success re-hashes to scrypt.
+    const crypto = require('crypto');
+    const secret = 'nova-legacy!';
+    const salt = crypto.randomBytes(16).toString('hex');
+    const legacyPinHash = crypto
+      .pbkdf2Sync(secret, Buffer.from(salt, 'hex'), 100000, 32, 'sha256')
+      .toString('hex');
+
+    const created = await request(app).post('/api/auth/admin/users')
+      .set(authHeaders(ownerSession))
+      .send({ username: 'legacyuser', displayName: 'Legacy User', pin: '1234', role: 'standard' });
+    expect(created.status).toBe(200);
+    const uid = created.body.data.user.uid;
+    // Swap the freshly-scrypt PIN for the 3.0.2 PBKDF2 shape (the state
+    // migrate-legacy leaves the account in).
+    usersDb.importLegacyPin(uid, legacyPinHash, salt);
+
+    // Wrong secret → normal outcome (200 + code), correct secret → session.
+    const wrong = await request(app).post('/api/auth/login').send({ uid, secret: 'not-the-pin' });
+    expect(wrong.status).toBe(200);
+    expect(wrong.body.code).toBe('BAD_CREDENTIAL');
+
+    const good = await request(app).post('/api/auth/login').send({ uid, secret });
+    expect(good.status).toBe(200);
+    expect(good.body.success).toBe(true);
+    expect(good.body.data.user.username).toBe('legacyuser');
+    expect(good.body.data.via).toBe('pin');
+
+    // The successful verification upgraded the account off the legacy KDF.
+    const upgraded = usersDb.getUser(uid);
+    expect(JSON.parse(upgraded.pin_kdf).alg).toBe('scrypt');
   });
 
   it('policies: read defaults, write a patch, invalid keys refused', async () => {

@@ -88,8 +88,12 @@ async function getAllFiles() {
   // Owner filter: the active account's tree, plus the shared drop box.
   // Machines with multi-user disabled have currentOwner === null and match
   // exactly the rows that carry no ownerUid — byte-identical legacy mounts.
+  // Guest trees are volatile single-session mounts: a guest never sees the
+  // cross-account /Shared drop box either (the native backend's rule —
+  // guests get no /Shared access).
+  const isGuest = typeof currentOwner === 'string' && currentOwner.startsWith('guest_');
   return rows.filter((f) => {
-    if (f && f.ownerUid === SHARED_OWNER) return true;
+    if (f && f.ownerUid === SHARED_OWNER) return !isGuest;
     if (!currentOwner) return !(f && f.ownerUid);
     return f && f.ownerUid === currentOwner;
   });
@@ -146,6 +150,33 @@ async function deleteFile(id) {
   });
 }
 
+// Guest trees are volatile: every row stamped to a 'guest_*' owner belongs
+// to a session that has ended and can never come back (each guest mount
+// mints a fresh unique owner id). Wiping them keeps the store from growing
+// forever with dead ephemeral trees; called by the FS service before every
+// new guest mount and at guest teardown.
+async function purgeGuestOwners() {
+  const d = await openDB();
+  const rows = await new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE_FILES, 'readonly');
+    const req = tx.objectStore(STORE_FILES).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+  const guestIds = rows
+    .filter((f) => f && typeof f.ownerUid === 'string' && f.ownerUid.startsWith('guest_'))
+    .map((f) => f.id);
+  if (!guestIds.length) return 0;
+  await new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE_FILES, 'readwrite');
+    const store = tx.objectStore(STORE_FILES);
+    for (const id of guestIds) store.delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  return guestIds.length;
+}
+
 async function getSetting(key) {
   const d = await openDB();
   return new Promise((resolve, reject) => {
@@ -188,6 +219,7 @@ self.onmessage = async (e) => {
       case 'init': await openDB(); result = true; break;
       case 'setOwner': currentOwner = (args[0] && String(args[0])) || null; result = currentOwner; break;
       case 'stampOwner': result = await stampOwner(String(args[0] || '')); break;
+      case 'purgeGuestOwners': result = await purgeGuestOwners(); break;
       case 'getAllFiles': result = await getAllFiles(); break;
       case 'putFiles': await putFiles(args[0]); result = true; break;
       case 'deleteFile': await deleteFile(args[0]); result = true; break;

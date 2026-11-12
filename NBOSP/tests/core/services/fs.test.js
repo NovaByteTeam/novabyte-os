@@ -339,6 +339,164 @@ describe('FS virtual backend (non-Linux contract)', () => {
       expect(FS.getMimeIcon('application/octet-stream', '')).toBe('file-text');
     });
   });
+
+  describe('multi-user mounts (setUserRoot) — the "filesystem shared as one" regression suite', () => {
+    // Faithful in-memory stand-in for the IndexedDB FS worker: the exact
+    // owner filter + stamping the shipped worker implements.
+    function fakeOwnerWorker() {
+      let currentOwner = null;
+      const rows = new Map();
+      const stampMarker = new Set();
+      return {
+        rows,
+        async call(method, ...args) {
+          if (method === 'setOwner') { currentOwner = (args[0] && String(args[0])) || null; return currentOwner; }
+          if (method === 'getAllFiles') {
+            const isGuest = typeof currentOwner === 'string' && currentOwner.startsWith('guest_');
+            return [...rows.values()].filter((f) => {
+              if (f && f.ownerUid === '__shared__') return !isGuest;
+              if (!currentOwner) return !(f && f.ownerUid);
+              return f && f.ownerUid === currentOwner;
+            });
+          }
+          if (method === 'putFiles') {
+            for (const f of args[0]) {
+              if (currentOwner && f && !f.ownerUid) f.ownerUid = currentOwner;
+              rows.set(f.id, f);
+            }
+            return true;
+          }
+          if (method === 'deleteFile') { rows.delete(args[0]); return true; }
+          if (method === 'purgeGuestOwners') {
+            let n = 0;
+            for (const [id, f] of [...rows]) {
+              if (f && typeof f.ownerUid === 'string' && f.ownerUid.startsWith('guest_')) { rows.delete(id); n++; }
+            }
+            return n;
+          }
+          if (method === 'stampOwner') {
+            if (stampMarker.has('done')) return { stamped: 0, alreadyDone: true };
+            let n = 0;
+            for (const f of rows.values()) {
+              if (f && !f.ownerUid) { f.ownerUid = String(args[0] || ''); n++; }
+            }
+            stampMarker.add('done');
+            return { stamped: n };
+          }
+          return undefined;
+        },
+      };
+    }
+
+    async function withScope(scope, fn) {
+      // `return await fn()` (not `return fn()`): the scope must stay mounted
+      // for the whole async body — a bare `return fn()` runs the finally at
+      // the body's FIRST suspension point, tearing the scope down while the
+      // test is still mid-flight.
+      const previous = globalThis.NovaUserScope;
+      globalThis.NovaUserScope = scope;
+      try { return await fn(); } finally {
+        if (previous === undefined) delete globalThis.NovaUserScope;
+        else globalThis.NovaUserScope = previous;
+      }
+    }
+
+    it('createDefaultFS persists the /Shared drop box under the __shared__ owner', async () => {
+      const fake = fakeOwnerWorker();
+      globalThis.OS.workers.fs.call.mockImplementation(fake.call);
+      await FS.createDefaultFS();
+      expect(FS.specialFolders.shared).toBeDefined();
+      const shared = FS.files.get(FS.specialFolders.shared);
+      expect(shared.ownerUid).toBe('__shared__');
+      expect(shared.creator).toBe('__system__');
+      expect(FS.listDir(FS.rootId).map((n) => n.name)).toContain('Shared');
+      // The folder was actually persisted (the old code built the node and
+      // then dropped it from allFiles — no account ever saw a /Shared).
+      expect([...fake.rows.values()].some((f) => f.name === 'Shared' && f.ownerUid === '__shared__')).toBe(true);
+    });
+
+    it('init self-heals a /Shared folder onto pre-existing trees', async () => {
+      const fake = fakeOwnerWorker();
+      globalThis.OS.workers.fs.call.mockImplementation(fake.call);
+      withScope({ enabled: () => true, uid: () => 'uA' }, async () => {
+        // A tree stamped before /Shared was persisted: root + one folder.
+        fake.rows.set('r', { id: 'r', name: '/', type: 'folder', parentId: null, ownerUid: 'uA' });
+        fake.rows.set('d', { id: 'd', name: 'Documents', type: 'folder', parentId: 'r', ownerUid: 'uA' });
+        await FS.init();
+        expect(FS.specialFolders.shared).toBeDefined();
+        expect(FS.files.get(FS.specialFolders.shared).ownerUid).toBe('__shared__');
+        expect([...fake.rows.values()].some((f) => f.name === 'Shared' && f.ownerUid === '__shared__')).toBe(true);
+      });
+    });
+
+    it('each account roots onto its own tree; teardown re-roots onto the machine tree', async () => {
+      const fake = fakeOwnerWorker();
+      globalThis.OS.workers.fs.call.mockImplementation(fake.call);
+      const scope = { enabled: () => true, uid: () => '', ownerUid: () => '', activeUsername: () => '' };
+      await withScope(scope, async () => {
+        // Login uA: fresh tree, create a file.
+        await FS.setUserRoot('uA', { username: 'ada' });
+        await FS.createFile(FS.specialFolders.documents, 'mine.txt', 'a-data');
+        // Login uB: their own fresh tree, uA's file invisible.
+        await FS.setUserRoot('uB', { username: 'sam' });
+        expect(FS.listDir(FS.specialFolders.documents).map((f) => f.name)).toEqual([]);
+        // Teardown: machine scope (null) — unscoped rows only, so uA's tree
+        // stops being mounted (the "filesystem shared as one" leak).
+        await FS.setUserRoot(null);
+        const setOwnerCalls = globalThis.OS.workers.fs.call.mock.calls.filter((c) => c[0] === 'setOwner');
+        expect(setOwnerCalls.at(-1)).toEqual(['setOwner', null]);
+        // And uA comes back to their file.
+        await FS.setUserRoot('uA', { username: 'ada' });
+        expect(FS.listDir(FS.specialFolders.documents).map((f) => f.name)).toEqual(['mine.txt']);
+      });
+    });
+
+    it('guest mounts are volatile: fresh tree, no /Shared, previous guest rows purged', async () => {
+      const fake = fakeOwnerWorker();
+      globalThis.OS.workers.fs.call.mockImplementation(fake.call);
+      let mountedUid = '';
+      const scope = { enabled: () => true, uid: () => mountedUid, ownerUid: () => '', activeUsername: () => '' };
+      await withScope(scope, async () => {
+        // Seed some account + shared rows first (as the account, not guest).
+        mountedUid = 'uA';
+        await FS.setUserRoot('uA', { username: 'ada' });
+        await FS.createFile(FS.specialFolders.shared, 'drop.txt', 'shared');
+        // Guest mount: purges previous guest rows, mints a fresh volatile tree.
+        mountedUid = 'guest';
+        await FS.setUserRoot('guest', { guest: true });
+        expect(globalThis.OS.workers.fs.call.mock.calls.some((c) => c[0] === 'purgeGuestOwners')).toBe(true);
+        expect(FS.listDir(FS.rootId).map((n) => n.name)).not.toContain('Shared');
+        expect(FS.specialFolders.shared).toBeUndefined();
+        // Scratch inside the guest tree works…
+        await FS.createFile(FS.specialFolders.documents, 'scratch.txt', 'temp');
+        expect(FS.listDir(FS.specialFolders.documents).map((f) => f.name)).toEqual(['scratch.txt']);
+        // Second guest mount: the previous guest's rows are gone.
+        await FS.setUserRoot('guest', { guest: true });
+        expect(FS.listDir(FS.specialFolders.documents).map((f) => f.name)).toEqual([]);
+        // The account tree + shared drop box survived the guest purges.
+        mountedUid = 'uA';
+        await FS.setUserRoot('uA', { username: 'ada' });
+        expect(FS.listDir(FS.specialFolders.shared).map((f) => f.name)).toEqual(['drop.txt']);
+      });
+    });
+
+    it('a guest writing into /Shared is refused at the service layer', async () => {
+      const fake = fakeOwnerWorker();
+      globalThis.OS.workers.fs.call.mockImplementation(fake.call);
+      const scope = { enabled: () => true, uid: () => 'guest', ownerUid: () => '' };
+      await withScope(scope, async () => {
+        await FS.setUserRoot('guest', { guest: true });
+        const guestRoot = FS.rootId;
+        // Forge the shared folder back into the tree (it is hidden, but the
+        // rule must hold regardless): creating inside it must throw.
+        const sharedNode = { id: 'forged-shared', name: 'Shared', type: 'folder', parentId: guestRoot, ownerUid: '__shared__', creator: '__system__' };
+        FS.files.set(sharedNode.id, sharedNode);
+        FS._indexFile(sharedNode);
+        FS.specialFolders.shared = sharedNode.id;
+        await expect(FS.createFile(sharedNode.id, 'evil.txt', 'leak')).rejects.toThrow(/Guest sessions cannot write to the shared drop box/);
+      });
+    });
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

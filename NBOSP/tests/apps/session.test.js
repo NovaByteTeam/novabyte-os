@@ -278,7 +278,7 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(manager.isActive()).toBe(true);
   });
 
-  it('logout tears the session down: scope cleared, hives unmounted, server session ended', async () => {
+  it('logout tears the session down: scope cleared, hives unmounted, VFS re-rooted to the machine tree, server session ended', async () => {
     const { manager, calls, mounts } = await loadSessionManager({
       routes: {
         'POST /api/auth/login': () => ({
@@ -294,6 +294,11 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(manager.state()).toMatchObject({ status: 'loggedout', uid: null, role: null });
     expect(manager.token()).toBe(null);
     expect(mounts.scopeActive).toEqual([]);
+    // The departed account's tree stops being mounted: teardown re-roots
+    // the VFS onto the machine tree (null owner) so nothing personal stays
+    // reachable from the picker — previously the FS cache kept serving the
+    // logged-out user's files (and a guest desktop rode straight onto them).
+    expect(mounts.userRoots).toEqual(['u1', null]);
     expect(calls.some(c => c.url === '/api/auth/logout' && c.method === 'POST')).toBe(true);
   });
 
@@ -353,12 +358,18 @@ describe('SessionManager (js/apps/session service)', () => {
   });
 
   it('guest sessions mount volatile state without any server session', async () => {
-    const { manager, calls, emitted } = await loadSessionManager({ routes: {} });
+    const { manager, calls, mounts, emitted } = await loadSessionManager({ routes: {} });
     const result = await manager.guestLogin();
     expect(result.ok).toBe(true);
     expect(result.guest).toBe(true);
     expect(manager.state().role).toBe('guest');
     expect(calls).toEqual([]);
     expect(emitted.some(e => e.name === 'session:changed' && e.role === 'guest')).toBe(true);
+    // A guest used to ride on whatever tree was already mounted (the last
+    // user's after logout, the machine tree at boot). The guest now mounts
+    // its own volatile tree through the same sequence every session uses.
+    expect(mounts.userRoots).toEqual(['guest']);
+    expect(mounts.userRootArgs[0].opts).toMatchObject({ guest: true });
+    expect(mounts.registry).toEqual(['guest']);
   });
 });
