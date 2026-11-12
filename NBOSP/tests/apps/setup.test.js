@@ -248,7 +248,14 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(writes.keyboardLayout).toBe('gb');
     expect(writes.language).toBeUndefined();
     expect(writes.diagnostics).toBeUndefined();
-    expect(adminPuts.some(p => p.path === '/api/auth/admin/policies' && p.method === 'PUT')).toBe(true);
+    // The policies PUT must send the patch DIRECTLY as the JSON body
+    // (the server's setPolicies contract) — a { policies: ... } envelope
+    // is rejected as an unknown key with 400 INVALID_POLICY. Regression
+    // test for the first-boot setup console 400.
+    const policiesPut = adminPuts.find(p => p.path === '/api/auth/admin/policies' && p.method === 'PUT');
+    expect(policiesPut).toBeDefined();
+    const sentBody = typeof policiesPut.body === 'string' ? JSON.parse(policiesPut.body) : policiesPut.body;
+    expect(sentBody).toEqual({ guestAccess: expect.any(Boolean) });
     expect(closedWindows).toContain('w9');
   });
 

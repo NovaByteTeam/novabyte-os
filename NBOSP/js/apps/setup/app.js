@@ -449,11 +449,15 @@ registerApp({
         console.warn('[NovaByteSetup] Preference apply failed:', err);
       }
       // Guest access is a machine policy — admin route, best effort.
+      // PUT /admin/policies takes the patch DIRECTLY as the JSON body
+      // (same contract as the Users app's policies.set); wrapping it in
+      // a { policies: ... } envelope is rejected by setPolicies as an
+      // unknown 'policies' key — 400 INVALID_POLICY.
       try {
         if (manager && typeof manager.authFetch === 'function' && manager.isAdmin?.()) {
           await manager.authFetch('/api/auth/admin/policies', {
             method: 'PUT',
-            body: { policies: { guestAccess: pending.guestAccess === true } },
+            body: { guestAccess: pending.guestAccess === true },
           });
         }
       } catch (err) {
