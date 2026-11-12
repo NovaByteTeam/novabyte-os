@@ -98,12 +98,29 @@
   // ── Per-user strata mounting ─────────────────────────────────────────
 
   function flushCurrentUserHives() {
+    // The web-app list saves on a debounce; push it into the departing
+    // account's hive before the hives swap or unmount under it.
+    try { WebAppManager?.flush?.(); } catch (err) {
+      console.warn('[SessionManager] Flushing web apps failed:', err);
+    }
     try {
       if (typeof NovaRegistry !== 'undefined' && NovaRegistry?.flushUserHives) {
         NovaRegistry.flushUserHives();
       }
     } catch (err) {
       console.warn('[SessionManager] Flushing user hives failed:', err);
+    }
+  }
+
+  // A guest's installs are volatile (the hive is never saved) but their
+  // package files are not; delete them once the guest is done.
+  function discardGuestApps() {
+    try {
+      if (NovaRegistry?.mountedUserUid?.() === 'guest') {
+        NovaAppPackageStore?.purgeUserFiles?.('guest')?.catch?.(() => {});
+      }
+    } catch (err) {
+      console.warn('[SessionManager] Guest app cleanup failed:', err);
     }
   }
 
@@ -149,6 +166,7 @@
    */
   async function mountUserScope(user, { volatile: isGuest = false } = {}) {
     flushCurrentUserHives();
+    discardGuestApps();
     flushLocalStorageToUser();
 
     if (typeof NovaUserScope !== 'undefined') {
@@ -216,6 +234,11 @@
       }
     } catch (err) {
       console.warn('[SessionManager] Installed-app reload failed:', err);
+    }
+
+    // 5d. Per-account web-app shortcuts, same reason as 5c.
+    try { WebAppManager?.reloadForUser?.(); } catch (err) {
+      console.warn('[SessionManager] Web-app reload failed:', err);
     }
 
     // 6. Desktop: icons, launchpad, the trusted launcher, autostart.
@@ -350,6 +373,7 @@
     const uid = state.uid;
     const uname = state.uname;
     flushCurrentUserHives();
+    discardGuestApps();
     flushLocalStorageToUser();
     teardownDesktop();
     if (typeof NovaUserScope !== 'undefined') {
@@ -443,6 +467,7 @@
     // Memory-disciplined switch: apps close (the snapshot restores layout
     // on return), hives and user-data keys flush into the departing tree.
     flushCurrentUserHives();
+    discardGuestApps();
     flushLocalStorageToUser();
     teardownDesktop();
     if (typeof NovaUserScope !== 'undefined') {

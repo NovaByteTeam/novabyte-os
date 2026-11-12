@@ -291,6 +291,16 @@
     return true;
   }
 
+  // Deletes every package file an account installed. Guests are the caller:
+  // their inventory is volatile, so without this their files outlive them.
+  async function purgeUserFiles(uid) {
+    const owner = String(uid || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (!owner) return false;
+    await ensureReady();
+    await OPFS.deletePath(`${APP_ROOT}/@users/${owner}`, true).catch(() => {});
+    return true;
+  }
+
   window.NovaAppPackageStore = Object.freeze({
     APPS_KEY,
     loadRegistry,
@@ -301,6 +311,7 @@
     installApp,
     hydrateApp,
     hydrateApps,
-    removeApp
+    removeApp,
+    purgeUserFiles
   });
 })();

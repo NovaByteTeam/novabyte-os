@@ -203,3 +203,83 @@ describe('package files per account', () => {
     expect(opfsFiles.has('apps/com.legacy.app/files/index.html')).toBe(false);
   });
 });
+
+describe('web-app shortcuts per account', () => {
+  const payload = (...names) => ({ version: 1, apps: names.map(name => ({ id: `wa_${name}`, name })) });
+  const names = value => (value?.apps || []).map(app => app.name);
+
+  it('shortcuts one account adds are not visible to another', () => {
+    NovaRegistry.mountUserHives('alice');
+    RegistrySystemState.setWebApps(payload('docs'));
+    expect(names(RegistrySystemState.webApps())).toEqual(['docs']);
+
+    NovaRegistry.mountUserHives('bob');
+    expect(RegistrySystemState.webApps()).toBeNull();
+    RegistrySystemState.setWebApps(payload('mail'));
+
+    NovaRegistry.mountUserHives('alice');
+    expect(names(RegistrySystemState.webApps())).toEqual(['docs']);
+  });
+
+  it('only the legacy owner inherits the old machine-wide list', () => {
+    NovaRegistry.set('HKNS/apps/webapps', payload('legacy'), { source: 'test' });
+
+    NovaRegistry.mountUserHives('bob');
+    expect(RegistrySystemState.webApps()).toBeNull();
+
+    NovaRegistry.mountUserHives(LEGACY_OWNER);
+    expect(names(RegistrySystemState.webApps())).toEqual(['legacy']);
+
+    RegistrySystemState.setWebApps(payload());
+    expect(names(RegistrySystemState.webApps())).toEqual([]); // emptying it doesn't resurrect the old list
+  });
+
+  it('with no account mounted nothing is read and nothing reaches the shared copy', () => {
+    NovaRegistry.set('HKNS/apps/webapps', payload('legacy'), { source: 'test' });
+    NovaRegistry.unmountUserHives();
+
+    expect(RegistrySystemState.webApps()).toBeNull();
+    expect(RegistrySystemState.setWebApps(payload('sneaky'))).toBe(true);
+    expect(names(NovaRegistry.get('HKNS/apps/webapps'))).toEqual(['legacy']);
+  });
+
+  it('single-user mode keeps the machine-wide list', () => {
+    globalThis.NovaUserScope = { enabled: () => false };
+    RegistrySystemState.setWebApps(payload('docs'));
+    expect(names(NovaRegistry.get('HKNS/apps/webapps'))).toEqual(['docs']);
+  });
+});
+
+describe('registry unavailable in multi-user mode', () => {
+  it('fails closed: system packages only, and user installs never reach the shared copy', () => {
+    delete window.NovaRegistry;
+    try {
+      localStorage.setItem('nova_installed_apps', JSON.stringify([SYSTEM_PKG, { id: 'com.legacy.app' }]));
+      expect(ids(RegistrySystemState.installedApps())).toEqual(['com.nbosp.settings']);
+
+      RegistrySystemState.setInstalledApps([SYSTEM_PKG, { id: 'com.example.notes' }]);
+      const stored = JSON.parse(localStorage.getItem('nova_installed_apps'));
+      expect(ids(stored)).toEqual(['com.nbosp.settings', 'com.legacy.app']); // owner's unadopted app kept, new install not added
+    } finally {
+      window.NovaRegistry = NovaRegistry;
+    }
+  });
+});
+
+describe('guest package files', () => {
+  it('purgeUserFiles removes a guest\'s files and no one else\'s', async () => {
+    NovaRegistry.mountUserHives('guest', { volatile: true });
+    const guestApp = await Store.installApp(pkg('com.example.notes'));
+    Store.saveRegistry([guestApp]);
+
+    NovaRegistry.mountUserHives('alice');
+    const aliceApp = await Store.installApp(pkg('com.example.notes'));
+    Store.saveRegistry([aliceApp]);
+
+    await Store.purgeUserFiles('guest');
+
+    const keys = [...opfsFiles.keys()];
+    expect(keys.some(key => key.includes('@users/guest'))).toBe(false);
+    expect(keys.some(key => key.includes('@users/alice'))).toBe(true);
+  });
+});

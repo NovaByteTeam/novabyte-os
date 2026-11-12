@@ -206,7 +206,7 @@
 
   function installedApps() {
     const machine = machineInstalled();
-    if (!multiUserOn() || !reg()) return machine;
+    if (!multiUserOn()) return machine;
 
     const system = machine.filter(isMachineApp);
     const uid = scopedUid();
@@ -227,10 +227,13 @@
 
   function setInstalledApps(list) {
     if (!Array.isArray(list)) return false;
-    if (!multiUserOn() || !reg()) {
+    if (!multiUserOn()) {
       return writeState(PATHS.installedApps, 'REG_JSON', list, LEGACY_KEYS.installedApps);
     }
 
+    // Multi-user with the registry down means no account is mounted
+    // (scopedUid() is ''), so only system packages are read or saved and
+    // nobody's installs leak into the shared localStorage copy.
     const uid = scopedUid();
     const isLegacyOwner = !!uid && uid === NovaUserScope.legacyOwnerUid();
 
@@ -336,14 +339,40 @@
 
   // ── Web apps (web-app-manager payload { version, apps }) ───────────────
 
-  function webApps() {
-    const value = readState(PATHS.webApps, () => readJson(LEGACY_KEYS.webApps, null));
+  // Web-app shortcuts are personal: in multi-user mode each account keeps its
+  // own payload in its HKNU. The legacy owner of an upgraded machine adopts
+  // the old machine-wide payload once; nobody else inherits it. With no
+  // account mounted there is nothing to read or save.
+  const USER_WEBAPPS_PATH = 'HKNU/apps/webapps';
+
+  function asPayload(value) {
     return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
   }
 
+  function webApps() {
+    const machine = asPayload(readState(PATHS.webApps, () => readJson(LEGACY_KEYS.webApps, null)));
+    if (!multiUserOn()) return machine;
+
+    const uid = scopedUid();
+    if (!uid) return null;
+
+    let own;
+    try { own = reg().get(USER_WEBAPPS_PATH); } catch (_) { own = undefined; }
+    if (asPayload(own)) return own;
+    return uid === NovaUserScope.legacyOwnerUid() ? machine : null;
+  }
+
   function setWebApps(payload) {
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
-    return writeState(PATHS.webApps, 'REG_JSON', payload, LEGACY_KEYS.webApps);
+    if (!asPayload(payload)) return false;
+    if (!multiUserOn()) return writeState(PATHS.webApps, 'REG_JSON', payload, LEGACY_KEYS.webApps);
+
+    if (!scopedUid()) return true; // nothing mounted: drop it rather than write the shared copy
+    try {
+      reg().set(USER_WEBAPPS_PATH, payload, { type: 'REG_JSON', source: 'sysstate' });
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ── Built-in app registry cache (app-registry records) ─────────────────
@@ -403,6 +432,7 @@
     setInstalledApps,
     isMachineApp,
     scopedUid,
+    multiUserOn,
     appPermissions,
     setAppPermissions,
     alarms,

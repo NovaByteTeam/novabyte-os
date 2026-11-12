@@ -272,6 +272,12 @@ function normalizeStoredApp(raw) {
 // Storage I/O
 // ============================================================================
 
+function isMultiUser() {
+  return typeof RegistrySystemState !== 'undefined' &&
+    typeof RegistrySystemState.multiUserOn === 'function' &&
+    RegistrySystemState.multiUserOn();
+}
+
 /**
  * Read and migrate the stored payload.
  *
@@ -279,6 +285,19 @@ function normalizeStoredApp(raw) {
  */
 function readFromStorage() {
   if (!state.storageAvailable) {
+    return { version: SCHEMA_VERSION, apps: [] };
+  }
+
+  // Multi-user: the list is per account (HKNU, via RegistrySystemState).
+  // Never fall back to the machine-wide localStorage copy, or one account's
+  // shortcuts would show up for everyone.
+  if (isMultiUser()) {
+    try {
+      const payload = RegistrySystemState.webApps();
+      if (payload) return migrateStoredData(payload);
+    } catch (error) {
+      log.warn('registry read failed; starting with an empty web app list:', error);
+    }
     return { version: SCHEMA_VERSION, apps: [] };
   }
 
@@ -337,6 +356,17 @@ function writeToStorage(payload) {
     serialized = JSON.stringify(payload);
   } catch (error) {
     throw new StorageError('Failed to serialize web apps', { cause: error });
+  }
+
+  // Multi-user: write to the account's own hive only; the localStorage
+  // fallback below is machine-wide and would leak to other accounts.
+  if (isMultiUser()) {
+    try {
+      if (!RegistrySystemState.setWebApps(payload)) log.warn('registry write failed; web apps not persisted');
+    } catch (error) {
+      log.warn('registry write failed; web apps not persisted:', error);
+    }
+    return;
   }
 
   // Registry-first (HKNS/apps/webapps). The localStorage write below stays
@@ -586,6 +616,23 @@ function initialize() {
 
   state.initialized = true;
   log.info(`Loaded ${state.apps.length} web apps`);
+}
+
+/**
+ * Account switch: replace the in-memory list with the mounted account's.
+ * Initialisation runs before anyone signs in, so without this a second user
+ * would see the previous user's shortcuts. The SessionManager flushes the
+ * departing account's pending save (flush) before it swaps the hives.
+ */
+function reloadForUser() {
+  if (!state.initialized) return; // initialize() will read the right account
+  try {
+    state.apps = readFromStorage().apps;
+  } catch (error) {
+    log.error('Failed to reload web apps for the new account:', error);
+    state.apps = [];
+  }
+  log.info(`Reloaded ${state.apps.length} web apps for the mounted account`);
 }
 
 /**
@@ -875,6 +922,7 @@ const WebAppManager = Object.freeze({
   isValidUrl,
   // New additive APIs:
   flush,
+  reloadForUser,
   destroy,
   setLogLevel,
 });
@@ -897,6 +945,7 @@ export {
   getStats,
   isValidUrl,
   flush,
+  reloadForUser,
   destroy,
   setLogLevel,
 };
