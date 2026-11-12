@@ -118,8 +118,10 @@
       existing.json.data.users.length > 0;
 
     let ownerUid = null;
+    let ownerUsername = '';
     if (serverHasAccounts && existing.json.data.users.length) {
       ownerUid = existing.json.data.users[0].uid; // the first account is the owner by construction
+      ownerUsername = String(existing.json.data.users[0].username || '');
     } else if (legacy && legacy.pinHash) {
       // The 3.0.2 → accounts import: the PBKDF2 hash + salt + username go
       // to the server; the first successful PIN verification re-hashes the
@@ -143,6 +145,7 @@
         return { skipped: 'import-refused' };
       }
       ownerUid = imported.json.data?.uid || null;
+      ownerUsername = String(imported.json.data?.username || username || '');
       if (!ownerUid) {
         warn('legacy import returned no owner uid — multi-user stays OFF');
         return { skipped: 'no-owner' };
@@ -165,13 +168,13 @@
 
     if (isLinuxRuntime()) {
       try {
-        moveStorageToOwner(ownerUid, { registry, scope, legacy });
+        moveStorageToOwner(ownerUid, { username: ownerUsername, registry, scope, legacy });
       } catch (err) {
         warn('storage move failed (data stays at the legacy roots):', err);
       }
     } else {
       try {
-        moveWebStorageToOwner(ownerUid, { registry });
+        moveWebStorageToOwner(ownerUid, { username: ownerUsername, registry });
       } catch (err) {
         warn('web storage move failed:', err);
       }
@@ -209,13 +212,27 @@
 
   // ── Linux native storage move ───────────────────────────────────────────
 
-  function moveStorageToOwner(ownerUid, { registry, scope, legacy }) {
+  /* The per-account directory segment: the username when the caller knows
+   * one, else the uid (machines that never learned the username keep
+   * byte-identical uid-keyed addressing). Usernames are immutable in the
+   * account database, so the segment stays stable for the account's life. */
+  function safeUsername(uname) {
+    return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())
+      ? String(uname || '').toLowerCase() : '';
+  }
+
+  function ownerSegment(ownerUid, username) {
+    return safeUsername(username) || String(ownerUid || '');
+  }
+
+  function moveStorageToOwner(ownerUid, { username, registry, scope, legacy }) {
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
     const home = os.homedir();
     const shareRoot = path.join(home, '.local', 'share', 'novabyte');
-    const userRoot = path.join(shareRoot, 'users', ownerUid);
+    const segment = ownerSegment(ownerUid, username);
+    const userRoot = path.join(shareRoot, 'users', segment);
 
     const moveTree = (from, to, { keepSource = false } = {}) => {
       if (!fs.existsSync(from)) return false;
@@ -232,12 +249,12 @@
 
     // 1. Registry user hives: ~/.config/novabyte/registry/{HKNU,HKNA,HKND}.json
     const regDir = path.join(home, '.config', 'novabyte', 'registry');
-    const userRegDir = path.join(home, '.config', 'novabyte', 'users', ownerUid, 'registry');
+    const userRegDir = path.join(home, '.config', 'novabyte', 'users', segment, 'registry');
     for (const hive of ['HKNU', 'HKNA', 'HKND']) {
       moveTree(path.join(regDir, `${hive}.json`), path.join(userRegDir, `${hive}.json`));
     }
 
-    // 2. Per-app AppDirs: ~/.local/share/novabyte/data/<appId> → users/<uid>/apps/<appId>
+    // 2. Per-app AppDirs: ~/.local/share/novabyte/data/<appId> → users/<segment>/apps/<appId>
     const dataRoot = path.join(shareRoot, 'data');
     const userApps = path.join(userRoot, 'apps');
     if (fs.existsSync(dataRoot)) {
@@ -246,7 +263,7 @@
       }
     }
 
-    // 3. The legacy home tree (documents, pictures, …) → users/<uid>/home.
+    // 3. The legacy home tree (documents, pictures, …) → users/<segment>/home.
     // Dot-folders and the NovaByte roots move with it only when they are
     // INSIDE the home tree itself; ~/.config and ~/.local/share are
     // machine state and stay machine state.
@@ -260,7 +277,7 @@
     // same sense — leaving ~/.local/share/Trash alone is the conservative
     // choice; the owner can clean it from the Files app.
 
-    // 4. Per-user browser-state + settings shadow: users/<uid>/browser-state.json
+    // 4. Per-user browser-state + settings shadow: users/<segment>/browser-state.json
     // is seeded from the machine file on first login by the mirror.
     const legacyBrowserState = path.join(shareRoot, 'browser-state.json');
     if (fs.existsSync(legacyBrowserState)) {
@@ -279,7 +296,7 @@
     // 6. IndexedDB NovaByte_FS / NovaByte_AppStorage stamping happens via
     //    their own v2 schema upgrades at next open (scope flags are set).
 
-    log('linux storage re-rooted under users/' + ownerUid);
+    log('linux storage re-rooted under users/' + segment);
   }
 
   function migrateNwjsPartitions(ownerUid) {
@@ -308,13 +325,14 @@
 
   // ── Web build storage move (localStorage / OPFS best-effort) ────────────
 
-  function moveWebStorageToOwner(ownerUid, { registry }) {
+  function moveWebStorageToOwner(ownerUid, { username, registry }) {
     // Registry hives: localStorage keys nova_registry_hive_<HIVE> →
-    // nova_registry_hive_u_<ownerUid>_<HIVE> (the mounted-hive layout).
+    // nova_registry_hive_u_<segment>_<HIVE> (the mounted-hive layout).
+    const segment = ownerSegment(ownerUid, username);
     try {
       for (const hive of ['HKNU', 'HKNA', 'HKND']) {
         const from = `nova_registry_hive_${hive}`;
-        const to = `nova_registry_hive_u_${ownerUid}_${hive}`;
+        const to = `nova_registry_hive_u_${segment}_${hive}`;
         const raw = localStorage.getItem(from);
         if (raw !== null) {
           localStorage.setItem(to, raw);
@@ -329,7 +347,69 @@
     // AppDirs bootstrap; OPFS moves ride the next bootstrap reconcile.
   }
 
-  const MultiUserMigration = { run, MIGRATION_MARKER, MULTI_USER_FLAG };
+  // ── Per-user layout upgrade (uid segment → username segment) ───────────
+  //
+  // Accounts created before the users/<username>/ layout keep their data in
+  // uid-keyed directories and hive documents. This upgrade — run by the
+  // SessionManager at login, before any mount — moves an account's whole
+  // tree onto its username segment. It is strictly idempotent: a machine
+  // already on the username layout (or one that never had the uid layout)
+  // takes the fast existsSync path and changes nothing.
+
+  function upgradeUserLayout(uid, username) {
+    const uname = safeUsername(username);
+    const userId = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(String(uid || '')) ? String(uid) : '';
+    if (!uname || !userId || uname === userId) return { moved: 0 };
+    let moved = 0;
+
+    if (isLinuxRuntime()) {
+      const fs = require('fs');
+      const path = require('path');
+      const home = require('os').homedir();
+      for (const base of [
+        path.join(home, '.local', 'share', 'novabyte', 'users'),
+        path.join(home, '.config', 'novabyte', 'users'),
+      ]) {
+        const from = path.join(base, userId);
+        const to = path.join(base, uname);
+        if (!fs.existsSync(from)) continue;
+        if (fs.existsSync(to)) {
+          // Never merge over an existing username directory — a username
+          // collision with real data means the account keeps its uid
+          // segment (callers fall back to it) rather than losing either.
+          warn(`username layout upgrade skipped for ${uname}: target already exists`);
+          continue;
+        }
+        try {
+          fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+          fs.renameSync(from, to);
+          moved++;
+        } catch (err) {
+          warn(`username layout upgrade failed for ${uname}:`, err?.message || err);
+        }
+      }
+    } else {
+      // Web build: the mounted-hive documents are localStorage keys.
+      try {
+        for (const hive of ['HKNU', 'HKNA', 'HKND']) {
+          const from = `nova_registry_hive_u_${userId}_${hive}`;
+          const to = `nova_registry_hive_u_${uname}_${hive}`;
+          const raw = localStorage.getItem(from);
+          if (raw !== null && localStorage.getItem(to) === null) {
+            localStorage.setItem(to, raw);
+            localStorage.removeItem(from);
+            moved++;
+          }
+        }
+      } catch (err) {
+        warn('web username layout upgrade failed:', err);
+      }
+    }
+    if (moved) log(`account ${uname}: storage moved onto the username layout (${moved} root(s))`);
+    return { moved };
+  }
+
+  const MultiUserMigration = { run, upgradeUserLayout, MIGRATION_MARKER, MULTI_USER_FLAG };
 
   if (typeof window !== 'undefined' && window) {
     window.MultiUserMigration = Object.freeze(MultiUserMigration);

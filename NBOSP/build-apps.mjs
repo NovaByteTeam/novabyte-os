@@ -298,21 +298,35 @@ async function updatePackageCacheKeys(builtPackages) {
     throw new Error(`Cannot update NovaApp cache keys: ${manifestPath} must contain an array`);
   }
 
+  /* The runtime SystemServiceLoader rejects a bundle entry without
+   * systemService: true — the production build (build.mjs) stamps it from
+   * each package manifest. Dev builds used to write bare
+   * { id, file, cacheKey } entries, so every system service failed the
+   * loader's entry validation and dev machines booted without the
+   * session/lock-screen/tray services. Stamp the same flag here so a
+   * dev manifest and a production manifest are interchangeable. */
   let changed = false;
   const manifestIds = new Set(manifest.map(bundle => bundle?.id));
   for (const bundle of manifest) {
-    const cacheKey = builtPackages.get(bundle?.id);
-    if (cacheKey && bundle.cacheKey !== cacheKey) {
-      bundle.cacheKey = cacheKey;
-      changed = true;
+    const built = builtPackages.get(bundle?.id);
+    if (built) {
+      if (bundle.cacheKey !== built.cacheKey) {
+        bundle.cacheKey = built.cacheKey;
+        changed = true;
+      }
+      if (built.systemService === true && bundle.systemService !== true) {
+        bundle.systemService = true;
+        changed = true;
+      }
     }
   }
-  for (const [id, cacheKey] of builtPackages) {
+  for (const [id, built] of builtPackages) {
     if (manifestIds.has(id)) continue;
     manifest.push({
       id,
       file: `js/apps/${id}.novaapp`,
-      cacheKey,
+      cacheKey: built.cacheKey,
+      ...(built.systemService === true ? { systemService: true } : {}),
     });
     changed = true;
   }
@@ -461,7 +475,7 @@ async function buildOne(
       fileCount === 1 ? '' : 's'
     }, signed as ${pkg.signing.signer}, source untouched)`
   );
-  return { id: appId, cacheKey };
+  return { id: appId, cacheKey, systemService: manifest.systemService === true };
 }
 
 async function main() {
@@ -527,7 +541,7 @@ async function main() {
       dirName,
       privateKey
     );
-    if (built) builtPackages.set(built.id, built.cacheKey);
+    if (built) builtPackages.set(built.id, built);
   }
   await updatePackageCacheKeys(builtPackages);
 }

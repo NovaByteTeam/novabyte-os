@@ -125,6 +125,17 @@ describe('NovaRegistry — mounted per-user hives (multi-user)', () => {
     expect(() => NovaRegistry.mountUserHives('a:b')).toThrow();
   });
 
+  it('mounts on the USERNAME segment (users/<username>/registry) — dots allowed', () => {
+    // Usernames (unlike uids) may contain dots and dashes; the segment is
+    // what the storage adapter turns into the per-account file path, so it
+    // must validate cleanly and never collide with traversal tricks.
+    NovaRegistry.mountUserHives('diraz.v2');
+    NovaRegistry.set('HKNU/settings/username', 'diraz', { source: 'test' });
+    expect(storage._map.has('user:diraz.v2:HKNU')).toBe(true);
+    expect(NovaRegistry.mountedUserUid()).toBe('diraz.v2');
+    expect(() => NovaRegistry.mountUserHives('../evil')).toThrow();
+  });
+
   it('mountedUserUid reports the active mount; per-hive quotas still apply per account', () => {
     expect(NovaRegistry.mountedUserUid()).toBe(null);
     NovaRegistry.mountUserHives('u1');

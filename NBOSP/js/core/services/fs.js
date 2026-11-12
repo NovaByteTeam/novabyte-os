@@ -506,8 +506,8 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
   // any pre-login phase) keep exactly today's layout, because
   // setUserRoot() is only ever called by the SessionManager, and only
   // after a successful account login. When it IS called, the active
-  // account gets ~/.local/share/novabyte/users/<uid>/home as its tree,
-  // its own Trash, its own app-data root, and the /Shared drop box
+  // account gets ~/.local/share/novabyte/users/<username>/home as its
+  // tree, its own Trash, its own app-data root, and the /Shared drop box
   // (machine-wide) joins the jail as a second legal root.
   const machineHome = nativePath.resolve(nativeOs.homedir());
   const sharedRoot = nativePath.join(machineHome, '.local', 'share', 'novabyte', 'shared');
@@ -520,9 +520,19 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
   let allowedRoots = [home];
   let scopedUser = '';
 
-  const userRootsFor = (uid, guest) => {
+  /* The on-disk segment for an account: the USERNAME (users/diraz/home),
+   * matching what a person sees when they open ~/.local/share/novabyte.
+   * Usernames are immutable in the account database, so the segment is
+   * stable; accounts created before this layout (users/<uid>) are renamed
+   * onto it by the SessionManager's login-time layout upgrade before any
+   * root is applied. */
+  const safeUsername = (uname) =>
+    /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())
+      ? String(uname || '').toLowerCase() : '';
+
+  const userRootsFor = (segment, guest) => {
     const base = nativePath.join(machineHome, '.local', 'share', 'novabyte',
-      guest ? 'guest' : 'users', guest ? `g-${Date.now().toString(36)}` : String(uid || ''));
+      guest ? 'guest' : 'users', guest ? `g-${Date.now().toString(36)}` : String(segment || ''));
     return { home: nativePath.join(base, 'home'), apps: nativePath.join(base, 'apps') };
   };
 
@@ -830,10 +840,15 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
       const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
       if (!scope || !scope.enabled()) return false;
       const guest = !!(options && options.guest);
+      // Prefer the explicit username from the SessionManager; fall back to
+      // the scope module (set at mount), then the uid (legacy layout).
+      const username = safeUsername(options && options.username) ||
+        (typeof scope.activeUsername === 'function' ? scope.activeUsername() : '') ||
+        String(uid || '');
       if (guest) {
         applyRoots(userRootsFor('', true).home, '', { guest: true });
       } else if (uid) {
-        applyRoots(userRootsFor(uid, false).home, uid, { scoped: true });
+        applyRoots(userRootsFor(username, false).home, username, { scoped: true });
       } else {
         // No account mounted (picker phase): back to the machine roots.
         applyRoots(machineHome, '', {});

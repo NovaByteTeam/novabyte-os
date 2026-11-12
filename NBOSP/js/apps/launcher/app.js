@@ -2002,7 +2002,15 @@ if (desktopEl) {
   });
 
 
-OS.events.on('settings:changed', ({ key }) => {
+// The launcher script is re-evaluated for every account mount (log off →
+// log back in, fast user switch): OS.events has no per-script teardown, so
+// an unguarded registration would stack one more settings:changed listener
+// per launcher run. The handler only ever resolves its targets through
+// document.getElementById and OS.settings at call time, so the first
+// wiring keeps serving every future launcher DOM — wire it exactly once.
+if (!window.__launcherSettingsWired) {
+  window.__launcherSettingsWired = true;
+  OS.events.on('settings:changed', ({ key }) => {
   switch (key) {
     case 'taskbarSize':
     case 'taskbarPosition':
@@ -2108,6 +2116,7 @@ OS.events.on('settings:changed', ({ key }) => {
       break;
   }
 });
+}
 
   const MAX_WORKSPACES = 9;
 

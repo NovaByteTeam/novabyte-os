@@ -18,6 +18,7 @@
 
   const FLAG_KEY = 'nova_multi_user';        // '1' = multi-user mode enabled
   const ACTIVE_KEY = 'nova_active_uid';     // uid of the mounted account
+  const ACTIVE_UNAME_KEY = 'nova_active_uname'; // username of the mounted account
   const LEGACY_OWNER_KEY = 'nova_legacy_owner'; // uid that owns 3.0.2 data after migration
 
   function lsGet(key) {
@@ -32,6 +33,15 @@
 
   function safeUid(uid) {
     return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(String(uid || '')) ? String(uid) : '';
+  }
+
+  /* Usernames are the human-facing directory segment under the NovaByte
+   * roots (users/<username>/home), so they get the same shape check the
+   * account database enforces: lowercase letters, digits, dots, dashes,
+   * 3–32 chars, leading alphanumeric. */
+  function safeUsername(uname) {
+    return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())
+      ? String(uname || '').toLowerCase() : '';
   }
 
   const UserScope = {
@@ -64,6 +74,25 @@
     },
 
     /**
+     * Username of the currently mounted account — the directory segment
+     * its per-user filesystem and registry hives live under
+     * (users/<username>/*). Set by the SessionManager at mount, alongside
+     * setActive(uid); '' when no account is mounted. Usernames are
+     * immutable in the account database, so the segment is stable.
+     */
+    activeUsername() {
+      return this.enabled() ? safeUsername(lsGet(ACTIVE_UNAME_KEY)) : '';
+    },
+    setActiveUsername(uname) {
+      const value = safeUsername(uname);
+      if (value) lsSet(ACTIVE_UNAME_KEY, value);
+      else lsRemove(ACTIVE_UNAME_KEY);
+    },
+    clearActiveUsername() {
+      lsRemove(ACTIVE_UNAME_KEY);
+    },
+
+    /**
      * uid that the legacy 3.0.2 single-user data was stamped to during
      * migration — used by schema upgrades (AppStorage rows, partitions)
      * so upgraded machines keep every byte owned.
@@ -83,6 +112,7 @@
     },
     clearActive() {
       lsRemove(ACTIVE_KEY);
+      lsRemove(ACTIVE_UNAME_KEY);
     },
 
     /**
@@ -97,8 +127,15 @@
       return '';
     },
 
-    /** Directory segment under the NovaByte roots for the owner uid. */
+    /**
+     * Directory segment under the NovaByte roots for the mounted account.
+     * The username is the segment when one is mounted (users/<username>);
+     * pre-login the legacy owner uid keeps the old addressing so storage
+     * schema upgrades keep stamping the same owner.
+     */
     userSegment() {
+      const uname = this.activeUsername();
+      if (uname) return `users/${uname}`;
       const uid = this.ownerUid();
       return uid ? `users/${uid}` : '';
     },
@@ -115,7 +152,7 @@
 
     /** Wipes every machine-level scope flag (factory reset / disable). */
     reset() {
-      [FLAG_KEY, ACTIVE_KEY, LEGACY_OWNER_KEY, 'nova_active_role'].forEach(lsRemove);
+      [FLAG_KEY, ACTIVE_KEY, ACTIVE_UNAME_KEY, LEGACY_OWNER_KEY, 'nova_active_role'].forEach(lsRemove);
     },
   };
 

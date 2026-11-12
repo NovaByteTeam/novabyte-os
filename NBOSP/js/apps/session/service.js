@@ -163,21 +163,46 @@
   /**
    * The mounting sequence for one account: hives, scope flag, settings,
    * VFS root, theme, desktop. This is the ONLY code path that performs it.
+   *
+   * The account's USERNAME is the on-disk segment for every per-user
+   * stratum (users/<username>/{home,apps} on the filesystem, the hive
+   * documents under users/<username>/registry/): the login-time layout
+   * upgrade (uid → username directories) runs first so machines created
+   * before that layout keep every byte.
    */
   async function mountUserScope(user, { volatile: isGuest = false } = {}) {
     flushCurrentUserHives();
     discardGuestApps();
     flushLocalStorageToUser();
 
+    const username = !isGuest && typeof user?.username === 'string' ? user.username : '';
+
+    if (!isGuest && username) {
+      try {
+        if (typeof MultiUserMigration !== 'undefined' && MultiUserMigration?.upgradeUserLayout) {
+          MultiUserMigration.upgradeUserLayout(user.uid, username);
+        }
+      } catch (err) {
+        console.warn('[SessionManager] Username layout upgrade failed:', err);
+      }
+    }
+
     if (typeof NovaUserScope !== 'undefined') {
       NovaUserScope.setActive(isGuest ? 'guest' : user.uid);
+      if (!isGuest && typeof NovaUserScope.setActiveUsername === 'function') {
+        NovaUserScope.setActiveUsername(username || null);
+      } else if (typeof NovaUserScope.clearActiveUsername === 'function') {
+        NovaUserScope.clearActiveUsername();
+      }
       NovaUserScope.setActiveRole(isGuest ? 'guest' : user.role);
     }
 
-    // 1. Registry: mount this account's HKNU/HKNA/HKND from its own files.
+    // 1. Registry: mount this account's HKNU/HKNA/HKND from its own files,
+    //    addressed by the username segment (legacy uid segment fallback).
     try {
       if (typeof NovaRegistry !== 'undefined' && NovaRegistry?.mountUserHives) {
-        NovaRegistry.mountUserHives(isGuest ? 'guest' : user.uid, { volatile: isGuest });
+        const segment = username || user.uid;
+        NovaRegistry.mountUserHives(isGuest ? 'guest' : segment, { volatile: isGuest });
       }
     } catch (err) {
       console.error('[SessionManager] Mounting user hives failed:', err);
@@ -188,10 +213,11 @@
       console.warn('[SessionManager] Settings re-hydration failed:', err);
     }
 
-    // 3. VFS: re-root the filesystem service onto this account's tree.
+    // 3. VFS: re-root the filesystem service onto this account's tree —
+    //    users/<username>/home (guests get their volatile tree).
     try {
       if (typeof FS !== 'undefined' && FS?.setUserRoot) {
-        await FS.setUserRoot(isGuest ? 'guest' : user.uid, { guest: isGuest });
+        await FS.setUserRoot(isGuest ? 'guest' : user.uid, { guest: isGuest, username });
       }
     } catch (err) {
       console.error('[SessionManager] VFS re-root failed:', err);

@@ -658,6 +658,23 @@ async function startBundledLauncher() {
 
   const root = document.getElementById('launcher-root');
   if (!root) throw new Error('Launcher root is missing from the OS page');
+
+  // ── Tray preservation across launcher re-renders ───────────────────
+  // The launcher moves #system-tray-root (an OS-page element whose tray
+  // buttons carry the tray service's listeners — attached once, at boot)
+  // INSIDE its taskbar. Re-running the launcher (log off → log back in,
+  // user switch, per-account mount) replaces the whole launcher DOM with
+  // innerHTML, which would destroy the tray node with it: the fresh
+  // launcher then finds no #system-tray-root to re-attach and the tray
+  // items vanish until a full page reload. Park the node on the body
+  // before the wipe; the launcher script re-parents it into the new
+  // taskbar (and flips its display back to 'contents') moments later.
+  const trayRoot = document.getElementById('system-tray-root');
+  if (trayRoot && root.contains(trayRoot)) {
+    trayRoot.style.display = 'none';
+    document.body.appendChild(trayRoot);
+  }
+
   root.innerHTML = readPackageText(app.entry || app.manifest?.entry || 'index.html');
 
   let styles = document.getElementById('launcher-package-styles');
