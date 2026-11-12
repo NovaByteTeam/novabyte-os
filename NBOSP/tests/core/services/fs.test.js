@@ -617,6 +617,42 @@ describe('FS linux-native backend (real disk contract)', () => {
     }
   });
 
+  it('multi-user boot (picker phase) never creates the standard folders at the machine home', async () => {
+    const previousScope = globalThis.NovaUserScope;
+    globalThis.NovaUserScope = { enabled: () => true, activeUsername: () => '' };
+    try {
+      // Machine phase, multi-user ON: the machine home is the SYSTEM area
+      // (~/users/<account>/ trees + hidden dot-state), never a user's home.
+      await FS.setUserRoot(null);
+      expect(FS.rootId).toBe(nodePath.resolve(fakeHome));
+      // Simulate the legacy pollution older boots created at the machine
+      // root, re-run boot's init(), and pin that NOTHING user-visible is
+      // recreated there — the folders belong inside the account trees.
+      nodeFs.rmSync(nodePath.join(fakeHome, 'Desktop'), { recursive: true, force: true });
+      nodeFs.rmSync(nodePath.join(fakeHome, 'Documents'), { recursive: true, force: true });
+      nodeFs.rmSync(trashDir, { recursive: true, force: true });
+      await FS.init();
+      expect(nodeFs.existsSync(nodePath.join(fakeHome, 'Desktop'))).toBe(false);
+      expect(nodeFs.existsSync(nodePath.join(fakeHome, 'Documents'))).toBe(false);
+      expect(nodeFs.existsSync(trashDir)).toBe(false);
+      // Logging in still bootstraps the standard folders INSIDE the account.
+      await FS.setUserRoot('u-owner', { username: 'ada' });
+      const adaRoot = nodePath.join(fakeHome, 'users', 'ada');
+      expect(nodeFs.statSync(nodePath.join(adaRoot, 'Desktop')).isDirectory()).toBe(true);
+      expect(nodeFs.statSync(nodePath.join(adaRoot, 'Documents')).isDirectory()).toBe(true);
+      expect(FS.specialFolders.desktop).toBe(nodePath.join(adaRoot, 'Desktop'));
+    } finally {
+      // Restore the single-user layout the rest of this suite expects.
+      await FS.setUserRoot('', {});
+      if (previousScope === undefined) delete globalThis.NovaUserScope;
+      else globalThis.NovaUserScope = previousScope;
+      // No scope mounted: the 3.0.2 layout — the folders come back at the
+      // home root for the later tests in this suite.
+      await FS.init();
+      expect(nodeFs.existsSync(nodePath.join(fakeHome, 'Desktop'))).toBe(true);
+    }
+  });
+
   it('listDir reads the real disk, folders first then alphabetical, and hides nothing the disk shows', async () => {
     await FS.createFile(fakeHome, 'zz-notes.txt', 'zz');
     await FS.createFolder(fakeHome, 'aa-folder');

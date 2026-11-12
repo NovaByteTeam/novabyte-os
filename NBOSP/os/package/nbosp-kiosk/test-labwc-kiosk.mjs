@@ -75,15 +75,41 @@ describe('NBOSP labwc kiosk configuration', () => {
     assert.match(packageMakefile, /chmod 0644 \$\(TARGET_DIR\)\/opt\/nbosp\/package\.nw\/js\/apps\/novaapp-manifest\.json/);
   });
 
-  it('ships the kiosk rc.xml with labwc defaults and Alt+F4 left to the window', () => {
+  it('ships the kiosk rc.xml with ZERO compositor bindings (full cage-parity lockdown)', () => {
     const rc = read('../../board/nbosp/rootfs-overlay/etc/labwc/rc.xml');
 
-    assert.match(rc, /<keyboard>\s*<default \/>/);
+    // No default keybinds: A-Tab focus cycling, A-F4 close and the A-Space
+    // window menu are compositor actions the kiosk must never expose. Every
+    // shortcut is owned inside the NovaByte app window; PrintScreen is
+    // handled in-page (ScreenshotService), not by the compositor.
+    // Comments are stripped first so explanatory prose cannot satisfy the
+    // structural assertions.
+    const keyboardSection = (rc.match(/<keyboard>[\s\S]*?<\/keyboard>/)?.[0] ?? '')
+      .replace(/<!--[\s\S]*?-->/g, '');
+    assert.ok(keyboardSection.includes('<keyboard>'), 'keyboard section present');
+    assert.doesNotMatch(keyboardSection, /<default\s*\/>/);
+    assert.doesNotMatch(keyboardSection, /<keybind/);
+    // Pointer events must keep flowing to the fullscreen app like under cage.
     assert.match(rc, /<mouse>\s*<default \/>/);
-    // No custom keybinds: A-Tab focus cycling and A-F4 close come from labwc's
-    // own defaults. The NovaByte window swallows close at the NW.js level, and
-    // PrintScreen is handled inside the app, not by the compositor.
-    assert.doesNotMatch(rc, /<keybind/);
+  });
+
+  it('keeps the machine home clean: session logs under /var/log/nbosp, cache under /var/cache/nbosp', () => {
+    const init = read('../../board/nbosp/S99nbosp');
+    const vmusr = read('../../board/nbosp/rootfs-overlay/usr/bin/nbosp-vmusr');
+
+    // Session logs never land in the kiosk user's home.
+    assert.match(init, /nbosp_log_dir=\/var\/log\/nbosp/);
+    assert.match(init, /GL_DEBUG_LOG="\$nbosp_log_dir\/gl-debug\.log"/);
+    assert.match(init, /tee -a \/var\/log\/nbosp\/kiosk\.log/);
+    assert.match(init, /XDG_CACHE_HOME=\/var\/cache\/nbosp/);
+    assert.match(vmusr, /LOG="\$LOG_DIR\/vmusr\.log"/);
+    assert.match(vmusr, /LOG_DIR=\/var\/log\/nbosp/);
+    // Nothing writes to the home root anymore — and the boot janitor sweeps
+    // whatever older builds left there (legacy logs + the old ~/.cache).
+    assert.doesNotMatch(init, />\/?home\/nbosp\/[^ ]*\.log/);
+    assert.doesNotMatch(init, /tee -a \/home\/nbosp\//);
+    assert.match(init, /mv -f "\/home\/nbosp\/\$f" "\$nbosp_log_dir\/\$f"/);
+    assert.match(init, /rm -rf \/home\/nbosp\/.cache/);
   });
 
   it('boots without SELinux policy, boot wrapper, or kernel configuration', () => {

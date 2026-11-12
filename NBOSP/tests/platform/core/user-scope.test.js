@@ -168,4 +168,80 @@ describe('MultiUserMigration.upgradeUserLayout — onto the ~/users/<username> l
       expect(MultiUserMigration.upgradeUserLayout('u1', undefined).moved).toBe(0);
     });
   });
+
+  it('sweeps stray visible entries from the machine home into the signing-in account (never logs, dots or users/)', () => {
+    withTempHome((tmp) => {
+      // Machine-owned state that must never move.
+      mkdirSync(path.join(tmp, 'users', 'ada', 'Documents'), { recursive: true });
+      writeFileSync(path.join(tmp, 'users', 'ada', 'Documents', 'keep.txt'), 'keep');
+      mkdirSync(path.join(tmp, '.config', 'novabyte'), { recursive: true });
+      writeFileSync(path.join(tmp, 'vmusr.log'), 'log');
+      writeFileSync(path.join(tmp, 'nbosp-kiosk.log'), 'log');
+      writeFileSync(path.join(tmp, 'xwayland-debug.log'), 'log');
+      // User-visible pollution at the machine root.
+      writeFileSync(path.join(tmp, 'hey'), 'stray');
+      mkdirSync(path.join(tmp, 'Desktop'), { recursive: true }); // empty leftover folder
+      mkdirSync(path.join(tmp, 'Downloads', 'old'), { recursive: true });
+      writeFileSync(path.join(tmp, 'Downloads', 'old', 'a.txt'), 'a');
+
+      expect(MultiUserMigration.upgradeUserLayout('u1', 'ada').moved).toBeGreaterThan(0);
+      // Strays adopted into the account tree…
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'hey'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'Downloads', 'old', 'a.txt'))).toBe(true);
+      // …and gone from the machine root.
+      expect(existsSync(path.join(tmp, 'hey'))).toBe(false);
+      expect(existsSync(path.join(tmp, 'Desktop'))).toBe(false);
+      expect(existsSync(path.join(tmp, 'Downloads'))).toBe(false);
+      // Machine-owned things untouched: logs (janitor owns them under
+      // /var/log/nbosp), dot-state, the account trees themselves.
+      expect(existsSync(path.join(tmp, 'vmusr.log'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'nbosp-kiosk.log'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'xwayland-debug.log'))).toBe(true);
+      expect(existsSync(path.join(tmp, '.config', 'novabyte'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'users'))).toBe(true);
+      // The account's own data untouched.
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'Documents', 'keep.txt'))).toBe(true);
+
+      // Idempotent: a clean machine root is a no-op (logs stay, never adopted).
+      expect(MultiUserMigration.upgradeUserLayout('u1', 'ada').moved).toBe(0);
+    });
+  });
+
+  it('merges a same-named machine-root folder into the account tree without clobbering', () => {
+    withTempHome((tmp) => {
+      mkdirSync(path.join(tmp, 'users', 'ada', 'Documents'), { recursive: true });
+      writeFileSync(path.join(tmp, 'users', 'ada', 'Documents', 'mine.txt'), 'account');
+      mkdirSync(path.join(tmp, 'Documents'), { recursive: true });
+      writeFileSync(path.join(tmp, 'Documents', 'old.txt'), 'legacy');
+      writeFileSync(path.join(tmp, 'Documents', 'mine.txt'), 'machine'); // collides with the account's
+
+      MultiUserMigration.upgradeUserLayout('u1', 'ada');
+      // Merged: the legacy file and the account's original both live in the
+      // account tree now…
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'Documents', 'old.txt'))).toBe(true);
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'Documents', 'mine.txt'))).toBe(true);
+      // …the collision was renamed, never clobbered…
+      expect(existsSync(path.join(tmp, 'users', 'ada', 'Documents', 'mine (1).txt'))).toBe(true);
+      // …and the emptied machine-root folder is gone.
+      expect(existsSync(path.join(tmp, 'Documents'))).toBe(false);
+    });
+  });
+
+  it('never sweeps on single-user machines (multi-user off: the home IS the user home)', () => {
+    withTempHome((tmp) => {
+      UserScope.disable();
+      try {
+        writeFileSync(path.join(tmp, 'hey'), 'stray');
+        mkdirSync(path.join(tmp, 'Desktop'), { recursive: true });
+        writeFileSync(path.join(tmp, 'Desktop', 'note.txt'), 'note');
+        MultiUserMigration.upgradeUserLayout('u1', 'ada');
+        // Single-user layout is untouched: nothing was adopted, no users/ tree.
+        expect(existsSync(path.join(tmp, 'hey'))).toBe(true);
+        expect(existsSync(path.join(tmp, 'Desktop', 'note.txt'))).toBe(true);
+        expect(existsSync(path.join(tmp, 'users'))).toBe(false);
+      } finally {
+        UserScope.enable();
+      }
+    });
+  });
 });

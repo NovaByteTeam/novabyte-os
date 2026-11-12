@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  NBOSP kiosk labwc configuration.
+  NBOSP kiosk labwc configuration — full compositor lockdown.
 
   labwc replaced cage as the kiosk compositor: it is a full stacking
   compositor with layer-shell support, so the OS can show system surfaces
@@ -8,21 +8,32 @@
   (DevTools, diagnostics) stack correctly instead of needing cage-specific
   restacking patches.
 
-  Bindings are deliberately the labwc defaults plus nothing else:
+  The lockdown rule is the one the kiosk has always had under cage: NOTHING
+  is bound at the compositor level. Every shortcut is handled inside the
+  NovaByte app window, never by the compositor:
 
-  * A-Tab / A-S-Tab cycle focus between the NovaByte window and any
-    auxiliary X11 client.
-  * A-F4 closes the focused window. The NovaByte app window itself swallows
-    close requests in scripts/startup.js, so Alt+F4 never exits the kiosk
-    app; it only ever closes auxiliary windows.
+  * No default keybinds are loaded, and no custom keybinds exist: no
+    A-Tab / A-S-Tab focus cycling, no A-F4 close, no A-Space window menu,
+    no compositor-owned shortcut of any kind. (Omitting <default/> inside
+    <keyboard> means labwc loads exactly the zero bindings defined here.)
+  * The fullscreen NovaByte window additionally refuses WM close requests
+    in scripts/startup.js (NBOSP_KIOSK=1), so Alt+F4 can never exit the
+    kiosk app; with no A-F4 binding here it is not even a compositor
+    action anymore — it reaches the app, which already swallows it.
   * PrintScreen is intentionally NOT bound here. The OS handles it in-page
     (ui-init.js -> ScreenshotService) so screenshots keep working while
     every other browser-level shortcut is disabled.
+
+  Mouse behaviour keeps labwc's defaults: pointer events must reach the
+  fullscreen app exactly like they did under cage, and with a single
+  fullscreen window there is nothing to move, resize or switch to.
 -->
 <labwc_config>
 
   <keyboard>
-    <default />
+    <!-- Deliberately NO <default/> and NO <keybind/> entries: the kiosk owns
+         every shortcut inside the app window. Adding any binding here is a
+         lockdown regression (test-labwc-kiosk.mjs pins this). -->
   </keyboard>
 
   <mouse>

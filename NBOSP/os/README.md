@@ -139,7 +139,7 @@ save into the user's Downloads folder, and appear in the Downloads app with
 progress and completion status.
 At boot, Buildroot starts labwc on the VMware display and launches NW.js as the
 unprivileged `nbosp` user. labwc (with `-S`, its session mode) and NW.js output is appended to
-`/home/nbosp/nbosp-kiosk.log` and mirrored to the configured `ttyS0` serial
+`/var/log/nbosp/kiosk.log` and mirrored to the configured `ttyS0` serial
 console for debugging without switching virtual terminals. The kiosk is
 started inside a fresh D-Bus session to avoid inheriting a malformed session
 bus address. The NW.js bundle remains root-owned. Mutable runtime state,
@@ -148,6 +148,19 @@ is stored under `/home/nbosp/.config/novabyte/runtime`. User settings and
 profile data are stored under `/home/nbosp`. labwc runs the compositor on Wayland and
 XWayland is enabled for NW.js, retaining GPU acceleration while avoiding the
 Chromium native-Wayland DMA-BUF import failure observed with VMware SVGA.
+The kiosk user's home is the machine's SYSTEM area, exactly like a real
+multi-user OS: each account's visible filesystem lives under
+`/home/nbosp/users/<username>/`, and the machine root holds only the account
+trees plus hidden dot-state (`.config`, `.local`, `.pki`). Boot never creates
+the standard user folders at the machine root, a login-time sweep adopts any
+legacy leftovers into the signing-in account, session logs live under
+`/var/log/nbosp`, and the runtime cache under `/var/cache/nbosp`
+(`XDG_CACHE_HOME`), so nothing user-visible ever piles up in the home root.
+The labwc kiosk configuration (`/etc/labwc/rc.xml`) binds NOTHING at the
+compositor level — no focus cycling, no window-menu, no compositor-owned
+shortcut of any kind — matching the cage-era lockdown: every shortcut is
+handled inside the NovaByte app window, the app window refuses WM close
+requests, and PrintScreen is handled in-page.
 The image enables Mesa's VMware SVGA Gallium driver and X11/GLX support for
 NW.js running through XWayland. Chromium explicitly requests the built
 EGL/ANGLE implementation with its OpenGL backend; the previous desktop-GL
@@ -185,20 +198,20 @@ Chromium requests. It adds:
   in GL debug mode).
 - By default the dump runs a second XWayland (`:7`) against the live labwc with
   `-verbose 10`, which should say why glamor falls back. Output:
-  `~nbosp/xwayland-probe.log`.
+  `/var/log/nbosp/xwayland-probe.log`.
 - Optional, off by default (`NBOSP_GL_XWRAP=1`): launch labwc's XWayland through
   `/run/nbosp-debug-bin/Xwayland` (via `WLR_XWAYLAND`, with a `PATH` fallback).
   It runs with `-verbose 10` and `LD_DEBUG=libs`, plus `strace -Z` if
   `NBOSP_GL_STRACE=1`. In the first two debug boots this wrapper made XWayland
   exit within 10-90ms, so it stays off until we know why.
-  Output: `~nbosp/xwayland-debug.log`, `xwayland-ld.<pid>`, `xwayland.strace`.
+  Output: `/var/log/nbosp/xwayland-debug.log`, `xwayland-ld.<pid>`, `xwayland.strace`.
 - `EGL_LOG_LEVEL=debug`, `MESA_DEBUG=1`, and Chromium `--vmodule` logging for
   the GL display/context/GPU-init code.
 - `mesa3d-demos` (`eglinfo`, `glxinfo`), `wayland-utils` (`wayland-info`) and
   `strace` in the image.
 - About 30 seconds after boot (once XWayland has started) a dump of the
-  graphics state is written to `~nbosp/nbosp-gl-debug.log`, the serial
-  console and `nbosp-kiosk.log`: library and driver listing, glvnd vendor
+  graphics state is written to `/var/log/nbosp/gl-debug.log`, the serial
+  console and `kiosk.log`: library and driver listing, glvnd vendor
   files, the libraries labwc and XWayland actually mapped, their environment,
   `eglinfo`/`glxinfo`/`wayland-info`, and the filtered XWayland logs. Attach
   the serial log, or that file, to a bug report.

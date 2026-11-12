@@ -200,7 +200,13 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(startup).toContain('*)                  NBOSP_GL_DEBUG=0 ;;');
     expect(startup).toContain('WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland');
     expect(startup).toContain('-verbose 10');
-    expect(startup).toContain('/home/nbosp/nbosp-gl-debug.log');
+    // GL debug output is machine state under /var/log/nbosp — never in the
+    // kiosk user's home (the home root is the system area: ~/users trees +
+    // hidden dot-state only).
+    expect(startup).toContain('nbosp_log_dir=/var/log/nbosp');
+    expect(startup).toContain('GL_DEBUG_LOG="$nbosp_log_dir/gl-debug.log"');
+    expect(startup).not.toContain('/home/nbosp/nbosp-gl-debug.log');
+    expect(startup).not.toContain('/home/nbosp/nbosp-kiosk.log');
     expect(startup).toContain('$chromium_gl_debug');
     expect(startup).toContain("'\"$gl_debug_env\"'");
     // Debug mode must not change which GL backend Chromium asks for, and

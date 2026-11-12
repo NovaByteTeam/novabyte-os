@@ -441,6 +441,14 @@
       } catch (err) {
         warn(`nested layout lift failed for ${uname}:`, err?.message || err);
       }
+      // The machine home is the SYSTEM area: stray visible entries (legacy
+      // folders, loose files) are adopted into the signing-in account's tree
+      // so the machine root never holds anything user-owned.
+      try {
+        moved += sweepMachineHome(uname) ? 1 : 0;
+      } catch (err) {
+        warn(`machine-home sweep failed for ${uname}:`, err?.message || err);
+      }
     } else {
       // Web build: the mounted-hive documents are localStorage keys.
       try {
@@ -516,7 +524,94 @@
     return touched;
   }
 
-  const MultiUserMigration = { run, upgradeUserLayout, MIGRATION_MARKER, MULTI_USER_FLAG };
+  /* Sweeps every visible (non-dot) entry at the MACHINE home into the
+   * signing-in account's ~/users/<username>/ tree. The machine home is the
+   * system area: it must hold nothing user-visible — no legacy Desktop/
+   * Documents folders (boot no longer recreates them at the machine root,
+   * fs.js init), no loose stray files. Whatever still sits there from older
+   * layouts or stray writes is adopted into the account, merging without
+   * ever clobbering (name collisions get a numbered suffix).
+   *
+   * Exclusions — never adopted:
+   *   * dot entries (machine plumbing: .config, .local, .pki, …)
+   *   * `users/` (the account trees themselves)
+   *   * machine log files (nbosp-kiosk.log, vmusr.log, xwayland-*): the
+   *     S99nbosp boot janitor owns those under /var/log/nbosp.
+   *
+   * Strictly idempotent: a clean machine home is a fast no-op. Single-user
+   * machines (multi-user off) never sweep — there the machine home IS the
+   * user's home by design. */
+  const MACHINE_HOME_KEEP = new Set(['users']);
+  const MACHINE_LOG_NAMES = /^(?:nbosp-kiosk\.log|vmusr\.log|nbosp-gl-debug\.log|xwayland-.*)$/;
+
+  function sweepMachineHome(uname) {
+    const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
+    if (!scope || !scope.enabled || !scope.enabled()) return false;
+    const name = safeUsername(uname);
+    if (!name) return false;
+    const fs = require('fs');
+    const path = require('path');
+    const home = require('os').homedir();
+    if (!fs.existsSync(home)) return false;
+    const entries = fs.readdirSync(home)
+      .filter(entry => !entry.startsWith('.') && !MACHINE_HOME_KEEP.has(entry) && !MACHINE_LOG_NAMES.test(entry));
+    if (!entries.length) return false;
+    const userRoot = path.join(home, 'users', name);
+    fs.mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+
+    let touched = false;
+    const uniqueTarget = (dir, name_) => {
+      let target = path.join(dir, name_);
+      if (!fs.existsSync(target)) return target;
+      const dot = name_.lastIndexOf('.');
+      const stem = dot > 0 ? name_.slice(0, dot) : name_;
+      const ext = dot > 0 ? name_.slice(dot) : '';
+      for (let n = 1; ; n++) {
+        target = path.join(dir, `${stem} (${n})${ext}`);
+        if (!fs.existsSync(target)) return target;
+      }
+    };
+    const adoptEntry = (from, to) => {
+      if (!fs.existsSync(from)) return;
+      try {
+        fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+        fs.renameSync(from, to);
+        touched = true;
+      } catch (_) {
+        try { // cross-device / busy fallback: copy, then remove
+          fs.cpSync(from, to, { recursive: true });
+          fs.rmSync(from, { recursive: true, force: true });
+          touched = true;
+        } catch (err) {
+          warn(`machine-home sweep could not move ${from}:`, err?.message || err);
+        }
+      }
+    };
+    const mergeInto = (sourceDir, targetDir) => {
+      for (const child of fs.readdirSync(sourceDir)) {
+        adoptEntry(path.join(sourceDir, child), uniqueTarget(targetDir, child));
+      }
+      try { if (fs.readdirSync(sourceDir).length === 0) fs.rmdirSync(sourceDir); } catch (_) { }
+    };
+
+    for (const entry of entries) {
+      const from = path.join(home, entry);
+      const to = path.join(userRoot, entry);
+      try {
+        if (fs.existsSync(to) && fs.statSync(from).isDirectory() && fs.statSync(to).isDirectory()) {
+          mergeInto(from, to); // both dirs: merge children, drop the emptied source
+        } else {
+          adoptEntry(from, uniqueTarget(userRoot, entry));
+        }
+      } catch (err) {
+        warn(`machine-home sweep skipped ${entry}:`, err?.message || err);
+      }
+    }
+    if (touched) log(`machine home swept: visible entries adopted into ~/users/${name}`);
+    return touched;
+  }
+
+  const MultiUserMigration = { run, upgradeUserLayout, sweepMachineHome, MIGRATION_MARKER, MULTI_USER_FLAG };
 
   if (typeof window !== 'undefined' && window) {
     window.MultiUserMigration = Object.freeze(MultiUserMigration);

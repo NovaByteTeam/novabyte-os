@@ -596,6 +596,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
   let appDataRoot = defaultAppDataRoot;
   let allowedRoots = [home];
   let scopedUser = '';
+  let guestRoots = false;
 
   /* The on-disk segment for an account: the USERNAME (users/sam/),
    * matching what a person sees when they open /home/<linux-user>/users.
@@ -622,6 +623,7 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     home = nativePath.resolve(newHome);
     homePrefix = home.endsWith(nativePath.sep) ? home : home + nativePath.sep;
     scopedUser = scoped ? String(uid) : '';
+    guestRoots = guest;
     if (scoped || guest) {
       // The account tree owns its Trash and its app data directly: both
       // are first-class children of ~/users/<name>/ (.apps is dot-hidden
@@ -860,10 +862,23 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
   Object.assign(FS, {
     async init() {
       nativeFs.mkdirSync(home, { recursive: true });
-      for (const folder of ['Desktop', 'Documents', 'Downloads', 'Music', 'Pictures', 'Videos', trashPath]) {
-        createFolderAt(nativePath.isAbsolute(folder) ? folder : nativePath.join(home, folder));
+      // On a multi-user machine the machine home is the SYSTEM area — the
+      // ~/users/<username>/ account trees plus hidden dot-state — never a
+      // user's home. Boot (picker phase) must NOT create the standard user
+      // folders or the machine Trash at its root: they belong inside each
+      // account's tree, and the login-time sweep
+      // (MultiUserMigration.upgradeUserLayout) adopts any legacy leftovers
+      // into the signing-in account. Single-user machines (multi-user off)
+      // keep the exact 3.0.2 layout: the machine home IS the user home with
+      // the standard folders directly inside it.
+      const mountedScope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
+      const machinePhase = !!(mountedScope && mountedScope.enabled && mountedScope.enabled() && !scopedUser && !guestRoots);
+      if (!machinePhase) {
+        for (const folder of ['Desktop', 'Documents', 'Downloads', 'Music', 'Pictures', 'Videos', trashPath]) {
+          createFolderAt(nativePath.isAbsolute(folder) ? folder : nativePath.join(home, folder));
+        }
+        createFolderAt(nativePath.join(home, 'Pictures', 'Screenshots'));
       }
-      createFolderAt(nativePath.join(home, 'Pictures', 'Screenshots'));
       nativeFs.mkdirSync(appDataRoot, { recursive: true });
       this.rootId = home;
       this.files = new Map();
@@ -886,7 +901,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
         this.specialFolders.shared = sharedRoot;
       }
       nodeForPath(home);
-      for (const folder of Object.values(this.specialFolders)) nodeForPath(folder);
+      // Machine-phase special folders may not exist on disk (nothing
+      // created them); only index the ones that are really there.
+      for (const folder of Object.values(this.specialFolders)) {
+        if (nativeFs.existsSync(folder)) nodeForPath(folder);
+      }
       await migrateLegacyVfs();
       refreshVisibleTree();
       console.info(`[LinuxFS] Using the native filesystem under ${home}`);
