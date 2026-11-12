@@ -672,6 +672,29 @@
       transform 400ms var(--ease-spring);
   }
 
+  .app-window--fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    min-width: 0;
+    min-height: 0;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+  .app-window--fullscreen::before,
+  .app-window--fullscreen::after,
+  .app-window--fullscreen .window-titlebar,
+  .app-window--fullscreen .window-resize-handle {
+    display: none !important;
+  }
+
   /* Un-maximize: ease back to the pre-maximize rect with a plain transition.
      Deliberately NOT the windowRestore keyframe animation (used for
      un-minimizing) — combining that pop-in-from-small animation with this

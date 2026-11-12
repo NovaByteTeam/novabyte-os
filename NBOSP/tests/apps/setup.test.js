@@ -79,10 +79,14 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     await settle();
 
     expect(content.querySelector('.nvsetup-title').textContent).toBe('NovaByte OS');
+    expect(content.style.background).toBe('var(--bg-base)');
+    expect(content.style.color).toBe('var(--text-primary)');
     expect(content.querySelectorAll('.nvsetup-dot')).toHaveLength(6);
     expect([...content.querySelectorAll('.nvsetup-dot.on')]).toHaveLength(1);
-    // Language choices — an AOSP-style first step.
-    expect(content.querySelectorAll('.nvsetup-lang button').length).toBeGreaterThanOrEqual(2);
+    const layout = content.querySelector('#nvsetup-keyboard-layout');
+    expect(layout.getAttribute('aria-label')).toBe('Keyboard layout');
+    expect(layout.querySelectorAll('option').length).toBeGreaterThanOrEqual(2);
+    expect(layout.value).toBe('us');
     const { next } = wizardButtons(content);
     expect(next.textContent).toBe('Start');
     expect(next.disabled).toBe(false);
@@ -103,11 +107,11 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     skip.click(); // Network -> Data & privacy (skipped)
     await settle();
     expect(content.querySelector('.nvsetup-title').textContent).toBe('Your data');
-    // Two policy toggles: guest access + diagnostics, both interactive rows.
+    // Guest access is the only setup policy toggle.
     const rows = [...content.querySelectorAll('.nvsetup-row')];
-    expect(rows).toHaveLength(2);
-    rows[1].click(); // diagnostics off -> on
-    expect(rows[1].getAttribute('aria-pressed')).toBe('true');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('Guest access');
+    expect(content.textContent).not.toContain('Diagnostics');
   });
 
   it('account step validates and gates Next until the owner account is complete', async () => {
@@ -209,6 +213,9 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     await settle();
 
     const { next } = wizardButtons(content);
+    const layout = content.querySelector('#nvsetup-keyboard-layout');
+    layout.value = 'gb';
+    layout.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
     next.click(); next.click(); next.click();
     await settle();
     const [display, username, pin, pin2] = [...content.querySelectorAll('.nvsetup-input')];
@@ -222,6 +229,13 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     await settle();
     next.click(); // create owner -> Appearance
     await settle(30);
+    const themes = [...content.querySelectorAll('.nvsetup-theme-options .nvsetup-row')];
+    expect(themes).toHaveLength(7);
+    expect(themes[0].getAttribute('aria-pressed')).toBe('true');
+    const dracula = themes.find(button => button.textContent === 'Dracula');
+    dracula.click();
+    expect(dracula.getAttribute('aria-pressed')).toBe('true');
+    expect(content.querySelector('style').textContent).toContain('.nvsetup-theme-options .nvsetup-row[aria-pressed="true"]');
     next.click(); // Appearance -> All set
     await settle();
     expect(content.querySelector('.nvsetup-title').textContent).toBe('You\u2019re all set');
@@ -229,10 +243,11 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     await settle(30);
 
     const writes = Object.fromEntries(settingsWrites);
-    expect(writes.theme).toBe('nova-dark');
+    expect(writes.theme).toBe('dracula');
     expect(writes.accentColor).toBe('#93c5fd');
-    expect(writes.language).toBe('en');
-    expect(writes.diagnostics).toBe(false);
+    expect(writes.keyboardLayout).toBe('gb');
+    expect(writes.language).toBeUndefined();
+    expect(writes.diagnostics).toBeUndefined();
     expect(adminPuts.some(p => p.path === '/api/auth/admin/policies' && p.method === 'PUT')).toBe(true);
     expect(closedWindows).toContain('w9');
   });

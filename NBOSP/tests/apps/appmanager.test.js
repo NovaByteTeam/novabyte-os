@@ -87,6 +87,25 @@ describe('App Manager app (js/apps/appmanager)', () => {
     expect(content.textContent).toContain('Show hidden apps');
   });
 
+  it('reveals Setup and NovaReg only when Show hidden apps is enabled', async () => {
+    const { content } = await loadAppManager({
+      seedApps: [
+        { id: 'com.nbosp.setup', name: 'NovaByte Setup', system: true, version: '3.0.2' },
+        { id: 'com.nbosp.novareg', name: 'NovaReg', system: true, version: '3.0.2' },
+      ],
+    });
+    expect(listRows(content)).toHaveLength(0);
+
+    const showHidden = content.querySelector('#app-manager-show-hidden');
+    showHidden.checked = true;
+    showHidden.dispatchEvent(new content.ownerDocument.defaultView.Event('change', { bubbles: true }));
+
+    expect(listRows(content)).toHaveLength(2);
+    expect(listRows(content).map(row => row.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('NovaByte Setup'), expect.stringContaining('NovaReg')]),
+    );
+  });
+
   it('lists installed packages sorted by name and shows a detail view on click', async () => {
     const { content, window } = await loadAppManager({
       seedApps: [

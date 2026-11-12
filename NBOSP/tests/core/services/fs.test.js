@@ -417,6 +417,23 @@ describe('FS linux-native backend (real disk contract)', () => {
     expect(FS.rootId).toBe(nodePath.resolve(fakeHome));
   });
 
+  it('allows the per-user app-data root while keeping it inside the account tree', async () => {
+    const previousScope = globalThis.NovaUserScope;
+    globalThis.NovaUserScope = { enabled: () => true, activeUsername: () => '' };
+    try {
+      await FS.setUserRoot('u-owner', { username: 'ada' });
+      const userBase = nodePath.join(fakeHome, '.local', 'share', 'novabyte', 'users', 'ada');
+      expect(FS.rootId).toBe(nodePath.join(userBase, 'home'));
+      expect(FS.specialFolders.data).toBe(nodePath.join(userBase, 'apps'));
+      expect(FS.getByPath('/data').id).toBe(FS.specialFolders.data);
+      expect(FS.listDir(FS.specialFolders.data)).toEqual([]);
+    } finally {
+      await FS.setUserRoot('', {});
+      if (previousScope === undefined) delete globalThis.NovaUserScope;
+      else globalThis.NovaUserScope = previousScope;
+    }
+  });
+
   it('listDir reads the real disk, folders first then alphabetical, and hides nothing the disk shows', async () => {
     await FS.createFile(fakeHome, 'zz-notes.txt', 'zz');
     await FS.createFolder(fakeHome, 'aa-folder');

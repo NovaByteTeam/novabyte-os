@@ -807,17 +807,12 @@ async function launchFirstBootSetup(manager) {
       y: 0,
       width: window.innerWidth || 1280,
       height: window.innerHeight || 800,
+      fullscreen: true,
     });
     if (!id) return false;
     setupWindowId = id;
     setupLastLaunch = Date.now();
     surface = 'setup';
-
-    // Full-bleed first-run surface: frameless (manifest frame: false) and
-    // maximized to the work area, above the dimmed wallpaper backdrop.
-    try {
-      if (typeof WM.toggleMaximize === 'function') WM.toggleMaximize(id);
-    } catch (_) { }
 
     const onClosed = ({ appId, id: closedId } = {}) => {
       if (appId !== SETUP_APP_ID || closedId !== setupWindowId) return;

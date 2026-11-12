@@ -40,6 +40,9 @@ describe('Users app account table', () => {
       { uid: 'u2', username: 'sam', displayName: 'Sam', role: 'standard', roleLabel: 'Standard', status: 'disabled', locked: true },
     ]);
     try {
+      expect(host.style.background).toBe('var(--bg-base)');
+      expect(host.style.color).toBe('var(--text-primary)');
+      expect(host.querySelector('style').textContent).toContain('.nbusers-event.warn { border-left-color:var(--text-warning); }');
       const rows = [...host.querySelectorAll('.nbusers-table tbody tr')];
       expect(rows).toHaveLength(2);
 

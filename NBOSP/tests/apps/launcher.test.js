@@ -111,6 +111,8 @@ describe('Launcher shell (js/apps/launcher)', () => {
     window.APP_REGISTRY = [
       { id: 'com.nbosp.clock', name: 'Clock', icon: 'clock' },
       { id: 'com.nbosp.devconsole', name: 'Console', icon: 'terminal', devOnly: true },
+      { id: 'com.nbosp.setup', name: 'NovaByte Setup', icon: 'settings', system: true },
+      { id: 'com.nbosp.novareg', name: 'NovaReg', icon: 'database', system: true },
       { id: 'com.user.zeta', name: 'Zeta App', icon: 'star' },
       { id: 'com.nbosp.launcher', name: 'Launcher', icon: 'home' },
       { id: 'com.nbosp.files', name: 'Files', icon: 'folder-open' },
@@ -118,9 +120,9 @@ describe('Launcher shell (js/apps/launcher)', () => {
     window.toggleLaunchpad();
     const names = [...document.querySelectorAll('.launchpad-item .launchpad-name')].map((n) => n.textContent);
     // Pinned LAUNCHPAD_ORDER apps keep list order (Files before Clock), then
-    // unpinned non-system apps alphabetically. Console is devOnly-hidden and
-    // the launcher never lists itself.
-    expect(names).toEqual(['Files', 'Clock', 'Zeta App']);
+    // NovaReg and user apps alphabetically. Developer tools and first-boot
+    // setup utilities are hidden, and the launcher never lists itself.
+    expect(names).toEqual(['Files', 'Clock', 'NovaReg', 'Zeta App']);
 
     // Clicking an app closes the launchpad and opens the window
     const clockItem = [...document.querySelectorAll('.launchpad-item')]

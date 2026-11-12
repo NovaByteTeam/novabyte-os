@@ -1276,6 +1276,8 @@ registerApp({
       'com.nbosp.permissions',
       'com.nbosp.sysaccess',
       'com.nbosp.launcher',
+      'com.nbosp.setup',
+      'com.nbosp.novareg',
     ]);
     const LOG_KEY = 'nova_appmanager_log'; // legacy seed + fallback; live path is HKND/appmanager/log
 

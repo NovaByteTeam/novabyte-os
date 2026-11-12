@@ -6,7 +6,7 @@
  * The whole first-run experience lives in this .novaapp instead of being
  * hardcoded into the lock screen: the lock screen only DETECTS "this
  * machine has no accounts" and launches this app full-screen. Everything
- * a person does on a fresh machine — language, network, data & privacy,
+ * a person does on a fresh machine — keyboard layout, network, data & privacy,
  * the owner account, appearance — is a step here, so developers can add,
  * reorder or replace steps without touching core boot code.
  *
@@ -14,17 +14,16 @@
  * creation is a trusted verb: the wizard calls SessionManager.setupOwner
  * directly, the same call the lock screen's inline wizard used to make.
  * After the owner exists the account mount sequence runs; preferences
- * collected along the way (guest access, diagnostics, theme, accent)
+ * collected along the way (keyboard layout, guest access, theme, accent)
  * are applied once the owner's hive is the mounted settings store.
  *
  * Launching it later (from the App Manager, after setup is done) shows a
  * completed-state screen instead of the wizard — setup is a one-way door.
  *
  * Steps (bare bones, AOSP-like):
- *   1. Welcome        — language picker, Start
+ *   1. Welcome        — keyboard-layout picker, Start
  *   2. Network        — connectivity check, skippable
- *   3. Data & privacy — per-account storage notice, guest access,
- *                       diagnostics toggles
+ *   3. Data & privacy — per-account storage notice and guest access
  *   4. Owner account  — display name, username, PIN, passphrase
  *   5. Appearance     — theme + accent
  *   6. All set        — apply + finish
@@ -37,20 +36,20 @@ registerApp({
   name: 'NovaByte Setup',
   version: '3.0.2',
   icon: SETUP_ICON,
-  description: 'First-boot setup wizard (AOSP-style).',
+  description: 'First-boot setup wizard: keyboard layout, owner account, and appearance.',
   category: 'system',
   permissions: [],
   defaultSize: [920, 640],
   minSize: [560, 420],
   resizable: true,
-  transparent: true,
+  transparent: false,
 
   async init(content, state, options) {
     const ac = new AbortController();
     state.cleanups?.push(() => ac.abort());
     void options;
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,system-ui,sans-serif);overflow:hidden;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,system-ui,sans-serif);overflow:hidden;';
 
     const css = document.createElement('style');
     css.textContent = `
@@ -65,7 +64,7 @@ registerApp({
       .nvsetup-card { width:min(560px,100%);display:flex;flex-direction:column;gap:14px; }
       .nvsetup-title { font-size:24px;font-weight:600;margin:0;text-align:center; }
       .nvsetup-sub { font-size:13px;color:var(--text-muted);text-align:center;line-height:1.5;margin:-4px 0 4px; }
-      .nvsetup-label { font-size:11px;color:var(--text-muted);margin-bottom:-8px; }
+      .nvsetup-label { display:block;font-size:12px;color:var(--text-secondary,var(--text-muted));line-height:1.35;margin:0 0 6px; }
       .nvsetup-input { padding:11px 14px;border-radius:10px;border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--text-primary);font-size:14px;outline:none;width:100%;box-sizing:border-box; }
       .nvsetup-input:focus { border-color:var(--accent); }
       .nvsetup-input.bad { border-color:var(--text-danger); }
@@ -74,13 +73,13 @@ registerApp({
       .nvsetup-row .nvsetup-row-text { flex:1; }
       .nvsetup-row b { font-weight:600;display:block; }
       .nvsetup-row small { color:var(--text-muted); }
+      .nvsetup-theme-options .nvsetup-row[aria-pressed="true"] { border-color:var(--accent);background:var(--accent-muted);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent); }
+      .nvsetup-theme-options .nvsetup-row[aria-pressed="true"]::after { content:'✓';font-size:15px;font-weight:700; }
       .nvsetup-switch { width:38px;height:20px;border-radius:999px;background:var(--bg-overlay);border:1px solid var(--border-default);position:relative;flex-shrink:0;transition:background .2s; }
       .nvsetup-switch::after { content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--text-muted);transition:transform .2s,background .2s; }
       .nvsetup-row[aria-pressed="true"] .nvsetup-switch { background:var(--accent-muted);border-color:var(--accent); }
       .nvsetup-row[aria-pressed="true"] .nvsetup-switch::after { transform:translateX(18px);background:var(--accent); }
-      .nvsetup-lang { display:grid;grid-template-columns:1fr 1fr;gap:8px; }
-      .nvsetup-lang button { padding:10px 12px;border-radius:9px;border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--text-primary);font-size:13px;cursor:pointer;text-align:left; }
-      .nvsetup-lang button.on { border-color:var(--accent);color:var(--accent);background:var(--accent-muted);font-weight:600; }
+      .nvsetup-layout { width:100%; }
       .nvsetup-status { min-height:18px;font-size:12px;color:var(--text-danger);text-align:center; }
       .nvsetup-status.ok { color:var(--text-success); }
       .nvsetup-neticon { font-size:34px;text-align:center;margin:0; }
@@ -89,7 +88,7 @@ registerApp({
       .nvsetup-bottom { flex-shrink:0;display:flex;justify-content:space-between;gap:10px;padding:16px 34px 22px;border-top:1px solid var(--border-subtle); }
       .nvsetup-btn { padding:10px 22px;border-radius:10px;border:1px solid var(--border-default);background:var(--bg-elevated);color:var(--text-primary);font-size:13px;cursor:pointer; }
       .nvsetup-btn.ghost { background:transparent;border-color:transparent;color:var(--text-muted); }
-      .nvsetup-btn.primary { border-color:var(--accent);background:var(--accent);color:#fff;font-weight:600; }
+      .nvsetup-btn.primary { border-color:var(--accent);background:var(--accent);color:var(--text-primary);font-weight:600; }
       .nvsetup-btn.primary:disabled { opacity:.5;cursor:default; }
       .nvsetup-swatches { display:flex;gap:10px;justify-content:center;flex-wrap:wrap; }
       .nvsetup-swatch { width:34px;height:34px;border-radius:50%;border:2px solid transparent;cursor:pointer; }
@@ -108,10 +107,9 @@ registerApp({
     const multiUser = typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.();
 
     const pending = {
-      language: 'en',
+      keyboardLayout: 'us',
       networkSkipped: false,
       guestAccess: true,
-      diagnostics: false,
       displayName: '',
       username: '',
       pin: '',
@@ -124,16 +122,35 @@ registerApp({
     const THEMES = [
       { id: 'nova-dark', label: 'Nova Dark' },
       { id: 'nova-light', label: 'Nova Light' },
-      { id: 'stock-blue', label: 'Stock Blue' },
+      { id: 'nord', label: 'Nord' },
+      { id: 'dracula', label: 'Dracula' },
+      { id: 'catppuccin', label: 'Catppuccin' },
+      { id: 'tokyo-night', label: 'Tokyo Night' },
+      { id: 'gruvbox', label: 'Gruvbox' },
     ];
     const ACCENTS = ['#93c5fd', '#2563eb', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#fb7185'];
-    const LANGUAGES = [
-      { id: 'en', label: 'English (United States)' },
-      { id: 'en-GB', label: 'English (United Kingdom)' },
-      { id: 'de', label: 'Deutsch' },
-      { id: 'fr', label: 'Français' },
-      { id: 'es', label: 'Español' },
-      { id: 'pt-BR', label: 'Português (Brasil)' },
+    const KEYBOARD_LAYOUTS = [
+      { code: 'us', label: 'English (US)' },
+      { code: 'gb', label: 'English (UK)' },
+      { code: 'ca', label: 'English (Canada)' },
+      { code: 'au', label: 'English (Australia)' },
+      { code: 'de', label: 'German' },
+      { code: 'fr', label: 'French' },
+      { code: 'be', label: 'Belgian' },
+      { code: 'es', label: 'Spanish' },
+      { code: 'it', label: 'Italian' },
+      { code: 'pt', label: 'Portuguese' },
+      { code: 'br', label: 'Portuguese (Brazil)' },
+      { code: 'nl', label: 'Dutch' },
+      { code: 'se', label: 'Swedish' },
+      { code: 'no', label: 'Norwegian' },
+      { code: 'dk', label: 'Danish' },
+      { code: 'fi', label: 'Finnish' },
+      { code: 'pl', label: 'Polish' },
+      { code: 'tr', label: 'Turkish' },
+      { code: 'ru', label: 'Russian' },
+      { code: 'ua', label: 'Ukrainian' },
+      { code: 'jp', label: 'Japanese' },
     ];
 
     // ── Step chrome ──────────────────────────────────────────────────────
@@ -177,27 +194,24 @@ registerApp({
     function stepWelcome() {
       const card = createEl('div', { className: 'nvsetup-card' });
       const title = createEl('h1', { className: 'nvsetup-title', textContent: 'NovaByte OS' });
-      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'Welcome. Choose your language to get started. You can change it later in Settings.' });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'Choose your keyboard layout to get started. NovaByte is currently available in English; you can change the keyboard layout later in Settings.' });
 
-      const langLabel = createEl('div', { className: 'nvsetup-label', textContent: 'Language' });
-      const langs = createEl('div', { className: 'nvsetup-lang', role: 'radiogroup', 'aria-label': 'Language' });
-      for (const lang of LANGUAGES) {
-        const btn = createEl('button', {
-          type: 'button',
-          role: 'radio',
-          'aria-checked': String(lang.id === pending.language),
-          textContent: lang.label,
-        });
-        btn.classList.toggle('on', lang.id === pending.language);
-        btn.addEventListener('click', () => {
-          pending.language = lang.id;
-          for (const other of langs.children) other.classList.remove('on');
-          btn.classList.add('on');
-        });
-        langs.appendChild(btn);
+      const layoutLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-keyboard-layout', textContent: 'Keyboard layout' });
+      const layoutSelect = createEl('select', {
+        id: 'nvsetup-keyboard-layout',
+        className: 'nvsetup-input nvsetup-layout',
+        'aria-label': 'Keyboard layout',
+      });
+      for (const layout of KEYBOARD_LAYOUTS) {
+        layoutSelect.appendChild(createEl('option', {
+          value: layout.code,
+          textContent: layout.label,
+        }));
       }
+      layoutSelect.value = pending.keyboardLayout;
+      layoutSelect.addEventListener('change', () => { pending.keyboardLayout = layoutSelect.value; });
 
-      card.append(title, sub, langLabel, langs);
+      card.append(title, sub, layoutLabel, layoutSelect);
       body.replaceChildren(card);
       setButtons({ next: 'Start' });
       title.setAttribute('tabindex', '-1');
@@ -273,9 +287,8 @@ registerApp({
         return row;
       };
       const guestRow = mkRow('Guest access', 'Let people use this machine without an account (ephemeral sessions)', pending.guestAccess, 'guestAccess');
-      const diagRow = mkRow('Diagnostics', 'Send anonymous crash reports and diagnostics to NovaByte', pending.diagnostics, 'diagnostics');
 
-      card.append(title, sub, note, guestRow, diagRow);
+      card.append(title, sub, note, guestRow);
       body.replaceChildren(card);
       setButtons({ next: 'Next' });
       title.setAttribute('tabindex', '-1');
@@ -370,7 +383,7 @@ registerApp({
       const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'Pick a theme and an accent colour. You can change these any time in Settings \u2192 Appearance.' });
 
       const themeLabel = createEl('div', { className: 'nvsetup-label', textContent: 'Theme' });
-      const themeRows = createEl('div', { className: 'nvsetup-grid2' });
+      const themeRows = createEl('div', { className: 'nvsetup-grid2 nvsetup-theme-options' });
       for (const theme of THEMES) {
         const btn = createEl('button', { className: 'nvsetup-row', type: 'button', 'aria-pressed': String(pending.theme === theme.id) });
         const text = createEl('span', { className: 'nvsetup-row-text' });
@@ -430,8 +443,7 @@ registerApp({
       try {
         OS.settings.set('theme', pending.theme);
         OS.settings.set('accentColor', pending.accent);
-        OS.settings.set('language', pending.language);
-        OS.settings.set('diagnostics', pending.diagnostics === true);
+        OS.settings.set('keyboardLayout', pending.keyboardLayout);
         OS.settings.set('doNotDisturb', false);
       } catch (err) {
         console.warn('[NovaByteSetup] Preference apply failed:', err);

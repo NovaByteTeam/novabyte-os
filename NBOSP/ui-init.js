@@ -24,7 +24,23 @@ document.addEventListener('DOMContentLoaded', function () {
   // Previously: inline <script> block in index.html (line ~743).
   // F12 / Ctrl+Shift+I  →  toggle Chrome DevTools (NW.js only)
   // F5  / Ctrl+R        →  hot-reload the page
+  function isFullscreenSetupOpen() {
+    const windows = window.OS?.windows;
+    return !!windows && [...windows.values()].some(state =>
+      state.appId === 'com.nbosp.setup' && state.fullscreen === true
+    );
+  }
+
   window.addEventListener('keydown', function (e) {
+    if (isFullscreenSetupOpen()) {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key === 'Escape' ||
+          e.key === 'PrintScreen' || /^F\d+$/.test(e.key)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+      return;
+    }
+
     if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
       e.preventDefault();
       nw.Window.get().showDevTools();
@@ -33,6 +49,6 @@ document.addEventListener('DOMContentLoaded', function () {
       e.preventDefault();
       nw.Window.get().reload();
     }
-  });
+  }, true);
 
 });

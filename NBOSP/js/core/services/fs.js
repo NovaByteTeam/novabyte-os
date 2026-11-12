@@ -542,9 +542,11 @@ if (typeof process !== 'undefined' && process.platform === 'linux') {
     scopedUser = scoped ? String(uid) : '';
     if (scoped || guest) {
       trashPath = nativePath.join(home, 'Trash');
-      const roots = guest ? userRootsFor('', true) : userRootsFor(uid, false);
+      const roots = guest
+        ? { apps: nativePath.join(nativePath.dirname(home), 'apps') }
+        : userRootsFor(uid, false);
       appDataRoot = roots.apps;
-      allowedRoots = scoped ? [home, sharedRoot] : [home]; // guests get no /Shared access
+      allowedRoots = scoped ? [home, appDataRoot, sharedRoot] : [home, appDataRoot]; // guests get no /Shared access
     } else {
       trashPath = defaultTrashPath;
       appDataRoot = defaultAppDataRoot;

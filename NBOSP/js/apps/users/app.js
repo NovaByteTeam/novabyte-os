@@ -39,7 +39,7 @@ registerApp({
     state.cleanups?.push(() => ac.abort());
     const { signal } = ac;
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;';
 
     const css = document.createElement('style');
     css.textContent = `
@@ -70,7 +70,7 @@ registerApp({
       .nbusers-form input, .nbusers-form select { padding:9px 12px;border-radius:9px;border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--text-primary);font-size:13px;outline:none; }
       .nbusers-event { padding:8px 10px;border-left:3px solid var(--border-default);margin-bottom:6px;background:var(--bg-overlay);border-radius:6px;font-size:12px; }
       .nbusers-event.info { border-left-color:var(--accent); }
-      .nbusers-event.warn { border-left-color:#f0b449; }
+      .nbusers-event.warn { border-left-color:var(--text-warning); }
       .nbusers-event.error { border-left-color:var(--text-danger); }
       .nbusers-status { min-height:18px;font-size:12px;color:var(--text-danger);margin-top:10px; }
       .nbusers-ok { color:var(--text-muted); }

@@ -147,7 +147,7 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     const maximized = [];
     const scope = { enabled: () => true, uid: () => '', ownerUid: () => '', activeUsername: () => '' };
     const apps = setupRegistered
-      ? { 'com.nbosp.setup': { id: 'com.nbosp.setup', name: 'NovaByte Setup', init: async () => {}, frame: false } }
+      ? { 'com.nbosp.setup': { id: 'com.nbosp.setup', name: 'NovaByte Setup', init: async () => {}, frame: true } }
       : {};
     const wmCalls = [];
     const eventLogCalls = [];
@@ -203,12 +203,12 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     await window.LockScreenService.showLoginPicker();
     await settle();
 
-    // The setup app owns the first-run experience: a frameless window,
-    // maximized to the work area, and NO account fields hardcoded in the
-    // lock screen (the old inline wizard's inputs are gone).
+    // The setup app owns the first-run experience: a true fullscreen window
+    // with no shell chrome and NO account fields hardcoded in the lock screen.
     expect(createdWindows).toHaveLength(1);
     expect(createdWindows[0].appId).toBe('com.nbosp.setup');
-    expect(maximized).toEqual(['win-1']);
+    expect(createdWindows[0].opts.fullscreen).toBe(true);
+    expect(maximized).toEqual([]);
     expect(document.getElementById('lock-screen').className).not.toContain('active');
     expect(document.querySelector('#fw-username')).toBeNull();
     expect(document.querySelector('.lock-wizard input')).toBeNull();

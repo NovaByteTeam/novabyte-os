@@ -49,6 +49,10 @@ const LAUNCHPAD_ORDER = Object.freeze([
   'com.nbosp.music',        // Music
 ]);
 
+const HIDDEN_FROM_LAUNCHPAD = new Set([
+  'com.nbosp.setup',
+]);
+
 function launchpadRank(app) {
   // Three tiers so an unbundled system app can't collide with a user app on
   // the same fallback rank: pinned system apps first (by list order), then
@@ -153,7 +157,7 @@ function renderLaunchpad() {
   if (!grid) return;
   const devMode = getLauncherDeveloperMode();
   const apps = (devMode ? APP_REGISTRY : APP_REGISTRY.filter(app => !app.devOnly))
-    .filter(app => app.id !== 'com.nbosp.launcher');
+    .filter(app => app.id !== 'com.nbosp.launcher' && !HIDDEN_FROM_LAUNCHPAD.has(app.id));
   // Stable sort: pinned order first, everything else alphabetical. This keeps
   // the grid layout consistent across reloads instead of tracking module
   // load order, which drifts whenever a hot-reload reorders registration.
