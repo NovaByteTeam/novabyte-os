@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  NBOSP kiosk labwc configuration.
+
+  labwc replaced cage as the kiosk compositor: it is a full stacking
+  compositor with layer-shell support, so the OS can show system surfaces
+  on top of the fullscreen NovaByte window, and auxiliary X11 clients
+  (DevTools, diagnostics) stack correctly instead of needing cage-specific
+  restacking patches.
+
+  Bindings are deliberately the labwc defaults plus nothing else:
+
+  * A-Tab / A-S-Tab cycle focus between the NovaByte window and any
+    auxiliary X11 client.
+  * A-F4 closes the focused window. The NovaByte app window itself swallows
+    close requests in scripts/startup.js, so Alt+F4 never exits the kiosk
+    app; it only ever closes auxiliary windows.
+  * PrintScreen is intentionally NOT bound here. The OS handles it in-page
+    (ui-init.js -> ScreenshotService) so screenshots keep working while
+    every other browser-level shortcut is disabled.
+-->
+<labwc_config>
+
+  <keyboard>
+    <default />
+  </keyboard>
+
+  <mouse>
+    <default />
+  </mouse>
+
+</labwc_config>

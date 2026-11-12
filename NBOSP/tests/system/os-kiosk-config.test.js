@@ -185,10 +185,6 @@ describe('NBOSP VMware kiosk device configuration', () => {
     const defconfig = readFileSync(new URL('../../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
     const startup = readFileSync(new URL('../../os/board/nbosp/S99nbosp', import.meta.url), 'utf8');
     const build = readFileSync(new URL('../../os/build-iso.sh', import.meta.url), 'utf8');
-    const cagePatch = readFileSync(
-      new URL('../../os/patches/cage/0001-runtime-debug-logging.patch', import.meta.url),
-      'utf8',
-    );
 
     for (const option of [
       'BR2_PACKAGE_MESA3D_DEMOS=y',
@@ -198,7 +194,6 @@ describe('NBOSP VMware kiosk device configuration', () => {
       expect(defconfig).toContain(option);
     }
     expect(defconfig).toContain('BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_NBOSP_PATH)/patches"');
-    expect(cagePatch).toContain('getenv("CAGE_DEBUG")');
     // GL debug is runtime-controlled: env override > kernel cmdline > off.
     expect(startup).toContain('if [ -z "$NBOSP_GL_DEBUG" ]; then');
     expect(startup).toContain('*NBOSP_GL_DEBUG=1*) NBOSP_GL_DEBUG=1 ;;');
@@ -209,24 +204,39 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(startup).toContain('$chromium_gl_debug');
     expect(startup).toContain("'\"$gl_debug_env\"'");
     // Debug mode must not change which GL backend Chromium asks for, and
-    // cage's -d means "no client-side decorations", not debug.
+    // labwc gets debug logging via its own -d flag (no patch needed, unlike
+    // the retired cage setup whose -d meant "no client-side decorations").
     expect(startup).toContain('--use-angle=gl');
-    expect(startup).not.toMatch(/\/usr\/bin\/cage -d/);
+    expect(startup).toContain('labwc_debug_flag="-d"');
+    expect(startup).toContain('exec /usr/bin/labwc $labwc_debug_flag -C /etc/labwc');
     expect(build).toContain("grep -v '^BR2_PACKAGE_MESA3D_DEMOS='");
-    expect(build).toContain('cage-dirclean');
+    expect(build).toContain('labwc-dirclean');
   });
 
-  it('overrides Buildroot Xwayland with a build that works without wl_drm', () => {
+  it('uses Buildroot 2026.08.1 stock Xwayland and overrides wlroots for labwc', () => {
     const build = readFileSync(new URL('../../os/build-iso.sh', import.meta.url), 'utf8');
-    const mk = readFileSync(new URL('../../os/overrides/xwayland/xwayland.mk', import.meta.url), 'utf8');
-    const hash = readFileSync(new URL('../../os/overrides/xwayland/xwayland.hash', import.meta.url), 'utf8');
+    const defconfig = readFileSync(new URL('../../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
+    const wlrootsMk = readFileSync(new URL('../../os/overrides/wlroots/wlroots.mk', import.meta.url), 'utf8');
+    const wlrootsPatch = readFileSync(
+      new URL('../../os/patches/wlroots/0001-dmabuf-tolerate-close-handle-failure.patch', import.meta.url),
+      'utf8',
+    );
 
-    // 23.2.4 requires wl_drm, which wlroots 0.18 (cage) does not advertise.
-    expect(mk).toMatch(/^XWAYLAND_VERSION = 24\.1\./m);
-    expect(mk).not.toContain('xwayland_eglstream');
-    expect(hash).toMatch(/sha256\s+[0-9a-f]{64}\s+xwayland-24\.1\./);
-    expect(build).toContain('overrides/xwayland');
-    expect(build).toContain('"$BUILDROOT_DIR/package/x11r7/xwayland/"');
-    expect(build).toContain('"$XWAYLAND_OVERRIDE_DIR/xwayland.mk"');
+    // Buildroot 2026.08.1 ships Xwayland 24.1.13 with a wl_drm-free glamor
+    // fix already included, so the old xwayland override is gone; wlroots is
+    // overridden to 0.20.2 because labwc 0.20.3 requires >= 0.20.1.
+    expect(build).toContain('BUILDROOT_VERSION="2026.08.1"');
+    expect(build).not.toContain('overrides/xwayland');
+    expect(build).not.toContain('overrides/host-m4');
+    expect(build).toContain('overrides/wlroots');
+    expect(build).toContain('"$BUILDROOT_DIR/package/wlroots/"');
+    expect(wlrootsMk).toMatch(/^WLROOTS_VERSION = 0\.20\.2$/m);
+    // The vmwgfx dmabuf close-handle tolerance patch is rebased for 0.20.x:
+    // close-handle failure is only logged (WLR_DEBUG), never fatal.
+    expect(wlrootsPatch).toContain('drmCloseBufferHandle');
+    expect(wlrootsPatch).toContain('wlr_log_errno(WLR_DEBUG');
+    expect(wlrootsPatch).not.toContain('+\t\t\treturn false');
+    expect(defconfig).toContain('BR2_PACKAGE_LABWC=y');
+    expect(defconfig).toContain('BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="7.3.4"');
   });
 });

@@ -4,7 +4,7 @@
 # nbosp user come from there.
 #
 # These plugins are X11 clients. The session exports GDK_BACKEND=wayland for
-# NW.js, so it is overridden here. cage starts Xwayland lazily, so wait for it
+# NW.js, so it is overridden here. labwc starts Xwayland lazily, so wait for it
 # rather than being the client that triggers its startup.
 
 # The session points LD_LIBRARY_PATH at NW.js's bundled libraries, including
