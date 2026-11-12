@@ -98,14 +98,24 @@ const TrustStore = (() => {
   // for the "System" badge in the App Manager package —
   // that's a stronger claim than ordinary "Verified", so it gets its own
   // signer identity rather than reusing NOVABYTE_TRUSTED_SIGNING_PUBLIC_JWK.
-  // Replace this JWK with your own Ed25519 public key before relying on
-  // the System badge for anything — as committed, this is a non-functional
-  // placeholder (no matching private key exists for it), so nothing will
-  // verify against it until you swap it out.
+  //
+  // ROTATED 2026-11-12 (security audit, finding F1): the previous anchor's
+  // private half was committed to the repository (NBOSP/keys/test-system-key.json),
+  // so any repository reader could mint packages this store verified as
+  // "NovaByte System". That key is revoked: the file was removed from the
+  // tree, and this anchor now points at a fresh Ed25519 pair whose private
+  // half is held OFFLINE (it is never committed). Bundled first-party
+  // .novaapp packages do not rely on this signature — boot installs them by
+  // immutable build provenance (source 'system-bundle') — so rotating here
+  // only invalidates the (compromised) trust of user-installed packages
+  // signed with the old leaked key, which is exactly the intended outcome.
+  // Release signing: NBOSP_SYSTEM_SIGNING_KEY / NBOSP_SYSTEM_SIGNING_KEY_PATH
+  // env vars in build-apps.mjs. Packages signed with any other key must not
+  // verify here.
   const NOVABYTE_SYSTEM_SIGNING_PUBLIC_JWK = {
   "kty": "OKP",
   "crv": "Ed25519",
-  "x": "vAglEORayg7_dzvIe1hJ6_RJrLKlEin_77IFWa-8k_o"
+  "x": "oijvG9h8TJRx-Nqbm-SxyrBcalPbfUmHGoYEhTMuGXo"
 };
 
   const entries = [

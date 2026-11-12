@@ -20,36 +20,26 @@
  *
  * ── Signing ─────────────────────────────────────────────────
  *
- * Generated packages are signed using the Ed25519 private key stored at:
+ * Generated packages are signed with the NovaByte System Ed25519 key
+ * (signer identity "NovaByte System").
  *
- *   NBOSP/keys/test-system-key.json
+ * The private key is NEVER committed to this repository (see the
+ * 2026-11-12 security audit: the old development key committed under
+ * keys/test-system-key.json matched the trust-store anchor, letting
+ * anyone who could read the repo forge System-signed packages — it was
+ * removed and the anchor rotated).
  *
- * The signer identity is:
+ * The key is supplied through the environment, in either form:
  *
- *   NovaByte System
+ *   NBOSP_SYSTEM_SIGNING_KEY_PATH=/path/to/private.json   (file, JWK)
+ *   NBOSP_SYSTEM_SIGNING_KEY='{"kty":"OKP",...}'        (inline JWK JSON)
  *
- * The package signing payload is signed using Ed25519, matching the
- * runtime package verifier.
- *
- * IMPORTANT:
- *
- * The bundled test-system-key.json contains a deliberately public
- * development/test private key. Anyone building upon NBOSP can use it
- * to test the System signing flow.
- *
- * Because the private key is intentionally distributed, signatures
- * produced with this key MUST NOT be considered proof of genuine
- * production System authorization.
- *
- * For actual System privilege protection, replace the test key with
- * your own privately-held Ed25519 key pair.
- *
- * Keep your private key outside the repository and commit ONLY the
- * corresponding public key to trust-store.js.
- *
- * You can also change DEFAULT_SIGNER if your fork uses a different
- * signer identity, but it must match the identity expected by the
- * package verification logic.
+ * When neither is set, packages are built UNSIGNED (signing/signature
+ * null). Bundled first-party apps do not depend on the signature — boot
+ * installs them by immutable build provenance (source 'system-bundle',
+ * see AppPackage.installPackage) — so unsigned dev bundles still install
+ * and boot correctly. Only user-installed copies of those packages show
+ * up as unverified, which is the truthful state for an unsigned build.
  *
  * Usage:
  *
@@ -92,25 +82,12 @@ const requestedApps = process.argv.slice(3);
 /*
  * ── Signing configuration ─────────────────────────────────────────────
  *
- * This is the intentionally-public NBOSP development/test key.
- *
- * The matching private key is located at:
- *
- *   NBOSP/keys/test-system-key.json
- *
- * Anyone building upon NBOSP may use it for development and testing.
- *
- * For real System privilege protection, replace the test private key
- * with your own privately-held Ed25519 key and replace the public key
- * in trust-store.js with the corresponding public key.
+ * The private signing key comes from the environment (JWK file path or
+ * inline JWK JSON) — never from the repository. See the header comment
+ * for the full rationale and the unsigned-build fallback.
  */
 const DEFAULT_SIGNER = 'NovaByte System';
 
-const TEST_SIGNING_KEY_PATH = path.join(
-  projectRoot,
-  'keys',
-  'test-system-key.json'
-);
 
 /**
  * Recursively collects every file under `dir`.
@@ -162,26 +139,41 @@ async function collectFiles(dir, baseDir) {
 }
 
 /**
- * Loads the Ed25519 private signing key from the test-key JSON file.
+ * Loads the Ed25519 private signing key from the environment.
  *
- * The test key is intentionally distributed with NBOSP so developers
- * can immediately test package signing.
+ * Priority:
+ *   1. NBOSP_SYSTEM_SIGNING_KEY_PATH — path to a JWK JSON file
+ *      (keep the file outside this repository).
+ *   2. NBOSP_SYSTEM_SIGNING_KEY     — inline JWK JSON string.
  *
- * Production forks should replace this with a private key that is NOT
- * committed to the repository.
+ * Returns null when neither variable is set: the caller then builds
+ * UNSIGNED packages (bundled system apps install by provenance; see the
+ * header comment). A key that IS supplied but malformed is a hard error —
+ * a silently-wrong signature would be worse than no signature.
  */
 async function loadSigningKey() {
-  let raw;
+  const keyPath = process.env.NBOSP_SYSTEM_SIGNING_KEY_PATH;
+  const keyInline = process.env.NBOSP_SYSTEM_SIGNING_KEY;
 
-  try {
-    raw = await readFile(
-      TEST_SIGNING_KEY_PATH,
-      'utf8'
-    );
-  } catch (err) {
-    throw new Error(
-      `Unable to read signing key at ${TEST_SIGNING_KEY_PATH}: ${err.message}`
-    );
+  let raw = null;
+  let origin = '';
+
+  if (typeof keyPath === 'string' && keyPath.length > 0) {
+    origin = keyPath;
+    try {
+      raw = await readFile(keyPath, 'utf8');
+    } catch (err) {
+      throw new Error(
+        `Unable to read signing key at ${keyPath}: ${err.message}`
+      );
+    }
+  } else if (typeof keyInline === 'string' && keyInline.trim().length > 0) {
+    origin = 'NBOSP_SYSTEM_SIGNING_KEY (inline)';
+    raw = keyInline;
+  }
+
+  if (raw === null) {
+    return null;
   }
 
   let jwk;
@@ -190,7 +182,7 @@ async function loadSigningKey() {
     jwk = JSON.parse(raw);
   } catch (err) {
     throw new Error(
-      `Signing key is not valid JSON: ${err.message}`
+      `Signing key from ${origin} is not valid JSON: ${err.message}`
     );
   }
 
@@ -441,16 +433,21 @@ async function buildOne(
     appDirName;
 
   /*
-   * Sign the package before writing it.
-   *
-   * `signing` itself is excluded from the signing payload, so the
-   * signature does not end up signing itself.
+   * Sign the package before writing it — but only when a private key was
+   * supplied through the environment. Without one, the package is built
+   * unsigned (signing/signature null): bundled system apps install by
+   * immutable build provenance, and an unsigned user-installed copy is
+   * the truthful state for an unsigned build. `signing` itself is
+   * excluded from the signing payload, so the signature does not end up
+   * signing itself.
    */
-  pkg.signing = signPackage(
-    pkg,
-    privateKey
-  );
-  pkg.signature = pkg.signing.signature;
+  if (privateKey) {
+    pkg.signing = signPackage(
+      pkg,
+      privateKey
+    );
+    pkg.signature = pkg.signing.signature;
+  }
   pkg.integrity = computePackageIntegrity(pkg);
   const cacheKey = computePackageCacheKey(pkg);
 
@@ -473,7 +470,7 @@ async function buildOne(
       outPath
     )} (${fileCount} file${
       fileCount === 1 ? '' : 's'
-    }, signed as ${pkg.signing.signer}, source untouched)`
+    }, ${privateKey ? `signed as ${pkg.signing.signer}` : 'UNSIGNED'}, source untouched)`
   );
   return { id: appId, cacheKey, systemService: manifest.systemService === true };
 }
@@ -513,27 +510,37 @@ async function main() {
     return;
   }
 
-  console.log(
-    `Loading signing key: ${path.relative(
-      projectRoot,
-      TEST_SIGNING_KEY_PATH
-    )}`
-  );
+  const privateKey =
+    await loadSigningKey();
 
-  console.log(
-    `Signer: ${DEFAULT_SIGNER}`
-  );
-
-  console.log(
-    'Signature: Ed25519'
-  );
+  if (privateKey) {
+    console.log(
+      'Signing key: loaded from the environment'
+    );
+    console.log(
+      `Signer: ${DEFAULT_SIGNER}`
+    );
+    console.log(
+      'Signature: Ed25519'
+    );
+  } else {
+    console.log(
+      'Signing key: NOT set (NBOSP_SYSTEM_SIGNING_KEY_PATH / NBOSP_SYSTEM_SIGNING_KEY)'
+    );
+    console.log(
+      'Building UNSIGNED packages — bundled system apps still install by'
+    );
+    console.log(
+      "build provenance ('system-bundle'), but user-installed copies will"
+    );
+    console.log(
+      'show as unverified. Supply the System signing key for signed builds.'
+    );
+  }
 
   console.log(
     `Building ${dirs.length} app(s) from ${appsDir}\n`
   );
-
-  const privateKey =
-    await loadSigningKey();
 
   const builtPackages = new Map();
   for (const dirName of dirs) {

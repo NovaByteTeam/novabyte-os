@@ -2350,6 +2350,16 @@ registerApp({
 
         const safeHint = escapeHtml(hint);
         const safeUrl  = escapeHtml(failedUrl);
+        // JSON.stringify does not escape "</script>" or U+2028/2029 —
+        // escape them so the embedded value cannot terminate the inline
+        // script and hand live markup to the guest page (2026-11-12 audit,
+        // finding M4).
+        const jsonForScript = (v) =>
+          JSON.stringify(v)
+            .replace(/</g, '\\u003c')
+            .replace(/\u2028/g, '\\u2028')
+            .replace(/\u2029/g, '\\u2029');
+
 
         const bypassAttr = showBypass ? ' data-bypass="1"' : '';
         const errorHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -2383,7 +2393,7 @@ registerApp({
 </div>
 <script>
   (function() {
-    const u = ${JSON.stringify(failedUrl)};
+    const u = ${jsonForScript(failedUrl)};
     const r = document.getElementById('__nb_retry');
     if (r) r.addEventListener('click', () => { window.location.href = u; });
     const b = document.getElementById('__nb_bypass');
@@ -2406,16 +2416,21 @@ registerApp({
         if (!e.isTopLevel) return;
         if (!e.url || e.url === 'about:blank' || e.url === 'about:newtab') return;
         if (e.reason === 'ERR_ABORTED') return;
-        const reasonJson = JSON.stringify(e.reason || 'Unknown reason');
+        const reasonJson = JSON.stringify(e.reason || 'Unknown reason')
+          .replace(/</g, '\\u003c')
+          .replace(/\u2028/g, '\\u2028')
+          .replace(/\u2029/g, '\\u2029');
         try {
           wv.executeScript({ code: `
             (function() {
               const reason = ${reasonJson};
+              const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+              const reasonText = esc(reason);
               const html = '<html><body style="background:#0d1117;color:#c9d1d9;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">' +
                 '<div style="text-align:center;max-width:400px">' +
                 '<div style="font-size:32px;margin-bottom:12px">🚫</div>' +
                 '<div style="font-size:16px;font-weight:700;margin-bottom:8px">Navigation Blocked</div>' +
-                '<div style="font-size:12px;color:#8b949e;margin-bottom:16px">' + reason + '</div>' +
+                '<div style="font-size:12px;color:#8b949e;margin-bottom:16px">' + reasonText + '</div>' +
                 '<button id="__nb_back" style="background:#238636;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer">← Go Back</button>' +
                 '</div></body></html>';
               document.documentElement.innerHTML = html;

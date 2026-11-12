@@ -331,8 +331,50 @@ function _pruneAppServeRegistry() {
 const _appServeSweepTimer = setInterval(_pruneAppServeRegistry, _APP_SERVE_TTL);
 _appServeSweepTimer.unref();
 
+// SECURITY (2026-11-12 audit, finding M2): the app-serve mutation routes
+// (register/heartbeat/unregister) are CSRF-exempt by design — <webview>
+// subresource loads and the host's own registration fetch cannot always
+// carry a CSRF token. That exemption previously left them with NO request-
+// origin enforcement at all: any web page in the user's browser could POST
+// a file map and have it served at the OS's own origin under the relaxed
+// app CSP. Enforce same-origin Origin/Referer on these verbs — the trusted
+// host page (and anything in its origin) always sends a matching Origin
+// header on POST/DELETE; sandboxed guests cannot reach these routes with
+// the OS session cookie anyway (opaque origin + SameSite=lax), and a
+// missing/foreign Origin is now rejected outright.
+function _isSameOriginAppServeRequest(req) {
+  const origin = req.headers.origin;
+  if (typeof origin === 'string' && origin.length > 0) {
+    const host = req.headers.host || `127.0.0.1:${process.env.PORT || 3003}`;
+    const originHost = (() => { try { return new URL(origin).host; } catch (_) { return null; } })();
+    if (originHost === null) return false;
+    if (originHost !== host) return false;
+    return /^https?:$/.test((() => { try { return new URL(origin).protocol; } catch (_) { return ''; } })());
+  }
+  // No Origin header: fall back to Referer's authority. The host page's
+  // own fetches always carry Origin on POST/DELETE; absence of both means
+  // a non-browser or hostile client — reject.
+  const referer = req.headers.referer;
+  if (typeof referer === 'string' && referer.length > 0) {
+    const host = req.headers.host || `127.0.0.1:${process.env.PORT || 3003}`;
+    try {
+      const ref = new URL(referer);
+      if (ref.host !== host) return false;
+      return /^https?:$/.test(ref.protocol);
+    } catch (_) { return false; }
+  }
+  return false;
+}
+
+function requireSameOrigin(req, res, next) {
+  if (!_isSameOriginAppServeRequest(req)) {
+    return res.status(403).json({ error: 'Cross-origin app-serve request rejected' });
+  }
+  next();
+}
+
 // Register app files for serving (called by app-sandbox.js loadAppContent)
-app.post('/api/apps/serve/register', (req, res) => {
+app.post('/api/apps/serve/register', requireSameOrigin, (req, res) => {
     const { sandboxId, files, allowExternalFrames, appId } = req.body || {};
     if (!sandboxId || typeof sandboxId !== 'string' || !files || typeof files !== 'object') {
         return res.status(400).json({ error: 'sandboxId (string) and files (object) are required' });
@@ -405,7 +447,7 @@ app.post('/api/apps/serve/register', (req, res) => {
 // the sandbox exists). Keeps the registry entry past the idle TTL for apps that
 // load their bundle once and then go quiet — see the registry comment above for
 // why the TTL alone breaks long-running redirect flows.
-app.post('/api/apps/serve/heartbeat', (req, res) => {
+app.post('/api/apps/serve/heartbeat', requireSameOrigin, (req, res) => {
     const { sandboxId } = req.body || {};
     if (typeof sandboxId !== 'string' || !sandboxId) {
         return res.status(400).json({ error: 'sandboxId (string) is required' });
@@ -419,7 +461,7 @@ app.post('/api/apps/serve/heartbeat', (req, res) => {
 });
 
 // Unregister (called on sandbox destroy)
-app.delete('/api/apps/serve/unregister/:sandboxId', (req, res) => {
+app.delete('/api/apps/serve/unregister/:sandboxId', requireSameOrigin, (req, res) => {
     const key = req.params.sandboxId;
     const entry = _appServeRegistry.get(key);
     _appServeRegistry.delete(key);

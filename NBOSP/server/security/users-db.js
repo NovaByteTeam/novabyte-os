@@ -971,7 +971,14 @@ function eventsToCsv({ uid, severity, action } = {}) {
     const { events } = queryEvents({ uid, severity, action, limit: 1000, offset: 0 });
     const escapeCell = (value) => {
         const text = value === null || value === undefined ? '' : String(value);
-        return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+        // SECURITY (2026-11-12 audit, finding L2): neutralize spreadsheet
+        // formula execution — a cell beginning with =, +, -, @ (or a
+        // TAB/CR control char) is executed as a formula when an admin
+        // opens the export in Excel/LibreOffice. Prefix such cells with a
+        // single quote so they render as inert text.
+        const needsFormulaNeutralizer = /^[=+\-@\t\r]/.test(text);
+        const guarded = needsFormulaNeutralizer ? `'${text}` : text;
+        return /[",\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
     };
     const header = 'ts,actor,action,target,severity,detail,ip';
     const lines = events.map(event => [

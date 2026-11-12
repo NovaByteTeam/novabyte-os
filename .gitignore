@@ -30,3 +30,7 @@ server.log
 /NBOSP/js/apps/*.novaapp
 # Supabase CLI local state
 supabase/.temp/
+
+# System signing private keys must never live in the repo (rotated 2026-11-12 after audit F1)
+/NBOSP/keys/*.json
+/NBOSP/keys/*

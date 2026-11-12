@@ -2580,7 +2580,15 @@ registerApp({
               verified,
               signer,
               system,
-              source: previousInstall?.source || 'file',
+              // SECURITY (2026-11-12 audit, finding F2): never inherit the
+              // previous install's source on replace. Bundled system apps
+              // carry source 'system-bundle', and the UnrestrictedGate's
+              // provenance check trusts exactly that value — inheriting it
+              // here would let a replacement install masquerade as
+              // boot-reconciled system content. A package installed
+              // through this dialog is a FILE install, period; only
+              // boot.reconcileBundledNovaApps() may mint 'system-bundle'.
+              source: 'file',
               installedAt: previousInstall?.installedAt || Date.now(),
               lastUpdateSource: previousInstall ? 'file' : null,
               lastUpdatedAt: previousInstall ? Date.now() : previousInstall?.lastUpdatedAt || null,

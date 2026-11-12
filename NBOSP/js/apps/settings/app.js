@@ -3379,7 +3379,7 @@ registerApp({
       secRowLeft.appendChild(createEl('span', { textContent: 'Security Patch Level', style: 'color:var(--text-secondary);' }));
       secRow.appendChild(secRowLeft);
       const secRowRight = createEl('div', { style: 'display:flex;align-items:center;gap:6px;' });
-      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;', textContent: '\uD83D\uDD12 2026-08-02' });
+      const secBadge    = createEl('span', { style: 'display:inline-flex;align-items:center;gap:5px;background:rgba(63,185,80,0.1);border:1px solid rgba(63,185,80,0.3);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:700;color:#3fb950;', textContent: '\uD83D\uDD12 ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12') });
       secRowRight.appendChild(secBadge);
       secRow.appendChild(secRowRight);
       swRows.appendChild(secRow);
@@ -3439,7 +3439,7 @@ registerApp({
           'Operating System: ' + linuxInfo.distribution,
           'Linux Kernel: ' + linuxInfo.kernel,
           'Architecture: ' + linuxInfo.architecture,
-          'Security Update: 2026-08-02',
+          'Security Update: ' + (typeof OS !== 'undefined' && OS.securityPatch ? OS.securityPatch : '2026-11-12'),
           'Browser: '   + detectBrowser(),
           'Platform: '  + navigator.platform,
           'Screen: '    + screen.width + '\u00D7' + screen.height,

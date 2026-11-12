@@ -8280,13 +8280,19 @@ const AppSandbox = (() => {
   }
 
   function generatePushToken() {
-    const bytes = new Uint8Array(16);
-    try {
-      (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(bytes)
-        : bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
-    } catch (_) {
-      bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
+    // SECURITY (2026-11-12 audit, finding M3): push tokens/device ids are
+    // bearer credentials for the push subscription surface. Math.random
+    // (V8 xorshift128+) is predictable, so a fallback to it for token
+    // generation is a forgery hole, not a compatibility shim — the token
+    // now fails CLOSED when a CSPRNG is genuinely unavailable.
+    // crypto.getRandomValues exists in every Chromium context (secure or
+    // not), so this throw is unreachable in practice, and any hypothetical
+    // caller that hits it must not receive a guessable token.
+    if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+      throw new Error('crypto.getRandomValues unavailable: refusing to generate a predictable push token');
     }
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
     return 'nps_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   }
   const PUSH_TOKEN_PREFIX_LENGTH = 4; // slice('nps_') for device ids
