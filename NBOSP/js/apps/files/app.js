@@ -108,6 +108,17 @@
     return EXT_TO_MIME[ext] || 'application/octet-stream';
   }
 
+  function openFile(f) {
+    if (!f) return;
+    const detectedMimeType = detectMimeFromName(f.name);
+    const detectedMediaType = detectedMimeType.startsWith('image/') || detectedMimeType.startsWith('audio/');
+    const mimeType = !f.mimeType || f.mimeType === 'application/octet-stream' ||
+      (detectedMediaType && !f.mimeType.startsWith(detectedMimeType.split('/')[0] + '/'))
+      ? detectedMimeType
+      : f.mimeType;
+    openFileWithDefaultApp(mimeType === f.mimeType ? f : { ...f, mimeType });
+  }
+
   function isNovaPackage(name) {
     return typeof name === 'string' && name.toLowerCase().endsWith('.novaapp');
   }
@@ -756,7 +767,7 @@
         if (!item?._fileNode) return;
         const f = item._fileNode;
         if (f.type === 'folder') this.navigateTo(f.id);
-        else openFileWithDefaultApp(f);
+        else openFile(f);
       }, { signal: this.signal });
 
       parent.addEventListener('contextmenu', (e) => {
@@ -808,7 +819,7 @@
           label: 'Open', icon: 'eye',
           action: () => {
             if (f.type === 'folder') this.navigateTo(f.id);
-            else openFileWithDefaultApp(f);
+            else openFile(f);
           },
         },
       ];
@@ -1302,7 +1313,10 @@
       this.path = require('path');
       this.os = require('os');
       this.childProcess = require('child_process');
-      this.currentPath = this.path.resolve(options.path || this.os.homedir());
+      this.homePath = typeof FS !== 'undefined' && typeof FS.rootId === 'string'
+        ? FS.rootId
+        : this.os.homedir();
+      this.currentPath = this.path.resolve(options.path || this.homePath);
       this.state._linuxPath = this.currentPath;
       this.selectedPath = null;
       this.selectedPaths = new Set();
@@ -1337,7 +1351,7 @@
       };
       toolbar.append(
         button('Up', 'Open parent folder', () => this.goUp()),
-        button('Home', 'Open home folder', () => this.navigate(this.os.homedir())),
+        button('Home', 'Open home folder', () => this.navigate(this.homePath)),
         button('New folder', 'Create a folder', () => this.createEntry(true)),
         button('New file', 'Create an empty file', () => this.createEntry(false)),
         button('Refresh', 'Refresh folder', () => this.render())
@@ -1573,7 +1587,7 @@
             /\.(?:mp3|mp4|m4a|ogg|wav|flac|aac|opus|weba|webm|jpg|jpeg|png|gif|webp|bmp|svg|avif|tif|tiff)$/i.test(entry.name)) {
           file.mimeType = detectMimeFromName(entry.name);
         }
-        openFileWithDefaultApp(file);
+        openFile(file);
       } else if (entry.executable) {
         await this.runExecutable(entry.path);
       } else {
@@ -1965,7 +1979,10 @@
           if (!isValidFileName(file.name)) throw new Error('File name is not valid.');
           const fs = require('fs').promises;
           const path = require('path');
-          const destination = path.resolve(state?._linuxPath || require('os').homedir(), file.name);
+          const home = typeof FS !== 'undefined' && typeof FS.rootId === 'string'
+            ? FS.rootId
+            : require('os').homedir();
+          const destination = path.resolve(state?._linuxPath || home, file.name);
           await fs.writeFile(destination, Buffer.from(await file.arrayBuffer()), { flag: 'wx' });
           Notify.show({ title: 'File Added', body: file.name, type: 'success', appName: 'Files' });
         } catch (err) {

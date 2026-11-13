@@ -53,9 +53,11 @@ registerApp({
       .nbusers-btn.primary { border-color:var(--accent);background:var(--accent-muted);color:var(--accent);font-weight:600; }
       .nbusers-btn.danger { border-color:var(--text-danger);color:var(--text-danger); }
       .nbusers-btn.ghost { background:transparent;color:var(--text-muted); }
+      .nbusers-add-btn { display:inline-flex;align-items:center;gap:6px; }
       .nbusers-table { width:100%;border-collapse:collapse;font-size:13px; }
       .nbusers-table th { text-align:left;color:var(--text-muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--border-subtle); }
       .nbusers-table td { padding:9px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle; }
+      .nbusers-account-info { display:flex;align-items:center;gap:10px; }
       .nbusers-avatar { width:34px;height:34px;border-radius:50%;background:var(--accent-muted);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:600; }
       .nbusers-chip { display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--border-default);color:var(--text-muted);margin-right:4px; }
       .nbusers-chip.owner, .nbusers-chip.admin { color:var(--accent);border-color:var(--accent); }
@@ -220,7 +222,22 @@ registerApp({
       body.innerHTML = '';
       const toolbar = createEl('div', { className: 'nbusers-toolbar' });
       toolbar.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600', textContent: `Accounts (${usersCache.length})` }));
-      const addBtn = createEl('button', { className: 'nbusers-btn primary', textContent: '＋ Add account' });
+      const addBtn = createEl('button', { className: 'nbusers-btn primary nbusers-add-btn' });
+      addBtn.setAttribute('aria-label', 'Add account');
+      const addIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      addIcon.setAttribute('viewBox', '0 0 24 24');
+      addIcon.setAttribute('width', '16');
+      addIcon.setAttribute('height', '16');
+      addIcon.setAttribute('fill', 'none');
+      addIcon.setAttribute('stroke', 'currentColor');
+      addIcon.setAttribute('stroke-width', '2');
+      addIcon.setAttribute('stroke-linecap', 'round');
+      addIcon.setAttribute('aria-hidden', 'true');
+      const addIconPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      addIconPath.setAttribute('d', 'M12 5v14M5 12h14');
+      addIcon.appendChild(addIconPath);
+      addBtn.appendChild(addIcon);
+      addBtn.appendChild(createEl('span', { textContent: 'Add account' }));
       addBtn.addEventListener('click', () => renderAddUser(), { signal });
       toolbar.appendChild(addBtn);
       body.appendChild(toolbar);
@@ -249,14 +266,13 @@ registerApp({
         const row = createEl('tr');
 
         const cellAccount = createEl('td');
-        cellAccount.style.display = 'flex';
-        cellAccount.style.alignItems = 'center';
-        cellAccount.style.gap = '10px';
-        cellAccount.appendChild(createEl('span', { className: 'nbusers-avatar', textContent: avatarText(user) }));
+        const accountInfo = createEl('div', { className: 'nbusers-account-info' });
+        accountInfo.appendChild(createEl('span', { className: 'nbusers-avatar', textContent: avatarText(user) }));
         const nameWrap = createEl('div');
         nameWrap.appendChild(createEl('div', { style: 'font-weight:600', textContent: user.displayName || user.username }));
         if (user.locked) nameWrap.appendChild(createEl('div', { style: 'font-size:10px;color:var(--text-danger)', textContent: 'locked — needs admin unlock' }));
-        cellAccount.appendChild(nameWrap);
+        accountInfo.appendChild(nameWrap);
+        cellAccount.appendChild(accountInfo);
         row.appendChild(cellAccount);
 
         row.appendChild(createEl('td', { textContent: user.username }));
@@ -664,15 +680,17 @@ registerApp({
         lines.push([new Date(event.ts).toISOString(), event.actor || '', event.action, event.target || '', event.severity || '', event.ip || ''].map(escapeCell).join(','));
       }
       try {
-        const blob = new Blob([lines.join('\n')], { type: 'text/csv; charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'novabyte-account-events.csv';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const destination = await window.SystemDialogs.save({
+          title: 'Export account events',
+          suggestedName: 'novabyte-account-events.csv',
+        });
+        if (!destination) return;
+        const nodeRequire = typeof window.require === 'function'
+          ? window.require
+          : (typeof require === 'function' ? require : null);
+        if (!nodeRequire) throw new Error('File writing is unavailable in this runtime.');
+        await nodeRequire('fs').promises.writeFile(destination.path, lines.join('\n'), 'utf8');
+        toast('CSV exported to ' + destination.path);
       } catch (err) {
         toast('CSV export failed: ' + (err?.message || err), true);
       }

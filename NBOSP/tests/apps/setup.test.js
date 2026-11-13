@@ -72,7 +72,7 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(typeof app.init).toBe('function');
   });
 
-  it('first boot: renders the 6-step wizard starting at Welcome with progress dots', async () => {
+  it('first boot: renders the 7-step wizard starting at Welcome with progress dots', async () => {
     const { app } = await loadSetup();
     const content = dom.window.document.createElement('div');
     await app.init(content, { id: 'w1', cleanups: [] });
@@ -81,7 +81,7 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(content.querySelector('.nvsetup-title').textContent).toBe('NovaByte OS');
     expect(content.style.background).toBe('var(--bg-base)');
     expect(content.style.color).toBe('var(--text-primary)');
-    expect(content.querySelectorAll('.nvsetup-dot')).toHaveLength(6);
+    expect(content.querySelectorAll('.nvsetup-dot')).toHaveLength(7);
     expect([...content.querySelectorAll('.nvsetup-dot.on')]).toHaveLength(1);
     const layout = content.querySelector('#nvsetup-keyboard-layout');
     expect(layout.getAttribute('aria-label')).toBe('Keyboard layout');
@@ -92,7 +92,7 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(next.disabled).toBe(false);
   });
 
-  it('steps forward through network (skippable) and privacy toggles', async () => {
+  it('steps forward through network and date/region before privacy', async () => {
     const { app } = await loadSetup();
     const content = dom.window.document.createElement('div');
     await app.init(content, { id: 'w1', cleanups: [] });
@@ -104,7 +104,12 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(content.querySelector('.nvsetup-title').textContent).toBe('Connect to network');
     expect([...content.querySelectorAll('.nvsetup-dot.on')]).toHaveLength(2);
     expect(skip.style.visibility).toBe('visible');
-    skip.click(); // Network -> Data & privacy (skipped)
+    skip.click(); // Network -> Date and Region (network skipped)
+    await settle();
+    expect(content.querySelector('.nvsetup-title').textContent).toBe('Date and Region');
+    expect(content.querySelector('#nvsetup-region')).toBeTruthy();
+    expect(content.querySelector('#nvsetup-timezone')).toBeTruthy();
+    next.click();
     await settle();
     expect(content.querySelector('.nvsetup-title').textContent).toBe('Your data');
     // Guest access is the only setup policy toggle.
@@ -121,7 +126,7 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     await settle();
 
     const { next } = wizardButtons(content);
-    next.click(); next.click(); next.click(); // Welcome -> Network -> Privacy -> Account
+    next.click(); next.click(); next.click(); next.click(); // Welcome -> Network -> Date/Region -> Privacy -> Account
     await settle();
     expect(content.querySelector('.nvsetup-title').textContent).toBe('Create the owner account');
     expect(next.textContent).toBe('Create account');
@@ -157,7 +162,7 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     await settle();
 
     const { next } = wizardButtons(content);
-    next.click(); next.click(); next.click();
+    next.click(); next.click(); next.click(); next.click();
     await settle();
 
     const [display, username, pin, pin2, pass] = [...content.querySelectorAll('.nvsetup-input')];
@@ -187,7 +192,7 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     await settle();
 
     const { next } = wizardButtons(content);
-    next.click(); next.click(); next.click();
+    next.click(); next.click(); next.click(); next.click();
     await settle();
     const [display, username, pin, pin2] = [...content.querySelectorAll('.nvsetup-input')];
     display.value = 'Ada';
@@ -216,7 +221,15 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     const layout = content.querySelector('#nvsetup-keyboard-layout');
     layout.value = 'gb';
     layout.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
-    next.click(); next.click(); next.click();
+    next.click(); next.click(); // Welcome -> Network -> Date and Region
+    await settle();
+    const region = content.querySelector('#nvsetup-region');
+    const timezone = content.querySelector('#nvsetup-timezone');
+    region.value = 'en-GB';
+    region.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    timezone.value = 'Europe/London';
+    timezone.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+    next.click(); next.click(); // Date and Region -> Privacy -> Account
     await settle();
     const [display, username, pin, pin2] = [...content.querySelectorAll('.nvsetup-input')];
     display.value = 'Ada Nova';
@@ -246,6 +259,8 @@ describe('NovaByte Setup (js/apps/setup — first-boot wizard .novaapp)', () => 
     expect(writes.theme).toBe('dracula');
     expect(writes.accentColor).toBe('#93c5fd');
     expect(writes.keyboardLayout).toBe('gb');
+    expect(writes.region).toBe('en-GB');
+    expect(writes.timezone).toBe('Europe/London');
     expect(writes.language).toBeUndefined();
     expect(writes.diagnostics).toBeUndefined();
     // The policies PUT must send the patch DIRECTLY as the JSON body

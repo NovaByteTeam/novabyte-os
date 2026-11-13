@@ -1622,18 +1622,18 @@ registerApp({
       // ── Detail panel ───────────────────────────────────────────
       const detail = createEl('div', { style: 'flex:1;display:flex;flex-direction:column;overflow:hidden;' });
 
-      // Package picker — SystemDialogs (multi-select), results wrapped as File
-      // objects so processFile/processFiles don't care where they came from.
+      // Pick paths only, then read one package at a time in processFile. Returning
+      // full file contents here duplicates large package buffers in the UI.
       installBtn.addEventListener('click', async () => {
         const picked = await SystemDialogs.open({
           title: 'Install .novaapp',
           multiple: true,
+          pathOnly: true,
           filter: (name, isDir) => isDir || name.endsWith('.novaapp'),
         });
         if (!picked?.length) return;
-        const files = picked.map(f => new File([f.content], f.name, { type: f.mimeType }));
-        if (files.length > 1) await processFiles(files);
-        else await processFile(files[0]);
+        if (picked.length > 1) await processFiles(picked);
+        else await processFile(picked[0]);
       }, listenerOpts);
 
       // ── Use disabled Set for O(1) lookups instead of Array.includes ──
@@ -2384,12 +2384,20 @@ registerApp({
         }
 
         try {
-            const raw = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result);
-              reader.onerror = () => reject(reader.error || new Error('Could not read package file.'));
-              reader.readAsText(file);
-            });
+            let raw;
+            if (typeof file.path === 'string') {
+              if (typeof require !== 'function') throw new Error('Native package file access is unavailable.');
+              raw = await require('fs').promises.readFile(file.path, 'utf8');
+            } else if (typeof file.text === 'function') {
+              raw = await file.text();
+            } else {
+              raw = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error || new Error('Could not read package file.'));
+                reader.readAsText(file);
+              });
+            }
             let pkg;
 
             try {

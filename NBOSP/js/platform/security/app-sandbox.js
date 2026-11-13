@@ -5019,24 +5019,10 @@ const AppSandbox = (() => {
       warningText.style.cssText = 'white-space:pre-line;max-height:340px;overflow-y:auto;padding-right:4px;';
       body.appendChild(warningText);
       warningText.textContent =
-        'WARNING: Developer Mode lowers the system\'s security posture and grants elevated access to internal components.\n\n' +
-        'When enabled, the following restrictions are relaxed:\n' +
-        '\u2022 Unrestricted access to the filesystem, networks, and system APIs\n' +
-        '\u2022 Elevated permissions to internal system modules and runtime internals\n' +
-        '\u2022 Visibility into running processes, memory, and module state\n' +
-        '\u2022 The ability to inspect, alter, or revoke app permissions\n' +
-        '\u2022 The ability to install, remove, or modify system packages\n\n' +
-        'The following internal apps and tools become accessible:\n' +
-        '\u2022 Console — runs arbitrary JavaScript in the full OS context with no sandboxing\n' +
-        '\u2022 Inspector — can force-close arbitrary windows and export app state\n' +
-        '\u2022 Packages — can install unsigned or unverified packages into the live registry, and can add a locally-generated signing key to this device\'s trust store for the current session (only affects installs on this machine; never affects other clones, forks, or devices)\n' +
-        '\u2022 Modules — can dynamically import arbitrary module paths for live code execution\n' +
-        '\u2022 Permissions — can bulk-grant or revoke permissions for any app without user consent\n' +
-        '\u2022 Perf — exposes detailed runtime performance data, memory usage, and per-window DOM breakdowns\n' +
-        '\u2022 SysAccess — can read the virtual filesystem and probe internal network/SSRF configuration\n' +
-        '\u2022 Events — full visibility into all system-wide activity, including console output, permission checks, package operations, and app event data payloads across every app and OS component\n' +
-        '\u2022 Debug Overlay — persistent always-on-top diagnostics overlay exposing GPU, memory, URLs, and OS internals (F3)\n\n' +
-        'Developer Mode is intended solely for development, debugging, and system maintenance. Enable it only when you understand the risks. Leave it disabled during normal use.';
+        'WARNING: Developer Mode enables development and diagnostic tools that can expose or change sensitive system state.\n\n' +
+        'Developer Mode does not by itself disable the app sandbox or grant every app unrestricted filesystem, network, or system access. Tools and actions remain subject to their own permission checks. Use these capabilities only on a device you trust.\n\n' +
+        'Developer Mode also makes it possible to enable Root Access in Settings. Root Access is a separate device-wide switch, and each app still needs its own explicit grant. A root-approved app runs directly inside the OS page without a sandbox and can read or change system data and UI. Only grant it to apps you fully trust.\n\n' +
+        'Developer Mode is intended for development, debugging, and system maintenance. Enable it only when needed, and leave it disabled during normal use.';
 
       const value = await dialogService(
         '',

@@ -36,6 +36,7 @@ manifest.window = {
     "--no-first-run",
     "--disable-devtools",
     "--allow-insecure-localhost",
+    "--class=com.novabyte.os",
     "--enable-features=UseOzonePlatform",
     "--ozone-platform=x11",
     "--use-gl=angle",

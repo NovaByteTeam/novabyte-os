@@ -129,7 +129,7 @@ kiosk startup messages are captured by a configured VMware serial port.
 The manual GitHub Actions workflow runs `npm ci` in `NBOSP`, builds the Linux
 x64 NW.js application, adjusts its window settings for fullscreen labwc kiosk
 mode using XWayland, and installs the complete app bundle into the ISO at
-`/opt/nbosp`. Before building the app, it updates the Settings Source Date to
+`/opt/nbosp`. Before building the app, it updates the Settings Build Date to
 the current `Europe/London` date, commits and pushes that change to the
 `gl-debug` branch, and keeps it in the checkout used for the ISO.
 The application build uses the same pinned NW.js SDK version as the `nw`

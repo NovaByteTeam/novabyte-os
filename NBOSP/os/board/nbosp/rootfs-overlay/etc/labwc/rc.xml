@@ -40,17 +40,12 @@
     <default />
   </mouse>
 
-  <!-- labwc draws a titlebar and borders around every window unless told
-       not to, and an unconfigured compositor leaves the app windowed.
-       serverDecoration="no" over-rules whatever the client asks for.
-       NW.js already requests fullscreen (prepare-kiosk.mjs); Maximize is the
-       fallback if that request is ignored, and does nothing while the window
-       is fullscreen. Restricted to type="normal" so Chromium popups and
-       menus are not stretched over the screen. ToggleFullscreen is avoided
-       on purpose: it would undo NW.js's own fullscreen. -->
+  <!-- The NW.js kiosk is assigned the com.novabyte.os X11 window class by
+       prepare-kiosk.mjs. Restrict decoration and maximize behavior to that
+       identifier so auxiliary and unrelated windows keep their decorations. -->
   <windowRules>
-    <windowRule identifier="*" serverDecoration="no" />
-    <windowRule identifier="*" type="normal">
+    <windowRule identifier="com.novabyte.os" serverDecoration="no" />
+    <windowRule identifier="com.novabyte.os" type="normal">
       <action name="Maximize" />
     </windowRule>
   </windowRules>

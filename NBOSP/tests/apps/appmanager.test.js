@@ -17,7 +17,7 @@ function makeOS() {
 
 // Full host environment appmanager's init expects (registry, Notify, WM, …).
 // setInterval is stubbed because init() installs a 2s registry-poll timer.
-async function loadAppManager({ seedApps = [] } = {}) {
+async function loadAppManager({ seedApps = [], systemDialogs = { open: vi.fn(async () => null) } } = {}) {
   const showModal = vi.fn(() => Promise.resolve(undefined));
   const loaded = await loadWindowApp('appmanager', {
     stubs: {
@@ -25,6 +25,7 @@ async function loadAppManager({ seedApps = [] } = {}) {
         OS: makeOS(),
         APP_REGISTRY: [],
         Notify: { show: vi.fn() },
+        SystemDialogs: systemDialogs,
         WM: { createWindow: vi.fn(), closeWindow: vi.fn(), updateTaskbar: vi.fn() },
         showModal,
         setInterval: () => 0,
@@ -85,6 +86,22 @@ describe('App Manager app (js/apps/appmanager)', () => {
     // With "Show hidden apps" off and nothing installed, the list offers the hint
     expect(content.textContent).toContain('Enable');
     expect(content.textContent).toContain('Show hidden apps');
+  });
+
+  it('uses the path-only System Dialogs picker for package imports', async () => {
+    const systemDialogs = { open: vi.fn(async () => null) };
+    const { content } = await loadAppManager({ systemDialogs });
+    const install = [...content.querySelectorAll('button')]
+      .find(button => button.textContent.includes('Install'));
+
+    install.click();
+    await settle();
+
+    expect(systemDialogs.open).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Install .novaapp',
+      multiple: true,
+      pathOnly: true,
+    }));
   });
 
   it('reveals Setup and NovaReg only when Show hidden apps is enabled', async () => {

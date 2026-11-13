@@ -132,6 +132,21 @@ describe('Launcher shell (js/apps/launcher)', () => {
     expect(document.getElementById('launchpad').classList.contains('active')).toBe(false);
   });
 
+  it('shows Install NovaByte to non-developer accounts and launches it from the grid', async () => {
+    const { window, document, WM } = await loadLauncher({ devMode: false });
+    window.APP_REGISTRY = [
+      { id: 'com.nbosp.install', name: 'Install NovaByte', icon: 'hard-drive', system: true },
+    ];
+
+    window.toggleLaunchpad();
+
+    const item = [...document.querySelectorAll('.launchpad-item')]
+      .find(entry => entry.querySelector('.launchpad-name')?.textContent === 'Install NovaByte');
+    expect(item).toBeTruthy();
+    item.click();
+    expect(WM.createWindow).toHaveBeenCalledWith('com.nbosp.install');
+  });
+
   it('filters launchpad items by search with highlight and a no-results row', async () => {
     const { window, document } = await loadLauncher({ devMode: false });
     window.APP_REGISTRY = [

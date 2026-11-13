@@ -6,7 +6,8 @@
  * The whole first-run experience lives in this .novaapp instead of being
  * hardcoded into the lock screen: the lock screen only DETECTS "this
  * machine has no accounts" and launches this app full-screen. Everything
- * a person does on a fresh machine — keyboard layout, network, data & privacy,
+ * a person does on a fresh machine — keyboard layout, network,
+ * date and region, data & privacy,
  * the owner account, appearance — is a step here, so developers can add,
  * reorder or replace steps without touching core boot code.
  *
@@ -23,10 +24,11 @@
  * Steps (bare bones, AOSP-like):
  *   1. Welcome        — keyboard-layout picker, Start
  *   2. Network        — connectivity check, skippable
- *   3. Data & privacy — per-account storage notice and guest access
- *   4. Owner account  — display name, username, PIN, passphrase
- *   5. Appearance     — theme + accent
- *   6. All set        — apply + finish
+ *   3. Date and Region — timezone and locale
+ *   4. Data & privacy — per-account storage notice and guest access
+ *   5. Owner account  — display name, username, PIN, passphrase
+ *   6. Appearance     — theme + accent
+ *   7. All set        — apply + finish
  */
 
 const SETUP_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiIgd2lkdGg9Ijk0IiBoZWlnaHQ9Ijk0Ij48Y2lyY2xlIGN4PSI0OCIgY3k9IjQ4IiByPSIzOCIgZmlsbD0iIzkzYzVmZCIvPjxjaXJjbGUgY3g9IjQ4IiBjeT0iNDgiIHI9IjMwIiBmaWxsPSIjMjU2M2ViIi8+PHBhdGggZD0iTTQwIDM2IEw0OCA1MCA1NiAzNiIgc3Ryb2tlPSIjZmRlNjhhIiBzdHJva2Utd2lkdGg9IjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjxyZWN0IHg9IjM2IiB5PSI1NiIgd2lkdGg9IjI0IiBoZWlnaHQ9IjUiIHJ4PSIyLjUiIGZpbGw9IiNmZGU2OGEiLz48L3N2Zz4=';
@@ -36,7 +38,7 @@ registerApp({
   name: 'NovaByte Setup',
   version: '3.0.2',
   icon: SETUP_ICON,
-  description: 'First-boot setup wizard: keyboard layout, owner account, and appearance.',
+  description: 'First-boot setup wizard: keyboard layout, date and region, owner account, and appearance.',
   category: 'system',
   permissions: [],
   defaultSize: [920, 640],
@@ -116,6 +118,11 @@ registerApp({
       passphrase: '',
       theme: 'nova-dark',
       accent: '#93c5fd',
+      region: OS.settings.get('region') || navigator.language || 'en-US',
+      timezone: OS.settings.get('timezone') ||
+        ((typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+          : 'UTC'),
     };
 
     const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
@@ -152,10 +159,35 @@ registerApp({
       { code: 'ua', label: 'Ukrainian' },
       { code: 'jp', label: 'Japanese' },
     ];
+    const REGIONS = [
+      ['en-US', 'United States (English)'], ['en-GB', 'United Kingdom (English)'],
+      ['en-CA', 'Canada (English)'], ['fr-CA', 'Canada (French)'],
+      ['en-AU', 'Australia (English)'], ['de-DE', 'Germany (German)'],
+      ['fr-FR', 'France (French)'], ['es-ES', 'Spain (Spanish)'],
+      ['es-MX', 'Mexico (Spanish)'], ['pt-BR', 'Brazil (Portuguese)'],
+      ['pt-PT', 'Portugal (Portuguese)'], ['it-IT', 'Italy (Italian)'],
+      ['nl-NL', 'Netherlands (Dutch)'], ['sv-SE', 'Sweden (Swedish)'],
+      ['ja-JP', 'Japan (Japanese)'], ['zh-CN', 'China (Chinese)'],
+      ['zh-TW', 'Taiwan (Chinese)'], ['hi-IN', 'India (Hindi)'],
+      ['ar-SA', 'Saudi Arabia (Arabic)'], ['ko-KR', 'South Korea (Korean)'],
+    ];
+    const TIMEZONES = (() => {
+      let supported = [];
+      try {
+        if (typeof Intl.supportedValuesOf === 'function') supported = Intl.supportedValuesOf('timeZone');
+      } catch (_) { /* use the detected zone when timezone enumeration is unavailable */ }
+      const common = [
+        'Africa/Cairo', 'Africa/Johannesburg', 'America/Los_Angeles',
+        'America/New_York', 'America/Sao_Paulo', 'Asia/Dubai',
+        'Asia/Kolkata', 'Asia/Shanghai', 'Asia/Tokyo', 'Australia/Sydney',
+        'Europe/Berlin', 'Europe/London', 'Europe/Paris',
+      ];
+      return [...new Set(['UTC', pending.timezone, ...common, ...supported])].filter(Boolean).sort();
+    })();
 
     // ── Step chrome ──────────────────────────────────────────────────────
     let step = 0;
-    const LAST_STEP = 5;
+    const LAST_STEP = 6;
 
     const top = createEl('div', { className: 'nvsetup-top' });
     const brand = createEl('div', { className: 'nvsetup-brand' });
@@ -259,7 +291,47 @@ registerApp({
       check();
     }
 
-    // ── Step 3: Data & privacy ────────────────────────────────────────────
+    // ── Step 3: Date and Region ───────────────────────────────────────────
+    function stepDateAndRegion() {
+      const card = createEl('div', { className: 'nvsetup-card' });
+      const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Date and Region' });
+      const sub = createEl('div', { className: 'nvsetup-sub', textContent: 'Choose the locale used for dates and regional formats, and set your timezone. You can change these later in Settings.' });
+      const regionLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-region', textContent: 'Region and format' });
+      const regionSelect = createEl('select', {
+        id: 'nvsetup-region',
+        className: 'nvsetup-input nvsetup-layout',
+        'aria-label': 'Region and date format',
+      });
+      const regions = [...REGIONS];
+      if (!regions.some(([code]) => code === pending.region)) {
+        regions.push([pending.region, pending.region]);
+      }
+      for (const [code, label] of regions) {
+        regionSelect.appendChild(createEl('option', { value: code, textContent: label }));
+      }
+      regionSelect.value = pending.region;
+      regionSelect.addEventListener('change', () => { pending.region = regionSelect.value; });
+
+      const timezoneLabel = createEl('label', { className: 'nvsetup-label', htmlFor: 'nvsetup-timezone', textContent: 'Timezone' });
+      const timezoneSelect = createEl('select', {
+        id: 'nvsetup-timezone',
+        className: 'nvsetup-input nvsetup-layout',
+        'aria-label': 'Timezone',
+      });
+      for (const timezone of TIMEZONES) {
+        timezoneSelect.appendChild(createEl('option', { value: timezone, textContent: timezone }));
+      }
+      timezoneSelect.value = pending.timezone;
+      timezoneSelect.addEventListener('change', () => { pending.timezone = timezoneSelect.value; });
+
+      card.append(title, sub, regionLabel, regionSelect, timezoneLabel, timezoneSelect);
+      body.replaceChildren(card);
+      setButtons({ next: 'Next' });
+      title.setAttribute('tabindex', '-1');
+      title.focus();
+    }
+
+    // ── Step 4: Data & privacy ────────────────────────────────────────────
     function stepPrivacy() {
       const card = createEl('div', { className: 'nvsetup-card' });
       const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Your data' });
@@ -295,7 +367,7 @@ registerApp({
       title.focus();
     }
 
-    // ── Step 4: Owner account ────────────────────────────────────────────
+    // ── Step 5: Owner account ────────────────────────────────────────────
     function stepAccount() {
       const card = createEl('div', { className: 'nvsetup-card' });
       const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Create the owner account' });
@@ -376,7 +448,7 @@ registerApp({
       return false;
     }
 
-    // ── Step 5: Appearance ────────────────────────────────────────────────
+    // ── Step 6: Appearance ────────────────────────────────────────────────
     function stepAppearance() {
       const card = createEl('div', { className: 'nvsetup-card' });
       const title = createEl('h1', { className: 'nvsetup-title', textContent: 'Make it yours' });
@@ -423,7 +495,7 @@ registerApp({
       title.focus();
     }
 
-    // ── Step 6: All set ───────────────────────────────────────────────────
+    // ── Step 7: All set ───────────────────────────────────────────────────
     function stepDone() {
       const card = createEl('div', { className: 'nvsetup-done' });
       const big = createEl('div', { className: 'nvsetup-big', textContent: '\u2705', 'aria-hidden': 'true' });
@@ -444,6 +516,8 @@ registerApp({
         OS.settings.set('theme', pending.theme);
         OS.settings.set('accentColor', pending.accent);
         OS.settings.set('keyboardLayout', pending.keyboardLayout);
+        OS.settings.set('region', pending.region);
+        OS.settings.set('timezone', pending.timezone);
         OS.settings.set('doNotDisturb', false);
       } catch (err) {
         console.warn('[NovaByteSetup] Preference apply failed:', err);
@@ -499,16 +573,16 @@ registerApp({
     }
 
     // ── Step driver ───────────────────────────────────────────────────────
-    const steps = [stepWelcome, stepNetwork, stepPrivacy, stepAccount, stepAppearance, stepDone];
+    const steps = [stepWelcome, stepNetwork, stepDateAndRegion, stepPrivacy, stepAccount, stepAppearance, stepDone];
 
     async function goTo(next) {
       if (next === step) return;
-      if (next > step && step === 3) {
+      if (next > step && step === 4) {
         // Leaving the account step: create the owner first.
         const statusEl = body.querySelector('.nvsetup-status');
         if (statusEl && !(await createOwner(statusEl))) return;
       }
-      if (next === 5) {
+      if (next === 6) {
         // Entering the final step: the mount sequence has already run
         // (setupOwner awaited it); nothing else to do here.
       }

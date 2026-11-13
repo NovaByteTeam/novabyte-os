@@ -68,6 +68,7 @@ describe('NBOSP labwc kiosk configuration', () => {
     assert.match(prepare, /frame: false/);
     assert.match(prepare, /fullscreen: true/);
     assert.match(prepare, /kiosk: true/);
+    assert.match(prepare, /--class=com\.novabyte\.os/);
     assert.match(mounts, /mkdir -p [^\n]*\/var\/lock\/subsys/);
     assert.match(packageMakefile, /chmod 0755 \$\(TARGET_DIR\)\/opt\/nbosp\/package\.nw \\/);
     assert.match(packageMakefile, /package\.nw\/js \\/);
@@ -91,11 +92,13 @@ describe('NBOSP labwc kiosk configuration', () => {
     assert.doesNotMatch(keyboardSection, /<keybind/);
     // Pointer events must keep flowing to the fullscreen app like under cage.
     assert.match(rc, /<mouse>\s*<default \/>/);
-    // No titlebar or borders on any window, and the app is kept maximized.
+    // Only the NovaByte app is undecorated and maximized; other windows retain
+    // their default decorations.
     // Comments are stripped so the explanation above cannot satisfy this.
     const rules = rc.replace(/<!--[\s\S]*?-->/g, '');
-    assert.match(rules, /<windowRule identifier="\*" serverDecoration="no" \/>/);
-    assert.match(rules, /<windowRule identifier="\*" type="normal">\s*<action name="Maximize" \/>/);
+    assert.match(rules, /<windowRule identifier="com\.novabyte\.os" serverDecoration="no" \/>/);
+    assert.match(rules, /<windowRule identifier="com\.novabyte\.os" type="normal">\s*<action name="Maximize" \/>/);
+    assert.doesNotMatch(rules, /<windowRule identifier="\*"/);
     assert.doesNotMatch(rules, /ToggleFullscreen/);
   });
 

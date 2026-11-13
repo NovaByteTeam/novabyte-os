@@ -65,7 +65,7 @@
     "@vitest/coverage-v8": "^5.1.0",
     "happy-dom": "^21.0.4",
     "jsdom": "^31.0.1",
-    "nw": "^0.120.0",
+    "nw": "^0.120.0-sdk",
     "nw-builder": "^4.25.0",
     "supertest": "^7.3.2",
     "vitest": "^5.1.0"
@@ -73,7 +73,7 @@
   "allowScripts": {
     "nw-builder@4.25.0": true,
     "better-sqlite3@13.1.1": true,
-    "nw@0.119.2": true
+    "nw@0.120.0-sdk": true
   },
   "overrides": {
     "@nwutils/getter": "0.2.8"

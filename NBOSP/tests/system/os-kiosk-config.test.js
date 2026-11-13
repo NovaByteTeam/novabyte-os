@@ -10,12 +10,19 @@ describe('NBOSP VMware kiosk device configuration', () => {
     const procMount = 'mounted /proc || mount -t proc proc /proc';
     const sysfsMount = 'mounted /sys || mount -t sysfs sysfs /sys';
     const deviceMount = 'mounted /dev/pts || mount -t devpts';
+    const tmpMount = 'mounted /tmp || mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /tmp';
 
-    expect(mounts).toContain('mkdir -p /proc /sys /dev/pts /dev/shm /tmp');
+    expect(mounts).toContain('mkdir -p /proc /sys /dev/pts /dev/shm /tmp /run');
     expect(mounts.indexOf(procMount)).toBeGreaterThanOrEqual(0);
     expect(mounts.indexOf(procMount)).toBeLessThan(mounts.indexOf(sysfsMount));
     expect(mounts.indexOf(sysfsMount)).toBeGreaterThanOrEqual(0);
     expect(mounts.indexOf(sysfsMount)).toBeLessThan(mounts.indexOf(deviceMount));
+    const runtimeMount = 'mounted /run || mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run';
+    const runtimeDirectories = 'mkdir -p /run/lock/subsys /var/lock/subsys';
+    expect(mounts.indexOf(tmpMount)).toBeGreaterThanOrEqual(0);
+    expect(mounts.indexOf(tmpMount)).toBeLessThan(mounts.indexOf(runtimeMount));
+    expect(mounts.indexOf(runtimeMount)).toBeLessThan(mounts.indexOf(runtimeDirectories));
+    expect(mounts).toContain(runtimeDirectories);
   });
 
   it('seeds a runtime DNS file in /run so name resolution works before NetworkManager populates resolv.conf', () => {
