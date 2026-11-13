@@ -441,8 +441,12 @@ if missing:
         + ", ".join(missing)
     )
 PY
-if ! find "$OUTPUT_DIR/target/usr/lib" -type f -name 'vmwgfx_dri.so' -print -quit | grep -q .; then
+# Mesa 24.2+ installs the per-driver *_dri.so names as symlinks to libdril_dri.so,
+# so -type f alone misses them.
+if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'vmwgfx_dri.so' -print -quit | grep -q .; then
   echo "Mesa's VMware SVGA DRI driver is missing from the target image." >&2
+  echo "What Mesa actually installed (for debugging):" >&2
+  find "$OUTPUT_DIR/target/usr/lib" \( -name '*_dri.so' -o -name 'libdril*' -o -name 'libgallium*' \) -ls >&2 || true
   exit 1
 fi
 if ! find "$OUTPUT_DIR/target/usr/lib" \( -type f -o -type l \) -name 'libGLX_mesa.so*' -print -quit | grep -q .; then
