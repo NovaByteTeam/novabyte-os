@@ -30,6 +30,18 @@ function createServerEnv(nodeBin = process.env.NODE_BIN_PATH || 'node') {
   return serverEnv;
 }
 
+function getMainWindowOptions(kiosk = process.env.NBOSP_KIOSK === '1') {
+  return {
+    title: 'NovaByte',
+    width: 1280,
+    height: 720,
+    frame: !kiosk,
+    fullscreen: kiosk,
+    kiosk,
+    resizable: !kiosk,
+  };
+}
+
 /**
  * Full application startup sequence.
  *
@@ -95,7 +107,7 @@ async function bootstrap(appDir) {
       fallbackTimer = null;
     }
 
-    nw.Window.open(appUrl, { title: 'NovaByte', width: 1280, height: 720 }, (createdWindow) => {
+    nw.Window.open(appUrl, getMainWindowOptions(), (createdWindow) => {
       if (!createdWindow) return;
       win = createdWindow;
 
@@ -177,4 +189,4 @@ async function bootstrap(appDir) {
   // nothing fires when the NovaByte window is unfocused.
 }
 
-module.exports = { bootstrap, createServerEnv };
+module.exports = { bootstrap, createServerEnv, getMainWindowOptions };
