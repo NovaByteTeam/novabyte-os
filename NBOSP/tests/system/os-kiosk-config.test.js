@@ -18,6 +18,18 @@ describe('NBOSP VMware kiosk device configuration', () => {
     expect(mounts.indexOf(sysfsMount)).toBeLessThan(mounts.indexOf(deviceMount));
   });
 
+  it('seeds a runtime DNS file in /run so name resolution works before NetworkManager populates resolv.conf', () => {
+    const networkScript = readFileSync(
+      new URL('../../os/board/nbosp/rootfs-overlay/etc/init.d/S41network', import.meta.url),
+      'utf8',
+    );
+
+    expect(networkScript).toContain('mkdir -p /run');
+    expect(networkScript).toContain('/run/resolv.conf');
+    expect(networkScript).not.toContain('/tmp/resolv.conf');
+    expect(networkScript).toContain('ln -sf /run/resolv.conf /etc/resolv.conf');
+  });
+
   it('includes passwordless sudo in the booted root filesystem for NovaRoot', () => {
     const defconfig = readFileSync(new URL('../../os/configs/nbosp_x86_64_defconfig', import.meta.url), 'utf8');
     const sudoers = readFileSync(
