@@ -751,8 +751,22 @@ function verifyCredential(uid, secret, { kind = 'auto' } = {}) {
         ? { hash: row.temp_pin_hash, salt: row.temp_pin_salt, kdf: JSON.parse(row.temp_pin_kdf || '{}') }
         : null;
 
-    const wantsPin = kind === 'pin' || (kind === 'auto' && /^\d{4,6}$/.test(String(secret)));
     const wantsPass = kind === 'passphrase' || kind === 'auto';
+
+    // 3.0.2 imports carry the legacy PBKDF2 lock PIN, whose shape was never
+    // digit-only — the old lock screen accepted whatever string the user set.
+    // The auto-detect below only recognises 4–6 digit PINs, so a migrated
+    // machine whose PIN contains letters or symbols could NEVER verify (the
+    // secret fell through to the passphrase branch, which legacy imports
+    // never have) and every login failed with BAD_CREDENTIAL / 401. For
+    // legacy rows, any non-empty secret is therefore a PIN candidate; the
+    // first successful verification upgrades the row to scrypt with the
+    // SAME secret, so the account keeps working and tightens its shape.
+    const pinKdf = (() => { try { return JSON.parse(row.pin_kdf || '{}'); } catch (_) { return {}; } })();
+    const legacyPinRow = !!row.pin_hash && pinKdf.alg === 'pbkdf2';
+    const isDigitSecret = /^\d{4,6}$/.test(String(secret));
+    const wantsPin = kind === 'pin' ||
+        (kind === 'auto' && (isDigitSecret || (legacyPinRow && !row.pass_hash)));
 
     if (tempCred && wantsPin) {
         const tempCheck = verifyHash(secret, tempCred);
@@ -764,8 +778,8 @@ function verifyCredential(uid, secret, { kind = 'auto' } = {}) {
         }
     }
 
-    if (wantsPin && /^\d{4,6}$/.test(String(secret))) {
-        const stored = { hash: row.pin_hash, salt: row.pin_salt, kdf: JSON.parse(row.pin_kdf || '{}') };
+    if (wantsPin && (isDigitSecret || legacyPinRow)) {
+        const stored = { hash: row.pin_hash, salt: row.pin_salt, kdf: pinKdf };
         const check = verifyHash(secret, stored);
         if (check.ok) result = { ok: true, upgrade: check.upgrade };
         usedKind = 'pin';
@@ -775,7 +789,7 @@ function verifyCredential(uid, secret, { kind = 'auto' } = {}) {
         const stored = { hash: row.pass_hash, salt: row.pass_salt, kdf: JSON.parse(row.pass_kdf || '{}') };
         const check = verifyHash(String(secret), stored);
         if (check.ok) { result = { ok: true, upgrade: check.upgrade }; usedKind = 'passphrase'; }
-        if (!result.ok && kind === 'auto' && /^\d{4,6}$/.test(String(secret))) usedKind = 'pin';
+        if (!result.ok && kind === 'auto' && (isDigitSecret || legacyPinRow)) usedKind = 'pin';
     }
 
     if (!result.ok) {
@@ -971,7 +985,14 @@ function eventsToCsv({ uid, severity, action } = {}) {
     const { events } = queryEvents({ uid, severity, action, limit: 1000, offset: 0 });
     const escapeCell = (value) => {
         const text = value === null || value === undefined ? '' : String(value);
-        return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+        // SECURITY (2026-11-12 audit, finding L2): neutralize spreadsheet
+        // formula execution — a cell beginning with =, +, -, @ (or a
+        // TAB/CR control char) is executed as a formula when an admin
+        // opens the export in Excel/LibreOffice. Prefix such cells with a
+        // single quote so they render as inert text.
+        const needsFormulaNeutralizer = /^[=+\-@\t\r]/.test(text);
+        const guarded = needsFormulaNeutralizer ? `'${text}` : text;
+        return /[",\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
     };
     const header = 'ts,actor,action,target,severity,detail,ip';
     const lines = events.map(event => [

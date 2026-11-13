@@ -86,9 +86,9 @@ describe('Launcher shell (js/apps/launcher)', () => {
     expect(typeof window.toggleLaunchpad).toBe('function');
     expect(typeof window.applyLauncherSettings).toBe('function');
     expect(typeof window.configureLauncherTaskbar).toBe('function');
-    // jsdom has no `process`, so the Linux-only restart/power-off actions are hidden
-    const power = window.document.getElementById('launchpad-power-actions');
-    expect(power.style.display).toBe('none');
+    // Power actions live in the taskbar tray menu now, not the launchpad.
+    expect(window.document.getElementById('launchpad-power-actions')).toBeNull();
+    expect(window.document.getElementById('restart-system-btn')).toBeNull();
   });
 
   it('opens the launchpad from the Start button and closes it again', async () => {
@@ -111,6 +111,8 @@ describe('Launcher shell (js/apps/launcher)', () => {
     window.APP_REGISTRY = [
       { id: 'com.nbosp.clock', name: 'Clock', icon: 'clock' },
       { id: 'com.nbosp.devconsole', name: 'Console', icon: 'terminal', devOnly: true },
+      { id: 'com.nbosp.setup', name: 'NovaByte Setup', icon: 'settings', system: true },
+      { id: 'com.nbosp.novareg', name: 'NovaReg', icon: 'database', system: true },
       { id: 'com.user.zeta', name: 'Zeta App', icon: 'star' },
       { id: 'com.nbosp.launcher', name: 'Launcher', icon: 'home' },
       { id: 'com.nbosp.files', name: 'Files', icon: 'folder-open' },
@@ -118,9 +120,9 @@ describe('Launcher shell (js/apps/launcher)', () => {
     window.toggleLaunchpad();
     const names = [...document.querySelectorAll('.launchpad-item .launchpad-name')].map((n) => n.textContent);
     // Pinned LAUNCHPAD_ORDER apps keep list order (Files before Clock), then
-    // unpinned non-system apps alphabetically. Console is devOnly-hidden and
-    // the launcher never lists itself.
-    expect(names).toEqual(['Files', 'Clock', 'Zeta App']);
+    // NovaReg and user apps alphabetically. Developer tools and first-boot
+    // setup utilities are hidden, and the launcher never lists itself.
+    expect(names).toEqual(['Files', 'Clock', 'NovaReg', 'Zeta App']);
 
     // Clicking an app closes the launchpad and opens the window
     const clockItem = [...document.querySelectorAll('.launchpad-item')]
@@ -128,6 +130,21 @@ describe('Launcher shell (js/apps/launcher)', () => {
     clockItem.click();
     expect(WM.createWindow).toHaveBeenCalledWith('com.nbosp.clock');
     expect(document.getElementById('launchpad').classList.contains('active')).toBe(false);
+  });
+
+  it('shows Install NovaByte to non-developer accounts and launches it from the grid', async () => {
+    const { window, document, WM } = await loadLauncher({ devMode: false });
+    window.APP_REGISTRY = [
+      { id: 'com.nbosp.install', name: 'Install NovaByte', icon: 'hard-drive', system: true },
+    ];
+
+    window.toggleLaunchpad();
+
+    const item = [...document.querySelectorAll('.launchpad-item')]
+      .find(entry => entry.querySelector('.launchpad-name')?.textContent === 'Install NovaByte');
+    expect(item).toBeTruthy();
+    item.click();
+    expect(WM.createWindow).toHaveBeenCalledWith('com.nbosp.install');
   });
 
   it('filters launchpad items by search with highlight and a no-results row', async () => {

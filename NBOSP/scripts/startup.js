@@ -30,6 +30,18 @@ function createServerEnv(nodeBin = process.env.NODE_BIN_PATH || 'node') {
   return serverEnv;
 }
 
+function getMainWindowOptions(kiosk = process.env.NBOSP_KIOSK === '1') {
+  return {
+    title: 'NovaByte',
+    width: 1280,
+    height: 720,
+    frame: !kiosk,
+    fullscreen: kiosk,
+    kiosk,
+    resizable: !kiosk,
+  };
+}
+
 /**
  * Full application startup sequence.
  *
@@ -95,11 +107,21 @@ async function bootstrap(appDir) {
       fallbackTimer = null;
     }
 
-    nw.Window.open(appUrl, { title: 'NovaByte', width: 1280, height: 720 }, (createdWindow) => {
+    nw.Window.open(appUrl, getMainWindowOptions(), (createdWindow) => {
       if (!createdWindow) return;
       win = createdWindow;
 
       win.on('close', function () {
+        // In the kiosk image, Alt+F4 / any WM close request aimed at the
+        // NovaByte app itself is ignored: the OS exposes its own close and
+        // shutdown flows. Only auxiliary windows (DevTools and other X11
+        // clients) are closable by the window manager. A programmatic exit
+        // can still force this by setting win.__nbospForceClose = true
+        // before calling win.close().
+        if (process.env.NBOSP_KIOSK === '1' && !this.__nbospForceClose) {
+          console.warn('[NovaByte] Kiosk close request ignored (Alt+F4 is disabled for the NovaByte app).');
+          return; // not calling close(true) cancels the close
+        }
         if (server && !server.killed) {
           server.kill();
         }
@@ -161,13 +183,10 @@ async function bootstrap(appDir) {
     }
   });
 
-  // Register global hotkeys safely to prevent unhandled registration errors
-  try {
-    nw.App.registerGlobalHotKey(new nw.Shortcut({ key: 'F11', active: () => win?.toggleFullscreen() }));
-    nw.App.registerGlobalHotKey(new nw.Shortcut({ key: 'F12', active: () => win?.showDevTools()    }));
-  } catch (err) {
-    console.warn('[NovaByte] Failed to register global hotkeys:', err.message);
-  }
+  // No global (system-wide) hotkeys are registered on purpose: every OS
+  // shortcut lives strictly inside the app (see js/apps/system-events/service.js
+  // and ui-init.js). F11 fullscreen and F12 devtools are handled in-page, so
+  // nothing fires when the NovaByte window is unfocused.
 }
 
-module.exports = { bootstrap, createServerEnv };
+module.exports = { bootstrap, createServerEnv, getMainWindowOptions };

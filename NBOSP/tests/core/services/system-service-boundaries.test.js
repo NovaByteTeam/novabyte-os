@@ -64,6 +64,65 @@ describe('built-in service boundaries', () => {
     expect(packageManifest.every(bundle => /^[a-f0-9]{64}$/.test(bundle.cacheKey || ''))).toBe(true);
   });
 
+  it('stamps systemService on every service bundle so the loader accepts them in dev builds too', () => {
+    // SystemServiceLoader.loadService() rejects a bundle entry without
+    // systemService: true — the production build (build.mjs) stamps it from
+    // each package manifest, and dev builds (build-apps.mjs) must match:
+    // a dev manifest without the flags fails ALL 26 services silently.
+    // Regression guard for the dev-build manifest generator.
+    const runtimeServices = JSON.parse(readWorkspaceFile('../../../js/apps/system-service-manifest.json'));
+    const packageManifest = JSON.parse(readWorkspaceFile('../../../js/apps/novaapp-manifest.json'));
+    const byId = new Map(packageManifest.map(bundle => [bundle.id, bundle]));
+
+    for (const service of runtimeServices) {
+      const bundle = byId.get(service.id);
+      expect(bundle, `${service.id} must be in the first-party manifest`).toBeDefined();
+      expect(bundle.systemService, `${service.id} bundle must declare systemService: true`).toBe(true);
+      expect(bundle.cacheKey, `${service.id} bundle must carry a cacheKey`).toMatch(/^[a-f0-9]{64}$/);
+    }
+  });
+
+  it('registers the NovaByte Setup app as a first-party system package', () => {
+    // The first-boot wizard is a .novaapp, not lock-screen code: it must be
+    // in the build manifest (with the system flags the reconcile pass
+    // requires) and carry both entries — index.html for the sandboxed
+    // fallback and app.js for the trusted host launch.
+    const packageManifest = JSON.parse(readWorkspaceFile('../../../js/apps/novaapp-manifest.json'));
+    expect(packageManifest).toContainEqual(expect.objectContaining({
+      id: 'com.nbosp.setup',
+      file: 'js/apps/com.nbosp.setup.novaapp',
+    }));
+    const setupManifest = JSON.parse(readWorkspaceFile('../../../js/apps/setup/manifest.json'));
+    expect(setupManifest.system).toBe(true);
+    expect(setupManifest.entry).toBe('index.html');
+    expect(setupManifest.unrestrictedEntry).toBe('app.js');
+  });
+
+  it('preserves the system tray across launcher re-renders (log off → log back in)', () => {
+    // Contract: #system-tray-root carries the tray service's listeners and
+    // gets moved INSIDE the launcher's taskbar; re-running the launcher
+    // (per-account mount) replaces the launcher DOM with innerHTML, so
+    // boot.js must park the tray node on the body BEFORE that wipe and the
+    // launcher must re-parent it (display:contents) afterwards. Regression
+    // guard for the "tray items missing after log off + log back in" bug.
+    const bootSource = readWorkspaceFile('../../../js/core/core/boot.js');
+    const launcherSource = readWorkspaceFile('../../../js/apps/launcher/app.js');
+
+    const parkAt = bootSource.indexOf("document.getElementById('system-tray-root')");
+    const wipeAt = bootSource.indexOf('root.innerHTML = readPackageText(');
+    expect(parkAt).toBeGreaterThan(-1);
+    expect(wipeAt).toBeGreaterThan(parkAt); // park BEFORE the wipe
+    expect(bootSource).toContain('root.contains(trayRoot)');
+    expect(bootSource).toContain("trayRoot.style.display = 'none'");
+
+    // The launcher re-parents the parked node into the fresh taskbar and
+    // flips its display back to contents, and its settings listener is
+    // wired once (never stacked across re-runs).
+    expect(launcherSource).toContain("document.getElementById('system-tray-root')");
+    expect(launcherSource).toContain("systemTray.style.display = 'contents'");
+    expect(launcherSource).toContain('__launcherSettingsWired');
+  });
+
   it('boots NovaByte System as the owner of Settings preferences', () => {
     const appId = 'com.nbosp.service.novabyte-system';
     const runtimeServices = JSON.parse(readWorkspaceFile('../../../js/apps/system-service-manifest.json'));
@@ -72,6 +131,7 @@ describe('built-in service boundaries', () => {
     const shellDesktopSource = readWorkspaceFile('../../../js/apps/shell-ui/desktop.js');
     const shellWindowManagerSource = readWorkspaceFile('../../../js/apps/shell-ui/wm.js');
     const launcherSource = readWorkspaceFile('../../../js/apps/launcher/app.js');
+    const traySource = readWorkspaceFile('../../../js/apps/tray/service.js');
     const sourceManifest = JSON.parse(readWorkspaceFile('../../../js/apps/novabyte-system/manifest.json'));
 
     expect(runtimeServices).toContainEqual({ id: appId, entry: 'service.js' });
@@ -87,10 +147,12 @@ describe('built-in service boundaries', () => {
     expect(shellDesktopSource).not.toMatch(/OS\.settings(?:\.get|\._cache)/);
     expect(shellWindowManagerSource).toContain('window.NovaByteSystem?.settings');
     expect(shellWindowManagerSource).not.toContain('OS.settings.get(');
-    expect(launcherSource).toContain('window.NovaByteSystem?.hardware?.power');
+    expect(traySource).toContain('window.NovaByteSystem?.hardware?.power');
+    expect(launcherSource).not.toContain('hardware?.power');
     expect(launcherSource).toContain('window.NovaByteSystem?.developer?.setRootAccess');
     expect(launcherSource).not.toMatch(/OS\.settings\.(?:get|set)\(['"](?:devMode|rootAccessEnabled)['"]/);
     expect(launcherSource).not.toContain("execFile('/usr/bin/nbosp-power'");
+    expect(traySource).not.toContain("execFile('/usr/bin/nbosp-power'");
   });
 
   it('keeps core service dependencies ordered before boot', () => {

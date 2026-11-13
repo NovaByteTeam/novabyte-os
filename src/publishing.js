@@ -204,12 +204,18 @@ class PublisherPortal {
 
   readSession() {
     try {
-      const stored = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
-      const value = JSON.parse(stored || 'null');
-      if (value && !localStorage.getItem(SESSION_KEY)) {
-        localStorage.setItem(SESSION_KEY, JSON.stringify(value));
-        sessionStorage.removeItem(SESSION_KEY);
+      // SECURITY (2026-11-12 audit, finding M6): the Supabase access_token
+      // plus long-lived refresh_token used to persist in localStorage —
+      // XSS-readable, surviving browser restarts, i.e. account-takeover
+      // material at rest. Sessions now live in sessionStorage only (tab
+      // lifetime); any legacy localStorage copy is migrated DOWN and
+      // scrubbed.
+      const legacy = localStorage.getItem(SESSION_KEY);
+      if (legacy) {
+        try { sessionStorage.setItem(SESSION_KEY, legacy); } catch { /* non-fatal */ }
+        localStorage.removeItem(SESSION_KEY);
       }
+      const value = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
       return value && typeof value.access_token === 'string' ? value : null;
     } catch (error) {
       console.warn('[Publisher] Could not restore the browser session:', error);
@@ -227,8 +233,8 @@ class PublisherPortal {
       refresh_token: session.refresh_token,
       expires_at: Math.floor(Date.now() / 1000) + expiresIn,
     };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(this.session));
-    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(this.session));
+    localStorage.removeItem(SESSION_KEY);
   }
 
   clearSession() {

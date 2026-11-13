@@ -8,12 +8,12 @@
 # To turn debug OFF:  rm /boot/nbosp-debug
 #
 # What debug mode does:
-#   * cage logs at WLR_DEBUG (CAGE_DEBUG, via patches/cage/0001-*.patch)
-#   * cage starts a wrapper instead of Xwayland that runs it with -verbose 10,
+#   * labwc logs at debug level (started with `labwc -d`)
+#   * labwc starts a wrapper instead of Xwayland that runs it with -verbose 10,
 #     LD_DEBUG=libs and (if installed) strace of failing file/ioctl calls
 #   * Mesa EGL / Chromium GPU-process logging is turned up
 #   * ~30s after boot a dump of the whole graphics state goes to
-#     /home/nbosp/nbosp-gl-debug.log, the serial console and nbosp-kiosk.log
+#     /var/log/nbosp/gl-debug.log, the serial console and kiosk.log
 # Resolve NBOSP_GL_DEBUG. Priority: env (already set) > kernel cmdline > off.
 if [ -z "$NBOSP_GL_DEBUG" ]; then
   _cmdline="$(cat /proc/cmdline 2>/dev/null)"
@@ -27,7 +27,34 @@ fi
 if [ "$NBOSP_GL_DEBUG" = 1 ]; then
   export LIBGL_DEBUG=verbose
 fi
-GL_DEBUG_LOG=/home/nbosp/nbosp-gl-debug.log
+
+# --- Machine-home hygiene ---------------------------------------------------
+# The kiosk user's home is the SYSTEM area: ~/users/<account>/ trees plus
+# hidden dot-state. NOTHING user-visible — logs, caches, scratch files —
+# may sit at its root. Session logs live under /var/log/nbosp and the
+# runtime cache under /var/cache/nbosp (XDG_CACHE_HOME in the session env).
+# This boot janitor relocates the leftovers older builds dropped in the
+# home, one time, every boot (idempotent: clean machines take the fast
+# path).
+nbosp_log_dir=/var/log/nbosp
+nbosp_cache_dir=/var/cache/nbosp
+mkdir -p "$nbosp_log_dir" "$nbosp_cache_dir"
+chown nbosp:nbosp "$nbosp_log_dir" "$nbosp_cache_dir" 2>/dev/null || true
+for f in nbosp-kiosk.log vmusr.log nbosp-gl-debug.log \
+         xwayland-debug.log xwayland-probe.log xwayland-probe-strace.log \
+         xwayland-probe.strace xwayland.strace; do
+  if [ -f "/home/nbosp/$f" ]; then
+    mv -f "/home/nbosp/$f" "$nbosp_log_dir/$f" 2>/dev/null || true
+  fi
+done
+for f in /home/nbosp/xwayland-ld.*; do
+  [ -f "$f" ] && mv -f "$f" "$nbosp_log_dir/" 2>/dev/null || true
+done
+# The cache is disposable by definition — once XDG_CACHE_HOME points
+# elsewhere nothing recreates it, so drop the old copy entirely.
+[ -d /home/nbosp/.cache ] && rm -rf /home/nbosp/.cache 2>/dev/null || true
+
+GL_DEBUG_LOG="$nbosp_log_dir/gl-debug.log"
 
 # Recovery is entered from the GRUB entry (nbosp.recovery=1 on the kernel
 # cmdline) or from a one-shot request file the desktop drops before it
@@ -51,19 +78,21 @@ nbosp_recovery_requested() {
 nbosp_gl_debug_setup() {
   gl_debug_env=""
   chromium_gl_debug=""
+  labwc_debug_flag=""
   [ "$NBOSP_GL_DEBUG" = 1 ] || return 0
+  labwc_debug_flag="-d"
 
   mkdir -p /run/nbosp-debug-bin
   cat > /run/nbosp-debug-bin/Xwayland <<'XWRAP'
 #!/bin/sh
 # Installed by S99nbosp (NBOSP_GL_DEBUG). wlroots runs this instead of Xwayland.
-LOG=/home/nbosp/xwayland-debug.log
+LOG=/var/log/nbosp/xwayland-debug.log
 echo "=== $(date) Xwayland wrapper: $*" >> "$LOG"
-export LD_DEBUG=libs LD_DEBUG_OUTPUT=/home/nbosp/xwayland-ld
+export LD_DEBUG=libs LD_DEBUG_OUTPUT=/var/log/nbosp/xwayland-ld
 # strace is opt-in (NBOSP_GL_STRACE=1). As the parent of Xwayland it can break
-# cage's startup handshake, which killed the first debug boot.
+# labwc's startup handshake, which killed the first debug boot.
 if [ "@STRACE@" = 1 ] && [ -x /usr/bin/strace ]; then
-  exec /usr/bin/strace -f -qq -Z -s 256 -o /home/nbosp/xwayland.strace \
+  exec /usr/bin/strace -f -qq -Z -s 256 -o /var/log/nbosp/xwayland.strace \
     -e trace=file,ioctl,connect,mmap \
     /usr/bin/Xwayland "$@" -verbose 10 >> "$LOG" 2>&1
 fi
@@ -71,15 +100,15 @@ exec /usr/bin/Xwayland "$@" -verbose 10 >> "$LOG" 2>&1
 XWRAP
   sed -i "s/@STRACE@/${NBOSP_GL_STRACE:-0}/" /run/nbosp-debug-bin/Xwayland
   chmod 0755 /run/nbosp-debug-bin/Xwayland
-  rm -f /home/nbosp/xwayland-debug.log /home/nbosp/xwayland-ld.* /home/nbosp/xwayland.strace
-  : > /home/nbosp/xwayland-debug.log
-  chown nbosp:nbosp /home/nbosp/xwayland-debug.log 2>/dev/null || true
+  rm -f /var/log/nbosp/xwayland-debug.log /var/log/nbosp/xwayland-ld.* /var/log/nbosp/xwayland.strace
+  : > /var/log/nbosp/xwayland-debug.log
+  chown nbosp:nbosp /var/log/nbosp/xwayland-debug.log 2>/dev/null || true
 
   # WLR_XWAYLAND is honoured by wlroots; the PATH prefix is a fallback in case
   # it execs plain "Xwayland". Values must not contain quotes or dollar signs.
-  gl_debug_env="CAGE_DEBUG=1 EGL_LOG_LEVEL=debug MESA_DEBUG=1"
+  gl_debug_env="EGL_LOG_LEVEL=debug MESA_DEBUG=1"
   # The Xwayland wrapper is opt-in (NBOSP_GL_XWRAP=1). In the last two debug boots
-  # cage's Xwayland died within 10-90ms whenever it was routed through it, so the
+  # labwc's Xwayland died within 10-90ms whenever it was routed through it, so the
   # default path leaves Xwayland alone and probes a second instance in the dump.
   if [ "${NBOSP_GL_XWRAP:-0}" = 1 ]; then
     gl_debug_env="PATH=/run/nbosp-debug-bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin WLR_XWAYLAND=/run/nbosp-debug-bin/Xwayland $gl_debug_env"
@@ -114,7 +143,7 @@ nbosp_gl_proc_report() {
   echo
   nbosp_gl_sec "$name environment (graphics-relevant)"
   tr '\0' '\n' < "/proc/$pid/environ" \
-    | grep -E '^(LD_|LIBGL|EGL|MESA|WLR_|XDG_|WAYLAND|DISPLAY|PATH|GBM|LIBSEAT|CAGE)' || true
+    | grep -E '^(LD_|LIBGL|EGL|MESA|WLR_|XDG_|WAYLAND|DISPLAY|PATH|GBM|LIBSEAT|LABWC)' || true
   nbosp_gl_sec "$name mapped libraries (graphics-relevant)"
   awk '{ print $6 }' "/proc/$pid/maps" | sort -u \
     | grep -i -E 'EGL|GLX|libGL|gbm|epoxy|dri|glvnd|vulkan|swiftshader|libdrm|wayland|pixman' || true
@@ -126,7 +155,7 @@ nbosp_gl_debug_dump() {
   out="$GL_DEBUG_LOG"
   : > "$out"
 
-  # cage starts Xwayland lazily when Chromium connects; wait up to ~90s for it.
+  # labwc starts Xwayland lazily when Chromium connects; wait up to ~90s for it.
   i=0
   while [ "$i" -lt 45 ]; do
     nbosp_gl_find_pid Xwayland >/dev/null && break
@@ -135,21 +164,21 @@ nbosp_gl_debug_dump() {
   done
   sleep 8   # let glamor init finish and Chromium's GPU process retry
 
-  # Probe: a second Xwayland on :7 against the running cage, with full verbosity.
-  # Its log should say why glamor falls back, without touching cage's own Xwayland.
-  rm -f /home/nbosp/xwayland-probe.log
-  su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/Xwayland :7 -rootless -verbose 10 -noreset > /home/nbosp/xwayland-probe.log 2>&1 & p=$!; sleep 6; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null; echo "probe exit handled" >> /home/nbosp/xwayland-probe.log'
+  # Probe: a second Xwayland on :7 against the running labwc, with full verbosity.
+  # Its log should say why glamor falls back, without touching labwc's own Xwayland.
+  rm -f /var/log/nbosp/xwayland-probe.log
+  su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/Xwayland :7 -rootless -verbose 10 -noreset > /var/log/nbosp/xwayland-probe.log 2>&1 & p=$!; sleep 6; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null; echo "probe exit handled" >> /var/log/nbosp/xwayland-probe.log'
   # Same probe under strace (failed calls only) to catch the lookup glamor trips on.
-  rm -f /home/nbosp/xwayland-probe.strace
+  rm -f /var/log/nbosp/xwayland-probe.strace
   if [ -x /usr/bin/strace ]; then
-    su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/strace -f -qq -Z -s 200 -o /home/nbosp/xwayland-probe.strace -e trace=file,ioctl,connect /usr/bin/Xwayland :8 -rootless -verbose 10 -noreset > /home/nbosp/xwayland-probe-strace.log 2>&1 & p=$!; sleep 8; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null' </dev/null >/dev/null 2>&1
+    su -s /bin/sh nbosp -c 'export HOME=/home/nbosp XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 LIBSEAT_BACKEND=seatd EGL_LOG_LEVEL=debug MESA_DEBUG=1; /usr/bin/strace -f -qq -Z -s 200 -o /var/log/nbosp/xwayland-probe.strace -e trace=file,ioctl,connect /usr/bin/Xwayland :8 -rootless -verbose 10 -noreset > /var/log/nbosp/xwayland-probe-strace.log 2>&1 & p=$!; sleep 8; kill $p 2>/dev/null; sleep 1; kill -9 $p 2>/dev/null' </dev/null >/dev/null 2>&1
   fi </dev/null >/dev/null 2>&1
 
   {
     echo "===== NBOSP GL DEBUG DUMP $(date) ====="
     nbosp_gl_sec "versions"
     uname -a
-    /usr/bin/cage -v 2>&1 | head -2
+    /usr/bin/labwc -v 2>&1 | head -2
     /usr/bin/Xwayland -version 2>&1 | head -4
 
     nbosp_gl_sec "DRM nodes"
@@ -178,13 +207,13 @@ nbosp_gl_debug_dump() {
     ls -la /opt/nbosp 2>&1 | head -60
     ls -la /opt/nbosp/lib /opt/nbosp/swiftshader 2>&1 | head -60
 
-    nbosp_gl_proc_report cage
+    nbosp_gl_proc_report labwc
     nbosp_gl_proc_report Xwayland
 
     if [ -x /usr/bin/wayland-info ]; then
       nbosp_gl_sec "wayland-info (compositor globals, dmabuf/drm)"
       su -s /bin/sh nbosp -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; wayland-info 2>&1' \
-        | grep -i -E 'interface|dmabuf|wl_drm|format|device' | head -80
+        | grep -i -E 'interface|dmabuf|wl_drm|format|device|layer' | head -80
     fi
     if [ -x /usr/bin/eglinfo ]; then
       nbosp_gl_sec "eglinfo"
@@ -195,22 +224,22 @@ nbosp_gl_debug_dump() {
       su -s /bin/sh nbosp -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 DISPLAY=:0; glxinfo -B 2>&1' | head -60
     fi
 
-    nbosp_gl_sec "xwayland-probe.log ($(wc -l < /home/nbosp/xwayland-probe.log 2>/dev/null) lines): glamor / egl / gbm / dmabuf lines"
-    grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier|fail|error' /home/nbosp/xwayland-probe.log 2>&1 | head -120
+    nbosp_gl_sec "xwayland-probe.log ($(wc -l < /var/log/nbosp/xwayland-probe.log 2>/dev/null) lines): glamor / egl / gbm / dmabuf lines"
+    grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier|fail|error' /var/log/nbosp/xwayland-probe.log 2>&1 | head -120
     nbosp_gl_sec "xwayland-probe.log: head"
-    head -40 /home/nbosp/xwayland-probe.log 2>&1
+    head -40 /var/log/nbosp/xwayland-probe.log 2>&1
     nbosp_gl_sec "xwayland-probe-strace.log (stderr of the strace'd probe)"
-    head -40 /home/nbosp/xwayland-probe-strace.log 2>&1
+    head -40 /var/log/nbosp/xwayland-probe-strace.log 2>&1
     nbosp_gl_sec "xwayland-probe.strace: failed calls touching dri/drm/gbm/egl/mesa/glvnd"
-    grep -i -E 'dri|drm|gbm|egl|mesa|glvnd|render|wayland' /home/nbosp/xwayland-probe.strace 2>&1 | tail -60
+    grep -i -E 'dri|drm|gbm|egl|mesa|glvnd|render|wayland' /var/log/nbosp/xwayland-probe.strace 2>&1 | tail -60
     nbosp_gl_sec "xwayland-debug.log: glamor / egl / gbm / dmabuf lines"
-    grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier' /home/nbosp/xwayland-debug.log 2>&1 | head -120
+    grep -n -i -E 'glamor|egl|gbm|dmabuf|drm|dri3|glx|epoxy|wl_drm|modifier' /var/log/nbosp/xwayland-debug.log 2>&1 | head -120
     nbosp_gl_sec "xwayland-debug.log: tail"
-    tail -40 /home/nbosp/xwayland-debug.log 2>&1
+    tail -40 /var/log/nbosp/xwayland-debug.log 2>&1
     nbosp_gl_sec "xwayland.strace: failed DRM/EGL/GBM/ioctl calls"
-    grep -E 'dri|gbm|EGL|egl|glvnd|vulkan|drm|ioctl' /home/nbosp/xwayland.strace 2>&1 | head -150
+    grep -E 'dri|gbm|EGL|egl|glvnd|vulkan|drm|ioctl' /var/log/nbosp/xwayland.strace 2>&1 | head -150
     nbosp_gl_sec "xwayland LD_DEBUG: GL-related lines"
-    grep -h -i -E 'error|cannot|not found|libEGL|libGL\.so|libgbm|epoxy|glvnd|/dri/' /home/nbosp/xwayland-ld.* 2>&1 | head -120
+    grep -h -i -E 'error|cannot|not found|libEGL|libGL\.so|libgbm|epoxy|glvnd|/dri/' /var/log/nbosp/xwayland-ld.* 2>&1 | head -120
 
     echo
     echo "===== END NBOSP GL DEBUG DUMP ====="
@@ -218,7 +247,7 @@ nbosp_gl_debug_dump() {
 
   chown nbosp:nbosp "$out" 2>/dev/null || true
   cat "$out" > /dev/ttyS0 2>/dev/null || true
-  cat "$out" >> /home/nbosp/nbosp-kiosk.log 2>/dev/null || true
+  cat "$out" >> /var/log/nbosp/kiosk.log 2>/dev/null || true
 }
 
 case "$1" in
@@ -235,8 +264,8 @@ case "$1" in
       echo "NBOSP kiosk app is missing or not executable: $app" >&2
       exit 1
     fi
-    if [ ! -x /usr/bin/cage ]; then
-      echo "NBOSP kiosk: Cage is missing" >&2
+    if [ ! -x /usr/bin/labwc ]; then
+      echo "NBOSP kiosk: labwc is missing" >&2
       exit 1
     fi
 
@@ -351,9 +380,35 @@ case "$1" in
         ;;
     esac
     nbosp_gl_debug_setup
+    # Seed the Chromium profile with the kiosk popup policy before the first
+    # launch: the save-password, save-address and save-card bubbles are driven
+    # by profile preferences, not command line switches. Writing them only when
+    # the Preferences file does not exist yet leaves user profile state (which
+    # Chromium owns afterwards) untouched on later boots.
+    profile_dir=/home/nbosp/.config/novabyte/Default
+    if [ ! -f "$profile_dir/Preferences" ]; then
+      mkdir -p "$profile_dir" 2>/dev/null || true
+      cat > "$profile_dir/Preferences" <<'PREFS'
+{
+  "credentials_enable_service": false,
+  "credentials_enable_autosignin": false,
+  "autofill": {
+    "profile_enabled": false,
+    "credit_card_enabled": false
+  },
+  "profile": {
+    "name": "NovaByte"
+  }
+}
+PREFS
+      chown nbosp:nbosp "$profile_dir/Preferences" "$profile_dir" 2>/dev/null || true
+    fi
     cat > /run/nbosp-kiosk-session.sh <<SESSION
 #!/bin/sh
 export LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp
+# Marks the NW.js process as the locked-down kiosk instance: the main window
+# refuses WM close requests (Alt+F4) when this is set (scripts/startup.js).
+export NBOSP_KIOSK=1
 [ -x /usr/bin/nbosp-vmusr ] && /usr/bin/nbosp-vmusr &
 exec /opt/nbosp/NovaByte --enable-features=UseOzonePlatform \
   --ozone-platform=x11 --use-gl=angle --use-angle=gl \
@@ -373,17 +428,17 @@ SESSION
       exit 1
     fi
 
-    cat > /run/nbosp-compositor-session.sh <<'SESSION'
+    cat > /run/nbosp-compositor-session.sh <<SESSION
 #!/bin/sh
 umask 0007
-exec /usr/bin/cage -- /run/nbosp-kiosk-session.sh
+exec /usr/bin/labwc $labwc_debug_flag -C /etc/labwc -S /run/nbosp-kiosk-session.sh
 SESSION
     chmod 0755 /run/nbosp-compositor-session.sh
 
     start-stop-daemon --start --background --make-pidfile \
       --pidfile /run/nbosp-kiosk.pid --exec /usr/bin/openvt -- \
       -f -s -w -c 1 -- /bin/sh -c \
-      'n=0; while [ -f /run/nbosp-kiosk.pid ] && [ "$n" -lt 5 ]; do su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/nbosp-wayland LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 '"$gl_debug_env"' XDG_CURRENT_DESKTOP=cage XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /run/nbosp-compositor-session.sh" 2>&1 | tee -a /home/nbosp/nbosp-kiosk.log /dev/ttyS0 >/dev/null; n=$((n+1)); echo "NBOSP kiosk: session exited, restart $n of 5 allowed" >/dev/ttyS0 2>/dev/null; sleep 2; done'
+      'n=0; while [ -f /run/nbosp-kiosk.pid ] && [ "$n" -lt 5 ]; do su -s /bin/sh nbosp -c "export HOME=/home/nbosp NODE_ENV=production XDG_RUNTIME_DIR=/run/nbosp-wayland XDG_CACHE_HOME=/var/cache/nbosp LIBSEAT_BACKEND=seatd NODE_BIN_PATH=/opt/nbosp/NovaByte NBOSP_DATA_DIR=/home/nbosp/.config/novabyte/runtime LD_LIBRARY_PATH=/opt/nbosp/lib:/opt/nbosp XCURSOR_THEME=whiteglass XCURSOR_SIZE=32 XCURSOR_PATH=/usr/share/icons:/usr/share/pixmaps WLR_NO_HARDWARE_CURSORS=1 '"$gl_debug_env"' XDG_CURRENT_DESKTOP=labwc XDG_SESSION_TYPE=wayland GDK_BACKEND=wayland XKB_DEFAULT_LAYOUT='"$keyboard_layout"'; unset DBUS_SESSION_BUS_ADDRESS; exec /usr/bin/dbus-run-session -- /run/nbosp-compositor-session.sh" 2>&1 | tee -a /var/log/nbosp/kiosk.log /dev/ttyS0 >/dev/null; n=$((n+1)); echo "NBOSP kiosk: session exited, restart $n of 5 allowed" >/dev/ttyS0 2>/dev/null; sleep 2; done'
 
     if [ "$NBOSP_GL_DEBUG" = 1 ]; then
       nbosp_gl_debug_dump </dev/null >/dev/null 2>&1 &

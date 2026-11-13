@@ -60,12 +60,15 @@ const NovaRegistry = (() => {
   // at boot exactly as today; HKNU/HKNA/HKND become MOUNTED hives — the
   // SessionManager mounts them from a per-account directory at login and
   // flushes them at logout or switch. Mounted documents carry the owner in
-  // their storage name (user:<uid>:<HIVE>) and the storage adapter resolves
+  // their storage name (user:<segment>:<HIVE>) and the storage adapter resolves
   // that to the per-account file layout, so every other storage surface of
   // the engine is untouched. Because HKCU was always an alias of HKNU and
   // every existing path string keeps its shape, no app-visible API changes.
+  // The segment is the account's USERNAME (usernames allow dots); machines
+  // that predate that layout keep their uid-keyed documents byte-for-byte —
+  // the login-time layout upgrade moves the directories, not the engine.
   const USER_HIVES = Object.freeze(['HKNU', 'HKNA', 'HKND']);
-  const USER_DOC_RE = /^user:([A-Za-z0-9][A-Za-z0-9_-]{0,127}):(HKNU|HKNA|HKND)$/;
+  const USER_DOC_RE = /^user:([A-Za-z0-9][A-Za-z0-9._-]{0,127}):(HKNU|HKNA|HKND)$/;
 
   const VALUE_TYPES = Object.freeze([
     'REG_SZ', 'REG_EXPAND_SZ', 'REG_MULTI_SZ', 'REG_BOOL', 'REG_DWORD', 'REG_QWORD', 'REG_JSON', 'REG_BINARY',
@@ -248,9 +251,10 @@ const NovaRegistry = (() => {
         const path = require('path');
         const os = require('os');
         const dir = path.join(os.homedir(), '.config', 'novabyte', 'registry');
-        // user:<uid>:<HIVE> documents resolve to the account's own registry
-        // directory — the mounted-hive file layout. Everything else keeps
-        // the machine location.
+        // user:<segment>:<HIVE> documents resolve to the account's own registry
+        // directory — the mounted-hive file layout. The segment is the
+        // username when one is known, else the uid (legacy layouts).
+        // Everything else keeps the machine location.
         const fileFor = (name) => {
           const m = USER_DOC_RE.exec(name);
           if (m) return path.join(os.homedir(), '.config', 'novabyte', 'users', m[1], 'registry', `${m[2]}.json`);
@@ -1461,15 +1465,18 @@ const NovaRegistry = (() => {
    * loads the account's hive documents (a missing document starts a fresh
    * hive — first login for a new account). Called ONLY by the SessionManager
    * at login: it is the one component permitted to swap registry mounts, so
-   * the number of places scoping can be wrong stays at one.
+   * the number of places scoping can be wrong stays at one. The segment is
+   * the account's username (user:<username>:<HIVE> on disk under
+   * users/<username>/registry/); callers without a username keep the legacy
+   * uid-keyed addressing byte-for-byte.
    */
-  function mountUserHives(uid, options = {}) {
+  function mountUserHives(segment, options = {}) {
     ensureReady();
-    if (typeof uid !== 'string' || !USER_DOC_RE.exec(`user:${uid}:HKNU`)) {
-      throw regError('INVALID_ARGS', `invalid account uid for hive mounting: '${uid}'`);
+    if (typeof segment !== 'string' || !USER_DOC_RE.exec(`user:${segment}:HKNU`)) {
+      throw regError('INVALID_ARGS', `invalid account segment for hive mounting: '${segment}'`);
     }
     flushUserHives();
-    state.userUid = uid;
+    state.userUid = segment;
     state.userVolatile = options.volatile === true;
     state.userSealed = false;
     for (const hive of USER_HIVES) {

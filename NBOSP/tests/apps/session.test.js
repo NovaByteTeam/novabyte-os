@@ -34,23 +34,29 @@ function makeFetchRouter(routes) {
 
 async function loadSessionManager({ routes = {}, mountEnabled = true } = {}) {
   const { fetchImpl, calls } = makeFetchRouter(routes);
-  const mounts = { scopeActive: [], registry: [], userRoots: [], settingsLoads: 0, permissionReloads: 0 };
+  const mounts = { scopeActive: [], scopeUsernames: [], registry: [], userRoots: [], userRootArgs: [], layoutUpgrades: [], settingsLoads: 0, permissionReloads: 0 };
   const scope = {
     enabled: () => mountEnabled,
     uid: () => mounts.scopeActive[mounts.scopeActive.length - 1] || '',
+    activeUsername: () => mounts.scopeUsernames[mounts.scopeUsernames.length - 1] || '',
     ownerUid: () => '',
     legacyOwnerUid: () => '',
     setActiveRole: () => {},
     clearActive: () => { mounts.scopeActive.pop(); },
     setActive(uid) { mounts.scopeActive.push(uid); },
+    setActiveUsername(uname) { mounts.scopeUsernames.push(String(uname || '')); },
+    clearActiveUsername() { mounts.scopeUsernames.push(''); },
     isActiveAdmin: () => false,
     setLegacyOwnerUid: () => {},
     enable: () => {},
   };
   const registry = {
-    mountUserHives(uid) { mounts.registry.push(uid); },
+    mountUserHives(segment) { mounts.registry.push(segment); },
     unmountUserHives() { mounts.registry.pop(); },
     flushUserHives() { },
+  };
+  const migration = {
+    upgradeUserLayout(uid, username) { mounts.layoutUpgrades.push([uid, username]); },
   };
   const events = [];
   const loaded = await loadServiceApp('session', {
@@ -58,6 +64,7 @@ async function loadSessionManager({ routes = {}, mountEnabled = true } = {}) {
       extra: {
         NovaUserScope: scope,
         NovaRegistry: registry,
+        MultiUserMigration: migration,
         SessionManager: undefined,
         OS: {
           settings: {
@@ -67,7 +74,7 @@ async function loadSessionManager({ routes = {}, mountEnabled = true } = {}) {
           windows: new Map(),
         },
         FS: {
-          setUserRoot: async (uid) => { mounts.userRoots.push(uid); },
+          setUserRoot: async (uid, opts) => { mounts.userRoots.push(uid); mounts.userRootArgs.push({ uid, opts }); },
         },
         Boot: {
           applyOSVars: () => () => undefined,
@@ -141,12 +148,19 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(loginCall.credentials).toBe('omit');
     expect(loginCall.headers['X-Nova-Session']).toBeUndefined();
 
-    // The per-user mount sequence ran exactly once: scope flag, hive mount,
-    // settings re-hydration, VFS re-root, permission reload.
+    // The per-user mount sequence ran exactly once: scope flag (uid +
+    // username), the login-time layout upgrade (uid→username rename +
+    // nested→flat lift), hive mount on the USERNAME segment, settings
+    // re-hydration, VFS re-root, permission reload. The VFS re-root keeps
+    // the uid as its identity arg but carries the username so fs.js roots
+    // the tree at ~/users/<username>/.
     expect(mounts.scopeActive).toEqual(['u1']);
-    expect(mounts.registry).toEqual(['u1']);
+    expect(mounts.scopeUsernames).toEqual(['ada']);
+    expect(mounts.layoutUpgrades).toEqual([['u1', 'ada']]);
+    expect(mounts.registry).toEqual(['ada']);
     expect(mounts.settingsLoads).toBe(1);
     expect(mounts.userRoots).toEqual(['u1']);
+    expect(mounts.userRootArgs[0].opts).toMatchObject({ username: 'ada', guest: false });
     expect(mounts.permissionReloads).toBe(1);
 
     expect(emitted.some(e => e.name === 'session:changed' && e.uid === 'u1')).toBe(true);
@@ -265,7 +279,7 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(manager.isActive()).toBe(true);
   });
 
-  it('logout tears the session down: scope cleared, hives unmounted, server session ended', async () => {
+  it('logout tears the session down: scope cleared, hives unmounted, VFS re-rooted to the machine tree, server session ended', async () => {
     const { manager, calls, mounts } = await loadSessionManager({
       routes: {
         'POST /api/auth/login': () => ({
@@ -281,6 +295,11 @@ describe('SessionManager (js/apps/session service)', () => {
     expect(manager.state()).toMatchObject({ status: 'loggedout', uid: null, role: null });
     expect(manager.token()).toBe(null);
     expect(mounts.scopeActive).toEqual([]);
+    // The departed account's tree stops being mounted: teardown re-roots
+    // the VFS onto the machine tree (null owner) so nothing personal stays
+    // reachable from the picker — previously the FS cache kept serving the
+    // logged-out user's files (and a guest desktop rode straight onto them).
+    expect(mounts.userRoots).toEqual(['u1', null]);
     expect(calls.some(c => c.url === '/api/auth/logout' && c.method === 'POST')).toBe(true);
   });
 
@@ -331,17 +350,27 @@ describe('SessionManager (js/apps/session service)', () => {
     const result = await manager.setupOwner({ displayName: 'Ada', username: 'ada', pin: '123456' });
     expect(result.ok).toBe(true);
     expect(manager.state()).toMatchObject({ status: 'active', role: 'owner', mustChangePin: false });
-    expect(mounts.registry).toEqual(['u-owner']);
+    // The owner's hives mount on the username segment; the layout upgrade
+    // moved any pre-existing uid-keyed tree onto it first.
+    expect(mounts.registry).toEqual(['ada']);
+    expect(mounts.layoutUpgrades).toEqual([['u-owner', 'ada']]);
+    expect(mounts.userRootArgs[0].opts).toMatchObject({ username: 'ada' });
     expect(emitted.some(e => e.name === 'session:changed' && e.via === 'setup')).toBe(true);
   });
 
   it('guest sessions mount volatile state without any server session', async () => {
-    const { manager, calls, emitted } = await loadSessionManager({ routes: {} });
+    const { manager, calls, mounts, emitted } = await loadSessionManager({ routes: {} });
     const result = await manager.guestLogin();
     expect(result.ok).toBe(true);
     expect(result.guest).toBe(true);
     expect(manager.state().role).toBe('guest');
     expect(calls).toEqual([]);
     expect(emitted.some(e => e.name === 'session:changed' && e.role === 'guest')).toBe(true);
+    // A guest used to ride on whatever tree was already mounted (the last
+    // user's after logout, the machine tree at boot). The guest now mounts
+    // its own volatile tree through the same sequence every session uses.
+    expect(mounts.userRoots).toEqual(['guest']);
+    expect(mounts.userRootArgs[0].opts).toMatchObject({ guest: true });
+    expect(mounts.registry).toEqual(['guest']);
   });
 });

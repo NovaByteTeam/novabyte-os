@@ -123,6 +123,139 @@ describe('LockScreenService multi-user picker (js/apps/lock-screen v2)', () => {
     return { ...loaded, manager, loginCalls, wmCalls, workerCalls, scope };
   }
 
+  async function loadFirstBoot({
+    setupRegistered = true,
+    loginResult = { ok: false, code: 'BAD_CREDENTIAL', message: 'Incorrect PIN' },
+  } = {}) {
+    const manager = {
+      state: () => ({ status: 'loggedout', uid: null, uname: null, displayName: null, role: null }),
+      active: () => false,
+      isActive: () => false,
+      isAdmin: () => false,
+      suspendedUsers: () => [],
+      listAccounts: async () => ({ ok: true, users: [], policies: { guestAccess: false } }),
+      login: async (args) => loginResult,
+      unlock: async () => ({ ok: false }),
+      resumeUser: async () => ({ ok: false }),
+      suspendForSwitch: async () => ({ ok: true }),
+      guestLogin: async () => ({ ok: true, guest: true }),
+      webauthnLogin: async () => ({ ok: false, code: 'UNAVAILABLE' }),
+      setupOwner: async (payload) => ({ ok: true, user: { uid: 'u-owner', username: payload.username, role: 'owner' } }),
+      on: () => () => {},
+    };
+    const createdWindows = [];
+    const maximized = [];
+    const scope = { enabled: () => true, uid: () => '', ownerUid: () => '', activeUsername: () => '' };
+    const apps = setupRegistered
+      ? { 'com.nbosp.setup': { id: 'com.nbosp.setup', name: 'NovaByte Setup', init: async () => {}, frame: true } }
+      : {};
+    const wmCalls = [];
+    const eventLogCalls = [];
+    // A real (tiny) event bus — the setup window lifecycle rides app:closed.
+    const handlers = Object.create(null);
+    const events = {
+      on: (name, fn) => { (handlers[name] = handlers[name] || []).push(fn); },
+      off: (name, fn) => {
+        const list = handlers[name] || [];
+        const at = list.indexOf(fn);
+        if (at > -1) list.splice(at, 1);
+      },
+      emit: (name, payload) => {
+        wmCalls.push({ name, payload });
+        for (const fn of [...(handlers[name] || [])]) fn(payload);
+      },
+    };
+    const loaded = await loadServiceApp('lock-screen', {
+      withBaseUtils: true,
+      stubs: {
+        extra: {
+          OS: {
+            lockPin: null, username: 'Nova', isLocked: false,
+            lockoutUntil: 0, wrongPinCount: 0, idleTimeout: Infinity,
+            settings: { get: () => null },
+            apps,
+            windows: new Map(),
+            events,
+          },
+          WM: {
+            minimizeAll: () => {},
+            updateTaskbar: () => wmCalls.push('updateTaskbar'),
+            createWindow: (appId, opts) => { createdWindows.push({ appId, opts }); return `win-${createdWindows.length}`; },
+            toggleMaximize: (id) => maximized.push(id),
+            closeWindow: () => {},
+          },
+          EventLog: { log: (e) => eventLogCalls.push(e) },
+          Notify: { show: () => {} },
+          getPinSalt: () => 'static-salt',
+          renderDesktopIcons: () => {},
+          NovaUserScope: scope,
+          SessionManager: manager,
+        },
+      },
+    });
+    dom = loaded.dom;
+    loaded.document.body.innerHTML = LOCK_SCREEN_MARKUP;
+    return { ...loaded, manager, createdWindows, maximized, wmCalls, eventLogCalls };
+  }
+
+  it('first boot with zero accounts launches the NovaByte Setup app, not an inline wizard', async () => {
+    const { window, document, createdWindows, maximized, eventLogCalls } = await loadFirstBoot();
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+
+    // The setup app owns the first-run experience: a true fullscreen window
+    // with no shell chrome and NO account fields hardcoded in the lock screen.
+    expect(createdWindows).toHaveLength(1);
+    expect(createdWindows[0].appId).toBe('com.nbosp.setup');
+    expect(createdWindows[0].opts.fullscreen).toBe(true);
+    expect(maximized).toEqual([]);
+    expect(document.getElementById('lock-screen').className).not.toContain('active');
+    expect(document.querySelector('#fw-username')).toBeNull();
+    expect(document.querySelector('.lock-wizard input')).toBeNull();
+    expect(eventLogCalls[0]).toMatchObject({ category: 'security', message: 'First-boot setup started (NovaByte Setup)' });
+  });
+
+  it('setup window closing without an account re-offers the gate, counting rapid closes', async () => {
+    const { window, document, createdWindows } = await loadFirstBoot();
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+    expect(createdWindows).toHaveLength(1);
+
+    // First close (< 8s): the picker relaunches setup — the gate re-offers.
+    window.OS.events.emit('app:closed', { id: 'win-1', appId: 'com.nbosp.setup' });
+    await settle(50);
+    expect(createdWindows).toHaveLength(2);
+
+    // Second rapid close and third: after two rapid closes the fallback
+    // notice shows instead of another launch (crash-loop guard).
+    window.OS.events.emit('app:closed', { id: 'win-2', appId: 'com.nbosp.setup' });
+    await settle(50);
+    window.OS.events.emit('app:closed', { id: 'win-2', appId: 'com.nbosp.setup' });
+    await settle(50);
+    expect(createdWindows).toHaveLength(2);
+    expect(document.querySelector('.lock-wizard')).toBeTruthy(); // fallback notice
+    expect(document.querySelector('.lock-wizard').textContent).toContain('could not start');
+    expect(document.getElementById('lock-screen').className).toContain('active');
+  });
+
+  it('when the Setup app is missing the picker shows the fallback notice with a retry', async () => {
+    const { window, document, createdWindows } = await loadFirstBoot({ setupRegistered: false });
+    await window.LockScreenService.showLoginPicker();
+    await settle();
+
+    expect(createdWindows).toEqual([]); // nothing to launch
+    expect(document.getElementById('lock-screen').className).toContain('active');
+    const notice = document.querySelector('.lock-wizard');
+    expect(notice).toBeTruthy();
+    expect(notice.textContent).toContain('damaged');
+
+    // Retry re-attempts the launch (and the notice stays when it fails).
+    notice.querySelector('button.fw-submit').click();
+    await settle(30);
+    expect(createdWindows).toEqual([]);
+    expect(document.querySelector('.lock-wizard')).toBeTruthy();
+  });
+
   it('showLoginPicker() renders account tiles with role chips and a guest tile', async () => {
     const { window, document } = await loadMultiUser();
     await window.LockScreenService.showLoginPicker();

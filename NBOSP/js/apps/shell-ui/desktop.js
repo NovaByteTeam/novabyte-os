@@ -898,16 +898,20 @@ const AppDirs = {
   _linuxDataRoot() {
     const path = require('path');
     const os = require('os');
-    // Multi-user: AppDirs roots move to ~/.local/share/novabyte/
-    // users/<uid>/apps/<appId>/{files,cache,databases,shared_prefs} — the
-    // /data alias resolves against the active user and app subtree (fs.js
-    // re-roots its appDataRoot to the same location, so the VFS /data
-    // mount and this tree stay the same disk bytes). Single-user machines
-    // keep the legacy flat data root byte-for-byte.
+    // Multi-user: the account's whole tree IS <machine home>/users/<username>/,
+    // so AppDirs root at ~/users/<username>/.apps/<appId>/{files,cache,databases,
+    // shared_prefs} — the /data alias resolves against the active user and app
+    // subtree (fs.js re-roots its appDataRoot to the same location, so the VFS
+    // /data mount and this tree stay the same disk bytes), hidden from
+    // listings. Single-user machines keep the legacy flat data root
+    // byte-for-byte.
     if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
       const uid = String(NovaUserScope.uid() || '');
-      if (uid) {
-        return path.join(os.homedir(), '.local', 'share', 'novabyte', 'users', uid, 'apps');
+      const uname = typeof NovaUserScope.activeUsername === 'function'
+        ? String(NovaUserScope.activeUsername() || '') : '';
+      const segment = uname || uid;
+      if (segment) {
+        return path.join(os.homedir(), 'users', segment, '.apps');
       }
     }
     return path.join(os.homedir(), '.local', 'share', 'novabyte', 'data');
@@ -946,12 +950,16 @@ const AppDirs = {
     const path = require('path');
     const os = require('os');
     // Full-machine localStorage dump becomes per-user at
-    // users/<uid>/browser-state.json (multi-user) — the LS_MAP keys it
-    // mirrors are per-account now.
+    // ~/users/<username>/.browser-state.json (multi-user) — the LS_MAP keys
+    // it mirrors are per-account now, and the file rides inside the
+    // account's own tree (dot-hidden from listings).
     if (typeof NovaUserScope !== 'undefined' && NovaUserScope?.enabled?.()) {
       const uid = String(NovaUserScope.uid() || '');
-      if (uid) {
-        return path.join(os.homedir(), '.local', 'share', 'novabyte', 'users', uid, 'browser-state.json');
+      const uname = typeof NovaUserScope.activeUsername === 'function'
+        ? String(NovaUserScope.activeUsername() || '') : '';
+      const segment = uname || uid;
+      if (segment) {
+        return path.join(os.homedir(), 'users', segment, '.browser-state.json');
       }
     }
     return path.join(os.homedir(), '.local', 'share', 'novabyte', 'browser-state.json');

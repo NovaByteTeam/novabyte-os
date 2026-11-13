@@ -180,11 +180,13 @@ NovaByte's built-in headless services are first-party `.novaapp` packages whose 
 
 Startup order is declared in `js/apps/system-service-manifest.json`. The loader checks package identity, integrity, and the NovaByte System signature against the trust store before launching each service. A manifest's `system` field alone is not authoritative. Framework/bootstrap pieces such as `boot.js`, `kernel.js`, `app-registry.js`, and trust/security initialization also run as OS-page scripts because they are prerequisites for safely loading packages.
 
-Rebuild the built-in services after changing their source:
+Rebuild the built-in services after changing their source (no arguments rebuilds every app):
 
 ```sh
-node build-apps.mjs js/apps background-apps calendar-notifier default-apps event-log notifications registry scanner server-events-bridge system-dialogs system-events
+node build-apps.mjs js/apps app-loader-optimiser background-apps calendar-notifier debug-overlay default-apps downloads-history event-log lock-screen media-store network-activity-log notifications novabyte-system registry scanner screenshots search-index server-events-bridge session shell-ui store-updates system-dialogs system-events system-webview tray wallpaper
 ```
+
+The system builder signs every package it emits — see [Package signatures](#package-signatures) for the full AOSP-style key model. By default it signs with the committed public test pair (`NBOSP/keys/test-system-key.json`, packages carry `signing.tier: "test"`); `NBOSP_SYSTEM_SIGNING_KEY_PATH` or `NBOSP_SYSTEM_SIGNING_KEY` selects an offline release key instead (tier `"release"`). It also stamps a `sha512` integrity block into every package and refreshes `novaapp-manifest.json` cache keys.
 
 `npm start` and `npm run dev` build the NovaApp packages automatically. Set `NBOSP_SKIP_APP_BUILD=1` to skip that build and use the packages already on disk:
 
@@ -203,7 +205,7 @@ When a `.novaapp` is installed and launched, here's what actually happens:
 
 ### Install
 
-The App Manager reads the file, validates the manifest fields (`id`, `name`, `version` are required), checks the signature (prompting the user if it fails rather than blocking outright), saves the app data to `localStorage` under `nova_installed_apps`, and calls `registerNovaApp()` so the app appears in the launcher.
+The App Manager reads the file, validates the manifest fields (`id`, `name`, `version` are required), checks the signature (prompting the user if it fails rather than blocking outright), saves the app record to the installed-apps registry (`nova_installed_apps`) with the package files in that account's own app tree, and calls `registerNovaApp()` so the app appears in the launcher. Installs are **per account**: two accounts can install the same app id without sharing or wiping each other's copy, and a guest clear only ever deletes the calling account's own package files.
 
 In **App Manager → Packages**, user-facing system apps remain visible. Developer tools, the built-in launcher, and headless system services are hidden by default; enable **Show hidden apps** to inspect them. The launcher and headless services cannot be opened from App Manager, and headless services are managed by NovaByte rather than launched, disabled, or uninstalled individually.
 
@@ -2134,18 +2136,22 @@ A `.novaapp` file is plain JSON:
     "index.html": "<base64-encoded content>",
     "app.js": "<base64-encoded content>"
   },
-  "signing": { "method": "ed25519" },
-  "signature": "<signature, base64url>",
-  "signer": "NovaByte Trusted Signing",
+  "signing": {
+    "method": "ed25519",
+    "signer": "NovaByte System",
+    "tier": "test",
+    "signature": "<signature, hex>"
+  },
+  "signature": "<the same signature again, for readers that predate signing.signer>",
   "integrity": {
-    "method": "blake3",
+    "method": "sha512",
     "payloadHash": "<hex digest of the signed payload>",
     "fileHashes": { "index.html": "<hex digest>", "app.js": "<hex digest>" }
   }
 }
 ```
 
-File contents are Base64-encoded. `signature` is a signature over the `novabyte_app`, `manifest`, `files`, and `compiled_at` fields — not a checksum. A checksum says nothing about who produced the file; a signature can only be produced by whoever holds the matching private key, which is what makes trust meaningful. `signing.method` records which algorithm produced the signature (Ed25519 unless stated otherwise — see [Supported signing methods](#supported-signing-methods)), and the optional `integrity` block records tamper-evidence digests (see [Package integrity](#package-integrity)).
+File contents are Base64-encoded. `signature` is a signature over the `novabyte_app`, `manifest`, `files`, and `compiled_at` fields — not a checksum. A checksum says nothing about who produced the file; a signature can only be produced by whoever holds the matching private key, which is what makes trust meaningful. `signing.method` records which algorithm produced the signature (Ed25519 unless stated otherwise — see [Supported signing methods](#supported-signing-methods)), `signing.signer` records the signer identity the trust store matches on, `signing.tier` records how the build was signed (`"test"` for the AOSP-style public test key, `"release"` for an operator's offline key — see below), and the optional `integrity` block records tamper-evidence digests (see [Package integrity](#package-integrity)). The OS system builder (`build-apps.mjs`) writes this full block and duplicates the signature at the top level; the Packages app and Studio builders write `signing.method` plus a top-level `signature` and `signer` (default `"self-signed"`), with the integrity method chosen per build.
 
 ### Package signatures
 
@@ -2158,6 +2164,12 @@ An app can carry a perfectly valid signature from some other key and still be re
 
 **Self-signing** — you can sign your own `.novaapp` with your own keypair for local testing. It will only be trusted if the corresponding public key is in the OS trust store. Self-signing proves the package hasn't been tampered with since you signed it; it does not make it trusted.
 
+**System signing keys and tiers** — the OS ships two trust-store signers: `NovaByte Trusted Signing` (the general signing authority for reviewed third-party packages) and `NovaByte System` (the dedicated system signer — the only one that, combined with a manifest's `system: true`, earns the System badge and its machine-hive rights; the flag alone has no authority, see [Sandboxed execution and system APIs](#sandboxed-execution-and-system-apis)). NovaByte System keys follow the AOSP test-key model:
+
+- **Default builds are test-signed.** The committed public pair at `NBOSP/keys/test-system-key.json` is NovaByte's equivalent of AOSP's platform test keys — the private half is public on purpose. A fresh clone or fork runs `node build-apps.mjs` and gets packages that install and verify as `NovaByte System` with no configuration, carrying `signing.tier: "test"`. The OS labels this honestly: `TrustStore.systemSignatureTier()` reports `test-keys`, shown in Settings → About next to the security patch level.
+- **Release builds rotate the key.** Set `NBOSP_SYSTEM_SIGNING_KEY_PATH` (path to an offline private-key JWK) or `NBOSP_SYSTEM_SIGNING_KEY` (inline JWK) at build time — packages then carry `signing.tier: "release"` — and export `NBOSP_SYSTEM_SIGNING_PUBLIC_JWK` for the server (public half only) so the runtime trust anchor rotates to match. `systemSignatureTier()` then reports `release-keys`, and test-key packages stop verifying as System on that machine — which is the point of rotating.
+- **The trade-off is public and deliberate:** anyone who can read this repository can mint a test-key `NovaByte System` package, exactly as anyone with AOSP's source can mint a platform-test-key Android build. Never gate security-critical production machinery on a test-key build; the full rotation recipe lives in [`NBOSP/keys/README.md`](./NBOSP/keys/README.md).
+
 **Revocation** — trust can be pulled from one specific signed package after the fact, by its exact signature, without touching the signing key or any other package that key signed:
 
 - Revocation is keyed by the exact signature string, not by app id/name/version — those fields are dev-controlled and could be reused or spoofed, whereas a signature is a fixed value produced once, at sign time.
@@ -2166,7 +2178,8 @@ An app can carry a perfectly valid signature from some other key and still be re
 
 **What the user sees:**
 
-- **Verified** — signed with NovaByte's trusted key, not revoked. Installs normally.
+- **Verified** — signed with a key the OS trust store holds (`NovaByte Trusted Signing`, or `NovaByte System` for system packages), not revoked. Installs normally.
+- **System** — verified against the `NovaByte System` trust-store entry **and** carrying `system: true` in its signed manifest. The manifest flag alone is not authority — it is part of the signed payload, so a package cannot gain the badge by claiming it.
 - **Unverified** — unsigned, self-signed, signed with any other key, or individually revoked. The install still proceeds, but the OS shows a clear warning first so the user can back out.
 
 Unverified doesn't mean blocked — NBOSP doesn't gatekeep what you can run on your own machine. It means the OS tells you the truth about what it can and can't vouch for, and leaves the decision with you.
@@ -2188,7 +2201,7 @@ Packages record the algorithm that produced their signature in a `signing: { "me
 Practical notes:
 
 - Keypairs come from `AppPackage.generateSigningKeyPair(method)` — WebCrypto JWKs for every method except ML-DSA-65 (hex strings) and `custom` (you bring your own material). The Packages app generates keypairs and builds signed packages for any of these methods.
-- Verification accepts both the documented base64url signature encoding and the plain-hex encoding older builds emitted (an ambiguous string is tried as both), so packages from either generation verify. New builds emit base64url.
+- Verification accepts the documented base64url signature encoding and the plain-hex encoding (an ambiguous string is tried as both), so packages from either generation verify. The Packages app and Studio emit base64url; the OS system builder (`build-apps.mjs`) emits hex. Both verify.
 - A trust-store entry can pin the method it verifies with; otherwise the package's `signing.method` decides, falling back to Ed25519 when absent.
 - Experimental methods are labelled as such in the Packages app. Don't ship production packages on them without a fallback plan.
 
@@ -2196,7 +2209,7 @@ Practical notes:
 
 Signatures prove who produced a package; integrity digests prove the bytes you received are still the ones that were produced. A package may carry an optional `integrity` block: `payloadHash` covers the exact canonical payload the signature covers, and `fileHashes` covers each packaged file's decoded bytes individually — so a tampered install can be narrowed down to the exact files that changed.
 
-Supported methods (`AppPackage.listIntegrityMethods()`): `blake3` (default), `sha256`, `sha512`, and `none`. Recording a digest is opt-in at build time — the Packages app offers the choice per build, and NovaPack Studio v1.1.80+ defaults new projects to None. A package has integrity protection only if its build computed one.
+Supported methods (`AppPackage.listIntegrityMethods()`): `blake3` (default), `sha256`, `sha512`, and `none`. Recording a digest is opt-in at build time — the Packages app offers the choice per build, and NovaPack Studio v1.1.80+ defaults new projects to None. The OS system builder always records a `sha512` block for every bundled package. A package has integrity protection only if its build computed one.
 
 How the runtime treats the block:
 

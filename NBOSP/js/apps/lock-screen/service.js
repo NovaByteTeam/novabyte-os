@@ -10,8 +10,10 @@
  *  wallpaper, a large clock and date, a horizontal set of account tiles
  *  (public-safe fields only: avatar, display name, role badge, status),
  *  an optional guest tile when machine policy enables guest access, and
- *  power controls in the corner. Zero accounts ⇒ the first-boot setup
- *  wizard replaces the tiles, in the same visual language.
+ *  power controls in the corner. Zero accounts ⇒ first boot: the NovaByte
+ *  Setup app (com.nbosp.setup, an AOSP-style .novaapp wizard) owns the
+ *  whole first-run experience — this service launches it full-screen and
+ *  only falls back to an in-picker notice when the app cannot start.
  *
  *  ── The locked screen ── appears over an ACTIVE session: the current
  *  account's avatar and name, their PIN pad (4 or 6 dots, per the
@@ -39,17 +41,28 @@ function sessionManager() {
   return (typeof SessionManager !== 'undefined' && SessionManager) || null;
 }
 
-// Current surface: 'hidden' | 'locked' | 'picker' | 'first-boot'
+// Current surface: 'hidden' | 'locked' | 'picker' | 'picker-auth' | 'forced-pin' | 'setup'
 let surface = 'hidden';
 
 // ── PIN sheet state ──────────────────────────────────────────────────
 
 let enteredPin = '';
 let sheetAccount = null;      // public account record the sheet is authenticating
-let sheetMode = 'pin';        // 'pin' | 'passphrase' | 'wizard'
+let sheetMode = 'pin';        // 'pin' | 'passphrase'
 let sheetResumable = false;    // sheet targets a parked (suspended) session
 let passphraseValue = '';
-let wizardStep = 0;
+
+// ── First-boot setup (NovaByte Setup .novaapp) ───────────────────────
+
+// The wizard itself lives in the com.nbosp.setup system app; this service
+// only detects "no accounts yet" and hands the machine over to it. Rapid
+// relaunch counting keeps a crashing setup package from spawn-looping the
+// window manager — after two quick closes the picker shows the fallback
+// notice instead of launching it again.
+let setupWindowId = null;
+let setupLastLaunch = 0;
+let setupRapidCloses = 0;
+const SETUP_APP_ID = 'com.nbosp.setup';
 
 // ── Keyboard handler ─────────────────────────────────────────────────
 
@@ -59,10 +72,11 @@ function handleLockScreenKeydown(e) {
     document.removeEventListener('keydown', handleLockScreenKeydown);
     return;
   }
-  if (surface === 'picker' || surface === 'first-boot') {
+  if (surface === 'picker') {
     handlePickerKeydown(e, lockScreenEl);
     return;
   }
+  if (surface === 'setup') return; // the wizard owns its own keyboard handling
   if (sheetMode === 'passphrase') {
     if (e.key === 'Enter') { e.preventDefault(); verifySheetSecret(); }
     return; // the field handles its own input
@@ -528,6 +542,19 @@ async function showLoginPicker() {
   const lockScreenEl = document.getElementById('lock-screen');
   if (!lockScreenEl) return;
 
+  // Zero accounts = first boot: the NovaByte Setup app owns the whole
+  // first-run experience (nothing account-shaped is hardcoded here). The
+  // picker stays down while the wizard runs; if the app cannot start, or
+  // closes without creating an account, the picker (re)appears below.
+  if (!accounts.users?.length) {
+    const launched = await launchFirstBootSetup(manager);
+    if (launched) {
+      hideAllSurfaces(); // picker chrome down while the wizard runs
+      surface = 'setup';
+      return;
+    }
+  }
+
   // Hide the sheet chrome while the picker is up.
   for (const id of ['lock-avatar', 'lock-username', 'lock-pin-dots', 'lock-status', 'lock-numpad', 'lock-passphrase', 'lock-passphrase-back', 'lock-switch-user', 'lock-passphrase-toggle']) {
     const el = document.getElementById(id);
@@ -538,7 +565,7 @@ async function showLoginPicker() {
   const picker = createEl('div', { className: 'lock-picker', role: 'group', 'aria-label': 'Account picker' });
 
   if (!accounts.users?.length) {
-    picker.appendChild(buildFirstBootWizard(manager));
+    picker.appendChild(buildSetupUnavailableNotice());
   } else {
     const clock = createEl('div', { className: 'lock-picker-clock' });
     const now = new Date();
@@ -753,81 +780,85 @@ function selectAccountForAuth(user, { resumable = false } = {}) {
   }
 }
 
-// ── First-boot setup wizard ───────────────────────────────────────────
+// ── First-boot setup (launches the NovaByte Setup .novaapp) ───────────
 
-function buildFirstBootWizard(manager) {
-  const wrap = createEl('div', { className: 'lock-wizard', role: 'form', 'aria-label': 'Create the owner account' });
-  wrap.appendChild(createEl('div', { className: 'lock-picker-title', textContent: 'Set up NovaByte OS', role: 'heading', 'aria-level': 1 }));
-  wrap.appendChild(createEl('div', { className: 'lock-wizard-sub', textContent: 'Create the owner account — the administrator this machine belongs to.' }));
+/**
+ * Zero accounts on the machine: hand the first-run experience over to the
+ * NovaByte Setup system app (com.nbosp.setup) — the AOSP-style multi-step
+ * wizard that creates the owner account. Nothing account-shaped stays
+ * hardcoded here: the wizard is a signed .novaapp, so it can be updated,
+ * extended or replaced like any other system package. Failures fall back
+ * to a notice in the picker instead of a broken gate.
+ */
+async function launchFirstBootSetup(manager) {
+  if (typeof WM === 'undefined' || typeof WM.createWindow !== 'function') return false;
+  if (!manager || typeof manager.setupOwner !== 'function') return false;
+  if (setupRapidCloses >= 2) return false; // crashing package — stop relaunching
 
-  const fields = [
-    { id: 'fw-display', label: 'Your name', type: 'text', placeholder: 'Ada Nova' },
-    { id: 'fw-username', label: 'Username', type: 'text', placeholder: 'ada' },
-    { id: 'fw-pin', label: 'PIN (4–6 digits)', type: 'password', placeholder: '••••', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '6' },
-    { id: 'fw-pin2', label: 'Confirm PIN', type: 'password', placeholder: '••••', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '6' },
-    { id: 'fw-pass', label: 'Passphrase (optional, 8+ chars)', type: 'password', placeholder: 'recommended for the owner' },
-  ];
-  const inputs = {};
-  for (const f of fields) {
-    const label = createEl('label', { className: 'fw-label', htmlFor: f.id, textContent: f.label });
-    const input = createEl('input', { id: f.id, type: f.type, placeholder: f.placeholder });
-    if (f.inputmode) input.setAttribute('inputmode', f.inputmode);
-    if (f.pattern) input.setAttribute('pattern', f.pattern);
-    if (f.maxlength) input.setAttribute('maxlength', f.maxlength);
-    Object.assign(input.style, {
-      width: '260px', padding: '10px 12px', borderRadius: '10px',
-      border: '1px solid var(--border-default)', background: 'var(--bg-overlay)',
-      color: 'var(--text-primary)', fontSize: '13px', outline: 'none',
-    });
-    wrap.appendChild(label);
-    wrap.appendChild(input);
-    inputs[f.id] = input;
+  const app = (typeof OS !== 'undefined' && OS.apps) ? OS.apps[SETUP_APP_ID] : null;
+  if (!app || typeof app.init !== 'function') {
+    console.error('[LockScreen] NovaByte Setup (' + SETUP_APP_ID + ') is not registered');
+    return false;
   }
 
-  const status = createEl('div', { className: 'lock-picker-status', id: 'fw-status', 'aria-live': 'assertive' });
-  wrap.appendChild(status);
+  try {
+    const id = WM.createWindow(SETUP_APP_ID, {
+      x: 0,
+      y: 0,
+      width: window.innerWidth || 1280,
+      height: window.innerHeight || 800,
+      fullscreen: true,
+    });
+    if (!id) return false;
+    setupWindowId = id;
+    setupLastLaunch = Date.now();
+    surface = 'setup';
 
-  const submit = createEl('button', { className: 'fw-submit', textContent: 'Create owner account', 'aria-label': 'Create the owner account and start NovaByte' });
-  Object.assign(submit.style, {
+    const onClosed = ({ appId, id: closedId } = {}) => {
+      if (appId !== SETUP_APP_ID || closedId !== setupWindowId) return;
+      try { OS.events?.off?.('app:closed', onClosed); } catch (_) { }
+      setupWindowId = null;
+      // A setup window that closes without creating an account re-offers
+      // the gate; rapid closes are counted so a crashing package cannot
+      // spawn-loop (rapidCloses >= 2 keeps the fallback notice instead).
+      if (Date.now() - setupLastLaunch < 8000) setupRapidCloses++;
+      const session = sessionManager();
+      if (session && session.active?.()) return;
+      showLoginPicker().catch(() => { });
+    };
+    try {
+      OS.events?.on?.('app:closed', onClosed);
+    } catch (_) { }
+
+    EventLog?.log?.({ app: 'System', category: 'security', severity: 'info', message: 'First-boot setup started (NovaByte Setup)' });
+    return true;
+  } catch (error) {
+    console.error('[LockScreen] NovaByte Setup launch failed:', error);
+    return false;
+  }
+}
+
+/** Fallback notice when the Setup app itself cannot run (damaged bundle). */
+function buildSetupUnavailableNotice() {
+  const wrap = createEl('div', { className: 'lock-wizard', role: 'alert' });
+  wrap.appendChild(createEl('div', { className: 'lock-picker-title', textContent: 'Set up NovaByte OS', role: 'heading', 'aria-level': 1 }));
+  wrap.appendChild(createEl('div', {
+    className: 'lock-wizard-sub',
+    textContent: 'The NovaByte Setup app could not start — the system package is damaged. Restart the machine to retry; if every restart lands here, reinstall NovaByte OS.',
+  }));
+  const retry = createEl('button', { className: 'fw-submit', textContent: 'Retry setup', 'aria-label': 'Retry launching NovaByte Setup' });
+  Object.assign(retry.style, {
     marginTop: '14px', padding: '12px 22px', borderRadius: '10px',
     border: '1px solid var(--accent)', background: 'var(--accent-muted)',
     color: 'var(--accent)', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
   });
-  submit.addEventListener('click', () => submitWizard(manager, inputs, status));
-  wrap.appendChild(submit);
-
-  inputs['fw-display'].focus();
-  return wrap;
-}
-
-async function submitWizard(manager, inputs, status) {
-  const displayName = inputs['fw-display'].value.trim();
-  const username = inputs['fw-username'].value.trim();
-  const pin = inputs['fw-pin'].value;
-  const pin2 = inputs['fw-pin2'].value;
-  const passphrase = inputs['fw-pass'].value;
-
-  if (!displayName) { status.textContent = 'Enter a display name.'; return; }
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{2,31}$/.test(username)) { status.textContent = 'Username: 3–32 letters, digits, dots, dashes.'; return; }
-  if (!/^\d{4,6}$/.test(pin)) { status.textContent = 'PIN must be 4–6 digits.'; return; }
-  if (pin !== pin2) { status.textContent = 'The PINs do not match.'; return; }
-  if (passphrase && passphrase.length < 8) { status.textContent = 'Passphrase must be at least 8 characters (or leave it empty).'; return; }
-
-  status.textContent = 'Creating account…';
-  const result = await manager.setupOwner({
-    displayName, username, pin,
-    passphrase: passphrase || undefined,
-    avatar: String(displayName).charAt(0).toUpperCase(),
+  retry.addEventListener('click', async () => {
+    setupRapidCloses = 0;
+    const launched = await launchFirstBootSetup(sessionManager());
+    if (launched) hideAllSurfaces();
   });
-  if (result.ok) {
-    status.textContent = '';
-    unlockFromLockScreen();
-    if (typeof Notify !== 'undefined' && Notify?.show) {
-      Notify.show({ title: `Welcome, ${displayName}`, body: 'This machine now belongs to your owner account. Add more accounts from the Users app.', type: 'success', appName: 'System' });
-    }
-    return;
-  }
-  status.textContent = result.message || 'Setup failed — try again.';
+  wrap.appendChild(retry);
+  return wrap;
 }
 
 // ── Forced new-PIN sheet (admin reset / temporary PIN) ────────────────
@@ -953,10 +984,12 @@ try {
   const manager = sessionManager();
   manager?.on?.((event) => {
     if (event?.name === 'session:changed' && event.uid) {
-      // A signed-in account: the gate is done.
+      // A signed-in account: the gate is done — the setup window (if the
+      // owner was just created through it) closes itself on its finish step.
       if (surface !== 'forced-pin') unlockFromLockScreen();
+      setupRapidCloses = 0;
     }
-    if (event?.name === 'session:loggedout' || (event?.name === 'session:changed' && event.uid === null && event.phase !== 'picker' && event.phase !== 'first-boot')) {
+    if (event?.name === 'session:loggedout' || (event?.name === 'session:changed' && event.uid === null && event.phase !== 'picker' && event.phase !== 'setup')) {
       showLoginPicker().catch(() => { });
     }
   });

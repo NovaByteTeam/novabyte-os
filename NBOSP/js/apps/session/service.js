@@ -98,12 +98,29 @@
   // ── Per-user strata mounting ─────────────────────────────────────────
 
   function flushCurrentUserHives() {
+    // The web-app list saves on a debounce; push it into the departing
+    // account's hive before the hives swap or unmount under it.
+    try { WebAppManager?.flush?.(); } catch (err) {
+      console.warn('[SessionManager] Flushing web apps failed:', err);
+    }
     try {
       if (typeof NovaRegistry !== 'undefined' && NovaRegistry?.flushUserHives) {
         NovaRegistry.flushUserHives();
       }
     } catch (err) {
       console.warn('[SessionManager] Flushing user hives failed:', err);
+    }
+  }
+
+  // A guest's installs are volatile (the hive is never saved) but their
+  // package files are not; delete them once the guest is done.
+  function discardGuestApps() {
+    try {
+      if (NovaRegistry?.mountedUserUid?.() === 'guest') {
+        NovaAppPackageStore?.purgeUserFiles?.('guest')?.catch?.(() => {});
+      }
+    } catch (err) {
+      console.warn('[SessionManager] Guest app cleanup failed:', err);
     }
   }
 
@@ -146,20 +163,48 @@
   /**
    * The mounting sequence for one account: hives, scope flag, settings,
    * VFS root, theme, desktop. This is the ONLY code path that performs it.
+   *
+   * The account's USERNAME is the on-disk segment for every per-user
+   * stratum: its filesystem IS users/<username>/ (Desktop, Documents,
+   * Trash and the hidden .apps app-data root all directly inside it) and
+   * the hive documents live under users/<username>/registry/ — the
+   * login-time layout upgrade (uid → username directories, nested → flat
+   * tree) runs first so machines created under earlier layouts keep
+   * every byte.
    */
   async function mountUserScope(user, { volatile: isGuest = false } = {}) {
     flushCurrentUserHives();
+    discardGuestApps();
     flushLocalStorageToUser();
+
+    const username = !isGuest && typeof user?.username === 'string' ? user.username : '';
+
+    if (!isGuest && username) {
+      try {
+        if (typeof MultiUserMigration !== 'undefined' && MultiUserMigration?.upgradeUserLayout) {
+          MultiUserMigration.upgradeUserLayout(user.uid, username);
+        }
+      } catch (err) {
+        console.warn('[SessionManager] Username layout upgrade failed:', err);
+      }
+    }
 
     if (typeof NovaUserScope !== 'undefined') {
       NovaUserScope.setActive(isGuest ? 'guest' : user.uid);
+      if (!isGuest && typeof NovaUserScope.setActiveUsername === 'function') {
+        NovaUserScope.setActiveUsername(username || null);
+      } else if (typeof NovaUserScope.clearActiveUsername === 'function') {
+        NovaUserScope.clearActiveUsername();
+      }
       NovaUserScope.setActiveRole(isGuest ? 'guest' : user.role);
     }
 
-    // 1. Registry: mount this account's HKNU/HKNA/HKND from its own files.
+    // 1. Registry: mount this account's HKNU/HKNA/HKND from its own files,
+    //    addressed by the username segment (legacy uid segment fallback).
     try {
       if (typeof NovaRegistry !== 'undefined' && NovaRegistry?.mountUserHives) {
-        NovaRegistry.mountUserHives(isGuest ? 'guest' : user.uid, { volatile: isGuest });
+        const segment = username || user.uid;
+        NovaRegistry.mountUserHives(isGuest ? 'guest' : segment, { volatile: isGuest });
       }
     } catch (err) {
       console.error('[SessionManager] Mounting user hives failed:', err);
@@ -170,10 +215,11 @@
       console.warn('[SessionManager] Settings re-hydration failed:', err);
     }
 
-    // 3. VFS: re-root the filesystem service onto this account's tree.
+    // 3. VFS: re-root the filesystem service onto this account's tree —
+    //    ~/users/<username>/ itself (guests get their volatile tree).
     try {
       if (typeof FS !== 'undefined' && FS?.setUserRoot) {
-        await FS.setUserRoot(isGuest ? 'guest' : user.uid, { guest: isGuest });
+        await FS.setUserRoot(isGuest ? 'guest' : user.uid, { guest: isGuest, username });
       }
     } catch (err) {
       console.error('[SessionManager] VFS re-root failed:', err);
@@ -205,6 +251,22 @@
       }
     } catch (err) {
       console.warn('[SessionManager] Permission re-load failed:', err);
+    }
+
+    // 5c. Per-account installed apps: drop the previous account's .novaapp
+    // registrations and register this one's. Runs for guests too, so a guest
+    // never sees the last user's installs.
+    try {
+      if (typeof Boot !== 'undefined' && Boot?.reloadUserNovaApps) {
+        await Boot.reloadUserNovaApps();
+      }
+    } catch (err) {
+      console.warn('[SessionManager] Installed-app reload failed:', err);
+    }
+
+    // 5d. Per-account web-app shortcuts, same reason as 5c.
+    try { WebAppManager?.reloadForUser?.(); } catch (err) {
+      console.warn('[SessionManager] Web-app reload failed:', err);
     }
 
     // 6. Desktop: icons, launchpad, the trusted launcher, autostart.
@@ -339,6 +401,7 @@
     const uid = state.uid;
     const uname = state.uname;
     flushCurrentUserHives();
+    discardGuestApps();
     flushLocalStorageToUser();
     teardownDesktop();
     if (typeof NovaUserScope !== 'undefined') {
@@ -347,6 +410,16 @@
     }
     if (typeof NovaRegistry !== 'undefined' && NovaRegistry?.unmountUserHives) {
       try { NovaRegistry.unmountUserHives(); } catch (_) { }
+    }
+    // The departed account's tree must stop being the mounted one: re-root
+    // onto the machine tree so nothing personal stays reachable from the
+    // picker (and a following guest session starts from a clean slate).
+    try {
+      if (typeof FS !== 'undefined' && FS?.setUserRoot) {
+        await FS.setUserRoot(null);
+      }
+    } catch (err) {
+      console.warn('[SessionManager] VFS re-root to machine tree failed:', err);
     }
     suspendedSessions.clear();
     await authFetch('/api/auth/logout', { method: 'POST' });
@@ -368,6 +441,12 @@
     state.role = 'guest';
     state.token = null;
     state.csrfToken = metaCsrf();
+    // A guest desktop used to ride on whatever tree happened to be mounted —
+    // the previous user's after a logout, or the machine tree at boot —
+    // which handed the guest (and anyone watching) the last account's files.
+    // Guests now mount their own volatile tree/hives/app roots through the
+    // same sequence every other session uses.
+    await mountUserScope({ uid: 'guest', username: '', role: 'guest' }, { volatile: true });
     emit('session:changed', { uid: null, role: 'guest', via: 'guest' });
     return { ok: true, guest: true };
   }
@@ -432,6 +511,7 @@
     // Memory-disciplined switch: apps close (the snapshot restores layout
     // on return), hives and user-data keys flush into the departing tree.
     flushCurrentUserHives();
+    discardGuestApps();
     flushLocalStorageToUser();
     teardownDesktop();
     if (typeof NovaUserScope !== 'undefined') {
@@ -442,6 +522,15 @@
       try { NovaRegistry.unmountUserHives(); } catch (_) { }
     }
     state.status = 'suspended';
+    // Same re-root as logout: the picker replaces the departing account's
+    // desktop, and its tree has no business staying mounted underneath it.
+    try {
+      if (typeof FS !== 'undefined' && FS?.setUserRoot) {
+        await FS.setUserRoot(null);
+      }
+    } catch (err) {
+      console.warn('[SessionManager] VFS re-root to machine tree failed:', err);
+    }
     emit('session:suspended', { uid });
     emit('session:changed', { uid: null, switchedFrom: uid });
     return { ok: result.ok && result.json?.success !== false, parked };

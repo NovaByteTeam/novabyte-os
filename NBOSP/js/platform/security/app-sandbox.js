@@ -5019,24 +5019,10 @@ const AppSandbox = (() => {
       warningText.style.cssText = 'white-space:pre-line;max-height:340px;overflow-y:auto;padding-right:4px;';
       body.appendChild(warningText);
       warningText.textContent =
-        'WARNING: Developer Mode lowers the system\'s security posture and grants elevated access to internal components.\n\n' +
-        'When enabled, the following restrictions are relaxed:\n' +
-        '\u2022 Unrestricted access to the filesystem, networks, and system APIs\n' +
-        '\u2022 Elevated permissions to internal system modules and runtime internals\n' +
-        '\u2022 Visibility into running processes, memory, and module state\n' +
-        '\u2022 The ability to inspect, alter, or revoke app permissions\n' +
-        '\u2022 The ability to install, remove, or modify system packages\n\n' +
-        'The following internal apps and tools become accessible:\n' +
-        '\u2022 Console — runs arbitrary JavaScript in the full OS context with no sandboxing\n' +
-        '\u2022 Inspector — can force-close arbitrary windows and export app state\n' +
-        '\u2022 Packages — can install unsigned or unverified packages into the live registry, and can add a locally-generated signing key to this device\'s trust store for the current session (only affects installs on this machine; never affects other clones, forks, or devices)\n' +
-        '\u2022 Modules — can dynamically import arbitrary module paths for live code execution\n' +
-        '\u2022 Permissions — can bulk-grant or revoke permissions for any app without user consent\n' +
-        '\u2022 Perf — exposes detailed runtime performance data, memory usage, and per-window DOM breakdowns\n' +
-        '\u2022 SysAccess — can read the virtual filesystem and probe internal network/SSRF configuration\n' +
-        '\u2022 Events — full visibility into all system-wide activity, including console output, permission checks, package operations, and app event data payloads across every app and OS component\n' +
-        '\u2022 Debug Overlay — persistent always-on-top diagnostics overlay exposing GPU, memory, URLs, and OS internals (F3)\n\n' +
-        'Developer Mode is intended solely for development, debugging, and system maintenance. Enable it only when you understand the risks. Leave it disabled during normal use.';
+        'WARNING: Developer Mode enables development and diagnostic tools that can expose or change sensitive system state.\n\n' +
+        'Developer Mode does not by itself disable the app sandbox or grant every app unrestricted filesystem, network, or system access. Tools and actions remain subject to their own permission checks. Use these capabilities only on a device you trust.\n\n' +
+        'Developer Mode also makes it possible to enable Root Access in Settings. Root Access is a separate device-wide switch, and each app still needs its own explicit grant. A root-approved app runs directly inside the OS page without a sandbox and can read or change system data and UI. Only grant it to apps you fully trust.\n\n' +
+        'Developer Mode is intended for development, debugging, and system maintenance. Enable it only when needed, and leave it disabled during normal use.';
 
       const value = await dialogService(
         '',
@@ -8280,13 +8266,19 @@ const AppSandbox = (() => {
   }
 
   function generatePushToken() {
-    const bytes = new Uint8Array(16);
-    try {
-      (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(bytes)
-        : bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
-    } catch (_) {
-      bytes.set(Array.from({ length: 16 }, () => Math.floor(Math.random() * 256)));
+    // SECURITY (2026-11-12 audit, finding M3): push tokens/device ids are
+    // bearer credentials for the push subscription surface. Math.random
+    // (V8 xorshift128+) is predictable, so a fallback to it for token
+    // generation is a forgery hole, not a compatibility shim — the token
+    // now fails CLOSED when a CSPRNG is genuinely unavailable.
+    // crypto.getRandomValues exists in every Chromium context (secure or
+    // not), so this throw is unreachable in practice, and any hypothetical
+    // caller that hits it must not receive a guessable token.
+    if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+      throw new Error('crypto.getRandomValues unavailable: refusing to generate a predictable push token');
     }
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
     return 'nps_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   }
   const PUSH_TOKEN_PREFIX_LENGTH = 4; // slice('nps_') for device ids

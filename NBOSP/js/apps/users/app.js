@@ -4,10 +4,10 @@
  * com.nbosp.users — the admin console for accounts.
  *
  * First-class console, not another Settings section: launching requires an
- * admin-role session, and its data access rides the admin:users grant the
- * sandbox reserved all along (nova:admin:users IPC, host-mediated, server
- * re-checks the role on every route). Standard users who launch it get a
- * role-denied splash rather than a silent failure.
+ * admin-role session. It runs in the trusted host (unrestrictedEntry) and
+ * calls the /api/auth/admin routes through SessionManager.authFetch; the
+ * server re-checks the role on every route. Standard users who launch it get
+ * a role-denied splash rather than a silent failure.
  *
  * Three tabs:
  *   Users    — every account: avatar, display name, username, role chip
@@ -39,7 +39,7 @@ registerApp({
     state.cleanups?.push(() => ac.abort());
     const { signal } = ac;
 
-    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-default,#0f1115);color:var(--text-primary,#e6e6e6);font-family:var(--font-ui,sans-serif);overflow:hidden;';
+    content.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg-base);color:var(--text-primary);font-family:var(--font-ui,sans-serif);overflow:hidden;';
 
     const css = document.createElement('style');
     css.textContent = `
@@ -53,9 +53,11 @@ registerApp({
       .nbusers-btn.primary { border-color:var(--accent);background:var(--accent-muted);color:var(--accent);font-weight:600; }
       .nbusers-btn.danger { border-color:var(--text-danger);color:var(--text-danger); }
       .nbusers-btn.ghost { background:transparent;color:var(--text-muted); }
+      .nbusers-add-btn { display:inline-flex;align-items:center;gap:6px; }
       .nbusers-table { width:100%;border-collapse:collapse;font-size:13px; }
       .nbusers-table th { text-align:left;color:var(--text-muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:1px solid var(--border-subtle); }
       .nbusers-table td { padding:9px 10px;border-bottom:1px solid var(--border-subtle);vertical-align:middle; }
+      .nbusers-account-info { display:flex;align-items:center;gap:10px; }
       .nbusers-avatar { width:34px;height:34px;border-radius:50%;background:var(--accent-muted);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:600; }
       .nbusers-chip { display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--border-default);color:var(--text-muted);margin-right:4px; }
       .nbusers-chip.owner, .nbusers-chip.admin { color:var(--accent);border-color:var(--accent); }
@@ -70,7 +72,7 @@ registerApp({
       .nbusers-form input, .nbusers-form select { padding:9px 12px;border-radius:9px;border:1px solid var(--border-default);background:var(--bg-overlay);color:var(--text-primary);font-size:13px;outline:none; }
       .nbusers-event { padding:8px 10px;border-left:3px solid var(--border-default);margin-bottom:6px;background:var(--bg-overlay);border-radius:6px;font-size:12px; }
       .nbusers-event.info { border-left-color:var(--accent); }
-      .nbusers-event.warn { border-left-color:#f0b449; }
+      .nbusers-event.warn { border-left-color:var(--text-warning); }
       .nbusers-event.error { border-left-color:var(--text-danger); }
       .nbusers-status { min-height:18px;font-size:12px;color:var(--text-danger);margin-top:10px; }
       .nbusers-ok { color:var(--text-muted); }
@@ -80,14 +82,62 @@ registerApp({
     const root = createEl('div', { className: 'nbusers-root' });
     content.appendChild(root);
 
-    // ── IPC helper (admin:users grant + server role re-check on the other end) ──
+    // ── Admin API transport ───────────────────────────────────────────────
+    // System apps run in the trusted host, so this talks to the role-gated
+    // /api/auth/admin family through SessionManager.authFetch (bearer + CSRF).
+    // The server re-checks the session role on every route.
+    const uidPath = (p) => `/api/auth/admin/users/${encodeURIComponent(p.uid)}`;
+    const ROUTES = {
+      'accounts.list':            { method: 'GET',    path: () => '/api/auth/admin/users' },
+      'accounts.create':          { method: 'POST',   path: () => '/api/auth/admin/users', body: (p) => p.account },
+      'accounts.update':          { method: 'PATCH',  path: uidPath, body: (p) => p.patch },
+      'accounts.disable':         { method: 'POST',   path: (p) => `${uidPath(p)}/disable` },
+      'accounts.enable':          { method: 'POST',   path: (p) => `${uidPath(p)}/enable` },
+      'accounts.lock':            { method: 'POST',   path: (p) => `${uidPath(p)}/lock` },
+      'accounts.unlock':          { method: 'POST',   path: (p) => `${uidPath(p)}/unlock` },
+      'accounts.forceLogout':     { method: 'POST',   path: (p) => `${uidPath(p)}/force-logout` },
+      'accounts.resetCredential': { method: 'POST',   path: (p) => `${uidPath(p)}/reset-credential` },
+      'accounts.delete':          { method: 'DELETE', path: (p) => `${uidPath(p)}${p.mode === 'wipe' ? '?mode=wipe' : ''}`, body: (p) => (p.mode ? { mode: p.mode } : undefined) },
+      'accounts.setPin':          { method: 'POST',   path: (p) => `${uidPath(p)}/credentials/pin`, body: (p) => ({ pin: p.pin }) },
+      'accounts.setPassphrase':   { method: 'POST',   path: (p) => `${uidPath(p)}/credentials/passphrase`, body: (p) => ({ passphrase: p.passphrase ?? null }) },
+      'accounts.webauthn.list':   { method: 'GET',    path: (p) => `${uidPath(p)}/webauthn` },
+      'accounts.webauthn.remove': { method: 'DELETE', path: (p) => `${uidPath(p)}/webauthn/${encodeURIComponent(p.credentialId)}` },
+      'policies.get':             { method: 'GET',    path: () => '/api/auth/admin/policies' },
+      'policies.set':             { method: 'PUT',    path: () => '/api/auth/admin/policies', body: (p) => p.policies },
+      'events.list':              { method: 'GET',    path: (p) => { const q = new URLSearchParams(); for (const k of ['uid', 'severity', 'action', 'limit', 'offset']) if (p?.[k] !== undefined && p?.[k] !== null) q.set(k, String(p[k])); return `/api/auth/admin/events${q.toString() ? '?' + q.toString() : ''}`; } },
+      'usage.get':                { method: 'GET',    path: () => '/api/auth/admin/usage' },
+    };
+
     async function adminUsers(action, payload = {}) {
-      return window.nova.ipc('nova:admin:users', { action, ...payload });
+      const sm = window.SessionManager;
+      if (!sm || typeof sm.authFetch !== 'function') {
+        return { success: false, code: 'UNAVAILABLE', message: 'Session service is not available' };
+      }
+      if (typeof NovaUserScope === 'undefined' || !NovaUserScope.enabled()) {
+        return { success: false, code: 'MULTI_USER_DISABLED', message: 'Multi-user is off. Enable it to manage accounts.' };
+      }
+      if (!sm.isAdmin()) {
+        return { success: false, code: 'PERMISSION_DENIED', message: 'An administrator account is required for account management' };
+      }
+      if (!Object.prototype.hasOwnProperty.call(ROUTES, action)) {
+        return { success: false, code: 'UNAVAILABLE', message: `Unknown action: ${action}` };
+      }
+      const route = ROUTES[action];
+      const args = { ...payload };
+      const { status, json, error } = await sm.authFetch(route.path(args), {
+        method: route.method,
+        body: route.body ? route.body(args) : undefined,
+      });
+      if (!json || json.success !== true) {
+        const code = status === 403 ? 'PERMISSION_DENIED' : (status === 404 ? 'NOT_FOUND' : 'UNAVAILABLE');
+        return { success: false, code, message: json?.message || error || `Account management request failed (${status})` };
+      }
+      return { success: true, data: json.data };
     }
 
     function isPermissionDenied(result) {
       return result && result.success !== true &&
-        (result.code === 'PERMISSION_DENIED' || result.error === 'PERMISSION_DENIED' ||
+        (result.code === 'PERMISSION_DENIED' || result.code === 'MULTI_USER_DISABLED' || result.error === 'PERMISSION_DENIED' ||
           /administrator account is required|not in admin mode|admin:users permission/i.test(String(result.message || result.error || '')));
     }
 
@@ -117,7 +167,7 @@ registerApp({
         style: 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;',
       });
       splash.appendChild(createEl('div', { style: 'font-size:34px', textContent: '🔒' }));
-      splash.appendChild(createEl('div', { style: 'font-size:15px;font-weight:600', textContent: 'Administrator account required' }));
+      splash.appendChild(createEl('div', { style: 'font-size:15px;font-weight:600', textContent: /multi-user is off/i.test(message || '') ? 'Multi-user is off' : 'Administrator account required' }));
       splash.appendChild(createEl('div', { style: 'font-size:12px;max-width:380px;text-align:center', textContent: message || 'The Users console manages accounts machine-wide. Sign in with an Admin or Owner account to use it.' }));
       root.appendChild(splash);
     }
@@ -157,7 +207,7 @@ registerApp({
 
     async function loadUsers() {
       const result = await adminUsers('accounts.list');
-      if (isPermissionDenied(result)) return { denied: true };
+      if (isPermissionDenied(result)) return { denied: true, message: result.message };
       usersCache = result.data?.users || result.users || [];
       const usageResult = await adminUsers('usage.get');
       usageCache = usageResult.data?.usage || usageResult.usage || [];
@@ -172,7 +222,22 @@ registerApp({
       body.innerHTML = '';
       const toolbar = createEl('div', { className: 'nbusers-toolbar' });
       toolbar.appendChild(createEl('div', { style: 'font-size:14px;font-weight:600', textContent: `Accounts (${usersCache.length})` }));
-      const addBtn = createEl('button', { className: 'nbusers-btn primary', textContent: '＋ Add account' });
+      const addBtn = createEl('button', { className: 'nbusers-btn primary nbusers-add-btn' });
+      addBtn.setAttribute('aria-label', 'Add account');
+      const addIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      addIcon.setAttribute('viewBox', '0 0 24 24');
+      addIcon.setAttribute('width', '16');
+      addIcon.setAttribute('height', '16');
+      addIcon.setAttribute('fill', 'none');
+      addIcon.setAttribute('stroke', 'currentColor');
+      addIcon.setAttribute('stroke-width', '2');
+      addIcon.setAttribute('stroke-linecap', 'round');
+      addIcon.setAttribute('aria-hidden', 'true');
+      const addIconPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      addIconPath.setAttribute('d', 'M12 5v14M5 12h14');
+      addIcon.appendChild(addIconPath);
+      addBtn.appendChild(addIcon);
+      addBtn.appendChild(createEl('span', { textContent: 'Add account' }));
       addBtn.addEventListener('click', () => renderAddUser(), { signal });
       toolbar.appendChild(addBtn);
       body.appendChild(toolbar);
@@ -201,24 +266,23 @@ registerApp({
         const row = createEl('tr');
 
         const cellAccount = createEl('td');
-        cellAccount.style.display = 'flex';
-        cellAccount.style.alignItems = 'center';
-        cellAccount.style.gap = '10px';
-        cellAccount.appendChild(createEl('span', { className: 'nbusers-avatar', textContent: avatarText(user) }));
+        const accountInfo = createEl('div', { className: 'nbusers-account-info' });
+        accountInfo.appendChild(createEl('span', { className: 'nbusers-avatar', textContent: avatarText(user) }));
         const nameWrap = createEl('div');
         nameWrap.appendChild(createEl('div', { style: 'font-weight:600', textContent: user.displayName || user.username }));
         if (user.locked) nameWrap.appendChild(createEl('div', { style: 'font-size:10px;color:var(--text-danger)', textContent: 'locked — needs admin unlock' }));
-        cellAccount.appendChild(nameWrap);
+        accountInfo.appendChild(nameWrap);
+        cellAccount.appendChild(accountInfo);
         row.appendChild(cellAccount);
 
         row.appendChild(createEl('td', { textContent: user.username }));
-        row.appendChild(createEl('td', {
-          html: `<span class="nbusers-chip ${user.role}">${user.roleLabel || user.role}</span>`,
-        }));
-        row.appendChild(createEl('td', {
-          html: `<span class="nbusers-chip ${user.status}">${user.status}</span>` +
-            (user.locked ? `<span class="nbusers-chip locked">locked</span>` : ''),
-        }));
+        row.appendChild(createEl('td', null, [
+          createEl('span', { className: `nbusers-chip ${user.role}`, textContent: user.roleLabel || user.role }),
+        ]));
+        row.appendChild(createEl('td', null, [
+          createEl('span', { className: `nbusers-chip ${user.status}`, textContent: user.status }),
+          user.locked ? createEl('span', { className: 'nbusers-chip locked', textContent: 'locked' }) : null,
+        ]));
         row.appendChild(createEl('td', { textContent: fmtDate(user.lastLoginAt) }));
 
         const cellQuota = createEl('td');
@@ -485,7 +549,7 @@ registerApp({
 
     async function loadPolicies() {
       const result = await adminUsers('policies.get');
-      if (isPermissionDenied(result)) return { denied: true };
+      if (isPermissionDenied(result)) return { denied: true, message: result.message };
       policiesCache = result.data?.policies || result.policies || null;
       return { denied: false };
     }
@@ -591,8 +655,10 @@ registerApp({
         const el = createEl('div', { className: `nbusers-event ${event.severity || 'info'}` });
         el.appendChild(createEl('div', {
           style: 'display:flex;justify-content:space-between;gap:10px;color:var(--text-muted);font-size:11px;',
-          html: `<span>${fmtDate(event.ts)}</span><span>${event.actor || ''}</span>`,
-        }));
+        }, [
+          createEl('span', { textContent: fmtDate(event.ts) }),
+          createEl('span', { textContent: event.actor || '' }),
+        ]));
         el.appendChild(createEl('div', { style: 'font-weight:600', textContent: event.action }));
         if (event.target) el.appendChild(createEl('div', { style: 'color:var(--text-muted)', textContent: `target: ${event.target}` }));
         if (event.detail && typeof event.detail === 'object') {
@@ -614,11 +680,17 @@ registerApp({
         lines.push([new Date(event.ts).toISOString(), event.actor || '', event.action, event.target || '', event.severity || '', event.ip || ''].map(escapeCell).join(','));
       }
       try {
-        await window.nova.ipc('nova:download', {
-          filename: 'novabyte-account-events.csv',
-          mimeType: 'text/csv; charset=utf-8',
-          base64Data: btoa(lines.join('\n')),
+        const destination = await window.SystemDialogs.save({
+          title: 'Export account events',
+          suggestedName: 'novabyte-account-events.csv',
         });
+        if (!destination) return;
+        const nodeRequire = typeof window.require === 'function'
+          ? window.require
+          : (typeof require === 'function' ? require : null);
+        if (!nodeRequire) throw new Error('File writing is unavailable in this runtime.');
+        await nodeRequire('fs').promises.writeFile(destination.path, lines.join('\n'), 'utf8');
+        toast('CSV exported to ' + destination.path);
       } catch (err) {
         toast('CSV export failed: ' + (err?.message || err), true);
       }
@@ -628,7 +700,7 @@ registerApp({
     async function refresh() {
       const users = await loadUsers();
       if (users.denied) {
-        roleDeniedSplash();
+        roleDeniedSplash(users.message);
         return;
       }
       if (activeTab === 'users') renderUsers();
@@ -637,11 +709,11 @@ registerApp({
     async function renderTab() {
       if (activeTab === 'users') {
         const users = await loadUsers();
-        if (users.denied) { roleDeniedSplash(); return; }
+        if (users.denied) { roleDeniedSplash(users.message); return; }
         renderUsers();
       } else if (activeTab === 'policies') {
         const policies = await loadPolicies();
-        if (policies.denied) { roleDeniedSplash(); return; }
+        if (policies.denied) { roleDeniedSplash(policies.message); return; }
         renderPolicies();
       } else if (activeTab === 'audit') {
         renderAudit();
@@ -652,7 +724,7 @@ registerApp({
     try {
       const users = await loadUsers();
       if (users.denied) {
-        roleDeniedSplash();
+        roleDeniedSplash(users.message);
         return;
       }
     } catch (err) {

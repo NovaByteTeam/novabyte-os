@@ -119,8 +119,8 @@ document.addEventListener('DOMContentLoaded', function () {
 // place that can still get the machine into recovery.
 //
 // Recovery itself is the Linux environment (/usr/sbin/nbosp-recovery), not a
-// web page. The desktop runs as the kiosk user inside cage and can't show a
-// text console, so it leaves a one-shot request file for /etc/init.d/S99nbosp
+// web page. The desktop runs as the kiosk user inside labwc and can't show a
+// text console (it runs under the labwc compositor), so it leaves a one-shot request file for /etc/init.d/S99nbosp
 // and restarts; the next boot comes up in the recovery menu.
 (function () {
   const RECOVERY_FORCE_KEY  = 'nova_force_recovery';

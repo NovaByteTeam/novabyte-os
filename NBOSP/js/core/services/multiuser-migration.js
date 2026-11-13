@@ -16,8 +16,9 @@
  *      username) into the server's users.db — kdf records the legacy
  *      shape, the first successful verification re-hashes to scrypt;
  *   2. registry user hives moved into users/<owner>/registry/;
- *   3. the legacy home tree moved into users/<owner>/home and the per-app
- *      AppDirs re-rooted under users/<owner>/apps/;
+ *   3. the legacy home tree moved into users/<owner>/ (the account's
+ *      actual filesystem root) and the per-app AppDirs re-rooted under
+ *      users/<owner>/.apps/;
  *   4. NovaByte_FS + NovaByte_AppStorage rows stamped with the owner uid
  *      through their schema v2 upgrades;
  *   5. webview partitions renamed from persist:app_<appId> to
@@ -79,8 +80,12 @@
     const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
     const registry = (typeof NovaRegistry !== 'undefined' && NovaRegistry) || null;
 
-    // Multi-user already enabled (or explicitly disabled) → nothing to do.
-    if (scope && scope.enabled()) return { skipped: 'already-enabled' };
+    // This machine already went through account setup or an earlier
+    // migration (flag written as '1') → nothing to do. enabled() can't be used
+    // here: multi-user is on by default, so it is true on every fresh machine.
+    if (scope && (scope.explicitlyEnabled ? scope.explicitlyEnabled() : scope.enabled())) {
+      return { skipped: 'already-enabled' };
+    }
 
     // The marker lives in HKNS — the machine hive, mounted at boot before
     // any account is mounted, so pre-login reads are safe.
@@ -114,8 +119,10 @@
       existing.json.data.users.length > 0;
 
     let ownerUid = null;
+    let ownerUsername = '';
     if (serverHasAccounts && existing.json.data.users.length) {
       ownerUid = existing.json.data.users[0].uid; // the first account is the owner by construction
+      ownerUsername = String(existing.json.data.users[0].username || '');
     } else if (legacy && legacy.pinHash) {
       // The 3.0.2 → accounts import: the PBKDF2 hash + salt + username go
       // to the server; the first successful PIN verification re-hashes the
@@ -139,6 +146,7 @@
         return { skipped: 'import-refused' };
       }
       ownerUid = imported.json.data?.uid || null;
+      ownerUsername = String(imported.json.data?.username || username || '');
       if (!ownerUid) {
         warn('legacy import returned no owner uid — multi-user stays OFF');
         return { skipped: 'no-owner' };
@@ -146,8 +154,8 @@
     } else {
       // No legacy PIN and no accounts: this is either a factory-fresh
       // machine (the first-boot wizard will create the owner) or a legacy
-      // machine that never set a PIN. Both stay single-user until the user
-      // opts in — no silent identity changes.
+      // machine that never set a PIN. Neither has anything to import; the
+      // first-boot wizard creates the owner account on the next gate.
       return { skipped: 'no-legacy-state' };
     }
 
@@ -161,15 +169,33 @@
 
     if (isLinuxRuntime()) {
       try {
-        moveStorageToOwner(ownerUid, { registry, scope, legacy });
+        moveStorageToOwner(ownerUid, { username: ownerUsername, registry, scope, legacy });
       } catch (err) {
         warn('storage move failed (data stays at the legacy roots):', err);
       }
     } else {
       try {
-        moveWebStorageToOwner(ownerUid, { registry });
+        moveWebStorageToOwner(ownerUid, { username: ownerUsername, registry });
       } catch (err) {
         warn('web storage move failed:', err);
+      }
+      // NovaByte_FS (IndexedDB): stamp every unscoped 3.0.2 row with the
+      // owner's uid. The worker's stampOwner() method existed but was never
+      // called by anything, so after the migration a login re-rooted onto
+      // "rows owned by uid" — which is empty — and the account's whole
+      // pre-existing tree vanished from every view. This is the wiring the
+      // header's step 4 always promised: stamp, then the first login mounts
+      // the exact tree the machine always had. Idempotent behind the
+      // 'nova_fs_owner_stamped' settings marker, so re-running is a no-op.
+      try {
+        if (typeof OS !== 'undefined' && OS?.workers?.fs?.call) {
+          const stamped = await OS.workers.fs.call('stampOwner', ownerUid);
+          if (stamped && typeof stamped.stamped === 'number' && stamped.stamped > 0) {
+            log(`stamped ${stamped.stamped} legacy filesystem rows to the owner`);
+          }
+        }
+      } catch (err) {
+        warn('legacy filesystem stamping failed (rows stay unscoped):', err);
       }
     }
 
@@ -205,13 +231,31 @@
 
   // ── Linux native storage move ───────────────────────────────────────────
 
-  function moveStorageToOwner(ownerUid, { registry, scope, legacy }) {
+  /* The per-account directory segment: the username when the caller knows
+   * one, else the uid (machines that never learned the username keep
+   * byte-identical uid-keyed addressing). Usernames are immutable in the
+   * account database, so the segment stays stable for the account's life. */
+  function safeUsername(uname) {
+    return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(String(uname || '').toLowerCase())
+      ? String(uname || '').toLowerCase() : '';
+  }
+
+  function ownerSegment(ownerUid, username) {
+    return safeUsername(username) || String(ownerUid || '');
+  }
+
+  function moveStorageToOwner(ownerUid, { username, registry, scope, legacy }) {
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
     const home = os.homedir();
     const shareRoot = path.join(home, '.local', 'share', 'novabyte');
-    const userRoot = path.join(shareRoot, 'users', ownerUid);
+    const segment = ownerSegment(ownerUid, username);
+    // The account's filesystem root IS <machine home>/users/<segment>/ —
+    // a real tree beside the other accounts, not a "home" nested inside
+    // hidden machine state. Registry hives stay under ~/.config (hidden
+    // OS plumbing), everything user-visible lives under ~/users.
+    const userRoot = path.join(home, 'users', segment);
 
     const moveTree = (from, to, { keepSource = false } = {}) => {
       if (!fs.existsSync(from)) return false;
@@ -228,39 +272,42 @@
 
     // 1. Registry user hives: ~/.config/novabyte/registry/{HKNU,HKNA,HKND}.json
     const regDir = path.join(home, '.config', 'novabyte', 'registry');
-    const userRegDir = path.join(home, '.config', 'novabyte', 'users', ownerUid, 'registry');
+    const userRegDir = path.join(home, '.config', 'novabyte', 'users', segment, 'registry');
     for (const hive of ['HKNU', 'HKNA', 'HKND']) {
       moveTree(path.join(regDir, `${hive}.json`), path.join(userRegDir, `${hive}.json`));
     }
 
-    // 2. Per-app AppDirs: ~/.local/share/novabyte/data/<appId> → users/<uid>/apps/<appId>
+    // 2. Per-app AppDirs: ~/.local/share/novabyte/data/<appId> →
+    //    ~/users/<segment>/.apps/<appId> (the account's own app-data root).
     const dataRoot = path.join(shareRoot, 'data');
-    const userApps = path.join(userRoot, 'apps');
+    const userApps = path.join(userRoot, '.apps');
     if (fs.existsSync(dataRoot)) {
       for (const entry of fs.readdirSync(dataRoot)) {
         moveTree(path.join(dataRoot, entry), path.join(userApps, entry));
       }
     }
 
-    // 3. The legacy home tree (documents, pictures, …) → users/<uid>/home.
-    // Dot-folders and the NovaByte roots move with it only when they are
-    // INSIDE the home tree itself; ~/.config and ~/.local/share are
-    // machine state and stay machine state.
-    const userHome = path.join(userRoot, 'home');
-    fs.mkdirSync(userHome, { recursive: true, mode: 0o700 });
+    // 3. The legacy home tree (documents, pictures, …) → ~/users/<segment>/
+    // DIRECTLY — the account tree root itself, so the account's Desktop,
+    // Documents, … sit at /home/<machine-user>/users/<name>/Desktop just
+    // like a real multi-user OS. Dot-folders and the NovaByte roots move
+    // with it only when they are INSIDE the home tree itself; ~/.config
+    // and ~/.local/share are machine state and stay machine state.
+    fs.mkdirSync(userRoot, { recursive: true, mode: 0o700 });
     for (const entry of fs.readdirSync(home)) {
+      if (entry === 'users') continue; // never fold the account root into itself
       if (entry.startsWith('.')) continue;
-      moveTree(path.join(home, entry), path.join(userHome, entry));
+      moveTree(path.join(home, entry), path.join(userRoot, entry));
     }
     // The legacy XDG trash contents are not per-account property in the
     // same sense — leaving ~/.local/share/Trash alone is the conservative
     // choice; the owner can clean it from the Files app.
 
-    // 4. Per-user browser-state + settings shadow: users/<uid>/browser-state.json
+    // 4. Per-user browser-state + settings shadow: ~/users/<segment>/.browser-state.json
     // is seeded from the machine file on first login by the mirror.
     const legacyBrowserState = path.join(shareRoot, 'browser-state.json');
     if (fs.existsSync(legacyBrowserState)) {
-      moveTree(legacyBrowserState, path.join(userRoot, 'browser-state.json'), { keepSource: true });
+      moveTree(legacyBrowserState, path.join(userRoot, '.browser-state.json'), { keepSource: true });
     }
 
     // 5. Webview partitions: best-effort rename at the NW.js user-data
@@ -275,7 +322,7 @@
     // 6. IndexedDB NovaByte_FS / NovaByte_AppStorage stamping happens via
     //    their own v2 schema upgrades at next open (scope flags are set).
 
-    log('linux storage re-rooted under users/' + ownerUid);
+    log('linux storage re-rooted under ~/users/' + segment);
   }
 
   function migrateNwjsPartitions(ownerUid) {
@@ -304,13 +351,14 @@
 
   // ── Web build storage move (localStorage / OPFS best-effort) ────────────
 
-  function moveWebStorageToOwner(ownerUid, { registry }) {
+  function moveWebStorageToOwner(ownerUid, { username, registry }) {
     // Registry hives: localStorage keys nova_registry_hive_<HIVE> →
-    // nova_registry_hive_u_<ownerUid>_<HIVE> (the mounted-hive layout).
+    // nova_registry_hive_u_<segment>_<HIVE> (the mounted-hive layout).
+    const segment = ownerSegment(ownerUid, username);
     try {
       for (const hive of ['HKNU', 'HKNA', 'HKND']) {
         const from = `nova_registry_hive_${hive}`;
-        const to = `nova_registry_hive_u_${ownerUid}_${hive}`;
+        const to = `nova_registry_hive_u_${segment}_${hive}`;
         const raw = localStorage.getItem(from);
         if (raw !== null) {
           localStorage.setItem(to, raw);
@@ -325,7 +373,245 @@
     // AppDirs bootstrap; OPFS moves ride the next bootstrap reconcile.
   }
 
-  const MultiUserMigration = { run, MIGRATION_MARKER, MULTI_USER_FLAG };
+  // ── Per-user layout upgrades (login-time, before any mount) ───────────
+  //
+  // Two layout generations can exist on disk before this runs:
+  //
+  //   A. uid-keyed segments —   ~/.local/share/novabyte/users/<uid>/…,
+  //                             ~/.config/novabyte/users/<uid>/registry/…
+  //   B. the nested layout —   ~/.local/share/novabyte/users/<name>/home/…
+  //                             (a "home" buried inside hidden machine state)
+  //
+  // The current layout puts the account's whole visible filesystem at
+  // <machine home>/users/<username>/ (Desktop/Documents/… directly inside,
+  // app data at .apps/) — a real, separated tree per account, exactly what
+  // a person sees at /home/<machine-user>/users. This upgrade — run by the
+  // SessionManager at login, before any mount — renames uid segments onto
+  // the username segment, then lifts any nested-layout remains onto the
+  // flat tree. It is strictly idempotent: a machine already on the current
+  // layout (or one that never had the older ones) takes the fast
+  // existsSync paths and changes nothing. Collisions never merge or
+  // clobber — the older tree is left in place for manual recovery.
+
+  function upgradeUserLayout(uid, username) {
+    const uname = safeUsername(username);
+    const userId = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(String(uid || '')) ? String(uid) : '';
+    if (!uname || !userId) return { moved: 0 };
+    let moved = 0;
+
+    if (isLinuxRuntime()) {
+      const fs = require('fs');
+      const path = require('path');
+      const home = require('os').homedir();
+      // uid segment → username segment, across every base that ever keyed
+      // an account by uid: the current ~/users root, the pre-flat nested
+      // share root, and the registry users root. Skipped when the segments
+      // already match (common on the current layout — nothing to rename).
+      if (uname !== userId) {
+      for (const base of [
+        path.join(home, 'users'),
+        path.join(home, '.local', 'share', 'novabyte', 'users'),
+        path.join(home, '.config', 'novabyte', 'users'),
+      ]) {
+        const from = path.join(base, userId);
+        const to = path.join(base, uname);
+        if (!fs.existsSync(from)) continue;
+        if (fs.existsSync(to)) {
+          // Never merge over an existing username directory — a username
+          // collision with real data means the account keeps its uid
+          // segment (callers fall back to it) rather than losing either.
+          warn(`username layout upgrade skipped for ${uname}: target already exists`);
+          continue;
+        }
+        try {
+          fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+          fs.renameSync(from, to);
+          moved++;
+        } catch (err) {
+          warn(`username layout upgrade failed for ${uname}:`, err?.message || err);
+        }
+      }
+      }
+      // Nested layout → flat ~/users/<username>/ lift. Everything the old
+      // layout kept at ~/.local/share/novabyte/users/<uname>/ moves onto the
+      // account's real tree: home/* becomes <name>/* directly, apps/ becomes
+      // .apps/, browser-state.json becomes .browser-state.json.
+      try {
+        moved += liftNestedUserTree(uname) ? 1 : 0;
+      } catch (err) {
+        warn(`nested layout lift failed for ${uname}:`, err?.message || err);
+      }
+      // The machine home is the SYSTEM area: stray visible entries (legacy
+      // folders, loose files) are adopted into the signing-in account's tree
+      // so the machine root never holds anything user-owned.
+      try {
+        moved += sweepMachineHome(uname) ? 1 : 0;
+      } catch (err) {
+        warn(`machine-home sweep failed for ${uname}:`, err?.message || err);
+      }
+    } else {
+      // Web build: the mounted-hive documents are localStorage keys.
+      try {
+        for (const hive of ['HKNU', 'HKNA', 'HKND']) {
+          const from = `nova_registry_hive_u_${userId}_${hive}`;
+          const to = `nova_registry_hive_u_${uname}_${hive}`;
+          const raw = localStorage.getItem(from);
+          if (raw !== null && localStorage.getItem(to) === null) {
+            localStorage.setItem(to, raw);
+            localStorage.removeItem(from);
+            moved++;
+          }
+        }
+      } catch (err) {
+        warn('web username layout upgrade failed:', err);
+      }
+    }
+    if (moved) log(`account ${uname}: storage moved onto the ~/users layout (${moved} root(s))`);
+    return { moved };
+  }
+
+  /* Lifts ~/.local/share/novabyte/users/<name>/{home/*, apps,
+   * browser-state.json} onto ~/users/<name>/. Returns true when anything
+   * moved. Entry-by-entry with existsSync guards, so a half-completed lift
+   * resumes safely and a collision leaves the older copy untouched. */
+  function liftNestedUserTree(uname) {
+    const fs = require('fs');
+    const path = require('path');
+    const home = require('os').homedir();
+    const legacyRoot = path.join(home, '.local', 'share', 'novabyte', 'users', uname);
+    if (!fs.existsSync(legacyRoot)) return false;
+    const userRoot = path.join(home, 'users', uname);
+    fs.mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+    let touched = false;
+
+    const moveOne = (from, to) => {
+      if (!fs.existsSync(from) || fs.existsSync(to)) return; // collision → keep both, admin recovers
+      try {
+        fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+        fs.renameSync(from, to);
+        touched = true;
+      } catch (_) {
+        try { // cross-device / busy fallback: copy, then remove
+          fs.cpSync(from, to, { recursive: true });
+          fs.rmSync(from, { recursive: true, force: true });
+          touched = true;
+        } catch (err) {
+          warn(`nested layout lift could not move ${from}:`, err?.message || err);
+        }
+      }
+    };
+
+    // home/* → <name>/* (the visible tree, directly inside the account root)
+    const legacyHome = path.join(legacyRoot, 'home');
+    if (fs.existsSync(legacyHome)) {
+      for (const entry of fs.readdirSync(legacyHome)) {
+        moveOne(path.join(legacyHome, entry), path.join(userRoot, entry));
+      }
+    }
+    // apps/ → .apps/, browser-state.json → .browser-state.json
+    moveOne(path.join(legacyRoot, 'apps'), path.join(userRoot, '.apps'));
+    moveOne(path.join(legacyRoot, 'browser-state.json'), path.join(userRoot, '.browser-state.json'));
+
+    // Best-effort cleanup of the emptied legacy shell (the now-empty home/
+    // directory and, if fully drained, the account's legacy root); failures
+    // just leave empty directories behind — harmless.
+    try {
+      if (fs.existsSync(legacyHome) && fs.readdirSync(legacyHome).length === 0) fs.rmdirSync(legacyHome);
+    } catch (_) { }
+    try {
+      if (fs.readdirSync(legacyRoot).length === 0) fs.rmdirSync(legacyRoot);
+    } catch (_) { }
+    return touched;
+  }
+
+  /* Sweeps every visible (non-dot) entry at the MACHINE home into the
+   * signing-in account's ~/users/<username>/ tree. The machine home is the
+   * system area: it must hold nothing user-visible — no legacy Desktop/
+   * Documents folders (boot no longer recreates them at the machine root,
+   * fs.js init), no loose stray files. Whatever still sits there from older
+   * layouts or stray writes is adopted into the account, merging without
+   * ever clobbering (name collisions get a numbered suffix).
+   *
+   * Exclusions — never adopted:
+   *   * dot entries (machine plumbing: .config, .local, .pki, …)
+   *   * `users/` (the account trees themselves)
+   *   * machine log files (nbosp-kiosk.log, vmusr.log, xwayland-*): the
+   *     S99nbosp boot janitor owns those under /var/log/nbosp.
+   *
+   * Strictly idempotent: a clean machine home is a fast no-op. Single-user
+   * machines (multi-user off) never sweep — there the machine home IS the
+   * user's home by design. */
+  const MACHINE_HOME_KEEP = new Set(['users']);
+  const MACHINE_LOG_NAMES = /^(?:nbosp-kiosk\.log|vmusr\.log|nbosp-gl-debug\.log|xwayland-.*)$/;
+
+  function sweepMachineHome(uname) {
+    const scope = (typeof NovaUserScope !== 'undefined' && NovaUserScope) || null;
+    if (!scope || !scope.enabled || !scope.enabled()) return false;
+    const name = safeUsername(uname);
+    if (!name) return false;
+    const fs = require('fs');
+    const path = require('path');
+    const home = require('os').homedir();
+    if (!fs.existsSync(home)) return false;
+    const entries = fs.readdirSync(home)
+      .filter(entry => !entry.startsWith('.') && !MACHINE_HOME_KEEP.has(entry) && !MACHINE_LOG_NAMES.test(entry));
+    if (!entries.length) return false;
+    const userRoot = path.join(home, 'users', name);
+    fs.mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+
+    let touched = false;
+    const uniqueTarget = (dir, name_) => {
+      let target = path.join(dir, name_);
+      if (!fs.existsSync(target)) return target;
+      const dot = name_.lastIndexOf('.');
+      const stem = dot > 0 ? name_.slice(0, dot) : name_;
+      const ext = dot > 0 ? name_.slice(dot) : '';
+      for (let n = 1; ; n++) {
+        target = path.join(dir, `${stem} (${n})${ext}`);
+        if (!fs.existsSync(target)) return target;
+      }
+    };
+    const adoptEntry = (from, to) => {
+      if (!fs.existsSync(from)) return;
+      try {
+        fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+        fs.renameSync(from, to);
+        touched = true;
+      } catch (_) {
+        try { // cross-device / busy fallback: copy, then remove
+          fs.cpSync(from, to, { recursive: true });
+          fs.rmSync(from, { recursive: true, force: true });
+          touched = true;
+        } catch (err) {
+          warn(`machine-home sweep could not move ${from}:`, err?.message || err);
+        }
+      }
+    };
+    const mergeInto = (sourceDir, targetDir) => {
+      for (const child of fs.readdirSync(sourceDir)) {
+        adoptEntry(path.join(sourceDir, child), uniqueTarget(targetDir, child));
+      }
+      try { if (fs.readdirSync(sourceDir).length === 0) fs.rmdirSync(sourceDir); } catch (_) { }
+    };
+
+    for (const entry of entries) {
+      const from = path.join(home, entry);
+      const to = path.join(userRoot, entry);
+      try {
+        if (fs.existsSync(to) && fs.statSync(from).isDirectory() && fs.statSync(to).isDirectory()) {
+          mergeInto(from, to); // both dirs: merge children, drop the emptied source
+        } else {
+          adoptEntry(from, uniqueTarget(userRoot, entry));
+        }
+      } catch (err) {
+        warn(`machine-home sweep skipped ${entry}:`, err?.message || err);
+      }
+    }
+    if (touched) log(`machine home swept: visible entries adopted into ~/users/${name}`);
+    return touched;
+  }
+
+  const MultiUserMigration = { run, upgradeUserLayout, sweepMachineHome, MIGRATION_MARKER, MULTI_USER_FLAG };
 
   if (typeof window !== 'undefined' && window) {
     window.MultiUserMigration = Object.freeze(MultiUserMigration);

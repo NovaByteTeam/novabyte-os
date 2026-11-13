@@ -58,7 +58,7 @@ npm test
 ## Build the Linux ISO
 
 The ISO targets **x86_64 VMware virtual machines** and is experimental. It
-uses Buildroot, the Linux kernel, Wayland, Cage, XWayland, and a bundled Linux
+uses Buildroot, the Linux kernel, Wayland, labwc, XWayland, and a bundled Linux
 NW.js runtime to start NovaByte in fullscreen kiosk mode.
 
 To build through GitHub Actions:
