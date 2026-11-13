@@ -52,7 +52,7 @@ describe('NBOSP labwc kiosk configuration', () => {
     assert.match(mk, /-Dlabnag=disabled/);
     assert.match(configIn, /window-stacking compositor/);
     assert.match(configIn, /layer-shell/);
-    assert.match(hash, /e252a8e0af7a95f592b9239f379696a25f92b544e179ae588497aa5ca3c7044b/);
+    assert.match(hash, /^sha256  1e70a5b74f149c5b47da76063dbdf967c44b2d7b6e94d3fdf65f70fc252f65c9  labwc-0\.20\.3\.tar\.gz$/m);
   });
 
   it('starts the kiosk session under labwc with -S session supervision', () => {
