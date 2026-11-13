@@ -91,10 +91,12 @@ describe('NBOSP labwc kiosk configuration', () => {
     assert.doesNotMatch(keyboardSection, /<keybind/);
     // Pointer events must keep flowing to the fullscreen app like under cage.
     assert.match(rc, /<mouse>\s*<default \/>/);
-    // No titlebar or borders on any window. Comments are stripped so the
-    // explanation above cannot satisfy this.
+    // No titlebar or borders on any window, and the app is kept maximized.
+    // Comments are stripped so the explanation above cannot satisfy this.
     const rules = rc.replace(/<!--[\s\S]*?-->/g, '');
     assert.match(rules, /<windowRule identifier="\*" serverDecoration="no" \/>/);
+    assert.match(rules, /<windowRule identifier="\*" type="normal">\s*<action name="Maximize" \/>/);
+    assert.doesNotMatch(rules, /ToggleFullscreen/);
   });
 
   it('keeps the machine home clean: session logs under /var/log/nbosp, cache under /var/cache/nbosp', () => {
