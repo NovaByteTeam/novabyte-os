@@ -5,24 +5,32 @@ and what would settle it. Items marked "finding" in [`AUDIT.md`](AUDIT.md) are
 *not* listed here — those were established (positively or negatively) against
 the code. This list covers only genuine unknowns.
 
-Audit scope: `NovaByteTeam/novabyte-os` @ `ccc4305` (main). Everything else in
-the documentation set is cited to `path:line` in that tree.
+Audit scope: `NovaByteTeam/novabyte-os` @ `ccc4305` (main), plus a follow-up
+pass over `dirazcoder/novapack-studio` @ `7236672` (v1.2.34) that resolved the
+Studio unknowns below. Everything else in the documentation set is cited to
+`path:line` in those trees.
 
 ---
 
-## 1. NovaByte Studio (external tool)
+## 1. NovaByte Studio (external tool) — RESOLVED
 
-NovaByte Studio (`github.com/NovaByteOfficial/novapack-studio`) is referenced
-by the README as the tool for creating and testing `.novaapp` packages, but
-its repository is **not part of this repo** and was not audited.
+NovaByte Studio is the GUI packager for `.novaapp` packages. It was originally
+listed here because the OS repo contains only a README link to it; its source
+lives in a separate repository, `github.com/dirazcoder/novapack-studio`
+(Apache-2.0, NW.js desktop IDE, v1.2.34 audited @ `7236672`). That repository
+has since been audited and every Studio unknown is settled. The verified
+developer-facing summary is [`docs/guide.md` §5.6](docs/guide.md); the full
+resolutions:
 
-| # | Item | Why it cannot be determined from this repo | What would settle it |
-|---|---|---|---|
-| U-01 | Studio's actual UI/workflow (project templates, the "Build" button behavior, packaging options) | Only a 5-line pointer exists in `README.md:96-101`; no Studio code here | Auditing the novapack-studio repository |
-| U-02 | Studio's native/C++ build steps (`emcc`, `module.cpp`) mentioned by the old guide | Zero references in this repo (`emcc`/`module.cpp` grep: only `NOVAAPP.md`) | Studio repo; also whether the feature still ships |
-| U-03 | Studio-side manifest/permission validation (the old guide claimed Studio validates before build) | No code in this repo; in this repo validation is install-time only (`app-package.js:780-1001`) | Studio repo |
-| U-04 | "Studio v1.1.80+ defaults new projects to integrity `none`" | Sourced only from a code comment in `app-package.js:538-543` | Studio repo / release notes |
-| U-05 | Whether Studio accepts `novaapp.json` as a manifest name | The old guide claimed the OS accepts it; no code path in this repo does (grep-verified). Whether *Studio* accepts it is unknown | Studio repo |
+| # | Was unknown | Resolution (Studio tree, `path:line`) |
+|---|---|---|
+| U-01 | Studio's UI/workflow (templates, Build button, packaging options) | **Captured.** Screens: welcome / project / inspector / settings (`src/ui/app.js:190`); project tabs: editor, manifest, design, permissions, build, sign, git, review (`app.js:10857`). 9 project templates + 13 API-starter templates using the v2 `window.novaOS` facade (`src/sdk/templates.js:401,767`); Build runs `builder.build()` with a progress bar and plugin events (`app.js:11990-12100`); the button switches to a purple "Compiling C++..." state when C/C++ sources are detected (`app.js:12063-12068`; `--native: #7c3aed`, `src/ui/style.css:104`). Extras: `.studioignore`, `vendor/`, Package Inspector, permission audits, build profiles, two-level plugin API |
+| U-02 | Native/C++ build steps (`emcc`, `module.cpp`) | **Confirmed.** `.cpp/.cc/.cxx/.c` files are compiled at Build time to sibling `.js`+`.wasm` via emcc with a fixed flag set (`-O2 -std=c++23 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=Module`, `src/sdk/builder.js:168-198`); the `native-cpp` template ships a `module.cpp` (`templates.js:777`). Packaged releases bundle an Emscripten SDK (`builder.js:59-108`); source builds need emcc on PATH or `NOVAPACK_EMSDK` |
+| U-03 | Studio-side manifest/permission validation | **Captured.** Build hard-errors on: missing `id`/`name`/`version`/`entry`, non-reverse-domain/non-`webapp_` ids, bad `permissionReasons` (>500 chars), missing entry file (`builder.js:395-452`). Unknown permissions are **stripped with a warning** (not an error); legacy `vfs:*` aliases retained (`builder.js:421-436`). The SDK's full `validateManifest` (handles/shareTarget/ipc/icon caps — same rules as OS install-time) exists (`src/sdk/app-package.js:798-974`) but the Build path does not invoke it — the full contract is still install-time-only |
+| U-04 | "Studio v1.1.80+ defaults new projects to integrity `none`" | **Confirmed in code.** The UI initializes `_selectedSigningMethod = 'none'` and `_selectedIntegrityMethod = 'none'` every session (`app.js:12238-12239`); both selectors default to None until changed |
+| U-05 | Whether Studio accepts `novaapp.json` as a manifest name | **Confirmed — Studio-side only.** `manifest.json` first, `novaapp.json` as legacy fallback (`app.js:2183-2187`; `builder.js:374-377`); both names are excluded from the file map and the manifest is embedded as package metadata (`builder.js:271`), so the filename is invisible to the OS by the time it installs |
+
+Cross-check results worth recording (full detail in [`AUDIT.md`](AUDIT.md) Part VIII): Studio's bundled 52-permission catalog is **identical** to the OS catalog (`src/sdk/permissions.js:3-56` vs `app-permission-manager.js:15-245`), with one edge divergence: Studio's legacy-alias table has a sixth entry, the `vfs:metedata` typo spelling (`permissions.js:62`), which the OS permission translator does **not** accept (5 aliases only, `app-permission-manager.js:252-258`) — a manifest declaring the typo is retained by Studio's Build but stripped as unknown at OS install. The signing/integrity method tables and signature-encoding behavior match the OS SDK; Studio's own copy of `NOVAAPP.md` is a **stale snapshot** (documents `localStorage` installs, predates signing tiers), and its Package Inspector verifies against an **empty trust store** by default (`app.js:14452-14457`), so every non-trusted key shows "Untrusted signature".
 
 ## 2. Live external services
 

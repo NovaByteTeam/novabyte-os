@@ -3,6 +3,7 @@
 **Repo state audited:** `NovaByteTeam/novabyte-os` @ `ccc4305` (`ccc430599a6d54bacf236139a6b584e39de848f0`, "Merge pull request #39 from NovaByteTeam/gl-debug"), main branch.
 **Subject doc:** `NOVAAPP.md` (2,315 lines) — the legacy `.novaapp` App Development Guide now being replaced.
 **Method:** full read of `NBOSP/js/platform/security/app-sandbox.js` (14,895 lines) plus all platform, server, and OS-image files via the audited subsystem notes (Appendix B); 1,139 doc claims extracted and checked claim-by-claim (verdicts-1…4); test suites executed (vitest: 1,757 tests; integration: 9 suites). Every reference below was re-verified against the tree at `ccc4305`.
+**Follow-up:** after the rewrite, the open-sourced Studio repo `dirazcoder/novapack-studio` @ `7236672` (v1.2.34) was audited to resolve the five Studio-external UNVERIFIABLEs — results in [Part VIII](#part-viii--post-audit-addendum-novabyte-studio-cross-check).
 
 **Path aliases used throughout** (all repo-relative, under `NBOSP/` unless noted):
 `AS` = `js/platform/security/app-sandbox.js` · `APM` = `js/platform/security/app-permission-manager.js` · `AR` = `js/platform/core/app-registry.js` · `AP` = `js/platform/core/app-package.js` · `NAL` = `js/platform/core/nova-app-launcher.js` · `NREG` = `js/platform/core/nova-registry.js` · `MED` = `js/apps/media-store/service.js` · `PR` = `server/core/push-routes.js`.
@@ -19,7 +20,7 @@ Doc references are `NOVAAPP.md:<line>`. Items are marked **[confirmed]** (read i
 | — WRONG | **42** (Part II) |
 | — OUTDATED | **2** (Part III) |
 | — DOC-ONLY | **6** (Part III; brief tally said 5 — verdicts-2 contains one extra; all 6 listed) |
-| — UNVERIFIABLE | **6** (Part VI) |
+| — UNVERIFIABLE | **6** (Part VI; 5 since resolved by the Studio follow-up — Part VIII) |
 | Security concerns & suspected bugs (Part I) | **96** (5 Critical, 12 High, 30 Medium, 49 Low) |
 | Undocumented behaviors (Part IV) | **70** |
 | Phantom registry/table entries (Part V) | 3 (1 legacy permission, 1 facade method, 1 limit) |
@@ -388,7 +389,7 @@ All 42 WRONG verdicts from verdicts-1…4, grouped by doc section. Security-rele
 | 39 | NOVAAPP.md:1833 | `ready.get()` "only reads" — not a re-handshake | `ready.get()` rides `handleReady`, which re-runs the queued-alarm/inbound-share/push flushes after responding | `AS:8743-8770` |
 | 40 | NOVAAPP.md:2032 | `TIMEOUT` — "an interactive flow (save dialog, share sheet) timed out" | `TIMEOUT` is thrown only by the nova:download save dialog and isolated-process dispatch; interactive timeouts are client-side codeless `TypeError`s (no `.code`) | `AS:3855`, `:9655`, `:11133` |
 | 41 | NOVAAPP.md:2039 | `INVALID_CONTACT` — "contact write malformed (needs an id and a name)" | Only a name is required; id is optional and auto-generated | `AS:7408` |
-| 42 | NOVAAPP.md:2291 | Permissions table: `vfs:meteded` (typo) translated to `fs:metadata` | Only a *channel* alias; as a permission it is stripped as unknown (5 legacy aliases only) | `AR:75-81`; `AS:9548-9552`; `app-registry.test.js:181` |
+| 42 | NOVAAPP.md:2291 | Permissions table: `vfs:metedata` (typo) translated to `fs:metadata` | Only a *channel* alias; as a permission it is stripped as unknown (5 legacy aliases only) | `AR:75-81`; `AS:9548-9552`; `app-registry.test.js:181` |
 
 Verification: the 42 rows above map 1:1 to the verdict files' WRONG tallies — verdicts-1 (7): doc lines 3, 74, 75, 86, 149, 170, 300 → rows 27, 28, 29, 30, 31, 32, 13 · verdicts-2 (7): 639, 714, 854, 898-937, 981, 1126, 1153 → rows 33, 34, 14, 35, 4, 5, 1 · verdicts-3 (5): 1163, 1191, 1201, 1562, 1584 → rows 2, 36, 3, 37, 38 · verdicts-4 (23): 1773, 1813, 1833, 1867, 1868, 1869, 1870, 1871, 1872, 1873, 1874, 1875, 1876, 1877, 1878, 1938, 1944, 2032, 2035, 2039, 2044, 2072, 2291 → rows 8, 9, 39, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 11, 12, 40, 6, 41, 7, 10, 42.
 
@@ -475,7 +476,7 @@ Lines in NOVAAPP.md whose content must change or be dropped in the successor doc
 2039     INVALID_CONTACT → name only
 2044     PAYLOAD_TOO_LARGE → net:fetch bodies only; app-IPC = INVALID_ARGS
 2072     pre-handler enforcement → MAC only; ledger is in-handler telemetry
-2291     vfs:meteded → channel alias only, not a permission alias
+2291     vfs:metedata → channel alias only, not a permission alias
 ```
 
 ---
@@ -495,10 +496,10 @@ Handling: DOC-ONLY items are not false — they are claims about nothing in this
 
 | Doc line | Claim | Status | Refs | Action |
 |---|---|---|---|---|
-| NOVAAPP.md:7 | "`novaapp.json` is also accepted" [as manifest name] | No code path accepts it (builder, installer, store, app manager all `manifest.json`-only); could only be true of the external Studio tool | `build-apps.mjs:473-483`; repo grep | Drop, or mark Studio-only |
+| NOVAAPP.md:7 | "`novaapp.json` is also accepted" [as manifest name] | No code path accepts it (builder, installer, store, app manager all `manifest.json`-only); could only be true of the external Studio tool | `build-apps.mjs:473-483`; repo grep | Confirmed **Studio-only** by the follow-up audit (Part VIII); documented as such in guide §5.6 |
 | NOVAAPP.md:740 | "the initial v2 capability is `storage.v2`" | `storage.v2` is a supported capability; nothing in code marks which shipped first — doc history framing, uncontradicted | `AS:10261` | Keep as history note or drop "initial" |
 | NOVAAPP.md:2108 | "Add `defer` as well if you also run the page outside NovaByte OS" | Advice only; consistent with defer normalization (existing defer attr stripped and re-added) | `AS:13046-13049` | Keep (portability advice) |
-| NOVAAPP.md:2122 | "None of this [scanner] affects `vendor/` libraries bundled at Build time" | No `vendor` special-casing exists in scanner or builder (0 grep hits); a high-entropy minified vendor file **would** be flagged | `scanner/service.js`; `build-apps.mjs` | Drop or document the real behavior |
+| NOVAAPP.md:2122 | "None of this [scanner] affects `vendor/` libraries bundled at Build time" | No `vendor` special-casing exists in scanner or builder (0 grep hits); a high-entropy minified vendor file **would** be flagged | `scanner/service.js`; `build-apps.mjs` | Confirmed by the Studio audit (Part VIII, X-08): `vendor/` is a naming convention only — files are scanned like any other; documented in guide §5.6 |
 | NOVAAPP.md:2277 | "Runtime APIs and permissions can differ between hosts and forks" | Advisory statement; fork surface unverifiable from this repo | — | Keep as advisory |
 | NOVAAPP.md:2281 | "Removal [of capabilities] is not a thing … at most they stop being documented as recommended" | Forward-looking policy; no removal code exists to verify against | `AS:10259-10260` | Keep as policy statement |
 
@@ -631,7 +632,7 @@ Doc tables vs code inventories (verdicts-4 Registries A/B; sandbox-c2 counts).
 | Table | Phantom (doc has, code lacks) | Omitted (code has, doc lacks) |
 |---|---|---|
 | Current 52 permissions / 11 categories | **0** — exact 1:1 with `PERMISSION_TYPES`/`PERMISSION_CATEGORIES` (`APM:15-245`) | **0** |
-| Legacy names (6 claimed) | **1** — `vfs:meteded` as a *permission* alias (only 5 real aliases; typo stripped as unknown, `app-registry.test.js:181`) | 0 |
+| Legacy names (6 claimed) | **1** — `vfs:metedata` as a *permission* alias (only 5 real aliases; typo stripped as unknown, `app-registry.test.js:181`) | 0 |
 | Negative claims (`fs:read`/`fs:write`/`fs:delete`/`handles:*` are not permissions) | Hold — verified absent | — |
 
 ### IPC channel names
@@ -717,16 +718,18 @@ Omitted limits (enforced in code, absent from the doc):
 
 ---
 
-## Part VI — Unverifiable claims (6)
+## Part VI — Unverifiable claims (6; 5 resolved post-audit)
 
-| Doc line | Claim | What would be needed |
+The five Studio claims were settled by a follow-up audit of `dirazcoder/novapack-studio` @ `7236672` (v1.2.34) — see [Part VIII](#part-viii--post-audit-addendum-novabyte-studio-cross-check). The sixth remains open.
+
+| Doc line | Claim | Resolution |
 |---|---|---|
-| NOVAAPP.md:106 | "Studio's manifest validation enforces [reverse-domain ids] at Build time" | Review the external `novapack-studio` repo (in-repo builder performs no id validation; enforcement is install-time, `AP:828-831`) |
-| NOVAAPP.md:171 | Build "validates the app ID format and all declared permissions against the known permission list" | Studio repo review (in-repo: id format is install-time error; unknown permissions are warnings only, `AP:925-930`) |
-| NOVAAPP.md:172 | C/C++ sources compiled with `emcc` to `module.js` + `module.wasm` | Studio repo review; no emcc/module.cpp/native-cpp code anywhere in this repo (NBOSP supports the wasm output via CSP `'wasm-unsafe-eval'`, `AS:13071`) |
-| NOVAAPP.md:172 | "Build button turns purple when C/C++ sources are detected" | Studio UI review (external) |
-| NOVAAPP.md:172 | "Requires `emcc` on your PATH" | Studio build-step review (no in-repo code shells out to emcc) |
-| NOVAAPP.md:2070 | "Earlier NBOSP images experimented with a per-app Linux UID supervisor and SELinux boot integration; removed from the image" | Git history / old-image archaeology — no code trace either way in the tree |
+| NOVAAPP.md:106 | "Studio's manifest validation enforces [reverse-domain ids] at Build time" | **RESOLVED — TRUE of Studio.** Build errors out on non-reverse-domain/non-`webapp_*` ids (`studio builder.js:395-415`); the in-repo OS builder indeed performs no id validation |
+| NOVAAPP.md:171 | Build "validates the app ID format and all declared permissions against the known permission list" | **RESOLVED — PARTLY TRUE.** Id format: hard error. Permissions: checked against the shared 52-entry catalog, but unknown names are **stripped with a warning**, not rejected (`studio builder.js:421-436`) |
+| NOVAAPP.md:172 | C/C++ sources compiled with `emcc` to `module.js` + `module.wasm` | **RESOLVED — TRUE.** `compileCppSources` runs emcc per `.cpp/.cc/.cxx/.c` → sibling `.js`+`.wasm`, fixed Studio-controlled flags (`studio builder.js:168-198`); the `native-cpp` template ships a `module.cpp` (`templates.js:777`) |
+| NOVAAPP.md:172 | "Build button turns purple when C/C++ sources are detected" | **RESOLVED — TRUE.** Button gets `build-btn compiling` styled with `--native: #7c3aed` (violet) and the label "Compiling C++..." (`studio app.js:12063-12068`; `style.css:104,1623-1628`) |
+| NOVAAPP.md:172 | "Requires `emcc` on your PATH" | **RESOLVED — PARTLY TRUE.** Only when running Studio from source: packaged releases bundle a platform-specific Emscripten SDK (`studio builder.js:59-108`); `NOVAPACK_EMSDK` also works |
+| NOVAAPP.md:2070 | "Earlier NBOSP images experimented with a per-app Linux UID supervisor and SELinux boot integration; removed from the image" | **OPEN** — git history / old-image archaeology; no code trace either way in the tree |
 
 ---
 
@@ -792,6 +795,31 @@ The four harness-broken suites (guest-bridge, ipc-matrix, real-use, storage-ledg
 
 ---
 
+## Part VIII — Post-audit addendum: NovaByte Studio cross-check
+
+After the main audit, the Studio repository was open-sourced and audited as a
+follow-up: `github.com/dirazcoder/novapack-studio` @ `7236672` (v1.2.34,
+2026-11-08; NW.js desktop IDE, Apache-2.0, ~28.9k lines of non-bundled JS
+across `src/sdk` + `src/ui`). This settled Part VI's five Studio claims
+(resolutions inline there) and produced the additional findings below.
+"Studio" refs cite that tree; unmarked refs cite the OS repo as before.
+
+| # | Finding | Severity | Evidence |
+|---|---|---|---|
+| X-01 | **Permission catalogs are in sync** — Studio's bundled catalog is identical to the OS catalog: same 52 ids, zero diff (scripted set comparison) | Info (positive) | `studio src/sdk/permissions.js:3-56` vs `app-permission-manager.js:15-245` |
+| X-02 | **One alias divergence**: Studio's legacy table accepts the `vfs:metedata` typo as a permission alias (6 aliases); the OS permission translator accepts only the 5 canonical spellings — a manifest built with the typo retains a permission the OS then strips as unknown at install | Low | `studio permissions.js:60-67` vs `app-permission-manager.js:252-258`; OS behavior pinned by `app-registry.test.js:181` |
+| X-03 | **Studio ships a stale copy of the `.novaapp` guide**: its `NOVAAPP.md` (2,302 lines) predates the OS repo's final version (2,315) — it documents `localStorage`-based installs and lacks the signing-tier model / system-key rotation section. Both copies are superseded by this `docs/` set | Low (docs) | line-level diff of the two files; e.g. installs to `localStorage` vs per-account app trees |
+| X-04 | **Package Inspector verifies against an empty trust store by default** — `inspectFile` calls `verify(filePath)` with no store, so the green "Trusted signature" badge can never appear without plugin-supplied keys; every self-signed package shows "Untrusted signature" (meaning "not in this store", not "tampered") | Low (UX expectations) | `studio app.js:14452-14457`; `builder.js:620-640` |
+| X-05 | **OS README links to the wrong Studio URL** (`github.com/NovaByteOfficial/novapack-studio`); the live repo is `github.com/dirazcoder/novapack-studio` | Low (docs) | `README.md:96-101` |
+| X-06 | **Signing/integrity parity confirmed**: same 7 signing methods, same 4 integrity methods, same base64url-emitting / dual-decoding signature handling, same fail-closed `none`-integrity semantics as the OS SDK — no compatibility gap between Studio-built packages and OS verification | Info (positive) | `studio app-package.js:85-103,149-186,369-397` vs OS `app-package.js:69-103,152-170` |
+| X-07 | **Studio's build defaults are unsigned + integrity `none`** (`_selectedSigningMethod`/`_selectedIntegrityMethod` both start `'none'`) — confirms the "Studio v1.1.80+ defaults new projects to integrity `none`" comment, and shows signing also defaults to None in 1.2.34. Such packages still install on the OS ("Not Signed", no integrity-only fallback) | Info | `studio app.js:12238-12239`; `builder.js:536-556` |
+| X-08 | **`vendor/` is a naming convention, not a mechanism** — neither Studio's builder nor the OS scanner special-cases it; vendor files are ordinary package files swept by the content scanner like everything else (resolves the NOVAAPP.md:2122 DOC-ONLY claim: "None of this affects `vendor/`" is wrong in effect) | Low (docs) | `studio builder.js` (no vendor logic; README markets the convention); `scanner/service.js` |
+
+Developer-facing outcomes of this addendum are folded into `docs/guide.md` §5.6
+and `UNVERIFIED.md` §1.
+
+---
+
 ## Appendix A — Audit method
 
 1. **Subsystem reads.** Every platform/server/OS file was read in full and documented in per-subsystem notes (Appendix B). `app-sandbox.js` (14,895 lines) was covered in five sequential passes (lines 1-5100; endpoint inventory 5100-9300; dispatch/bridge 9300-12300; webview/popup construction 12300-14100; lifecycle/exports 14100-14895) recorded in sandbox-a/a2/b/c/c2.
@@ -799,10 +827,11 @@ The four harness-broken suites (guest-bridge, ipc-matrix, real-use, storage-ledg
 3. **Claim resolution.** Each claim was verdicted against the code with doc-line and code-line evidence (verdicts-1…4), using the rubric: CORRECT (code matches), WRONG (code contradicts), OUTDATED (was true; superseded), DOC-ONLY (statement about nothing in the codebase — advice, history, or external-tool claims that are consistent but unverifiable in-repo), UNVERIFIABLE (requires artifacts outside this repo). Security-relevant wrongness, undocumented behaviors (U-items), and per-subsystem SECURITY OBSERVATIONS were collected alongside.
 4. **Test execution.** `npm test` (vitest, 1,757 tests) and `npm run test:integration` (9 suites) were executed; failures were root-caused to the harness (Part VII).
 5. **Cross-verification.** All file:line references cited in this report were re-checked against the working tree at `ccc4305` (e.g. `NBOSP/package.json:29-30` flags, `tests/helpers/fake-idb.js:25` comparator, `AS:1875-1880` consent gate, `AS:6694` array key range).
+6. **Follow-up pass.** After the rewrite shipped, the open-sourced `dirazcoder/novapack-studio` repo was cloned and its SDK (`src/sdk`) and UI build/sign/inspector paths read to resolve the Studio-external claims; permission-catalog parity was established by scripted set comparison, and the two repos' `NOVAAPP.md` copies were line-diffed. Results: Part VIII.
 
 **Limitations / scope exclusions:**
 
-- The external `novapack-studio` repo was not audited — the six UNVERIFIABLE claims (Part VI) all trace to it.
+- The external `novapack-studio` repo was not audited during the main pass — the six UNVERIFIABLE claims (Part VI) all trace to it. It was subsequently audited as a follow-up ([Part VIII](#part-viii--post-audit-addendum-novabyte-studio-cross-check)), resolving five of the six.
 - Findings are from static code reads plus executed tests; no runtime instrumentation or penetration testing was performed. Items dependent on dynamic behavior are marked **[suspected]** (SEC-92).
 - The OS image was audited from its build configuration (Buildroot defconfig, overlay scripts, sudoers, inittab, recovery script); the image was not booted.
 - The publisher/website backend (`src/`, `supabase/`) findings derive from the store.md note's read of those trees; no live Supabase deployment was tested.

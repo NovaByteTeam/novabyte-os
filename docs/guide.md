@@ -406,6 +406,24 @@ Building 1 app(s) from ../my-apps
 ✓ com.example.hello -> com.example.hello.novaapp (3 files, signed as NovaByte System (TEST KEY), source untouched)
 ```
 
+### 5.6 NovaByte Studio — the GUI packager
+
+NovaByte Studio (`github.com/dirazcoder/novapack-studio`, Apache-2.0, NW.js desktop IDE for Windows/macOS/Linux) packages a project directory into a `.novaapp` without the CLI. Its source was audited separately from this repo (v1.2.34 @ `7236672`); everything below is cited to that tree. (The OS repo README links to a stale `NovaByteOfficial/…` URL — the live repo is `dirazcoder/…`.)
+
+**Project & build** (Studio `src/sdk/builder.js`):
+
+- **Manifest**: `manifest.json` at the project root; `novaapp.json` is accepted as a **legacy fallback** (`builder.js:374-377`). Either way the manifest is packaged as app metadata, never as a regular project file (`builder.js:271`).
+- **Build-time validation is a subset of the install-time contract**: required fields, reverse-domain/`webapp_*` id format, `permissionReasons` shape (≤500 chars) and entry-file existence are hard errors (`builder.js:395-452`); unknown permissions are **stripped with a warning**, and legacy `vfs:*` aliases are retained (`builder.js:421-436`). The `handles`/`shareTarget`/`ipc`/icon-size rules from §4.4 are still only enforced at install — Studio's SDK has the same `validateManifest`, but the Build button's code path does not run it.
+- **C/C++**: any `.cpp/.cc/.cxx/.c` file is compiled at Build time to a sibling `.js`+`.wasm` pair with a fixed, Studio-controlled emcc flag set (`-O2 -std=c++23 -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=Module`, `builder.js:168-198` — no user-supplied compiler flags). Packaged Studio releases bundle a platform-specific Emscripten SDK (`builder.js:59-108`); running Studio from source needs `emcc` on PATH or `NOVAPACK_EMSDK` pointing at an emsdk root. While compiling, the Build button switches to a purple **"Compiling C++..."** state (`app.js:12063-12068`; `--native: #7c3aed`, `style.css:104`).
+- **Bundling**: `node_modules`, dotfiles and the manifest file are always excluded; a `.studioignore` file (`.gitignore` syntax, globs + `!` negation, **no protected-file exemptions**) excludes more (`builder.js:240-275`). A `vendor/` directory for single-file JS/CSS libraries is bundled like any other file.
+- **Output**: `<id>.novaapp`, pretty-printed JSON, in the project dir or a configured output dir (`builder.js:560-565`), with `manifest.packagedAt` added.
+
+**Signing & integrity defaults**: the UI starts every session with signing **None** and integrity **None** (`app.js:12238-12239`) — this is the code behind the "Studio v1.1.80+ defaults new projects to integrity `none`" claim. Pick a method on the Sign tab before Building. The method lists are identical to the OS SDK's (7 signing, 4 integrity; Studio `app-package.js:85-103`), and signatures emit base64url while the verifier accepts both encodings — same as §5.4. Build-time signing records `signer: 'self-signed'`; the Sign tab's **Self-Sign Last Build** re-signs the last output as `local-dev-<method>` and logs the honest consequence: *"This will still show as Unverified in NBOSP unless the public key is in the trust store"* (`app.js:12597-12660`). Use the OS Packages app's "Trust this key locally" (§5.5) to make a dev keypair verify for a session.
+
+**Tooling around the build**: a Package Inspector (drop a `.novaapp` → manifest, file list, declared-vs-inferred permission audit, signature badge — it verifies against an **empty** trust store, so every key not explicitly trusted shows "Untrusted signature", `app.js:14452-14457`), source permission audit (declared vs inferred from `nova:` strings and `window.novaOS` calls), build-contents preview with `.studioignore` exclusions, named build profiles (keys are never stored in a profile), 9 project templates + 13 API-starter templates that use the v2 `window.novaOS` facade (`templates.js:401,767`), and a two-level plugin API (level 1: Studio 1.2.31+; level 2: 1.2.34+).
+
+**One caveat found in the cross-check**: Studio's repo ships its own copy of the `.novaapp` guide, and it is a **stale snapshot** (it documents `localStorage`-based installs and predates the signing-tier model). This docs set supersedes it.
+
 ---
 
 ## 6. Install paths and what install checks
@@ -749,7 +767,7 @@ The **verified badge** requires: signature from a trust-store key + not revoked 
 
 Two supported routes:
 
-1. **NovaByte Studio** — an external tool at `github.com/NovaByteOfficial/novapack-studio`. What is verifiable from this repo is only that it exists and is linked from the README. Studio-specific workflow (manifest validation at build time, C/C++/`emcc` compilation steps, UI behavior) cannot be verified from this repo — treat any Studio instructions from other sources as unverified.
+1. **NovaByte Studio** — the GUI packager (`github.com/dirazcoder/novapack-studio`, Apache-2.0; v1.2.34 audited against its source @ `7236672`). It packages a project into a `.novaapp` with optional self-signing and integrity. The verified build flow, defaults, and caveats are in [§5.6](#56-novabyte-studio--the-gui-packager). Signed-with-your-own-key packages publish fine but install as **Unverified** everywhere until the OS trusts the key (§13.1) — the portal's server-side signing (below) is what produces "Verified" badges.
 2. **The publisher portal** — part of the NovaByte site (`https://novabyteam.github.io/novabyte-os/`), Supabase-backed. The flow, verified from the publishing stack (`src/publishing.js`; `supabase/functions`):
    1. **Account**: email/password signup with **email confirmation required** (enforced client- and server-side). Sessions live in `sessionStorage` only.
    2. **Submit**: pick a `.novaapp` (≤25 MB, `novabyte_app === true`, valid manifest+files), fill the listing (name, id, author, version, description ≥20 chars, categories, links, changelog ≤4000), attach ≤5 screenshots (embedded as package `screenshots/` files; store-only data stripped before upload). Client-side permission-reason problems only *warn*; the package is still submitted. Quota: ≤20 active submissions per user; new ids blocked if already owned or present in the static catalog; updates require ownership + strictly newer semver.
@@ -841,7 +859,7 @@ All numbers verified against the current tree; full per-channel detail in [`api-
 
 - **Feature detection, not version sniffing**: `window.novaOS.capabilities.has(name)` against a frozen list of 28 capability names (`storage.v2`, `fs.v2`, `alarms.v1`, `registry.v1`, …). A capability name means *the runtime ships the surface* — it says nothing about your permission state. `novaOS.apiVersion` is `2`.
 - **The v1 channel surface is frozen**: existing `nova:*` channels keep working (pinned by `guest-bridge.suite.js` on every change); new behavior ships as new API, and the v2 facades are sugar over the same channels.
-- **Legacy `vfs:*` compatibility**: five permission aliases (`vfs:access/read/write/delete → fs:access`, `vfs:metadata → fs:metadata`) translated at registration and at runtime request; channel aliases at the IPC front door (`vfs:read/write/delete/list/mkdir/stat/rename/move`, plus the `vfs:metadata`/`vfs:meteded` typo forms → `nova:fs:stat`). The alias table is exact — no prefix wildcard; unknown `vfs:*` names return `UNKNOWN_API`. Translation never weakens enforcement (aliases resolve before the MAC check).
+- **Legacy `vfs:*` compatibility**: five permission aliases (`vfs:access/read/write/delete → fs:access`, `vfs:metadata → fs:metadata`) translated at registration and at runtime request; channel aliases at the IPC front door (`vfs:read/write/delete/list/mkdir/stat/rename/move`, plus the `vfs:metedata`/`nova:vfs:metedata` typo forms → `nova:fs:stat`). The alias table is exact — no prefix wildcard; unknown `vfs:*` names return `UNKNOWN_API`. Translation never weakens enforcement (aliases resolve before the MAC check).
 
 The 28 capability names (frozen list, `app-sandbox.js:10255-10299`):
 
@@ -864,7 +882,7 @@ background.v2  permissions.v2  net.v2  registry.v1
 | **NBOSP** | The platform implementation repo (`NBOSP/`) — NovaByte System/OS Platform. The NW.js app, local server, sandbox engine, and Buildroot image. |
 | **NovaByte OS** | The operating system product built from NBOSP: NW.js host page + Node server on a Linux kiosk image. Current version 3.0.2. |
 | **`.novaapp`** | The app package format: pretty-printed JSON (`novabyte_app`, `compiled_at`, `manifest`, `files` base64 map, `signing`, `signature`, `integrity`). Not a zip. |
-| **NovaByte Studio** | External packager tool (`github.com/NovaByteOfficial/novapack-studio`). Only its existence is verifiable from this repo. |
+| **NovaByte Studio** | External GUI packager (`github.com/dirazcoder/novapack-studio`, Apache-2.0, NW.js desktop IDE; v1.2.34 verified @ `7236672`). Build flow: guide §5.6. |
 | **Publisher portal** | The Supabase-backed publishing site (account → submit → automated review → admin approval → server signing → catalog) at `novabyteteam.github.io/novabyte-os`. |
 | **Store** | `com.nbosp.store` — the built-in catalog app; merges the static `apps.json` and community catalogs, installs and updates apps. |
 | **App Manager** | `com.nbosp.appmanager` — install/uninstall/permissions/defaults management UI; the reference install path with the full scanner + trust gauntlet. |
@@ -889,11 +907,7 @@ background.v2  permissions.v2  net.v2  registry.v1
 
 ## 17. Unverified
 
-> **Unverified:** NovaByte Studio's UI and workflow (manifest validation at build time, `novaapp.json` acceptance, C/C++/`emcc` compilation, "build button turns purple") — the tool lives in an external repo; only the README link is verifiable here.
->
-> **Unverified:** the claim that `novaapp.json` is accepted as a manifest name anywhere — no in-repo code path reads it (the builder reads `manifest.json` only); if true it would have to be a Studio-side behavior.
->
-> **Unverified:** "Studio v1.1.80+ defaults integrity to None" — sourced from a code comment in `app-package.js:543-551`, not from the Studio repo itself.
+> NovaByte Studio items that were listed here (UI workflow, `novaapp.json` acceptance, `emcc` compilation, integrity defaults) were resolved by auditing the Studio source — see [§5.6](#56-novabyte-studio--the-gui-packager) and the addendum in [`AUDIT.md`](../AUDIT.md).
 >
 > **Unverified:** current live contents of the static catalog (`src/apps.json` was `[]` at audit time) and the operational status/uptime of the publisher portal, Supabase backend, and review queue — server-side state that changes independently of this repo.
 >

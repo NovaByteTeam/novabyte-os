@@ -4,8 +4,11 @@ This directory is the rewritten `.novaapp` documentation set. It replaces the
 former single-file guide (`NOVAAPP.md` at the repository root, which is now a
 short pointer to this directory).
 
-**Everything in these files is derived from the source code of this repository**
-at commit `ccc4305` ("Merge pull request #39 from NovaByteTeam/gl-debug").
+**Everything in these files is derived from the source code** — this
+repository at commit `ccc4305` ("Merge pull request #39 from NovaByteTeam/gl-debug"),
+plus a follow-up pass over the open-sourced NovaByte Studio repository
+(`dirazcoder/novapack-studio` @ `7236672`, v1.2.34) that resolved the
+Studio-related unknowns (guide §5.6, `../AUDIT.md` Part VIII).
 Every API, manifest field, permission, limit, default, and error string was
 checked against the implementation, and the behavior is cited with
 `path:line` references. Where something could not be established from source
@@ -18,7 +21,7 @@ concern found during the audit — is in [`../AUDIT.md`](../AUDIT.md).
 
 | File | Audience | What it covers |
 |---|---|---|
-| [`guide.md`](guide.md) | App developers | The journey end to end: first project, manifest reference, build/sign/verify, install, runtime model, permissions in brief, background execution, data lifecycle (update/uninstall), dev & debug workflow, trust/verification, publishing, limits & defaults, compatibility, glossary |
+| [`guide.md`](guide.md) | App developers | The journey end to end: first project, manifest reference, build/sign/verify (incl. the verified NovaByte Studio packager flow), install, runtime model, permissions in brief, background execution, data lifecycle (update/uninstall), dev & debug workflow, trust/verification, publishing, limits & defaults, compatibility, glossary |
 | [`permissions.md`](permissions.md) | App developers | All 52 permissions: what each unlocks, how to request it, a working example, what the user sees, what happens on denial, limits, overlap guidance, legacy `vfs:*` aliases |
 | [`api-reference.md`](api-reference.md) | App developers | Every guest-reachable `nova:*` IPC channel, the complete `window.nova` (v1) and `window.novaOS` (v2) facades, pushed events, rate limits & quotas, error codes, legacy compatibility |
 | [`examples.md`](examples.md) | App developers | Working examples, from the verified hello world through storage, files, notifications, networking, alarms, background execution, push, app-to-app IPC, share targets, secrets, registry, default apps, and the dev workflow |
@@ -55,5 +58,5 @@ concern found during the audit — is in [`../AUDIT.md`](../AUDIT.md).
 
 | File | Contents |
 |---|---|
-| [`../AUDIT.md`](../AUDIT.md) | Documentation-vs-code audit report: 96 security concerns and suspected bugs, all 42 wrong / 2 outdated / 6 doc-only claims in the previous guide, 70 undocumented behaviors, registry-table diffs, test execution results — each with `file:line` references |
-| [`../UNVERIFIED.md`](../UNVERIFIED.md) | Everything that could not be determined from the source alone, why, and what would settle it |
+| [`../AUDIT.md`](../AUDIT.md) | Documentation-vs-code audit report: 96 security concerns and suspected bugs, all 42 wrong / 2 outdated / 6 doc-only claims in the previous guide, 70 undocumented behaviors, registry-table diffs, test execution results, and a post-audit NovaByte Studio cross-check (Part VIII) — each with `file:line` references |
+| [`../UNVERIFIED.md`](../UNVERIFIED.md) | Everything that could not be determined from the source alone, why, and what would settle it — the five Studio items are resolved there with citations to the Studio tree |

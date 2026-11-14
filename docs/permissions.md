@@ -982,7 +982,7 @@ Five legacy permission names from the pre-fs era are still translated at runtime
 | `vfs:delete` | `fs:access` | |
 | `vfs:metadata` | `fs:metadata` | |
 
-Translation happens **both** at install/registration (app-registry.js:296-313, including `permissionReasons` keys) and at runtime `requestPermission()` (app-permission-manager.js:776), so a raw `nova:request-permission` with a `vfs:*` name cannot bypass normalization. Any other legacy spelling (e.g. the `vfs:meteted` typo) is stripped as unknown at install.
+Translation happens **both** at install/registration (app-registry.js:296-313, including `permissionReasons` keys) and at runtime `requestPermission()` (app-permission-manager.js:776), so a raw `nova:request-permission` with a `vfs:*` name cannot bypass normalization. Any other legacy spelling (e.g. the `vfs:metedata` typo) is stripped as unknown at install.
 
 Separately — and unrelated to permissions — legacy **channel** aliases (`nova:vfs:read`, bare `vfs:*` spellings, and the `vfs:metedata` typo) are translated to the modern `nova:fs:*` channels at dispatch time ("translate-then-enforce", app-sandbox.js:9492-9564), so old apps take exactly the same enforcement path.
 
