@@ -4,7 +4,7 @@ NOTO_CJK_SOURCE = NotoSansSC-Regular.otf
 NOTO_CJK_EXTRA_DOWNLOADS = \
 	https://raw.githubusercontent.com/notofonts/noto-cjk/$(NOTO_CJK_VERSION)/Sans/SubsetOTF/JP/NotoSansJP-Regular.otf \
 	https://raw.githubusercontent.com/notofonts/noto-cjk/$(NOTO_CJK_VERSION)/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf \
-	https://raw.githubusercontent.com/notofonts/noto-cjk/$(NOTO_CJK_VERSION)/LICENSE
+	https://raw.githubusercontent.com/notofonts/noto-cjk/$(NOTO_CJK_VERSION)/Sans/LICENSE
 NOTO_CJK_LICENSE = OFL-1.1
 NOTO_CJK_LICENSE_FILES = LICENSE
 
